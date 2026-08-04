@@ -61,12 +61,12 @@
   "dependencies": {
     "@open-mercato/events": "workspace:*",
     "@open-mercato/queue": "workspace:*",
-    "cron-parser": "^5.6.1"
+    "cron-parser": "^5.6.2"
   },
   "peerDependencies": {
     "@mikro-orm/core": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
-    "bullmq": "^5.0.0",
+    "bullmq": "^5.0.0 || ^6.0.0",
     "ioredis": "^5.0.0",
     "zod": ">=3.23.0"
   },
@@ -81,10 +81,10 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.2",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
-    "typescript": "^6.0.3"
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
   },
   "publishConfig": {
     "access": "public"

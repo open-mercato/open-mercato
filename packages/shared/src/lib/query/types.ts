@@ -108,11 +108,10 @@ export type QueryOptions = {
    * and MUST fail closed when the authenticated principal lacks a resolvable tenant/org, otherwise
    * queries return cross-tenant rows.
    *
-   * When this flag is set, the hybrid query engine delegates to the basic engine, which means
-   * custom-field (`cf:*`) filters/sorts, `search_tokens` fulltext filtering, and vector-search
-   * branches are BYPASSED. Only use this on entities whose scoping does not match the standard
-   * `organization_id = X AND tenant_id = Y` shape and which do not rely on custom-field/search
-   * features.
+   * When this flag is set, the hybrid query engine delegates to the basic engine. The basic engine
+   * still applies `cf:*` filters/sorts, but `search_tokens` fulltext filtering, the JSONB index read
+   * path, and the vector-search branch are BYPASSED. Only use this on entities whose scoping does
+   * not match the standard `organization_id = X AND tenant_id = Y` shape.
    */
   omitAutomaticTenantOrgScope?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at

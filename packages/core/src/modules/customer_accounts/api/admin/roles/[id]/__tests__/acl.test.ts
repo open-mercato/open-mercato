@@ -12,6 +12,7 @@
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const foreignOrganizationId = '22222222-2222-4222-8222-222222222223'
 const userId = '33333333-3333-4333-8333-333333333333'
 const roleId = '44444444-4444-4444-8444-444444444444'
 const aclRowId = '55555555-5555-4555-8555-555555555555'
@@ -171,5 +172,33 @@ describe('customer role ACL PUT — optimistic locking + mutation guard (#3194)'
     const res = await PUT(makeRequest(['portal.orders.view'], CURRENT_VERSION), { params: { id: roleId } })
     expect(res.status).toBe(404)
     expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 instead of mutating a role owned by another organization in the same tenant', async () => {
+    em.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === CustomerRoleStub && where.organizationId !== organizationId) {
+        return {
+          id: roleId,
+          tenantId,
+          organizationId: foreignOrganizationId,
+          updatedAt: new Date(CURRENT_VERSION),
+          name: 'Foreign Buyer',
+        }
+      }
+      return null
+    })
+
+    const res = await PUT(makeRequest(['portal.orders.view'], CURRENT_VERSION), { params: { id: roleId } })
+
+    expect(res.status).toBe(404)
+    expect(em.findOne).toHaveBeenCalledWith(CustomerRoleStub, {
+      id: roleId,
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    })
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(invalidateRoleCacheMock).not.toHaveBeenCalled()
   })
 })

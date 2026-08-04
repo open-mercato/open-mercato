@@ -2,7 +2,22 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createQueue } from '../factory'
-import { getQueuePendingProbe } from '../pending-probe'
+import { __resetPendingProbeBullMQCache, getQueuePendingProbe } from '../pending-probe'
+
+const asyncQueueConstructor = jest.fn()
+const asyncQueueClose = jest.fn(async () => {})
+const asyncQueueGetJobCounts = jest.fn(async () => ({ waiting: 1, delayed: 0, active: 0 }))
+
+jest.mock('bullmq', () => ({
+  Queue: class MockQueue {
+    constructor(name: string, options: unknown) {
+      asyncQueueConstructor(name, options)
+    }
+
+    getJobCounts = asyncQueueGetJobCounts
+    close = asyncQueueClose
+  },
+}))
 
 describe('getQueuePendingProbe — local strategy', () => {
   const origCwd = process.cwd()
@@ -95,6 +110,11 @@ describe('getQueuePendingProbe — local strategy', () => {
 })
 
 describe('getQueuePendingProbe — async strategy', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    __resetPendingProbeBullMQCache()
+  })
+
   it('reports an error when QUEUE Redis URL is unset and no connection override is provided', async () => {
     const original = process.env.QUEUE_REDIS_URL
     const fallback = process.env.REDIS_URL
@@ -108,5 +128,24 @@ describe('getQueuePendingProbe — async strategy', () => {
       if (original !== undefined) process.env.QUEUE_REDIS_URL = original
       if (fallback !== undefined) process.env.REDIS_URL = fallback
     }
+  })
+
+  it('converts a URL override to BullMQ connection fields', async () => {
+    const probe = await getQueuePendingProbe('async-probe', 'async', {
+      connection: { url: 'rediss://probe:secret@example.com:6380/3?family=6' },
+    })
+
+    expect(probe).toEqual(expect.objectContaining({ error: false, ready: 1 }))
+    expect(asyncQueueConstructor).toHaveBeenCalledWith('async-probe', {
+      connection: {
+        host: 'example.com',
+        port: 6380,
+        username: 'probe',
+        password: 'secret',
+        db: 3,
+        tls: {},
+        family: 6,
+      },
+    })
   })
 })

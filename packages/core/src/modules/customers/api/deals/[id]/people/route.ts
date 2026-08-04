@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -39,6 +39,7 @@ type DealPersonItem = {
   subtitle: string | null
   kind: 'person'
   linkedAt: string
+  isPrimary: boolean
 }
 
 function matchesSearch(item: DealPersonItem, query: string): boolean {
@@ -98,7 +99,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       decryptionScope,
     )
     if (!deal) {
-      throw new CrudHttpError(404, { error: translate('customers.errors.deal_not_found', 'Deal not found') })
+      throw notFound(translate('customers.errors.deal_not_found', 'Deal not found'))
     }
 
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: deal.organizationId })) {
@@ -124,6 +125,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
           subtitle: person.primaryEmail ?? person.primaryPhone ?? null,
           kind: 'person',
           linkedAt: link.createdAt.toISOString(),
+          isPrimary: link.isPrimary === true,
         } satisfies DealPersonItem
       })
       .filter((item): item is DealPersonItem => item !== null)
@@ -169,6 +171,7 @@ export const openApi: OpenApiRouteDoc = {
                 subtitle: z.string().nullable(),
                 kind: z.literal('person'),
                 linkedAt: z.string(),
+                isPrimary: z.boolean(),
               }),
             ),
             total: z.number().int().nonnegative(),

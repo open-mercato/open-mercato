@@ -1,15 +1,11 @@
 import type { ConfigScope, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import {
+  envDisablesAutoIndexing,
+  SEARCH_AUTO_INDEX_CONFIG_KEY,
+  SEARCH_AUTO_INDEX_CONFIG_MODULE,
+} from '@open-mercato/shared/lib/search/auto-indexing'
 
-export const SEARCH_AUTO_INDEX_CONFIG_KEY = 'auto_index_enabled'
-
-export function envDisablesAutoIndexing(): boolean {
-  const raw =
-    process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING ??
-    process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
-  if (!raw) return false
-  return parseBooleanToken(raw) === true
-}
+export { envDisablesAutoIndexing, SEARCH_AUTO_INDEX_CONFIG_KEY, SEARCH_AUTO_INDEX_CONFIG_MODULE }
 
 type Resolver = {
   resolve: <T = unknown>(name: string) => T
@@ -28,8 +24,7 @@ export async function resolveAutoIndexingEnabled(
     return fallback
   }
   try {
-    // Still use 'vector' module key for backwards compatibility
-    const value = await service.getValue<boolean>('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, {
+    const value = await service.getValue<boolean>(SEARCH_AUTO_INDEX_CONFIG_MODULE, SEARCH_AUTO_INDEX_CONFIG_KEY, {
       defaultValue: fallback,
       scope: options?.scope,
     })

@@ -21,6 +21,7 @@ import {
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -44,8 +45,12 @@ function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string 
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = await resolveParams(ctx)
@@ -61,7 +66,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId: organizationId, tenantId: auth.tenantId }
 
   let values: Record<string, unknown> | null
   let updatedAt: Date | null
@@ -89,8 +94,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = await resolveParams(ctx)
@@ -115,7 +124,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     container,
     {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub ?? '',
     resourceKind: 'integrations.integration',
     resourceId: integration.id,
@@ -141,7 +150,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId: organizationId, tenantId: auth.tenantId }
   const schema = credentialsService.getSchema(integration.id)
 
   try {
@@ -190,13 +199,13 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   await emitIntegrationsEvent('integrations.credentials.updated', {
     integrationId: integration.id,
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   })
 
   await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub ?? '',
       resourceKind: 'integrations.integration',
       resourceId: integration.id,

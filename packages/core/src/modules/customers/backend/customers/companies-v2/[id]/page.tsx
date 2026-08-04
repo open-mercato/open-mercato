@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -31,6 +32,7 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { coerceDisplayName } from '../../../../lib/displayName'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
+import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
@@ -68,7 +70,19 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
+
+  const handleTabChange = React.useCallback(
+    (tab: CompanyTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
   // Form state
   const [isDirty, setIsDirty] = React.useState(false)
@@ -328,6 +342,14 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setSectionAction(null)
   }, [activeTab])
 
+  // A `?tab=deals` deep link must not strand users without `customers.deals.view`
+  // on a tab that no longer exists for them. Wait for the granted features to load
+  // so a permitted user is never bounced off the tab mid-fetch.
+  React.useEffect(() => {
+    if (!isDealsAccessReady || canViewDeals) return
+    setActiveTab((current) => (current === 'deals' ? 'people' : current))
+  }, [isDealsAccessReady, canViewDeals])
+
   // Deals scope
   const dealsScope = React.useMemo(
     () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
@@ -461,8 +483,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection */}
-          <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent company header */}
           <CompanyDetailHeader
@@ -490,7 +512,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 <CrudForm<CompanyEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.company"
+                  injectionSpotId={extensionPoints.hosts.companyForm.spotId}
                   entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
                   schema={formSchema}
                   fields={formFields}
@@ -509,7 +531,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             zone2={
               <CompanyDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
@@ -544,7 +566,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                   />
                 )}
 
-                {activeTab === 'deals' && (
+                {activeTab === 'deals' && canViewDeals && (
                   <DealsSection
                     scope={dealsScope}
                     emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
@@ -596,7 +618,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           />
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog */}
           <ScheduleActivityDialog

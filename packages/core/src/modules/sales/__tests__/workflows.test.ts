@@ -7,14 +7,8 @@
  * an unresolved template string instead of the order id (issue #4334).
  */
 
-import fs from 'node:fs'
-import path from 'node:path'
 import { workflowsConfig } from '../workflows'
-
-const WIDGET_CLIENT_PATH = path.join(
-  __dirname,
-  '../../workflows/widgets/injection/order-approval/widget.client.tsx'
-)
+import { ORDER_APPROVAL_CONTEXT_KEYS } from '../../workflows/widgets/injection/order-approval/context-keys'
 
 const CONTEXT_REFERENCE_PATTERN = /\{\{\s*context\.([A-Za-z0-9_$]+)\s*\}\}/g
 
@@ -52,15 +46,6 @@ function updateEntityInputs(): Record<string, unknown>[] {
     .map((activity) => (activity.config?.input ?? {}) as Record<string, unknown>)
 }
 
-function widgetInitialContextKeys(): string[] {
-  const source = fs.readFileSync(WIDGET_CLIENT_PATH, 'utf8')
-  const block = source.match(/initialContext:\s*\{([\s\S]*?)\}/)
-  if (!block) throw new Error(`No initialContext literal found in ${WIDGET_CLIENT_PATH}`)
-  return block[1]
-    .split(',')
-    .map((entry) => entry.split(':')[0].trim())
-    .filter((entry) => /^[A-Za-z0-9_$]+$/.test(entry))
-}
 
 describe('sales.order-approval workflow context contract', () => {
   test('definition is registered', () => {
@@ -84,7 +69,7 @@ describe('sales.order-approval workflow context contract', () => {
   })
 
   test('the widget seeds every context key the UPDATE_ENTITY activities interpolate', () => {
-    const seededKeys = widgetInitialContextKeys()
+    const seededKeys: readonly string[] = ORDER_APPROVAL_CONTEXT_KEYS
     const referencedKeys = new Set<string>()
     updateEntityInputs().forEach((input) => collectContextKeys(input, referencedKeys))
 

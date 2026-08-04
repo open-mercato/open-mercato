@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
@@ -13,7 +14,7 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
-import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
@@ -413,24 +414,22 @@ async function handleRequest(
     const rateLimiterService = getCachedRateLimiterService()
     if (rateLimiterService) {
       const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-      if (clientIp) {
-        const rateLimitError = await checkRateLimit(
-          rateLimiterService,
-          methodMetadata.rateLimit,
+      const rateLimitError = await checkRateLimit(
+        rateLimiterService,
+        methodMetadata.rateLimit,
+        clientIp ?? RATE_LIMIT_FALLBACK_KEY,
+        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+      )
+      if (rateLimitError) {
+        await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
+          ...receivedPayload,
+          status: rateLimitError.status,
           clientIp,
-          t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
-        )
-        if (rateLimitError) {
-          await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
-            ...receivedPayload,
-            status: rateLimitError.status,
-            clientIp,
-            userId: auth?.sub ?? null,
-            tenantId: auth?.tenantId ?? null,
-            durationMs: Date.now() - startedAt,
-          })
-          return rateLimitError
-        }
+          userId: auth?.sub ?? null,
+          tenantId: auth?.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        return rateLimitError
       }
     }
   }
@@ -459,8 +458,16 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
+    getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
     return finalResponse
   } catch (error) {
+    // Unhandled throws become 500s (Next renders the error). This is the 5xx
+    // error funnel: record the exception (correlated to the active trace) and
+    // the request-duration metric, then re-throw unchanged.
+    getTelemetryRuntime()?.reportError(error, {
+      attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
+    })
+    getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
       ...receivedPayload,
       userId: auth?.sub ?? null,

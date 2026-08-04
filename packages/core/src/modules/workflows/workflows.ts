@@ -59,7 +59,7 @@ const simpleApproval = defineWorkflow({
           activityName: 'Emit Approval Requested Event',
           activityType: 'EMIT_EVENT',
           config: {
-            eventType: 'approval.requested',
+            eventName: 'approval.requested',
             payload: { requestId: '{{context.request.id}}', workflowInstanceId: '{{workflow.instanceId}}' },
           },
           async: true,
@@ -98,7 +98,7 @@ const simpleApproval = defineWorkflow({
           activityName: 'Emit Approval Completed Event',
           activityType: 'EMIT_EVENT',
           config: {
-            eventType: 'approval.completed',
+            eventName: 'approval.completed',
             payload: {
               requestId: '{{context.request.id}}',
               approved: '{{task.result.approved}}',

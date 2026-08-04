@@ -57,9 +57,9 @@ function getStatusLabel(status: ScheduleItem['status'], t: (key: string, fallbac
 }
 
 function getKindStyles(kind: ScheduleItem['kind']): string {
-  if (kind === 'event') return 'border-blue-500/40 bg-blue-500/10 text-blue-950'
-  if (kind === 'exception') return 'border-amber-500/40 bg-amber-500/10 text-amber-950'
-  return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-950'
+  if (kind === 'event') return 'border-status-info-border bg-status-info-bg text-status-info-text'
+  if (kind === 'exception') return 'border-status-warning-border bg-status-warning-bg text-status-warning-text'
+  return 'border-status-success-border bg-status-success-bg text-status-success-text'
 }
 
 export type ScheduleGridProps = {

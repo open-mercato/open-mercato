@@ -1,995 +1,168 @@
 # Lessons
 
-# Lessons Learned
-
-Recurring patterns and mistakes to avoid. Review at session start.
-
-## We've got centralized helpers for extracting `UndoPayload`
-
-Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
-
-## Standardize record-not-found as a dedicated page state in backend UI
-
-**Context**: Record-backed backend pages evolved with mixed missing-record patterns. Some pages used `ErrorMessage`, some rendered custom centered `<div>` markup with plain text and a button, and some collapsed `notFound` and generic load failures into the same branch.
-
-**Problem**: The UX became inconsistent across products, customers, auth, resources, sales, and similar modules. In some pages the missing-record path still lived too close to the form/detail rendering path, making it easy to keep rendering page chrome or controls when the record was gone.
-
-**Rule**: For any record-backed backend detail or edit page, model `notFound` as a dedicated page state separate from generic `error`. When the requested record does not exist, return early and render a page-level state built on `ErrorMessage`, with a clear recovery action such as "Back to list". Do not render `CrudForm`, detail sections, tabs, or record actions in the not-found branch.
-
-**Applies to**: `packages/ui`, `packages/ui/src/backend`, and any backend `[id]` page in `packages/core/src/modules/**/backend/**`.
-
-## Avoid identity-map stale snapshots in command logs
-
-**Context**: Command `buildLog()` in multiple modules loaded the "after" snapshot using the same non-forked `EntityManager` used earlier in `prepare()`. MikroORM's identity map returned cached entities, so `snapshotAfter` matched `snapshotBefore`.
-
-**Problem**: Audit logs showed identical before/after snapshots even when updates occurred, because the EM cache was reused.
-
-**Rule**: In `buildLog()`, always load snapshots using a forked `EntityManager` (or explicitly `refresh: true`). This guarantees a fresh DB read and avoids identity-map caching in logs.
-
-**Applies to**: Any command that captures `snapshotBefore` in `prepare()` and later loads `snapshotAfter` in `buildLog()`.
-
-## Flush entity updates before running relation syncs that query
-
-**Context**: `catalog.products.update` mutates scalar fields and then calls `syncOffers` / `syncCategoryAssignments` / `syncProductTags`, which perform `find` queries. MikroORM auto-flush + subscriber logic reset `__originalEntityData`, resulting in no change sets and no UPDATE being issued.
-
-**Problem**: Updates to the main entity silently did not hit the database when relation syncs executed before the flush.
-
-**Rule**: If an update command mutates scalar fields and then performs relation-sync queries, flush the main entity changes *before* those syncs (or split into two UoWs/transactions).
-
-**Applies to**: Commands that update a core record and then call sync helpers that query/modify relations using the same `EntityManager`.
-
-## Keep create-app template files in lockstep with app shell/layout changes
-
-**Context**: Core app layout behavior was updated in `apps/mercato/src/app/(backend)/backend/layout.tsx`, but equivalent files in `packages/create-app/template/src/app/` were not updated in the same change.
-
-**Problem**: Newly scaffolded apps diverged from monorepo defaults (missing newer navigation/profile/settings wiring and behavior fixes), causing inconsistent UX and harder debugging.
-
-**Rule**: Any change to shared bootstrap/layout shell behavior in `apps/mercato/src/app/**` must include a sync review and required updates in matching `packages/create-app/template/src/app/**` and dependent template components.
-
-**Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components.
-
-## Keep standalone template module lists aligned with template package dependencies
-
-**Context**: The standalone app template enabled `{ id: 'webhooks', from: '@open-mercato/webhooks' }` in `packages/create-app/template/src/modules.ts`, but `packages/create-app/template/package.json.template` did not install `@open-mercato/webhooks`.
-
-**Problem**: `yarn install` succeeded, but `mercato generate` failed later because the generator resolved a package-backed module that was never installed in the standalone app.
-
-**Rule**: Any time a package-backed module is added or kept enabled in `packages/create-app/template/src/modules.ts`, verify the matching npm package exists in `packages/create-app/template/package.json.template`. Review the template lockfile in the same change whenever dependency shape changes.
-
-**Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
-
-## Package builds that publish `dist/` must clear stale artifacts first
-
-**Context**: Standalone parity started failing during `yarn initialize` because `@open-mercato/core` published a deleted migration file that still existed only in `dist/`.
-
-**Problem**: Package build scripts that only overwrite current entry points leave removed files behind. Standalone/Verdaccio installs consume `dist/`, so stale migrations, routes, or generated outputs can execute even after the source file was deleted.
-
-**Rule**: Any package build that publishes from `dist/` must remove existing `dist/*` contents before rebuilding. Do not rely on esbuild output to implicitly prune deleted files.
-
-**Applies to**: Package `build.mjs` scripts, especially packages consumed by standalone apps through npm/Verdaccio.
-
-## Standalone CI runners must mirror webhook-security env from parity scripts
-
-**Context**: Standalone snapshot CI started failing payment-gateway and checkout webhook specs with `401` after the forged-webhook hardening made the mock gateway fail closed in production unless `MOCK_GATEWAY_WEBHOOK_SECRET` is configured.
-
-**Problem**: The dedicated standalone GitHub Actions workflow scaffolded and started the app from its own `.env`, but that path omitted `MOCK_GATEWAY_WEBHOOK_SECRET` even though the local parity runner and ephemeral CLI already injected it. Production-mode standalone apps then rejected every signed mock webhook.
-
-**Rule**: Whenever standalone test runners or CI workflows boot a scaffolded app outside the shared parity scripts, copy the full webhook-related env contract too, including `MOCK_GATEWAY_WEBHOOK_SECRET`. Keep workflow env blocks aligned with `scripts/test-create-app-integration.ts` and the CLI ephemeral test environment.
-
-**Applies to**: `.github/workflows/snapshot.yml`, standalone parity scripts, and any ad hoc scaffolded-app test harnesses.
-
-## Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry
-
-**Context**: `create-mercato-app` advertised `yarn setup` as the first command, but the scaffold only shipped an empty `yarn.lock`.
-
-**Problem**: Yarn 4 resolves package scripts through the lockfile. In a fresh scaffold, `yarn setup` failed before `scripts/setup.mjs` could call `yarn install` with `This package doesn't seem to be present in your lockfile`.
-
-**Rule**: Standalone templates that expect a pre-install Yarn script to run must ship a templated `yarn.lock` containing the root `"{{APP_NAME}}@workspace:."` entry. Keep the standalone smoke test exercising at least one trivial Yarn script before the first install so the regression is caught immediately.
-
-**Applies to**: `packages/create-app/template/yarn.lock.template`, `packages/create-app/src/index.ts`, and `scripts/test-create-app.ts`.
-
-## Generated standalone app installs in CI must opt out of immutable lockfiles
-
-**Context**: Snapshot parity scaffolds a fresh standalone app from `create-mercato-app` and then runs `yarn install` inside that generated directory.
-
-**Problem**: On CI, Yarn enables immutable installs by default. Because the scaffold intentionally ships only a minimal root workspace `yarn.lock`, the first standalone `yarn install` needs to materialize the real lockfile and otherwise fails with `YN0028`.
-
-**Rule**: When CI or smoke tests run the first `yarn install` inside a freshly scaffolded standalone app, set `YARN_ENABLE_IMMUTABLE_INSTALLS=0`. Do this only for the generated app install/add steps, not for the monorepo install.
-
-**Applies to**: `.github/workflows/snapshot.yml`, `scripts/test-create-app.ts`, and `scripts/test-create-app-integration.ts`.
-
-## Keep mirrored dev runtimes aligned with their process registry type
-
-**Context**: The new splash-based dev runtimes track child processes in a `Set`, but shutdown code in the root script, app runtime, and create-app template still used `.filter(...)` as if the registry were an array.
-
-**Problem**: Pressing `Ctrl+C` crashed shutdown with `TypeError: children.filter is not a function`, leaving the runtime to exit noisily instead of terminating child processes cleanly.
-
-**Rule**: When a runtime script stores child processes in a `Set`, all shutdown and cleanup logic must iterate via `Array.from(children)` or direct `for...of`, and the same fix must be mirrored in `apps/mercato` and `packages/create-app/template` copies.
-
-**Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
-
-## Preserve Turbopack compiler cache during greenfield dev warmup
-
-**Context**: `yarn dev:greenfield` was changed to purge the whole configured Next.js distDir before booting the app.
-
-**Problem**: Removing all of `apps/mercato/.mercato/next` also deletes `.mercato/next/dev/cache/turbopack`. That turns `/login`, `POST /api/auth/login`, and especially `/backend` warmup into cold compiles, making greenfield startup much slower than regular `yarn dev` and slower than `main`.
-
-**Rule**: Greenfield cleanup may remove stale route/middleware manifests and lock files before startup, but must preserve `.mercato/next/dev/cache/turbopack`. Do not purge Next/Turbopack caches between warmup requests; cache reuse should make each subsequent warmup request faster. Only clear `.mercato/next/dev` for explicit `yarn dev:reset` or the one-shot corrupted Turbopack cache recovery path.
-
-**Applies to**: `scripts/dev-cache-purge.mjs`, `packages/create-app/template/scripts/dev-cache-purge.mjs`, `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, `scripts/dev-ephemeral.ts`, and related dev-server tests.
-
-## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
-
-**Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.
-
-**Problem**: Non-fatal search/vector warnings such as `[SearchService] Strategy index failed ...` and `[search.customers] Failed to load ...` flipped setup/dev splash screens into a blocking error even after Next had become ready. Once warmup later succeeded, the splash still looked like launch had failed.
-
-**Rule**: Splash startup classification must keep an explicit allowlist for known non-blocking runtime warnings, and once launch is already ready/warmed the splash must not demote the session back to failed because of later raw output. Keep this policy mirrored between the monorepo runtime and the standalone template copy.
-
-**Applies to**: `apps/mercato/scripts/dev.mjs`, `apps/mercato/scripts/dev-runtime-log-policy.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, and `packages/create-app/template/scripts/dev-runtime-log-policy.mjs`.
-
-## `dbMigrate` must not write migration snapshots during initialize flows
-
-**Context**: A branch change started passing a custom MikroORM `snapshotName` into `dbMigrate`, while `yarn initialize` always runs `dbMigrate`.
-
-**Problem**: Fresh initialize/reinstall flows began rewriting per-module `.snapshot-*.json` files as a side effect, creating noisy git diffs unrelated to the migration application itself.
-
-**Rule**: Keep stable snapshot naming for `dbGenerate`, but disable migration snapshots for `dbMigrate` (`snapshot: false`) so initialize applies committed migrations without mutating snapshot files.
-
-**Applies to**: `packages/cli/src/lib/db/commands.ts` and any future init/bootstrap flow that calls `dbMigrate`.
-
-## Windows `.cmd` wrappers must not be spawned directly in Node dev scripts
-
-**Context**: The dev runtime introduced direct `spawn('yarn.cmd', args)` calls on Windows in `scripts/dev.mjs`.
-
-**Problem**: On Windows, direct `spawn()` of `.cmd` wrappers can fail with `spawn EINVAL`, even when the same command works through `execFileSync` or an interactive shell. This broke `yarn dev` before package-build planning even started.
-
-**Rule**: In Node-based runtime scripts, never call `spawn()` directly on `*.cmd` / `*.bat` wrappers. Route them through a Windows-aware helper that converts the invocation into a shell command, and mirror the same fix in `packages/create-app/template/scripts/**`. Add or update script-level tests that cover the Windows command-resolution branch so CI protects the behavior.
-
-**Applies to**: `scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and any future script runner that launches Yarn, npm, pnpm, Turbo, or other Windows command wrappers.
-
-## Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files
-
-**Context**: The standalone `create-app` flow generates app-local `.mercato` artifacts while official packages are consumed from `node_modules`.
-
-**Problem**: The entity-id generator parsed exported classes and property declarations from module entity files. That works against monorepo `src` files, but compiled `dist/modules/**/data/entities.js` files do not preserve that source shape, so standalone generation silently dropped package entities like `organization`.
-
-**Rule**: In standalone mode, when building app-level generated entity IDs/field shims for package-backed modules, prefer the package's shipped `generated/entities.ids.generated.ts` and `generated/entities/*/index.ts` artifacts. Do not rely on parsing compiled `dist` entity files for source-level declarations.
-
-**Applies to**: `packages/cli/src/lib/generators/entity-ids.ts` and standalone `create-app` generation paths.
-
-## Standalone scaffolding and generators must not assume monorepo-only paths
-
-**Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.
-
-**Problem**: Newly scaffolded apps - `yarn generate` printed noisy OpenAPI bundle resolution errors before falling back.
-
-**Rule**: For standalone app flows, do not hardcode monorepo paths; CLI generators must resolve app/package paths through the shared resolver (`getRootDir()`, `getAppDir()`, `getPackageRoot()`) instead of constructing `packages/*` or `apps/mercato/*` paths directly.
-
-**Applies to**: `packages/create-app/**`, `packages/cli/**`, standalone app smoke tests, and any generator/bundler that runs inside installed npm packages.
-
-## Store global event bus in `globalThis` to survive module duplication in dev
-
-**Context**: `record_locks` notifications stopped while banners still worked. Banner logic uses direct API polling, but notifications depend on `emitRecordLocksEvent()` from `createModuleEvents()` and the global event bus wiring.
-
-**Problem**: In dev (HMR/Turbopack), duplicated module instances can appear. One instance receives `setGlobalEventBus()` during bootstrap, another instance emits events. With module-local singleton only, emitted events can be dropped silently.
-
-**Rule**: For process-wide runtime singletons used across package boundaries (event bus, similar registries), keep canonical reference in `globalThis` and use module-local variable only as fallback.
-
-**Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
-
-## Store integration registry state in `globalThis` for standalone workers
-
-**Context**: Standalone snapshot integration tests bootstrapped `sync_excel` metadata, but the test-side queue drain loaded worker/sync-engine code through a second package module instance.
-
-**Problem**: The integration registry used module-local Maps, so `data_sync` could not resolve `sync_excel` to provider key `excel` in the worker path and fell back to the raw integration id.
-
-**Rule**: Shared runtime registries that translate module metadata for workers, CLI, or standalone parity must keep canonical mutable state in `globalThis`. Add isolated-module regression tests when fixing these paths.
-
-**Applies to**: `packages/shared/src/modules/integrations/types.ts` and similar shared registries consumed after dynamic app bootstrap.
-
-## Feature-gated runtime helpers must use wildcard-aware permission matching
-
-**Context**: ACL wildcard grants like `customer_accounts.*` correctly passed server-side checks, but several shared UI/runtime helpers still gated behavior with exact `includes` or `Set.has` checks.
-
-**Problem**: Navigation, notification handlers, mutation guards, and command interceptors could silently disappear or stop running even though the user had a valid wildcard permission from RBAC.
-
-**Rule**: Any feature-gated helper outside the core RBAC service must use the shared wildcard-aware matcher (`hasFeature` / `hasAllFeatures`) instead of ad hoc exact-match checks such as `features.includes(...)`, `set.has(...)`, or `every(...includes(...))`.
-
-**Additional rule**: Do not assume every `granted` feature array is normalized to exact requested ids. Some flows return exact feature-check responses, while others pass through stored wildcard ACLs or resolved feature snapshots. Runtime helpers must treat all granted-feature arrays as wildcard-capable input.
-
-**Applies to**: Navigation builders, injected menu filtering, notification dispatchers, mutation guards, command interceptors, and similar client/server ACL-driven registries.
-
-## Always propagate structured conflict payload from `onBeforeSave` blockers
-
-**Context**: Conflict handling in record locks had two paths: preflight `onBeforeSave` and real mutation `save` response. UI recovered conflict dialog only from save error path.
-
-**Problem**: When conflict was blocked in preflight, users could hit dead-end loops (`Keep editing` / `Keep my changes`) because the dialog state was not rehydrated with full conflict payload.
-
-**Rule**: Any blocking `onBeforeSave` result must carry machine-readable `details` (code + payload), and `CrudForm` must route it through the same global save-error recovery channel as normal save failures.
-
-**Applies to**: Injection widgets that gate save (`WidgetBeforeSaveResult`) and conflict-capable modules (record locks, future optimistic concurrency widgets).
-## MUST use Button and IconButton primitives — never raw `<button>` elements
-
-**Context**: The codebase was refactored to replace all raw `<button>` elements with `Button` and `IconButton` from `@open-mercato/ui/primitives`. This ensures consistent styling, focus rings, disabled states, and dark mode support across the entire application.
-
-**Rules**:
-
-1. **Never use raw `<button>` elements** — always use `Button` or `IconButton` from `@open-mercato/ui`.
-2. **Use `IconButton` for icon-only buttons** (no text label, just an icon). Use `Button` for everything else (text-only, icon+text, or any button with visible label content).
-3. **Always pass `type="button"` explicitly** unless the button is a form submit (`type="submit"`). Neither `Button` nor `IconButton` sets a default type, so omitting it defaults to `type="submit"` per HTML spec, which can cause accidental form submissions.
-4. **Tab-pattern buttons** using `variant="ghost"` with underline indicators MUST include `hover:bg-transparent` in className to suppress the ghost variant's default `hover:bg-accent` background.
-5. **For compact inline contexts** (tag chips, toolbar buttons, inline list items), add `h-auto` to className to override the fixed height from size variants.
-
-**Button variants and sizes quick reference**:
-
-| Component | Variants | Sizes | Default |
-|-----------|----------|-------|---------|
-| `Button` | `default`, `destructive`, `outline`, `secondary`, `ghost`, `muted`, `link` | `default` (h-9), `sm` (h-8), `lg` (h-10), `icon` (size-9) | `variant="default"`, `size="default"` |
-| `IconButton` | `outline`, `ghost` | `xs` (size-6), `sm` (size-7), `default` (size-8), `lg` (size-9) | `variant="outline"`, `size="default"` |
-
-**Common patterns**:
-- Sidebar/nav toggle: `<IconButton variant="outline" size="sm">`
-- Close/dismiss: `<IconButton variant="ghost" size="sm">` with `<X />` icon
-- Tab navigation: `<Button variant="ghost" size="sm" className="h-auto rounded-none hover:bg-transparent border-b-2 ...">`
-- Dropdown menu items: `<Button variant="ghost" size="sm" className="w-full justify-start">`
-- Toolbar formatting buttons: `<Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs">`
-- Muted section headers: `<Button variant="muted" className="w-full justify-between">`
-
-**Applies to**: All UI components across `packages/ui`, `packages/core`, and `apps/mercato`.
-
-## WeakSet-based circular reference detection drops shared (non-circular) object references
-
-**Context**: The CLI OpenAPI generator (`packages/cli/src/lib/generators/openapi.ts`) used a `WeakSet` in `safeStringify` to detect circular references during JSON serialization. The `zodToJsonSchema` converter uses a `WeakMap` memo cache that returns the same JS object reference for identical Zod schema instances (e.g., `currencyCode` shared between quote and line item schemas).
-
-**Problem**: The `WeakSet` treated shared-but-non-circular references as circular, dropping them on second encounter. This caused properties like `currencyCode` to vanish from nested schemas in the generated `openapi.generated.json`. The line item schema was missing required fields, which misled AI agents and broke API payload construction.
-
-**Rule**: When detecting circular references in JSON serialization, use stack-based ancestor tracking (checking only the current path from root to node) instead of a `WeakSet` (which tracks all previously visited nodes globally). Shared references are legitimate and must be cloned, not dropped.
-
-**Applies to**: Any serialization code that processes object graphs with shared references (common in Zod schema conversions, AST tools, and dependency graphs).
-
-## Tool-scoped regeneration commands must not be blocked by unrelated existing files
-
-**Context**: `yarn mercato agentic:init --tool=<tool>` is meant to support incremental setup of one coding tool at a time, including retroactive setup from the splash screen.
-
-**Problem**: A broad "any agentic file exists" guard causes false positives. Existing `.codex` files should not block adding Cursor, and existing Cursor files should not block adding Claude Code.
-
-**Rule**: When a CLI/setup command supports scoped tool selection, preflight "already configured" checks must be scoped to the selected tool's own files, not the union of all tool outputs.
-
-**Applies to**: `packages/cli/src/lib/agentic-init.ts` and any future tool-scoped bootstrap or regeneration commands.
-
-## Inject TypeScript types into LLM tool descriptions for correct API payloads
-
-**Context**: The AI Code Mode tools (`search` + `execute`) require the LLM to construct API payloads. When the LLM must query a separate tool to discover schema fields and then mentally translate a compact JSON format, it frequently constructs wrong payloads and enters debug spirals (20+ tool calls, 50+ API requests).
-
-**Problem**: Without inline type information, the LLM guesses field names and structures, sends bad payloads, gets 400 errors, then experiments with variations — wasting tokens and user time.
-
-**Rule**: For LLM-facing tools that construct structured API calls, pre-generate compact TypeScript type stubs from the OpenAPI spec at startup and inject them directly into the tool description. This mirrors Cloudflare's `generateTypes()` pattern. The LLM sees the correct types immediately without needing an extra discovery step.
-
-**Applies to**: Any AI tool that requires the LLM to construct structured payloads (API calls, database queries, form submissions).
-
-## Do not rasterize untrusted uploads through sunsetted external converters
-
-**Context**: The attachments module OCR path rasterized uploaded PDFs through `pdf2pic -> gm -> Ghostscript` before sending page images to the LLM.
-
-**Problem**: Deprecated converters and delegate-based document parsers expand the attack surface for untrusted uploads and can introduce host-level RCE chains outside the TypeScript codebase.
-
-**Rule**: For untrusted uploads, do not introduce or keep sunsetted external converter chains (for example `pdf2pic`, `gm`, or Ghostscript delegates) in default request/background pipelines. Prefer native parsers, best-effort text extraction, or isolated sandboxed workers. If the safer path is not ready, disable the risky format-specific processing rather than keeping it enabled.
-
-**Applies to**: `attachments`, document preview/thumbnail pipelines, OCR services, importers, and any future upload-processing worker.
-
-## Format Zod validation errors for LLM consumption
-
-**Context**: When the API returns 400 errors with raw Zod validation output (nested `issues[]` arrays, `fieldErrors` maps, or raw arrays), the LLM struggles to interpret the error structure and extract actionable fix instructions.
-
-**Problem**: The LLM sees verbose JSON like `[{"code":"invalid_type","expected":"string","path":["lines",0,"currencyCode"]}]` and may not correctly identify which field to fix, leading to trial-and-error debugging.
-
-**Rule**: Format validation errors into a concise human-readable string before returning to the LLM. Handle all Zod error formats (v3 `issues[]`, v4 `fieldErrors`/`formErrors`, raw arrays) and produce fix instructions like `"Validation failed — lines[0].currencyCode: expected string. Fix the listed fields and retry."` Fall back to `JSON.stringify` for unrecognized formats.
-
-**Applies to**: Any AI-facing API wrapper that surfaces validation errors to an LLM agent.
-
-## MikroORM 6 does NOT generate UUIDs client-side — assign PKs before referencing
-
-**Context**: `@PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })` configures PostgreSQL to generate UUIDs at INSERT time. When `em.create(Entity, data)` is called without an explicit `id`, the entity's `id` field is `undefined` until `em.flush()` executes the INSERT.
-
-**Problem**: In `sales/commands/documents.ts`, the quote/order creation code called `em.create(SalesQuote, { ... })` without providing an `id`, then immediately referenced `quote.id` when re-validating inline line items via `quoteLineCreateSchema.parse({ quoteId: quote.id })`. Since `quote.id` was `undefined`, Zod validation failed with "quoteId: Invalid input: expected string, received undefined" — silently breaking inline line creation for both quotes and orders.
-
-**Rule**: When creating an entity and immediately referencing its PK (before flush), generate the UUID client-side via `crypto.randomUUID()` and pass it explicitly: `em.create(Entity, { id: randomUUID(), ... })`. This ensures the PK is available immediately for child entity creation.
-
-**Applies to**: Any `em.create()` call where the entity's PK is referenced before `em.flush()`, especially parent-child patterns where children need the parent's ID.
-
-## Integration tests: avoid `networkidle` on pages with SSE/background streams
-
-**Context**: Multiple Sales/Integration UI tests started timing out at 20s in ephemeral runs. Failing point was `page.waitForLoadState('networkidle')` right after navigation.
-
-**Problem**: Pages with SSE or other long-lived background requests may never reach Playwright `networkidle`, causing deterministic false failures unrelated to product logic.
-
-**Rules**:
-
-1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
-2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
-3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
-4. For custom-entity record forms, prefer opening the records list first and waiting for the `Create` action to appear before entering the form; this proves definitions loaded in the current app state.
-5. In custom-entity Playwright tests, target form controls via `data-crud-field-id="<fieldKey>"` instead of label-text ancestor traversal. The wrapper id is stable across monorepo and standalone layouts, while label-only selectors are brittle.
-
-**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales, customers, and custom-entity flows).
-
-## Projection updates that change indexed parent fields must emit query-index upserts
-
-**Context**: Customer interaction commands recomputed `next_interaction_*` fields directly on `customer_entities`, which changed list/search-visible data without mutating the `CustomerEntity` through its normal CRUD command path.
-
-**Problem**: The companies/people grids showed the fresh `next_interaction_name`, but `entity_indexes` and `search_tokens` for `customers:customer_entity` stayed stale. Global search and token-backed filters then missed values that were visibly present in the grid until a manual reindex happened.
-
-**Rule**: Any command or projection that directly updates fields surfaced through query-indexed docs must also emit `query_index.upsert_one` for the affected entity records. If child/profile docs denormalize the same parent fields, review whether they need matching upserts too.
-
-**Applies to**: Projection helpers, lifecycle commands, and any write path that bypasses the primary CRUD/indexer helpers while changing search/list-visible fields.
-
-## Standalone template must include all generated bootstrap registries
-
-**Context**: Standalone integration tests failed only for UMES enricher scenarios (`TC-UMES-002`) while other tests passed.
-
-**Problem**: `packages/create-app/template/src/bootstrap.ts` drifted from `apps/mercato/src/bootstrap.ts` and did not pass generated `enricherEntries` into `createBootstrap(...)`, so response enrichers were never registered in scaffolded apps.
-
-**Rule**: Whenever app bootstrap wiring changes (events, analytics, enrichers, message registries, similar generated registries), mirror the same imports and `createBootstrap(...)` arguments in `packages/create-app/template/src/bootstrap.ts` in the same PR.
-
-**Applies to**: Scaffolded standalone apps and snapshot/standalone integration workflows.
-
-## Duplicate migration creation causes initialize failures in fresh databases
-
-**Context**: `yarn initialize` failed with `relation "customer_pipelines" already exists` because two customer migrations both created the same table.
-
-**Problem**: Later migration `Migration20260226155449` repeated schema creation already handled by `Migration20260218191730`.
-
-**Rule**: Before adding a migration, check existing module migrations for overlapping DDL. If a duplicate migration was already committed and may be in history, keep the file/class name stable and convert duplicate migration content to a no-op instead of deleting/renaming it.
-
-**Applies to**: `packages/core/src/modules/*/migrations/*.ts` and initialize/ephemeral test bootstrap flows.
-
-## Meilisearch container healthchecks must probe IPv4 explicitly
-
-**Context**: Standalone full-app Docker scaffolds used `wget http://localhost:7700/health` for the Meilisearch healthcheck, while other compose files used `curl`.
-
-**Problem**: In `getmeili/meilisearch:v1.11`, `wget` resolves `localhost` to IPv6 `::1` first, but Meilisearch listens on IPv4 (`0.0.0.0:7700`). The container is healthy but Docker marks it `unhealthy`, which blocks dependent services.
-
-**Rule**: Use `curl -fsS http://127.0.0.1:7700/health` for Meilisearch container healthchecks instead of `wget` or `localhost`.
-
-**Applies to**: Root `docker-compose*.yml`, standalone app templates in `packages/create-app/template/`, and any future dev/test container compose files that run Meilisearch.
-
-## Docker entrypoints must verify required binaries, not just non-empty node_modules
-
-**Context**: The standalone app dev entrypoint only checked whether `node_modules` existed and was non-empty before skipping `yarn install`.
-
-**Problem**: A stale named volume from another app can leave `node_modules` populated but incomplete, with `node_modules/.bin/mercato` and `@open-mercato/cli` missing. Startup then fails later with `/bin/sh: mercato: not found`.
-
-**Rule**: Docker startup scripts must verify the specific required package/binary for the next command (for example `node_modules/@open-mercato/cli` and `node_modules/.bin/mercato` before `yarn initialize`), not just the presence of a non-empty `node_modules` directory.
-
-**Applies to**: `packages/create-app/template/docker/scripts/*.sh` and any future container entrypoints that rely on installed CLI binaries.
-
-## Docker initialization should treat the existing-users CLI abort as already initialized
-
-**Context**: The CLI intentionally aborts `init` when the database already contains users, printing `Initialization aborted: found N existing user(s) in the database.`
-
-**Problem**: Docker first-run boot paths used marker files only. When the marker was missing but the database was already initialized, containers exited instead of continuing with migrations and startup.
-
-**Rule**: Docker init/startup wrappers must treat the specific existing-users initialization abort as a successful already-initialized state: run migrations, write the init marker, and continue boot. Do not broaden this to ignore other init failures.
-
-**Applies to**: `docker/scripts/*.sh`, root `docker-compose.fullapp*.yml`, and standalone template Docker startup files in `packages/create-app/template/docker/**`.
-
-## Standalone scaffolds must pin the same Yarn version as the monorepo
-
-**Context**: `node:24-alpine` exposes Yarn `1.22.22` by default. The monorepo uses Yarn `4.12.0` via the root `packageManager` field and explicit Corepack activation in some environments.
-
-**Problem**: The standalone template had no `packageManager` field and its Dockerfile only ran `corepack enable`, so Docker-based standalone flows could stay on Yarn 1 instead of Yarn 4.
-
-**Rule**: Keep `packages/create-app/template/package.json.template` aligned with the monorepo `packageManager` version and have the template Dockerfile explicitly run `corepack prepare yarn@<version> --activate`.
-
-**Applies to**: `packages/create-app/template/package.json.template`, `packages/create-app/template/Dockerfile`, and any scaffolded environment that relies on Corepack.
-
-## Compose startup commands must not hard-depend on newly added image scripts
-
-**Context**: Fullapp compose startup was updated to call `/app/docker/scripts/init-or-migrate.sh` directly.
-
-**Problem**: If a user updates `docker-compose.fullapp.yml` but starts an older image without `--build`, container startup fails immediately because the new helper script is not present in that image.
-
-**Rule**: When a compose command references a newly added in-image helper, include a shell fallback path so older images can still boot until the next rebuild.
-
-**Applies to**: Root/template `docker-compose.fullapp*.yml` and similar Docker startup commands that evolve independently from image rebuilds.
-
-## Keep injected namespaces DataTable-owned, not page-owned
-
-**Context**: Injected datatable values (for example `_example.priority`) were visible in API payloads and saved correctly, but list columns still rendered fallback values like `normal`.
-
-**Problem**: Multiple list pages mapped API items into whitelisted row objects and accidentally dropped `_namespace` fields. That made injected columns/filters/actions unreliable and forced page-level coupling to specific modules.
-
-**Rule**: Namespace preservation must be centralized in `DataTable` helpers. Page mappers must remain module-agnostic and finalize mapped rows with `withDataTableNamespaces(mappedRow, sourceItem)` instead of manually handling injection keys.
-
-**Applies to**: Any backend page/component that maps API records before passing rows to `DataTable` (especially pages using `perspective.tableId` and injection-based extensions).
-
-## Scope Playwright `testIgnore` entries to project root absolute paths
-
-**Context**: Running integration tests from a worktree under a parent path containing `.codex` caused Playwright to report `No tests found`.
-
-**Problem**: A relative ignore glob like `.codex/**` can match parent path segments in some environments, unintentionally excluding all discovered tests.
-
-**Rule**: In `.ai/qa/tests/playwright.config.ts`, build `testIgnore` patterns from `projectRoot` absolute paths (normalized), for example `${normalizePath(path.join(projectRoot, '.codex'))}/**`, instead of loose relative globs.
-
-**Applies to**: Integration Playwright config and any future test discovery/ignore configuration.
-
-## Keep external integrations as dedicated npm workspace packages
-
-**Context**: Provider modules like shipping carriers and payment gateways were implemented in `packages/core/src/modules/*`, which blurs the boundary between core platform modules and optional external connectors.
-
-**Problem**: This makes provider ownership unclear, slows independent releases, and violates the integration marketplace package model (SPEC-045/SPEC-045c) where connectors are separate installable modules.
-
-**Rule**: Any external integration provider (payment/shipping/communication/data-sync connector) must be implemented as its own package under `packages/<provider-package>/` and enabled from `apps/mercato/src/modules.ts` via that package. Do not add new external provider modules in `packages/core/src/modules/`.
-
-**Applies to**: All new connector work and refactors of existing providers (for example, `gateway_*`, `carrier_*`, and sync connector modules), with UMES extension points per SPEC-041.
-
-## Sanitize generated component override entries before runtime use
-
-**Context**: Enterprise security login overrides caused `/login` SSR failures because the server-side override registry received at least one malformed entry from generated component overrides, and `getComponentOverrides()` assumed every item had `target.componentId`.
-
-**Rule**: Shared runtime registries fed by generated/module-loaded plugin arrays must defensively filter malformed or `undefined` entries both at registration time and before lookup. Never assume SSR imports across client/server module boundaries preserve registry item shape.
-
-**Applies to**: `packages/shared/src/modules/widgets/component-registry.ts` and any similar generated registries that are consumed during Next.js SSR/bootstrap.
-
-## Prefer canonical route paths over alias lists for custom APIs
-
-**Context**: Payment and shipping endpoints were still using the legacy `api/<method>/...` layout, and shipping added alias matching because its public URL was kebab-case while the module id is snake_case.
-
-**Problem**: That created two layers of indirection: legacy filesystem conventions plus multiple candidate URLs in the registry, which made standalone and generator debugging harder.
-
-**Rule**: For custom APIs, prefer the standard `api/<segment>/route.ts` layout. If the public URL must differ from the generator default, declare one canonical `metadata.path` override on the route instead of alias lists or app-route special cases.
-
-**Applies to**: Module API routes, generator path mapping, and any future public endpoint refactors.
-
-## Do not diagnose unknown-total progress as broken SSE
-
-**Context**: Data sync jobs were emitting `progress.job.updated` correctly through the same SSE bridge used by the working example page, but the top bar and run detail still looked frozen at `0%`.
-
-**Problem**: Product imports often do not know `totalCount` up front. `ProgressService.updateProgress()` therefore kept `progressPercent` at `0`, so the UI rendered a static 0% bar even while `processedCount` was increasing in real time.
-
-**Rule**: When a long-running job has no reliable total, treat it as **indeterminate progress** in the UI. Keep SSE/poll updates for `processedCount`, avoid showing `0% complete`, and preserve any available `totalEstimate` instead of discarding it in adapters.
-
-**Applies to**: `packages/core/src/modules/data_sync/lib/sync-engine.ts`, provider adapters such as `packages/sync-akeneo/src/modules/sync_akeneo/lib/adapter.ts`, and any UI using `ProgressTopBar` or run-detail progress bars.
-
-## Worker-emitted progress needs polling fallback even when SSE exists
-
-**Context**: Example-page progress SSE worked, but bulk product operations and data sync progress in the top bar did not update live.
-
-**Problem**: The DOM Event Bridge tap in `packages/events/src/modules/events/api/stream/route.ts` is process-local. Queue workers emit `progress.job.updated` in a different process, so those events do not reach the browser through SSE even though the `ProgressJob` database row updates correctly.
-
-**Rule**: For progress UIs, use **SSE for immediacy** and **polling while active jobs exist** as the correctness path. Do not assume worker-emitted progress events will reach the browser unless the event bus is explicitly cross-process bridged for broadcast traffic.
-
-**Applies to**: `packages/ui/src/backend/progress/useProgressSse.ts`, all worker-driven progress jobs (data sync, bulk delete, reindex, similar queue jobs), and any future SSE-based progress UI.
-
-## Akeneo base-field imports must not fall back across locales or channels
-
-**Context**: Akeneo product values were being resolved with a score-based matcher that could still pick a different locale or scope when the selected locale/channel did not exist.
-
-**Problem**: German or other scoped Akeneo content leaked into the tenant's base Open Mercato fields, so a single-locale import silently mixed languages and channel variants instead of leaving the field empty.
-
-**Rule**: When importing into non-translation Open Mercato fields, only accept the explicitly selected Akeneo locale/channel plus Akeneo's unlocalized or unscoped fallback entries. Never fall back to a different locale or channel just to fill a value.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts`, future translation import work, and any adapter that flattens layered external localized values into base fields.
-
-## Akeneo media identifiers can be slash-delimited path params
-
-**Context**: Akeneo media values looked like file paths (`6/7/7/...jpg`). The importer treated them as opaque codes and URL-encoded the entire string before calling `/api/rest/v1/media-files/{code}`.
-
-**Problem**: Encoding the whole identifier as one segment changed the path semantics and caused false `media file ... was not found` failures, which then prevented attachments from being created and assigned.
-
-**Rule**: For Akeneo media-file endpoints, preserve `/` path separators inside the media identifier and only encode each path segment individually. Treat these identifiers as route params, not as a single opaque slug.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, media download helpers, and any future Akeneo endpoint that accepts slash-delimited resource identifiers.
-
-## Sync progress must count source records, not emitted side-effect items
-
-**Context**: The Akeneo product adapter emits multiple import items per source product (for example product + default variant), but the sync engine was using `batch.items.length` as the user-facing processed count.
-
-**Problem**: Progress showed inflated numbers like 1800 processed for a 1320-product Akeneo catalog, which made the run look stuck or inconsistent even when it was just finishing reconciliation after the last real source page.
-
-**Rule**: When adapters emit derived records, they must report a separate source-level processed count, and the sync engine must use that value for progress. Batch/item counters may still track created/updated records separately, but user-facing progress should match the source system's entity count.
-
-**Applies to**: `packages/core/src/modules/data_sync/lib/adapter.ts`, `packages/core/src/modules/data_sync/lib/sync-engine.ts`, Akeneo import batches, and any future adapter that explodes one external record into multiple local writes.
-
-## Data-sync run detail should subscribe to its progress job, not just poll it
-
-**Context**: The global progress bar already reacted immediately to `progress.job.*` events, but the data-sync run detail page still depended on a 4-second polling loop.
-
-**Problem**: For fast or concurrent sync jobs, the run detail could look stale or inconsistent compared with the top bar, especially when multiple jobs from the same integration had generic names and users expected SSE-driven updates.
-
-**Rule**: Any page centered around a specific `ProgressJob` should subscribe to `progress.job.updated|started|completed|failed|cancelled` for that job ID and use polling only as a recovery/backfill path. Also include enough job metadata or naming detail to distinguish concurrent runs of the same integration.
-
-**Applies to**: `packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx`, progress payload serialization, and future job-specific run/detail pages.
-
-## Akeneo variant reuse must be scoped to the current product, not global SKU matches
-
-**Context**: The importer used SKU fallback when an Akeneo variant external-ID mapping was missing.
-
-**Problem**: If a stale or orphaned Akeneo variant row with the same SKU already existed under a different product, the importer could reuse that wrong variant ID. Price creation then failed with `Variant does not belong to the provided product`, even though the Akeneo source data itself was valid.
-
-**Rule**: Variant fallback matching must always be scoped to the current product. A missing external-ID mapping is not enough reason to reuse a same-SKU variant from another product.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts`, Akeneo re-import logic, and any sync adapter that falls back from stable external IDs to local natural keys.
-
-## Force-delete import tools must include orphaned imported rows, not only mapped rows
-
-**Context**: The Akeneo "Force delete all imported products" action originally found products only through `sync_external_id_mappings`.
-
-**Problem**: Earlier bad imports could leave Akeneo-origin products behind after mappings were lost or overwritten. The delete tool reported success but still left imported rows in the catalog, which then polluted later re-imports and caused duplicate-SKU conflicts.
-
-**Rule**: Destructive importer cleanup must discover imported rows from durable record metadata as well as external-ID mapping tables. Mapping tables alone are not a complete source of truth after failed or partial syncs.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/delete-imported-products.ts` and any future cleanup/reset actions for integration-owned data.
-
-## Variant hero media should be written after importer flush-heavy work
-
-**Context**: Akeneo variant images were being downloaded and attached to the correct variant records, but some variants still ended the import with `default_media_id = null`.
-
-**Problem**: Later ORM flushes in the same import path can leave the attachment in place while writing an older in-memory variant snapshot back over the hero-media fields.
-
-**Rule**: When an importer creates variant attachments and also performs later flush-heavy work, persist the variant hero-media pointer as the final variant write in that path. Attachment assignment and hero-media selection are separate pieces of state and both must survive the last flush.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts` and any importer that assigns attachments plus a default/hero attachment on the same entity in one transaction flow.
-
-## Env-backed integration presets belong in the provider module, not core
-
-**Context**: Akeneo needed a way to come up preconfigured on fresh installs from deployment environment variables, while still supporting a manual rerun later.
-
-**Problem**: Pushing provider-specific bootstrap logic into core integration or data-sync modules would couple generic infrastructure to one connector and make every future provider preset harder to maintain.
-
-**Rule**: Provider-specific env bootstrapping should live in the provider package itself, exposed through that module's own `setup.ts` and `cli.ts`, and should reuse the same helper for automatic tenant init and manual reruns.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/setup.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/cli.ts`, and future integration packages that need env-driven bootstrap.
-
-## Integration packages must use decryption-aware find helpers for all entity reads
-
-**Context**: The Akeneo package had accumulated a mix of `findWithDecryption` usage and raw `em.find` / `em.findOne` reads across routes, setup presets, cleanup jobs, and importer internals.
-
-**Problem**: Even when the currently-read fields are not encrypted, raw ORM reads bypass encryption-map handling and create silent regressions once entity fields become encrypted later.
-
-**Rule**: In integration/provider modules, all entity reads should default to `findWithDecryption` / `findOneWithDecryption`; treat raw `em.find` / `em.findOne` as a bug unless there is a deliberate low-level reason that is documented inline.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/**/*` and future integration packages reading tenant-scoped entities.
-
-## Optional native dependencies must report load failures accurately
-
-**Context**: The cache package warned that SQLite was unavailable because of a "missing dependency: better-sqlite3", even though the package was installed.
-
-**Problem**: The actual failure was a stale native build of `better-sqlite3` after a Node.js upgrade. The misleading warning sent debugging toward dependency declarations instead of the ABI mismatch and rebuild.
-
-**Rule**: For optional native dependencies, preserve and classify the original load error. Do not collapse ABI/version/build failures into "missing dependency" messages. When loading native modules from package runtimes, prefer `createRequire(import.meta.url)` over dynamic `import()` if it is more reliable for CJS/native addons.
-
-**Applies to**: `packages/cache/src/strategies/sqlite.ts`, `packages/cache/src/service.ts`, and any package with optional native providers.
-
-## New progress UI must use SSE, not fresh polling loops
-
-**Context**: The Akeneo "first full import" widget originally tracked its sequence state with `setTimeout` polling against a status endpoint, even though the platform already broadcasts `progress.job.*` events to the browser.
-
-**Problem**: Browser-local polling made the feature look active without proving a durable backend job existed, added stale state paths on refresh, and reintroduced a legacy pattern the rest of the progress system is moving away from.
-
-**Rule**: When a feature already has a real `ProgressJob`, drive the UI from `progress.job.*` SSE events and only use one-shot fetches for initial hydration or reconnect recovery. Do not add new timer-based progress polling loops in widgets or backend pages.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/widgets/injection/akeneo-config/widget.client.tsx` and future progress-driven UI in integrations or data sync.
-
-## Browser SSE bridges must work across worker and web processes
-
-**Context**: Akeneo product imports were updating `ProgressJob` rows and even the top bar sometimes, but the browser SSE stream often showed only heartbeats while worker-driven product progress was actively changing in the database.
-
-**Problem**: The DOM Event Bridge only tapped in-process event emits. Queue workers emitted `progress.job.*` from a different Node process, so the web server's `/api/events/stream` never saw those updates live. UI built on SSE then looked stalled or inconsistent, and frontend polling crept back in as a workaround.
-
-**Rule**: If server events can originate from workers, the event bridge must include a cross-process transport. Do not assume an in-memory tap is enough for SSE delivery. Also, orchestration widgets that wrap child sync runs should subscribe to the active child `progressJobId`, not only to a slower wrapper job.
-
-**Applies to**: `packages/events/src/bus.ts`, `packages/events/src/modules/events/api/stream/route.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/lib/first-import.ts`, and worker-backed progress UI across the platform.
-
-## Keep standalone agentic content in sync with module conventions
-
-**Context**: The monorepo root `AGENTS.md` and related coding conventions evolved to cover task routing, specs, standalone testing, and backward-compatibility rules, while the create-app agentic templates lagged behind.
-
-**Problem**: Newly generated standalone apps started with stale or incomplete agent instructions, so agents operating in those apps missed current workflow expectations and module constraints.
-
-**Rule**: Whenever root agent guidance changes in a way that affects standalone app development or maintenance — module placement, testing, standalone parity, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
-
-**Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
-
-## Detail sections must route writes through page-level guarded mutations
-
-**Context**: Customer detail sections introduced canonical interaction writes in local hooks and components while the surrounding backend pages already had mutation-injection context for record locks and retry flows.
-
-**Problem**: Raw `apiCall` or CRUD-helper writes from detail sections bypass `useGuardedMutation`, so lock/conflict hooks never see those saves. Separately, showing flash messages in both the data hook and the section UI produces duplicate toasts for one mutation.
-
-**Rule**: In backend detail pages, the page owns `useGuardedMutation` and passes a guarded mutation runner into child sections. Data hooks should execute the network call and refresh state, while the section or presenter owns user-facing flash messages so each mutation emits one toast.
-
-**Applies to**: `packages/core/src/modules/customers/components/detail/**/*`, customer detail pages, and any future backend section that performs manual writes outside `CrudForm`.
-
-## Workspace packages with backend pages must build and export deep TSX entrypoints
-
-**Context**: The new `@open-mercato/webhooks` workspace package exposed backend pages through generated imports like `@open-mercato/webhooks/modules/webhooks/backend/webhooks/page`, but the package build only compiled `src/**/*.ts` and the export map stopped before the deepest generated paths.
-
-**Problem**: `yarn build:app` failed even though generation succeeded, because the generated app imported real package entrypoints that were neither emitted to `dist/` nor resolvable through `package.json` exports.
-
-**Rule**: Any workspace package that contributes auto-discovered backend/frontend pages must compile both `.ts` and `.tsx` sources into `dist/`, and its export map must cover the deepest generated import paths used by `modules.generated.ts`.
-
-**Applies to**: `packages/webhooks/build.mjs`, `packages/webhooks/package.json`, and future feature packages that expose generated page modules.
-
-## MikroORM string defaults must be plain values, not pre-quoted SQL fragments
-
-**Context**: The webhooks module declared text defaults as `"'pending'"`, `"'POST'"`, and `"'http'"` in entity metadata.
-
-**Problem**: MikroORM treated those values as literal strings and generated migration SQL with doubled quotes like `default ''pending''`, which broke `yarn initialize` when PostgreSQL tried to create the tables.
-
-**Rule**: For `@Property(... default: ...)` on string/text columns, pass the plain value such as `'pending'` or `'POST'`. Use `defaultRaw` only when you intentionally need a database expression.
-
-**Applies to**: `packages/webhooks/src/modules/webhooks/data/entities.ts` and future MikroORM entities with string defaults.
-
-## Client injection hooks must tolerate late registry registration
-
-**Context**: The integrations detail page relied on provider-injected tabs for webhook settings and aggregated logs. In the browser, generated injection tables and widgets were present, but some pages could still render without injected content on the first client pass.
-
-**Problem**: `useInjectionWidgets()` and `useInjectionSpotEvents()` could read the injection registry before client bootstrap finished registering generated tables/widgets, cache an empty result, and never retry. That left valid widgets invisible until a hard refresh or unrelated rerender.
-
-**Rule**: Client-side injection hooks must react to registry registration changes. When bootstrap registers core injection widgets/tables, invalidate loader caches and notify hooks so they reload instead of permanently caching an empty registry snapshot.
-
-**Applies to**: `packages/shared/src/modules/widgets/injection-loader.ts`, `packages/ui/src/backend/injection/InjectionSpot.tsx`, and any future client hook that reads generated registries during hydration.
-
-## New shared deep import paths should get explicit export-map entries
-
-**Context**: A new shared utility under `@open-mercato/shared/lib/events/patterns` built correctly, but sibling workspace tests failed to resolve it through the package name.
-
-**Problem**: Generic wildcard export rules are not always enough for every tool in the workspace, especially test runners resolving package subpaths across linked workspaces. That turns a valid refactor into a package-resolution failure.
-
-**Rule**: When adding a new shared utility intended for cross-package imports, add an explicit `package.json` export entry for the new subpath instead of relying only on broad wildcard export patterns.
-
-**Applies to**: `packages/shared/package.json` and future cross-package utilities added under new `@open-mercato/shared/lib/*` paths.
-## Use `safeExtend()` when composing refined Zod object schemas
-
-**Context**: Checkout pay-link validators extended a schema that already contained `superRefine(...)` rules.
-
-**Problem**: Zod v4 throws at runtime when `.extend()` is used on object schemas that contain refinements. This broke both OpenAPI generation and app initialization with `Object schemas containing refinements cannot be extended`.
-
-**Rule**: Any time a Zod object schema has refinements (`refine`, `superRefine`, similar), compose follow-up schemas with `.safeExtend()` instead of `.extend()`.
-
-**Applies to**: Module validators, generated OpenAPI bundling, bootstrap/init code paths, and any schema reuse chain built on refined objects.
-
-## Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist
-
-**Context**: `@open-mercato/checkout` emitted `import "./commands"` into dist because its build post-processing only rewrote `from` and dynamic imports. `@open-mercato/gateway-stripe` declared `"watch": "node watch.mjs"` without a `watch.mjs` file.
-
-**Problem**: Dev boot failed on unsupported directory ESM imports, and `yarn watch:packages` aborted immediately on the missing watch entrypoint.
-
-**Rule**: For package-local build scripts, handle all three relative import forms when fixing ESM output: static `from`, dynamic `import(...)`, and bare side-effect `import "..."`. If a package exposes a `watch` script, keep a real `watch.mjs` entrypoint committed alongside `build.mjs`.
-
-**Applies to**: Workspace packages with custom `build.mjs` / `watch.mjs` tooling and any new ESM package added to the monorepo.
-
-## Use canonical generated entity ids, not shortened ad-hoc aliases
-
-**Context**: Checkout used shortened ids like `checkout:link` and `checkout:transaction`, while the generated canonical ids for its ORM entities are `checkout:checkout_link` and `checkout:checkout_transaction`.
-
-**Problem**: Query/index/search/encryption helpers rely on canonical entity ids to infer table names and registry metadata. The shortened aliases pushed reindexing toward `links` instead of `checkout_links` and silently diverged from the generated contract.
-
-**Rule**: For ORM-backed entities, use the generated canonical entity ids consistently across CRUD indexers, search config, translations, encryption defaults, and custom-entity declarations. Do not invent shorter aliases unless the platform explicitly supports them everywhere.
-
-**Applies to**: Any module that participates in generated entity ids, query index/search, translations, encryption maps, or custom field registration.
-
-## Prefer relative intra-package imports inside package CLI/runtime entrypoints
-
-**Context**: The core entities CLI imported its own package internals through `@open-mercato/core/...` aliases.
-
-**Problem**: Dist-time ESM resolution became brittle in initialization flows and failed to resolve package-internal files that were present locally.
-
-**Rule**: Inside a package's own CLI/runtime entrypoints, prefer local relative imports for same-package modules instead of going back through the package alias, unless that alias path is explicitly part of the public runtime contract.
-
-**Applies to**: `cli.ts`, bootstrap helpers, package-local scripts, and other runtime entrypoints executed directly from dist.
-
-## Global registries in publishable packages must use `globalThis`, not module-local state
-
-**Context**: Standalone `create-mercato-app` loaded `@open-mercato/shared/lib/db/mikro` through multiple server chunk/module instances while the monorepo dev app used a single source-tree instance.
-
-**Problem**: Bootstrap registered ORM entities in one module instance, but `/api/events/stream` created a request container through another instance. Because the entity registry lived in a module-local variable, the second instance saw an empty registry and crashed with `[Bootstrap] ORM entities not registered`.
-
-**Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
-
-**Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
-
-## Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile
-
-**Context**: Module registry generation tried to discover subscriber, worker, and API-route metadata by runtime-importing source files. In optimized dev/build flows, those imports can fail because sibling TS-only dependencies are not executable in that context yet.
-
-**Problem**: When metadata import failed, generated manifests silently lost event bindings or route `metadata.path` overrides. That broke query-index subscribers, produced wrong API paths like `/shipping_carriers/...`, and surfaced as dev-time `MODULE_NOT_FOUND` errors from generated registries.
-
-**Rule**: For generator-time metadata discovery, use runtime imports when they work, but always keep a source-level fallback for stable static exports such as `metadata`. Generation must stay deterministic even when the source module itself is not directly executable.
-
-**Applies to**: `packages/cli` generators that inspect module files, especially subscribers, workers, API routes, and other static manifest inputs.
-
-## Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`
-
-**Context**: The standalone CLI scans installed packages under `node_modules/@open-mercato/*`. Published packages include compiled `dist/modules` output and also ship `src/modules`.
-
-**Problem**: Using `dist/modules` as the discovery source pulled in two classes of bad inputs that do not appear in monorepo source mode: helper files compiled from `.ts` to lower-case `.js` under `frontend/` and `backend/`, and stale dist-only artifacts such as legacy API handlers that no longer exist in `src/modules`. That produced bogus generated routes/imports and standalone-only build failures.
-
-**Rule**: In standalone generation, use the package's `src/modules` tree as the canonical discovery mirror when it exists, but keep runtime imports pointed at compiled `dist` files. Do not let dist-only artifacts or extension changes in compiled output redefine what counts as a route, API file, or convention file.
-
-**Applies to**: `packages/cli` module scanning, route/API discovery, standalone create-app flows, and any generator that inspects installed `@open-mercato/*` packages.
-
-## Standalone source-mirror discovery must remap source extensions to runtime files
-
-**Context**: Published packages can ship `src/modules/**/*.ts` alongside compiled `dist/modules/**/*.js`. Generators may discover convention files from the source mirror while runtime bootstrap imports the compiled package exports.
-
-**Problem**: If standalone discovery finds `src/modules/configs/cli.ts` and then validates that exact relative path under `dist/modules`, the check fails because the runtime file is `cli.js`. The module then silently loses CLI/setup/ACL and other convention registrations in `modules.cli.generated.ts`, which breaks bootstrap-only flows like `yarn setup`.
-
-**Rule**: When discovery uses a standalone source mirror, resolve the logical file from `src`, then remap it to the matching compiled file in `dist` by basename, not by keeping the source extension. Discovery and runtime paths must stay logically aligned even when `.ts` becomes `.js`.
-
-**Applies to**: `packages/cli` `resolveModuleFile()`, standalone module registry generation, CLI bootstrap generation, and any future source-mirror-based convention file lookup.
-
-## Auto-discovered DataTable fields must only advertise controls the table can actually honor
-
-**Context**: The customer grids auto-discovered custom fields into the advanced-filter builder and column chooser, but the table pages only registered `listVisible` custom columns. Hidden-but-selectable fields like `cf_executive_notes` appeared in the chooser without a matching TanStack column id.
-
-**Problem**: The chooser could surface legitimate field labels that crashed at toggle time with `Column with id 'cf_executive_notes' does not exist`, because discovery and actual column registration drifted apart.
-
-**Rule**: When a DataTable auto-discovers fields from entity/custom-field metadata, keep the discovery surface aligned with the concrete column registry. If a field should be selectable later, register a real hidden column for it; otherwise keep it out of chooser/filter discovery entirely.
-
-**Applies to**: `DataTable` auto-discovery, custom-field-backed list pages, and any future metadata-driven chooser/filter UI.
-
-## Mixed advanced filters need per-row join state, not one shared logic flag
-
-**Context**: The advanced-filter builder initially stored a single `logic` value for the whole filter state and reused it for every non-first row.
-
-**Problem**: Toggling one row from `And` to `Or` changed every row, making mixed expressions impossible and causing the backend to over-collapse distinct filter rows into one global boolean mode.
-
-**Rule**: For row-based filter builders, store the boolean connector on each non-first condition and keep any old global logic only as backward-compatible fallback when reading legacy URLs or state.
-
-**Applies to**: Shared advanced-filter state, URL serialization/deserialization, and any future query-builder UI that supports multiple rows.
-
-## dnd-kit contexts rendered in SSR need stable ids
-
-**Context**: The advanced datatable uses dnd-kit for header and column-chooser drag-and-drop, and those contexts are rendered during SSR on backend pages.
-
-**Problem**: Letting dnd-kit generate its own accessibility ids caused server/client `aria-describedby` mismatches, which showed up as React hydration errors on customer grid pages even though the table still rendered.
-
-**Rule**: Whenever a dnd-kit `DndContext` can be server-rendered, pass a deterministic `id` derived from stable page/table identity instead of relying on auto-generated ids.
-
-**Applies to**: `DataTable` header drag-and-drop, column chooser drag-and-drop, and any future SSR-rendered dnd-kit surface.
-
-## Lazy provider wrappers must not render provider-dependent children before the provider loads
-
-**Context**: Backend chrome hydration moved the AI assistant header integration behind a client-only lazy wrapper that imported the provider component asynchronously.
-
-**Problem**: The wrapper rendered `children` during the loading state, so provider-dependent descendants like `AiChatHeaderButton` mounted before `CommandPaletteProvider` existed and threw runtime context errors.
-
-**Rule**: When a wrapper lazily imports a context provider or integration shell, render nothing or a provider-safe placeholder until the provider is ready. Never render children early if they may call hooks from that provider.
-
-**Applies to**: Client-only integration shells, lazy provider wrappers, and any async-loaded context boundary in backend or portal chrome.
-
-## Hydrated backend chrome payloads must receive the original request for scope-aware RBAC
-
-**Context**: The backend sidebar/header payload moved from server layout assembly to `/api/auth/admin/nav` + client hydration, while org/tenant scope still depends on request cookies and headers.
-
-**Problem**: If the original request is not forwarded into payload resolution, selected org/tenant scope falls back to account defaults, which can empty `grantedFeatures` for the active scope and remove every `requireFeatures` sidebar route.
-
-**Rule**: Any server helper that resolves scoped backend chrome, navigation, or ACL-derived payloads must receive the original `Request` whenever scope can depend on cookies, forwarded headers, or query params.
-
-**Applies to**: Backend chrome payload builders, scoped sidebar/header APIs, organization-aware RBAC helpers, and any refactor that moves scope-sensitive work behind an API boundary.
-
-## Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout
-
-**Context**: The server-rendered backend layout previously decided sidebar route visibility by calling `rbac.userHasAllFeatures(...)` per route requirement. A hydration refactor replaced that with local matching against `loadAcl().features`.
-
-**Problem**: Even when the raw ACL snapshot looked sparse or scope-normalized differently, the original per-feature RBAC checks could still grant routes. Replacing that logic caused `requireFeatures` sidebar items to disappear after the refactor.
-
-**Rule**: When moving sidebar/header resolution into a shared payload builder or API, keep route inclusion logic behaviorally identical to the previous RBAC gate. Do not replace `userHasAllFeatures(...)` checks with ad hoc filtering against a cached/raw feature array unless equivalence is proven with regression tests.
-
-**Applies to**: Backend chrome payload builders, nav hydration refactors, sidebar route filtering, and any future optimization that tries to replace RBAC service checks with local feature matching.
-
-## Route-aware backend chrome should use route manifests, not the full module registry
-
-**Context**: The app bootstrap has two generated module manifests: the full `modules.generated.ts` and the lighter `modules.app.generated.ts`, while route-aware consumers already have dedicated generated manifests such as `backend-routes.generated.ts`.
-
-**Problem**: Hydrated sidebar work was refactored to call `getModules()` for route data, which forced bootstrap onto the full module manifest and regressed the original fast-path split between app bootstrap and route manifests.
-
-**Rule**: Backend chrome, breadcrumbs, static settings path discovery, and other route-aware consumers should read `backend-routes.generated.ts` or `getBackendRouteManifests()`. Keep `modules.app.generated.ts` in bootstrap unless the caller truly needs the full module registry beyond route manifests.
-
-**Applies to**: `apps/*/src/bootstrap.ts`, backend layouts, hydrated sidebar/header APIs, route matching helpers, and any future performance optimization around generated registries.
-
-## When a task brief requires Playwright coverage, unit tests are not a substitute
-
-**Context**: `packages/search/src/lib/merger.ts` received new Jest coverage, but the task brief and QA guides explicitly required module-local Playwright integration coverage.
-
-**Problem**: The branch still failed review because the required coverage class was missing even though the low-level tests passed.
-
-**Rule**: When a task brief, review artifact, or QA guide says Playwright or integration coverage is required, add or update a module-local `__integration__/TC-*.spec.ts` in the same change. Treat Jest or other low-level tests as complementary, not a replacement.
-
-**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.agents/skills/om-integration-tests/SKILL.md`.
-
-## Provider credentials must never control authenticated cross-origin requests
-
-**Context**: The Akeneo client accepted an arbitrary tenant-provided `apiUrl` and also trusted absolute pagination or download URLs returned by the remote API.
-
-**Problem**: A malicious or mistyped host could turn OAuth password-grant login into credential exfiltration, and hostile `next` or media download links could pivot authenticated bearer-token requests to a different origin.
-
-**Rule**: For integration providers, normalize and validate the configured base URL server-side before any network call, restrict it to an operator-owned allowlist plus a safe scheme/origin shape, build OAuth endpoints from fixed paths, and reject any absolute follow-up URL whose origin differs from the validated provider origin.
-
-**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, provider-specific HTTP clients, OAuth/token helpers, pagination cursors, media download helpers, and any future integration that consumes remote absolute URLs.
-## Never guard sensitive routes with `requireRoles` on mutable role names
-
-**Context**: Feature toggles routes were guarded with `requireRoles: ['superadmin']`. Since role names are user-editable, a tenant admin with `auth.roles.manage` could create a role named "superadmin" and escalate privileges — even though reserved-name validation blocked the exact attack, the architecture remained fragile.
-
-**Problem**: `requireRoles` checks mutable string names against the auth context. If the reserved name list has a gap or a new privileged name is introduced, the same privilege escalation pattern reappears.
-
-**Rule**: Always use `requireFeatures` with immutable feature IDs (declared in `acl.ts`) instead of `requireRoles` for access control. Reserve `requireRoles` only for truly exceptional, well-documented cases. When adding a new module, declare granular features in `acl.ts` and wire `defaultRoleFeatures` in `setup.ts` — never ship an empty `acl.ts` with `requireRoles` guards.
-
-**Applies to**: All API routes, backend page metadata (`page.meta.ts`), and any runtime access control check.
-
-## Standalone template env examples must mirror security-sensitive app env keys
-
-**Context**: Payment gateway webhook hardening introduced `MOCK_GATEWAY_WEBHOOK_SECRET` as the explicit non-production signing secret for the mock gateway. The monorepo app `.env.example` documented it, but the standalone template `.env.example` did not.
-
-**Problem**: Standalone parity and local generated apps can silently miss required security-sensitive env keys even when the monorepo app documents them, leading to standalone-only regressions that look like product bugs.
-
-**Rule**: When a feature adds a new app-level env var required for local, test, or non-production behavior, update both `apps/mercato/.env.example` and `packages/create-app/template/.env.example` in the same change. If standalone CI/bootstrap scripts synthesize `.env`, set the same var there explicitly too.
-
-**Applies to**: `apps/mercato/.env.example`, `packages/create-app/template/.env.example`, create-app smoke/parity scripts, and any new env-backed local/testing security feature.
-
-## Keep raw SQL out of API route handlers
-
-**Context**: The customer portal signup route (`packages/core/src/modules/customer_accounts/api/signup.ts`) inlined a tenant-bound organization lookup as a raw `em.getConnection().execute(...)` call. The SQL was only a handful of lines, but it put persistence knowledge into a route file and made regression tests reach into route internals to pin the `WHERE id = ? AND tenant_id = ?` predicate.
-
-**Problem**: Raw SQL in route handlers blurs the layering between HTTP plumbing and persistence. It is easy to drift: the same SQL gets copy-pasted into other routes, each copy is re-audited separately, and security-critical predicates (tenant binding, soft-delete filters) can silently diverge between callers. API routes should read as orchestration — parse, validate, authorize, delegate, respond — not as SQL authors.
-
-**Rule**: API route handlers must not contain raw SQL. Extract DB reads/writes into a named helper in the module's `lib/` (for simple lookups) or a service in `services/` (for stateful or multi-step logic), and import the helper from the route. The helper is the single place where the predicate is defined, audited, and regression-tested. MikroORM entity calls (`findOneWithDecryption`, repository methods) are acceptable in routes when they are single-liner lookups by stable primary keys; anything with a custom `WHERE`, `JOIN`, or raw `execute(...)` belongs in a helper.
-
-**Applies to**: All API route files under `packages/**/api/**` and `apps/**/api/**`. When moving existing inline SQL out of a route, keep the regression test pointed at the helper source so the predicate stays pinned even after the relocation.
-
-## Keep executable integration tests module-local
-
-**Context**: Legacy Playwright specs were still stored under `.ai/qa/tests/`, including AI-tool and UX regression specs that belonged to concrete modules.
-
-**Problem**: Tests under `.ai` are detached from the module that owns the behavior, so affected-test discovery, module gating, package ownership, and review context all become weaker.
-
-**Rule**: Do not add executable `.spec.ts` files under `.ai/qa/tests/`. Place Playwright integration specs under the owning module's `__integration__/` directory, and keep `.ai/qa/tests/` reserved for shared Playwright configuration only.
-
-**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.agents/skills/om-integration-tests/SKILL.md`.
-
-## Component-scoped notification effects must not depend on header chrome
-
-**Context**: `TC-UMES-008` emitted a notification from a backend page and expected `useNotificationEffect` on that same page to react, but the effect stayed empty when notification dispatch only happened through the optional notification bell runtime.
-
-**Problem**: Component-scoped reactive notification hooks become flaky when delivery depends on header actions such as notification bell visibility, feature-gated chrome, or lazy-loaded header components. The page-level hook contract should be tied to notification arrival, not to whether another UI surface happens to mount.
-
-**Rule**: When building or changing `useNotificationEffect`-style APIs, subscribe directly to the DOM Event Bridge notification-created event where possible and dedupe with dispatcher delivery. Keep notification panel/bell state hooks as UI consumers, not the sole delivery path for component-scoped side effects.
-
-**Applies to**: `packages/ui/src/backend/notifications/useNotificationEffect.ts`, notification dispatcher hooks, backend pages that use `useNotificationEffect`, and integration tests covering reactive notification behavior.
-
-## Header-gated module features need setup grants
-
-**Context**: The empty starter preset enabled the `notifications` module, but the notification bell stayed hidden because the module declared `notifications.view` in `acl.ts` without a matching `setup.ts` grant for default roles.
-
-**Problem**: Enabling a module is not enough for feature-gated header chrome. `BackendHeaderChrome` and similar runtime surfaces check effective ACL grants, so a missing `defaultRoleFeatures` entry makes enabled module UI look absent after tenant initialization.
-
-**Rule**: Any module with header, sidebar, page, API, or runtime UI gated by `requireFeatures` / `hasFeature` must declare those feature grants in `setup.ts` for the default roles that should see the surface. Add ACL setup tests for visible shell features such as topbar icons.
-
-**Applies to**: Module `acl.ts` / `setup.ts` pairs, starter presets, `BackendHeaderChrome`, notification/message/search/AI shell buttons, and tenant initialization ACL tests.
-
-## PostgreSQL partial unique indexes are not constraints
-
-**Context**: AI token usage rollups created partial unique indexes for nullable `organization_id`, then the raw UPSERT tried `ON CONFLICT ON CONSTRAINT ai_token_usage_daily_tenant_day_agent_model_org_uq`.
-
-**Problem**: PostgreSQL `ON CONFLICT ON CONSTRAINT` can only target named table constraints. A partial unique index is only inferable through `ON CONFLICT (...) WHERE ...`, so the recorder logged a non-fatal failure on every token-usage write.
-
-**Rule**: When a nullable scope needs separate partial unique indexes (`organization_id IS NULL` / `IS NOT NULL`), raw UPSERTs must use conflict inference with the exact indexed columns and predicate. Add repository-level SQL-shape tests for every raw UPSERT against partial indexes.
-
-**Applies to**: `packages/**/data/repositories/**`, MikroORM migrations with partial unique indexes, and any raw `INSERT ... ON CONFLICT` SQL.
-
-## Normalize raw SQL result types before JSON responses
-
-**Context**: AI usage stats routes read PostgreSQL aggregate rows where `bigint` counters can arrive as JavaScript `bigint` values and timestamp/date expressions can arrive as strings instead of `Date` instances.
-
-**Problem**: `NextResponse.json` cannot serialize `bigint`, and calling `toISOString()` directly on raw SQL timestamp fields crashes when the driver returns a string. These failures surface only with real database result shapes, not with entity-shaped mocks.
-
-**Rule**: API routes that serialize raw SQL aggregate results must normalize every numeric and date field at the route boundary or in a shared serializer before returning JSON. Add route tests using driver-like `bigint` counters and string timestamps for every aggregate endpoint.
-
-**Applies to**: Raw SQL report/stat endpoints, especially `count(*)::bigint`, `sum(...)::bigint`, `min(created_at)`, `max(created_at)`, and any route returning database aggregate rows through `NextResponse.json`.
-
-## Custom-field detail UIs must accept canonical bare keys
-
-**Context**: Customer detail APIs normalize custom-field responses to bare keys such as `relationship_health`, while generated form fields use prefixed IDs such as `cf_relationship_health`.
-
-**Problem**: Read-only detail renderers that index only by the generated prefixed ID show empty select/relation values after a fresh fetch, even though editing and saving may work because form initialization has fallback key resolution.
-
-**Rule**: Shared custom-field detail components must resolve values by exact field ID first, then `cf:` and bare-key fallbacks for prefixed fields. Apply the same resolver to relation-display loading and read-only rendering so select, relation, text, and boolean fields use one response-shape contract.
-
-**Applies to**: `packages/ui/src/backend/detail/CustomDataSection.tsx`, customer/company/person detail custom-data sections, and any new detail renderer consuming normalized `customFields`.
-
-## Optional chrome fetches must suppress auth redirects
-
-**Context**: Backend pages for limited roles loaded unrelated optional shell data, such as message sender options, recipient suggestions, and AI conversation history. Those auxiliary requests hit feature-gated endpoints the current user was not meant to access.
-
-**Problem**: `apiCall` redirects the whole browser to `/login?requireFeature=...` on 403 by default. Optional header/sidebar/widget fetches can therefore break an otherwise authorized page when they call APIs for another module's feature, even if the caller handles `ok: false`.
-
-**Rule**: Any optional chrome, widget, dropdown-options, background sync, or feature-discovery request that is not required to render the current page must opt out of auth redirects with `x-om-forbidden-redirect: 0` and usually `x-om-unauthorized-redirect: 0`, then degrade to an empty/hidden state on non-OK responses.
-
-**Applies to**: `packages/ui/src/backend/**`, `packages/ui/src/ai/**`, topbar/sidebar providers, notification/message/AI shell hooks, and module widgets that fetch feature-gated data opportunistically.
-
-## Determine super-admin via the immutable `isSuperAdmin` flag, never by role name
-
-**Context**: The scheduler module gated system-scoped jobs (create/update/delete commands, the create route, the trigger route, and the list visibility filter) by checking whether the auth context's `roles` array contained a string equal to `'superadmin'`.
-
-**Problem**: Role names are tenant-mutable and trivially spoofable — any tenant that creates a role literally named `superadmin` would have passed the gate, while a genuine super-admin whose role happens to be named differently would have been denied. Comparing user names or role names to a hard-coded `'superadmin'` string is a privilege-escalation footgun and contradicts the project rule against `requireRoles`.
-
-**Rule**: Determine super-admin status only from the immutable `auth.isSuperAdmin === true` flag, which is derived at session/API-key resolution from the `RoleAcl.is_super_admin` / `UserAcl.is_super_admin` columns (`packages/core/src/modules/auth/lib/sessionIntegrity.ts`). Never compare `auth.roles`, usernames, or any user-supplied name to a privileged string. For non-super-admin authorization prefer feature-based guards (`requireFeatures` + immutable IDs from `acl.ts`). Add a regression test that a spoofed role named `superadmin` (without the `isSuperAdmin` flag) is rejected.
-
-**Applies to**: every authorization check — API routes, command handlers, list/visibility filters, widgets, AI tools — across all modules. Audit for `=== 'superadmin'`, `.includes('superadmin')`, and `roles.some(... 'superadmin')` and replace with `auth?.isSuperAdmin === true`.
-
-## Stabilize flaky integration tests by finding the hang, not by raising the timeout
-
-**Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
-
-**Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
-
-**Rule**: When an integration test "times out," read the trace to find which await actually blocked before reaching for a bigger number. Make UI interactions deterministic: after a keyboard-driven menu open, assert the target item is visible with a *bounded* budget and fall back to a pointer click, so a missed keypress fails fast instead of hanging until the suite timeout. Make `finally` teardown best-effort (`.catch(() => {})`) so it cannot mask the real failure with a "context closed" error. Only after removing the hang should you align the per-test budget with the established login+nav convention. Prefer fixing the interaction over inflating the clock.
-
-**Applies to**: every Playwright spec under `**/__integration__/*.spec.ts` that drives `RowActions`/dropdown menus via keyboard, and any spec whose `finally` block issues API calls after the body may have failed.
-
-## Async edit selects must be hydrated as value-plus-options
-
-**Context**: Several edit forms saved relation/dictionary/select values correctly but reopened with the select trigger showing the placeholder. The saved value arrived before or after the option list depending on the page: staff team roles, resources, dictionary-backed capacity units, checkout gateway settings, and example TODO custom fields exposed variants of the same failure.
-
-**Problem**: A controlled Radix Select can stay visually unresolved when the selected value and its matching `SelectItem` are registered in separate async renders. Page-level loaders also often fetch by `ids=...`; if the API only supports singular `id`, the edit form may hydrate from the wrong first-page record while still appearing to load successfully.
-
-**Rule**: Edit forms must hydrate selects with both the saved scalar value and a matching option label. If the saved option may be outside the first page, fetch it by id and seed/prepend it. Generic select controls should remount or otherwise re-resolve when either the selected value or option set changes. For list APIs used by edit loaders, support the shared `ids` filter contract and cover it with browser integration tests that create their own fixture records.
-
-**Applies to**: `CrudForm` select fields, relation/dictionary selects, edit-page option loaders, `makeCrudRoute` list APIs, and every browser test that verifies edit forms open with saved select values populated.
-
-## Async select controls must not treat synthetic empty changes as user clears
-
-**Context**: Resource type, dictionary-backed capacity unit, and catalog variant tax selects sometimes opened with placeholders even after the saved option was fetched and seeded. The controls had no empty item in the menu, but Radix could still surface an empty `onValueChange` during the first async render where the value existed before the matching `SelectItem` was registered.
-
-**Problem**: Forwarding `next || ''` / `next || undefined` from a select that has no explicit clear option silently erased the saved form value during hydration. Subsequent by-id option fetches could prepend the correct label, but the controlled value had already been cleared, so the edit page still looked blank while saving after manual reselection worked.
-
-**Rule**: For required or non-clearable selects, ignore empty `onValueChange` events. If a select supports clearing, render an explicit clear command/button/item and test that behavior separately. Browser regression tests for async edit selects must assert the visible combobox trigger text, not only hidden option text elsewhere in the DOM.
-
-**Applies to**: Radix-backed `Select` wrappers, custom `CrudForm` select components, dictionary selects, relation selects, and any async edit form whose option list may be loaded after the initial value.
-
-## Out-of-band bumps in browser optimistic-lock tests must not change the row's visible name
-
-**Context**: `TC-LOCK-OSS-043` browser test for WHK-01 bumped the webhook's `name` field out-of-band to advance `updated_at` and make the in-page lock token stale.
-
-**Problem**: If Next.js or the client re-fetches the list after the out-of-band PUT, the row's accessible name changes (`"QA Lock 043 bumped ${stamp}"`), so the Playwright row locator `/QA Lock 043 ${stamp}\b/` no longer matches. The test failed intermittently with `element(s) not found` on `getByRole('button', { name: /open actions/i })` scoped inside the now-gone row.
-
-**Rule**: In browser-driven optimistic-lock tests, the out-of-band bump must touch only fields that are not part of the row's visible text or accessible name (e.g. `description`, a hidden metadata field, an unrendered flag). This ensures the row locator remains stable regardless of whether the page re-fetches data after the bump.
-
-**Applies to**: All `TC-LOCK-*` browser tests that locate a row by its name and then trigger an out-of-band write before interacting with the row's actions.
-
-## Use cryptographic randomness in auth-adjacent test helpers
-
-**Context**: CodeQL reported insecure randomness in integration helpers where generated fixture values flowed through authenticated API requests and auth rate-limit tests.
-
-**Problem**: Even when randomness is only used for fixture uniqueness, `Math.random()` can be flagged when the generated value is used in security-sensitive paths such as login attempts, tokens, credentials, rate-limit identifiers, or authenticated request setup.
-
-**Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
-
-**Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
-
-- 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
-- 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
-- 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
-
-## Validate persisted-definition consumers before retiring legacy workflow rows
-
-**Context**: A legacy seeded checkout definition shadowed a newer code-defined workflow and carried obsolete webhook activities. Soft-deleting the row looked like the smallest way to restore code-registry fallback.
-
-**Problem**: Workflow start lookup supports code definitions, but transition, task, signal, and timer execution still resolve running instances through the persisted `definition_id`. Removing the legacy row would replace the webhook failure with missing-definition or no-transition failures after start.
-
-**Rule**: Before deleting or soft-deleting a persisted workflow that has a code-defined counterpart, trace every runtime consumer of `WorkflowInstance.definitionId`. Until all consumers support code-registry fallback or an instance snapshot, repair the persisted definition payload in place and preserve its identity and historical references.
-
-**Applies to**: workflow data migrations, code-defined workflow adoption, `workflow-executor`, transition/task/signal/timer handlers, and demo workflow upgrades.
-
-## A self-request needs data committed outside the caller's transaction
-
-**Context**: The checkout demo's `CALL_API` "Create Order Record" activity minted a one-time API key on the request EM (`container.resolve('em')`), then `fetch`ed `/api/sales/orders` with it. It failed with `401 Unauthorized` (issue #4202).
-
-**Problem**: `CALL_API` runs inside `workflowExecutor.executeWorkflow()`'s `em.transactional(...)`. The request EM is forked with `useContext: true`, so while that transaction is open MikroORM's `getContext()` redirects every operation on the container EM — including the API key's persist/flush — into the uncommitted transaction fork. The outbound self-authenticated `fetch` opens a SEPARATE pooled connection that cannot see the uncommitted key, so auth resolution returns null → 401. Resolving `'em'` from the container does not escape this; the transaction context is keyed by EM name via AsyncLocalStorage.
-
-**Rule**: When code must write a row that a subsequent out-of-band request (self `fetch`, worker, another connection) has to read, create/flush it on a context-detached EM: `em.fork({ clear: true, freshEventManager: true, useContext: false })`. That fork commits on its own pooled connection, matching the query_index/webhooks isolated-EM convention.
-
-**Applies to**: `activity-executor` `CALL_API`, any one-time credential minted for a self-request, and anything that persists data then reads it back over HTTP or from a second connection while a transaction is open.
+This catalog indexes 113 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+
+## How to use this catalog
+
+1. Start with the exact module ID when one is named by the task.
+2. Add every matching area from the standalone harness router: `architecture`, `module-data`, `umes`, `backend-ui`, `integration`, `ai-workflow`, `debugging`, `testing`, `framework-context`, or `spec-pr`.
+3. Use topics to narrow cross-cutting concerns such as `data-scoping`, `optimistic-locking`, `query-index`, or `generated-files`.
+4. Open only the linked lesson records that match; do not bulk-read `.ai/lessons/`.
+
+Useful searches:
+
+```bash
+rg -n '\b<module-or-topic>\b' .ai/lessons.md
+rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
+```
+
+## Adding or updating a lesson
+
+- Keep one reusable lesson per `.ai/lessons/<kebab-case-slug>.md`; update an existing record instead of duplicating it.
+- Preserve the front matter keys `title`, `modules`, `areas`, and `topics`. Use `platform` only when no module or package owns the lesson, and put the primary area first.
+- Add or update exactly one catalog row below. Keep the title stable when existing code/specs cite it.
+- Put hard boundaries in the closest `AGENTS.md`; lessons explain recurring evidence and the durable rule.
+- Run `yarn lessons:check` before committing.
+
+## Catalog
+
+### architecture
+
+- [Feature-gated runtime helpers must use wildcard-aware permission matching](lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md) — area:architecture,backend-ui,module-data; module:customer_accounts,customers,events; topic:access-control,command-pattern,events
+- [Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry](lessons/fresh-standalone-yarn-scaffolds-must-ship-a-runnable.md) — area:architecture,testing,module-data; module:create_app; topic:command-pattern,package-runtime,template-sync
+- [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
+- [Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile](lessons/generator-manifests-must-fall-back-to-source-parsing.md) — area:architecture,integration,module-data; module:cli,query_index,queue; topic:events,generated-files,query-index
+- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
+- [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui; module:create_app,ui; topic:template-sync,ui-components
+- [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
+- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,events,cli; topic:events,generated-files,package-runtime
+- [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
+- [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
+- [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
+- [Prefer relative intra-package imports inside package CLI/runtime entrypoints](lessons/prefer-relative-intra-package-imports-inside-package.md) — area:architecture; module:cli; topic:package-runtime,runtime-startup,testing
+- [Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`](lessons/standalone-module-discovery-must-treat-published-src.md) — area:architecture,framework-context,umes; module:create_app,events,cli; topic:build-output,events,generated-files
+- [Standalone scaffolding and generators must not assume monorepo-only paths](lessons/standalone-scaffolding-and-generators-must-not-assume.md) — area:architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
+- [Standalone scaffolds must pin the same Yarn version as the monorepo](lessons/standalone-scaffolds-must-pin-the-same-yarn-version-as.md) — area:architecture; module:create_app; topic:package-runtime,template-sync,testing
+- [Standalone template env examples must mirror security-sensitive app env keys](lessons/standalone-template-env-examples-must-mirror-security.md) — area:architecture,integration,testing; module:create_app,catalog,webhooks; topic:generated-files,package-runtime,template-sync
+- [Standalone template must include all generated bootstrap registries](lessons/standalone-template-must-include-all-generated.md) — area:architecture,integration; module:create_app,events; topic:auto-discovery,events,generated-files
+- [Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings](lessons/startup-splash-must-distinguish-blocking-bootstrap.md) — area:architecture,debugging,module-data; module:customers,search,create_app; topic:error-states,dev-runtime,package-runtime
+- [Use `safeExtend()` when composing refined Zod object schemas](lessons/use-safeextend-when-composing-refined-zod-object-schemas.md) — area:architecture; module:shared,checkout; topic:generated-files,schema-composition
+
+### module-data
+
+- [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli; topic:generated-files,database-migrations,runtime-startup
+- [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
+- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
+- [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
+- [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
+- [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
+- [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
+- [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
+- [Do not diagnose unknown-total progress as broken SSE](lessons/do-not-diagnose-unknown-total-progress-as-broken-sse.md) — area:module-data,integration,backend-ui; module:events,progress,catalog; topic:data-import,events,provider-lifecycle
+- [Docker initialization should treat the existing-users CLI abort as already initialized](lessons/docker-initialization-should-treat-the-existing-users.md) — area:module-data,architecture,debugging; module:cli,create_app; topic:package-runtime,runtime-startup,template-sync
+- [Duplicate migration creation causes initialize failures in fresh databases](lessons/duplicate-migration-creation-causes-initialize-failures.md) — area:module-data,testing,architecture; module:customers; topic:database-migrations,runtime-startup,testing
+- [Flush entity updates before running relation syncs that query](lessons/flush-entity-updates-before-running-relation-syncs-that.md) — area:module-data; module:catalog; topic:command-pattern,data-integrity
+- [Keep fallible document preparation outside encryption guards](lessons/keep-fallible-document-preparation-outside-encryption.md) — area:module-data,debugging; module:query_index,search; topic:data-integrity,encryption,query-index
+- [Keep raw SQL out of API route handlers](lessons/keep-raw-sql-out-of-api-route-handlers.md) — area:module-data,integration,testing; module:customer_accounts,customers; topic:data-scoping,filters,testing
+- [MikroORM 6 does NOT generate UUIDs client-side — assign PKs before referencing](lessons/mikroorm-6-does-not-generate-uuids-client-side-assign.md) — area:module-data; module:cli,shared; topic:data-integrity,testing,validation-errors
+- [MikroORM string defaults must be plain values, not pre-quoted SQL fragments](lessons/mikroorm-string-defaults-must-be-plain-values-not-pre.md) — area:module-data; module:entities; topic:generated-files,database-migrations,runtime-startup
+- [Normalize raw SQL result types before JSON responses](lessons/normalize-raw-sql-result-types-before-json-responses.md) — area:module-data; module:platform; topic:testing,type-normalization
+- [PostgreSQL partial unique indexes are not constraints](lessons/postgresql-partial-unique-indexes-are-not-constraints.md) — area:module-data,debugging; module:platform; topic:data-integrity,data-scoping,testing
+- [Preserve Turbopack compiler cache during greenfield dev warmup](lessons/preserve-turbopack-compiler-cache-during-greenfield-dev.md) — area:module-data,architecture,debugging; module:cache,auth,create_app; topic:dev-runtime,runtime-startup,template-sync
+- [Projection updates that change indexed parent fields must emit query-index upserts](lessons/projection-updates-that-change-indexed-parent-fields.md) — area:module-data,debugging; module:query_index,customers,events; topic:command-pattern,events,filters
+- [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search; topic:custom-fields,data-scoping,query-index
+- [Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files](lessons/standalone-generators-must-reuse-package-generated.md) — area:module-data,architecture,framework-context; module:entities,cli,create_app; topic:auto-discovery,build-output,data-scoping
+- [Store global event bus in `globalThis` to survive module duplication in dev](lessons/store-global-event-bus-in-globalthis-to-survive-module.md) — area:module-data,architecture,debugging; module:events,shared; topic:events,module-boundaries,package-runtime
+- [Sync progress must count source records, not emitted side-effect items](lessons/sync-progress-must-count-source-records-not-emitted.md) — area:module-data,integration; module:data_sync,progress,catalog; topic:data-import,events,testing
+- [Tool-scoped regeneration commands must not be blocked by unrelated existing files](lessons/tool-scoped-regeneration-commands-must-not-be-blocked.md) — area:module-data,architecture; module:cli; topic:command-pattern,data-scoping,regeneration
+- [Use canonical generated entity ids, not shortened ad-hoc aliases](lessons/use-canonical-generated-entity-ids-not-shortened-ad-hoc.md) — area:module-data,umes,architecture; module:checkout,entities,query_index; topic:auto-discovery,custom-fields,data-integrity
+- [We've got centralized helpers for extracting `UndoPayload`](lessons/weve-got-centralized-helpers-for-extracting-undopayload.md) — area:module-data; module:shared; topic:command-pattern,weve,centralized
+- [WeakSet-based circular reference detection drops shared (non-circular) object references](lessons/weakset-based-circular-reference-detection-drops-shared.md) — area:module-data,architecture; module:cache,events,shared; topic:events,generated-files,testing
+- [Windows `.cmd` wrappers must not be spawned directly in Node dev scripts](lessons/windows-cmd-wrappers-must-not-be-spawned-directly-in.md) — area:module-data,architecture,debugging; module:create_app; topic:command-pattern,dev-runtime,package-runtime
+- [Worker-emitted progress needs polling fallback even when SSE exists](lessons/worker-emitted-progress-needs-polling-fallback-even.md) — area:module-data,backend-ui,debugging; module:events,progress,queue; topic:events,realtime,testing
+
+### umes
+
+- [Client injection hooks must tolerate late registry registration](lessons/client-injection-hooks-must-tolerate-late-registry.md) — area:umes,architecture,integration; module:cli,cache,ui; topic:generated-files,database-migrations,provider-lifecycle
+- [Custom-field detail UIs must accept canonical bare keys](lessons/custom-field-detail-uis-must-accept-canonical-bare-keys.md) — area:umes,backend-ui,debugging; module:entities,ui,customers; topic:custom-fields,generated-files,ui-components
+- [Prefer canonical route paths over alias lists for custom APIs](lessons/prefer-canonical-route-paths-over-alias-lists-for.md) — area:umes,architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
+- [Sanitize generated component override entries before runtime use](lessons/sanitize-generated-component-override-entries-before.md) — area:umes,architecture; module:shared,cli; topic:component-overrides,generated-files,filters
+
+### backend-ui
+
+- [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
+- [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
+- [Async select controls must not treat synthetic empty changes as user clears](lessons/async-select-controls-must-not-treat-synthetic-empty.md) — area:backend-ui,testing,module-data; module:ui,catalog,events; topic:command-pattern,events,testing
+- [Auto-discovered DataTable fields must only advertise controls the table can actually honor](lessons/auto-discovered-datatable-fields-must-only-advertise.md) — area:backend-ui,umes,module-data; module:ui,customers,entities; topic:custom-fields,filters,ui-components
+- [Browser SSE bridges must work across worker and web processes](lessons/browser-sse-bridges-must-work-across-worker-and-web.md) — area:backend-ui,module-data,integration; module:events,queue,catalog; topic:data-import,events,realtime
+- [Component-scoped notification effects must not depend on header chrome](lessons/component-scoped-notification-effects-must-not-depend.md) — area:backend-ui,integration,testing; module:notifications,events,ui; topic:access-control,data-scoping,events
+- [Detail sections must route writes through page-level guarded mutations](lessons/detail-sections-must-route-writes-through-page-level.md) — area:backend-ui,umes,module-data; module:customers,events,ui; topic:events,network-security,testing
+- [dnd-kit contexts rendered in SSR need stable ids](lessons/dnd-kit-contexts-rendered-in-ssr-need-stable-ids.md) — area:backend-ui; module:customers,ui,cli; topic:generated-files,ui-components
+- [Header-gated module features need setup grants](lessons/header-gated-module-features-need-setup-grants.md) — area:backend-ui,module-data,architecture; module:notifications,search,ui; topic:access-control,data-scoping,testing
+- [Hydrated backend chrome payloads must receive the original request for scope-aware RBAC](lessons/hydrated-backend-chrome-payloads-must-receive-the.md) — area:backend-ui; module:ui,auth,events; topic:access-control,data-scoping,events
+- [Keep injected namespaces DataTable-owned, not page-owned](lessons/keep-injected-namespaces-datatable-owned-not-page-owned.md) — area:backend-ui,umes,debugging; module:ui; topic:filters,testing,ui-components
+- [Mixed advanced filters need per-row join state, not one shared logic flag](lessons/mixed-advanced-filters-need-per-row-join-state-not-one.md) — area:backend-ui,debugging; module:ui; topic:filters,mixed,advanced
+- [MUST use Button and IconButton primitives — never raw `<button>` elements](lessons/must-use-button-and-iconbutton-primitives-never-raw.md) — area:backend-ui,umes; module:ui,catalog; topic:design-system,testing,ui-components
+- [New progress UI must use SSE, not fresh polling loops](lessons/new-progress-ui-must-use-sse-not-fresh-polling-loops.md) — area:backend-ui,module-data,integration; module:events,progress,ui; topic:data-import,events,realtime
+- [Optional chrome fetches must suppress auth redirects](lessons/optional-chrome-fetches-must-suppress-auth-redirects.md) — area:backend-ui,umes; module:auth,notifications,ui; topic:access-control,testing,ui-components
+- [Out-of-band bumps in browser optimistic-lock tests must not change the row's visible name](lessons/out-of-band-bumps-in-browser-optimistic-lock-tests-must.md) — area:backend-ui,integration,testing; module:ui,webhooks,cli; topic:concurrency,data-scoping,optimistic-locking
+- [Portaled confirmations must stay inside their parent dialog's React tree](lessons/portaled-confirmations-must-stay-inside-their-parent.md) — area:backend-ui,module-data; module:ui; topic:events,ui-components
+- [Route-aware backend chrome should use route manifests, not the full module registry](lessons/route-aware-backend-chrome-should-use-route-manifests.md) — area:backend-ui,architecture; module:ui,events; topic:events,generated-files,regeneration
+- [Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout](lessons/sidebar-hydration-must-preserve-the-exact-rbac.md) — area:backend-ui,debugging; module:ui; topic:access-control,data-scoping,generated-files
+- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging; module:ui,auth,customers; topic:error-states,ui-components
+
+### integration
+
+- [Akeneo base-field imports must not fall back across locales or channels](lessons/akeneo-base-field-imports-must-not-fall-back-across.md) — area:integration,debugging; module:data_sync,catalog; topic:data-import,data-scoping,testing
+- [Akeneo media identifiers can be slash-delimited path params](lessons/akeneo-media-identifiers-can-be-slash-delimited-path.md) — area:integration; module:data_sync,cli; topic:data-import,media
+- [Akeneo variant reuse must be scoped to the current product, not global SKU matches](lessons/akeneo-variant-reuse-must-be-scoped-to-the-current.md) — area:integration,debugging; module:catalog,data_sync; topic:data-import,data-scoping
+- [DNS pinning must keep fetch and dispatcher implementations compatible](lessons/dns-pinning-must-keep-fetch-and-dispatcher.md) — area:integration,testing,debugging; module:events; topic:events,network-security,package-runtime
+- [Env-backed integration presets belong in the provider module, not core](lessons/env-backed-integration-presets-belong-in-the-provider.md) — area:integration,architecture; module:integrations,data_sync,cli; topic:data-import,data-scoping,module-boundaries
+- [Force-delete import tools must include orphaned imported rows, not only mapped rows](lessons/force-delete-import-tools-must-include-orphaned.md) — area:integration; module:catalog,data_sync; topic:data-import,force,delete
+- [Integration packages must use decryption-aware find helpers for all entity reads](lessons/integration-packages-must-use-decryption-aware-find.md) — area:integration,module-data; module:data_sync,integrations; topic:data-import,data-scoping,package-runtime
+- [Integration tests: avoid `networkidle` on pages with SSE/background streams](lessons/integration-tests-avoid-networkidle-on-pages-with-sse.md) — area:integration,backend-ui,testing; module:events,catalog,customers; topic:events,filters,package-runtime
+- [Keep external integrations as dedicated npm workspace packages](lessons/keep-external-integrations-as-dedicated-npm-workspace.md) — area:integration,umes; module:data_sync,integrations; topic:module-boundaries,package-runtime,provider-lifecycle
+- [Lazy provider wrappers must not render provider-dependent children before the provider loads](lessons/lazy-provider-wrappers-must-not-render-provider.md) — area:integration,backend-ui,architecture; module:ai_assistant,ui,cli; topic:provider-lifecycle,ui-components
+- [New shared deep import paths should get explicit export-map entries](lessons/new-shared-deep-import-paths-should-get-explicit-export.md) — area:integration,testing,debugging; module:shared; topic:events,package-runtime,testing
+- [Optional native dependencies must report load failures accurately](lessons/optional-native-dependencies-must-report-load-failures.md) — area:integration,module-data,debugging; module:cache; topic:error-states,package-runtime,testing
+- [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
+- [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
+- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache; topic:access-control,data-scoping,events
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui; topic:events,testing,workers
+- [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
+- [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
+- [Validate persisted-definition consumers before retiring legacy workflow rows](lessons/validate-persisted-definition-consumers-before-retiring.md) — area:integration,architecture,debugging; module:checkout,webhooks; topic:generated-files,database-migrations,webhooks
+- [Variant hero media should be written after importer flush-heavy work](lessons/variant-hero-media-should-be-written-after-importer.md) — area:integration,module-data; module:catalog,data_sync; topic:data-integrity,data-import,generated-files
+- [Webhook body-limit sweeps must include source-specific receivers](lessons/webhook-body-limit-sweeps-must-include-source-specific-receivers.md) — area:integration,testing,architecture; module:webhooks,payment_gateways,shipping_carriers,communication_channels,inbox_ops; topic:webhooks,network-security,testing
+- [Workspace packages with backend pages must build and export deep TSX entrypoints](lessons/workspace-packages-with-backend-pages-must-build-and.md) — area:integration,architecture; module:platform; topic:build-output,generated-files,module-boundaries
+
+### ai-workflow
+
+- [Do not rasterize untrusted uploads through sunsetted external converters](lessons/do-not-rasterize-untrusted-uploads-through-sunsetted.md) — area:ai-workflow,testing,module-data; module:ai_assistant,data_sync,queue; topic:media,testing,workers
+- [Format Zod validation errors for LLM consumption](lessons/format-zod-validation-errors-for-llm-consumption.md) — area:ai-workflow,debugging; module:ai_assistant,shared; topic:testing,validation-errors
+- [Inject TypeScript types into LLM tool descriptions for correct API payloads](lessons/inject-typescript-types-into-llm-tool-descriptions-for.md) — area:ai-workflow,backend-ui,module-data; module:ai_assistant,events,search; topic:events,runtime-startup,testing
+
+### debugging
+
+- [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
+- [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
+- [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
+- [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
+
+### testing
+
+- [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
+- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,query-index,route-coverage
+- [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
+- [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
+- [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
+- [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
+- [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
+- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform; topic:testing,node-runtime
+- [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
+
+### framework-context
+
+- [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
+- [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
+- [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files

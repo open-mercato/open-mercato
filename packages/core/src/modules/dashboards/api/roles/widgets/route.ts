@@ -6,8 +6,11 @@ import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { resolveWidgetAssignmentReadScope } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import {
+  resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentTargetAccess,
+} from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -58,7 +61,10 @@ export async function GET(req: Request) {
   const em = container.resolve('em') as any
   const rbac = container.resolve('rbacService') as any
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-  if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
+  if (!authorizeFeatures([FEATURE], {
+    grantedFeatures: acl.features ?? [],
+    unrestricted: !!acl.isSuperAdmin,
+  })) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -70,7 +76,15 @@ export async function GET(req: Request) {
   })
 
   const role = await em.findOne(Role, { id: roleId, deletedAt: null })
-  if (!role || (tenantId && role.tenantId !== tenantId)) {
+  const access = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: role,
+  })
+  if (access === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (access === 'not-found') {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })
   }
 
@@ -109,7 +123,10 @@ export async function PUT(req: Request) {
   const em = resolve('em') as any
   const rbac = resolve('rbacService') as any
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-  if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
+  if (!authorizeFeatures([FEATURE], {
+    grantedFeatures: acl.features ?? [],
+    unrestricted: !!acl.isSuperAdmin,
+  })) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -121,7 +138,15 @@ export async function PUT(req: Request) {
   const organizationId = auth.orgId ?? null
 
   const role = await em.findOne(Role, { id: parsed.data.roleId, deletedAt: null })
-  if (!role || (tenantId && role.tenantId !== tenantId)) {
+  const access = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: role,
+  })
+  if (access === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (access === 'not-found') {
     return NextResponse.json({ error: 'Role not found' }, { status: 404 })
   }
 

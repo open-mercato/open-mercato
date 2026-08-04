@@ -601,3 +601,8 @@ No existing checkout, sales, or payment gateway route is renamed or removed.
 - Defined implementation plan (4 sub-phases)
 - Expanded security and abuse-prevention coverage, including no-quote-on-GET and submit idempotency
 - Completed compliance review
+
+### 2026-08-02
+- Enforced a strict transaction status state-machine inside `updateTransactionStatusCommand` (`VALID_CHECKOUT_TRANSITIONS`) to reject regressions from terminal states (`completed`, `failed`, `cancelled`, `expired`).
+- Allowed same-state transitions (e.g., `processing` → `processing`, `completed` → `completed`) as safe no-ops to support idempotency and Stripe checkout session mapping.
+- Introduced atomic compare-and-swap (CAS) via `tx.nativeUpdate` with previous status pinned in the `WHERE` clause, returning a `409` conflict on lost write races.

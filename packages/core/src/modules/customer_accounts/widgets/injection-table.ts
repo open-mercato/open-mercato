@@ -8,10 +8,13 @@ const accountStatusWidget = {
   priority: 200,
 } as const
 
+// Column 1 on purpose (#4400): any column-2 group makes CrudForm switch the
+// company detail page to the narrow 7fr/3fr two-column layout, compressing the
+// left-side groups. Portal users belongs in the left stack as a full-width row.
 const companyUsersWidget = {
   widgetId: 'customer_accounts.injection.company-users',
   kind: 'group',
-  column: 2,
+  column: 1,
   groupLabel: 'customer_accounts.widgets.portalUsers',
   priority: 200,
 } as const
@@ -19,10 +22,8 @@ const companyUsersWidget = {
 export const injectionTable: ModuleInjectionTable = {
   'customers.person': [accountStatusWidget],
   'crud-form:customers.person': [accountStatusWidget],
-  'crud-form:customers:customer_person_profile:fields': [accountStatusWidget],
   'customers.company': [companyUsersWidget],
   'crud-form:customers.company': [companyUsersWidget],
-  'crud-form:customers:customer_company_profile:fields': [companyUsersWidget],
   // Step 4.10 — Portal AiChat injection example.
   // Mapped to the portal profile page's `pageAfter('profile')` spot;
   // third-party modules targeting other portal pages can copy this entry.

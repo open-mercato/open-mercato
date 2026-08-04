@@ -326,7 +326,7 @@ async function maybeInitializeGitRepository(targetDir: string, options: Options)
   return result
 }
 
-function buildRegistryConfig(registryUrl: string): string {
+export function buildRegistryConfig(registryUrl: string): string {
   let parsedRegistryUrl: URL
 
   try {
@@ -354,6 +354,7 @@ function buildRegistryConfig(registryUrl: string): string {
   configLines.push('npmScopes:')
   configLines.push('  open-mercato:')
   configLines.push(`    npmRegistryServer: "${registryUrl}"`)
+  configLines.push('    npmMinimalAgeGate: 0')
 
   return configLines.join('\n')
 }

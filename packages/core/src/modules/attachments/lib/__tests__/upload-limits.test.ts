@@ -1,5 +1,7 @@
 import {
   isMultipartRequestWithinUploadLimit,
+  MultipartUploadLimitError,
+  parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
   resolveAttachmentTenantQuotaBytes,
   resolveDefaultAttachmentMaxUploadBytes,
@@ -61,5 +63,74 @@ describe('attachment upload limits', () => {
     process.env[legacyQuotaEnv] = '3'
     expect(resolveDefaultAttachmentMaxUploadBytes()).toBe(2 * 1024 * 1024)
     expect(resolveAttachmentTenantQuotaBytes()).toBe(3 * 1024 * 1024)
+  })
+
+  it('rejects a streamed multipart body that exceeds a missing or dishonest content length', async () => {
+    process.env[primaryMaxUploadEnv] = '0.000001'
+    const boundary = 'upload-limit'
+    const body = new TextEncoder().encode([
+      `--${boundary}\r\n`,
+      'Content-Disposition: form-data; name="metadata"\r\n\r\n',
+      'x'.repeat(1024 * 1024),
+      `\r\n--${boundary}--\r\n`,
+    ].join(''))
+
+    for (const contentLength of [null, 'invalid', '1']) {
+      const headers = new Headers({ 'content-type': `multipart/form-data; boundary=${boundary}` })
+      if (contentLength !== null) headers.set('content-length', contentLength)
+      const request = new Request('http://example.test/upload', { method: 'POST', headers, body })
+
+      await expect(parseMultipartFormDataWithinUploadLimit(request)).rejects.toBeInstanceOf(MultipartUploadLimitError)
+    }
+  })
+
+  it('parses a valid multipart body exactly at the total request limit', async () => {
+    process.env[primaryMaxUploadEnv] = '0.000001'
+    const boundary = 'exact-boundary'
+    const prefix = `--${boundary}\r\nContent-Disposition: form-data; name="metadata"\r\n\r\n`
+    const suffix = `\r\n--${boundary}--\r\n`
+    const maxBytes = resolveDefaultAttachmentMaxUploadBytes() + 1024 * 1024
+    const value = 'x'.repeat(maxBytes - Buffer.byteLength(prefix) - Buffer.byteLength(suffix))
+    const body = new TextEncoder().encode(`${prefix}${value}${suffix}`)
+    const request = new Request('http://example.test/upload', {
+      method: 'POST',
+      headers: {
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+        'content-length': String(body.byteLength),
+      },
+      body,
+    })
+
+    const form = await parseMultipartFormDataWithinUploadLimit(request)
+
+    expect(body.byteLength).toBe(maxBytes)
+    expect(form.get('metadata')).toBe(value)
+  })
+
+  it('stops pulling the request stream after the total request limit is crossed', async () => {
+    process.env[primaryMaxUploadEnv] = '0.000001'
+    let pulls = 0
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        controller.enqueue(new Uint8Array(1024 * 1024 + 2))
+      },
+      cancel(error) {
+        cancelled = error instanceof MultipartUploadLimitError
+      },
+    }, { highWaterMark: 0 })
+    const request = new Request('http://example.test/upload', {
+      method: 'POST',
+      headers: { 'content-type': 'multipart/form-data; boundary=unused' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' })
+
+    await expect(parseMultipartFormDataWithinUploadLimit(request)).rejects.toBeInstanceOf(MultipartUploadLimitError)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(pulls).toBe(1)
+    expect(cancelled).toBe(true)
   })
 })

@@ -21,6 +21,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
@@ -1665,7 +1666,7 @@ export function AvailabilityRulesEditor({
                           ) : (
                             windows.map((window, windowIndex) => {
                               const windowError = weeklyWindowErrors[index]?.[windowIndex] ?? null
-                              const errorClass = windowError ? 'border-red-500 aria-invalid:ring-destructive' : ''
+                              const errorClass = windowError ? 'border-status-error-border aria-invalid:ring-destructive' : ''
                               return (
                                 <div key={`${day.code}-${windowIndex}`} className="space-y-1">
                                   <div className="flex flex-wrap items-center gap-2">
@@ -1696,7 +1697,7 @@ export function AvailabilityRulesEditor({
                                     </Button>
                                   </div>
                                   {windowError ? (
-                                    <div className="text-xs text-red-600">{windowError}</div>
+                                    <div className="text-xs text-status-error-text">{windowError}</div>
                                   ) : null}
                                 </div>
                               )
@@ -1856,44 +1857,25 @@ export function AvailabilityRulesEditor({
                   <div className="rounded-lg border bg-muted/30 p-4">
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'date'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'date'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => setEditorScope('date')}
-                          >
-                            {listLabels.applyScopeDate}
-                          </Button>
-                          <Button
-                            type="button"
-                            role="tab"
-                            aria-selected={editorScope === 'weekday'}
-                            variant="ghost"
-                            size="sm"
-                            className={`h-auto rounded-md px-3 py-1.5 font-medium ${
-                              editorScope === 'weekday'
-                                ? 'bg-background text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            onClick={() => {
-                              setEditorScope('weekday')
+                        <Tabs
+                          value={editorScope}
+                          onValueChange={(value) => {
+                            const nextScope = value as 'date' | 'weekday'
+                            setEditorScope(nextScope)
+                            if (nextScope === 'weekday') {
                               setEditorUnavailable(false)
                               setEditorNote('')
                               setEditorReasonEntryId(null)
                               setEditorReasonValue('')
-                            }}
-                          >
-                            {listLabels.editAllLabel}
-                          </Button>
-                        </div>
+                            }
+                          }}
+                          variant="underline"
+                        >
+                          <TabsList aria-label={listLabels.applyScopeLabel}>
+                            <TabsTrigger value="date">{listLabels.applyScopeDate}</TabsTrigger>
+                            <TabsTrigger value="weekday">{listLabels.editAllLabel}</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
                       </div>
 
                       {editorScope === 'date' ? (
@@ -2003,7 +1985,7 @@ export function AvailabilityRulesEditor({
                           <label className="text-xs font-medium text-muted-foreground">{listLabels.windowsLabel}</label>
                           {editorWindows.map((window, index) => {
                             const windowError = editorWindowErrors[index] ?? null
-                            const errorClass = windowError ? 'border-red-500 aria-invalid:ring-destructive' : ''
+                            const errorClass = windowError ? 'border-status-error-border aria-invalid:ring-destructive' : ''
                             return (
                               <div key={`${index}-${window.start}`} className="space-y-1">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -2031,7 +2013,7 @@ export function AvailabilityRulesEditor({
                                   </Button>
                                 </div>
                                 {windowError ? (
-                                  <div className="text-xs text-red-600">{windowError}</div>
+                                  <div className="text-xs text-status-error-text">{windowError}</div>
                                 ) : null}
                               </div>
                             )

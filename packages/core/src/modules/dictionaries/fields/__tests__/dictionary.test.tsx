@@ -90,6 +90,16 @@ describe('dictionary field defEditor', () => {
     expect(onChange).toHaveBeenCalledWith({ multi: true, defaultValue: undefined })
   })
 
+  it('keeps scalar-only dictionary options visible but disabled in multi mode', async () => {
+    renderEditor({ configJson: { dictionaryId: 'dict-1', multi: true, dictionaryInlineCreate: true } })
+
+    const inlineCreate = await screen.findByLabelText('Allow inline creation inside forms')
+    expect(inlineCreate).toBeDisabled()
+    expect(inlineCreate).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByText('Inline creation is available for single-entry dictionary fields only.')).toBeInTheDocument()
+    expect(screen.getByText('Default values are not available for multi-select dictionary fields.')).toBeInTheDocument()
+  })
+
   it('uses the design-system error token (not text-red-600) for load failures', async () => {
     apiCallMock.mockResolvedValue({ ok: false, result: { error: 'boom' } })
     renderEditor({ configJson: {} })
@@ -97,6 +107,9 @@ describe('dictionary field defEditor', () => {
     const message = await screen.findByText(/Failed to load dictionaries/)
     expect(message).toHaveClass('text-status-error-text')
     expect(message).not.toHaveClass('text-red-600')
+    // A load failure is status copy, not a destructive action — the action
+    // token would read as "click here to delete something".
+    expect(message).not.toHaveClass('text-destructive')
   })
 
   it('uses the design-system warning token (not text-amber-600) for a stale default value', async () => {

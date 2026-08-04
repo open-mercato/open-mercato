@@ -6,9 +6,13 @@ import {
   buildDateTruncExpression,
   buildJsonbFieldExpression,
   buildAggregationQuery,
+  buildDistinctCurrencyQuery,
+  buildGroupSourceRowsQuery,
+  resolveGroupExpression,
   isValidGranularity,
   isValidAggregate,
 } from '../aggregations'
+import { PostgreSqlPlatform } from '@mikro-orm/postgresql'
 import { createAnalyticsRegistry } from '../../services/analyticsRegistry'
 import { analyticsConfig as salesAnalyticsConfig } from '../../../sales/analytics'
 import { analyticsConfig as customersAnalyticsConfig } from '../../../customers/analytics'
@@ -252,6 +256,146 @@ describe('aggregations', () => {
       expect(result?.sql).toContain('grand_total_gross_amount >= ?')
     })
 
+    it('expands an in filter into one placeholder and one parameter per member', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['completed', 'shipped'] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?)')
+      expect(result?.params).toEqual(['tenant-123', 'completed', 'shipped'])
+    })
+
+    it('expands a not_in filter into one placeholder and one parameter per member', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'not_in', value: ['cancelled', 'refunded'] }],
+      })
+      expect(result?.sql).toContain('status NOT IN (?, ?)')
+      expect(result?.params).toEqual(['tenant-123', 'cancelled', 'refunded'])
+    })
+
+    it('treats a single-member set filter like any other set filter', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['completed'] }],
+      })
+      expect(result?.sql).toContain('status IN (?)')
+      expect(result?.params).toEqual(['tenant-123', 'completed'])
+    })
+
+    it('accepts a scalar value for a set filter', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'not_in', value: 'cancelled' }],
+      })
+      expect(result?.sql).toContain('status NOT IN (?)')
+      expect(result?.params).toEqual(['tenant-123', 'cancelled'])
+    })
+
+    it('renders an empty set filter as a constant instead of empty parentheses', () => {
+      const emptyIn = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: [] }],
+      })
+      expect(emptyIn?.sql).toContain('AND FALSE')
+      expect(emptyIn?.sql).not.toContain('IN ()')
+      expect(emptyIn?.params).toEqual(['tenant-123'])
+
+      const emptyNotIn = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'not_in', value: undefined }],
+      })
+      expect(emptyNotIn?.sql).toContain('AND TRUE')
+      expect(emptyNotIn?.params).toEqual(['tenant-123'])
+    })
+
+    /**
+     * The request schema refuses these shapes at the API boundary; these cases pin the builder's
+     * own behaviour for in-process callers, whose filter values are typed as `unknown`. Rendering
+     * them would produce `IN (NULL)` — no rows, no error — which on a dashboard is a silent zero.
+     */
+    it('refuses a null set filter value instead of rendering IN (NULL)', () => {
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'in', value: null }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+    })
+
+    it('refuses a null member inside a set filter, the classic NOT IN trap', () => {
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'in', value: [null] }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+
+      expect(() =>
+        buildAggregationQuery({
+          ...baseOptions,
+          filters: [{ field: 'status', operator: 'not_in', value: ['cancelled', null, 'refunded'] }],
+        }),
+      ).toThrow(/must not be null or undefined/)
+    })
+
+    it('keeps falsy members that are not null', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'in', value: ['', 0, false] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?, ?)')
+      expect(result?.params).toEqual(['tenant-123', '', 0, false])
+    })
+
+    it('applies set filters to the encrypted group-source row query as well', () => {
+      const result = buildGroupSourceRowsQuery({
+        ...baseOptions,
+        groupColumn: 'shipping_address_snapshot',
+        rowLimit: 10,
+        filters: [{ field: 'status', operator: 'in', value: ['completed', 'shipped'] }],
+      })
+      expect(result?.sql).toContain('status IN (?, ?)')
+      expect(result?.params).toEqual(['tenant-123', 'completed', 'shipped'])
+    })
+
+    /**
+     * `WidgetDataService` runs these queries through `em.getConnection().execute(sql, params)`.
+     * MikroORM does not hand the parameters to the driver: `AbstractSqlConnection.execute` calls
+     * `platform.formatQuery`, which interpolates every value into the SQL string. This suite
+     * cannot open a PostgreSQL connection, so it asserts on the output of that same interpolation
+     * — the exact text the server receives. End-to-end execution against a live PostgreSQL is
+     * covered by `__integration__/TC-DASH-010-set-filter-operators.spec.ts`.
+     */
+    describe('rendered SQL (PostgreSqlPlatform.formatQuery)', () => {
+      const platform = new PostgreSqlPlatform()
+
+      it('renders set filters as a valid PostgreSQL IN list', () => {
+        const result = buildAggregationQuery({
+          ...baseOptions,
+          filters: [
+            { field: 'status', operator: 'in', value: ['completed', "o'brien"] },
+            { field: 'paymentStatus', operator: 'not_in', value: ['refunded'] },
+          ],
+        })
+        const rendered = platform.formatQuery(result!.sql, result!.params)
+        expect(rendered).toContain("status IN ('completed', 'o''brien')")
+        expect(rendered).toContain("payment_status NOT IN ('refunded')")
+      })
+
+      it('pins the array-as-single-parameter rendering this fix replaced', () => {
+        // Kept as an executable record of the defect in #4669, and as a canary: the fix assumes
+        // MikroORM flattens an array parameter, so this fails loudly if that ever changes.
+        // PostgreSQL answers
+        // `syntax error at or near ","` for a multi-member list and `malformed array literal`
+        // for a single-member one, so `in`/`not_in` failed for every possible value.
+        expect(platform.formatQuery('status = ANY(?)', [['completed', 'shipped']])).toBe(
+          "status = ANY('completed', 'shipped')",
+        )
+        expect(platform.formatQuery('status != ALL(?)', [['cancelled']])).toBe("status != ALL('cancelled')")
+      })
+    })
+
     it('handles is_null and is_not_null operators without value', () => {
       const result = buildAggregationQuery({
         ...baseOptions,
@@ -278,6 +422,91 @@ describe('aggregations', () => {
         metric: { field: 'invalidField', aggregate: 'sum' },
       })
       expect(result).toBeNull()
+    })
+  })
+
+  describe('resolveGroupExpression', () => {
+    it('resolves a plain column', () => {
+      const resolved = resolveGroupExpression(testRegistry, 'sales:orders', { field: 'status' })
+      expect(resolved).toEqual({ expression: 'status', dbColumn: 'status', jsonPath: null })
+    })
+
+    it('resolves a timestamp column with granularity', () => {
+      const resolved = resolveGroupExpression(testRegistry, 'sales:orders', {
+        field: 'placedAt',
+        granularity: 'month',
+      })
+      expect(resolved).toEqual({
+        expression: "DATE_TRUNC('month', placed_at)",
+        dbColumn: 'placed_at',
+        jsonPath: null,
+      })
+    })
+
+    it('exposes the underlying column and path for JSONB notation', () => {
+      const resolved = resolveGroupExpression(testRegistry, 'sales:orders', {
+        field: 'shippingAddressSnapshot.region',
+      })
+      expect(resolved).toEqual({
+        expression: "shipping_address_snapshot->>'region'",
+        dbColumn: 'shipping_address_snapshot',
+        jsonPath: 'region',
+      })
+    })
+
+    it('returns null for unknown fields', () => {
+      expect(resolveGroupExpression(testRegistry, 'sales:orders', { field: 'nope' })).toBeNull()
+      expect(resolveGroupExpression(testRegistry, 'sales:orders', { field: 'status.nested' })).toBeNull()
+    })
+  })
+
+  describe('buildGroupSourceRowsQuery', () => {
+    const baseOptions = {
+      entityType: 'sales:orders',
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' as const },
+      scope: { tenantId: 'tenant-123' },
+      registry: testRegistry,
+      groupColumn: 'shipping_address_snapshot',
+      rowLimit: 100,
+    }
+
+    it('selects the raw group source next to the metric column', () => {
+      const result = buildGroupSourceRowsQuery(baseOptions)
+      expect(result?.sql).toContain('SELECT shipping_address_snapshot AS group_source, grand_total_gross_amount AS metric_value')
+      expect(result?.sql).toContain('FROM "sales_orders"')
+      expect(result?.sql).not.toContain('GROUP BY')
+    })
+
+    it('keeps tenant, organization, soft-delete and date scoping', () => {
+      const start = new Date('2024-01-01')
+      const end = new Date('2024-01-31')
+      const result = buildGroupSourceRowsQuery({
+        ...baseOptions,
+        scope: { tenantId: 'tenant-123', organizationIds: ['org-1'] },
+        dateRange: { field: 'placedAt', start, end },
+      })
+      expect(result?.sql).toContain('tenant_id = ?')
+      expect(result?.sql).toContain('organization_id = ANY(?::uuid[])')
+      expect(result?.sql).toContain('deleted_at IS NULL')
+      expect(result?.sql).toContain('placed_at >= ?')
+      expect(result?.params).toEqual(['tenant-123', '{org-1}', start, end])
+    })
+
+    it('fetches one row beyond the cap so overflow is detectable', () => {
+      expect(buildGroupSourceRowsQuery({ ...baseOptions, rowLimit: 10 })?.sql).toContain('LIMIT 11')
+    })
+
+    it('rejects an unsafe group column', () => {
+      expect(() => buildGroupSourceRowsQuery({ ...baseOptions, groupColumn: 'a"; drop table x --' })).toThrow(
+        'Invalid group column',
+      )
+    })
+
+    it('returns null for an invalid entity type or metric field', () => {
+      expect(buildGroupSourceRowsQuery({ ...baseOptions, entityType: 'invalid' })).toBeNull()
+      expect(
+        buildGroupSourceRowsQuery({ ...baseOptions, metric: { field: 'nope', aggregate: 'sum' } }),
+      ).toBeNull()
     })
   })
 
@@ -325,4 +554,73 @@ describe('aggregations', () => {
       expect(fields).toContain('placedAt')
     })
   })
+
+  describe('buildDistinctCurrencyQuery (#4676)', () => {
+    it('reads the distinct per-row currencies over the aggregation scope', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        dateRange: { field: 'placedAt', start: new Date('2026-01-01'), end: new Date('2026-01-31') },
+        scope: { tenantId: 'tenant-1', organizationIds: ['org-1', 'org-2'] },
+        registry: testRegistry,
+      })
+
+      expect(query).not.toBeNull()
+      expect(query!.sql).toContain("SELECT DISTINCT UPPER(NULLIF(BTRIM(currency_code), '')) AS code")
+      expect(query!.sql).toContain('FROM "sales_orders"')
+      expect(query!.sql).toContain('tenant_id = ?')
+      expect(query!.sql).toContain('organization_id = ANY(?::uuid[])')
+      expect(query!.sql).toContain('deleted_at IS NULL')
+      expect(query!.sql).toContain('placed_at >= ?')
+      expect(query!.sql).toContain('placed_at <= ?')
+      expect(query!.sql).toContain('LIMIT 2')
+      expect(query!.params[0]).toBe('tenant-1')
+      expect(query!.params[1]).toBe('{org-1,org-2}')
+    })
+
+    it('applies the same filters the aggregation applies', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        filters: [{ field: 'status', operator: 'eq', value: 'completed' }],
+        scope: { tenantId: 'tenant-1' },
+        registry: testRegistry,
+      })
+
+      expect(query!.sql).toContain('status = ?')
+      expect(query!.params).toContain('completed')
+    })
+
+    it('covers every entity the money widgets aggregate', () => {
+      for (const entityType of ['sales:orders', 'sales:order_lines', 'customers:deals']) {
+        const query = buildDistinctCurrencyQuery({
+          entityType,
+          scope: { tenantId: 'tenant-1' },
+          registry: testRegistry,
+        })
+
+        expect(query).not.toBeNull()
+      }
+    })
+
+    it('returns null for an entity that declares no per-row currency column', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'catalog:products',
+        scope: { tenantId: 'tenant-1' },
+        registry: testRegistry,
+      })
+
+      expect(query).toBeNull()
+    })
+
+    it('normalizes codes before limiting the distinct result', () => {
+      const query = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        scope: { tenantId: 'tenant-1' },
+        registry: testRegistry,
+      })
+
+      expect(query!.sql).toContain("UPPER(NULLIF(BTRIM(currency_code), ''))")
+      expect(query!.sql).toContain('LIMIT 2')
+    })
+  })
+
 })

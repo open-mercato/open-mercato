@@ -246,6 +246,8 @@ export const vectorDriverStatusSchema = z.object({
   name: z.string(),
   configured: z.boolean(),
   implemented: z.boolean(),
+  available: z.boolean().nullable(),
+  unavailableReason: z.string().nullable(),
   envVars: z.array(vectorDriverEnvVarSchema),
 })
 

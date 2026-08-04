@@ -8,6 +8,7 @@ const inviteCompoundConfig: RateLimitConfig = { points: 5, duration: 60, blockDu
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
+const mockRollbackInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockGetCustomerAuthFromRequest = jest.fn()
@@ -24,7 +25,7 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'customerRbacService') return {}
-    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation }
+    if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, rollbackInvitation: mockRollbackInvitation }
     if (token === 'em') return { find: jest.fn() }
     return null
   }),
@@ -54,8 +55,15 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: (...args: unknown[]) => mockEmit(...args),
 }))
 
+const mockSendCustomerInvitationEmail = jest.fn(async () => undefined)
+
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({
+  sendCustomerInvitationEmail: (...args: unknown[]) => mockSendCustomerInvitationEmail(...args),
+}))
+
 const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
+const foreignOrganizationId = '33333333-3333-4333-8333-333333333334'
 const customerEntityId = '44444444-4444-4444-8444-444444444444'
 const invitationId = '55555555-5555-4555-8555-555555555555'
 const roleId = '11111111-1111-4111-8111-111111111111'
@@ -97,8 +105,12 @@ describe('customer invitation endpoints — invitation-created event', () => {
         expiresAt: new Date().toISOString(),
       },
       rawToken: 'raw-secret-token',
+      reused: false,
+      rollbackState: null,
     })
+    mockRollbackInvitation.mockResolvedValue(undefined)
     mockEmit.mockResolvedValue(undefined)
+    mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
     mockFindWithDecryption.mockResolvedValue([{ id: roleId, name: 'Buyer', customerAssignable: true }])
   })
 
@@ -139,6 +151,57 @@ describe('customer invitation endpoints — invitation-created event', () => {
       tenantId,
       organizationId,
     })
+  })
+
+  it('admin route does NOT emit when the invitation email fails (502 path)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockSendCustomerInvitationEmail.mockRejectedValueOnce(new Error('smtp unavailable'))
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/admin/users-invite', { email: 'buyer@example.com', roleIds: [roleId] }),
+    )
+
+    expect(res.status).toBe(502)
+    expect(invitedEvents()).toHaveLength(0)
+    expect(mockRollbackInvitation).toHaveBeenCalledTimes(1)
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('portal route does NOT emit when the invitation email fails (502 path)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockSendCustomerInvitationEmail.mockRejectedValueOnce(new Error('smtp unavailable'))
+    const { POST } = await import('../portal/users-invite')
+
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/portal/users-invite', { email: 'buyer@example.com', roleIds: [roleId] }),
+    )
+
+    expect(res.status).toBe(502)
+    expect(invitedEvents()).toHaveLength(0)
+    expect(mockRollbackInvitation).toHaveBeenCalledTimes(1)
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('portal route rejects an assignable role owned by another organization in the same tenant', async () => {
+    mockFindWithDecryption.mockImplementation(async (_em, _entity, where: Record<string, unknown>) => (
+      where.organizationId === organizationId
+        ? []
+        : [{ id: roleId, name: 'Foreign Buyer', customerAssignable: true, organizationId: foreignOrganizationId }]
+    ))
+    const { POST } = await import('../portal/users-invite')
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/portal/users-invite', { email: 'buyer@example.com', roleIds: [roleId] }),
+    )
+
+    expect(res.status).toBe(400)
+    expect(mockFindWithDecryption.mock.calls[0][2]).toEqual(expect.objectContaining({
+      id: { $in: [roleId] },
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    }))
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(invitedEvents()).toHaveLength(0)
   })
 
   it('admin route does NOT emit when unauthenticated', async () => {
