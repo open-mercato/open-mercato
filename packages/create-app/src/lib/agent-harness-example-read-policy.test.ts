@@ -926,7 +926,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212']
+const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212', 'OMH-215', 'OMH-216']
 
 /**
  * The exact capability set each declaring case may read.
@@ -948,6 +948,8 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   ],
   'OMH-211': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
   'OMH-212': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
+  'OMH-215': ['runtime.bulk-operation-progress'],
+  'OMH-216': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
 }
 const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
 
@@ -1026,8 +1028,8 @@ test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which
   const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
   const stated = /(\w+) read-only cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Four')
-  assert.equal(DECLARING_CASE_IDS.length, 4)
+  assert.equal(stated[1], 'Six')
+  assert.equal(DECLARING_CASE_IDS.length, 6)
   assert.deepEqual([stated[2], stated[3]], [DECLARING_CASE_IDS[0], DECLARING_CASE_IDS.at(-1)])
 })
 
@@ -1501,8 +1503,211 @@ test('family 10: installed-source immutability rests on the enforced dependency 
 })
 
 // ---------------------------------------------------------------------------------------------
+// Oracle family 11 — source selection for the capabilities the canonical example gained last:
+// the durable bulk-complete/operation-progress flow and the AI tool-pack/agent surfaces.
+//
+// `NEWEST_CAPABILITY_SOURCES` is typed from the shipped example tree, INDEPENDENTLY of both
+// `surface-inventory.json` and the case declarations, so it is not derived from either thing it
+// constrains. A renamed, moved, dropped, or silently added source therefore fails here rather
+// than travelling into a harness case as a plausible-looking path.
+// ---------------------------------------------------------------------------------------------
+
+const canonicalExampleRoot = fileURLToPath(new URL('../../../../apps/mercato/src/modules/example/', import.meta.url))
+
+const NEWEST_CAPABILITY_SOURCES: Record<string, string[]> = {
+  'runtime.bulk-operation-progress': [
+    `${EXAMPLE_ROOT}/widgets/injection/todo-bulk-complete/widget.ts`,
+    `${EXAMPLE_ROOT}/api/todos/bulk-complete/route.ts`,
+    `${EXAMPLE_ROOT}/lib/todoBulkComplete.ts`,
+    `${EXAMPLE_ROOT}/workers/todos-bulk-complete.ts`,
+    `${EXAMPLE_ROOT}/workers/todos-bulk-dispatch.ts`,
+  ],
+  'ai.tool-pack': [`${EXAMPLE_ROOT}/ai-tools.ts`],
+  'ai.agent': [`${EXAMPLE_ROOT}/ai-agents.ts`],
+  'ai.agent-extension': [`${EXAMPLE_ROOT}/ai-agents.ts`],
+}
+
+/**
+ * A read resolves to ONE capability, so two inventory rows declared in the same file contribute a
+ * single resolved id. `ai.agent` and `ai.agent-extension` both map `ai-agents.ts`, which is exactly
+ * the fact OMH-216's prompt asks the model to report instead of inventing a second path — pinned
+ * here so a future split into two files, or a merge of two rows, has to be a deliberate edit.
+ */
+const RESOLVED_CAPABILITIES: Record<string, string[]> = {
+  'OMH-215': ['runtime.bulk-operation-progress'],
+  'OMH-216': ['ai.agent', 'ai.tool-pack'],
+}
+
+const NEWEST_CAPABILITY_SELECTOR: Record<string, string> = {
+  'runtime.bulk-operation-progress': 'OMH-215',
+  'ai.tool-pack': 'OMH-216',
+  'ai.agent': 'OMH-216',
+  'ai.agent-extension': 'OMH-216',
+}
+
+function shippedCase(id: string) {
+  const found = shippedCases().find((entry) => entry.id === id)
+  assert.ok(found, `the shipped catalog must still carry ${id}`)
+  return found
+}
+
+test('family 11: the inventory maps each newest capability to exactly its shipped files, and every one of them exists', () => {
+  for (const [capabilityId, expected] of Object.entries(NEWEST_CAPABILITY_SOURCES)) {
+    const entry = capability(capabilityId)
+    assert.deepEqual(entry.sourcePaths, expected, `${capabilityId} maps different sources than the shipped example tree`)
+    assert.equal(entry.readStatus, 'readable', `${capabilityId} must be readable to be selectable by a case`)
+    for (const source of expected) {
+      const relative = source.slice(`${EXAMPLE_ROOT}/`.length)
+      assert.ok(fs.statSync(path.join(canonicalExampleRoot, relative)).isFile(), `${capabilityId} names a file that does not ship: ${source}`)
+    }
+  }
+  // The two E7 seams are separate rows over separate files, which is what makes them separately
+  // selectable at all — a single merged row would silently couple them.
+  assert.deepEqual(
+    capability('runtime.bulk-operation-progress').sourcePaths
+      .filter((source) => capability('umes.injection.datatable-bulk-action').sourcePaths.includes(source)),
+    [],
+  )
+  // The E6 agent rows deliberately DO share one file; the case prompt asks for that to be reported
+  // rather than papered over with an invented second path.
+  assert.deepEqual(capability('ai.agent').sourcePaths, capability('ai.agent-extension').sourcePaths)
+})
+
+test('family 11: each newest capability resolves to exactly its shipped sources for the case that declares it', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    for (const [caseId, capabilityIds] of Object.entries(
+      Object.entries(NEWEST_CAPABILITY_SELECTOR).reduce<Record<string, string[]>>((grouped, [capabilityId, owner]) => {
+        grouped[owner] = [...(grouped[owner] ?? []), capabilityId]
+        return grouped
+      }, {}),
+    )) {
+      const entry = shippedCase(caseId)
+      assert.deepEqual(
+        declaredCapabilityIds(entry).slice().sort(),
+        capabilityIds.slice().sort(),
+        `${caseId} must select exactly the newest capabilities it owns`,
+      )
+      const expectedSources = [...new Set(capabilityIds.flatMap((capabilityId) => NEWEST_CAPABILITY_SOURCES[capabilityId]))]
+      assert.deepEqual(
+        [...new Set(evaluator.exampleReadAllowlist(entry, root))].sort(),
+        [
+          `${EXAMPLE_ROOT}/references/surface-inventory.json`,
+          ...ENTRYPOINTS.map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
+          ...expectedSources,
+        ].sort(),
+        `${caseId} must resolve to exactly the shipped sources of its declared capabilities`,
+      )
+      const trace = evaluator.evaluateExampleReadPolicy({
+        caseRecord: entry,
+        appRoot: root,
+        reads: [...entrypointReads(), ...expectedSources.map((source) => ({ path: source }))],
+      })
+      assert.equal(trace.firstViolation, null, `${caseId} must be able to read every source it selects`)
+      assert.deepEqual(trace.reads.map((read) => read.path), [
+        `${EXAMPLE_ROOT}/README.md`,
+        `${EXAMPLE_ROOT}/references/surface-map.md`,
+        ...expectedSources,
+      ])
+      assert.equal(trace.roots[0].files, 2 + expectedSources.length)
+      assert.deepEqual(trace.roots[0].capabilities.slice().sort(), RESOLVED_CAPABILITIES[caseId])
+      for (const resolved of trace.roots[0].capabilities) {
+        assert.ok(capabilityIds.includes(resolved), `${caseId} resolved an undeclared capability ${resolved}`)
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 11: an undeclared, cross-case, sibling, directory, or stale newest source is refused', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const refusals: Array<[string, string, RegExp]> = [
+      // The AI case cannot reach the progress sources and the progress case cannot reach the AI
+      // sources, even though both declare the same root.
+      ['OMH-216', `${EXAMPLE_ROOT}/workers/todos-bulk-dispatch.ts`, /maps to a capability the case did not declare/],
+      ['OMH-215', `${EXAMPLE_ROOT}/ai-tools.ts`, /maps to a capability the case did not declare/],
+      // A neighbouring seam that lives one directory away from a declared source.
+      ['OMH-215', `${EXAMPLE_ROOT}/widgets/injection/customer-priority-bulk-actions/widget.ts`, /maps to a capability the case did not declare/],
+      // The progress route's own directory, and the whole worker directory.
+      ['OMH-215', `${EXAMPLE_ROOT}/workers`, /must name one exact file/],
+      ['OMH-216', `${EXAMPLE_ROOT}/ai-agents.*`, /must name one exact file|not mapped by the surface inventory|does not exist/],
+      // A stale spelling of a real declared source.
+      ['OMH-215', `${EXAMPLE_ROOT}/workers/todos-bulk-complete-v2.ts`, /does not exist|not mapped by the surface inventory/],
+      ['OMH-216', `${EXAMPLE_ROOT}/ai-agent.ts`, /does not exist|not mapped by the surface inventory/],
+    ]
+    for (const [caseId, target, expected] of refusals) {
+      const trace = evaluator.evaluateExampleReadPolicy({
+        caseRecord: shippedCase(caseId),
+        appRoot: root,
+        reads: [...entrypointReads(), { path: target }],
+      })
+      assert.match(trace.firstViolation ?? '', expected, `${caseId} must refuse ${target}`)
+      assert.ok(trace.reads.every((read) => read.path !== target), `${caseId} must not record ${target} as loaded context`)
+    }
+
+    // Same refusal at the tool server, so the allowlist and the evaluator agree.
+    const progress = shippedCase('OMH-215')
+    const replies = callToolServer(root, 'read-only', evaluator.exampleReadAllowlist(progress, root), [], [], [
+      { name: 'read', arguments: { path: `${EXAMPLE_ROOT}/ai-tools.ts` } },
+      { name: 'read', arguments: { path: NEWEST_CAPABILITY_SOURCES['runtime.bulk-operation-progress'][2] } },
+    ])
+    assert.equal(replies[1].result.isError, true)
+    assert.match(replies[1].result.content[0].text, /outside the case read allowlist/)
+    assert.equal(replies[2].result.isError, undefined)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 11: a newest capability demoted to qa-only stops being selectable by its own case', async () => {
+  const evaluator = await loadEvaluator()
+  const { root, qaOnly } = stageExampleAppWithQaOnlyCapability('runtime.bulk-operation-progress')
+  try {
+    const progress = shippedCase('OMH-215')
+    assert.ok(
+      evaluator.validateExampleReadPolicyDeclaration(progress, root).some((message) => /qa-only and cannot be read/.test(message)),
+      'a qa-only demotion must invalidate the declaration that selects it',
+    )
+    const trace = evaluator.evaluateExampleReadPolicy({
+      caseRecord: progress,
+      appRoot: root,
+      reads: [...entrypointReads(), { path: qaOnly.sourcePaths[0] }],
+    })
+    assert.match(trace.firstViolation ?? '', /resolves to a qa-only capability/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 11: the operation-progress and DataTable bulk-action sources are selected by different cases and share no file', () => {
+  const selectors = new Map<string, string[]>()
+  for (const entry of declaringShippedCases()) {
+    for (const capabilityId of declaredCapabilityIds(entry)) {
+      selectors.set(capabilityId, [...(selectors.get(capabilityId) ?? []), entry.id])
+    }
+  }
+  const progress = selectors.get('runtime.bulk-operation-progress') ?? []
+  const bulkAction = selectors.get('umes.injection.datatable-bulk-action') ?? []
+  assert.deepEqual(progress, ['OMH-215'], 'exactly one case must select the operation-progress source')
+  assert.deepEqual(bulkAction, ['OMH-210'], 'exactly one case must select the DataTable bulk-action source')
+  // (The two deepEqual assertions above already pin distinct literals, so a `notDeepEqual`
+  // between them is a tautology. The non-tautological property is that no SINGLE case declares
+  // both seams — that is what "selected independently" actually means.)
+  const combined = [...progress].filter((caseId) => bulkAction.includes(caseId))
+  assert.deepEqual(combined, [], 'no single case may declare both the progress and bulk-action seams')
+  assert.deepEqual(
+    capability('runtime.bulk-operation-progress').sourcePaths.filter((source) => capability('umes.injection.datatable-bulk-action').sourcePaths.includes(source)),
+    [],
+  )
+})
+
+// ---------------------------------------------------------------------------------------------
 // Coverage ledger — the spec enumerates TWELVE oracle families; this file labels its fixtures
-// `family 1`..`family 10` in implementation order, and the two numbering schemes are NOT the
+// `family 1`..`family 11` in implementation order, and the two numbering schemes are NOT the
 // same. The ledger states which spec family each fixture family serves, which spec families are
 // covered today, and which are not. Every "uncovered" claim names a surface whose absence is
 // checked here, so implementing that surface fails this test until the ledger is updated.
@@ -1531,6 +1736,7 @@ const FIXTURE_FAMILY_TO_SPEC_FAMILIES: Record<number, number[]> = {
   // Testing and Validation section and Phase 2 step 1, not one of the twelve numbered families.
   9: [],
   10: [7],
+  11: [1, 9],
 }
 
 const COVERAGE_LEDGER: LedgerRow[] = [
@@ -1540,6 +1746,8 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     fixtures: [
       'family 1: a relevant case reads the example entrypoints and several exact CRUD, data, and UI files',
       'family 1: the read allowlist resolves the declared capabilities to exact inventory files',
+      'family 11: each newest capability resolves to exactly its shipped sources for the case that declares it',
+      'family 11: an undeclared, cross-case, sibling, directory, or stale newest source is refused',
     ],
     blockedBy: [],
   },
@@ -1617,10 +1825,14 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 9,
-    status: 'uncovered',
-    fixtures: [],
+    status: 'partial',
+    fixtures: [
+      'family 11: the operation-progress and DataTable bulk-action sources are selected by different cases and share no file',
+      'family 11: each newest capability resolves to exactly its shipped sources for the case that declares it',
+      'family 11: the inventory maps each newest capability to exactly its shipped files, and every one of them exists',
+    ],
     blockedBy: ['a WRITABLE shipped case declaring context.exampleRoots'],
-    note: 'Updated on 2026-08-04: the inventory now declares `runtime.bulk-operation-progress`, so that half of the blocker is retired and this ledger row no longer claims the capability is absent. Family 9 stays uncovered because the remaining blocker is real — every shipped case that declares `context.exampleRoots` is read-only, so no behavioral writable/oracle lane can assert the connected `progressJobId` flow. OMH-210 still selects only the DataTable bulk-action source.',
+    note: 'Updated on 2026-08-04: the two independent capability assertions the family opens with now exist — OMH-210 selects `umes.injection.datatable-bulk-action` and OMH-215 selects `runtime.bulk-operation-progress`, two inventory rows over disjoint files, checked against paths typed from the shipped example tree rather than derived from the inventory. The family stays partial because its second clause is still blocked: every shipped case that declares `context.exampleRoots` is read-only, so no behavioral writable/oracle lane proves the connected `progressJobId` lifecycle.',
   },
   {
     specFamily: 10,
@@ -1654,7 +1866,6 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
   'source-link-inventory.json': () => !fs.existsSync(path.join(sourceHarness, 'source-link-inventory.json')),
   'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
     .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
-  'an operation-progress capability in surface-inventory.json': () => !inventoryCapabilities().some((entry) => entry.capabilityId.includes('progress')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
   'a shipped case routing the generated local example reference sheet': () => shippedCases().every((entry) => {
@@ -1677,7 +1888,7 @@ test('ledger: the fixture family labels in this file are distinct from the spec 
   const ownSource = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
   const labels = [...ownSource.matchAll(/\btest\('family (\d+):/g)].map((match) => Number(match[1]))
   const fixtureFamilies = [...new Set(labels)].sort((left, right) => left - right)
-  assert.deepEqual(fixtureFamilies, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'fixture families are contiguous and stop at ten')
+  assert.deepEqual(fixtureFamilies, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 'fixture families are contiguous and stop at eleven')
   assert.deepEqual(Object.keys(FIXTURE_FAMILY_TO_SPEC_FAMILIES).map(Number).sort((left, right) => left - right), fixtureFamilies)
 
   const claimed = new Set(Object.values(FIXTURE_FAMILY_TO_SPEC_FAMILIES).flat())
@@ -1717,11 +1928,11 @@ test('ledger: every gap the ledger claims is a surface that is genuinely absent 
   }
 })
 
-test('ledger: the honest coverage count is five covered, two partial, and five uncovered of twelve', () => {
+test('ledger: the honest coverage count is five covered, three partial, and four uncovered of twelve', () => {
   const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
   assert.deepEqual(tally('covered'), [1, 2, 3, 5, 7])
-  assert.deepEqual(tally('partial'), [6, 8])
-  assert.deepEqual(tally('uncovered'), [4, 9, 10, 11, 12])
+  assert.deepEqual(tally('partial'), [6, 8, 9])
+  assert.deepEqual(tally('uncovered'), [4, 10, 11, 12])
   assert.equal(COVERAGE_LEDGER.length, 12)
 })
 
