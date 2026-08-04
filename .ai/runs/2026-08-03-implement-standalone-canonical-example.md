@@ -78,6 +78,8 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 30 | **Wave 5 H3** — SPEC-P2 routing cases OMH-204..208 (5 of 6 rows) | SPEC-P2 | done | `a8c06457a` |
 | 31 | Gate cross-module example injection widgets on their host module (`requiredModules`) | CANON-B / D2 follow-up | done | `8cd970087` |
 | 32 | **Wave 6 H4** — visible exact-file example links across 5 owner families + measured budget raises | CANON-C link migration | done | `2e9fd74cb` |
+| 33 | **Wave 6 E4** (retry) — encrypted `notes` column + migration + `encryption.ts` + `search.ts`, reworked onto the platform search path | CANON-B encryption/search | done | `f050e659a` |
+| 34 | Measure harness runner duration on a monotonic clock (kills the `durationMs < 0` flake) | flake root-cause | done | `4c72bdabc` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -580,3 +582,45 @@ before merging E3; findings change what E3 is allowed to do.
     the optional Figma owner, **which the slice verified does not exist as an emitted owner at all**
     rather than repeating the spec's assumption. `source-link-inventory.json` /
     `source-link-baseline.json` and the 136-fence ledger remain outstanding.
+
+  **Wave 6 complete (session 4).** E4 was relaunched after its first implementer died with zero
+  commits; the retry was told to **commit incrementally** and produced 4 commits — keep that
+  instruction in every long slice.
+
+  - **E4's migration passed the sanity gate cleanly**, which mattered: 13 lines, one statement per
+    direction, nullable, reversible, and the snapshot diff a single 16-line hunk. The verifier parsed
+    the snapshot and confirmed only this module's three tables. **Pre-existing problem it exposed:**
+    `yarn db:generate` emits a spurious `packages/core/src/modules/wms` migration + snapshot rewrite
+    on EVERY run on a clean tree. The slice deleted that output each time under the coding-agent
+    exception. **New backlog row — it makes the migration gate noisy for everyone.**
+  - **REWORKED ON MERGE — E4 reinvented a platform capability.** It added a bespoke `notesSearch`
+    param resolving ids via `findEntityIdsBySearchTokens`, on the premise that an `$ilike` over
+    ciphertext matches nothing. That is only true of RAW SQL: `engine.ts` → `applyFilterOp`
+    intercepts like/ilike and rewrites it into a `search_tokens` lookup when the column is encrypted
+    and search is active, with `applySearchTokens` applying tenant/org scope itself. Verified
+    directly. The hand-rolled path duplicated platform behaviour AND re-derived a scope the platform
+    already applies — in the module whose job is to teach the right pattern. It was also strictly
+    MORE fail-closed (returning zero rows on `matched: false`, the exact failure it set out to
+    avoid, relocated), contradicting the documented MUST NOT in `tokenLookup.ts`. `notes` is now a
+    plain `$ilike`; ~30 lines and an exported helper removed.
+  - **Another backwards doc claim corrected:** the route said an encrypted column "is not a sortable
+    column" because `notes` is absent from `sortFieldMap`. Omitting it blocks NOTHING — the factory
+    falls through to the raw field name, so `?sortField=notes` reaches the engine and takes a correct
+    but row-capped decrypt-then-sort-in-memory path. Blocking it needs an explicit allowlist.
+  - **The `durationMs` flake is fixed at the root**, not re-run away: `Date.now() - started` goes
+    negative on an NTP step, failing the result schema's `minimum: 0`. Now `performance.now()` with a
+    floor. Seen twice in this program on different live-runner tests, each time unreproducible, each
+    time costing a diagnosis.
+  - **Still open from E4's verifier** (recorded, not fixed): 9 of 26 of its probes MISSED — the whole
+    notes-search block could be disabled or stripped of tenant/org scoping with every example test
+    green (not exploitable, since the engine re-applies scope, but asserted-correct with no guard);
+    no integration test for a slice adding an API param, a response field and a form field; two raw
+    `em.find(Todo, …)` reads remain in `data/enrichers.ts` on an entity that now carries an encrypted
+    column; and three installed-harness docs now assert falsehoods ("No canonical encryption map
+    exists yet", "the example ships no search.ts") that belong to a harness-refresh slice.
+
+  **Gate after wave 6: FULLY GREEN.** `yarn test` exit 0 (25/25 turbo tasks), create-mercato-app 540
+  (537 pass, 3 skipped) across three consecutive runs, all guards, typecheck, build:app.
+
+  **Next: wave 7** — E5 (cache + rich DI + setup seeding) · H5 (CANON-C harness case additions) ·
+  C4 (source-link baseline, using the checked `source-link-topics.json` registry per decision D4).
