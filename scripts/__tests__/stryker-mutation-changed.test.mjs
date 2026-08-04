@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import {
   DIRTY_TREE_MESSAGE,
   isWorkingTreeClean,
@@ -104,4 +106,14 @@ test('reports capped files rather than silently truncating', () => {
   runMutationChanged(harness)
 
   assert.match(harness.written.join('\n'), /file cap reached; not mutated/)
+})
+
+test('Stryker output is gitignored, so a run never self-blocks the next one', () => {
+  const gitignore = fs.readFileSync(
+    fileURLToPath(new URL('../../.gitignore', import.meta.url)),
+    'utf8',
+  )
+
+  assert.match(gitignore, /^\.stryker-tmp\/$/m)
+  assert.match(gitignore, /^\*\*\/reports\/mutation\/$/m)
 })
