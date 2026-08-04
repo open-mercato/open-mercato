@@ -381,9 +381,9 @@ export async function primeColumnCache(db: Kysely<any>, checks: ColumnCheck[]): 
 export async function refreshCoverageSnapshot(
   em: EntityManager,
   scope: CoverageScope,
-): Promise<void> {
+): Promise<{ baseCount: number; indexedCount: number } | null> {
   const entityType = String(scope.entityType || '')
-  if (!entityType) return
+  if (!entityType) return null
   const tenantId = scope.tenantId ?? null
   const organizationId = scope.organizationId ?? null
   const withDeleted = scope.withDeleted === true
@@ -395,22 +395,28 @@ export async function refreshCoverageSnapshot(
   const hasTenant = await tableHasColumn(db, baseTable, 'tenant_id')
   const hasDeleted = await tableHasColumn(db, baseTable, 'deleted_at')
 
-  if (organizationId !== null && !hasOrg) return
-  if (tenantId !== null && !hasTenant) return
+  // A scope the base table cannot express must not narrow the index side either. Index
+  // rows can carry a tenant or organization the base table has no column for — `organizations`
+  // has no `organization_id` yet its index rows derive one from the record id, and `user_roles`
+  // has neither column. Filtering only the index side compares two different populations and
+  // reports a gap that no reindex can ever close; returning early instead of recounting left
+  // the previous snapshot frozen, which is what surfaced as a permanent "out of sync" row.
+  const scopeOrg = organizationId !== null && hasOrg
+  const scopeTenant = tenantId !== null && hasTenant
 
   let baseQuery = db
     .selectFrom(`${baseTable} as b` as any)
     .select(sql`count(*)`.as('count'))
-  if (organizationId !== null && hasOrg) baseQuery = baseQuery.where('b.organization_id' as any, '=', organizationId)
-  if (tenantId !== null && hasTenant) baseQuery = baseQuery.where('b.tenant_id' as any, '=', tenantId)
+  if (scopeOrg) baseQuery = baseQuery.where('b.organization_id' as any, '=', organizationId)
+  if (scopeTenant) baseQuery = baseQuery.where('b.tenant_id' as any, '=', tenantId)
   if (!withDeleted && hasDeleted) baseQuery = baseQuery.where('b.deleted_at' as any, 'is', null as any)
 
   let indexQuery = db
     .selectFrom('entity_indexes as ei' as any)
     .select(sql`count(*)`.as('count'))
     .where('ei.entity_type' as any, '=', entityType)
-  if (organizationId !== null) indexQuery = indexQuery.where('ei.organization_id' as any, '=', organizationId)
-  if (tenantId !== null) indexQuery = indexQuery.where('ei.tenant_id' as any, '=', tenantId)
+  if (scopeOrg) indexQuery = indexQuery.where('ei.organization_id' as any, '=', organizationId)
+  if (scopeTenant) indexQuery = indexQuery.where('ei.tenant_id' as any, '=', tenantId)
   if (!withDeleted) indexQuery = indexQuery.where('ei.deleted_at' as any, 'is', null as any)
 
   const vectorCountPromise = (async (): Promise<number | undefined> => {
@@ -453,6 +459,8 @@ export async function refreshCoverageSnapshot(
     indexedCount: indexCount,
     vectorCount,
   })
+
+  return { baseCount, indexedCount: indexCount }
 }
 
 export async function writeCoverageCounts(

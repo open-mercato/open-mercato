@@ -23,6 +23,7 @@ import {
 } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
+import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 
@@ -338,6 +339,69 @@ function describeScope(scope: ScopeDescriptor): string {
   if (!scope.global && scope.tenantId && scope.supportsTenant) parts.push(`tenant=${scope.tenantId}`)
   if (!scope.includeDeleted && scope.supportsDeleted) parts.push('active-only')
   return parts.length ? ` (${parts.join(' ')})` : ''
+}
+
+/**
+ * Recount the scope from the database after a reindex and rebuild whatever is still
+ * missing, single-partition. Runs unconditionally so `mercato init` (and any scripted
+ * reindex) cannot finish leaving a gap that a human has to notice and repair by hand
+ * from the Query Indexes screen. When counts already agree this is two COUNT queries.
+ */
+async function verifyAndRepairIndexCoverage(
+  em: EntityManager,
+  options: {
+    entityType: string
+    tenantId?: string | null
+    organizationId?: string | null
+    batchSize?: number
+  },
+): Promise<void> {
+  const scope = {
+    entityType: options.entityType,
+    tenantId: options.tenantId ?? null,
+    organizationId: options.organizationId ?? null,
+    withDeleted: false,
+  }
+
+  let counts: { baseCount: number; indexedCount: number } | null = null
+  try {
+    counts = await refreshCoverageSnapshot(em, scope)
+  } catch (error) {
+    console.warn(
+      `  -> ${options.entityType}: coverage verification skipped (${error instanceof Error ? error.message : String(error)})`,
+    )
+    return
+  }
+  if (!counts || counts.indexedCount >= counts.baseCount) return
+
+  console.log(
+    `  -> ${options.entityType}: ${counts.indexedCount}/${counts.baseCount} indexed after reindex — repairing the gap...`,
+  )
+  try {
+    await reindexEntity(em, {
+      entityType: options.entityType,
+      tenantId: options.tenantId,
+      organizationId: options.organizationId,
+      force: false,
+      batchSize: options.batchSize,
+      emitVectorizeEvents: false,
+      resetCoverage: false,
+    })
+  } catch (error) {
+    console.warn(
+      `  -> ${options.entityType}: repair pass failed (${error instanceof Error ? error.message : String(error)})`,
+    )
+    return
+  }
+
+  const after = await refreshCoverageSnapshot(em, scope).catch(() => null)
+  if (after && after.indexedCount < after.baseCount) {
+    console.warn(
+      `  -> ${options.entityType}: still ${after.indexedCount}/${after.baseCount} indexed after repair`,
+    )
+  } else {
+    console.log(`  -> ${options.entityType}: coverage repaired`)
+  }
 }
 
 const rebuild: ModuleCli = {
@@ -710,6 +774,14 @@ const reindex: ModuleCli = {
         groupedProgress?.complete()
         const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
         console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        if (partitionIndexOption === undefined) {
+          await verifyAndRepairIndexCoverage(baseEm, {
+            entityType: entity,
+            tenantId,
+            organizationId: orgId,
+            batchSize,
+          })
+        }
         await recordIndexerLog(
           { em: baseEm },
           {
@@ -848,6 +920,14 @@ const reindex: ModuleCli = {
         groupedProgress?.complete()
         const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
         console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        if (partitionIndexOption === undefined) {
+          await verifyAndRepairIndexCoverage(baseEm, {
+            entityType: id,
+            tenantId,
+            organizationId: orgId,
+            batchSize,
+          })
+        }
         await recordIndexerLog(
           { em: baseEm },
           {

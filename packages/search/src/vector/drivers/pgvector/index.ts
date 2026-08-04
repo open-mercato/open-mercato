@@ -22,6 +22,7 @@ import type {
   VectorDriverRemoveOrphansParams,
   VectorResultPresenter,
   VectorLinkDescriptor,
+  VectorDriverStatus,
 } from '../../types'
 
 type PgVectorDriverOptions = {
@@ -37,6 +38,15 @@ const DEFAULT_TABLE = 'vector_search'
 const DEFAULT_MIGRATIONS_TABLE = 'vector_search_migrations'
 const DEFAULT_DIMENSION = 1536
 const DRIVER_ID = 'pgvector' as const
+
+// `undefined_file` is what Postgres raises for `extension "vector" is not available`
+// (the pgvector shared library is not installed on the server); `feature_not_supported`
+// covers managed providers that refuse the extension outright, and `undefined_object`
+// the case where the extension record is missing. None of these can be resolved by
+// retrying, so the driver reports itself unhealthy instead of failing every record.
+const EXTENSION_MISSING_CODES = new Set(['58P01', '0A000', '42704'])
+// Re-probe occasionally so installing pgvector recovers without restarting the process.
+const UNAVAILABLE_RECHECK_MS = 60_000
 
 function assertIdentifier(name: string, defaultName: string): string {
   const candidate = name ?? defaultName
@@ -102,8 +112,59 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     })()
 
   let ready: Promise<void> | null = null
+  let status: { value: VectorDriverStatus; at: number } | null = null
+  let reportedReason: string | null = null
+
+  const cacheStatus = (value: VectorDriverStatus): VectorDriverStatus => {
+    status = { value, at: Date.now() }
+    if (value.available) {
+      reportedReason = null
+    } else if (value.reason && value.reason !== reportedReason) {
+      reportedReason = value.reason
+      searchDebugWarn('vector.pgvector', `vector store unavailable — skipping vector indexing and search (${value.reason})`)
+    }
+    return value
+  }
+
+  const markExtensionMissing = (reason: string) => {
+    cacheStatus({ available: false, reason })
+  }
+
+  const readCachedStatus = (): VectorDriverStatus | null => {
+    if (!status) return null
+    return Date.now() - status.at < UNAVAILABLE_RECHECK_MS ? status.value : null
+  }
+
+  const getStatus = async (): Promise<VectorDriverStatus> => {
+    const cached = readCachedStatus()
+    if (cached) return cached
+    try {
+      const res = await pool.query<{ installed: boolean; installable: boolean }>(
+        `SELECT
+           EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS installed,
+           EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') AS installable`,
+      )
+      const row = res.rows[0]
+      if (row?.installed || row?.installable) return cacheStatus({ available: true })
+      return cacheStatus({
+        available: false,
+        reason: 'extension "vector" is not available on this PostgreSQL server',
+      })
+    } catch {
+      // A probe that cannot run (connection refused, permissions on the catalogs)
+      // says nothing about pgvector itself — stay optimistic so genuinely transient
+      // database problems keep their existing retry semantics.
+      return { available: true }
+    }
+  }
+
+  const isHealthy = async (): Promise<boolean> => (await getStatus()).available
 
   const ensureReady = async () => {
+    const cached = readCachedStatus()
+    if (cached && !cached.available) {
+      throw new Error(`[vector.pgvector] ${cached.reason ?? 'vector store unavailable'}`)
+    }
     if (!ready) {
       ready = withClient(pool, async (client) => {
         const ensureExtension = async (extension: 'pgcrypto' | 'vector') => {
@@ -115,6 +176,9 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
               const details = pgError.message ? ` (${pgError.message})` : ''
               searchDebugWarn('vector.pgvector', `skipping ${extension} extension creation; requires superuser${details}`)
               return
+            }
+            if (extension === 'vector' && pgError?.code && EXTENSION_MISSING_CODES.has(pgError.code)) {
+              markExtensionMissing(pgError.message ?? 'extension "vector" is not available')
             }
             throw error
           }
@@ -219,8 +283,16 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           `INSERT INTO ${migrationsIdent} (id, applied_at) VALUES ($1, now()) ON CONFLICT (id) DO NOTHING`,
           ['0001_init'],
         )
+      }).then(() => {
+        cacheStatus({ available: true })
       }).catch((err) => {
         ready = null
+        const pgError = err as { code?: string; message?: string }
+        // Without the extension the `vector` column type does not exist either, so the
+        // table DDL fails even when `CREATE EXTENSION` was skipped rather than raised.
+        if (pgError?.code === '42704' && /\bvector\b/.test(pgError.message ?? '')) {
+          markExtensionMissing(pgError.message ?? 'type "vector" does not exist')
+        }
         throw err
       })
     }
@@ -633,6 +705,8 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   return {
     id: 'pgvector',
     ensureReady,
+    isHealthy,
+    getStatus,
     upsert,
     delete: remove,
     getChecksum,

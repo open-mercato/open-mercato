@@ -214,6 +214,8 @@
   "search.settings.vector.sectionTitle": "Vektorsuche",
   "search.settings.vector.setEnvVar": "Umgebungsvariable setzen",
   "search.settings.vector.store": "Vektorspeicher",
+  "search.settings.vector.storeUnavailable": "Vektorspeicher ist nicht verfügbar",
+  "search.settings.vector.storeUnavailableHint": "Vektorindizierung und semantische Suche werden übersprungen, bis der Speicher erreichbar ist. Installieren Sie die pgvector-Erweiterung auf Ihrem PostgreSQL-Server und laden Sie diese Seite neu.",
   "search.settings.vector.usingTenantConfig": "Dieser Mandant verwendet eigene Embedding-Einstellungen.",
   "search.settings.vectorDocumentsLabel": "Vektordokumente",
   "search.settings.vectorNotConfigured": "Vektorsuche ist nicht konfiguriert.",

@@ -323,27 +323,42 @@ export async function reindexEntity(
 
   options?.onProgress?.({ processed, total, chunkSize: 0 })
 
+  // Partitions run concurrently, so a scope-wide purge here would delete rows a sibling
+  // partition has already written and never rebuild them (the run still reports success
+  // because progress counts attempted writes). Each partition therefore purges only the
+  // slice it is about to rebuild, and every partition purges — restricting the purge to
+  // the coverage-resetting partition would otherwise leave the other slices' stale rows
+  // behind on a forced rebuild.
+  if (force && (resetCoverage || usingPartitions)) {
+    try {
+      let purgeQuery = db
+        .deleteFrom('entity_indexes' as any)
+        .where('entity_type' as any, '=', entityType)
+      if (tenantId !== undefined) {
+        purgeQuery = purgeQuery.where(sql<boolean>`tenant_id is not distinct from ${tenantId ?? null}`)
+      }
+      if (organizationId !== undefined) {
+        purgeQuery = purgeQuery.where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
+      }
+      if (usingPartitions && partitionIndex !== null) {
+        purgeQuery = purgeQuery.where(
+          sql<boolean>`mod(abs(hashtext(entity_id::text)), ${partitionCountRaw}) = ${partitionIndex}`,
+        )
+      }
+      await purgeQuery.execute()
+    } catch (error) {
+      logger.warn('Failed to purge index rows before force reindex', {
+        entityType,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+        partitionIndex: usingPartitions ? partitionIndex : null,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+  }
+
   if (resetCoverage) {
     if (force) {
-      try {
-        let purgeQuery = db
-          .deleteFrom('entity_indexes' as any)
-          .where('entity_type' as any, '=', entityType)
-        if (tenantId !== undefined) {
-          purgeQuery = purgeQuery.where(sql<boolean>`tenant_id is not distinct from ${tenantId ?? null}`)
-        }
-        if (organizationId !== undefined) {
-          purgeQuery = purgeQuery.where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
-        }
-        await purgeQuery.execute()
-      } catch (error) {
-        logger.warn('Failed to purge index rows before force reindex', {
-          entityType,
-          tenantId: tenantId ?? null,
-          organizationId: organizationId ?? null,
-          error: error instanceof Error ? error.message : error,
-        })
-      }
 
       if (emitVectorize && eventBus) {
         if (tenantId !== undefined) {
@@ -370,8 +385,13 @@ export async function reindexEntity(
       }
     }
 
+    // Only meaningful for an unpartitioned run: `baseCounts` holds this partition's slice,
+    // so writing it as the scope's base count under-reports by the partition factor, and
+    // zeroing indexed_count scope-wide discards deltas siblings have already applied. The
+    // authoritative `refreshCoverageSnapshot` at the end of every partition owns the counts
+    // for partitioned runs.
     const nowTs = Date.now()
-    for (const scope of baseCounts.values()) {
+    for (const scope of usingPartitions ? [] : baseCounts.values()) {
       const key = `${entityType}|${scopeKey(scope.tenantId, scope.organizationId)}`
       const last = lastCoverageReset.get(key) ?? 0
       if (force || nowTs - last >= COVERAGE_REFRESH_THROTTLE_MS) {
