@@ -137,17 +137,65 @@
     {
       "capabilityId": "data.migrations",
       "title": "Module migrations and ORM snapshot",
-      "description": "Generated SQL migrations plus the module-scoped `.snapshot-open-mercato.json` that `yarn db:generate` diffs against. Copy the workflow, never the files.",
+      "description": "Generated SQL migrations plus the module-scoped `.snapshot-open-mercato.json` that `yarn db:generate` diffs against, including a later additive `alter table ... add column` alongside the initial `create table`. Copy the workflow, never the files.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": [
         "src/modules/example/migrations/Migration20251030150038.ts",
         "src/modules/example/migrations/Migration20260226161000_example.ts",
+        "src/modules/example/migrations/Migration20260804120546_example.ts",
         "src/modules/example/migrations/.snapshot-open-mercato.json"
       ],
       "integrationTestPaths": [],
       "dependencyModules": [],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "data.encryption-map",
+      "title": "Tenant data encryption map for a module entity",
+      "description": "`defaultEncryptionMaps` declaring one at-rest-encrypted column (`example:todo.notes`). Shows the choice the declaration forces on every read path: the column is projected only for single-record requests, absent from `sortFieldMap` and from the CSV headers, never filtered with `$ilike`, and written through `TenantDataEncryptionService.encryptEntityPayload` on the `nativeUpdate` path because that path fires no ORM lifecycle hooks. Pre-image reads that feed undo snapshots use `findOneWithDecryption`.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/encryption.ts",
+        "src/modules/example/data/entities.ts",
+        "src/modules/example/commands/todos.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+      ],
+      "dependencyModules": ["entities"],
+      "ruleOwner": "om-data-model-design"
+    },
+    {
+      "capabilityId": "search.module-config",
+      "title": "Module search configuration",
+      "description": "`SearchModuleConfig` for one entity: `buildSource` text chunks with `checksumSource`, `formatResult` presenter, `resolveUrl` deep link, per-entity `aclFeatures`, and a `fieldPolicy` whose `searchable` whitelist carries only plaintext columns while the encrypted column is `excluded`. Token search over the encrypted column still works, because `search_tokens` rows are built from the DECRYPTED index doc and are not gated by this policy.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/search.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/encryption-search-contract.test.ts"
+      ],
+      "dependencyModules": ["query_index"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "search.encrypted-column-list-filter",
+      "title": "List filtering over an encrypted column through the token index",
+      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` \u2192 `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column \u2014 that duplicates platform behaviour and re-derives a scope the platform already applies. When search is off the engine warns via `warnOnCiphertextLikeFallback` rather than silently matching nothing.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/api/todos/route.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/api/__tests__/todos.encrypted-search.test.ts"
+      ],
+      "dependencyModules": ["query_index"],
       "ruleOwner": "om-data-model-design"
     },
     {

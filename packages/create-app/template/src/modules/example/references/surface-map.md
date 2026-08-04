@@ -40,9 +40,27 @@ Rule owners: `om-module-scaffold`, `om-integration-builder` (DI adapters).
 | `data.entities` | UUID PKs, snake_case columns, `tenant_id`/`organization_id`, `created_at`/`updated_at`/`deleted_at`, no cross-module relations | [`../data/entities.ts`](../data/entities.ts) | readable |
 | `data.validators` | Zod create/update/list schemas, `z.infer` types, shared enum schema | [`../data/validators.ts`](../data/validators.ts) | readable |
 | `data.custom-fields` | `ce.ts` custom entities and field kinds: integer, select, boolean, multi-text tags, markdown, `optionsUrl`, listbox, attachments, defaults, validation rules | [`../ce.ts`](../ce.ts) | readable |
-| `data.migrations` | Generated SQL migrations and the module-scoped ORM snapshot that `yarn db:generate` diffs against | [`../migrations/Migration20251030150038.ts`](../migrations/Migration20251030150038.ts), [`../migrations/Migration20260226161000_example.ts`](../migrations/Migration20260226161000_example.ts), [`../migrations/.snapshot-open-mercato.json`](../migrations/.snapshot-open-mercato.json) | readable |
+| `data.migrations` | Generated SQL migrations — an initial `create table` and a later additive `alter table ... add column` — plus the module-scoped ORM snapshot that `yarn db:generate` diffs against | [`../migrations/Migration20251030150038.ts`](../migrations/Migration20251030150038.ts), [`../migrations/Migration20260226161000_example.ts`](../migrations/Migration20260226161000_example.ts), [`../migrations/Migration20260804120546_example.ts`](../migrations/Migration20260804120546_example.ts), [`../migrations/.snapshot-open-mercato.json`](../migrations/.snapshot-open-mercato.json) | readable |
+| `data.encryption-map` | `defaultEncryptionMaps` for one at-rest-encrypted column, and every read/write path the declaration forces: explicit `encryptEntityPayload` before `nativeUpdate` (no ORM hooks fire there), `findOneWithDecryption` for undo pre-images | [`../encryption.ts`](../encryption.ts), [`../data/entities.ts`](../data/entities.ts), [`../commands/todos.ts`](../commands/todos.ts) | readable |
+
+Evidence: `__tests__/encryption-search-contract.test.ts`, `commands/__tests__/todos.notes-encryption.test.ts`.
 
 Rule owner: `om-data-model-design`.
+
+## Search
+
+An encrypted column changes what search can do with it, and the two files below are the two halves of that answer.
+
+| Capability | Demonstrates | Source | Status |
+|---|---|---|---|
+| `search.module-config` | `SearchModuleConfig` for one entity: `buildSource` + `checksumSource`, `formatResult`, `resolveUrl`, per-entity `aclFeatures`, and a `fieldPolicy` that whitelists only plaintext columns as `searchable` and puts the encrypted column in `excluded` | [`../search.ts`](../search.ts) | readable |
+| `search.encrypted-column-list-filter` | Text search over an encrypted column resolved from the hashed `search_tokens` index and narrowed to ids, instead of an `$ilike` that would compare a plaintext pattern against ciphertext; `matched: false` is read fail-closed | [`../api/todos/route.ts`](../api/todos/route.ts) | readable |
+
+The encrypted `notes` column is therefore: **not exported to CSV**, **not projected on grid pages** (the query engine decrypts per row, so a 50-row page would pay 50 decryptions nobody renders), and **searchable through a plain `$ilike`** that the query engine rewrites into a hashed `search_tokens` lookup — the indexer runs `decryptIndexDocForSearch` before tokenizing, so `fieldPolicy` excluding the field costs no reachability. On **sorting**, be precise about what the module does and does not do: `notes` is absent from `sortFieldMap`, but that is documentation rather than enforcement — the CRUD factory falls through to the raw field name for an unmapped sort field, so `?sortField=notes` still reaches the engine, which recognises the column as encrypted and routes it to a decrypt-then-sort-in-memory path that is correct but row-capped. Blocking it would need an explicit sort allowlist.
+
+Evidence: `__tests__/encryption-search-contract.test.ts`, `api/__tests__/todos.encrypted-search.test.ts`.
+
+Rule owners: `om-module-scaffold` (search config), `om-data-model-design` (encrypted read paths).
 
 ## API
 

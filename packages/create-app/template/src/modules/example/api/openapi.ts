@@ -43,6 +43,7 @@ export const todoListItemSchema = z
   .object({
     id: z.string(),
     title: z.string(),
+    notes: z.string().nullable().optional(),
     tenant_id: z.string().nullable().optional(),
     organization_id: z.string().nullable().optional(),
     is_done: z.boolean().optional(),

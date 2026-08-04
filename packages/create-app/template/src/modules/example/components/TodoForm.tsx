@@ -26,6 +26,7 @@ type TodoCustomFieldValues = Record<`cf_${string}`, unknown>
 export type TodoFormValues = {
   id: string
   title: string
+  notes: string
   is_done: boolean
   // Carries the optimistic-lock version into `CrudForm`, which auto-derives the
   // expected-version header from `initialValues.updatedAt` for update AND delete.
@@ -41,6 +42,13 @@ function useTodoFields(t: Translate): CrudField[] {
       required: true,
       placeholder: t('example.todos.form.fields.title.placeholder'),
     },
+    {
+      id: 'notes',
+      label: t('example.todos.form.fields.notes.label'),
+      type: 'textarea',
+      description: t('example.todos.form.fields.notes.description'),
+      placeholder: t('example.todos.form.fields.notes.placeholder'),
+    },
     { id: 'is_done', label: t('example.todos.form.fields.isDone.label'), type: 'checkbox' },
     { id: 'cf_blocked', label: t('example.todos.table.column.blocked'), type: 'checkbox' },
   ], [t])
@@ -48,7 +56,7 @@ function useTodoFields(t: Translate): CrudField[] {
 
 function useTodoGroups(t: Translate, extraGroup: CrudFormGroup): CrudFormGroup[] {
   return React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'details', title: t('example.todos.form.groups.details'), column: 1, fields: ['title'] },
+    { id: 'details', title: t('example.todos.form.groups.details'), column: 1, fields: ['title', 'notes'] },
     { id: 'status', title: t('example.todos.form.groups.status'), column: 2, fields: ['is_done', 'cf_blocked'] },
     { id: 'attributes', title: t('example.todos.form.groups.attributes'), column: 1, kind: 'customFields' },
     extraGroup,
@@ -69,6 +77,10 @@ export function toTodoFormValues(item: TodoListItem): TodoFormValues {
   return {
     id: item.id,
     title: item.title,
+    // `notes` is encrypted at rest and only projected on single-record reads. The
+    // edit form loads exactly that way (`fetchCrudList(..., { ids, pageSize: 1 })`),
+    // so a null here means "empty", not "not selected".
+    notes: item.notes ?? '',
     is_done: Boolean(item.is_done),
     updatedAt: item.updatedAt ?? null,
     ...(cfInit as TodoCustomFieldValues),
@@ -186,6 +198,7 @@ export function TodoEditForm({ id }: { id: string }) {
   const fallbackInitialValues = React.useMemo<TodoFormValues>(() => ({
     id,
     title: '',
+    notes: '',
     is_done: false,
     updatedAt: null,
   }), [id])
