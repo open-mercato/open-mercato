@@ -4,8 +4,13 @@
  * Called from within a Next.js app directory as: yarn mercato <command>
  * Uses dynamic app resolution to find generated files at .mercato/generated/
  */
-import { run } from './mercato.js'
+import {
+  getTelemetryRuntime,
+  isTelemetryBackendEnabled,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveCliBootstrapMode, type CliBootstrapMode } from './lib/cli-bootstrap-mode.js'
+// `run` is imported dynamically inside `main()` so telemetry can initialize
+// before the mercato entry (and its Postgres driver) loads — see main().
 
 function assertNode24Runtime(): void {
   const detectedNodeVersion = process.versions.node
@@ -72,6 +77,26 @@ async function main(): Promise<void> {
   const bootstrapMode = resolveCliBootstrapMode(process.argv)
 
   if (bootstrapMode !== 'none') {
+    // Load the app's `.env` BEFORE initTelemetry(): `run()` only dotenv-loads it
+    // later (ensureEnvLoaded), which is too late — TELEMETRY_BACKEND set only in
+    // `.env` would silently resolve to `noop` for worker/scheduler processes.
+    // The loader touches only the resolver + dotenv (no `pg`), preserving the
+    // instrumentation load-order guarantee below.
+    const { loadAppEnv } = await import('./lib/load-env.js')
+    await loadAppEnv()
+
+    // Initialize telemetry BEFORE bootstrapping the app graph. Bootstrap and the
+    // per-command handlers load MikroORM's Postgres driver → `pg`, and the
+    // OpenTelemetry pg/undici auto-instrumentation only records spans for a
+    // driver required AFTER the SDK has started. Registering here — ahead of any
+    // app module — is what lets long-running worker/scheduler processes emit DB
+    // spans (not just the bullmq-otel add/process envelope). The package itself
+    // is not imported unless an explicit supported backend is selected.
+    if (isTelemetryBackendEnabled()) {
+      const { initTelemetry } = await import('@open-mercato/telemetry')
+      await initTelemetry()
+    }
+
     const bootstrapSucceeded = await tryBootstrap(bootstrapMode)
     if (!bootstrapSucceeded) {
       console.error('╔═══════════════════════════════════════════════════════════════════╗')
@@ -87,7 +112,13 @@ async function main(): Promise<void> {
     }
   }
 
+  // Dynamic import (not a top-level static import) so the mercato entry — and the
+  // Postgres driver it pulls in — loads only after initTelemetry() above.
+  const { run } = await import('./mercato.js')
   const code = await run(process.argv)
+  // Flush spans/logs for commands that return (workers block forever and flush via
+  // their own shutdown handler instead).
+  await getTelemetryRuntime()?.shutdown()
   process.exit(code ?? 0)
 }
 

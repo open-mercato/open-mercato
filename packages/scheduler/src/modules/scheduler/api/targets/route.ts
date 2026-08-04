@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
-import { commandRegistry } from '@open-mercato/shared/lib/commands'
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { listSchedulerSafeCommands } from '../../lib/scheduler-safe-commands'
 
 export const metadata = {
   requireAuth: true,
@@ -35,10 +36,9 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => a.localeCompare(b))
     .map((queue) => ({ value: queue, label: queue }))
 
-  const commands = commandRegistry
-    .list()
-    .sort((a, b) => a.localeCompare(b))
-    .map((id) => ({ value: id, label: id }))
+  const commands = listSchedulerSafeCommands()
+    .filter((command) => commandRegistry.has(command.commandId))
+    .map((command) => ({ value: command.commandId, label: command.commandId }))
 
   return NextResponse.json({ queues, commands })
 }
@@ -61,12 +61,12 @@ const errorResponseSchema = z.object({
 export const openApi: OpenApiRouteDoc = {
   tag: 'Scheduler',
   summary: 'List available schedule targets',
-  description: 'Returns available queue names and registered command IDs for schedule target selection.',
+  description: 'Returns available queue names and scheduler-safe command IDs for schedule target selection.',
   methods: {
     GET: {
       operationId: 'listScheduleTargets',
       summary: 'List available queues and commands',
-      description: 'Returns all registered queue names (from module workers) and command IDs (from the command registry) that can be used as schedule targets.',
+      description: 'Returns all registered queue names (from module workers) and explicitly scheduler-safe command IDs that can be used as schedule targets.',
       responses: [
         {
           status: 200,

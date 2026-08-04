@@ -46,6 +46,7 @@ jest.mock('@open-mercato/shared/lib/version', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/boolean', () => ({
+  parseBooleanToken: jest.fn(() => null),
   parseBooleanWithDefault: jest.fn(() => true),
 }))
 

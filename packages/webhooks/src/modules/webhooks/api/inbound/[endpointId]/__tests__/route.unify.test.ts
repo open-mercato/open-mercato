@@ -50,11 +50,15 @@ function makeSource(overrides: Partial<WebhookSourceConfig> = {}): WebhookSource
   }
 }
 
-function postTo(endpointId: string, body = '{"type":"payment_intent.succeeded","id":"evt_1"}') {
+function postTo(
+  endpointId: string,
+  body = '{"type":"payment_intent.succeeded","id":"evt_1"}',
+  headers: Record<string, string> = {},
+) {
   const request = new Request(`http://localhost/api/webhooks/inbound/${endpointId}`, {
     method: 'POST',
     body,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
   })
   return POST(request, { params: Promise.resolve({ endpointId }) })
 }
@@ -89,6 +93,43 @@ it('accepts a valid source webhook: records ingestion, enqueues dispatch, emits 
     expect.objectContaining({ endpointId: 'stripe', eventType: 'payment_intent.succeeded' }),
     { persistent: true },
   )
+})
+
+it('rejects a stale source webhook before signature verification or persistence', async () => {
+  const verifier = jest.fn(async () => true)
+  registerWebhookSource(makeSource({ verifier }))
+
+  const res = await postTo('stripe', undefined, { 'webhook-timestamp': '1' })
+
+  expect(res.status).toBe(400)
+  await expect(res.json()).resolves.toEqual({ error: 'Webhook timestamp is outside the allowed replay window' })
+  expect(verifier).not.toHaveBeenCalled()
+  expect(findWithDecryption).not.toHaveBeenCalled()
+  expect(persist).not.toHaveBeenCalled()
+  expect(flush).not.toHaveBeenCalled()
+  expect(enqueueInboundDispatch).not.toHaveBeenCalled()
+  expect(emitWebhooksEvent).not.toHaveBeenCalled()
+})
+
+it('rejects an oversized source webhook before verification or persistence', async () => {
+  const verifier = jest.fn(async () => true)
+  registerWebhookSource(makeSource({ verifier }))
+  const request = new Request('http://localhost/api/webhooks/inbound/stripe', {
+    method: 'POST',
+    body: '{}',
+    headers: {
+      'content-length': String(1024 * 1024 + 1),
+      'content-type': 'application/json',
+    },
+  })
+
+  const response = await POST(request, { params: Promise.resolve({ endpointId: 'stripe' }) })
+
+  expect(response.status).toBe(413)
+  expect(verifier).not.toHaveBeenCalled()
+  expect(findWithDecryption).not.toHaveBeenCalled()
+  expect(persist).not.toHaveBeenCalled()
+  expect(enqueueInboundDispatch).not.toHaveBeenCalled()
 })
 
 it('rejects with 401 when no candidate scope verifies', async () => {

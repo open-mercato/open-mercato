@@ -16,10 +16,19 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-jest.mock('@open-mercato/ui', () => ({
+jest.mock('@open-mercato/ui/theme/ThemeProvider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  FrontendLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="frontend-layout">{children}</div>,
+}))
+
+jest.mock('@open-mercato/ui/theme/QueryProvider', () => ({
   QueryProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
+
+jest.mock('@open-mercato/ui/frontend/Layout', () => ({
+  FrontendLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="frontend-layout">{children}</div>,
+}))
+
+jest.mock('@open-mercato/ui/frontend/AuthFooter', () => ({
   AuthFooter: () => <div data-testid="auth-footer" />,
 }))
 
@@ -47,7 +56,7 @@ describe('AppProviders', () => {
 
   it('renders GlobalNoticeBars when notice bars are enabled', () => {
     render(
-      <AppProviders locale="en" dict={dict} localeLocked={false} demoModeEnabled={true} noticeBarsEnabled={true}>
+      <AppProviders locale="en" dict={dict} demoModeEnabled={true} noticeBarsEnabled={true}>
         <div>content</div>
       </AppProviders>,
     )
@@ -57,7 +66,7 @@ describe('AppProviders', () => {
 
   it('does not render GlobalNoticeBars when notice bars are disabled', () => {
     render(
-      <AppProviders locale="en" dict={dict} localeLocked={false} demoModeEnabled={true} noticeBarsEnabled={false}>
+      <AppProviders locale="en" dict={dict} demoModeEnabled={true} noticeBarsEnabled={false}>
         <div>content</div>
       </AppProviders>,
     )

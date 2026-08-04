@@ -142,6 +142,37 @@ export function resolveGroupExpression(
   return { expression: groupMapping.dbColumn, dbColumn: groupMapping.dbColumn, jsonPath: null }
 }
 
+/**
+ * Normalizes the value of a set filter (`in` / `not_in`) into the list of members it selects.
+ *
+ * The list is rendered as one placeholder per member rather than as a single array parameter:
+ * MikroORM does not bind parameters at the driver level — `AbstractSqlConnection.execute` calls
+ * `platform.formatQuery`, which interpolates each value through `BasePostgreSqlPlatform.escape`,
+ * and that renders a JavaScript array as a bare comma-separated list. The previous
+ * `= ANY(?)` / `!= ALL(?)` form therefore produced `= ANY('a', 'b')`, which PostgreSQL rejects
+ * for every shape of value (#4669).
+ *
+ * A missing value yields an empty set rather than a dropped filter, so an `in` filter the caller
+ * failed to populate selects nothing instead of silently widening the result.
+ *
+ * A null or undefined *member* is refused instead of rendered. `column IN (NULL)` matches no row
+ * and `column NOT IN ('a', NULL)` is NULL for every row, so such a member would return an empty
+ * aggregation with no error — a silent zero on a reporting surface, which is worse than a loud
+ * failure. Requests are already rejected at the API boundary by `widgetDataFilterSchema` in
+ * `api/widgets/data/schema.ts`; this throw keeps in-process callers, whose filter values are
+ * typed as `unknown`, from reaching the same silent path. Nullness is queried with the dedicated
+ * `is_null` / `is_not_null` operators.
+ */
+function normalizeSetFilterValues(value: unknown): unknown[] {
+  const values = Array.isArray(value) ? value : value === undefined ? [] : [value]
+  if (values.some((member) => member === null || member === undefined)) {
+    throw new Error(
+      '[internal] Set filter members must not be null or undefined — use the is_null / is_not_null operators to filter on nullness',
+    )
+  }
+  return values
+}
+
 function buildWhereClause(
   options: Pick<BuildAggregationQueryOptions, 'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'>,
 ): { clause: string; params: unknown[] } {
@@ -200,13 +231,18 @@ function buildWhereClause(
           params.push(filter.value)
           break
         case 'in':
-          whereClauses.push(`${filterMapping.dbColumn} = ANY(?)`)
-          params.push(filter.value)
+        case 'not_in': {
+          const values = normalizeSetFilterValues(filter.value)
+          if (values.length === 0) {
+            whereClauses.push(filter.operator === 'in' ? 'FALSE' : 'TRUE')
+            break
+          }
+          const keyword = filter.operator === 'in' ? 'IN' : 'NOT IN'
+          const placeholders = values.map(() => '?').join(', ')
+          whereClauses.push(`${filterMapping.dbColumn} ${keyword} (${placeholders})`)
+          params.push(...values)
           break
-        case 'not_in':
-          whereClauses.push(`${filterMapping.dbColumn} != ALL(?)`)
-          params.push(filter.value)
-          break
+        }
         case 'is_null':
           whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
           break
@@ -222,6 +258,41 @@ function buildWhereClause(
 
 function resolveTableName(config: EntityTypeConfig): string {
   return config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
+}
+
+export type BuildDistinctCurrencyQueryOptions = Pick<
+  BuildAggregationQueryOptions,
+  'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'
+>
+
+/**
+ * Builds the query that reads the distinct per-row currencies of the rows an aggregation
+ * would sum, over exactly the same tenant/organization scope, date range and filters.
+ * Returns `null` when the entity declares no `currencyField`, which means its amounts are
+ * not per-row denominated and there is nothing to verify (#4676).
+ */
+export function buildDistinctCurrencyQuery(
+  options: BuildDistinctCurrencyQueryOptions,
+): AggregationQuery | null {
+  const { registry } = options
+  const config = registry.getEntityTypeConfig(options.entityType)
+  if (!config?.currencyField) return null
+
+  const currencyMapping = registry.getFieldMapping(options.entityType, config.currencyField)
+  if (!currencyMapping || !isSafeIdentifier(currencyMapping.dbColumn)) return null
+
+  const where = buildWhereClause(options)
+  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
+  const sql = [
+    `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
+    `FROM ${resolveTableName(config)}`,
+    where.clause,
+    'LIMIT 2',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return { sql, params: where.params }
 }
 
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {

@@ -81,6 +81,8 @@ export type RedisConnectionOptions = {
   db?: number
   /** TLS configuration for rediss / encrypted Redis */
   tls?: Record<string, unknown>
+  /** IP family used by Redis DNS resolution */
+  family?: number
 }
 
 /**

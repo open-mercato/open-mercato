@@ -136,6 +136,7 @@ export async function GET(req: Request) {
 
   let cacheScopeTenantId = auth.tenantId ?? null
   let cacheScopeOrganizationId = auth.orgId ?? null
+  let cacheScopeSelectedOrganizationId = auth.orgId ?? null
   try {
     const { organizationId, scope } = await resolveFeatureCheckContext({
       container,
@@ -146,19 +147,22 @@ export async function GET(req: Request) {
     })
     cacheScopeOrganizationId = organizationId
     cacheScopeTenantId = scope.tenantId ?? auth.tenantId ?? null
+    cacheScopeSelectedOrganizationId = scope.selectedId ?? null
   } catch {
     cacheScopeOrganizationId = auth.orgId ?? null
     cacheScopeTenantId = auth.tenantId ?? null
+    cacheScopeSelectedOrganizationId = auth.orgId ?? null
     selectedOrganizationId = auth.orgId ?? null
     selectedTenantId = auth.tenantId ?? null
   }
 
   // v6: the payload gained `currentOrganization`, and the payload also embeds the enabled-module set,
   // its declared features, and the backend route manifest. The selection is part of the key because
-  // the resolved organization cannot distinguish "all organizations" from "my own organization".
+  // the resolved organization cannot distinguish "all organizations" from "my own organization";
+  // use the resolved selection so cookie-driven requests without an `orgId` query remain distinct.
   // The fingerprint invalidates module-surface changes; the TTL bounds anything it cannot observe.
   const cacheVersion = `v6:${getModuleSurfaceFingerprint()}`
-  const cacheSelection = selectedOrganizationId === undefined ? 'default' : (selectedOrganizationId ?? 'null')
+  const cacheSelection = cacheScopeSelectedOrganizationId ?? '__all__'
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
   try {
     if (cache?.get) {

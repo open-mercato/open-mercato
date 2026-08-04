@@ -3,6 +3,7 @@ export type DealAssociation = {
   label: string
   subtitle: string | null
   kind: 'person' | 'company'
+  isPrimary?: boolean
 }
 
 export type PersonAssociationApiRecord = {

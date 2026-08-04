@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -58,6 +59,13 @@ function withStandaloneBuildNodeOptions(value: string | undefined): string {
   return `${normalized} ${STANDALONE_BUILD_NODE_OPTIONS}`
 }
 
+// The Playwright specs default to `<cwd>/.ai/qa/email-capture.jsonl`, and they run
+// from the monorepo root — mirror that path so the standalone app writes where the
+// specs read (TC-AUTH-033).
+function standaloneEmailCapturePath(): string {
+  return path.join(ROOT, '.ai', 'qa', 'email-capture.jsonl')
+}
+
 function writeStandaloneEnv(appDir: string): void {
   const envExamplePath = path.join(appDir, '.env.example')
   const envPath = path.join(appDir, '.env')
@@ -66,6 +74,13 @@ function writeStandaloneEnv(appDir: string): void {
     example.trimEnd(),
     'APP_URL=http://localhost:3000',
     'NEXT_PUBLIC_APP_URL=http://localhost:3000',
+    // `yarn start` serves a production build, so NODE_ENV is production inside the
+    // server process even with NODE_ENV=test below, and customer-portal email links
+    // refuse to fall back to localhost there — portal invites 502 without this.
+    'PLATFORM_PORTAL_BASE_URL=http://localhost:3000',
+    // The app and the Playwright specs run from different working directories, so
+    // the captured-email path must be absolute and identical on both sides.
+    `OM_TEST_EMAIL_CAPTURE_PATH=${standaloneEmailCapturePath()}`,
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
     'JWT_SECRET=ci-standalone-test-jwt-secret',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
@@ -189,6 +204,8 @@ async function main(): Promise<void> {
   const integrationEnv: NodeJS.ProcessEnv = {
     APP_URL: 'http://localhost:3000',
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
+    PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
+    OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
     JWT_SECRET: 'ci-standalone-test-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
@@ -231,6 +248,13 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
+
+    console.log(cyan('Building the scaffolded app in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,

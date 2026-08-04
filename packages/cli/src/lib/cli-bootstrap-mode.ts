@@ -7,6 +7,7 @@ const BOOTSTRAP_FREE_COMMANDS = new Set([
   'db',
   'init',
   'agentic:init',
+  'telemetry',
   'eject',
   'test',
   'test:integration',
