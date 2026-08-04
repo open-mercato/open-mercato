@@ -262,7 +262,7 @@ Nothing persists between runs; nothing else depends on it.
 | **1** ✅ | Config factory, scope script, advisory workflow, `shared` allowlisted | Shipped. Still needs green advisory runs on real PRs for 2–3 weeks before Phase 3 is considered |
 | **2** ✅ | Survivor reporting (job summary + artifact; optional fork-guarded PR comment) | Shipped, including the fork-guarded comment |
 | **3** ⏸ | Enforcement: `thresholds.break`, minimum-mutant floor, `MUTATION_ENFORCE=true` | **Implemented but dormant** — `MUTATION_ENFORCE` defaults to `false`. Core-team sign-off on the threshold is still outstanding |
-| **4** | Optional: `incremental` + cache, `mixinJestEnvironment` for `perTest` coverage, nightly trend run | Only if Phase 1–3 timings demand it |
+| **4** ⏸ | Optional: `incremental` + cache, `mixinJestEnvironment` for `perTest` coverage, nightly trend run | **Attempted, not shipped** — timings do not demand it, and `perTest` is blocked by the `@jest-environment` docblocks without a repo-wide resolver change |
 
 ## 📋 Implementation Plan
 
@@ -336,6 +336,36 @@ Nothing persists between runs; nothing else depends on it.
    added passes.
 
 ### Phase 4 — optional optimisation (2 steps)
+
+> **Status (2026-08-04): attempted, deliberately NOT shipped. Both steps stay open.**
+>
+> This phase is conditional by its own exit criterion — *"Only if Phase 1–3 timings demand it."*
+> They do not, and step 1 turns out not to be reachable without violating Q3. Both were attempted
+> rather than assumed; the evidence is below so a future attempt starts from facts.
+>
+> **Step 1 — `perTest` coverage: blocked, not deferred.** Running `packages/shared` with
+> `--coverageAnalysis perTest` fails in the initial test run, exactly as Q3 predicted: 19 of its
+> suites carry `@jest-environment` docblocks (792 repo-wide). Stryker does ship the matching wrapped
+> environments (`@stryker-mutator/jest-runner/jest-env/node` and `.../jest-env/jsdom`), so the
+> obvious fix is to redirect the docblocks' targets. That was tried with a Jest `moduleNameMapper`
+> entry mapping `jest-environment-node` and `jest-environment-jsdom` onto the Stryker wrappers —
+> **it does not work**, because Jest resolves the `@jest-environment` docblock outside the
+> `moduleNameMapper` path. The two remaining routes are editing all 19 test files (Q3 forbids it) or
+> replacing the repo-wide Jest `resolver` in `jest.config.base.cjs`, which would put every suite in
+> the repository behind a change made for a mutation-testing optimisation. Neither is justified by a
+> job that currently finishes in about three minutes.
+>
+> **Step 2 — `incremental` + cache: not justified, and not free.** The measured `packages/shared`
+> job is roughly 1 min of `yarn install` plus `build:packages` and 1 m 27 s of mutation, against a
+> `timeout-minutes: 20` budget. There is no timing pressure to relieve. Against that, a stale
+> incremental file makes Stryker report mutants as killed that the current tests do not kill — a
+> false green in the one check whose entire value is trustworthy signal. Shipping it would trade
+> real correctness risk for time nobody needs.
+>
+> **Revisit when** a package with materially larger suites is allowlisted (which today means solving
+> the `packages/core` problem from Phase 0b), or when the advisory runs from Phases 1–2 show the job
+> approaching its timeout. At that point `perTest` via a Jest `resolver` change becomes worth its
+> blast radius, and it is the higher-leverage of the two.
 
 1. `mixinJestEnvironment` wrapper module so `@jest-environment` docblocks can point at a
    Stryker-aware environment, unlocking `coverageAnalysis: "perTest"`. **Test:** the dry run
