@@ -158,5 +158,40 @@ describe('LocalLockStrategy', () => {
       const fn = jest.fn(async () => 'ok')
       await expect(strategy.runWithLock('test-key', fn)).resolves.toEqual({ acquired: true, result: 'ok' })
     })
+
+    it('should release the key when the claim transaction itself rejects', async () => {
+      ;(mockConnection.execute as any).mockRejectedValueOnce(new Error('Database connection failed'))
+      ;(mockConnection.execute as any).mockResolvedValueOnce([{ acquired: true }])
+
+      await expect(strategy.runWithLock('test-key', async () => 'ok')).resolves.toEqual({ acquired: false })
+
+      const fn = jest.fn(async () => 'ok')
+      await expect(strategy.runWithLock('test-key', fn)).resolves.toEqual({ acquired: true, result: 'ok' })
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not let a held key block a different key', async () => {
+      ;(mockConnection.execute as any).mockResolvedValue([{ acquired: true }])
+
+      let releaseFirst: () => void = () => {}
+      const firstDone = new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+      const firstRun = strategy.runWithLock('key-a', async () => {
+        await firstDone
+        return 'first'
+      })
+      await Promise.resolve()
+
+      const secondFn = jest.fn(async () => 'second')
+      await expect(strategy.runWithLock('key-b', secondFn)).resolves.toEqual({
+        acquired: true,
+        result: 'second',
+      })
+      expect(secondFn).toHaveBeenCalledTimes(1)
+
+      releaseFirst()
+      await expect(firstRun).resolves.toEqual({ acquired: true, result: 'first' })
+    })
   })
 })
