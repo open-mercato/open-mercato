@@ -106,8 +106,17 @@ Rule owners: `om-module-scaffold`, `om-system-extension` (interceptors).
 | `events.crud-indexer-bridge` | `CrudEventsConfig` + `CrudIndexerConfig` shared by the command module and the CRUD route | [`../commands/todos.ts`](../commands/todos.ts) | readable |
 | `events.sync-subscribers` | Before-create payload rewrite, before-update rejection with status, non-blocking after-delete | [`../subscribers/auto-default-priority.ts`](../subscribers/auto-default-priority.ts), [`../subscribers/prevent-uncomplete.ts`](../subscribers/prevent-uncomplete.ts), [`../subscribers/audit-delete.ts`](../subscribers/audit-delete.ts) | readable |
 | `events.ephemeral-subscriber` | `persistent: false` subscriber resolving a service from the DI context | [`../subscribers/example-event.ts`](../subscribers/example-event.ts) | readable |
+| `events.portal-broadcast` | An event declared `portalBroadcast: true` **plus the subscriber that emits it** — the Portal Event Bridge's twin of `clientBroadcast` | [`../events.ts`](../events.ts), [`../subscribers/announce-todo-to-portal.ts`](../subscribers/announce-todo-to-portal.ts) | readable |
 
-Evidence: `commands/__tests__/todos.update.test.ts`, `commands/__tests__/todos.prepare-scope.test.ts`, `commands/__tests__/todos.undo.test.ts`, `__integration__/TC-UMES-003.spec.ts`, `__integration__/TC-UMES-006-mutation-lifecycle.spec.ts`, `__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts`.
+Three decisions in the portal row are the copyable part, and none of them are visible from the flag alone.
+
+**The announcement gets its own entity segment.** The internal writes are `example.todo.*` and this module already runs a wildcard subscriber on that pattern, so naming the announcement `example.todo.announced` would have made every write re-enter the subscriber that produced it. `example.todo_announcement.published` cannot match `example.todo.*` under the platform's single-segment matcher, and `__tests__/announce-todo-to-portal.test.ts` asserts that against `matchEventPattern` itself rather than against a comment.
+
+**Nothing staff-authored goes on the wire.** The payload is `{ todoId, tenantId, organizationId, action }`. The todo's title is staff-written and its `notes` column is encrypted at rest; a portal broadcast reaches customers, which is the wrong place to discover either. The projection is a pure exported function so the field whitelist is asserted, not assumed.
+
+**An unscoped write produces nothing.** `matchesAudience` in `customer_accounts/api/portal/events/stream.ts` drops a payload with no `tenantId`, so emitting one would only put an unaddressable record on the bus. The subscriber returns instead.
+
+Evidence: `commands/__tests__/todos.update.test.ts`, `commands/__tests__/todos.prepare-scope.test.ts`, `commands/__tests__/todos.undo.test.ts`, `__tests__/announce-todo-to-portal.test.ts`, `__integration__/TC-UMES-003.spec.ts`, `__integration__/TC-UMES-006-mutation-lifecycle.spec.ts`, `__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts`.
 
 Rule owners: `om-data-model-design` (commands, events/indexer), `om-system-extension` (interceptors, subscribers).
 
@@ -122,10 +131,18 @@ Rule owners: `om-data-model-design` (commands, events/indexer), `om-system-exten
 | `ui.form-edit` | Server page root plus client form leaf: scoped detail load, `extractCustomFieldEntries` initial values, `updatedAt` in `initialValues` so `CrudForm` auto-derives the optimistic-lock header for update **and** delete, `surfaceRecordConflict` on the 409, `RecordNotFoundState`/`ErrorMessage`, group `setValue` actions, `updateCrud`/`deleteCrud`, `pushWithFlash` | [`../backend/todos/[id]/edit/page.tsx`](../backend/todos/[id]/edit/page.tsx), [`../backend/todos/[id]/edit/page.meta.ts`](../backend/todos/[id]/edit/page.meta.ts), [`../components/TodoForm.tsx`](../components/TodoForm.tsx) | readable |
 | `ui.frontend-page` | Module-owned route outside `/backend` that still resolves translations | [`../frontend/example.tsx`](../frontend/example.tsx) | readable |
 | `ui.dashboard-widget` | `DashboardWidgetModule` metadata, feature gating, default size/enabled, lazy client component, `hydrateSettings`/`dehydrateSettings` clamping | [`../widgets/dashboard/todos/widget.ts`](../widgets/dashboard/todos/widget.ts), [`../widgets/dashboard/todos/config.ts`](../widgets/dashboard/todos/config.ts) | readable |
+| `ui.page-middleware` | `backend/middleware.ts` folded into `backend-middleware.generated.ts` and run by the backend catch-all page; pure pathname decision behind the `{ action: 'redirect' \| 'continue' }` contract | [`../backend/middleware.ts`](../backend/middleware.ts) | readable |
 
-Evidence: `__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts`, `widgets/dashboard/__tests__/config.test.ts`.
+Read the page-middleware row for **where in the request it runs**, because that is what decides whether a middleware you write can do anything at all. `src/app/(backend)/backend/[...slug]/page.tsx` calls `resolvePageMiddlewareRedirect` *after* `findRouteManifestMatch` returned a route and *after* the `requireAuth` / `requireFeatures` guards passed, and *before* the page component is loaded. Two consequences:
 
-Rule owner: `om-backend-ui-design`.
+- A middleware is **not** an access-control gate — the guard already ran, and page metadata is the right place for that.
+- A middleware targeting a path with **no registered page never fires**, because the catch-all returns `notFound()` first. Pointing a `target` at a "landing path" that has no `page.tsx` produces a declaration that can never execute.
+
+What is left is the useful window: rejecting a request that matched a route but cannot succeed. This entry sends a structurally impossible todo id back to the list instead of rendering the edit shell so it can issue a detail fetch that is guaranteed to miss.
+
+Evidence: `__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts`, `widgets/dashboard/__tests__/config.test.ts`, `__tests__/backend-middleware.test.ts`.
+
+Rule owners: `om-backend-ui-design`, `om-system-extension` (page middleware).
 
 ## Unified module extension system (UMES)
 
@@ -148,6 +165,26 @@ Rule owner: `om-backend-ui-design`.
 Evidence: `__tests__/extension-points.test.ts`, `widgets/__tests__/injection-table.test.ts`, `widgets/__tests__/components.test.ts`, `__integration__/TC-UMES-001.spec.ts`, `__integration__/TC-UMES-002.spec.ts`, `__integration__/TC-UMES-004.spec.ts`, `__integration__/TC-UMES-012.spec.ts`, `__integration__/TC-UMES-022-overrides.spec.ts`.
 
 Rule owner: `om-system-extension` (`om-backend-ui-design` for the rendered widget leaf).
+
+## AI tools and agents
+
+| Capability | Demonstrates | Source | Status |
+|---|---|---|---|
+| `ai.tool-pack` | `defineAiTool` pack at the module root: Zod `inputSchema`, `requiredFeatures` drawn from `acl.ts`, `isMutation: false`, fail-closed tenant/organization resolution, one tool reading through the module's own DI service | [`../ai-tools.ts`](../ai-tools.ts) | readable |
+| `ai.agent` | `defineAiAgent` read-only chat agent: closed `allowedTools` whitelist, `readOnly`/`mutationPolicy` agreeing with the pack, `requiredFeatures`, and a `systemPrompt` compiled from the framework's seven named prompt sections | [`../ai-agents.ts`](../ai-agents.ts) | readable |
+| `ai.agent-extension` | `aiAgentExtensions` patching an agent **another module owns** — append-only, lending one of this module's own tools plus the prompt line that says when to reach for it | [`../ai-agents.ts`](../ai-agents.ts) | readable |
+
+Two rules carry most of the safety here.
+
+**Scope is never an input.** Both tools take their tenant and organization from the runtime-supplied `McpToolContext` through one fail-closed helper that throws when either half is missing. A `tenantId` field on the schema would be a field the model can be talked into filling, and the tool would then read another tenant's rows with the caller's own permissions. `__tests__/ai-tools.test.ts` asserts the schemas reject scope keys and that the guard throws before the handler touches the container.
+
+**`allowedTools` is closed, and `readOnly` has to agree with it.** The runtime exposes nothing outside the whitelist, so a typo removes a tool silently rather than erroring — the test cross-checks every entry against `ai-tools.ts` instead of against the agent's own list. `readOnly: true` additionally hard-filters any `isMutation` tool, so a `read-only` agent that whitelists a write tool is a review defect, not a runtime error.
+
+The extension row is the one to copy when your module wants to *lend* rather than *own*: it names a foreign `targetAgentId`, appends only, and is skipped with a log line when that agent is not installed. Anything mutation-shaped belongs in the pending-action approval contract, which this module deliberately does not demonstrate — route that to `om-create-ai-agent`.
+
+Evidence: `__tests__/ai-tools.test.ts`, `__tests__/ai-agents.test.ts` (unit only — no `__integration__` spec exercises the AI surface yet).
+
+Rule owner: `om-create-ai-agent`.
 
 ## Notifications, messages, integrations
 
@@ -199,6 +236,10 @@ Recorded so the gate stays honest; none of these demote the row.
 
 ## Capabilities this module does not cover yet
 
-Not present in the tree today, so there is no row and no link: queued bulk operations with operation progress (no `workers/`), `data/extensions.ts`, `generators.ts`, `ai-tools.ts` / `ai-agents.ts`, page middleware (`backend/middleware.ts` / `frontend/middleware.ts`), and portal broadcast (no `portalBroadcast` event). Follow the owning skill; do not infer a pattern from an adjacent `example` file.
+Not present in the tree today, so there is no row and no link: queued bulk operations with operation progress (no `workers/`), `data/extensions.ts`, `generators.ts` (a module-level generator plugin), and **frontend** page middleware (`frontend/middleware.ts` — the backend half is covered by `ui.page-middleware`). Follow the owning skill; do not infer a pattern from an adjacent `example` file.
+
+`generators.ts` is deliberately absent rather than merely missing. A `GeneratorPlugin` aggregates a *convention file* across every module and emits a registry that something has to import — the two shipped examples (`packages/webhooks/.../generators.ts`, `packages/enterprise/src/modules/security/generators.ts`) each pair the declaration with a convention file and a `lib/module-*-registry.ts` consumer. Declaring the plugin without both halves would add a fact with no live call site, which is exactly what this module is not allowed to model.
 
 Present but not yet proven by the module-local integration suite the canonical spec names: the cache row is covered by unit tests here, not by `__integration__/TC-EXAMPLE-007-cache.spec.ts`, and the setup row by `__tests__/setup-seeding.test.ts` rather than `__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts`. Both specs are still outstanding.
+
+**Proven by unit tests only** — read the `integrationTestPaths` entries for these rows as `__tests__/**` evidence, not as an integration spec: `ai.tool-pack`, `ai.agent`, `ai.agent-extension` (`__tests__/ai-tools.test.ts`, `__tests__/ai-agents.test.ts`), `ui.page-middleware` (`__tests__/backend-middleware.test.ts`), and `events.portal-broadcast` (`__tests__/announce-todo-to-portal.test.ts`). None of the five has an `__integration__` spec. The middleware suite does drive the declaration through the real shared `executePageMiddleware`, and the portal suite through the real `matchEventPattern` and the shared event registry, so they are more than shape assertions — but no browser or SSE connection is exercised.
