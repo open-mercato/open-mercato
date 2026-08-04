@@ -14589,5 +14589,235 @@
         ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
       ]
     }
+  },
+  {
+    "id": "OMH-213",
+    "title": "Deliver only a covering specification for a multi-step stock transfer capability",
+    "family": "architecture",
+    "mode": "spec",
+    "evaluationKind": "implementation",
+    "risk": "medium",
+    "prompt": "Branch managers want warehouse stock transfers in this app: a manager raises a transfer request for named stock, the sending warehouse packs and dispatches it, the receiving warehouse confirms what actually arrived, stock levels move only on that confirmation, and both warehouses are told when a transfer is short or refused. Nobody has said to skip the specification. Produce the covering specification for this capability and nothing else: one new correctly named file under .ai/specs, carrying the problem, the contracts, the self-contained integration coverage, and the dependency-ordered implementation phases. Do not create the module, the entities, the migrations, the routes, the registry entry, or any other source file — writing the specification is the whole deliverable and the only thing this task authorizes.",
+    "tags": [
+      "spec-gate",
+      "planning-proof",
+      "spec-first",
+      "stock-transfer",
+      "writable"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "spec-pr"
+      ],
+      "allowedExtra": [
+        "architecture"
+      ]
+    },
+    "requiredSkills": [
+      "om-spec-writing"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/spec-delivery.md",
+        ".ai/specs/README.md"
+      ],
+      "allowedExtra": [
+        ".ai/specs/SPEC-000-template.md",
+        ".ai/agentic.config.json"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".mercato/generated/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "spec-first-before-implementation",
+      "single-covering-spec",
+      "phased-implementation-plan",
+      "named-integration-coverage",
+      "no-source-write-while-planning",
+      "implementation-before-spec",
+      "placeholder-spec-accepted"
+    ],
+    "requiredDecisions": [
+      "spec-first-before-implementation",
+      "single-covering-spec",
+      "phased-implementation-plan",
+      "named-integration-coverage",
+      "no-source-write-while-planning"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/.{0,60}(?:write|edit|patch|create)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.planning.spec-first"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:planning-new-feature"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.planning.spec-first"
+      ],
+      "expectedArtifacts": [
+        ".ai/specs/*.md"
+      ]
+    },
+    "allowedWrites": [
+      ".ai/specs/**"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-214"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-214",
+    "title": "Amend the seeded appointment reminder specification instead of writing a second one",
+    "family": "architecture",
+    "mode": "spec",
+    "evaluationKind": "implementation",
+    "risk": "medium",
+    "prompt": "This app already carries a covering specification for service appointment reminders, and the branches now want more from it. A reminder must also go out when an appointment is moved to another slot and when it is called off, not only when it is confirmed. Reminders must additionally go out by text message alongside e-mail, and the app must record the outcome of each channel separately so a manager can see which one actually reached the customer. Update the specification that already covers this behavior so it states the new contract, keeps everything it already promised about a confirmed appointment, names the integration coverage for the added paths, and records the change in its changelog. Do not write a second specification, do not start the implementation, and do not touch any file other than that covering specification.",
+    "tags": [
+      "spec-gate",
+      "planning-proof",
+      "reuse-spec",
+      "appointment-reminders",
+      "writable"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "spec-pr"
+      ],
+      "allowedExtra": [
+        "architecture"
+      ]
+    },
+    "requiredSkills": [
+      "om-spec-writing"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/spec-delivery.md",
+        ".ai/specs/README.md"
+      ],
+      "allowedExtra": [
+        ".ai/specs/SPEC-000-template.md",
+        ".ai/agentic.config.json"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".mercato/generated/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "reuse-covering-spec",
+      "amend-changed-contract",
+      "preserve-existing-contract",
+      "named-integration-coverage",
+      "no-source-write-while-planning",
+      "author-second-spec",
+      "implementation-before-spec"
+    ],
+    "requiredDecisions": [
+      "reuse-covering-spec",
+      "amend-changed-contract",
+      "preserve-existing-contract",
+      "named-integration-coverage",
+      "no-source-write-while-planning"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/.{0,60}(?:write|edit|patch|create)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden",
+      "writable.allowed-paths",
+      "oracle.artifacts",
+      "oracle.planning.spec-reuse"
+    ],
+    "fixture": {
+      "scaffold": "fresh-standalone",
+      "setup": [
+        "fixture:planning-existing-spec"
+      ]
+    },
+    "oracle": {
+      "validatorIds": [
+        "writable.allowed-paths",
+        "oracle.artifacts",
+        "oracle.planning.spec-reuse"
+      ],
+      "expectedArtifacts": [
+        ".ai/specs/2026-08-04-service-appointment-reminders.md"
+      ]
+    },
+    "allowedWrites": [
+      ".ai/specs/2026-08-04-service-appointment-reminders.md"
+    ],
+    "timeoutMs": 600000,
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-213"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md"
+      ]
+    }
   }
 ]

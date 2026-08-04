@@ -124,6 +124,18 @@ const IN_MEMORY_SECRET_VALUES = new Set([...SENSITIVE_RUNNER_ENV_KEYS]
   .filter((value) => typeof value === 'string' && value.length > 0)
 )
 const HARD_FORBIDDEN_READ_PATTERNS = ['.env*', '.git', '.git/**', '.ai/harness', '.ai/harness/**']
+// Every semantic writable oracle must be backed by a FIXED controller-owned grader whose case
+// table is hard-coded, so a case can never bring its own grading rules. The grading modality
+// depends on what the case produces: TypeScript is graded by the AST oracle, and the two
+// SPEC-P2 planning proofs produce only Markdown under `.ai/specs/`, which no TypeScript
+// compiler-fact oracle can read. This map — owned by the evaluator, not by `validators.json` —
+// assigns each semantic oracle exactly one required runner. It is not a choice: a validator not
+// listed here must still declare the AST oracle, and adding a modality is an evaluator edit.
+const FIXED_ORACLE_RUNNER = 'writable-ast-oracles.mjs'
+const FIXED_ORACLE_RUNNER_OVERRIDES = new Map([
+  ['oracle.planning.spec-first', 'writable-spec-oracles.mjs'],
+  ['oracle.planning.spec-reuse', 'writable-spec-oracles.mjs'],
+])
 const TOOL_SERVER_PATH = fileURLToPath(new URL('./agent-harness-tool-server.mjs', import.meta.url))
 // The only built-in Claude Code tool the harness exposes. It carries no filesystem, shell,
 // process, or network capability of its own; it exists solely so the deferred harness MCP
@@ -1060,8 +1072,9 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
       if (!semanticOracles.length) add(id, 'writable case requires a semantic executable oracle')
       for (const validator of semanticOracles) {
         const declaration = validatorMap[validator]
+        const requiredRunner = FIXED_ORACLE_RUNNER_OVERRIDES.get(validator) ?? FIXED_ORACLE_RUNNER
         if (declaration?.implementation !== 'trusted-executable') add(id, `oracle validator ${validator} must use a trusted executable`)
-        else if (!declaration.runners.includes('writable-ast-oracles.mjs')) add(id, `oracle validator ${validator} must include the fixed AST oracle`)
+        else if (!declaration.runners.includes(requiredRunner)) add(id, `oracle validator ${validator} must include the fixed oracle ${requiredRunner}`)
       }
       if (!isUniqueStringArray(item.allowedWrites, { min: 1 }) || item.allowedWrites.some((entry) => !isSafeRelative(entry))) add(id, 'allowedWrites is invalid')
       if (item.evaluationKind === 'regression' && typeof item.fixture?.expectedFailure !== 'string') add(id, 'regression fixture requires expectedFailure')
