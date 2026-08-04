@@ -23,6 +23,7 @@ import {
   parseDecryptedFieldValue,
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { Organization } from '../directory/data/entities'
 import crypto from 'node:crypto'
 
@@ -398,9 +399,7 @@ function resolveProperty(meta: any, field: string): { columnName: string | null;
 }
 
 function buildEntityMetaRegistry(em: any): Map<string, any> {
-  const registry = em?.getMetadata?.()
-  const allMetaRaw = typeof registry?.getAll === 'function' ? registry.getAll() : []
-  const allMeta = Array.isArray(allMetaRaw) ? allMetaRaw : Object.values(allMetaRaw ?? {})
+  const allMeta = listEntityMetadata(em)
   const metaByEntityId = new Map<string, any>()
   for (const meta of allMeta) {
     const resolved = resolveEntityIdFromMetadata(meta)

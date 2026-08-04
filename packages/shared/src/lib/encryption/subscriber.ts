@@ -6,6 +6,7 @@ import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
+import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 
 const logger = createLogger('shared').child({ component: 'encryption' })
 
@@ -85,13 +86,8 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     try { return registry.find?.(ctor) } catch {}
     try { return registry.get?.(name) } catch {}
     try { return registry.get?.(ctor) } catch {}
-    const all =
-      (typeof registry.getAll === 'function' && registry.getAll()) ||
-      (Array.isArray((registry as any).metadata) ? (registry as any).metadata : undefined) ||
-      (registry as any).metadata ||
-      {}
     try {
-      const entries = Array.isArray(all) ? all : Object.values<any>(all)
+      const entries = listEntityMetadataFromRegistry(registry)
       const match = entries.find(
         (m: any) =>
           m?.className === name ||
