@@ -16,6 +16,17 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
 
+/**
+ * `raiseCrudError` already prefers the server's `error` body over the fallback message,
+ * so the thrown message is the operator-actionable reason whenever the route sent one —
+ * and is byte-identical to the generic fallback when it did not.
+ */
+function resolveServerReason(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined
+  const message = err.message?.trim()
+  return message ? message : undefined
+}
+
 export type ActionLogItem = {
   id: string
   commandId: string
@@ -51,8 +62,9 @@ export function AuditLogsActions({
   onRefresh: () => Promise<void>
   isLoading?: boolean
   headerExtras?: React.ReactNode
-  onUndoError?: () => void
-  onRedoError?: () => void
+  /** Receives the server's reason when it sent one, so the page can show why the undo was refused. */
+  onUndoError?: (reason?: string) => void
+  onRedoError?: (reason?: string) => void
   pagination?: PaginationProps
 }) {
   const t = useT()
@@ -109,7 +121,7 @@ export function AuditLogsActions({
       await onRefresh()
     } catch (err) {
       logger.error('Undo action failed', { err })
-      onUndoError?.()
+      onUndoError?.(resolveServerReason(err))
     } finally {
       setUndoingToken(null)
     }
@@ -128,7 +140,7 @@ export function AuditLogsActions({
       await onRefresh()
     } catch (err) {
       logger.error('Redo action failed', { err })
-      onRedoError?.()
+      onRedoError?.(resolveServerReason(err))
     } finally {
       setRedoingId(null)
     }

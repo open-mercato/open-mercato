@@ -47,6 +47,7 @@ type LoadedUser = {
   roles: string[]
   roleIds: string[]
   hasPassword: boolean
+  isConfirmed: boolean
   updatedAt: string | null
 }
 
@@ -61,6 +62,7 @@ type UserApiItem = {
   roles?: unknown
   roleIds?: unknown
   hasPassword?: boolean
+  isConfirmed?: boolean
   updatedAt?: string | null
   updated_at?: string | null
 }
@@ -268,6 +270,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               roles: roleNames,
               roleIds: roleIds.length > 0 ? roleIds : roleNames,
               hasPassword: item.hasPassword !== false,
+              isConfirmed: item.isConfirmed !== false,
               updatedAt: typeof item.updatedAt === 'string'
                 ? item.updatedAt
                 : typeof item.updated_at === 'string'
@@ -399,11 +402,20 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       options: initialRoleOptions,
       loadOptions: loadRoleOptions,
     })
+    items.push({
+      id: 'isConfirmed',
+      label: t('auth.users.form.field.active', 'Active'),
+      type: 'checkbox',
+      description: t(
+        'auth.users.form.field.activeHint',
+        'Clearing this deactivates the account: the user can no longer sign in and every active session is revoked.',
+      ),
+    })
     return items
   }, [actorIsSuperAdmin, initialRoleOptions, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
-    const base: string[] = ['email', 'name', 'password', 'organizationId', 'roles']
+    const base: string[] = ['email', 'name', 'password', 'organizationId', 'roles', 'isConfirmed']
     if (actorIsSuperAdmin) base.splice(2, 0, 'tenantId')
     return base
   }, [actorIsSuperAdmin])
@@ -464,6 +476,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
         roles: initialUser.roleIds,
+        isConfirmed: initialUser.isConfirmed,
         updatedAt: initialUser.updatedAt,
         ...customFieldValues,
       }
@@ -555,6 +568,9 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               password: values.password && values.password.trim() ? values.password : undefined,
               organizationId: values.organizationId ? values.organizationId : undefined,
               roles: Array.isArray(values.roles) ? values.roles : [],
+              // Only sent when the checkbox actually resolved to a boolean — never
+              // default a missing value to `false`, which would silently deactivate.
+              ...(typeof values.isConfirmed === 'boolean' ? { isConfirmed: values.isConfirmed } : {}),
               ...(Object.keys(customFields).length ? { customFields } : {}),
             }
             const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
