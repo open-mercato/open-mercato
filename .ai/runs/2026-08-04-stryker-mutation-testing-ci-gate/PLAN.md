@@ -22,7 +22,7 @@
 | 2 | 2.1 | `scripts/stryker/report.mjs` — survivor table, job summary, artifact | dispatch | done | 9f008a2da |
 | 2 | 2.2 | Fork-guarded PR comment step | dispatch:cheap | done | a3b2a9bba |
 | 3 | 3.1 | Minimum-mutant floor (`MUTATION_MIN_MUTANTS`) | dispatch | done | 288aa86f2 |
-| 3 | 3.2 | Dormant enforcement — `thresholds.break`, `MUTATION_ENFORCE`, docs | inline | done | — |
+| 3 | 3.2 | Dormant enforcement — `thresholds.break`, `MUTATION_ENFORCE`, docs | inline | done | 1f4868f48 |
 | 4 | 4.1 | `mixinJestEnvironment` wrapper for `perTest` coverage (conditional) | inline | done | 22614e6d3 |
 | 4 | 4.2 | `incremental` plus Actions cache (conditional) | inline | done | a7864dd25 |
 
