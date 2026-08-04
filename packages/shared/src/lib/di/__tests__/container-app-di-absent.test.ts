@@ -84,9 +84,10 @@ jest.mock(
 )
 
 const mockWarn = jest.fn()
+const mockDebug = jest.fn()
 jest.mock('../../logger', () => ({
   createLogger: () => ({
-    debug: jest.fn(),
+    debug: (...args: unknown[]) => mockDebug(...args),
     info: jest.fn(),
     warn: (...args: unknown[]) => mockWarn(...args),
     error: jest.fn(),
@@ -107,6 +108,7 @@ describe('app-level DI override hook when @/di is absent', () => {
     registerAppDiRegistrar(null)
     registerDiRegistrars([])
     mockWarn.mockClear()
+    mockDebug.mockClear()
   })
 
   it('creates the container without warning', async () => {
@@ -115,6 +117,20 @@ describe('app-level DI override hook when @/di is absent', () => {
     expect(firstContainer).toBeDefined()
     expect(secondContainer).toBeDefined()
     expect(mockWarn).not.toHaveBeenCalled()
+  })
+
+  // Worker and CLI processes create one request container per job against built package
+  // output, where the app's `@/` alias does not exist. Retrying the doomed import per
+  // container repeats a failed module resolution — and its log line — once per job.
+  it('stops retrying the unresolvable @/di import after the first container', async () => {
+    await createRequestContainer()
+    await createRequestContainer()
+    await createRequestContainer()
+
+    const unresolvableLogs = mockDebug.mock.calls.filter(
+      ([message]) => message === 'App-level DI override module (@/di) not resolvable; skipping',
+    )
+    expect(unresolvableLogs).toHaveLength(1)
   })
 
   it('warns once when @/di fails because a nested app alias is missing', async () => {

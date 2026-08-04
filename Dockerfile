@@ -36,6 +36,7 @@ COPY packages/search/package.json ./packages/search/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
@@ -107,6 +108,7 @@ COPY packages/search/package.json ./packages/search/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
@@ -214,6 +216,7 @@ COPY --from=builder /app/packages/queue/package.json ./packages/queue/
 COPY --from=builder /app/packages/scheduler/package.json ./packages/scheduler/
 COPY --from=builder /app/packages/search/package.json ./packages/search/
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/telemetry/package.json ./packages/telemetry/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/

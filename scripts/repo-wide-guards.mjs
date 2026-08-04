@@ -148,6 +148,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/telemetry',
+    workspaceDir: 'packages/telemetry',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/default-unloaded.test.ts',
+        scans: 'apps/mercato, packages/create-app/template, packages/cli and packages/queue runtime hosts — telemetry stays unloaded unless a backend is configured (#4475)',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/ui',
     workspaceDir: 'packages/ui',
     jestConfig: 'jest.config.cjs',
@@ -198,6 +209,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   },
   {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
+    reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/standalone-portal-email-env-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {

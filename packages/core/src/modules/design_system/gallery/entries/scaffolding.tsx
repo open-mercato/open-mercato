@@ -96,7 +96,7 @@ const pageEntry: GalleryEntry = {
       code: `import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 
 <Page>
-  <PageHeader title={t('currencies.list.title')} description={t('currencies.list.description')} />
+  <PageHeader title={t('currencies.list.title')} description={t('design_system.gallery.samples.listDescription')} />
   <PageBody>{/* DataTable, sections… */}</PageBody>
 </Page>`,
     },
@@ -174,7 +174,7 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
 
 <SectionHeader
-  title={t('customers.people.detail.addresses.title')}
+  title={t('design_system.gallery.samples.addresses.title')}
   count={addresses.length}
   action={<Button variant="ghost" size="sm"><Plus className="size-4" /> {t('common.add')}</Button>}
 />`,
@@ -193,7 +193,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
       ),
       code: `import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 
-<CollapsibleSection title={t('billing.details.title')} count={2}>
+<CollapsibleSection title={t('design_system.gallery.samples.billingDetails')} count={2}>
   {/* section content */}
 </CollapsibleSection>`,
     },
@@ -223,7 +223,7 @@ const sections: SectionNavGroup[] = [
   },
 ]
 
-<SectionPage title={t('profile.title')} sections={sections} activePath={pathname}>
+<SectionPage title={t('profile.page.title')} sections={sections} activePath={pathname}>
   {children}
 </SectionPage>`,
     },
@@ -236,7 +236,7 @@ const sections: SectionNavGroup[] = [
 const [collapsed, setCollapsed] = React.useState(false)
 
 <SectionNav
-  title={t('profile.title')}
+  title={t('profile.page.title')}
   sections={sections}
   activePath={pathname}
   collapsed={collapsed}
@@ -273,7 +273,7 @@ const formHeaderEntry: GalleryEntry = {
 <FormHeader
   backHref="/backend/products"
   backLabel={t('ui.navigation.back')}
-  title={t('products.edit.title')}
+  title={t('catalog.products.edit.title')}
   actions={{
     cancelHref: '/backend/products',
     cancelLabel: t('ui.forms.actions.cancel'),
@@ -308,9 +308,9 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 <FormHeader
   mode="detail"
   backHref="/backend/customers/companies"
-  entityTypeLabel={t('customers.companies.detail.entityType')}
+  entityTypeLabel={t('design_system.gallery.samples.entityType')}
   title={company.name}
-  subtitle={t('customers.companies.detail.createdAt', { date: createdAt })}
+  subtitle={t('design_system.gallery.samples.createdAt', { date: createdAt })}
   statusBadge={<Badge variant="muted">{statusLabel}</Badge>}
   menuActions={[
     { id: 'duplicate', label: t('ui.actions.duplicate'), icon: Copy, onSelect: duplicate },

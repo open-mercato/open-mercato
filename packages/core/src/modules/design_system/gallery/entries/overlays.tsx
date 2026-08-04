@@ -152,7 +152,7 @@ import {
               <DialogClose asChild>
                 <Button variant="outline">Cancel</Button>
               </DialogClose>
-              <Button variant="destructive">Delete</Button>
+              <Button variant="destructive-solid">Delete</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -185,7 +185,7 @@ import {
       <DialogClose asChild>
         <Button variant="outline">Cancel</Button>
       </DialogClose>
-      <Button variant="destructive">Delete</Button>
+      <Button variant="destructive-solid">Delete</Button>
     </DialogFooter>
   </DialogContent>
 </Dialog>`,

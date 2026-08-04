@@ -371,7 +371,7 @@ export function ActionRow({
           onClick={() => onDelete(index)}
           variant="ghost"
           size="xs"
-          className="hover:text-status-error-text"
+          className="hover:bg-destructive/10 hover:text-destructive"
           title={t('business_rules.components.actionRow.delete')}
           aria-label={t('business_rules.components.actionRow.delete')}
         >
