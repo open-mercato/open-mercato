@@ -71,6 +71,8 @@ classification. Adding a second test asserting the same enumeration would duplic
 
 ## Progress
 
+PR: #4947
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Classify the guard
