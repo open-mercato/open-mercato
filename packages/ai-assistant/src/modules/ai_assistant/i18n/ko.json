@@ -523,5 +523,6 @@
   "ai_assistant.usage.sessionsList": "세션",
   "ai_assistant.usage.steps": "단계",
   "ai_assistant.usage.title": "토큰 사용량 통계",
-  "ai_assistant.usage.to": "종료"
+  "ai_assistant.usage.to": "종료",
+  "notifications.categories.ai_assistant": "AI assistant"
 }

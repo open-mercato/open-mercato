@@ -350,5 +350,6 @@
   "customer_accounts.widgets.noAccount": "연결된 계정 없음",
   "customer_accounts.widgets.noUsers": "연결된 사용자 없음",
   "customer_accounts.widgets.portalUsers": "포털 사용자",
-  "customer_accounts.widgets.viewAccount": "계정 보기"
+  "customer_accounts.widgets.viewAccount": "계정 보기",
+  "notifications.categories.customer_accounts": "Customer accounts"
 }

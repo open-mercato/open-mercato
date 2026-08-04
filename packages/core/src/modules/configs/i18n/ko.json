@@ -193,5 +193,9 @@
   "configs.upgrades.attachmentsOrgReconcile.cta": "애착 조직을 조정하세요",
   "configs.upgrades.attachmentsOrgReconcile.loading": "애착단체 화해…",
   "configs.upgrades.attachmentsOrgReconcile.message": "버전 {{version}}는 잘못된 조직에 저장된 첨부 파일을 수정합니다. 조정을 실행하여 기존 첨부 파일을 해당 첨부 파일이 속한 레코드의 조직으로 이동합니다.",
-  "configs.upgrades.attachmentsOrgReconcile.success": "첨부 조직이 조정되었습니다."
+  "configs.upgrades.attachmentsOrgReconcile.success": "첨부 조직이 조정되었습니다.",
+  "configs.upgrades.devicesPushTokenEncryption.cta": "Encrypt device push tokens",
+  "configs.upgrades.devicesPushTokenEncryption.loading": "Seeding push-token encryption map…",
+  "configs.upgrades.devicesPushTokenEncryption.message": "Version {{version}} adds mobile push and encrypts device push tokens at rest. Existing tenants have no encryption map for the new device entity, so tokens registered after the upgrade would be stored unencrypted. Run this to seed the map so push tokens are encrypted.",
+  "configs.upgrades.devicesPushTokenEncryption.success": "Push-token encryption map seeded."
 }

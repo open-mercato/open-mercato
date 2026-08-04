@@ -5,6 +5,7 @@
   "audit_logs.resource_kind.staff.team_member_address": "주소",
   "audit_logs.resource_kind.staff.team_member_comment": "코멘트",
   "audit_logs.resource_kind.staff.team_member_job_history": "경력 사항",
+  "notifications.categories.staff": "Staff",
   "staff.attendees.actions.add": "참석자 추가",
   "staff.attendees.actions.delete": "삭제",
   "staff.attendees.actions.deleteConfirm": "참석자 \"{{name}}\"을(를) 삭제하시겠습니까?",
