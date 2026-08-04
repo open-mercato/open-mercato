@@ -91,6 +91,8 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 43 | **Wave 9 H7** — GOV-P2 controller-owned base/head evidence contract | GOV-P2 | done | `e8eb259b0` |
 | 44 | **Wave 10 H8** — harness source-selection assertions (family 11, OMH-215/216) | CANON-C harness cases | done | `34b199657` |
 | 45 | **Wave 10 C5** — derived source-link inventory + D4 equality + drift gate + anti-staleness fix | CANON-C keystone | done | `c5db477fa` |
+| 46 | **Wave 11 E8 (PARTIAL)** — additive `EntityExtension.table` + engine preference; declaration-only example | CANON-B entity extensions | partial | `0f2ecf729` |
+| 47 | **Wave 12 S12** — blocked-backlog sweep: oracle-family re-derivation, enricher decryption reads | CANON-C / cleanup | done | `e610c3e9a` |
 
 ## Deferred Backlog (not in this PR)
 
@@ -917,3 +919,62 @@ before merging E3; findings change what E3 is allowed to do.
   - Anti-vacuous section now lists **seven** real examples from this program.
 
   Branches local, not pushed. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_c82928df-b2a'})`.
+
+## ALL TWELVE WAVES COMPLETE (session 4)
+
+Waves 0-12 are merged. 47 task rows. **Gate FULLY GREEN**: `yarn test` exit 0 (25/25 turbo tasks),
+create-mercato-app 606 pass / 0 fail, repo-wide guards (24 files), `agents:check-budget`,
+`build:app`, `template:sync`, `i18n:check-sync`, `typecheck`.
+
+**Wave 11 (E8) is deliberately PARTIAL, and the reason matters.** The shared half landed: an additive
+optional `table?: string` on `EntityExtension`, preferred by the query engine over its naive
+pluralizer. The example half is **declaration-only**, because the slice found TWO reasons beyond the
+two the recon knew:
+- `HybridQueryEngine` — what `query_index/di.ts` registers as the PRODUCTION `queryEngine` — has no
+  reference to `includeExtensions` at all. On the engine actually wired, setting the flag is a
+  silent no-op.
+- Even on `BasicQueryEngine` the extension join is write-only: selection goes through `qualify()`
+  against the BASE table and the joined `ext_*` alias is never projected, filtered or sorted.
+So an `includeExtensions` opt-in in `api/todos/route.ts` would have been decorative. **`data/extensions.ts`
+cannot be made runtime-observable without a query-engine change well beyond this program's scope.**
+The declaration-only status is stated in the file docstring, the inventory description and the
+surface-map row.
+
+**Open maintainer decision E8 flagged and correctly did NOT act on:** `engine.ts` already contains a
+correct pluralizer (`pluralizeBaseName`, handling `-y` → `-ies`) that would have derived
+`example_customer_priorities` right. The extension-join path uses a separate naive inline one. D1 was
+binding and behavior preservation is an Always rule, so it implemented the override and reported the
+redundancy. **If the maintainer prefers, the override could be dropped in favour of routing the
+fallback through the existing pluralizer.**
+
+**Two false claims fixed on merge**, both outside E8's allowlist and correctly reported rather than
+silently edited: `om-system-extension/SKILL.md` said `data/extensions.ts` "has no example there"
+(that file SHIPS into every generated app), and `BACKWARD_COMPATIBILITY.md`'s row read "MUST NOT
+change `EntityExtension` shape" — stricter than §2's "optional fields may be added freely" and than
+line 66, which names only `base`/`extension`/`join` as immutable.
+
+**S12** re-derived the read-policy oracle families from the tree rather than the ledger and reported
+per-family status honestly; the uncovered ones are blocked on `context.sourceReferenceIds`, which has
+ZERO occurrences in both the case schema and the evaluator. It also fixed the two raw `em.find(Todo,…)`
+reads in `data/enrichers.ts` on a now-encrypted entity. Its `enrichMany` assertion was tightened on
+merge — it checked only argument 1, leaving the where-clause and decryption scope unpinned on the
+LIST path while its `enrichOne` sibling asserted the full call.
+
+### Programme tally, for the next session
+
+- **Seven false premises** in briefs I wrote, every one caught by an agent told to verify the brief.
+- **Eight vacuous tests** shipped and fixed — the single most common failure mode, more common than
+  wrong behaviour. One of MY OWN fixes was vacuous too (`@ts-expect-error` is not enforced by this
+  jest transform).
+- **Three silent-zero fact families** found and fixed (`di-registration`, `search`, plus the
+  diagnostic gap that hid them).
+- Two contamination incidents, both caught by the per-slice allowlist + independent verifier.
+
+### Remaining, none blocking
+
+- `TC-EXAMPLE-003` (bulk progress) and `TC-EXAMPLE-007/010` Playwright specs — need a live app,
+  database and queue; unit-covered only, and the surface map says so.
+- `generator-plugin` fact family — see S12's report.
+- `context.sourceReferenceIds` — the last read-policy blocker.
+- The `Module Decoupling › resolveDefaultPartitionCode` parallelism flake.
+- `umes.component-replacement` is the only `qa-only` row left.
