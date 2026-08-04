@@ -389,3 +389,20 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
 
   **Next session starts at wave 4** (E2 translations/extension-points/notifications.client · H2
   SPEC-P2 evaluator plumbing · C3 local-reference fact emission), plus the two new backlog rows above.
+
+  **In flight (session 4):** wave 4 workflow `wf_c230d9cf-a9b` — branches
+  `wave4/e2-canon-b-small-gaps`, `wave4/h2-spec-p2-evaluator`, `wave4/c3-local-reference-facts`,
+  each with an independent verifier that runs its own mutation probes plus a slice-specific check
+  (C3: prove normal `module-facts.json` is byte-identical for package modules; H2: prove the new
+  schema fields are inert for all 203 cases; E2: prove `yarn generate` really discovers the three
+  new convention files). E1's inventory drift (`ui.form-create`/`ui.form-edit` need `TodoForm.tsx`)
+  is folded into E2, which already owns the inventory. **SPEC-P2 oracle-carrier decision made:**
+  the faithful option — `specRouting` in the response schema + `expectedSpecRouting` in the case
+  schema + a `routing.spec-decision` validator — because the cheap label-based alternative cannot
+  distinguish "wrong decision" from "wrong reason code".
+  Branches are local and **not pushed**; nothing merges until verdicts are read. Resume with
+  `Workflow({scriptPath, resumeFromRunId: 'wf_c230d9cf-a9b'})`.
+
+  **Housekeeping:** `packages/shared/.tmp-dynamic-loader-*` dirs are leaked by
+  `dynamicLoader.tsconfig.test.ts` and are NOT gitignored — sweep them before staging, or they get
+  swept into a commit.
