@@ -459,3 +459,19 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
   app-level storage_s3 route suite) FIXES the `storage-s3-routes.test.ts` failure this program has
   carried as pre-existing since session 1. `yarn test` now exits 0 — the gate is fully green for the
   first time.** Do not keep quoting that failure as a known-bad in future PR bodies.
+
+  **Conflict resolved (session 4).** After the concurrent push, `develop` advanced again and the PR
+  went `DIRTY`. One real conflict: `scripts/repo-wide-guards.mjs`, where both sides appended a
+  different entry to the same append-only exemption list — resolved by keeping BOTH
+  (`template-example-module-parity.test.ts` from this branch, `standalone-portal-email-env-guard.test.ts`
+  from develop). `package.json.template` auto-merged. PR is `MERGEABLE` again at `8ddeba7ba`;
+  full gate re-run green (`yarn test` exit 0, create-mercato-app 536/533 pass).
+  **This list is a known recurring conflict point** — expect it whenever two branches add a guard.
+
+  **In flight:** wave 5 workflow `wf_30380b88-690` — `wave5/e3-registry-static-readability` and
+  `wave5/h3-spec-p2-routing-cases`. E3 carries maintainer decision D2 and therefore drafts an
+  `UPGRADE_NOTES.md` entry + removes `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` from both
+  `.env.example` files — **that wording needs maintainer review before merge**. H3 must update the
+  case count in 6 documents + 2 hard-coded literals and the writable-id order in 5 places.
+  Verifiers now also mechanically re-check every factual claim in any doc the slice touched, after
+  wave 4 shipped a provably false one. Resume: `Workflow({scriptPath, resumeFromRunId: 'wf_30380b88-690'})`.
