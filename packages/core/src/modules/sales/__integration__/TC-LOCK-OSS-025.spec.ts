@@ -51,6 +51,7 @@ import {
 const ORDERS_BASE = '/api/sales/orders'
 const ORDER_ADJUSTMENTS_BASE = '/api/sales/order-adjustments'
 const RETURNS_BASE = '/api/sales/returns'
+const ORDER_LINES_BASE = '/api/sales/order-lines'
 
 const BASE_URL = process.env.BASE_URL?.trim() || ''
 function resolveUrl(path: string): string {

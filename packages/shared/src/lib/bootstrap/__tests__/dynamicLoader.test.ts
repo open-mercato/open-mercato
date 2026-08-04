@@ -16,6 +16,9 @@ const mockBuild = jest.fn(async ({ outfile }: { outfile: string }) => {
   const output = generatedExports[path.basename(outfile)]
   if (!output) throw new Error(`Unexpected generated output: ${outfile}`)
   fs.writeFileSync(outfile, output)
+  // compileAndImport records the bundle's inputs in its cache metadata, so the
+  // double has to supply a metafile the way a real esbuild build does.
+  return { metafile: { inputs: {} } }
 })
 const mockStop = jest.fn()
 
@@ -39,6 +42,12 @@ function createGeneratedApp(prefix: string): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   const generatedDir = path.join(root, '.mercato', 'generated')
   fs.mkdirSync(generatedDir, { recursive: true })
+  // compileAndImport resolves the app tsconfig and folds it into the compile
+  // cache key, so a generated app without one is not loadable.
+  fs.writeFileSync(
+    path.join(root, 'tsconfig.json'),
+    JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext' } }),
+  )
   for (const name of generatedNames) {
     fs.writeFileSync(path.join(generatedDir, name), '// generated test input\n')
   }
@@ -64,9 +73,10 @@ describe('loadBootstrapData esbuild lifecycle', () => {
     expect(mockBuild).toHaveBeenCalledTimes(generatedNames.length)
     expect(mockStop).toHaveBeenCalledTimes(1)
 
+    // The compile cache keys off source content, not mtime, so the change that
+    // forces a recompile has to be a real content change.
     const entityIdsPath = path.join(appRoot, '.mercato', 'generated', 'entities.ids.generated.ts')
-    const future = new Date(Date.now() + 1000)
-    fs.utimesSync(entityIdsPath, future, future)
+    fs.writeFileSync(entityIdsPath, '// generated test input (changed)\n')
 
     await loadBootstrapData(appRoot)
 
