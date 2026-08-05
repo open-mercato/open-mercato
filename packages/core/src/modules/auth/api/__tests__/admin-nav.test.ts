@@ -508,8 +508,8 @@ describe('GET /api/auth/admin/nav', () => {
       headers: { cookie: 'om_selected_org=org-1' },
     }))
     const concreteSelectionKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
-    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
-    expect(concreteSelectionKey).not.toContain('nav:sidebar:v5:')
+    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+    expect(concreteSelectionKey).not.toContain('nav:sidebar:v6:')
 
     mockCacheGet.mockClear()
     setupCustomEntities([])
@@ -518,7 +518,7 @@ describe('GET /api/auth/admin/nav', () => {
       headers: { cookie: 'om_selected_org=__all__' },
     }))
     const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
-    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
+    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
     expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
   })
 

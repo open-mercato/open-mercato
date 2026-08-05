@@ -338,8 +338,10 @@ Simplified response:
 }
 ```
 
-Items (and their `children`) arrive already sorted by the weight each page declared — `pagePriority` when it set one, otherwise `pageOrder`. That same weight is echoed back as `order`, so re-sorting by it is a no-op and a custom shell can merge its own entries against it instead of relying on array position.
+Items (and their `children`) arrive already sorted by weight: `pagePriority` when the page declared one, otherwise `pageOrder`, otherwise a large fallback so pages declaring neither sort last. That resolved weight is echoed back as `order` — always a number — so re-sorting by it reproduces the order you received, and a custom shell can merge its own entries against it instead of relying on array position.
 
-A `pageOrder` set through an `overrides.routes.pages` entry repositions the item too: the override's metadata is normalized through the same alias table the manifest was built with.
+`order` here is not the same precedence as the `order` on `settingsSections` items, which resolves `order ?? priority` instead. A page that appears in both surfaces can report a different weight in each.
+
+A `pageOrder` set through an `overrides.routes.pages` entry repositions the item as well, because the override's metadata is normalized through the same alias table the manifest was built with. One caveat follows from the precedence above: if the target page declares its own `pagePriority`, that still wins over an overridden `pageOrder` — override `pagePriority` instead when you need to reposition such a page.
 
 Use this endpoint to drive custom admin shells or to debug visibility rules when developing new modules.

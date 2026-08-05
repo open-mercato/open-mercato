@@ -143,10 +143,11 @@ const NAV_ITEM_FALLBACK_WEIGHT = 10_000
 /**
  * The weight a nav entry sorts by, using the same `priority ?? order` precedence as `buildAdminNav`.
  *
- * Ordering is re-applied here, at the serialization boundary, so the payload's own `order` field is
- * always consistent with the sequence it ships items in instead of inheriting an upstream sort (#4845).
- * `serializeNavItem` emits `priority ?? order` for the same reason: a consumer that re-sorts by the
- * field it receives must land on the order it was served in.
+ * `serializeNavItem` emits this resolved number rather than the raw declaration, including the
+ * fallback, so a consumer that re-sorts by the field it receives lands on the order it was served in.
+ * Emitting the raw `priority ?? order` would leave `order` undefined on any page declaring neither —
+ * and the `(a.order ?? 0) - (b.order ?? 0)` idiom this codebase uses elsewhere would then hoist those
+ * pages to the top instead of leaving them last (#4845).
  */
 function resolveNavItemWeight(item: AdminNavItem): number {
   return item.priority ?? item.order ?? NAV_ITEM_FALLBACK_WEIGHT
@@ -171,7 +172,7 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     pageContext: item.pageContext,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
-    order: item.priority ?? item.order,
+    order: resolveNavItemWeight(item),
     children: item.children
       ? await Promise.all(sortNavItemsByWeight(item.children).map((child) => serializeNavItem(child)))
       : undefined,

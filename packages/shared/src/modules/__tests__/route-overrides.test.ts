@@ -375,6 +375,16 @@ describe('applyPageOverridesToManifests', () => {
     expect(result[0].group).toBe('Operations')
   })
 
+  it('leaves an entry-declared priority winning over an overridden pageOrder', () => {
+    const entry = { ...makeBackendPage('/backend/example'), priority: 3 }
+    const result = applyPageOverridesToManifests([entry], {
+      '/backend/example': { metadata: { pageOrder: 5 } },
+    }, 'backend')
+
+    expect(result[0].order).toBe(5)
+    expect(result[0].priority).toBe(3)
+  })
+
   it('keeps resolved metadata keys working and leaves untouched fields on the entry', () => {
     const result = applyPageOverridesToManifests([makeBackendPage('/backend/example')], {
       '/backend/example': { metadata: { order: 7 } },
