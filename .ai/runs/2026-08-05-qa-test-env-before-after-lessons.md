@@ -69,3 +69,15 @@ PR: #4999
 
 - [x] 2.1 Re-read the diff and confirm the change is confined to the skill doc — fd9e9ea58
 - [x] 2.2 Run the docs-relevant validation gate — `yarn agents:check-budget` and `yarn lessons:check` both exit 0
+
+### Phase 3: Address review (added 2026-08-05, after @pkarw's changes-requested)
+
+- [x] 3.1 Fix the Medium: rewrite the "when you must stay in SQL" bullet so it describes the keyed
+  `v2:` HMAC, the legacy unkeyed fallback and the two-candidate match, instead of a plain
+  deterministic digest — 50db99e2d
+- [x] 3.2 Nit 2 — stop asserting the gitignored generated script's internals for `--force-rebuild`;
+  name the CLI-level cache variable the flag must invalidate — 50db99e2d
+- [x] 3.3 Nit 3 — anchor the `entities.ts:8` citation to a greppable symbol
+  (`defaultEncryptionMaps`, `encryption.ts:7`) — 50db99e2d
+- [x] 3.4 Re-verify every citation in the changed lines resolves at the stated line, and re-run the
+  docs-relevant gate — 16/16 citations exact, both commands exit 0
