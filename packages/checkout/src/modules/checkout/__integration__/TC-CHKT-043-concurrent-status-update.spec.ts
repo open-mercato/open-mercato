@@ -96,8 +96,10 @@ test.describe('TC-CHKT-043 (concurrency): Two-contender race — only one update
       // 2. completionCount must be exactly 1 — the terminal state must have
       //    been applied exactly once, not zero or twice.
       const updatedLinkResponse = await apiRequest(request, 'GET', `/api/checkout/links/${encodeURIComponent(link.id)}`, { token })
-      const updatedLinkBody = await readJsonSafe<{ link?: { completionCount?: number } }>(updatedLinkResponse)
-      expect(updatedLinkBody?.link?.completionCount).toBe(1)
+      // The detail route spreads the serialized link at the top level; there is
+      // no `link` wrapper. Reading one made this assertion compare undefined to 1.
+      const updatedLinkBody = await readJsonSafe<{ completionCount?: number }>(updatedLinkResponse)
+      expect(updatedLinkBody?.completionCount).toBe(1)
 
       // 3. The stored transaction must have a gatewayTransactionId from the webhook.
       const storedTransaction = await readCheckoutTransaction(request, token!, transactionId)
