@@ -1,8 +1,8 @@
 {
   "name": "@open-mercato/eslint-plugin-ds",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "private": true,
-  "description": "Structural ESLint rules enforcing the Open Mercato design system (empty states, page wrappers, raw tables, loading states, status badges, hardcoded status colors)",
+  "description": "Structural ESLint rules enforcing the Open Mercato design system (empty states, page wrappers, raw tables, loading states, status badges, hardcoded status colors, legacy Alert variant)",
   "type": "module",
   "main": "index.js",
   "exports": {
