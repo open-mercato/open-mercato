@@ -355,7 +355,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
     return (
       <div className="flex flex-col gap-3 sm:gap-4">
         {statusError ? (
-          <Alert variant="destructive">
+          <Alert status="error">
             <AlertTitle>{t('entities.customFields.errors.title', 'Something went wrong')}</AlertTitle>
             <AlertDescription>{statusError}</AlertDescription>
           </Alert>
