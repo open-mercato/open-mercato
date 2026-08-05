@@ -17,6 +17,7 @@ import {
   runStaffMutationGuards,
 } from '../../../../guards'
 import { emitStaffEvent } from '../../../../../events'
+import { invalidateStaffTimeEntryCache } from '../../../../../lib/timesheets/timeEntryCacheInvalidation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -169,6 +170,13 @@ export async function POST(req: Request) {
       await trx.flush()
       return startedAt
     })
+
+    await invalidateStaffTimeEntryCache(
+      container,
+      { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      tenantId,
+      'timer_started',
+    )
 
     void emitStaffEvent('staff.timesheets.time_entry.timer_started', {
       id: entry.id,
