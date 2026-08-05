@@ -6,7 +6,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, RATE_LIMIT_UNAVAILABLE_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
@@ -277,10 +277,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     try {
       const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
       const key = buildCheckoutRateLimitKey(req, rateLimiter, 'checkout-submit')
-      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, key, 'Too many payment attempts. Please try again later.')
+      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, key, 'Too many payment attempts. Please try again later.', { failClosed: true })
       if (rateLimitResponse) return rateLimitResponse
-    } catch {
-      // Rate limiting is fail-open
+    } catch (error) {
+      // Rate limiting is fail-closed here: this endpoint creates payment sessions that can charge cards.
+      logger.error('Checkout submit rate limit check failed, rejecting request', { err: error })
+      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
     }
     const resolvedParams = await params
 

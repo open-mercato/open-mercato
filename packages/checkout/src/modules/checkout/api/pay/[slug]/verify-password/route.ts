@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, RATE_LIMIT_UNAVAILABLE_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { CheckoutLink } from '../../../../data/entities'
 import { CHECKOUT_PASSWORD_COOKIE } from '../../../../lib/constants'
 import { publicPasswordVerifySchema } from '../../../../data/validators'
@@ -14,6 +14,9 @@ import {
 } from '../../../../lib/utils'
 import { buildCheckoutRateLimitKey, checkoutPasswordRateLimitConfig } from '../../../../lib/rateLimiter'
 import { checkoutTag } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 export const metadata = {
   path: '/checkout/pay/[slug]/verify-password',
@@ -26,10 +29,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     try {
       const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
       const key = buildCheckoutRateLimitKey(req, rateLimiter, 'checkout-password')
-      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutPasswordRateLimitConfig, key, 'Too many password attempts. Please try again later.')
+      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutPasswordRateLimitConfig, key, 'Too many password attempts. Please try again later.', { failClosed: true })
       if (rateLimitResponse) return rateLimitResponse
-    } catch {
-      // Rate limiting is fail-open
+    } catch (error) {
+      // Rate limiting is fail-closed here: an unenforced limit allows password brute force.
+      logger.error('Checkout password rate limit check failed, rejecting request', { err: error })
+      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
     }
     const resolvedParams = await params
     const body = publicPasswordVerifySchema.parse(await req.json().catch(() => ({})))

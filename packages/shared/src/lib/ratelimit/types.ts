@@ -18,6 +18,13 @@ export interface RateLimitResult {
   msBeforeNext: number
   /** Total points consumed in the current window */
   consumedPoints: number
+  /**
+   * True when the limiter could not reach its backing store, so `allowed` is a
+   * fallback rather than a real decision. Callers guarding state-mutating
+   * endpoints SHOULD fail closed on this instead of letting the request through.
+   * Absent (falsy) when rate limiting is switched off by configuration.
+   */
+  degraded?: boolean
 }
 
 export type RateLimitStrategy = 'memory' | 'redis'

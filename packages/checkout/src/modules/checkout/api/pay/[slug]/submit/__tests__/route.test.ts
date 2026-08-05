@@ -26,6 +26,7 @@ jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
   checkRateLimit: jest.fn(),
   getClientIp: jest.fn(),
   RATE_LIMIT_FALLBACK_KEY: 'global',
+  RATE_LIMIT_UNAVAILABLE_FALLBACK: 'Service temporarily unavailable. Please try again later.',
 }))
 
 jest.mock('../../../../../events', () => ({
@@ -374,5 +375,54 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(response.status).toBe(201)
     const payload = await response.json()
     expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  describe('rate limiting is fail-closed', () => {
+    function submitRequest() {
+      return POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': 'rate-limit-key1',
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+    }
+
+    it('asks the limiter to fail closed', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+
+      await submitRequest()
+
+      expect(checkRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ failClosed: true }),
+      )
+    })
+
+    it('returns 503 without creating a payment session when the limiter is unavailable', async () => {
+      ;(createRequestContainer as jest.Mock).mockResolvedValue({
+        resolve: (name: string) => {
+          if (name === 'rateLimiterService') throw new Error('rate limiter unavailable')
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      })
+
+      const response = await submitRequest()
+
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({
+        error: 'Service temporarily unavailable. Please try again later.',
+      })
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
   })
 })

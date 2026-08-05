@@ -8,6 +8,9 @@ import { CheckoutLink, CheckoutTransaction } from '../../../../../data/entities'
 import { buildCheckoutRateLimitKey, checkoutStatusRateLimitConfig } from '../../../../../lib/rateLimiter'
 import { handleCheckoutRouteError, requireCheckoutPasswordSession } from '../../../../helpers'
 import { checkoutTag } from '../../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 export const metadata = {
   path: '/checkout/pay/[slug]/status/[transactionId]',
@@ -23,8 +26,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       const key = buildCheckoutRateLimitKey(req, rateLimiter, 'checkout-status')
       const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutStatusRateLimitConfig, key, 'Too many checkout status requests. Please try again later.')
       if (rateLimitResponse) return rateLimitResponse
-    } catch {
-      // Rate limiting is fail-open
+    } catch (error) {
+      // Rate limiting stays fail-open here: this endpoint is read-only.
+      logger.warn('Checkout status rate limit check failed, allowing request', { err: error })
     }
     const em = container.resolve('em')
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService

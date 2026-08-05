@@ -16,6 +16,9 @@ import {
   verifyCheckoutAccessToken,
 } from '../../../lib/utils'
 import { checkoutTag } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout')
 
 export const metadata = {
   path: '/checkout/pay/[slug]',
@@ -35,8 +38,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         const key = buildCheckoutRateLimitKey(req, rateLimiter, 'checkout-public-view')
         const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutPublicViewRateLimitConfig, key, 'Too many checkout page requests. Please try again later.')
         if (rateLimitResponse) return rateLimitResponse
-      } catch {
-        // Rate limiting is fail-open
+      } catch (error) {
+        // Rate limiting stays fail-open here: this endpoint is read-only.
+        logger.warn('Checkout public view rate limit check failed, allowing request', { err: error })
       }
     }
     const em = container.resolve('em')

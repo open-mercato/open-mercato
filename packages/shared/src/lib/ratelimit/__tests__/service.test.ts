@@ -1,3 +1,9 @@
+import { RateLimiterMemory } from 'rate-limiter-flexible'
+import {
+  registerLoggerExtension,
+  resetLoggerExtension,
+  type LoggerExtensionRecord,
+} from '@open-mercato/shared/lib/logger'
 import { RateLimiterService } from '../service'
 import type { RateLimitConfig, RateLimitGlobalConfig } from '../types'
 
@@ -145,6 +151,56 @@ describe('RateLimiterService', () => {
 
       const resultB = await service.consume('ip-b', defaultLimitConfig)
       expect(resultB.allowed).toBe(true)
+    })
+  })
+
+  describe('degraded limiter', () => {
+    const logRecords: LoggerExtensionRecord[] = []
+
+    beforeEach(() => {
+      logRecords.length = 0
+      registerLoggerExtension({ emit: (record) => logRecords.push(record) })
+      jest.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      resetLoggerExtension()
+      jest.restoreAllMocks()
+    })
+
+    it('flags the result as degraded when the backing store fails', async () => {
+      jest.spyOn(RateLimiterMemory.prototype, 'consume').mockRejectedValue(new Error('store unreachable'))
+      service = new RateLimiterService(createConfig())
+
+      const result = await service.consume('key1', defaultLimitConfig)
+      expect(result.degraded).toBe(true)
+      expect(result.allowed).toBe(true)
+      expect(logRecords).toEqual([
+        expect.objectContaining({
+          level: 'error',
+          namespace: 'ratelimit',
+          message: 'Rate limiter unavailable, request was not counted',
+        }),
+      ])
+    })
+
+    it('does not flag a real rejection as degraded', async () => {
+      service = new RateLimiterService(createConfig())
+      for (let i = 0; i < defaultLimitConfig.points; i++) {
+        await service.consume('key2', defaultLimitConfig)
+      }
+
+      const result = await service.consume('key2', defaultLimitConfig)
+      expect(result.allowed).toBe(false)
+      expect(result.degraded).toBeFalsy()
+    })
+
+    it('does not flag a config-disabled result as degraded', async () => {
+      service = new RateLimiterService(createConfig({ enabled: false }))
+
+      const result = await service.consume('key3', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+      expect(result.degraded).toBeFalsy()
     })
   })
 
