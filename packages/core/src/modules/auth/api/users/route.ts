@@ -102,6 +102,24 @@ const errorResponseSchema = z.object({ error: z.string() })
 type CrudInput = Record<string, unknown>
 type UserListFilter = Record<string, unknown>
 
+// UserRole carries no tenant/organization columns of its own, so the caller's scope has to be
+// expressed as a predicate on the `user` relation — MikroORM compiles that into a database-side
+// subquery, keeping the link lookup bounded to the scope instead of every tenant holding the role.
+function buildRoleLinkFilter(
+  roleIdList: string[],
+  userScope: UserListFilter[],
+  candidateUserIds: Set<string> | null,
+): UserListFilter {
+  const scope = candidateUserIds
+    ? [...userScope, { id: { $in: Array.from(candidateUserIds) } }]
+    : userScope
+  return {
+    role: { $in: roleIdList },
+    deletedAt: null,
+    user: scope.length > 1 ? { $and: scope } : scope[0],
+  }
+}
+
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
   POST: { requireAuth: true, requireFeatures: ['auth.users.create'] },
@@ -265,7 +283,10 @@ export async function GET(req: Request) {
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
-    const linksForRoles = await em.find(UserRole, { role: { $in: uniqueRoleIds as any } } as any)
+    const linksForRoles = await em.find(
+      UserRole,
+      buildRoleLinkFilter(uniqueRoleIds, filters, idFilter) as any,
+    )
     const roleUserIds = new Set<string>()
     for (const link of linksForRoles) {
       const uid = String((link as any).user?.id || (link as any).user || '')
@@ -328,7 +349,7 @@ export async function GET(req: Request) {
     if (matchingRoleIds.length) {
       const roleSearchLinks = await em.find(
         UserRole,
-        { role: { $in: matchingRoleIds as any } } as any,
+        buildRoleLinkFilter(matchingRoleIds, filters, idFilter) as any,
       )
       const matchingRoleUserIds = Array.from(new Set(
         roleSearchLinks
