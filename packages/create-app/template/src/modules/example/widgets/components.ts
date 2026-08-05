@@ -2,6 +2,11 @@ import * as React from 'react'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import {
+  OverrideShowcaseReplacement,
+  overrideShowcasePropsSchema,
+  withOverridingModule,
+} from '../components/ComponentOverrideShowcase'
 
 const checkoutTestInjectionsEnabled = parseBooleanWithDefault(
   process.env.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED,
@@ -35,8 +40,8 @@ export function decorateWithDemoFrame(
 /**
  * Pass-through gate for demo-only overrides.
  *
- * `resolveRegisteredComponent` assigns `wrapper(resolved)` straight back into
- * the resolution chain, so returning `Original` BY IDENTITY leaves the rendered
+ * Both platform resolvers feed `wrapper(resolved)` straight back into the
+ * resolution chain, so returning `Original` BY IDENTITY leaves the rendered
  * tree byte-identical to having no override registered at all. That is what
  * lets the override be DECLARED unconditionally — a statically foldable array
  * literal the fact extractor can read — while the demo chrome stays opt-in.
@@ -47,6 +52,38 @@ export function applyWhenEnabled(
   decorate: (Original: AnyComponent) => AnyComponent,
 ): AnyComponent {
   return enabled ? decorate(Original) : Original
+}
+
+/** Module id the `props`-mode override stamps onto the showcase section's props. */
+export const OVERRIDING_MODULE_ID = 'example'
+
+/**
+ * The showcase handle, declared LOCALLY rather than imported from
+ * `components/ComponentOverrideShowcase.tsx`, which exports the same constant.
+ *
+ * What the fact extractor cannot do is follow an identifier across a file boundary:
+ * `staticValue` resolves an identifier only against initializers declared in the file
+ * it is reading, so an imported handle constant folds to `undefined` and the entry
+ * publishes ZERO component-override contributions — the same class of silent-zero bug
+ * the conditional-spread export used to cause. A plain string literal would fold too;
+ * the builder is used because it keeps the `section:<scope>.<id>` spelling owned by the
+ * framework instead of retyped here. `widgets/__tests__/component-override-modes.test.ts`
+ * pins the two spellings to each other.
+ */
+const SHOWCASE_HANDLE = ComponentReplacementHandles.section('example.overrides', 'showcase')
+
+/**
+ * `props`-mode transform for the showcase section.
+ *
+ * It has to be declared in THIS file — as a function declaration or an inline arrow,
+ * either folds identically — because `isFunctionLikeInitializer` classifies the entry as
+ * `props` only when it can see the callable. Assigning an identifier imported from
+ * another module (`withOverridingModule` itself, say) leaves `propsTransform` unresolved
+ * and the extractor falls through to the `replace` default. Same cross-file limit as the
+ * handle above; `widgets/__tests__/components.test.ts` asserts the resolved mode.
+ */
+export function stampOverridingModule(props: unknown): unknown {
+  return withOverridingModule(props, OVERRIDING_MODULE_ID)
 }
 
 /**
@@ -100,6 +137,41 @@ export const componentOverrides: ComponentOverride[] = [
         'rounded-2xl border border-dashed border-status-warning-border bg-status-warning-bg p-3',
       ),
     ),
+  },
+  /**
+   * `replace` mode. Ordering matters, but WHICH resolver reads it decides how much.
+   * `resolveRegisteredComponent` (the server fold behind `page:` handles) assigns
+   * `resolved = override.replacement` mid-walk, discarding everything composed before
+   * it, so a replacement at a HIGHER priority number silently throws away the wrappers
+   * and transforms that sorted ahead of it. `useRegisteredComponent` — what the host
+   * below actually calls — buckets the modes instead and applies the transforms to the
+   * props regardless of order. Taking the lowest number on the handle is what makes the
+   * two agree; `widgets/__tests__/component-override-modes.test.ts` renders both.
+   *
+   * The target is a handle this module hosts itself
+   * (`components/ComponentOverrideShowcase.tsx`, rendered by
+   * `/backend/component-overrides`). A production override names a handle another
+   * module exposes; a canonical reference module must not, because enabling it for
+   * inspection would then rewrite a screen you did not come to look at.
+   */
+  {
+    target: { componentId: SHOWCASE_HANDLE },
+    priority: 40,
+    metadata: { module: OVERRIDING_MODULE_ID },
+    replacement: OverrideShowcaseReplacement,
+    propsSchema: overrideShowcasePropsSchema,
+  },
+  /**
+   * `props` mode. It is the only mode that changes what a host renders WITHOUT owning
+   * its markup: the resolved component is kept and fed transformed props. It sorts
+   * after the replacement above so the server fold reaches it too — on the client
+   * resolver the order between the two is irrelevant.
+   */
+  {
+    target: { componentId: SHOWCASE_HANDLE },
+    priority: 50,
+    metadata: { module: OVERRIDING_MODULE_ID },
+    propsTransform: stampOverridingModule,
   },
 ]
 

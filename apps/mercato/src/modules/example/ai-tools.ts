@@ -29,6 +29,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { defineAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-tool-definition'
+import type { AiToolOverridesMap } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-overrides'
 import type {
   AiToolDefinition,
   McpToolContext,
@@ -124,5 +125,51 @@ const customerPriorityTool: AiToolDefinition = defineAiTool<unknown, ExampleCust
 })
 
 export const aiTools: AiToolDefinition[] = [customerPriorityTool, todoSummaryTool]
+
+/**
+ * Feature id the file-tier override raises `example.get_todo_summary` to.
+ *
+ * Exported so the test asserts against one constant rather than repeating a string
+ * that could drift away from `acl.ts`.
+ */
+export const TODO_SUMMARY_OVERRIDE_FEATURE = 'example.todos.manage'
+
+/**
+ * File-tier tool override — the second mechanism this file carries.
+ *
+ * The generator reads `aiToolOverrides` separately from `aiTools` and emits it as
+ * `aiToolOverrideEntries` in `ai-tools.generated.ts`; the runtime folds it in through
+ * `composeToolOverrideMap` → `applyToolOverrideMap`. `null` removes a tool by name; a
+ * definition replaces it, and `applyToolOverrideMap` drops any replacement whose
+ * `name` does not equal its key, so the key and the definition cannot drift apart.
+ *
+ * Three things decide whether an override you write is correct:
+ *
+ * 1. **Where it sits.** File-tier overrides are tier 3 of four: programmatic
+ *    (`applyAiToolOverrides`) > `modules.ts` `entry.overrides.ai.tools` > this file >
+ *    the base `aiTools` export. A module therefore ships a *default*, never a final
+ *    word — an app tightens or lifts it without editing module source.
+ * 2. **What it may safely name.** A real module names a tool it does NOT own — that is
+ *    the whole point of the surface. This one names its own, on purpose: enabling the
+ *    canonical reference module for inspection must not silently change a shipped
+ *    assistant's behaviour in the app you are inspecting. Read the shape here, then
+ *    put a foreign tool name in the key when you copy it.
+ * 3. **What it changes.** The base declaration above states the capability at its
+ *    natural read permission (`example.todos.view`); the override ships the stricter
+ *    default this module wants in a deployment, so cached aggregates only reach the
+ *    model for an operator who can also manage the backlog. The handler is reused by
+ *    spread, so the tool cannot fork into two implementations.
+ *
+ * The override is LIVE — the generator folds it into `ai-tools.generated.ts` — but the
+ * narrowing it demonstrates has no observable effect in a seeded app, because
+ * `setup.ts` grants `example.*` to superadmin, admin and employee alike. Read it as a
+ * shape, not as a demonstration that a gate closed.
+ */
+export const aiToolOverrides: AiToolOverridesMap = {
+  'example.get_todo_summary': {
+    ...todoSummaryTool,
+    requiredFeatures: [TODO_SUMMARY_OVERRIDE_FEATURE],
+  },
+}
 
 export default aiTools

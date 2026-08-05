@@ -14197,7 +14197,7 @@
             "data.custom-fields"
           ],
           "maxFiles": 10,
-          "maxBytes": 102400
+          "maxBytes": 131072
         }
       ]
     },
@@ -14310,7 +14310,7 @@
             "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
-          "maxBytes": 102400
+          "maxBytes": 131072
         }
       ]
     },

@@ -519,6 +519,7 @@
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
         "src/modules/example/widgets/__tests__/components.test.ts"
       ],
       "affectedCaseIds": [
@@ -2874,6 +2875,7 @@
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
         "src/modules/example/widgets/__tests__/components.test.ts"
       ],
       "affectedCaseIds": [

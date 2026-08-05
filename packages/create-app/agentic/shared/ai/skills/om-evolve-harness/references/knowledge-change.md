@@ -108,8 +108,26 @@ monorepo-only asset — `create-mercato-app`'s `files` field never publishes `sc
 **scaffolded app** it is absent and those runs derive their class normally and then fail closed with an
 explicit `not present — CANON-C` reason. Do not work around that by re-declaring the class.
 
-The validator is still deliberately **not** in `.ai/agentic.config.json` `validation.commands` or CI, but
-no longer because the inventory is missing. Two reasons remain: the `sourceLinkInventory` block is an
-existence check only — the seven declared count/hash/path fields are not yet read, so its numbers are
-unverified — and focused tests owned by a jest/vitest package are refused rather than executed (see the
+Every field of the `sourceLinkInventory` block is checked against the assets it names, so do not
+hand-write its numbers — read them off the assets. `expectedOwnerCount`, `expectedTopicCount` and
+`resolvedLinkCount` are re-derived from the inventory's `records` array (its `derived` summary block is
+ignored, so editing that block cannot make a wrong declaration agree). `baselineAssetCount`,
+`baselineDispositionCount` and `baselineRef` are re-derived from the parity ledger. The ledger's path is
+pinned in the validator as `SOURCE_LINK_BASELINE_PATH`, and both `baselinePath` and the inventory's own
+`inputs.baseline` must equal that literal — nothing you can write inside a `source-link` asset decides
+which ledger is checked, so pointing either at a ledger you added fails. `baselineSchemaPath` must be the
+pinned ledger's exact sibling `source-link-baseline.schema.json`.
+
+Because you may be editing that schema in the same change, it is pinned by sha256
+(`SOURCE_LINK_BASELINE_SCHEMA_SHA256`) and probed before it is trusted: it must carry the pinned `$id`,
+accept a canonical minimal ledger, and reject twenty-one known-bad ones. Widening a pattern, shortening a
+`required` list or flipping an `additionalProperties` guard fails the run — and so does any other edit,
+including one the probes cannot see, such as wrapping the real body in an `anyOf` beside an escape branch.
+If you change the schema on purpose, recompute the sha256 and update the constant in
+`validate-knowledge-change.mjs` in the same change; that file is an `evaluator` asset, so the update is
+visible as a validator change rather than hidden in the ledger edit it governs. Block `id` uniqueness is
+checked in the validator, not the schema, because `uniqueItems` compares whole records.
+
+The validator is still deliberately **not** in `.ai/agentic.config.json` `validation.commands` or CI. One
+reason remains: focused tests owned by a jest/vitest package are refused rather than executed (see the
 known limitation above), which is exactly what a scaffolded app ships. Run it by hand for step 9.

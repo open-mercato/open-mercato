@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   assertPackageModuleFactsOnly,
   assertPortableSourceRoot,
+  buildModuleFactCoverageLedger,
   computeModuleSourceFingerprint,
   computeModuleTaxonomyFingerprint,
   extractAllModuleFacts,
@@ -183,6 +184,7 @@ describe('local-reference module fact emission', () => {
     expect(entry.runtimeSelected).toBe(false)
     expect(entry.facts.sourceRoot).toBe('src/modules/demo_local')
     expect(entry.facts.sourceKind).toBe('local-reference')
+    expect(entry.factCoverage).toEqual(buildModuleFactCoverageLedger())
 
     const serialized = renderReferenceModuleFactsJson({ demo_local: entry })
     expect(serialized.endsWith('\n')).toBe(true)
