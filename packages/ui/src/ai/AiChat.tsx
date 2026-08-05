@@ -98,33 +98,46 @@ interface ModelsApiResponse {
   providers: ModelPickerProvider[]
 }
 
+type AgentModelsStatus = 'loading' | 'ready' | 'failed'
+
+function readErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const { status } = error as { status?: unknown }
+  return typeof status === 'number' ? status : undefined
+}
+
+function logModelsFailure(status: number | undefined, details: Record<string, unknown>): void {
+  const message = 'Failed to load AI agent models'
+  if (status === 401 || status === 403) {
+    logger.warn(message, details)
+    return
+  }
+  logger.error(message, details)
+}
+
 function useAgentModels(agent: string): {
   providers: ModelPickerProvider[]
   allowRuntimeOverride: boolean
   allowRuntimeModelOverride: boolean
   defaultLabel: string | null
-  loaded: boolean
-  failed: boolean
+  status: AgentModelsStatus
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
   const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
   const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
-  const [loaded, setLoaded] = React.useState(false)
-  const [failed, setFailed] = React.useState(false)
+  const [status, setStatus] = React.useState<AgentModelsStatus>('loading')
 
   React.useEffect(() => {
     let cancelled = false
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
-    setLoaded(false)
+    setStatus('loading')
     setDefaultLabel(null)
-    setFailed(false)
     apiCall<ModelsApiResponse>(modelsUrl)
       .then((result) => {
         if (cancelled) return
         if (!result.ok || !result.result) {
-          logger.error('Failed to load AI agent models', { agent, status: result.status })
-          setFailed(true)
-          setLoaded(true)
+          logModelsFailure(result.status, { agent, status: result.status })
+          setStatus('failed')
           return
         }
         const effectiveAllowRuntimeOverride =
@@ -138,17 +151,12 @@ function useAgentModels(agent: string): {
               ? `${result.result.defaultProviderId} / ${result.result.defaultModelId}`
               : null,
         )
-        setLoaded(true)
+        setStatus('ready')
       })
       .catch((err) => {
         if (cancelled) return
-        // `apiCall` rejects on a network failure and on the 401/403 errors
-        // `apiFetch` throws. Without this handler the effect never settled:
-        // `loaded` stayed false for the component's lifetime and the
-        // rejection surfaced as an unhandled promise rejection.
-        logger.error('Failed to load AI agent models', { agent, err })
-        setFailed(true)
-        setLoaded(true)
+        logModelsFailure(readErrorStatus(err), { agent, err })
+        setStatus('failed')
       })
     return () => {
       cancelled = true
@@ -160,8 +168,7 @@ function useAgentModels(agent: string): {
     allowRuntimeOverride,
     allowRuntimeModelOverride: allowRuntimeOverride,
     defaultLabel,
-    loaded,
-    failed,
+    status,
   }
 }
 
@@ -1235,8 +1242,7 @@ export function AiChat({
     allowRuntimeOverride,
     allowRuntimeModelOverride,
     defaultLabel: modelDefaultLabel,
-    loaded: modelProvidersLoaded,
-    failed: modelProvidersFailed,
+    status: modelProvidersStatus,
   } = useAgentModels(agent)
 
   const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
@@ -1244,7 +1250,7 @@ export function AiChat({
   )
 
   const effectiveModelPickerValue = React.useMemo(() => {
-    if (!modelProvidersLoaded || !allowRuntimeOverride || modelProviders.length === 0) {
+    if (modelProvidersStatus !== 'ready' || !allowRuntimeOverride || modelProviders.length === 0) {
       return null
     }
     if (modelPickerValue && isModelPickerValueAvailable(modelPickerValue, modelProviders)) {
@@ -1255,7 +1261,7 @@ export function AiChat({
     allowRuntimeOverride,
     modelPickerValue,
     modelProviders,
-    modelProvidersLoaded,
+    modelProvidersStatus,
   ])
 
   React.useEffect(() => {
@@ -1263,11 +1269,7 @@ export function AiChat({
   }, [agent])
 
   React.useEffect(() => {
-    if (!modelProvidersLoaded) return
-    // An unreachable models endpoint says nothing about which providers the
-    // agent allows, so the persisted selection is kept until a successful
-    // response proves it unavailable.
-    if (modelProvidersFailed) return
+    if (modelProvidersStatus !== 'ready') return
     if (!allowRuntimeModelOverride || modelProviders.length === 0) {
       if (modelPickerValue !== null) {
         setModelPickerValue(null)
@@ -1284,8 +1286,7 @@ export function AiChat({
     allowRuntimeModelOverride,
     modelPickerValue,
     modelProviders,
-    modelProvidersFailed,
-    modelProvidersLoaded,
+    modelProvidersStatus,
   ])
 
   const handleModelPickerChange = React.useCallback(
