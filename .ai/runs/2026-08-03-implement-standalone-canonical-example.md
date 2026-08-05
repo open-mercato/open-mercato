@@ -978,3 +978,86 @@ LIST path while its `enrichOne` sibling asserted the full call.
 - `context.sourceReferenceIds` — the last read-policy blocker.
 - The `Module Decoupling › resolveDefaultPartitionCode` parallelism flake.
 - `umes.component-replacement` is the only `qa-only` row left.
+
+---
+
+## Session 5 — maintainer decision resolved, develop merged, gate green
+
+### The one open maintainer decision is settled
+
+**Decision: reroute AND keep the override.** `packages/shared/src/lib/query/engine.ts:936` now
+derives the extension-join table with `pluralizeBaseName`, the helper defined at the top of the same
+file that every other table-name fallback already uses. It previously inlined its own
+`extName.endsWith('s') ? extName : extName + 's'`, so any entity name ending in `y` derived a table
+that does not exist — `example_customer_priority` → `example_customer_prioritys` against the real
+`example_customer_priorities`. That inline pluralizer is the reason E8 needed to add
+`EntityExtension.table` at all.
+
+`EntityExtension.table` stays. It is the escape hatch for irregular plurals no guesser can win
+(`person` → `people`), and after this change it is a genuine override rather than a workaround for a
+bug sitting three lines above it.
+
+Both mechanisms were proved independently load-bearing before commit, by mutation:
+- Reverting the reroute → the `-y` case fails again (1 failed / 186).
+- The `table` override still wins where declared; the fixture suite does not silently depend on it.
+
+The pre-existing test asserted `example_role_policys` — it pinned the defect rather than the
+contract, and is corrected in the same commit. Behaviour is unchanged for every module whose entity
+name does not end in `y`.
+
+### `origin/develop` merged (`e2794a146`)
+
+Two conflicts, both resolved by keeping BOTH sides — neither was a real disagreement:
+
+1. `UPGRADE_NOTES.md` — develop's workflow-template entry (#4334) and our injection-flag removal
+   entry are independent additions under the same unreleased heading. Develop's is placed first to
+   preserve upstream order.
+2. `packages/cli/src/lib/generators/__tests__/module-facts.bc-guard.test.ts` — develop raised the
+   CPU cap 30s → 90s (CI was sitting exactly on the line at 30,052.8ms); we raised the JSON byte cap
+   3.50MB → 3.56MB for the twelve recovered injection contributions. Different caps, different
+   rationales, both kept with both comments.
+
+### Inherited failure found and fixed — NOT ours
+
+`storage-s3-routes.test.ts › rejects uploads that exceed tenant quota` failed after the merge.
+Root-caused rather than assumed: `packages/storage-s3/**` and the test file are **byte-identical to
+`origin/develop`** on this branch (`git diff --stat origin/develop HEAD --` is empty for both), so
+the failure is inherited.
+
+Cause: #4887 localized every error response in the S3 upload/signed-url routes; #4076 (atomic quota
+admission, merged into develop after it) rewrote the quota path around fenced leases and re-emitted
+the 413 body as a raw English literal. The route returned the correct status and text but never
+called `t`, which is exactly what the test asserts.
+
+Fixed by restoring `t('storage_s3.errors.quotaExceeded', …)` at all three call sites (two in
+`upload.ts`, one in `signed-url.ts`). This introduces nothing: the key exists in all five locales,
+and `t` was already in scope in both files — every other error in them uses it.
+
+**Left alone deliberately:** two other strings #4076 added (`quota_target_exists`, and the
+accounting-unavailable 500) are still hardcoded and have **no locale keys at all**. Inventing keys in
+another module's i18n is that change's debt to settle, not this branch's. Worth a follow-up issue.
+
+### Korean locale
+
+Develop added `ko.json` (#4912). The seven example-module keys this branch introduced were missing
+from it. `yarn i18n:check-sync --fix` writes English placeholders, and the rest of that file is
+genuinely translated, so the placeholders were replaced with real Korean and mirrored into the
+template (`yarn template:sync:fix`).
+
+### Gate (local runner; Docker still unavailable in this WSL distro) — fully green at `ea9930b56`
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` | 22/22 |
+| `yarn generate` | ok |
+| `yarn i18n:check-sync` | all in sync |
+| `yarn i18n:check-usage` | advisory only |
+| `yarn typecheck` | 22/22 |
+| `yarn test` | **25/25 tasks, exit 0** |
+| `yarn build:app` | ok |
+| `node scripts/repo-wide-guards.mjs` | 27 files, all passed |
+| `yarn agents:check-budget` | exit 0 (overages are pre-existing baselines; all four chains shrank) |
+| `yarn template:sync` | in sync |
+
+PR state after push: `MERGEABLE` (`BLOCKED` is the review requirement only), 100 commits,
+312 files.
