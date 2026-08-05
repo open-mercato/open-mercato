@@ -143,7 +143,7 @@ type RuntimeApiMethodMetadata = {
 type PageRouteGenerationResult = {
   eagerRoutes: string[]
   runtimeRoutes: string[]
-  manifestRoutes: string[]
+  manifestRoutes: WriterFunction[]
   routePatterns: string[]
 }
 
@@ -172,7 +172,7 @@ function assertUniqueBackendRoutePattern(
 type ApiRouteGenerationResult = {
   eagerApis: string[]
   runtimeApis: string[]
-  manifestApis: string[]
+  manifestApis: WriterFunction[]
 }
 
 type SerializablePageMetadata = {
@@ -1492,8 +1492,38 @@ function buildPageRouteProps(metaExpr: string, routePath: string): string {
   return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
 }
 
-function buildPageRouteManifestSpread(metaExpr: string, routePath: string): string {
-  return `...resolvePageRouteMetadata(${toLiteral(routePath || '/')}, ${metaExpr})`
+function buildPageRouteManifestSpread(metaExpr: string, routePath: string): WriterFunction {
+  return callExpression(identifier('resolvePageRouteMetadata'), [routePath || '/', identifier(metaExpr)])
+}
+
+function buildManifestRouteLoader(importPath: string): WriterFunction {
+  return arrowFunction({
+    async: true,
+    body: block((writer) => {
+      writeStatements(writer, [
+        variableStatement({
+          name: 'mod',
+          initializer: awaitExpression(importExpression(sanitizeGeneratedModuleSpecifier(importPath))),
+        }),
+        returnStatement(
+          asExpression(
+            parenthesized(nullishCoalesce([
+              propertyAccess(identifier('mod'), 'default'),
+              identifier('mod'),
+            ])),
+            'any',
+          ),
+        ),
+      ])
+    }),
+  })
+}
+
+function buildManifestApiLoader(importPath: string): WriterFunction {
+  return arrowFunction({
+    async: true,
+    body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)),
+  })
 }
 
 function normalizeBreadcrumb(raw: unknown): SerializablePageMetadata['breadcrumb'] {
@@ -1796,7 +1826,7 @@ async function processPageFiles(options: {
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
-  const manifestRoutes: string[] = []
+  const manifestRoutes: WriterFunction[] = []
   const routePatterns: string[] = []
 
   // Next-style page.* files
@@ -1868,7 +1898,11 @@ async function processPageFiles(options: {
     const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
-    manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
+    manifestRoutes.push(objectLiteral([
+      { name: 'moduleId', value: modId },
+      { kind: 'spread', value: manifestBaseProps },
+      { name: 'load', value: buildManifestRouteLoader(importPath) },
+    ]))
     routePatterns.push(routePath)
   }
 
@@ -1947,7 +1981,11 @@ async function processPageFiles(options: {
     const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
-    manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
+    manifestRoutes.push(objectLiteral([
+      { name: 'moduleId', value: modId },
+      { kind: 'spread', value: manifestBaseProps },
+      { name: 'load', value: buildManifestRouteLoader(importPath) },
+    ]))
     routePatterns.push(routePath)
   }
 
@@ -1976,7 +2014,7 @@ async function processApiRoutes(options: {
 
   const eagerApis: string[] = []
   const runtimeApis: string[] = []
-  const manifestApis: string[] = []
+  const manifestApis: WriterFunction[] = []
 
   // route.* aggregations
   const routeFiles = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
@@ -2007,7 +2045,13 @@ async function processApiRoutes(options: {
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((method) => `${method}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${method}(req, ctx) }`).join(', ')} } }`)
-    manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((method) => toLiteral(method)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+    manifestApis.push(objectLiteral([
+      { name: 'moduleId', value: modId },
+      { name: 'kind', value: 'route-file' },
+      { name: 'path', value: resolvedPath },
+      { name: 'methods', value: arrayLiteral(exportedMethods, writeValue) },
+      { name: 'load', value: buildManifestApiLoader(importPath) },
+    ]))
   }
 
   // Single files (plain scripts, not route.*, not tests, skip method dirs)
@@ -2039,7 +2083,13 @@ async function processApiRoutes(options: {
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((entryMethod) => `${entryMethod}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${entryMethod}(req, ctx) }`).join(', ')} } }`)
-    manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((entryMethod) => toLiteral(entryMethod)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+    manifestApis.push(objectLiteral([
+      { name: 'moduleId', value: modId },
+      { name: 'kind', value: 'route-file' },
+      { name: 'path', value: resolvedPath },
+      { name: 'methods', value: arrayLiteral(exportedMethods, writeValue) },
+      { name: 'load', value: buildManifestApiLoader(importPath) },
+    ]))
   }
 
   // Legacy per-method
@@ -2081,7 +2131,14 @@ async function processApiRoutes(options: {
       eagerImports.push(buildImportStatement(`${importName}, * as ${metaName}`, importPath))
       eagerApis.push(`{ method: ${toLiteral(method)}, path: (${metaName}.metadata?.path ?? ${toLiteral(routePath)}), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
       runtimeApis.push(`{ method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, handler: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const handler = ((mod as any).default ?? (mod as any).${method} ?? (mod as any).handler) as any; return handler(req, ctx) }, metadata: ${metadataLiteral} }`)
-      manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('legacy')}, method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, methods: [${toLiteral(method)}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+      manifestApis.push(objectLiteral([
+        { name: 'moduleId', value: modId },
+        { name: 'kind', value: 'legacy' },
+        { name: 'method', value: method },
+        { name: 'path', value: resolvedPath },
+        { name: 'methods', value: arrayLiteral([method], writeValue) },
+        { name: 'load', value: buildManifestApiLoader(importPath) },
+      ]))
     }
   }
 
@@ -2393,6 +2450,52 @@ function renderAstModuleRegistryFile(options: {
   return getSourceText(sourceFile)
 }
 
+function renderAstManifestFile(options: {
+  fileName: string
+  typeName: string
+  exportName: string
+  imports?: string[]
+  entries: WriterFunction[]
+}): string {
+  const sourceFile = createGeneratedSourceFile(options.fileName)
+  addAutoGeneratedComment(sourceFile, 'registry')
+
+  const usesPageRouteMetadataHelper = options.typeName === 'FrontendRouteManifestEntry'
+    || options.typeName === 'BackendRouteManifestEntry'
+  addImportSpec(sourceFile, usesPageRouteMetadataHelper
+    ? {
+      moduleSpecifier: '@open-mercato/shared/modules/registry',
+      namedImports: [
+        { name: 'resolvePageRouteMetadata' },
+        { name: options.typeName, isTypeOnly: true },
+      ],
+    }
+    : {
+      moduleSpecifier: '@open-mercato/shared/modules/registry',
+      isTypeOnly: true,
+      namedImports: [{ name: options.typeName }],
+    })
+  addImportStatements(sourceFile, options.imports ?? [])
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: options.exportName,
+        type: `${options.typeName}[]`,
+        initializer: arrayLiteral(options.entries, writeValue),
+      },
+    ],
+  })
+  sourceFile.addExportAssignment({
+    isExportEquals: false,
+    expression: options.exportName,
+  })
+
+  return getSourceText(sourceFile)
+}
+
 function renderAstLegacyAliasFile(options: {
   fileName: string
   exportName: string
@@ -2484,31 +2587,6 @@ ${importSection}
 export const modules: Module[] = ${renderLegacyCompatibleArray(options.moduleEntries)}
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 export default modules
-`
-}
-
-function renderAstLegacyManifestOutput(options: {
-  fileName: string
-  typeName: string
-  exportName: string
-  imports?: GeneratedImportStatement[]
-  entries: string[]
-}): string {
-  const usesPageRouteMetadataHelper = options.typeName === 'FrontendRouteManifestEntry'
-    || options.typeName === 'BackendRouteManifestEntry'
-  const importSection = [
-    usesPageRouteMetadataHelper
-      ? `import { resolvePageRouteMetadata, type ${options.typeName} } from '@open-mercato/shared/modules/registry'`
-      : `import type { ${options.typeName} } from '@open-mercato/shared/modules/registry'`,
-    ...(options.imports ?? []).map((entry) => serializeGeneratedImport(entry)),
-  ].join('\n')
-
-  return `// AUTO-GENERATED by mercato generate registry
-${importSection}
-
-export const ${options.exportName}: ${options.typeName}[] = ${renderLegacyCompatibleArray(options.entries)}
-
-export default ${options.exportName}
 `
 }
 
@@ -2933,9 +3011,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const backendRouteManifestImports: string[] = []
   const moduleDecls: string[] = []
   const runtimeModuleDecls: string[] = []
-  const frontendRouteManifestDecls: string[] = []
-  const backendRouteManifestDecls: string[] = []
-  const apiRouteManifestDecls: string[] = []
+  const frontendRouteManifestDecls: WriterFunction[] = []
+  const backendRouteManifestDecls: WriterFunction[] = []
+  const apiRouteManifestDecls: WriterFunction[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
@@ -3359,21 +3437,21 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     moduleEntries: runtimeModuleDecls,
     includeCreateElementImport: true,
   })
-  const frontendRoutesOutput = renderAstLegacyManifestOutput({
+  const frontendRoutesOutput = renderAstManifestFile({
     fileName: 'frontend-routes.generated.ts',
     typeName: 'FrontendRouteManifestEntry',
     exportName: 'frontendRoutes',
     imports: frontendRouteManifestImports,
     entries: frontendRouteManifestDecls,
   })
-  const backendRoutesOutput = renderAstLegacyManifestOutput({
+  const backendRoutesOutput = renderAstManifestFile({
     fileName: 'backend-routes.generated.ts',
     typeName: 'BackendRouteManifestEntry',
     exportName: 'backendRoutes',
     imports: backendRouteManifestImports,
     entries: backendRouteManifestDecls,
   })
-  const apiRoutesOutput = renderAstLegacyManifestOutput({
+  const apiRoutesOutput = renderAstManifestFile({
     fileName: 'api-routes.generated.ts',
     typeName: 'ApiRouteManifestEntry',
     exportName: 'apiRoutes',
