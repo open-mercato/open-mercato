@@ -61,9 +61,9 @@ form is client-hydrated, so an immediate fill+submit never navigates.
 
 ### Phase 1: Write the sections
 
-- [ ] 1.1 Append the four trimmed sections to the repo-local skill
+- [x] 1.1 Append the four trimmed sections to the repo-local skill — fd9e9ea58
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Re-read the diff and confirm the change is confined to the skill doc
-- [ ] 2.2 Run the docs-relevant validation gate
+- [x] 2.1 Re-read the diff and confirm the change is confined to the skill doc — fd9e9ea58
+- [x] 2.2 Run the docs-relevant validation gate — `yarn agents:check-budget` and `yarn lessons:check` both exit 0
