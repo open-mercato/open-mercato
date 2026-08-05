@@ -6,19 +6,9 @@ import {
   type CrudCacheIdentifiers,
 } from '@open-mercato/shared/lib/crud/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { staffTimeEntryCommandIds } from '../crud'
 
 const logger = createLogger('staff').child({ component: 'timesheets-cache' })
-
-/**
- * Command ids the time-entries `makeCrudRoute` registers. They are exported so the
- * route and the cache-invalidation helper below derive their resource tag from one
- * string instead of two that can drift apart.
- */
-export const staffTimeEntryCommandIds = {
-  create: 'staff.timesheets.time_entries.create',
-  update: 'staff.timesheets.time_entries.update',
-  delete: 'staff.timesheets.time_entries.delete',
-} as const
 
 /**
  * The resource tag the CRUD list cache stores time-entry payloads under.

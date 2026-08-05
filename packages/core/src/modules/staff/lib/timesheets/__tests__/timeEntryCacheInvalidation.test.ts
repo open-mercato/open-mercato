@@ -42,7 +42,8 @@ describe('staff time-entry CRUD cache invalidation (#4970)', () => {
   })
 
   it('derives the cache resource from the same create command id the CRUD route registers', async () => {
-    const { staffTimeEntryCacheResource, staffTimeEntryCommandIds } = await loadHelper()
+    const { staffTimeEntryCacheResource } = await loadHelper()
+    const { staffTimeEntryCommandIds } = await import('../../crud')
     const { canonicalizeResourceTag, deriveResourceFromCommandId } = await import(
       '@open-mercato/shared/lib/crud/cache'
     )

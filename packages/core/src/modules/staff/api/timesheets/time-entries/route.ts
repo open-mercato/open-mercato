@@ -5,7 +5,7 @@ import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shar
 import { StaffTimeEntry } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
 import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
-import { staffTimeEntryCommandIds } from '../../../lib/timesheets/timeEntryCacheInvalidation'
+import { staffTimeEntryCommandIds } from '../../../lib/crud'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const F = {
