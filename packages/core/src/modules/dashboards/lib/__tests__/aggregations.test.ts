@@ -348,6 +348,68 @@ describe('aggregations', () => {
       expect(result?.params).toEqual(['tenant-123', '', 0, false])
     })
 
+    /**
+     * `col = NULL` and `col != NULL` are never TRUE under SQL three-valued logic, so binding a raw
+     * null for the equality operators returned an empty aggregation that is indistinguishable from
+     * a genuinely empty result — a silent zero on a reporting surface (#5016). The scalar branch of
+     * `widgetDataFilterSchema` types `value` as `z.unknown().optional()`, so the shape reaches the
+     * builder straight from the HTTP boundary and not only from in-process callers.
+     */
+    it('compares an eq filter to null with IS NULL and binds no parameter', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'customerEntityId', operator: 'eq', value: null }],
+      })
+      expect(result?.sql).toContain('customer_entity_id IS NULL')
+      expect(result?.sql).not.toContain('customer_entity_id = ?')
+      expect(result?.params).toEqual(['tenant-123'])
+    })
+
+    it('compares a neq filter to null with IS NOT NULL and binds no parameter', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'customerEntityId', operator: 'neq', value: null }],
+      })
+      expect(result?.sql).toContain('customer_entity_id IS NOT NULL')
+      expect(result?.sql).not.toContain('customer_entity_id != ?')
+      expect(result?.params).toEqual(['tenant-123'])
+    })
+
+    it('keeps binding non-null equality comparisons as parameters', () => {
+      // Over-correction guard: only a null value may take the keyword form.
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [
+          { field: 'status', operator: 'eq', value: 'completed' },
+          { field: 'paymentStatus', operator: 'neq', value: 'refunded' },
+        ],
+      })
+      expect(result?.sql).toContain('status = ?')
+      expect(result?.sql).toContain('payment_status != ?')
+      expect(result?.sql).not.toContain('IS NULL AND payment_status')
+      expect(result?.params).toEqual(['tenant-123', 'completed', 'refunded'])
+    })
+
+    it('keeps binding falsy non-null equality comparisons as parameters', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        filters: [{ field: 'status', operator: 'eq', value: '' }],
+      })
+      expect(result?.sql).toContain('status = ?')
+      expect(result?.params).toEqual(['tenant-123', ''])
+    })
+
+    it('applies null equality filters to the encrypted group-source row query as well', () => {
+      const result = buildGroupSourceRowsQuery({
+        ...baseOptions,
+        groupColumn: 'shipping_address_snapshot',
+        rowLimit: 10,
+        filters: [{ field: 'customerEntityId', operator: 'eq', value: null }],
+      })
+      expect(result?.sql).toContain('customer_entity_id IS NULL')
+      expect(result?.params).toEqual(['tenant-123'])
+    })
+
     it('applies set filters to the encrypted group-source row query as well', () => {
       const result = buildGroupSourceRowsQuery({
         ...baseOptions,
@@ -381,6 +443,29 @@ describe('aggregations', () => {
         const rendered = platform.formatQuery(result!.sql, result!.params)
         expect(rendered).toContain("status IN ('completed', 'o''brien')")
         expect(rendered).toContain("payment_status NOT IN ('refunded')")
+      })
+
+      it('renders null equality filters as SQL null predicates', () => {
+        const result = buildAggregationQuery({
+          ...baseOptions,
+          filters: [
+            { field: 'customerEntityId', operator: 'eq', value: null },
+            { field: 'channelId', operator: 'neq', value: null },
+          ],
+        })
+        const rendered = platform.formatQuery(result!.sql, result!.params)
+        expect(rendered).toContain('customer_entity_id IS NULL')
+        expect(rendered).toContain('channel_id IS NOT NULL')
+        expect(rendered).not.toContain('= null')
+        expect(rendered).not.toContain('!= null')
+      })
+
+      it('pins the never-TRUE rendering this fix replaced', () => {
+        // Kept as an executable record of the defect in #5016: MikroORM interpolates the parameter
+        // rather than binding it, so a raw null reached PostgreSQL as the NULL literal and made the
+        // predicate unsatisfiable for every row.
+        expect(platform.formatQuery('customer_entity_id = ?', [null])).toBe('customer_entity_id = null')
+        expect(platform.formatQuery('customer_entity_id != ?', [null])).toBe('customer_entity_id != null')
       })
 
       it('pins the array-as-single-parameter rendering this fix replaced', () => {
