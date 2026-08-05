@@ -53,13 +53,21 @@ export const openApi: OpenApiRouteDoc = {
         '`allowRuntimeOverride: false`, the response reflects that constraint so the ' +
         'UI picker can hide itself. Includes the agent\'s resolved default provider/model so ' +
         'the picker can render a "(default)" badge next to the right entry. ' +
+        'When the per-tenant allowlist snapshot cannot be loaded, the route still answers 200 ' +
+        'with an env-only provider list and sets `degraded: true` plus a `degradedReason` code, ' +
+        'so callers can tell a full entitlement list from a partial one. ' +
         'RBAC: requires the same features as the agent itself (typically `ai_assistant.view`).',
       responses: [
         {
           status: 200,
           description:
             'Providers and curated models available for the agent picker. ' +
-            'Empty `providers` array when `allowRuntimeOverride` is false.',
+            'Empty `providers` array when `allowRuntimeOverride` is false. ' +
+            '`degraded` is `false` and `degradedReason` is `null` on a fully resolved response; ' +
+            '`degraded: true` with `degradedReason: "tenant_allowlist_unavailable"` means the tenant ' +
+            'allowlist lookup failed and `providers` reflects environment configuration only — ' +
+            'clients SHOULD render the list but MUST NOT treat it as the tenant\'s authoritative ' +
+            'entitlement (for example, do not prune a stored model selection against it).',
         },
       ],
       errors: [
@@ -134,6 +142,7 @@ export async function GET(
       modelId: string | null
       baseURL: string | null
     } | null = null
+    let tenantAllowlistDegraded = false
     if (auth.tenantId) {
       try {
         const em = container.resolve<EntityManager>('em')
@@ -171,8 +180,11 @@ export async function GET(
           : null
       } catch (snapshotError) {
         // Picker still renders against env-only so the UI does not break, but log at
-        // error level so an outage is operationally visible. The chat dispatcher
-        // refuses to dispatch when this lookup fails, so writes stay safe.
+        // error level so an outage is operationally visible and mark the response
+        // `degraded` so callers know the provider list was built without the tenant's
+        // allowlist. The chat dispatcher refuses to dispatch when this lookup fails,
+        // so writes stay safe.
+        tenantAllowlistDegraded = true
         logger.error('AI Agents Models — Failed to load tenant allowlist', { err: snapshotError })
       }
     }
@@ -247,6 +259,8 @@ export async function GET(
           .get(defaultProviderId)
           ?.defaultModels.find((model) => model.id === defaultModelId)?.name ?? defaultModelId,
       providers,
+      degraded: tenantAllowlistDegraded,
+      degradedReason: tenantAllowlistDegraded ? 'tenant_allowlist_unavailable' : null,
     })
   } catch (error) {
     logger.error('AI Agents Models — GET error', { err: error })

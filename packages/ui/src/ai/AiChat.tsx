@@ -96,6 +96,8 @@ interface ModelsApiResponse {
   defaultProviderName?: string | null
   defaultModelName?: string | null
   providers: ModelPickerProvider[]
+  degraded?: boolean
+  degradedReason?: string | null
 }
 
 function useAgentModels(agent: string): {
@@ -104,16 +106,19 @@ function useAgentModels(agent: string): {
   allowRuntimeModelOverride: boolean
   defaultLabel: string | null
   loaded: boolean
+  degraded: boolean
 } {
   const [providers, setProviders] = React.useState<ModelPickerProvider[]>([])
   const [allowRuntimeOverride, setAllowRuntimeOverride] = React.useState(false)
   const [defaultLabel, setDefaultLabel] = React.useState<string | null>(null)
   const [loaded, setLoaded] = React.useState(false)
+  const [degraded, setDegraded] = React.useState(false)
 
   React.useEffect(() => {
     const modelsUrl = `/api/ai_assistant/ai/agents/${encodeURIComponent(agent)}/models`
     setLoaded(false)
     setDefaultLabel(null)
+    setDegraded(false)
     void apiCall<ModelsApiResponse>(modelsUrl).then((result) => {
       if (!result.ok || !result.result) {
         setLoaded(true)
@@ -123,6 +128,13 @@ function useAgentModels(agent: string): {
         result.result.allowRuntimeOverride ?? result.result.allowRuntimeModelOverride ?? false
       setAllowRuntimeOverride(effectiveAllowRuntimeOverride)
       setProviders(result.result.providers)
+      if (result.result.degraded === true) {
+        setDegraded(true)
+        logger.warn('AI agent models response is degraded', {
+          agent,
+          degradedReason: result.result.degradedReason ?? null,
+        })
+      }
       setDefaultLabel(
         result.result.defaultProviderName && result.result.defaultModelName
           ? `${result.result.defaultProviderName} / ${result.result.defaultModelName}`
@@ -140,6 +152,7 @@ function useAgentModels(agent: string): {
     allowRuntimeModelOverride: allowRuntimeOverride,
     defaultLabel,
     loaded,
+    degraded,
   }
 }
 
@@ -1214,6 +1227,7 @@ export function AiChat({
     allowRuntimeModelOverride,
     defaultLabel: modelDefaultLabel,
     loaded: modelProvidersLoaded,
+    degraded: modelProvidersDegraded,
   } = useAgentModels(agent)
 
   const [modelPickerValue, setModelPickerValue] = React.useState<ModelPickerValue | null>(() =>
@@ -1241,6 +1255,10 @@ export function AiChat({
 
   React.useEffect(() => {
     if (!modelProvidersLoaded) return
+    // A degraded response was built without the tenant allowlist, so it is not an
+    // authoritative view of what this agent offers — dropping the user's stored
+    // selection against it would lose a still-valid choice.
+    if (modelProvidersDegraded) return
     if (!allowRuntimeModelOverride || modelProviders.length === 0) {
       if (modelPickerValue !== null) {
         setModelPickerValue(null)
@@ -1257,6 +1275,7 @@ export function AiChat({
     allowRuntimeModelOverride,
     modelPickerValue,
     modelProviders,
+    modelProvidersDegraded,
     modelProvidersLoaded,
   ])
 

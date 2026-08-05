@@ -224,6 +224,60 @@ describe('GET /api/ai_assistant/ai/agents/[agentId]/models', () => {
     expect(json.providers).toEqual([])
   })
 
+  it('marks the response degraded when the tenant allowlist lookup fails', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+    getSnapshotMock.mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(true)
+    expect(json.degradedReason).toBe('tenant_allowlist_unavailable')
+    expect(json.providers.map((p: { id: string }) => p.id)).toEqual(['openai', 'lm-studio'])
+    expect(resolveModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantAllowlist: null }),
+    )
+  })
+
+  it('marks the response degraded when the agent runtime override lookup fails', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+    getExactMock.mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(true)
+    expect(json.degradedReason).toBe('tenant_allowlist_unavailable')
+  })
+
+  it('reports a fully resolved response as not degraded', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(false)
+    expect(json.degradedReason).toBeNull()
+  })
+
   it('clips providers and models against the tenant allowlist intersection', async () => {
     seedAgentRegistryForTests([
       makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
