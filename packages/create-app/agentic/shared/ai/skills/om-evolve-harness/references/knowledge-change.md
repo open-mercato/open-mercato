@@ -103,9 +103,13 @@ written to the result file is re-validated against `#/$defs/completedManifest`, 
 
 `source-link`, `example-source`, and `installed-source` runs require
 `packages/create-app/scripts/source-links/source-link-inventory.json`. That inventory is owned by CANON-C
-and has not landed, so those runs derive their class normally and then fail closed with an explicit
-`not present — CANON-C` reason. Do not work around it by re-declaring the class; land CANON-C first.
+and **has landed in the monorepo**, so those three contracts resolve there. It is deliberately a
+monorepo-only asset — `create-mercato-app`'s `files` field never publishes `scripts/` — so in a
+**scaffolded app** it is absent and those runs derive their class normally and then fail closed with an
+explicit `not present — CANON-C` reason. Do not work around that by re-declaring the class.
 
-Because that gate would fail every `source-link`/`example-source`/`installed-source` PR, the validator is
-deliberately **not** in `.ai/agentic.config.json` `validation.commands` or CI. Run it by hand for step 9 until
-CANON-C lands.
+The validator is still deliberately **not** in `.ai/agentic.config.json` `validation.commands` or CI, but
+no longer because the inventory is missing. Two reasons remain: the `sourceLinkInventory` block is an
+existence check only — the seven declared count/hash/path fields are not yet read, so its numbers are
+unverified — and focused tests owned by a jest/vitest package are refused rather than executed (see the
+known limitation above), which is exactly what a scaffolded app ships. Run it by hand for step 9.

@@ -31,8 +31,9 @@ export const SCHEMA_BASENAME = 'knowledge-change.schema.json'
 export const SOURCE_LINK_INVENTORY_PATH =
   'packages/create-app/scripts/source-links/source-link-inventory.json'
 export const CANON_C_REASON =
-  `${SOURCE_LINK_INVENTORY_PATH} not present — CANON-C (canonical-example source-link inventory) has not landed, ` +
-  'so source-link, example-source, and installed-source contracts cannot be resolved and fail closed'
+  `${SOURCE_LINK_INVENTORY_PATH} not present — CANON-C (canonical-example source-link inventory) is a ` +
+  'monorepo-only asset and is absent from this tree, so source-link, example-source, and ' +
+  'installed-source contracts cannot be resolved and fail closed'
 
 const EXAMPLE_AUTHORING_ROOT = 'apps/mercato/src/modules/example'
 const EXAMPLE_TEMPLATE_ROOT = 'packages/create-app/template/src/modules/example'
