@@ -162,3 +162,51 @@ is byte-identical across all 23 files.
 `design_system` is stripped from the template registry by `scripts/template-sync.ts:146`
 (`TEMPLATE_DISABLED_MODULE_IDS`), **not** by `starter-presets.ts` — which never mentions
 `design_system` or `example` at all. A brief saying "remove it from the presets" targets the wrong file.
+
+## Wave 1 result — ALL THREE SLICES `needs-fixes`. Nothing integrated yet.
+
+Six agents (3 implement + 3 independent adversarial verify). The verifier layer found **15 vacuous
+probes** across the three slices, plus three blocking defects. This is the layer working as intended:
+every slice reported itself complete and green, and none of the three was.
+
+### Blocking
+
+| Slice | Defect |
+|---|---|
+| **A** | The gate is bypassable by a one-key edit **to a file already in the change set**. `declaredBaselinePath` reads `inventory.inputs.baseline` from the very asset an author edits; delete that key and the cross-check silently skips. Separately, the ledger schema's *content* is never pinned — the verifier replaced the whole schema with `{"type":"object"}` and validation returned `ok:true`. |
+| **E** | The headline fix is vacuously covered. Reverting `code: result.outcome` (`module-override-targets.ts:224`) — reinstating the exact conflation bug the slice claims to fix — left **all 1569 CLI tests green**. The tests exercise only the pure resolver, never the line that publishes the diagnostic. |
+| **H** | The central documented rule is **false for the code path the module ships**. There are two resolvers with different composition semantics; `resolveRegisteredComponent` is a sequential fold where `replacement` assigns and discards everything composed before it. The docs, the inventory row and the tests all describe the resolver the showcase does *not* use. |
+
+### The worst finding, because it is the defect class this programme exists to eliminate
+
+**Slice E's `factCoverage` ledger is not wired into generation at all.** `buildModuleFactCoverageLedger`
+has **zero call sites outside its own test**, while the shipped `generatedNote` claims the inventory is
+*"generated from"* those ledgers and that *"an added enum value with no row fails generation"*. Neither
+is true. A published claim of enforcement that does not exist — the same shape as the two false claims
+corrected in #4897, now caught before merge instead of after.
+
+Adjacent: `enumSource` is unverified prose (the verifier rewrote every occurrence to a nonexistent
+`file#symbol` and the whole suite stayed green), and `missing-owned-fact` is published as a
+negative-fixture row for a fixture that exists nowhere.
+
+### Two premises in MY OWN briefs were wrong
+
+1. **"Base branch is feat/canonical-example-milestone-bcd."** The worktrees started at `1da2982e9`,
+   where `agentic/shared/ai/harness/` and `scripts/source-links/` did not exist at all. Slice A caught
+   it and reset before doing anything; E and H are confirmed based on `9c83f5fbc`, a real commit on
+   this branch. No work was lost, but the brief was wrong.
+2. **"create-app suite is 610 tests / 607 pass."** It is **571 / 561 pass / 10 fail** in this tree, and
+   the 10 failures are PRE-EXISTING — confirmed by stashing the slice work and re-running. Root cause
+   is a stale build (`TypeError: assertPackageModuleFactsOnly is not a function` at
+   `build.mjs:139`), the same stale-artifact trap recorded in the previous run. `yarn build:packages`
+   is the fix; the baseline I quoted was from a built tree.
+
+Slice A also found the brief undercounted: **eight** fields were unread, not seven — `baselineRef` too.
+
+### Conflict warning carried forward
+
+Slice H bumped two `maxBytes` values in `agentic/shared/ai/harness/cases.json`. Slices **C and D also
+touch that file**. Integrate H before launching them, or expect a conflict.
+
+Fix wave launched: each slice's findings written to a file, fixed in its existing worktree, then
+re-verified by a fresh adversarial agent that re-runs every originally-vacuous probe.
