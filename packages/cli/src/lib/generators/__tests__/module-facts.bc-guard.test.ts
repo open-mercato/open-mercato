@@ -74,7 +74,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // copied provenance payloads. The cap also covers the newly reachable
     // framework-host activations (dashboard/menu/notification contributions now
     // resolve as bound instead of silently falling back to capability-only).
-    expect(extractionCpuDurationMs).toBeLessThan(30_000)
+    // This is a blow-up detector, not a performance target. It measures CPU time
+    // for a whole-repo extraction, and CPU time for fixed work varies with the
+    // machine: the same extraction measures ~7.3s on a developer workstation and
+    // ~30.0s on a CI runner. At the previous 30s cap CI sat exactly on the line
+    // (an observed failure at 30,052.8ms), so the guard could not tell a genuine
+    // pathological regression from ordinary hardware variance and failed
+    // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
+    // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
+    expect(extractionCpuDurationMs).toBeLessThan(90_000)
     expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL

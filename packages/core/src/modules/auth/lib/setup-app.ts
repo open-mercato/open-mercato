@@ -5,7 +5,7 @@ import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/d
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { normalizeTenantId } from './tenantAccess'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
@@ -190,7 +190,20 @@ export async function setupInitialTenant(
   const defaultEncryptionMaps = getDefaultEncryptionMaps(resolvedModules)
 
   const mainEmail = primaryUser.email
-  const existingUser = await findOneWithDecryption(em, User, { email: mainEmail }, {}, { tenantId: null, organizationId: null })
+  const existingUserByHash = await findOneWithDecryption(
+    em,
+    User,
+    { emailHash: { $in: emailHashLookupValues(mainEmail) }, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const existingUser = existingUserByHash ?? await findOneWithDecryption(
+    em,
+    User,
+    { email: mainEmail, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
   if (existingUser && failIfUserExists) {
     throw new Error('USER_EXISTS')
   }
@@ -358,7 +371,12 @@ export async function setupInitialTenant(
       await tem.flush()
 
       if (isTenantDataEncryptionEnabled()) {
+        // System-scoped maps are resolved from module code, never from a tenant row.
+        // Persisting one here would make the tenant-scoped encryption CLIs believe they
+        // own that entity and re-wrap its `system:<entityId>` ciphertext under the tenant
+        // DEK, which runtime decryption can no longer read.
         for (const spec of defaultEncryptionMaps) {
+          if (spec.keyScope === 'system') continue
           const existing = await findOneWithDecryption(tem, EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null }, {}, { tenantId: String(tenant.id), organizationId: String(organization.id) })
           if (!existing) {
             tem.persist(tem.create(EncryptionMap, {
