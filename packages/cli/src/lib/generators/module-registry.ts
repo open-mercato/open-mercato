@@ -2149,64 +2149,6 @@ async function processApiRoutes(options: {
   }
 }
 
-function processSubscribers(discovered: DiscoveredSubscriber[]): string[] {
-  const subscribers: string[] = []
-  for (const { id, importPath, metadata } of discovered) {
-    const subscriberId = metadata?.id ?? id
-    subscribers.push(
-      `{ id: ${toLiteral(subscriberId)}, event: ${toLiteral(metadata?.event ?? '')}, persistent: ${metadata?.persistent === undefined ? 'undefined' : toLiteral(metadata.persistent)}, sync: ${metadata?.sync === undefined ? 'undefined' : toLiteral(metadata.sync)}, priority: ${metadata?.priority === undefined ? 'undefined' : toLiteral(metadata.priority)}, handler: createLazyModuleSubscriber(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(subscriberId)}) }`
-    )
-  }
-  return subscribers
-}
-
-function processWorkers(discovered: DiscoveredWorker[]): string[] {
-  const workers: string[] = []
-  for (const { id, importPath, metadata } of discovered) {
-    const workerId = metadata.id ?? id
-    workers.push(
-      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
-    )
-  }
-  return workers
-}
-
-function processTranslations(options: {
-  discovered: DiscoveredTranslation[]
-  modId: string
-  appImportBase: string
-  pkgImportBase: string
-  imports: string[]
-  extraImports?: string[]
-}): string[] {
-  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports } = options
-  const translations: string[] = []
-  for (const { locale, coreHas, appHas } of discovered) {
-    if (coreHas && appHas) {
-      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      imports.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push(
-        `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
-      )
-    } else if (appHas) {
-      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
-    } else if (coreHas) {
-      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      imports.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
-    }
-  }
-  return translations
-}
-
 /**
  * Resolves a convention file and pushes its import + config entry to standalone arrays.
  * Used for files that produce their own generated output (notifications, AI tools, events, analytics, enrichers, etc.).
@@ -2351,6 +2293,54 @@ function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): Writ
   )
 }
 
+/**
+ * `(X.<first> ?? X.<second>)` — the member-fallback shape the main registry path emits.
+ * It is deliberately not `namespaceFallback`, which the app path uses: that helper walks
+ * the members in an IIFE and treats only `!= null` as present, which is a different
+ * expression. Converging the two is a behaviour change, not a formatting one.
+ */
+function legacyNamespaceMemberFallback(importName: string, members: readonly [string, string]): WriterFunction {
+  return parenthesized(nullishCoalesce([
+    propertyAccess(identifier(importName), members[0]),
+    propertyAccess(identifier(importName), members[1]),
+  ]))
+}
+
+function buildLegacyModuleListValue(options: {
+  importName: string
+  members: readonly [string, string]
+  castType: string
+}): WriterFunction {
+  return logicalOr([
+    asExpression(legacyNamespaceMemberFallback(options.importName, options.members), options.castType),
+    emptyArray(),
+  ])
+}
+
+function buildLegacyModuleSetupValue(importName: string): WriterFunction {
+  return logicalOr([
+    legacyNamespaceMemberFallback(importName, ['default', 'setup']),
+    identifier('undefined'),
+  ])
+}
+
+function buildLegacyIntegrationListValue(
+  importName: string,
+  pluralMember: string,
+  singularMember: string,
+  castType: string,
+): WriterFunction {
+  const singular = propertyAccess(identifier(importName), singularMember)
+
+  return asExpression(
+    parenthesized(nullishCoalesce([
+      propertyAccess(identifier(importName), pluralMember),
+      parenthesized(conditionalExpression(singular, arrayLiteral([singular], writeValue), emptyArray())),
+    ])),
+    castType,
+  )
+}
+
 function buildModuleIntegrationListValue(
   importName: string,
   pluralMember: string,
@@ -2398,7 +2388,12 @@ function buildModulesInfoExpression(): WriterFunction {
 function renderAstModuleRegistryFile(options: {
   fileName: string
   generator: string
-  imports: string[]
+  /**
+   * Import statements, or the structured specs generator extensions push onto the shared
+   * import array via `processStandaloneConfig`. Both shapes reach this emitter at runtime,
+   * so both are normalised here rather than at each call site.
+   */
+  imports: GeneratedImportStatement[]
   moduleEntries: WriterFunction[]
   includeCreateElementImport?: boolean
 }): string {
@@ -2419,7 +2414,7 @@ function renderAstModuleRegistryFile(options: {
       { name: 'Module', isTypeOnly: true },
     ],
   })
-  addImportStatements(sourceFile, options.imports)
+  addImportStatements(sourceFile, options.imports.map((entry) => serializeGeneratedImport(entry)))
 
   sourceFile.addVariableStatement({
     declarationKind: VariableDeclarationKind.Const,
@@ -2559,35 +2554,8 @@ function renderEnabledModuleIdsFile(moduleIds: readonly string[]): string {
   return getSourceText(sourceFile)
 }
 
-function renderLegacyCompatibleArray(entries: readonly string[]): string {
-  return `[
-  ${entries.join(',\n  ')}
-]`
-}
-
 function buildLazyRouteComponentExpression(importPath: string): string {
   return `async (props: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const Component = (mod.default ?? mod) as any; return createElement(Component, props) }`
-}
-
-function renderAstLegacyModuleRegistryOutput(options: {
-  fileName: string
-  imports: GeneratedImportStatement[]
-  moduleEntries: string[]
-  includeCreateElementImport?: boolean
-}): string {
-  const importSection = [
-    ...(options.includeCreateElementImport ? ["import { createElement } from 'react'"] : []),
-    "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
-    ...options.imports.map((entry) => serializeGeneratedImport(entry)),
-  ].join('\n')
-
-  return `// AUTO-GENERATED by mercato generate registry
-${importSection}
-
-export const modules: Module[] = ${renderLegacyCompatibleArray(options.moduleEntries)}
-export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
-export default modules
-`
 }
 
 function buildRuntimeRouteComponent(importPath: string): WriterFunction {
@@ -3009,8 +2977,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const runtimeImports: string[] = []
   const frontendRouteManifestImports: string[] = []
   const backendRouteManifestImports: string[] = []
-  const moduleDecls: string[] = []
-  const runtimeModuleDecls: string[] = []
+  const moduleDecls: WriterFunction[] = []
+  const runtimeModuleDecls: WriterFunction[] = []
   const frontendRouteManifestDecls: WriterFunction[] = []
   const backendRouteManifestDecls: WriterFunction[] = []
   const apiRouteManifestDecls: WriterFunction[] = []
@@ -3041,9 +3009,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     const runtimeBackendRoutes: string[] = []
     const runtimeApis: string[] = []
     let cliImportName: string | null = null
-    const translations: string[] = []
-    const subscribers: string[] = []
-    const workers: string[] = []
+    const translations: GeneratedObjectEntry[] = []
+    const subscribers: WriterFunction[] = []
+    const workers: WriterFunction[] = []
     let infoImportName: string | null = null
     let extensionsImportName: string | null = null
     let fieldsImportName: string | null = null
@@ -3251,7 +3219,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }
 
     // 16. Translations
-    translations.push(...processTranslations({
+    translations.push(...processTranslationsAst({
       discovered: discovered.translations,
       modId,
       appImportBase,
@@ -3261,10 +3229,10 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }))
 
     // 17. Subscribers
-    subscribers.push(...processSubscribers(await discovered.getSubscribers()))
+    subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
     // 18. Workers
-    workers.push(...processWorkers(await discovered.getWorkers()))
+    workers.push(...processWorkersAst(await discovered.getWorkers()))
 
     // Build combined customFieldSets expression
     {
@@ -3287,44 +3255,123 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }
     }
 
-    moduleDecls.push(`{
-      id: ${toLiteral(modId)},
-      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
-      ${frontendRoutes.length ? `frontendRoutes: [${frontendRoutes.join(', ')}],` : ''}
-      ${backendRoutes.length ? `backendRoutes: [${backendRoutes.join(', ')}],` : ''}
-      ${apis.length ? `apis: [${apis.join(', ')}],` : ''}
-      ${cliImportName ? `cli: ${cliImportName},` : ''}
-      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
-      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
-      ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
-      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
-      customFieldSets: ${customFieldSetsExpr},
-      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
-      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
-      ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
-      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
-      ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
-    }`)
-    runtimeModuleDecls.push(`{
-      id: ${toLiteral(modId)},
-      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
-      ${runtimeFrontendRoutes.length ? `frontendRoutes: [${runtimeFrontendRoutes.join(', ')}],` : ''}
-      ${runtimeBackendRoutes.length ? `backendRoutes: [${runtimeBackendRoutes.join(', ')}],` : ''}
-      ${runtimeApis.length ? `apis: [${runtimeApis.join(', ')}],` : ''}
-      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
-      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
-      ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
-      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
-      customFieldSets: ${customFieldSetsExpr},
-      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
-      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
-      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
-      ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
-    }`)
+    const rawExpressionList = (expressions: string[]): WriterFunction =>
+      arrayLiteral(expressions.map((expression) => identifier(expression)), writeValue)
+
+    const identityEntries: GeneratedObjectEntry[] = [{ name: 'id', value: modId }]
+    if (infoImportName) {
+      identityEntries.push({ name: 'info', value: propertyAccess(identifier(infoImportName), 'metadata') })
+    }
+
+    const sharedTailEntries: GeneratedObjectEntry[] = []
+    if (translations.length > 0) {
+      sharedTailEntries.push({ name: 'translations', value: objectLiteral(translations) })
+    }
+    if (subscribers.length > 0) {
+      sharedTailEntries.push({ name: 'subscribers', value: arrayLiteral(subscribers, writeValue) })
+    }
+    if (workers.length > 0) {
+      sharedTailEntries.push({ name: 'workers', value: arrayLiteral(workers, writeValue) })
+    }
+    if (extensionsImportName) {
+      sharedTailEntries.push({
+        name: 'entityExtensions',
+        value: buildLegacyModuleListValue({
+          importName: extensionsImportName,
+          members: ['default', 'extensions'],
+          castType: "import('@open-mercato/shared/modules/entities').EntityExtension[]",
+        }),
+      })
+    }
+    sharedTailEntries.push({ name: 'customFieldSets', value: identifier(customFieldSetsExpr) })
+    if (featuresImportName) {
+      sharedTailEntries.push({
+        name: 'features',
+        value: buildLegacyModuleListValue({
+          importName: featuresImportName,
+          members: ['default', 'features'],
+          castType: 'any',
+        }),
+      })
+    }
+    if (customEntitiesImportName) {
+      sharedTailEntries.push({
+        name: 'customEntities',
+        value: buildLegacyModuleListValue({
+          importName: customEntitiesImportName,
+          members: ['default', 'entities'],
+          castType: 'any',
+        }),
+      })
+    }
+
+    const setupAndBeyondEntries: GeneratedObjectEntry[] = []
+    if (setupImportName) {
+      setupAndBeyondEntries.push({ name: 'setup', value: buildLegacyModuleSetupValue(setupImportName) })
+    }
+    if (encryptionImportName) {
+      setupAndBeyondEntries.push({
+        name: 'defaultEncryptionMaps',
+        value: buildLegacyModuleListValue({
+          importName: encryptionImportName,
+          members: ['default', 'defaultEncryptionMaps'],
+          castType: "import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]",
+        }),
+      })
+    }
+    if (integrationExports) {
+      setupAndBeyondEntries.push({
+        name: 'integrations',
+        value: buildLegacyIntegrationListValue(
+          integrationExports,
+          'integrations',
+          'integration',
+          "import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]",
+        ),
+      })
+      setupAndBeyondEntries.push({
+        name: 'bundles',
+        value: buildLegacyIntegrationListValue(
+          integrationExports,
+          'bundles',
+          'bundle',
+          "import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]",
+        ),
+      })
+    }
+
+    const eagerEntries: GeneratedObjectEntry[] = [...identityEntries]
+    if (frontendRoutes.length > 0) {
+      eagerEntries.push({ name: 'frontendRoutes', value: rawExpressionList(frontendRoutes) })
+    }
+    if (backendRoutes.length > 0) {
+      eagerEntries.push({ name: 'backendRoutes', value: rawExpressionList(backendRoutes) })
+    }
+    if (apis.length > 0) {
+      eagerEntries.push({ name: 'apis', value: rawExpressionList(apis) })
+    }
+    if (cliImportName) {
+      eagerEntries.push({ name: 'cli', value: identifier(cliImportName) })
+    }
+    eagerEntries.push(...sharedTailEntries)
+    if (dashboardWidgets.length > 0) {
+      eagerEntries.push({ name: 'dashboardWidgets', value: rawExpressionList(dashboardWidgets) })
+    }
+    eagerEntries.push(...setupAndBeyondEntries)
+    moduleDecls.push(objectLiteral(eagerEntries))
+
+    const runtimeEntries: GeneratedObjectEntry[] = [...identityEntries]
+    if (runtimeFrontendRoutes.length > 0) {
+      runtimeEntries.push({ name: 'frontendRoutes', value: rawExpressionList(runtimeFrontendRoutes) })
+    }
+    if (runtimeBackendRoutes.length > 0) {
+      runtimeEntries.push({ name: 'backendRoutes', value: rawExpressionList(runtimeBackendRoutes) })
+    }
+    if (runtimeApis.length > 0) {
+      runtimeEntries.push({ name: 'apis', value: rawExpressionList(runtimeApis) })
+    }
+    runtimeEntries.push(...sharedTailEntries, ...setupAndBeyondEntries)
+    runtimeModuleDecls.push(objectLiteral(runtimeEntries))
   }
 
   // === UMES Conflict Detection ===
@@ -3425,14 +3472,16 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }
   }
 
-  const output = renderAstLegacyModuleRegistryOutput({
+  const output = renderAstModuleRegistryFile({
     fileName: 'modules.generated.ts',
+    generator: 'registry',
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
   })
-  const runtimeOutput = renderAstLegacyModuleRegistryOutput({
+  const runtimeOutput = renderAstModuleRegistryFile({
     fileName: 'modules.runtime.generated.ts',
+    generator: 'registry',
     imports: runtimeImports,
     moduleEntries: runtimeModuleDecls,
     includeCreateElementImport: true,

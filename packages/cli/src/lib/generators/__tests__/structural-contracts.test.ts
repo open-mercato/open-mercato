@@ -507,8 +507,8 @@ describe('modules.generated.ts', () => {
   })
 
   it('modules include translation locale keys', () => {
-    expect(content).toContain("'en':")
-    expect(content).toContain("'pl':")
+    expect(content).toMatch(/['"]en['"]:/)
+    expect(content).toMatch(/['"]pl['"]:/)
   })
 
   it('modules include customFieldSets reference from ce.ts', () => {
