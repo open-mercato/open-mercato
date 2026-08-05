@@ -50,13 +50,13 @@ The already-landed fix must stop encoding "the models fetch finished" and "the m
 
 ### Phase 2: Model the models-fetch outcome as one tri-state
 
-- [ ] 2.1 Replace `loaded`/`failed` with a single `status: 'loading' | 'ready' | 'failed'` in `useAgentModels`, move both consumers onto it, and drop the now-redundant failure guard and the historical inline comments
-- [ ] 2.2 Update the models-failure tests to the tri-state and assert that a failed load keeps the persisted override while a successful load still prunes an unavailable one
+- [x] 2.1 Replace `loaded`/`failed` with a single `status: 'loading' | 'ready' | 'failed'` in `useAgentModels`, move both consumers onto it, and drop the now-redundant failure guard and the historical inline comments — b44e35c
+- [x] 2.2 Update the models-failure tests to the tri-state and assert that a failed load keeps the persisted override while a successful load still prunes an unavailable one — b44e35c
 
 ### Phase 3: Log a denied models fetch at warning level
 
-- [ ] 3.1 Split the severity in both failure paths: `warn` for 401/403, `error` for everything else
-- [ ] 3.2 Cover the severity split in `AiChat.test.tsx`
+- [x] 3.1 Split the severity in both failure paths: `warn` for 401/403, `error` for everything else — b44e35c
+- [x] 3.2 Cover the severity split in `AiChat.test.tsx` — b44e35c
 
 ### Phase 4: Record the out-of-scope route work
 
