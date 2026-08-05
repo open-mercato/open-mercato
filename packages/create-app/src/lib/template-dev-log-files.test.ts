@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 function makeTempDir(prefix = 'template-dev-log-files-') {
@@ -16,6 +17,113 @@ function rmTempDir(dir) {
     // ignore
   }
 }
+
+const moduleResourceUsageOutputPrefix = '__OM_MODULE_RESOURCE_USAGE_DIR__'
+
+function runTemplateDevWrapper({
+  envFiles = {},
+  shellOverride,
+}: {
+  envFiles?: Record<string, string>
+  shellOverride?: string
+} = {}) {
+  const devScriptPath = fileURLToPath(new URL('../../template/scripts/dev.mjs', import.meta.url))
+  const tempDir = makeTempDir('template-module-resource-usage-dir-')
+  const runtimeScriptPath = path.join(tempDir, 'scripts', 'dev-runtime.mjs')
+  fs.mkdirSync(path.dirname(runtimeScriptPath), { recursive: true })
+  fs.writeFileSync(runtimeScriptPath, [
+    `console.log('${moduleResourceUsageOutputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))`,
+  ].join('\n'))
+  for (const [fileName, contents] of Object.entries(envFiles)) {
+    fs.writeFileSync(path.join(tempDir, fileName), contents)
+  }
+
+  const env = {
+    ...process.env,
+    OM_DEV_AUTO_MIGRATE: '0',
+    OM_DEV_AUTO_OPEN: '0',
+    OM_DEV_LOG_TEE: '0',
+    OM_DEV_SPLASH_PORT: 'off',
+  }
+  delete env.OM_MODULE_RESOURCE_USAGE_DIR
+  if (shellOverride !== undefined) {
+    env.OM_MODULE_RESOURCE_USAGE_DIR = shellOverride
+  }
+
+  try {
+    const result = spawnSync(process.execPath, [devScriptPath], {
+      cwd: tempDir,
+      env,
+      encoding: 'utf8',
+      timeout: 15_000,
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const outputLine = result.stdout
+      .split(/\r?\n/)
+      .find((line) => line.startsWith(moduleResourceUsageOutputPrefix))
+    assert.ok(outputLine, `expected standalone runtime environment in output:\n${result.stdout}\n${result.stderr}`)
+    return {
+      tempDir,
+      value: JSON.parse(outputLine.slice(moduleResourceUsageOutputPrefix.length)),
+    }
+  } catch (error) {
+    rmTempDir(tempDir)
+    throw error
+  }
+}
+
+test('standalone template dev wrapper defaults module resource snapshots below its Next distDir', () => {
+  const result = runTemplateDevWrapper()
+  try {
+    assert.equal(
+      result.value,
+      path.join(fs.realpathSync(result.tempDir), '.mercato', 'next', 'module-resource-usage'),
+    )
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
+test('standalone template dev wrapper preserves an explicit module resource snapshot directory', () => {
+  const shellOverride = './custom-module-resource-usage'
+  const result = runTemplateDevWrapper({ shellOverride })
+  try {
+    assert.equal(result.value, shellOverride)
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
+test('standalone template dev wrapper uses the highest-priority non-empty app env-file value', () => {
+  const result = runTemplateDevWrapper({
+    envFiles: {
+      '.env': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-env\n',
+      '.env.development': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-development\n',
+      '.env.local': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-local\n',
+      '.env.development.local': 'OM_MODULE_RESOURCE_USAGE_DIR="./from-development-local with spaces" # keep parsed value\n',
+    },
+  })
+  try {
+    assert.equal(result.value, './from-development-local with spaces')
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
+
+test('standalone template dev wrapper preserves a non-empty shell value over app env files', () => {
+  const shellOverride = ' ./from-shell with spaces '
+  const result = runTemplateDevWrapper({
+    envFiles: {
+      '.env.development.local': 'OM_MODULE_RESOURCE_USAGE_DIR=./from-app-env\n',
+    },
+    shellOverride,
+  })
+  try {
+    assert.equal(result.value, shellOverride)
+  } finally {
+    rmTempDir(result.tempDir)
+  }
+})
 
 test('standalone template dev-log-files exports the runtime logging API expected by dev.mjs', async () => {
   const moduleUrl = new URL('../../template/scripts/dev-log-files.mjs', import.meta.url)
