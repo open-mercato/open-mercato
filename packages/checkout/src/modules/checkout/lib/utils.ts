@@ -213,24 +213,34 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
   }
 }
 
+/**
+ * Generates a unique checkout link slug.
+ * 
+ * NOTE: The slug uniqueness check runs GLOBALLY against all checkout links, and the
+ * `scope` parameter is intentionally ignored. This is required because the public-facing
+ * checkout routes (e.g., `/pay/[slug]`) do not have any tenant/organization discriminator
+ * in their URL path, resolving links solely by the slug. Consequently, duplicate slugs
+ * cannot exist across different tenants.
+ * 
+ * @param em MikroORM EntityManager
+ * @param _scope Tenant and organization scope (ignored in database query)
+ * @param requestedSlug The slug requested by the user
+ * @param fallbackText The title/name used to generate the slug if requestedSlug is empty
+ * @param excludeId Optional ID of the checkout link to exclude from the duplicate check
+ */
 export async function ensureUniqueSlug(
   em: EntityManager,
-  scope: CheckoutScope,
+  _scope: CheckoutScope,
   requestedSlug: string | null | undefined,
   fallbackText: string,
   excludeId?: string | null,
 ): Promise<string> {
-  if (!scope?.organizationId || !scope?.tenantId) {
-    throw new Error('Organization ID and Tenant ID are required in CheckoutScope')
-  }
   const base = slugify(requestedSlug || fallbackText || 'pay-link') || 'pay-link'
   let candidate = base
   let counter = 1
   while (true) {
     const existing = await em.findOne(CheckoutLink, {
       slug: candidate,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
       deletedAt: null,
       ...(excludeId ? { id: { $ne: excludeId } } : {}),
     })
