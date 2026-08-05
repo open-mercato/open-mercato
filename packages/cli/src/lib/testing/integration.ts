@@ -2,7 +2,7 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -22,6 +22,11 @@ type EphemeralRuntimeOptions = {
   requiredExistingSource?: string
   environmentOverrides?: NodeJS.ProcessEnv
 }
+
+const TEST_EMAIL_CAPTURE_ACCESS_TOKEN =
+  process.env.OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN ?? randomBytes(32).toString('hex')
+const TEST_EMAIL_CAPTURE_CORRELATION_TOKEN =
+  process.env.OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN ?? randomBytes(32).toString('hex')
 
 export type EphemeralEnvironmentHandle = {
   baseUrl: string
@@ -1970,8 +1975,18 @@ function buildReusableEnvironment(
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
-    OM_TEST_EMAIL_CAPTURE_PATH: EPHEMERAL_EMAIL_CAPTURE_PATH,
+    OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    OM_DISABLE_EMAIL_DELIVERY: '0',
+    OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+    OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
+    OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
+    OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
+    SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+    EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
+    NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
+    ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
+    SELF_SERVICE_ONBOARDING_ENABLED: 'true',
     // Tests assert on access_logs immediately after CRUD reads; keep the
     // blocking write path on inside the integration runtime so tests do
     // not have to call flushPendingCrudAccessLogs() explicitly.
@@ -3325,9 +3340,18 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
       OM_TEST_MODE: '1',
-      OM_TEST_EMAIL_CAPTURE_PATH: EPHEMERAL_EMAIL_CAPTURE_PATH,
+      OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
-      OM_DISABLE_EMAIL_DELIVERY: '1',
+      OM_DISABLE_EMAIL_DELIVERY: '0',
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+      OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
+      OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
+      OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+      EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
+      NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
+      ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
+      SELF_SERVICE_ONBOARDING_ENABLED: 'true',
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',

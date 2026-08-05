@@ -1,3 +1,7 @@
+import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { timingSafeEqual } from 'node:crypto'
+import path from 'node:path'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
   ChannelAdapter,
   ChannelCapabilities,
@@ -15,6 +19,7 @@ import type {
 } from './adapter'
 import { baseEmailCapabilities } from './email-capabilities'
 import { hasChannelAdapter, registerChannelAdapter } from './adapter-registry-singleton'
+import { registerSystemEmailProviderConfigResolver } from './system-email-provider-config'
 
 /**
  * Test-only channel seeding support.
@@ -43,6 +48,8 @@ export const TEST_SEED_PROVIDER_KEY = '__test_seed__'
 
 /** Env flag that unlocks test-only channel seeding. Off in production. */
 export const TEST_CHANNEL_SEEDING_ENV = 'OM_ENABLE_TEST_CHANNEL_SEEDING'
+export const TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV = 'OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN'
+export const TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV = 'OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN'
 
 /**
  * True only when the test-seeding env flag is explicitly enabled. Accepts the
@@ -53,6 +60,164 @@ export function isTestChannelSeedingEnabled(): boolean {
   const raw = process.env[TEST_CHANNEL_SEEDING_ENV]
   if (typeof raw !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase())
+}
+
+export type TestSeedCapturedMessage = {
+  capturedAt: string
+  externalMessageId: string
+  conversationId?: string
+  content: SendMessageInput['content']
+  scope: SendMessageInput['scope']
+  metadata?: SendMessageInput['metadata']
+  captureCorrelationToken?: string
+}
+
+type TestSeedCaptureScope = {
+  tenantId: string
+  organizationId: string | null
+}
+
+export type TestSeedCaptureOptions = {
+  systemRecipient?: string
+  captureCorrelationToken?: string
+}
+
+export async function createTestSeedPlatformMessage(
+  em: EntityManager,
+  input: {
+    providerKey: string
+    threadId?: string
+    senderUserId: string
+    subject?: string
+    bodyText?: string
+    channelId: string
+    tenantId: string
+    organizationId: string | null
+  },
+): Promise<string | null> {
+  const rows = (await em.getConnection().execute(
+    `INSERT INTO messages
+       (type, thread_id, sender_user_id, subject, body, body_format, priority, status,
+        is_draft, sent_at, visibility, source_entity_type, source_entity_id,
+        tenant_id, organization_id, created_at, updated_at)
+     VALUES
+       (?, ?, ?, ?, ?, 'text', 'normal', 'sent',
+        false, now(), 'public', 'communication_channels.test_seed_inbound', ?,
+        ?, ?, now(), now())
+     RETURNING id`,
+    [
+      `channel.${input.providerKey}`,
+      input.threadId ?? null,
+      input.senderUserId,
+      input.subject ?? '(no subject)',
+      input.bodyText ?? '',
+      input.channelId,
+      input.tenantId,
+      input.organizationId,
+    ],
+  )) as Array<{ id: string }>
+  return rows[0]?.id ?? null
+}
+
+function normalizeToken(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized.length >= 32 ? normalized : null
+}
+
+export function isTestEmailCaptureAccessAuthorized(providedToken: string | null): boolean {
+  const expectedToken = normalizeToken(process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV])
+  const normalizedProvidedToken = normalizeToken(providedToken)
+  if (!expectedToken || !normalizedProvidedToken) return false
+  const expected = Buffer.from(expectedToken)
+  const provided = Buffer.from(normalizedProvidedToken)
+  return expected.length === provided.length && timingSafeEqual(expected, provided)
+}
+
+export function resolveTestEmailCaptureCorrelationToken(): string | null {
+  return normalizeToken(process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV])
+}
+
+function resolveCapturePath(): string {
+  const explicit = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim()
+  if (explicit) return path.resolve(explicit)
+  const queueBaseDir = process.env.QUEUE_BASE_DIR?.trim()
+  if (queueBaseDir) return path.resolve(queueBaseDir, '..', 'test-email-capture.jsonl')
+  return path.resolve(process.cwd(), '.mercato', 'test-email-capture.jsonl')
+}
+
+function matchesCaptureScope(
+  message: TestSeedCapturedMessage,
+  scope: TestSeedCaptureScope,
+  options: TestSeedCaptureOptions = {},
+): boolean {
+  if (message.scope.tenantId === scope.tenantId) {
+    const messageOrganizationId = message.scope.organizationId ?? null
+    return messageOrganizationId === scope.organizationId || messageOrganizationId === scope.tenantId
+  }
+
+  if (
+    message.scope.tenantId !== 'system' ||
+    message.scope.organizationId !== 'system' ||
+    !options.systemRecipient ||
+    !options.captureCorrelationToken ||
+    message.captureCorrelationToken !== options.captureCorrelationToken
+  ) {
+    return false
+  }
+
+  const expectedRecipient = options.systemRecipient.trim().toLowerCase()
+  const matchesRecipient = (value: unknown): boolean => {
+    if (typeof value === 'string') return value.trim().toLowerCase() === expectedRecipient
+    if (Array.isArray(value)) return value.some(matchesRecipient)
+    if (!value || typeof value !== 'object') return false
+    return matchesRecipient((value as Record<string, unknown>).address)
+  }
+
+  return matchesRecipient(message.metadata?.to)
+}
+
+async function readTestSeedCapturedMessages(): Promise<TestSeedCapturedMessage[]> {
+  const capturePath = resolveCapturePath()
+  const text = await readFile(capturePath, 'utf8').catch(() => '')
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as TestSeedCapturedMessage)
+}
+
+export async function clearTestSeedCapturedMessages(
+  scope: TestSeedCaptureScope,
+  options: TestSeedCaptureOptions = {},
+): Promise<void> {
+  const capturePath = resolveCapturePath()
+  const retained = (await readTestSeedCapturedMessages())
+    .filter((message) => !matchesCaptureScope(message, scope, options))
+  if (retained.length === 0) {
+    await rm(capturePath, { force: true })
+    return
+  }
+  await writeFile(
+    capturePath,
+    `${retained.map((message) => JSON.stringify(message)).join('\n')}\n`,
+    'utf8',
+  )
+}
+
+export async function listTestSeedCapturedMessages(
+  scope: TestSeedCaptureScope,
+  options: TestSeedCaptureOptions = {},
+): Promise<TestSeedCapturedMessage[]> {
+  return (await readTestSeedCapturedMessages()).filter((message) =>
+    matchesCaptureScope(message, scope, options),
+  )
+}
+
+async function captureTestSeedMessage(record: TestSeedCapturedMessage): Promise<void> {
+  const capturePath = resolveCapturePath()
+  await mkdir(path.dirname(capturePath), { recursive: true })
+  await appendFile(capturePath, `${JSON.stringify(record)}\n`, 'utf8')
 }
 
 /**
@@ -80,6 +245,15 @@ class TestSeedChannelAdapter implements ChannelAdapter {
     // Synthesize a deterministic-looking RFC2822-style message id; never touches
     // the network. The delivery worker persists this as the external message id.
     const externalMessageId = `test-seed-${Date.now()}-${Math.random().toString(16).slice(2, 10)}@test-seed.local`
+    await captureTestSeedMessage({
+      capturedAt: new Date().toISOString(),
+      externalMessageId,
+      conversationId: input.conversationId,
+      content: input.content,
+      scope: input.scope,
+      metadata: input.metadata,
+      captureCorrelationToken: resolveTestEmailCaptureCorrelationToken() ?? undefined,
+    })
     return {
       externalMessageId,
       conversationId: input.conversationId,
@@ -135,6 +309,11 @@ function getTestSeedChannelAdapter(): TestSeedChannelAdapter {
  */
 export function ensureTestSeedAdapterRegistered(): void {
   if (!isTestChannelSeedingEnabled()) return
+  registerSystemEmailProviderConfigResolver({
+    providerKey: TEST_SEED_PROVIDER_KEY,
+    isConfigured: isTestChannelSeedingEnabled,
+    resolveCredentials: ({ fromAddress }) => ({ testSeed: true, fromAddress }),
+  })
   if (hasChannelAdapter(TEST_SEED_PROVIDER_KEY)) return
   registerChannelAdapter(getTestSeedChannelAdapter())
 }

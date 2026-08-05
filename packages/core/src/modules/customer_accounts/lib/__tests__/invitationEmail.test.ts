@@ -39,6 +39,7 @@ describe('sendCustomerInvitationEmail', () => {
 
     await sendCustomerInvitationEmail({
       container,
+      tenantId: 'tenant-1',
       organizationId: 'org-1',
       email: 'buyer@example.com',
       rawToken: 'raw token+/=',
@@ -60,6 +61,8 @@ describe('sendCustomerInvitationEmail', () => {
           }),
         }),
       }),
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
     })
   })
 })

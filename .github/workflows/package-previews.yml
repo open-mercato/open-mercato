@@ -96,6 +96,8 @@ jobs:
           './packages/cache'
           './packages/channel-gmail'
           './packages/channel-imap'
+          './packages/channel-resend'
+          './packages/channel-ses'
           './packages/checkout'
           './packages/cli'
           './packages/content'

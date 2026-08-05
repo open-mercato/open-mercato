@@ -171,6 +171,7 @@ type InteractionListRow = {
   priority: number | null
   author_user_id: string | null
   owner_user_id: string | null
+  external_message_id: string | null
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
@@ -303,6 +304,7 @@ const INTERACTION_LIST_COLUMNS = [
   'priority',
   'author_user_id',
   'owner_user_id',
+  'external_message_id',
   'appearance_icon',
   'appearance_color',
   'source',
@@ -643,6 +645,7 @@ export async function GET(req: Request) {
       priority: row.priority ?? null,
       authorUserId: row.author_user_id ?? null,
       ownerUserId: row.owner_user_id ?? null,
+      externalMessageId: row.external_message_id ?? null,
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
@@ -722,6 +725,7 @@ const interactionListItemSchema = z
     priority: z.number().nullable(),
     authorUserId: z.string().uuid().nullable(),
     ownerUserId: z.string().uuid().nullable(),
+    externalMessageId: z.string().uuid().nullable().optional(),
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
