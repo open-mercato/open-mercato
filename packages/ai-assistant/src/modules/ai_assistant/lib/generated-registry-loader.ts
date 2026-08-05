@@ -133,7 +133,7 @@ export function collectAppLocalSpecifiers(source: string): string[] {
   const specifiers = new Set<string>()
   for (const [, specifier] of source.matchAll(APP_LOCAL_STATIC_IMPORT)) specifiers.add(specifier)
   for (const [, specifier] of source.matchAll(APP_LOCAL_DYNAMIC_IMPORT)) specifiers.add(specifier)
-  return [...specifiers].sort()
+  return [...specifiers].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 /** Stable, collision-free artifact name for one app-local specifier. */
