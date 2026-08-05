@@ -12,8 +12,10 @@ export type SalesLineRecord = {
   currencyCode: string | null
   unitPriceNet: number
   unitPriceGross: number
-  discountAmount: number
-  discountPercent: number
+  /** Resolved discount for the whole line, not per unit. */
+  discountAmount?: number
+  /** Percentage the discount was requested as, if it was requested that way. */
+  discountPercent?: number
   taxRate: number
   totalNet: number
   totalGross: number

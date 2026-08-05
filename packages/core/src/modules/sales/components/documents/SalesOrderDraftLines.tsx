@@ -65,7 +65,7 @@ export function createSalesOrderLineDraft(
       currencyCode: typeof payload.currencyCode === 'string' ? payload.currencyCode : null,
       unitPriceNet,
       unitPriceGross,
-      discountAmount: normalizeNumber(payload.discountAmount, 0),
+      discountAmount: normalizeNumber(payload.discountAmount, 0) * quantity,
       discountPercent: normalizeNumber(payload.discountPercent, 0),
       taxRate,
       totalNet,

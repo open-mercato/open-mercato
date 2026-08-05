@@ -84,7 +84,12 @@ jest.mock('lucide-react', () => ({
 
 type LinePayload = Record<string, unknown>
 
-const DISCOUNT_COLUMN_INDEX = 4
+async function discountColumnIndex(): Promise<number> {
+  const headers = await screen.findAllByRole('columnheader')
+  const index = headers.findIndex((header) => header.textContent === 'Discount')
+  expect(index).toBeGreaterThanOrEqual(0)
+  return index
+}
 
 function money(value: number): string {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value)
@@ -145,7 +150,7 @@ describe('SalesDocumentItemsSection discount column', () => {
     expect(screen.queryByRole('columnheader', { name: 'Discount' })).toBeNull()
   })
 
-  it('renders the resolved line discount and the percentage that produced it', async () => {
+  it('renders the resolved line discount and the percentage that accounts for it', async () => {
     mockLines(
       lineFixture({ discount_amount: 4.5, discount_percent: 15, total_net_amount: 25.5 }),
       secondLineFixture(),
@@ -155,6 +160,18 @@ describe('SalesDocumentItemsSection discount column', () => {
     await screen.findByRole('columnheader', { name: 'Discount' })
     await waitFor(() => expect(screen.getByText(`−${money(4.5)}`)).toBeTruthy())
     expect(screen.getByText('15%')).toBeTruthy()
+  })
+
+  it('shows the amount alone when the recorded percentage does not account for it', async () => {
+    // `discountAmount: 5` supplied per unit persists 15.00 on a 3 × 10.00 line while
+    // `discount_percent` keeps the raw 15 — 15% of that line is 4.50, not 15.00, so
+    // pairing them would assert a derivation the data does not support.
+    mockLines(lineFixture({ discount_amount: 15, discount_percent: 15, total_net_amount: 15 }))
+    renderSection()
+
+    await screen.findByRole('columnheader', { name: 'Discount' })
+    await waitFor(() => expect(screen.getByText(`−${money(15)}`)).toBeTruthy())
+    expect(screen.queryByText('15%')).toBeNull()
   })
 
   it('falls back to the percentage when only a percentage is recorded', async () => {
@@ -170,10 +187,10 @@ describe('SalesDocumentItemsSection discount column', () => {
     mockLines(lineFixture({ discount_amount: 4.5 }), secondLineFixture())
     renderSection()
 
-    await screen.findByRole('columnheader', { name: 'Discount' })
+    const columnIndex = await discountColumnIndex()
     const bodyRows = (await screen.findAllByRole('row')).slice(1)
     expect(bodyRows).toHaveLength(2)
-    expect(bodyRows[0].querySelectorAll('td')[DISCOUNT_COLUMN_INDEX]?.textContent).toBe(`−${money(4.5)}`)
-    expect(bodyRows[1].querySelectorAll('td')[DISCOUNT_COLUMN_INDEX]?.textContent).toBe('')
+    expect(bodyRows[0].querySelectorAll('td')[columnIndex]?.textContent).toBe(`−${money(4.5)}`)
+    expect(bodyRows[1].querySelectorAll('td')[columnIndex]?.textContent).toBe('')
   })
 })
