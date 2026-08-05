@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { createContext, useContext } from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { THEME_STORAGE_KEY } from './theme-init-script'
 
 const logger = createLogger('ui').child({ component: 'ThemeProvider' })
 
@@ -15,8 +16,6 @@ type ThemeContextValue = {
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
-
-const THEME_STORAGE_KEY = 'om-theme'
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
