@@ -120,3 +120,43 @@ leftover from a dead run — kill it so the runner gets its stable preferred por
 After boot, mirror the state into `.ai/qa/test-env.json` (shared descriptor) as the shared skill
 prescribes; `.ai/qa/ephemeral-env.json` (CLI-owned) stays authoritative for the runner's own
 reuse decisions.
+
+## Switching commits on one worktree (before/after QA) — 2026-08-05
+
+A before/after UI QA run repoints the **same** worktree at another commit and boots again. Two traps
+make that silently serve the wrong build, and both produce evidence that looks real and is not:
+
+- **`--force` is not enough.** It skips the descriptor's reuse check, but the repo CLI's build cache
+  is TTL-based, so the app restarts from the **previous** commit's `.next` artifacts. Symptom: the
+  "before" and "after" screenshots are byte-identical and `startedAt` in the descriptor never moves.
+  Use `--force-rebuild`, which sets `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=0`.
+- **Killing the pids is not enough either.** The CLI runs its own reuse check and reattaches to
+  anything still answering on the app port, logging `Reusing existing ephemeral environment at …`.
+  Run `test-env-down.sh` first and confirm the port is free before booting again.
+
+**Always verify the rebuild actually happened before trusting evidence.** A fresh ephemeral Postgres
+port in `services[0].url` plus a moved `startedAt` is the confirmation — and the new port means any
+row you seeded is gone, so re-seed after every rebuild. Recording the built commit in the descriptor
+(and forcing a rebuild when it changes, or is unknown) turns this from a manual check into a guard.
+
+## Seeding rows the UI needs — 2026-08-05
+
+`users.email` is encrypted at rest, so `select … from users where email = 'admin@acme.com'` finds
+nothing and a seed script keyed on it fails. Resolve the acting identity through the app instead:
+`POST /api/auth/login` with a form-encoded body, then read `sub` / `tenantId` / `orgId` out of the
+returned JWT payload and insert the fixture rows with those ids.
+
+## Driving the backoffice login — 2026-08-05
+
+The login form is client-hydrated, so `goto('/login', { waitUntil: 'domcontentloaded' })` followed by
+an immediate fill and submit fires before React attaches its handler: the page stays on `/login` and
+logs a 400. Wait for `networkidle` plus a short settle, fill `#email` / `#password`, click
+`button[type=submit]`, then poll `page.url()` — the post-login transition is client-side, so
+`waitForURL` and `waitForFunction` both hang on it.
+
+## Playwright browsers offline — 2026-08-05
+
+When the sandbox has no network, `npx playwright install chromium` exits 0 and downloads nothing, so
+it cannot repair a mismatch between the checkout's Playwright version and the browsers already in
+`~/Library/Caches/ms-playwright`. Check what is actually cached, and launch that build directly via
+`chromium.launch({ executablePath })` — the CDP protocol spans neighbouring builds.
