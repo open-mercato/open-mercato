@@ -269,6 +269,71 @@ failed `i18n:check-sync`. Translated properly rather than left as English placeh
 | 4 | B (15 integration specs) | pending — and they must be RUN, see the corrected constraint above |
 | 5 | I + spec changelogs | pending |
 
+## Wave 2, slice C — `sourceReferenceIds` INTEGRATED (`baf17a6ff`, `ad864d30e`)
+
+Slice C's first two thirds are in. `context.sourceReferenceIds` exists end to end: schema field,
+emitted inventory projection, evaluator resolution, allowlist widening, owner-before-follow rule,
+trace with package/version/hash, and the whole negative half.
+
+### The design decision worth defending
+
+**`referenceId` IS `topicId`, not a second derivation of it.** The obvious alternative — mint a
+separate `example.api.crud-factory`-style ID space, as the spec's illustrative example shows — was
+rejected: two identifier spaces are free to drift, which is the exact defect class this programme
+keeps finding. A test pins the equality so a later change has to argue for forking them.
+
+### Repository inventory vs emitted projection
+
+`source-link-inventory.test.ts` previously asserted the inventory is **never** copied into a
+scaffolded app, and that assertion was right about the file it named. The full inventory carries
+monorepo authoring paths, harness case IDs, baseline block IDs and repository-only QA evidence,
+none of which mean anything in an app. So the app gets a **projection** of the same derivation
+with those fields *dropped rather than blanked* — a blanked field reads as a real empty one. Both
+artifacts are written and `--check`ed by the same generator run, so neither can be refreshed alone.
+
+### Ledger: five/three/four → six/two/four
+
+| Family | Before | After | Why |
+|---|---|---|---|
+| 6 | partial | **covered** | The absent/dead/directory/wildcard/orphan declared-link half now exists and each defect is staged one at a time into the real shipped projection, pinning the exact message it must produce. |
+| 8 | partial | partial | Declared-reference half closed; the installed-package half remains. |
+| 4 | uncovered | uncovered | **The blocker MOVED, and that is the honest outcome.** It was "the field does not exist". It is now "no emitted owner renders a link into `node_modules/@open-mercato/*/src/**`, so no record is `installed-package`". |
+
+### Family 4 is genuinely smaller now, and the recon says the old rationale was false
+
+The spec (L686/L690) defers installed-package targets because *"no gate in this batch can verify a
+packed artifact"*. The wave-2 recon already falsified that: `npm pack --dry-run --json` **is** that
+gate. So family 4 is doable — it needs `validate-source-links.mjs` to resolve a
+`node_modules/@open-mercato/<pkg>/src/**` target against its workspace package and prove packed
+presence, then one emitted owner to render such a link. That is the next unit of slice C work, not
+a permanent deferral.
+
+### Finding: two shipped cases route no link to their own capability
+
+OMH-215 (`runtime.bulk-operation-progress`) and OMH-216 (the AI capabilities) declare **no**
+references, because no owner they route renders a link to those capabilities. An agent routed
+there is told about a capability no visible link can point it at. This is precisely the whole-
+harness link-parity guarantee CANON-C is supposed to provide, and it does not hold for these two.
+Fabricating references would have meant inventing links no owner renders, so it is recorded here
+for the wave that owns owner rendering.
+
+### Still open in slice C
+
+- A **writable** shipped case declaring `exampleRoots` (family 9's second clause). Requires a new
+  case beyond `OMH-216`, so it also moves `cases.schema.json`'s `minItems`/`maxItems`/id pattern,
+  the fixture seeds, a validator ID and a writable oracle. Not started.
+- The installed-package reference work above (families 4 and 8's remainder).
+
+### Wave state
+
+| Wave | Slices | Status |
+|---|---|---|
+| 1 | A, E, H | **INTEGRATED** `3e27096ca` |
+| 2 | C (schema/evaluator/cases), F | C **partly integrated** `baf17a6ff`, `ad864d30e`; C's writable case + installed-package half open; F not started |
+| 3 | D, G | pending |
+| 4 | B (15 integration specs) | pending — and they must be RUN, see the corrected constraint above |
+| 5 | I + spec changelogs | pending |
+
 ### Carried into wave 2
 
 - Slice A left three minors: `isRegularFile` follows symlinks (string pin, not bytes-at-path);
