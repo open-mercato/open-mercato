@@ -85,12 +85,16 @@ Two of the external skill's defaults are wrong for this repository, and both hav
 The release tag and the release entry describe what is on `main`. `develop` runs well ahead of it. Never build the window from a `baseRefName` filter.
 
 ```bash
-LAST_TAG=$(git describe --tags --abbrev=0)          # e.g. v0.6.6
 git fetch origin main --tags
+LAST_TAG=$(git describe --tags --abbrev=0 origin/main)   # e.g. v0.6.6
 git rev-list "$LAST_TAG..origin/main" > /tmp/window-commits.txt
 ```
 
-Then enumerate merged PRs for the calendar window across **all** base branches (paginate — a single **list-prs** call caps at 250 and this repo routinely exceeds it; split the window into date chunks and dedupe by PR number), and keep only those whose `mergeCommit.oid` appears in `window-commits.txt`. Request `mergeCommit` in the JSON field list; it is not in the shared skill's default field set.
+The ordering and the explicit committish both matter. Fetch **before** resolving the tag: an agent commonly starts from a fresh worktree or a clone that has not fetched since the release was cut, and resolving first leaves `LAST_TAG` on the *previous* release, so the window spans two releases and re-lists shipped work. Pass `origin/main` explicitly, because a bare `git describe` describes `HEAD` — on a `develop` checkout that only agrees with `main` when a `chore: sync back main` has already landed, which is the very kind of PR this file tells you to exclude two rules below.
+
+Then enumerate merged PRs for the calendar window across **all** base branches, and keep only those whose `mergeCommit.oid` appears in `window-commits.txt`. Request `mergeCommit` in the JSON field list; it is not in the shared skill's default field set.
+
+Chunk the window by date and dedupe by PR number. `gh pr list` paginates internally, so `--limit` is honoured well past 250 — the real ceiling is the GitHub **Search API's 1000-result cap**, which a `--search` form hits silently. Always pass a `--limit` above the count you expect and treat a result whose length equals the limit as truncated, not complete.
 
 Start the calendar window a few days **before** the previous release date. Develop PRs merged shortly before the release cut land on `main` with it, and a window that starts at the tag date silently drops them.
 
@@ -114,21 +118,35 @@ gh pr view "$PR" --repo open-mercato/open-mercato --json number,author,title,com
 
 Tally commit authors, **excluding** AI and bot identities (see the exclusion list below). When the PR author wrote **zero** commits and a single other human authored the clear majority, that human is `primaryAuthor` and the PR author is **not** recorded as `viaAuthor` — a merge is not a carry-forward. Credit the author alone.
 
+When no single human holds a clear majority — a genuinely co-authored branch, say two contributors near 50/50 — do **not** fall back to the merger. Credit every human author whose share is material, primaries first in descending commit share: `*(@alice, @bob)*`. The verification pass below catches this case as a zero-commit-no-template row, so it always reaches a human; this rule says what that human should conclude.
+
 An umbrella PR almost always ships alongside its sub-PRs, which also land on `main` through the same merge and describe the same work. When an umbrella PR and its sub-PRs both fall in the window, **coalesce them into one bullet** listing every number — `(#4566, #1701)` — rather than emitting the work twice.
 
 > Real failure this rule exists to prevent: `#4566` "implementation of WMS" was credited to the maintainer who merged `feat/wms`. Its 192 commits contained **zero** by that maintainer — 100 by `@mkadziolka` and 92 by an AI agent — and `#1701` listed the same work a second time.
 
 ### Path E — free-text attribution in the PR body
 
-Contributors get handed off in prose that matches none of the `om-auto-review-pr` templates. Scan every PR body (case-insensitive) for:
+Contributors get handed off in prose that matches none of the `om-auto-review-pr` templates. Scan every PR body with these patterns, applied **case-insensitively** (no character-class alternations — the `i` flag carries all of it):
 
 ```
-Original author:? .*@([A-Za-z0-9][A-Za-z0-9-]{0,38})
-Carries (the )?.* from #(\d+)
-[Cc]redits? (to|goes to) @([A-Za-z0-9][A-Za-z0-9-]{0,38})
-(takes?|took) over .*@([A-Za-z0-9][A-Za-z0-9-]{0,38})
-[Bb]ased on (the )?work (of|by) @([A-Za-z0-9][A-Za-z0-9-]{0,38})
+original author:? .*?@([A-Za-z0-9][A-Za-z0-9-]{0,38})
+carries (the )?.*? from #(\d+)
+credits? (to|go(es)? to) @([A-Za-z0-9][A-Za-z0-9-]{0,38})
+(takes?|took) over .*?@([A-Za-z0-9][A-Za-z0-9-]{0,38})
+based on (the )?work (of|by) @([A-Za-z0-9][A-Za-z0-9-]{0,38})
 ```
+
+**Every `.*` before a capture must be lazy (`.*?`).** A greedy quantifier backtracks from the end of the line and captures the *last* `@mention`, not the one the phrase introduces — so a hand-off note that also pings a reviewer credits the bystander:
+
+```js
+"Original author: Maciej Gren (@matgren) — assigning @reviewer for review/ownership"
+// greedy .*  → "reviewer"   ← a published line crediting someone who wrote nothing
+// lazy   .*? → "matgren"    ← correct
+```
+
+That failure is worse than the maintainer-credit bug this path exists to fix, because the credited handle is not even a plausible author. The credit pattern spells the verb `go(es)? to` rather than `goes? to` so the natural plural "credits **go** to @alice" matches alongside "credit **goes** to @alice" — `goes?` only covers `goe`/`goes` and silently misses the plural form.
+
+The handle is always the **last** capture group in each pattern. Verify any edit to these patterns against the cases in the verification pass below before shipping it.
 
 A captured handle becomes `primaryAuthor` with the merged PR author as `viaAuthor`. A captured PR number resolves its author via **get-pr** and additionally emits `(supersedes #N)` in the line text.
 
@@ -145,6 +163,13 @@ This is not optional and not a spot check. For **every** bullet, compare the cre
 | Credited author is a minority of commits, the rest by a maintainer | ✅ usually correct — normal review-fixup or rebase-and-fix carry |
 | Credited author is a minority and the majority commit is titled "address review findings" or similar | ✅ correct — a review fix is not authorship |
 | PR author differs from the dominant commit author on a >50-commit PR | ❌ investigate as an umbrella merge (Path D) |
+| No single human holds a majority (two contributors near 50/50) | ❌ credit every material author (Path D), never the merger |
+| A Path E body mentions more than one `@handle` | ❌ re-check the capture — a greedy quantifier would have taken the last one |
+
+Two adversarial cases exercise the parts that real 0.6.7 data never reached, so run them explicitly rather than trusting a clean pass:
+
+- **A hand-off body that also pings a reviewer** — `Original author: … (@contributor) — assigning @reviewer for review/ownership`. Both `#4276` and `#4761` happened to carry a single handle each, so the greedy-capture bug was invisible in the empirical run. Assert the capture is the contributor.
+- **A run started from a clone that has not fetched since the release was cut** — the normal state for a fresh agent worktree. Assert `LAST_TAG` resolves to the release being documented, not the one before it.
 
 Also run **Path C** properly: list closed-unmerged PRs for the window (**list-prs**, `closed:>=${SINCE_DATE} is:unmerged`) and scan their bodies **and comments** for `Closing in favor of #(\d+)`. Replacements that merged to `develop` after the release was cut from `main` are correctly absent from the entry — confirm rather than assume.
 

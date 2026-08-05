@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 116 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 117 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -170,12 +170,6 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files
 
-## Credit the author, not the merger, when generating a changelog
+### spec-pr
 
-**Context**: The `0.6.7` changelog credited `#4566` "implementation of WMS" to the maintainer who merged the `feat/wms` branch. The PR's 192 commits contained zero by that maintainer — 100 by the contributor and 92 by an AI agent — and the same work was listed a second time under its sub-PR `#1701`. Two more entries (`#4276`, `#4761`) credited maintainers who had written "Original author: @…" and "Carries the registry from #N" in the PR body.
-
-**Problem**: `om-auto-update-changelog` resolves credit from the merged PR's `author` field, corrected only by the `Supersedes #N` / `Credit: original implementation by @user` templates that `om-auto-review-pr` writes. Those templates cover the carry-forward flow and nothing else. An umbrella PR merging a long-lived feature branch, or an informal hand-off written in prose, silently transfers a contributor's credit to whoever pressed the merge button — the single most damaging error a changelog can contain, because it is published and attributed.
-
-**Rule**: Never treat the merged PR's author field as the credited author without verification. Before assembling a release entry, tally each PR's commit authorship (excluding bots and AI agents: `[bot]`, `dependabot`, `renovate`, `app/*`, `web-flow`, `claude`, `cursoragent`, `copilot`, `codex`, `devin`) and hand-review every mismatch. A credited author with **zero** commits is correct only when a `Credit:` / `Supersedes` template is present; without one it is a bug. A PR author who wrote none of a large PR's commits is an umbrella merge — credit the dominant commit author, and coalesce the umbrella with its sub-PRs into one bullet instead of listing the work twice. Also scan PR bodies for free-text attribution (`Original author:`, `Carries … from #N`, `credit to @…`, `took over`) that the templates do not cover.
-
-**Applies to**: `.ai/skills/om-auto-update-changelog/SKILL.md`, the shared `om-auto-update-changelog` and `om-auto-review-pr` skills, and any tooling that attributes work from tracker metadata rather than from commits.
+- [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
