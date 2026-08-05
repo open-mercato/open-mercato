@@ -12,8 +12,8 @@
   "storage_s3.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
   "storage_s3.errors.multipartRequired": "Oczekiwano multipart/form-data",
   "storage_s3.errors.prefixAccessDenied": "Odmowa dostępu: prefiks nie jest ograniczony do tego tenantu.",
-  "storage_s3.errors.quotaAccountingUnavailable": "Rozliczanie limitu miejsca w magazynie jest niedostępne.",
-  "storage_s3.errors.quotaExceeded": "Przekroczono limit miejsca na załączniki dla tego tenantu.",
-  "storage_s3.errors.quotaTargetExists": "Docelowy klucz magazynu już istnieje.",
+  "storage_s3.errors.quotaExceeded": "Przekroczono limit przestrzeni na załączniki dla tego najemcy.",
+  "storage_s3.errors.quotaTargetExists": "Docelowy klucz w magazynie już istnieje.",
+  "storage_s3.errors.quotaUnavailable": "Rozliczanie limitu magazynu jest niedostępne.",
   "storage_s3.errors.unauthorized": "Brak autoryzacji"
 }

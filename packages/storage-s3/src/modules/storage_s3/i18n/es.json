@@ -12,8 +12,8 @@
   "storage_s3.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
   "storage_s3.errors.multipartRequired": "Se esperaba multipart/form-data",
   "storage_s3.errors.prefixAccessDenied": "Acceso denegado: el prefijo no está limitado a este tenant.",
-  "storage_s3.errors.quotaAccountingUnavailable": "La contabilidad de la cuota de almacenamiento no está disponible.",
-  "storage_s3.errors.quotaExceeded": "Se superó la cuota de almacenamiento de adjuntos para este tenant.",
+  "storage_s3.errors.quotaExceeded": "Se superó la cuota de almacenamiento de adjuntos para este inquilino.",
   "storage_s3.errors.quotaTargetExists": "La clave de almacenamiento de destino ya existe.",
+  "storage_s3.errors.quotaUnavailable": "La contabilidad de la cuota de almacenamiento no está disponible.",
   "storage_s3.errors.unauthorized": "No autorizado"
 }

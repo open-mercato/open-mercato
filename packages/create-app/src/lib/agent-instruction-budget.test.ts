@@ -5,11 +5,16 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { generateCodex } from '../setup/tools/codex.js'
-import { generateShared, injectModuleGuides, readEnabledModuleIds } from '../setup/tools/shared.js'
+import {
+  STANDALONE_ROOT_TARGET_BYTES,
+  enforceRootInstructionBudget,
+  generateShared,
+  injectModuleGuides,
+  readEnabledModuleIds,
+} from '../setup/tools/shared.js'
 
 const CREATE_APP_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const CODEX_DEFAULT_PROJECT_DOC_BYTES = 32 * 1024
-const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
 const CLASSIC_APP_ONLY_MODULES = new Set(['example', 'ratelimit_probe'])
 
 const ROOT_SOURCES = [
@@ -142,14 +147,24 @@ test('generated classic Codex root and representative initial chains fit their b
     const classicFactModules = readEnabledModuleIds(path.join(targetDir, 'src', 'modules.ts'))
       .filter((moduleId) => !CLASSIC_APP_ONLY_MODULES.has(moduleId))
       .sort()
-    assert.equal(classicFactModules.length, 49, 'classic scaffold fact index changed; review its root budget')
     injectModuleGuides(path.join(targetDir, 'AGENTS.md'), classicFactModules)
     generateCodex(config)
+    const shedIndex = enforceRootInstructionBudget(path.join(targetDir, 'AGENTS.md'), classicFactModules)
 
     const rootInstructions = fs.readFileSync(path.join(targetDir, 'AGENTS.md'), 'utf8')
     assert.match(rootInstructions, /<!-- CODEX_ENFORCEMENT_RULES_START -->/)
     const moduleIndex = rootInstructions.match(/Enabled module facts: ([^\n]+)\./)
     assert.ok(moduleIndex, 'generated classic root must contain the compact module-fact index')
+    // The budget is enforced by generation, not by a hard-coded module count, so enabling
+    // another template module no longer trips this test. What it still guards is the point
+    // where the classic scaffold gets so large that it loses its inline index — a real
+    // routing regression worth reviewing rather than an arbitrary ceiling.
+    assert.equal(
+      shedIndex,
+      false,
+      `classic scaffold no longer fits its inline module-fact index (${classicFactModules.length} modules); ` +
+        'either reclaim root bytes or accept the pointer-form fallback deliberately',
+    )
     assert.deepEqual(
       [...moduleIndex[1].matchAll(/`([^`]+)`/g)].map((match) => match[1]),
       classicFactModules,
@@ -220,4 +235,58 @@ test('generated classic Codex root and representative initial chains fit their b
   } finally {
     fs.rmSync(targetDir, { recursive: true, force: true })
   }
+})
+
+// Builds the same classic Codex root the test above builds, but for an arbitrary
+// module set, so a growing template can be measured without editing the template.
+function generateClassicRoot(extraModules: string[]): { bytes: number; root: string; shedIndex: boolean } {
+  const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-instruction-scale-')))
+  fs.mkdirSync(path.join(targetDir, 'src'), { recursive: true })
+  fs.copyFileSync(
+    path.join(CREATE_APP_ROOT, 'template/src/modules.ts'),
+    path.join(targetDir, 'src', 'modules.ts'),
+  )
+  try {
+    const config = {
+      projectName: `instruction-budget-fixture-${'x'.repeat(96)}`,
+      targetDir,
+    }
+    generateShared(config)
+    const factModules = readEnabledModuleIds(path.join(targetDir, 'src', 'modules.ts'))
+      .filter((moduleId) => !CLASSIC_APP_ONLY_MODULES.has(moduleId))
+      .concat(extraModules)
+      .sort()
+    injectModuleGuides(path.join(targetDir, 'AGENTS.md'), factModules)
+    generateCodex(config)
+    const shedIndex = enforceRootInstructionBudget(path.join(targetDir, 'AGENTS.md'), factModules)
+    const root = fs.readFileSync(path.join(targetDir, 'AGENTS.md'), 'utf8')
+    return { bytes: Buffer.byteLength(root), root, shedIndex }
+  } finally {
+    fs.rmSync(targetDir, { recursive: true, force: true })
+  }
+}
+
+test('one more template module still fits the root budget with its inline index intact', () => {
+  const { bytes, root, shedIndex } = generateClassicRoot(['channel_discord'])
+
+  assert.equal(shedIndex, false, `adding one module shed the inline index at ${bytes} bytes`)
+  assert.ok(
+    bytes <= STANDALONE_ROOT_TARGET_BYTES,
+    `generated root with one extra module uses ${bytes} bytes, over the ${STANDALONE_ROOT_TARGET_BYTES}-byte target`,
+  )
+  assert.match(root, /Enabled module facts: [^\n]*`channel_discord`/)
+})
+
+test('the module-fact index sheds itself rather than pushing the root past its budget', () => {
+  const manyModules = Array.from({ length: 64 }, (_, index) => `scale_probe_${String(index).padStart(2, '0')}`)
+  const { bytes, root, shedIndex } = generateClassicRoot(manyModules)
+
+  assert.equal(shedIndex, true, 'a 64-module overflow must trigger the pointer-form fallback')
+  assert.ok(
+    bytes <= STANDALONE_ROOT_TARGET_BYTES,
+    `generated root uses ${bytes} bytes after shedding the index, over the ${STANDALONE_ROOT_TARGET_BYTES}-byte target`,
+  )
+  assert.match(root, /Enabled module facts: \d+ sheets bundled, too many to index inline/)
+  assert.ok(!root.includes('scale_probe_00'), 'the pointer form must not enumerate module ids')
+  assert.match(root, /Load `\.ai\/guides\/modules\/<id>\.md` only for a named or targeted installed module\/host/)
 })
