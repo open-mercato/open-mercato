@@ -1031,8 +1031,13 @@ describe('BasicQueryEngine entity-extension joins', () => {
   })
 
   test('falls back to the derived plural when no table is declared', async () => {
+    // `policy` ends in `y`, so the correct plural is `policies`. This previously asserted
+    // `policys`, pinning a separate inline `+s` pluralizer that the extension-join path used
+    // instead of the file's own `pluralizeBaseName` — the very bug that made
+    // `example_customer_priority` derive `example_customer_prioritys` and forced the
+    // `table` override into existence.
     const join = await joinFor('auth:role', 'roles')
-    expect(join.aliasObj).toEqual({ ext_example_role_policy: 'example_role_policys' })
+    expect(join.aliasObj).toEqual({ ext_example_role_policy: 'example_role_policies' })
     expect(join.conditions).toEqual([
       { method: 'on', args: ['ext_example_role_policy.role_id', '=', 'roles.id'] },
     ])

@@ -933,7 +933,14 @@ export class BasicQueryEngine implements QueryEngine {
           : exts
         for (const e of chosen) {
           const [, extName] = (e.extension as string).split(':')
-          const derivedTable = extName.endsWith('s') ? extName : `${extName}s`
+          // Uses the SAME derivation as every other table-name fallback in this file
+          // (`pluralizeBaseName`, also called at the resolveEntityTableName sites above)
+          // rather than a separate inline one. The inline version handled only `+s`, so
+          // `example_customer_priority` derived `example_customer_prioritys` against the
+          // real `example_customer_priorities`. Behaviour is unchanged for every name that
+          // does not end in `y`; `table` below remains the escape hatch for irregular
+          // plurals no guesser can win (`person` → `people`).
+          const derivedTable = pluralizeBaseName(extName)
           const extTable = isPlainTableIdentifier(e.table) ? e.table : derivedTable
           const alias = `ext_${sanitize(extName)}`
           q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
