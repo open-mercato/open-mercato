@@ -386,7 +386,8 @@ describe('aggregations', () => {
       })
       expect(result?.sql).toContain('status = ?')
       expect(result?.sql).toContain('payment_status != ?')
-      expect(result?.sql).not.toContain('IS NULL AND payment_status')
+      expect(result?.sql).not.toContain('status IS NULL')
+      expect(result?.sql).not.toContain('payment_status IS NOT NULL')
       expect(result?.params).toEqual(['tenant-123', 'completed', 'refunded'])
     })
 
