@@ -73,8 +73,9 @@ test('every public package is aligned with the monorepo version', async () => {
 
   const publicPackages = await readPublicPackages()
   assert.ok(
-    publicPackages.length > 1,
-    'Expected the scan to find the public workspaces — an empty result would pass vacuously',
+    publicPackages.some((pkg) => pkg.name === reference.name),
+    `Expected the scan to reach the reference workspace ${reference.name}. A scan that silently ` +
+      'stopped finding manifests would report alignment over nothing at all',
   )
 
   const mismatched = publicPackages
@@ -92,6 +93,7 @@ test('every public package is aligned with the monorepo version', async () => {
 test('the root manifest carries the monorepo version too', async () => {
   const reference = await readManifest(referenceManifest)
   const root = await readManifest(path.join(rootDir, 'package.json'))
+  assert.ok(root, 'The root package.json is the reference for the release-time bump and must exist')
 
   assert.equal(
     root.version,
