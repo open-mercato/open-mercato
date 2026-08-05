@@ -9,7 +9,6 @@ export type TouchGeneratedBarrelsOptions = {
   cwd?: string
   quiet?: boolean
   log?: (message: string) => void
-  files?: string[]
 }
 
 export type TouchGeneratedBarrelsResult = {
@@ -44,15 +43,11 @@ export function touchGeneratedBarrels(
   }
 
   const touched: string[] = []
-  const requestedFiles = options.files
-    ? new Set(options.files.map((file) => path.basename(file)))
-    : null
   const touchedAt = new Date()
   const entries = fs.readdirSync(generatedDir, { withFileTypes: true })
   for (const entry of entries) {
     if (!entry.isFile()) continue
     if (!TOUCHABLE_PATTERN.test(entry.name)) continue
-    if (requestedFiles && !requestedFiles.has(entry.name)) continue
     const filePath = path.join(generatedDir, entry.name)
     // Advance mtime without rewriting the bytes: rewriting truncates then refills
     // multi-megabyte registries, and a concurrent Turbopack compile reading one
