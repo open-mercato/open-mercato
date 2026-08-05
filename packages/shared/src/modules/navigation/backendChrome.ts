@@ -11,9 +11,10 @@ export type BackendChromeNavItem = {
   iconName?: string
   iconMarkup?: string
   /**
-   * The weight the page declared as `pageOrder` (falling back to `pagePriority`), mirroring
-   * `BackendChromeSectionItem.order`. The payload is already sorted by it, so clients render it as
-   * received; the field exists so ordering is inspectable rather than implied by array position (#4845).
+   * The weight this item was sorted by — `pagePriority` when the page declared one, otherwise
+   * `pageOrder` — mirroring `BackendChromeSectionItem.order`. The payload is already sorted by it, so
+   * clients render it as received and re-sorting by it is a no-op; the field exists so ordering is
+   * inspectable rather than implied by array position (#4845).
    */
   order?: number
   children?: BackendChromeNavItem[]

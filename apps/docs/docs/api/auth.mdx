@@ -338,6 +338,8 @@ Simplified response:
 }
 ```
 
-Items (and their `children`) arrive already sorted by the weight each page declared as `pageOrder` — that weight is echoed back as `order`, so a custom shell can re-sort or merge its own entries against it instead of relying on array position.
+Items (and their `children`) arrive already sorted by the weight each page declared — `pagePriority` when it set one, otherwise `pageOrder`. That same weight is echoed back as `order`, so re-sorting by it is a no-op and a custom shell can merge its own entries against it instead of relying on array position.
+
+A `pageOrder` set through an `overrides.routes.pages` entry repositions the item too: the override's metadata is normalized through the same alias table the manifest was built with.
 
 Use this endpoint to drive custom admin shells or to debug visibility rules when developing new modules.

@@ -1,3 +1,15 @@
+/**
+ * Characterization tests for `buildAdminNav`'s ordering contract.
+ *
+ * These lock in behavior that already existed — `buildAdminNav` is not modified by #4845. They
+ * exist because the nav payload's serialization boundary (`auth/lib/backendChrome.tsx`) now mirrors
+ * this precedence (`priority ?? order`, title tiebreak); if it changes here, the two sorts drift and
+ * the payload's `order` field stops matching the sequence it ships items in.
+ *
+ * The regression coverage for #4845 itself lives in
+ * `packages/shared/src/modules/__tests__/route-overrides.test.ts` (the override alias normalization)
+ * and `packages/core/src/modules/auth/api/__tests__/admin-nav.test.ts` (the serialized field).
+ */
 import { buildAdminNav } from '../nav'
 
 type NavModule = Parameters<typeof buildAdminNav>[0][number]

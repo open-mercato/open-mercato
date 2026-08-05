@@ -351,6 +351,38 @@ describe('GET /api/auth/admin/nav', () => {
     ])
   })
 
+  it('serializes the weight it sorted by when pagePriority and pageOrder disagree', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'trailing_page',
+        pattern: '/backend/trailing/page',
+        title: 'Trailing page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 5,
+        priority: 50,
+      },
+      {
+        moduleId: 'leading_page',
+        pattern: '/backend/leading/page',
+        title: 'Leading page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 20,
+        priority: 1,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const sharedItems = groups.find((group) => group.id === 'shared.nav.group')?.items
+
+    expect(sharedItems?.map((item) => [item.href, item.order])).toEqual([
+      ['/backend/leading/page', 1],
+      ['/backend/trailing/page', 50],
+    ])
+  })
+
   it('returns the extended backend chrome payload fields for client hydration', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',

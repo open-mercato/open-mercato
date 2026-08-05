@@ -145,13 +145,19 @@ const NAV_ITEM_FALLBACK_WEIGHT = 10_000
  *
  * Ordering is re-applied here, at the serialization boundary, so the payload's own `order` field is
  * always consistent with the sequence it ships items in instead of inheriting an upstream sort (#4845).
+ * `serializeNavItem` emits `priority ?? order` for the same reason: a consumer that re-sorts by the
+ * field it receives must land on the order it was served in.
  */
 function resolveNavItemWeight(item: AdminNavItem): number {
   return item.priority ?? item.order ?? NAV_ITEM_FALLBACK_WEIGHT
 }
 
 function sortNavItemsByWeight(items: AdminNavItem[]): AdminNavItem[] {
-  return [...items].sort((a, b) => resolveNavItemWeight(a) - resolveNavItemWeight(b))
+  return [...items].sort((a, b) => {
+    const weightDifference = resolveNavItemWeight(a) - resolveNavItemWeight(b)
+    if (weightDifference !== 0) return weightDifference
+    return a.title.localeCompare(b.title)
+  })
 }
 
 async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
@@ -165,7 +171,7 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     pageContext: item.pageContext,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
-    order: item.order ?? item.priority,
+    order: item.priority ?? item.order,
     children: item.children
       ? await Promise.all(sortNavItemsByWeight(item.children).map((child) => serializeNavItem(child)))
       : undefined,
@@ -215,7 +221,7 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
   const defaultGroupCount = groupOrder.length
   groups.forEach((group, index) => {
     const rank = groupOrderIndex.get(group.id)
-    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : NAV_ITEM_FALLBACK_WEIGHT
     group.weight =
       (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
       Math.min(Math.max(fallbackWeight, 0), 999_999)
