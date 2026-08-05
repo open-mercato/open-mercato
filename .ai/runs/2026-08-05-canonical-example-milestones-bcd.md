@@ -38,13 +38,29 @@ false.
 | **H** | Missing example surfaces: `frontend/middleware.ts`, `generators.ts`, `aiToolOverrides`/`aiAgentOverrides`, vector/workflow/currency+payment+shipping identities, compileable override reference, `componentOverrides` `replace` + `props` | — |
 | **I** | Milestone D aggregate certification | all |
 
-## Known hard constraint — stated up front, not discovered late
+## Constraint on the integration specs — CORRECTED 2026-08-05, do not carry the old version forward
 
-**The fifteen integration specs (B) can be written here but NOT executed.** Playwright integration
-runs need a live app, database and queue via Docker, and Docker is unavailable in this WSL distro
-(`yarn test:create-app` / `:integration` have been unrunnable for the whole programme). They will ship
-as specs whose correctness is reviewed statically and proven by CI, and this file will say so plainly
-rather than implying they were run green.
+**Original claim (WRONG): "the fifteen integration specs can be written but not executed, because
+Playwright needs Docker."** That conflated the two run modes. Probed directly:
+
+| Prerequisite | State |
+|---|---|
+| Postgres on `localhost:5432` | **OPEN** — `DATABASE_URL` in `apps/mercato/.env` points at it |
+| Playwright Chromium | **installed** — `~/.cache/ms-playwright/chromium-{1217,1223,1228}` |
+| App on `localhost:3000` | closed, but startable with `yarn dev` |
+| Docker | unavailable — but only `test:integration:ephemeral`/`:coverage` need it |
+
+`yarn test:integration` is plain Playwright against `BASE_URL` + a reachable Postgres. **No Docker.**
+
+Second correction: the recon note that `STATIC_TEST_IGNORES` excludes `.ai/tmp/**` and therefore hides
+this worktree is only true when Playwright runs from the MAIN checkout (where this worktree happens to
+live under `.ai/tmp/`). Run from inside the worktree, `projectRoot` is the worktree itself and the
+specs sit at `apps/mercato/src/modules/example/__integration__/**` — not under `.ai/tmp/**` — so they
+ARE discovered.
+
+**Therefore slice B's specs should be RUN, not merely written.** Treat "shipped unexecuted" as a
+failure of this run, not an accepted constraint. If a spec genuinely cannot be run after a real
+attempt, say which one and what blocked it.
 
 ## Method (carried over — it earned its keep)
 
