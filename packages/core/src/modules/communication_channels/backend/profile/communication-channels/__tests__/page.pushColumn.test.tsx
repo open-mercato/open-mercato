@@ -34,13 +34,16 @@ type ChannelRow = {
 
 let capturedColumns: ColumnDef<ChannelRow>[] = []
 
-// Stable identity: the page's channel-loading effect depends on `t`, so a fresh
-// function per render would re-fire the effect forever.
-const mockTranslate = (key: string, fallback?: string) => fallback ?? key
-
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => mockTranslate,
-}))
+// Resolve against the real English dictionary rather than the inline fallbacks:
+// production `t()` is `dict[key] ?? fallback`, so a fallback-first stub would
+// assert copy no user ever sees and would hide a key that resolves to the wrong
+// string. Stable identity matters too — the page's channel-loading effect
+// depends on `t`, so a fresh function per render would re-fire it forever.
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const dict = require('../../../../i18n/en.json') as Record<string, string>
+  const translate = (key: string, fallback?: string) => dict[key] ?? fallback ?? key
+  return { useT: () => translate }
+})
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
@@ -99,6 +102,14 @@ function buildRow(overrides: Partial<ChannelRow>): ChannelRow {
   }
 }
 
+function findColumn(columnId: string) {
+  return capturedColumns.find(
+    (candidate) =>
+      (candidate as { id?: string }).id === columnId ||
+      (candidate as { accessorKey?: string }).accessorKey === columnId,
+  )
+}
+
 function renderCell(columnId: string, row: ChannelRow) {
   const column = capturedColumns.find(
     (candidate) =>
@@ -125,6 +136,12 @@ describe('profile communication channels — push column and poll action', () =>
   beforeEach(async () => {
     jest.clearAllMocks()
     await mountPage()
+  })
+
+  it('titles the column "Push", not the "Push active" status string', () => {
+    // The header used to share `push.status.active` with the status tag, so it
+    // rendered "Push active" above rows that said "Polling only".
+    expect(findColumn('pushStatus')?.header).toBe('Push')
   })
 
   it('labels a push-driven channel as push-driven, not "Polling only"', () => {
@@ -159,6 +176,21 @@ describe('profile communication channels — push column and poll action', () =>
       buildRow({ providerKey: 'gmail', supportsRealtimePush: false, supportsPushRegistration: true }),
     )
 
+    // Gmail is hub-polled, so "Polling only" is the truthful idle label there.
+    expect(screen.getByText('Polling only')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Re-register push' })).toBeInTheDocument()
+  })
+
+  it('does not claim polling for a registerable push provider that the hub never polls', () => {
+    // A provider that both declares realtimePush and can register push has no
+    // polling fallback at all — the idle state must not say "Polling only".
+    renderCell(
+      'pushStatus',
+      buildRow({ providerKey: 'future-webhook', supportsRealtimePush: true, supportsPushRegistration: true }),
+    )
+
+    expect(screen.getByText('Push not registered')).toBeInTheDocument()
+    expect(screen.queryByText('Polling only')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Re-register push' })).toBeInTheDocument()
   })
 

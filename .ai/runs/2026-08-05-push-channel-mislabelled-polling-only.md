@@ -66,8 +66,29 @@ this provider?*
 - [x] Add locale strings for the new labels in en/pl/es/de/ko
 - [x] Regression tests: predicate, serializer, `poll-now` guard, `Push` column and `Poll now` button
 - [x] Full validation gate
-- [ ] Review loop (`om-auto-review-pr`)
-- [ ] UI verification evidence (`om-auto-qa-pr`)
+- [x] Review loop (`om-auto-review-pr`) — first pass
+- [x] Second review pass — three further defects found and fixed (below)
+- [ ] UI verification evidence (`om-auto-qa-pr`) — **not performed**; no `realtimePush: true`
+      provider ships on `develop`, so the state is only reachable via a seeded row
+
+## Second pass — what the first review missed
+
+1. **The column header was itself a false label.** `header` reused
+   `communication_channels.push.status.active`, and `t()` resolves `dict[key] ?? fallback`, so the
+   header rendered **"Push active"** — above rows reading "Polling only". Given its own key
+   (`communication_channels.profile.columns.push`, matching the sibling `profile.columns.*` keys of
+   this table).
+2. **The same lie survived in a second branch.** A provider that both declares `realtimePush` and
+   implements `registerPush` still rendered "Polling only" in its unregistered state — the case where
+   *nothing* delivers inbound, so the claim is maximally wrong. Now reads "Push not registered".
+3. **The page test asserted copy no user sees.** Its `useT` stub returned `fallback ?? key`, the
+   inverse of production's `dict[key] ?? fallback`, which is precisely why defect 1 stayed invisible.
+   The stub now resolves against the real `i18n/en.json`.
+
+Also confirmed during the second pass: `workers/poll-tick.ts:109,138-141` already excludes
+push-driven channels from scheduled polling via `pollIntervalSeconds: { $ne: null }`, with a comment
+stating the invariant. The manual `poll-now` route was the only path violating it, which is what the
+409 closes.
 
 ## Verification
 

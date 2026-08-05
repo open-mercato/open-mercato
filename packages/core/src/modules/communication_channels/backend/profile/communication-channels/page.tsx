@@ -321,7 +321,9 @@ export default function ProfileCommunicationChannelsPage() {
       },
       {
         id: 'pushStatus',
-        header: t('communication_channels.push.status.active', 'Push'),
+        // Its own key: sharing `push.status.active` made the header render
+        // "Push active" over a column whose rows say "Polling only" (#4980).
+        header: t('communication_channels.profile.columns.push', 'Push'),
         cell: ({ row }) => {
           const ps = row.original.pushStatus
           const errorTitle = row.original.lastPushError?.message ?? undefined
@@ -359,7 +361,6 @@ export default function ProfileCommunicationChannelsPage() {
             )
           }
           if (ps === 'failed') {
-            const errorMsg = row.original.lastPushError?.message ?? null
             return (
               <div className="flex items-center gap-2">
                 <Tag variant="error" dot>
@@ -371,18 +372,23 @@ export default function ProfileCommunicationChannelsPage() {
                   size="sm"
                   onClick={() => void onRegisterPush(row.original.id)}
                   aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
-                  title={errorMsg ?? undefined}
+                  title={errorTitle}
                 >
                   {t('communication_channels.push.button.reregister', 'Re-register push')}
                 </Button>
               </div>
             )
           }
-          // null or 'inactive' — provider supports push but not registered yet.
+          // null or 'inactive' — the provider can register push but has not yet.
+          // Only a hub-polled channel falls back to polling meanwhile; for a
+          // push-driven one nothing is delivering inbound at all, so claiming
+          // "Polling only" would repeat the defect this issue is about (#4980).
           return (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {t('communication_channels.push.status.inactive', 'Polling only')}
+                {row.original.supportsRealtimePush
+                  ? t('communication_channels.push.status.notRegistered', 'Push not registered')
+                  : t('communication_channels.push.status.inactive', 'Polling only')}
               </span>
               <Button
                 type="button"
