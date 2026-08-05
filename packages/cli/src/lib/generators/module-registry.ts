@@ -121,7 +121,7 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
-type CommandLoaderGenerationEntry = {
+export type CommandLoaderGenerationEntry = {
   moduleId: string
   key: string
   importPath: string
@@ -1234,7 +1234,7 @@ function collectCommandLoaderEntries(
   return entries
 }
 
-function renderCommandLoadersFile(entries: CommandLoaderGenerationEntry[]): string {
+export function renderCommandLoadersFile(entries: CommandLoaderGenerationEntry[]): string {
   const seenCommandIds = new Map<string, string>()
   const rendered: string[] = []
 
