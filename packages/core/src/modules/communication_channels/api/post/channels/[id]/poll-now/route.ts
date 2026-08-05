@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -123,13 +124,20 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   // real-time push, so enqueueing a job here would answer 202 for work that can
   // never run and the UI would promise messages that never arrive (#4980).
   if (!isHubPolledChannel(channel.capabilities)) {
-    return NextResponse.json(
-      {
-        error:
-          'Channel is push-driven — polling does not apply. Inbound messages arrive through the provider push connection.',
-      },
-      { status: 409 },
-    )
+    // The page flashes this string verbatim, so it is operator-facing. Localize
+    // it when a request locale is resolvable and fall back to English rather
+    // than failing the request if the i18n registry is uninitialized — the same
+    // defensive shape the module's command interceptors use.
+    const fallback =
+      'Channel is push-driven — polling does not apply. Inbound messages arrive through the provider push connection.'
+    let message = fallback
+    try {
+      const { translate } = await resolveTranslations()
+      message = translate('communication_channels.errors.pollNowPushDriven', fallback)
+    } catch {
+      message = fallback
+    }
+    return NextResponse.json({ error: message }, { status: 409 })
   }
 
   const guard = await validateRouteMutationGuard({

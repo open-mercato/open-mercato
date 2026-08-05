@@ -18,6 +18,7 @@ const assertCanManageChannelMock = jest.fn()
 const enqueueMock = jest.fn()
 const validateRouteMutationGuardMock = jest.fn()
 const afterSuccessMock = jest.fn()
+const translateMock = jest.fn((key: string, fallback?: string) => fallback ?? key)
 
 class ChannelAccessDeniedErrorMock extends Error {}
 
@@ -37,6 +38,15 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
+}))
+
+// Without this the route's `resolveTranslations()` throws on an unregistered
+// module registry — the exact gap that made the app-level storage_s3 suite red
+// in #4926. Mocking it also lets the tests assert the locale key, not the copy.
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (key: string, fallback?: string) => translateMock(key, fallback),
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -107,6 +117,10 @@ describe('communication_channels poll-now route', () => {
     expect(enqueueMock).not.toHaveBeenCalled()
     const body = (await response.json()) as { error: string }
     expect(body.error).toMatch(/push-driven/i)
+    expect(translateMock).toHaveBeenCalledWith(
+      'communication_channels.errors.pollNowPushDriven',
+      expect.any(String),
+    )
   })
 
   it('refuses a channel with no declared capabilities, matching the poll worker default', async () => {

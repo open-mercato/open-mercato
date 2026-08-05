@@ -23,6 +23,7 @@
   "communication_channels.emptyState": "Brak kanałów współdzielonych. Ta strona pokazuje współdzielone kanały obejmujące całą organizację. Twoja osobista skrzynka e-mail jest prywatna — połącz ją i zarządzaj nią w Profil → Kanały komunikacji.",
   "communication_channels.errors.loadDetail": "Nie udało się załadować kanału",
   "communication_channels.errors.loadList": "Nie udało się załadować kanałów",
+  "communication_channels.errors.pollNowPushDriven": "Kanał działa w trybie push — odpytywanie go nie dotyczy. Wiadomości przychodzące docierają połączeniem push dostawcy.",
   "communication_channels.errors.reactionFailed": "Reakcja nie powiodła się",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Inny kanał jest teraz głównym dla tego użytkownika. Ustaw go jako niegłówny, zanim przywrócisz rozłączony kanał jako główny.",
   "communication_channels.infoPanel.aria": "Informacje o kanale",
