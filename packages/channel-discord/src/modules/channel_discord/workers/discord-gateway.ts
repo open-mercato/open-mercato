@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -17,6 +18,7 @@ import {
 } from '../lib/discord-gateway-client'
 import {
   persistDiscordChannelState,
+  quarantineDiscordChannel,
   type DiscordChannelScope,
   type DiscordChannelStatePatch,
 } from '../lib/channel-state-store'
@@ -64,6 +66,41 @@ type GatewayJobPayload = {
 export interface GatewayConnectionEntry {
   handle: DiscordGatewayHandle
   tenantId: string
+  /** SHA-256 of the bot token, never the token itself — see `botTokenFingerprint`. */
+  botTokenFingerprint?: string
+}
+
+/**
+ * Stable, non-reversible identity for a bot token, used to detect that two
+ * channel rows are really the same Discord bot.
+ *
+ * The hub derives a channel's `externalIdentifier` by sniffing the credential
+ * bag for email-shaped keys, which Discord has none of, so every reconnect
+ * inserts a fresh row instead of healing the existing one. Until that is fixed
+ * hub-side, two rows for one bot would each open a socket and IDENTIFY
+ * independently, defeating the single-identify discipline `concurrency: 1`
+ * exists to enforce. Hashing keeps the token out of the registry and the logs.
+ */
+export function botTokenFingerprint(botToken: string): string {
+  return createHash('sha256').update(botToken).digest('hex')
+}
+
+/**
+ * Whether another channel already holds a live session for the same bot.
+ * Pure over its arguments so the guard is unit-testable without sockets.
+ */
+export function findChannelWithSameBot(
+  channelId: string,
+  fingerprint: string,
+  connections: Map<string, GatewayConnectionEntry> = activeConnections,
+): string | null {
+  for (const [otherId, entry] of connections) {
+    if (otherId === channelId) continue
+    if (entry.botTokenFingerprint !== fingerprint) continue
+    if (!isConnectionLive(entry)) continue
+    return otherId
+  }
+  return null
 }
 
 // Module-level registry so a re-run replaces an existing connection instead of
@@ -157,9 +194,17 @@ export default async function handle(job: QueuedJob<GatewayJobPayload>, ctx: Han
   // budget and drops the dispatches in flight.
   let started = 0
   let kept = 0
+  let quarantined = 0
   for (const channel of channels) {
     if (isConnectionLive(activeConnections.get(channel.id))) {
       kept += 1
+      continue
+    }
+    // A channel Discord fatally rejected (bad token / disallowed intents) stays
+    // parked until an operator reconnects it. Retrying cannot fix either cause,
+    // and re-IDENTIFYing every tick burns the bot's daily session-start budget.
+    if (channel.status === 'requires_reauth') {
+      quarantined += 1
       continue
     }
     await startChannelConnection(channel, credentialsService, em)
@@ -175,7 +220,7 @@ export default async function handle(job: QueuedJob<GatewayJobPayload>, ctx: Han
   if (removed.length > 0) {
     logger.info('reconciled away stale discord gateway connections', { channelIds: removed })
   }
-  logger.debug('discord gateway reconciliation finished', { started, kept, removed: removed.length })
+  logger.debug('discord gateway reconciliation finished', { started, kept, quarantined, removed: removed.length })
 }
 
 async function startChannelConnection(
@@ -211,6 +256,16 @@ async function startChannelConnection(
     return
   }
 
+  const fingerprint = botTokenFingerprint(botToken)
+  const duplicateOf = findChannelWithSameBot(channel.id, fingerprint)
+  if (duplicateOf) {
+    logger.warn('skipping discord gateway connect — another channel already serves this bot', {
+      channelId: channel.id,
+      servedBy: duplicateOf,
+    })
+    return
+  }
+
   const channelState = discordChannelStateSchema.parse(channel.channelState ?? {})
   const resumeState: GatewayResumeState = {
     sessionId: channelState.sessionId,
@@ -243,9 +298,25 @@ async function startChannelConnection(
     botToken,
     resumeState,
     onMessage: async (message) => {
+      // Log receive / drop / enqueue separately. Without these three lines a lost
+      // inbound message is indistinguishable from a message correctly dropped by
+      // the bot-self guard, and both are indistinguishable from a dead socket —
+      // diagnosing it required an external WebSocket probe during QA.
+      logger.debug('discord gateway received message', { channelId: channel.id, messageId: message.id })
       const jobPayload = buildInboundMessageJob({ message, channel: scope, botUserId })
-      if (!jobPayload) return
+      if (!jobPayload) {
+        logger.debug('discord inbound message dropped — authored by this bot', {
+          channelId: channel.id,
+          messageId: message.id,
+        })
+        return
+      }
       await inboundQueue.enqueue(jobPayload as unknown as Record<string, unknown>)
+      logger.debug('discord inbound message enqueued', {
+        channelId: channel.id,
+        messageId: message.id,
+        queue: COMMUNICATION_CHANNELS_QUEUES.inbound,
+      })
     },
     onReaction: async (reaction, action) => {
       const reactionJob = await buildReactionJob({ reaction, action, channel: scope, botUserId })
@@ -258,7 +329,12 @@ async function startChannelConnection(
       logger.info('discord gateway ready', { channelId: channel.id })
     },
     onRequiresReauth: async ({ code }) => {
-      logger.warn('discord gateway fatal close — flagging requires_reauth', { channelId: channel.id, code })
+      logger.warn('discord gateway fatal close — quarantining channel', { channelId: channel.id, code })
+      // Persist the status BEFORE dropping the handle. Emitting the event alone
+      // is not enough: nothing subscribes to it to change channel state, so the
+      // next reconciliation tick would see "no live session" and IDENTIFY again,
+      // forever, against a token or intent configuration that cannot self-heal.
+      await quarantineChannel(em, channel.id, stateScope, `gateway_close_${code}`)
       await emitCommunicationChannelsEvent(
         'communication_channels.channel.requires_reauth',
         {
@@ -274,7 +350,7 @@ async function startChannelConnection(
       activeConnections.delete(channel.id)
     },
   })
-  activeConnections.set(channel.id, { handle, tenantId: channel.tenantId })
+  activeConnections.set(channel.id, { handle, tenantId: channel.tenantId, botTokenFingerprint: fingerprint })
 }
 
 /**
@@ -304,6 +380,35 @@ async function persistChannelState(
         // Resume-state persistence is best-effort — a failure just means the next
         // connect re-identifies fresh instead of resuming.
         logger.warn('failed to persist discord gateway resume state', { channelId, err })
+      }
+    })
+  pendingStateWrites.set(channelId, next)
+  await next
+  if (pendingStateWrites.get(channelId) === next) pendingStateWrites.delete(channelId)
+}
+
+/**
+ * Park a fatally-rejected channel, serialized behind the same per-channel write
+ * chain as the resume-state writes so a quarantine and a late `READY` callback
+ * cannot interleave their read-modify-write on the same row.
+ */
+async function quarantineChannel(
+  em: EntityManager,
+  channelId: string,
+  scope: DiscordChannelScope,
+  reason: string,
+): Promise<void> {
+  const previous = pendingStateWrites.get(channelId) ?? Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        const result = await quarantineDiscordChannel({ em, channelId, scope, reason })
+        if (result === 'not_found') {
+          logger.warn('discord channel not found in scope while quarantining', { channelId })
+        }
+      } catch (err) {
+        logger.warn('failed to quarantine discord channel after fatal close', { channelId, reason, err })
       }
     })
   pendingStateWrites.set(channelId, next)

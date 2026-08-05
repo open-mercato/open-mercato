@@ -5,6 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createCredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createIntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { applyDiscordEnvPreset } from './lib/preset'
+import { assertInboundDeliverable } from './lib/queue-strategy'
 import gatewayHandle, { CHANNEL_DISCORD_GATEWAY_QUEUE } from './workers/discord-gateway'
 
 const logger = createLogger('channel_discord').child({ component: 'cli' })
@@ -71,6 +72,8 @@ const startGateway: ModuleCli = {
     const refreshSeconds = Number.isFinite(Number(args.refresh ?? args.r))
       ? Math.max(0, Number(args.refresh ?? args.r))
       : 60
+
+    assertInboundDeliverable(process.env.QUEUE_STRATEGY)
 
     logger.info('starting Discord gateway bridge', {
       queue: CHANNEL_DISCORD_GATEWAY_QUEUE,

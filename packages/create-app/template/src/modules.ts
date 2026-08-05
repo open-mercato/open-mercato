@@ -124,8 +124,9 @@ export const enabledModules: ModuleEntry[] = [
   // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
   // but stays disabled by default: enabling it adds a 49th entry to the Codex
   // root's enabled-module fact index, which pushes the generated AGENTS.md past
-  // its 12 KiB `project_doc_max_bytes` budget. Uncomment once that budget has
-  // been reviewed (see packages/create-app/src/lib/agent-instruction-budget.test.ts).
+  // its 12 KiB `project_doc_max_bytes` budget. Tracked in #4986 — uncomment once
+  // that budget is resolved there
+  // (see packages/create-app/src/lib/agent-instruction-budget.test.ts).
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },

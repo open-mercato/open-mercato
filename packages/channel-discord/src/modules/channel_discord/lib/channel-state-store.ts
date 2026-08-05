@@ -98,3 +98,50 @@ export async function persistDiscordChannelState(params: {
   await fork.flush()
   return 'written'
 }
+
+export type QuarantineDiscordChannelResult = 'quarantined' | 'not_found'
+
+/**
+ * Park a channel Discord has fatally rejected so the reconciler stops re-opening it.
+ *
+ * A `4004` (invalid token) or `4014` (disallowed intents) close is not
+ * recoverable by retrying: the token or the Developer Portal toggle has to
+ * change first. Without a persisted status the refresh job sees "no live
+ * session" on the next tick and IDENTIFYs again — at the CLI's default 60s
+ * refresh that is ~1440 session starts per day against Discord's ~1000/day
+ * per-bot budget, while the row and the admin UI still read `connected`.
+ *
+ * Writing `requires_reauth` mirrors what the hub already does for a channel
+ * whose credentials could not be persisted (`connect-channel.ts`), so the
+ * existing reauth banner, the mutation guard that keys on `status`, and the
+ * operator's reconnect flow all engage without any hub change.
+ */
+export async function quarantineDiscordChannel(params: {
+  em: EntityManager
+  channelId: string
+  scope: DiscordChannelScope
+  reason: string
+}): Promise<QuarantineDiscordChannelResult> {
+  const fork = params.em.fork()
+  const channel = await findOneWithDecryption(
+    fork,
+    CommunicationChannel,
+    {
+      id: params.channelId,
+      tenantId: params.scope.tenantId,
+      organizationId: params.scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    {
+      tenantId: params.scope.tenantId,
+      organizationId: params.scope.organizationId ?? params.scope.tenantId,
+    },
+  )
+  if (!channel) return 'not_found'
+
+  channel.status = 'requires_reauth'
+  channel.lastError = params.reason
+  await fork.flush()
+  return 'quarantined'
+}

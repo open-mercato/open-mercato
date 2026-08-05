@@ -5,8 +5,12 @@ export const channelDiscordDetailWidgetSpotId = buildIntegrationDetailWidgetSpot
 export const integration: IntegrationDefinition = {
   id: 'channel_discord',
   title: 'Discord',
-  description:
-    'Connect a Discord bot as a two-way channel. Outbound via the Discord REST API; inbound in real time via a Gateway worker; a signed (Ed25519) Interactions endpoint that verifies and acknowledges slash commands / buttons. Inbound requires the gateway worker to be running (`mercato channel_discord start-gateway`) — outbound works without it. This release does not answer messages with an AI agent.',
+  // Kept within the 68–132 character range the six sibling providers occupy: the
+  // card grid gives every description the same fixed box, so a long one inflates
+  // its whole row. The operational caveats it used to carry (gateway worker,
+  // queue strategy, no AI auto-reply) belong on the detail page and in the
+  // credential help texts, which is where they now live.
+  description: 'Two-way Discord bot channel: REST outbound, real-time Gateway inbound, signed slash-command endpoint.',
   category: 'communication',
   hub: 'communication_channels',
   providerKey: 'discord',
@@ -38,7 +42,7 @@ export const integration: IntegrationDefinition = {
         type: 'secret',
         required: true,
         helpText:
-          'Developer Portal -> Applications -> your app -> Bot -> Reset Token. Grants full control of the bot user. Stored encrypted at rest; never logged.',
+          'Developer Portal → Applications → your app → Bot → Reset Token. Grants full control of the bot user. Stored encrypted at rest; never logged.',
       },
       {
         key: 'applicationId',
@@ -46,7 +50,7 @@ export const integration: IntegrationDefinition = {
         type: 'text',
         required: true,
         placeholder: '123456789012345678',
-        helpText: 'Developer Portal -> General Information -> Application ID. Used to register slash commands.',
+        helpText: 'Developer Portal → General Information → Application ID. Used to register slash commands.',
       },
       {
         key: 'publicKey',
@@ -55,7 +59,7 @@ export const integration: IntegrationDefinition = {
         required: true,
         placeholder: '64-character hex Ed25519 public key',
         helpText:
-          'Developer Portal -> General Information -> Public Key. Verifies signed interaction requests (slash commands, buttons).',
+          'Developer Portal → General Information → Public Key. Verifies signed interaction requests (slash commands, buttons).',
       },
       {
         key: 'guildId',
@@ -71,7 +75,9 @@ export const integration: IntegrationDefinition = {
         type: 'text',
         required: false,
         placeholder: '123456789012345678',
-        helpText: 'Default text channel for outbound sends and the test-send smoke test.',
+        helpText:
+          'Default text channel the adapter posts to when an outbound message names no Discord channel. Note: the hub'
+          + ' test-send endpoint still validates its recipient as an email address, so it cannot exercise this yet (#4976).',
       },
     ],
   },
