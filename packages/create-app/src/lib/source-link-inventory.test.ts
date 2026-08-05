@@ -430,10 +430,90 @@ test('the CANON-C fail-closed branch resolves once the inventory is present', ()
   }
 })
 
-test('the inventory is never copied into a scaffolded app', () => {
+test('the repository inventory is never copied into a scaffolded app; only its projection is', () => {
   assert.ok(generator.INVENTORY_RELATIVE_PATH.startsWith('packages/create-app/scripts/'))
   assert.ok(!generator.INVENTORY_RELATIVE_PATH.includes('agentic/'))
-  assert.ok(!fs.existsSync(path.join(packageRoot, 'agentic/shared/ai/harness/source-link-inventory.json')))
+
+  // What a scaffolded app receives is a PROJECTION of the same derivation, not the file above.
+  // Everything that only means something inside the monorepo — authoring paths, harness case
+  // IDs, baseline block IDs, repository-only QA evidence — is dropped rather than blanked, so a
+  // consumer cannot mistake an empty field for a real one.
+  const projected = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, generator.PROJECTION_RELATIVE_PATH), 'utf8'),
+  ) as { records: Array<Record<string, unknown>> }
+  const full = checkedInventory()
+  assert.equal(projected.records.length, full.records.length)
+
+  const repositoryOnlyFields = [
+    'topicId',
+    'originAuthoringPath',
+    'targetAuthoringPath',
+    'affectedCaseIds',
+    'integrationTestPaths',
+    'replacesBaselineBlockIds',
+    'citedByBaselineBlockIds',
+    'evidence',
+  ]
+  for (const record of projected.records) {
+    for (const field of repositoryOnlyFields) {
+      assert.ok(!(field in record), `the projection must not carry the repository-only field ${field}`)
+    }
+    for (const field of Object.keys(record)) {
+      assert.ok(generator.PROJECTED_RECORD_FIELDS.includes(field), `unexpected projected field ${field}`)
+    }
+  }
+
+  // Every projected value is the SAME value the repository inventory derived, keyed by the
+  // reference ID. A projection that recomputed anything could disagree with its own source.
+  const fullById = new Map(full.records.map((record) => [record.referenceId, record]))
+  for (const record of projected.records) {
+    const origin = fullById.get(record.referenceId as string)
+    assert.ok(origin, `projected reference ${String(record.referenceId)} has no repository record`)
+    for (const [field, value] of Object.entries(record)) {
+      assert.deepEqual(value, (origin as Record<string, unknown>)[field], `${String(record.referenceId)}.${field}`)
+    }
+  }
+})
+
+test('a source reference id and its topic id are deliberately the same string', () => {
+  // Two identifier spaces would be free to drift; this pins them as one. If a later change wants
+  // separate IDs it has to change this assertion and say why.
+  const inventory = checkedInventory()
+  for (const record of inventory.records) assert.equal(record.referenceId, record.topicId)
+  assert.equal(new Set(inventory.records.map((record) => record.referenceId)).size, inventory.records.length)
+})
+
+test('a stale projection fails the same regenerate-and-diff gate as a stale inventory', () => {
+  // `agentic` is COPIED rather than symlinked here: this fixture mutates the projection to prove
+  // the gate bites, and a symlink would write that mutation into the tracked tree.
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-source-link-projection-')))
+  try {
+    const createApp = path.join(root, 'packages/create-app')
+    fs.mkdirSync(path.join(createApp, 'scripts/source-links'), { recursive: true })
+    fs.cpSync(path.join(packageRoot, 'agentic'), path.join(createApp, 'agentic'), { recursive: true })
+    fs.symlinkSync(path.join(packageRoot, 'template'), path.join(createApp, 'template'), 'dir')
+    for (const relativePath of [generator.TOPICS_RELATIVE_PATH, generator.BASELINE_RELATIVE_PATH]) {
+      fs.copyFileSync(path.join(repoRoot, relativePath), path.join(root, relativePath))
+    }
+    fs.copyFileSync(inventoryAbsolutePath, path.join(root, generator.INVENTORY_RELATIVE_PATH))
+    assert.equal(generator.main(['--check', '--root', root]), 0, 'both checked artifacts must satisfy the gate')
+
+    const projectionPath = path.join(root, generator.PROJECTION_RELATIVE_PATH)
+    const original = fs.readFileSync(projectionPath, 'utf8')
+    fs.writeFileSync(projectionPath, original.replace('"readableCount"', '"readableCountRenamed"'))
+    assert.equal(generator.main(['--check', '--root', root]), 1, 'a hand-edited projection must fail the gate')
+
+    // Regenerating restores it byte-for-byte from the same derivation.
+    assert.equal(generator.main(['--root', root]), 0)
+    assert.equal(fs.readFileSync(projectionPath, 'utf8'), original)
+    assert.equal(generator.main(['--check', '--root', root]), 0)
+
+    // And a missing projection is as loud as a stale one.
+    fs.rmSync(projectionPath)
+    assert.equal(generator.main(['--check', '--root', root]), 1, 'a missing projection must fail the gate')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('derivation helpers classify targets by their real shape', () => {

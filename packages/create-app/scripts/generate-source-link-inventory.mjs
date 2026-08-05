@@ -42,6 +42,32 @@ export const INVENTORY_RELATIVE_PATH = `${HARNESS_RELATIVE_DIR}/source-link-inve
 export const BASELINE_RELATIVE_PATH = `${HARNESS_RELATIVE_DIR}/source-link-baseline.json`
 export const TOPICS_RELATIVE_PATH = `${HARNESS_RELATIVE_DIR}/source-link-topics.json`
 
+/**
+ * App-facing projection of the same derivation.
+ *
+ * The full inventory above stays repository-only: it carries monorepo authoring paths, harness
+ * case IDs and repository-only QA evidence, none of which mean anything inside a scaffolded app.
+ * The projection is what a scaffolded app receives as `.ai/harness/source-link-inventory.json`,
+ * and it is what `context.sourceReferenceIds` resolves against. Both files are written by the
+ * same generator run from the same records, so the two can never drift apart.
+ */
+export const PROJECTION_RELATIVE_PATH =
+  'packages/create-app/agentic/shared/ai/harness/source-link-inventory.json'
+
+/** Record fields the app-facing projection carries. Everything else is repository-only. */
+export const PROJECTED_RECORD_FIELDS = Object.freeze([
+  'referenceId',
+  'requirement',
+  'originAsset',
+  'heading',
+  'href',
+  'targetKind',
+  'readStatus',
+  'resolvedPath',
+  'moduleId',
+  'capabilityIds',
+])
+
 export const SURFACE_INVENTORY_RELATIVE_PATH =
   'packages/create-app/template/src/modules/example/references/surface-inventory.json'
 export const CASES_RELATIVE_PATH = 'packages/create-app/agentic/shared/ai/harness/cases.json'
@@ -263,6 +289,12 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
 
     const record = {
       topicId,
+      // A source-reference ID and a topic ID identify the same thing — one visible link in one
+      // emitted owner resolving to one exact target. They are deliberately the SAME string
+      // rather than two derivations of it: a second identifier space would be free to drift
+      // from the first, and `source-link-inventory.test.ts` pins the equality so a later change
+      // cannot fork them silently.
+      referenceId: topicId,
       requirement: topic.requirement,
       originAsset: topic.owner,
       originAuthoringPath: authoringPathOfEmittedPath(topic.owner),
@@ -316,6 +348,41 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
     records,
   }
   return { errors: [], inventory }
+}
+
+const PROJECTION_NOTE =
+  'Derived asset — the app-facing projection of the repository source-link inventory, regenerated with '
+  + '`yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. '
+  + 'Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with '
+  + '`readStatus: "qa-only"` is validation evidence only and is refused as a case reference.'
+
+/**
+ * Project the repository inventory down to what a scaffolded app may see.
+ *
+ * Repository-only fields are dropped rather than blanked, so a consumer cannot mistake an empty
+ * authoring path or case list for a real one.
+ */
+export function projectInventory(inventory) {
+  const records = inventory.records.map((record) => {
+    const projected = {}
+    for (const field of PROJECTED_RECORD_FIELDS) {
+      if (record[field] !== undefined) projected[field] = record[field]
+    }
+    return projected
+  })
+  return {
+    version: inventory.version,
+    generatedNote: PROJECTION_NOTE,
+    derived: {
+      ownerCount: inventory.derived.ownerCount,
+      recordCount: records.length,
+      sourceRequiredCount: inventory.derived.sourceRequiredCount,
+      readableCount: records.filter((record) => record.readStatus === 'readable').length,
+      baselineSha: inventory.derived.baselineSha,
+    },
+    notCovered: inventory.notCovered,
+    records,
+  }
 }
 
 export function serializeInventory(inventory) {
@@ -372,27 +439,34 @@ export function main(argv = process.argv.slice(2)) {
     return EXIT_FAILURE
   }
 
-  const serialized = serializeInventory(inventory)
-  const absolute = path.join(root, INVENTORY_RELATIVE_PATH)
-  if (check) {
-    let existing
-    try {
-      existing = fs.readFileSync(absolute, 'utf8')
-    } catch {
-      console.error(`source-link-inventory: ${INVENTORY_RELATIVE_PATH} is missing; regenerate it`)
-      console.log('FAIL source-link-inventory')
-      return EXIT_FAILURE
+  // Both artifacts come from this one derivation, so a stale projection is as loud as a stale
+  // inventory and neither can be refreshed without the other.
+  const outputs = [
+    [INVENTORY_RELATIVE_PATH, serializeInventory(inventory)],
+    [PROJECTION_RELATIVE_PATH, serializeInventory(projectInventory(inventory))],
+  ]
+  for (const [relative, serialized] of outputs) {
+    const absolute = path.join(root, relative)
+    if (check) {
+      let existing
+      try {
+        existing = fs.readFileSync(absolute, 'utf8')
+      } catch {
+        console.error(`source-link-inventory: ${relative} is missing; regenerate it`)
+        console.log('FAIL source-link-inventory')
+        return EXIT_FAILURE
+      }
+      if (existing !== serialized) {
+        console.error(
+          `source-link-inventory: ${relative} is stale — checked ${sha256(existing)}, derived ${sha256(serialized)}`,
+        )
+        console.log('FAIL source-link-inventory')
+        return EXIT_FAILURE
+      }
+    } else {
+      fs.mkdirSync(path.dirname(absolute), { recursive: true })
+      fs.writeFileSync(absolute, serialized)
     }
-    if (existing !== serialized) {
-      console.error(
-        `source-link-inventory: ${INVENTORY_RELATIVE_PATH} is stale — checked ${sha256(existing)}, derived ${sha256(serialized)}`,
-      )
-      console.log('FAIL source-link-inventory')
-      return EXIT_FAILURE
-    }
-  } else {
-    fs.mkdirSync(path.dirname(absolute), { recursive: true })
-    fs.writeFileSync(absolute, serialized)
   }
 
   console.log(

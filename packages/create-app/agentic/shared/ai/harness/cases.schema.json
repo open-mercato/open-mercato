@@ -64,6 +64,13 @@
           "allowedExtra": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
           "warn": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
           "forbidden": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+          "sourceReferenceIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/sourceReferenceId" }
+          },
           "exampleRoots": {
             "type": "array",
             "minItems": 1,
@@ -183,6 +190,7 @@
     "relativePath": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
     "specReasonCode": { "type": "string", "minLength": 3, "maxLength": 60, "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$" },
     "specPath": { "type": "string", "minLength": 12, "maxLength": 300, "pattern": "^\\.ai/specs/(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*\\.md$" },
+    "sourceReferenceId": { "type": "string", "minLength": 5, "maxLength": 200, "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[*?])[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._/#\\[\\]-]*$" },
     "exampleRootRelativePath": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*$" }
   }
 }

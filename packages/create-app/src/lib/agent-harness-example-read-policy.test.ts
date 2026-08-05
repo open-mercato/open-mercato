@@ -124,6 +124,96 @@ function stageExampleAppWithQaOnlyCapability(capabilityId: string): { root: stri
   return { root, qaOnly: target }
 }
 
+type InventoryRecord = {
+  referenceId: string
+  requirement: string
+  originAsset: string
+  targetKind: string
+  readStatus: string
+  resolvedPath: string
+  capabilityIds: string[]
+}
+
+/** The app-facing projection the harness ships; `context.sourceReferenceIds` resolves against it. */
+function projectedInventory(): { records: InventoryRecord[] } {
+  return JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8'))
+}
+
+/**
+ * Stage the app of `stageExampleApp` plus the emitted source-link projection and the emitted
+ * owners it names, so declared-reference fixtures run against the REAL shipped inventory rather
+ * than a hand-written stand-in. `mutate` lets one fixture stage its own defect.
+ */
+function stageExampleAppWithReferences(mutate?: (records: InventoryRecord[]) => void): {
+  root: string
+  reference: InventoryRecord
+} {
+  const root = stageExampleApp()
+  const inventory = projectedInventory()
+  if (mutate) mutate(inventory.records)
+  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, '.ai', 'harness', 'source-link-inventory.json'),
+    `${JSON.stringify(inventory, null, 2)}\n`,
+  )
+  for (const owner of new Set(inventory.records.map((entry) => entry.originAsset))) {
+    const absolute = path.join(root, owner)
+    fs.mkdirSync(path.dirname(absolute), { recursive: true })
+    if (!fs.existsSync(absolute)) fs.writeFileSync(absolute, `# staged owner ${owner}\n`)
+  }
+  const reference = inventory.records.find((entry) => entry.referenceId === REFERENCE_ID)
+  assert.ok(reference, `the shipped projection must still carry ${REFERENCE_ID}`)
+  return { root, reference }
+}
+
+/**
+ * One shipped canonical-example reference used across the declared-link fixtures: the backend-UI
+ * guide renders a visible link to the exact Todo form the example ships.
+ */
+const REFERENCE_ID = 'guides/backend-ui:components/TodoForm.tsx'
+const REFERENCE_OWNER = '.ai/guides/backend-ui.md'
+const REFERENCE_TARGET = `${EXAMPLE_ROOT}/components/TodoForm.tsx`
+
+function referencingCase(overrides: { sourceReferenceIds?: string[]; allowedExtra?: string[] } = {}): CaseRecord {
+  return {
+    context: {
+      required: ['AGENTS.md', REFERENCE_OWNER],
+      forbidden: ['.env'],
+      sourceReferenceIds: overrides.sourceReferenceIds ?? [REFERENCE_ID],
+      ...(overrides.allowedExtra ? { allowedExtra: overrides.allowedExtra } : {}),
+      exampleRoots: [{
+        root: EXAMPLE_ROOT,
+        entrypoints: ENTRYPOINTS,
+        allowedCapabilityIds: ['ui.form-create', 'ui.form-edit'],
+        maxFiles: 12,
+        maxBytes: 131_072,
+      }],
+    },
+  }
+}
+
+/**
+ * A case whose declared capabilities do NOT cover the referenced file, so the reference is the
+ * ONLY thing that can grant it. Probing reference behaviour through `referencingCase` would be
+ * vacuous: its `ui.form-*` capabilities already map the same target.
+ */
+function referenceOnlyCase(): CaseRecord {
+  const record = referencingCase()
+  const context = record.context as Record<string, unknown>
+  return {
+    context: {
+      ...context,
+      exampleRoots: [{
+        root: EXAMPLE_ROOT,
+        entrypoints: ENTRYPOINTS,
+        allowedCapabilityIds: ['data.entities'],
+        maxFiles: 12,
+        maxBytes: 131_072,
+      }],
+    },
+  }
+}
+
 function declaredCase(overrides: {
   allowedCapabilityIds?: string[]
   entrypoints?: string[]
@@ -1155,7 +1245,15 @@ test('compatibility: an undeclared case produces an inert trace for reads that a
       ...undeclaringShippedCases().slice(0, 3),
     ]) {
       const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: undeclared, appRoot: root, reads })
-      assert.deepEqual(trace, { reads: [], roots: [], fallback: { reason: null, files: 0, bytes: 0 }, firstViolation: null })
+      assert.deepEqual(trace, {
+        reads: [],
+        roots: [],
+        fallback: { reason: null, files: 0, bytes: 0 },
+        // An undeclared case names no source references either, so the reference accounting is
+        // present but empty — it never becomes a second way to reach a file.
+        references: { declared: [], owners: [], followed: [] },
+        firstViolation: null,
+      })
     }
     // The same reads under a declared root are governed and rejected.
     const declared = evaluator.evaluateExampleReadPolicy({ caseRecord: declaredCase({}), appRoot: root, reads })
@@ -1205,16 +1303,25 @@ function evaluatorSource(): string {
 test('family 9: the published result contract admits no summary field that could carry content', () => {
   const schema = summarySchema()
   assert.equal(schema.additionalProperties, false)
-  assert.deepEqual([...schema.required].sort(), ['fallback', 'roots'])
+  assert.deepEqual([...schema.required].sort(), ['fallback', 'references', 'roots'])
   assert.equal(schema.properties.roots.items.additionalProperties, false)
   assert.deepEqual([...schema.properties.roots.items.required].sort(), ['bytes', 'capabilities', 'entrypoints', 'files', 'root'])
   assert.equal(schema.properties.fallback.additionalProperties, false)
   assert.deepEqual([...schema.properties.fallback.required].sort(), ['bytes', 'files', 'reason'])
   assert.deepEqual(schema.properties.fallback.properties.reason.enum, [...REASON_CODES, null])
+  // The reference block publishes identifiers, paths and package identity — never file bodies.
+  assert.equal(schema.properties.references.additionalProperties, false)
+  assert.deepEqual([...schema.properties.references.required].sort(), ['declared', 'followed', 'owners'])
+  assert.equal(schema.properties.references.properties.followed.items.additionalProperties, false)
+  assert.deepEqual(
+    [...schema.properties.references.properties.followed.items.required].sort(),
+    ['hash', 'originAsset', 'package', 'referenceId', 'resolvedPath', 'targetKind', 'version'],
+  )
 
   const lawful = {
     roots: [{ root: EXAMPLE_ROOT, entrypoints: [...ENTRYPOINTS], capabilities: ['api.crud-factory'], files: 3, bytes: 4096 }],
     fallback: { reason: null, files: 0, bytes: 0 },
+    references: { declared: [], owners: [], followed: [] },
   }
   // `fallback.reason` is nullable, so the local mirror must share the evaluator's null-type rule.
   assert.ok(evaluatorSource().includes("if (expected === 'null') return value === null"))
@@ -1229,6 +1336,23 @@ test('family 9: the published result contract admits no summary field that could
     { ...lawful, roots: [{ ...lawful.roots[0], content: 'export const marker' }] },
     { ...lawful, fallback: { ...lawful.fallback, reason: 'BECAUSE_I_SAID_SO' } },
     { ...lawful, fallback: { ...lawful.fallback, sanitizedError: REDACTION_SECRET } },
+    { ...lawful, references: { ...lawful.references, snippet: REDACTION_SECRET } },
+    {
+      ...lawful,
+      references: {
+        ...lawful.references,
+        followed: [{
+          referenceId: 'guides/backend-ui:components/TodoForm.tsx',
+          originAsset: '.ai/guides/backend-ui.md',
+          resolvedPath: `${EXAMPLE_ROOT}/components/TodoForm.tsx`,
+          targetKind: 'canonical-example',
+          package: null,
+          version: null,
+          hash: null,
+          content: 'export const marker',
+        }],
+      },
+    },
   ]) assert.ok(jsonSchemaErrors(leak, schema as unknown as Record<string, any>).length > 0, JSON.stringify(leak))
 })
 
@@ -1706,6 +1830,220 @@ test('family 11: the operation-progress and DataTable bulk-action sources are se
 })
 
 // ---------------------------------------------------------------------------------------------
+// Oracle family 12 (fixture label) — declared source references. A case names IDs from the
+// emitted source-link projection; each ID is one visible link in one routed owner resolving to
+// one exact readable file, and following it requires having read that owner first.
+// ---------------------------------------------------------------------------------------------
+
+test('family 12: a declared reference is followed only after its origin owner is read, and the trace records it', async () => {
+  const evaluator = await loadEvaluator()
+  const { root, reference } = stageExampleAppWithReferences()
+  try {
+    const caseRecord = referencingCase()
+    assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(caseRecord, root), [])
+    assert.equal(reference.resolvedPath, REFERENCE_TARGET)
+    assert.equal(reference.originAsset, REFERENCE_OWNER)
+
+    // Owner first, then the target: allowed, and the trace names what was followed and from where.
+    const followed = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), { path: REFERENCE_OWNER }, { path: REFERENCE_TARGET }],
+    })
+    assert.equal(followed.firstViolation, null)
+    assert.deepEqual(followed.references.declared, [REFERENCE_ID])
+    assert.deepEqual(followed.references.owners, [REFERENCE_OWNER])
+    assert.deepEqual(followed.references.followed.map((entry) => entry.referenceId), [REFERENCE_ID])
+    assert.equal(followed.references.followed[0].originAsset, REFERENCE_OWNER)
+    assert.equal(followed.references.followed[0].resolvedPath, REFERENCE_TARGET)
+    assert.equal(followed.references.followed[0].targetKind, 'canonical-example')
+
+    // The same target without the owner read is refused — the link is what grants the follow.
+    const unearned = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), { path: REFERENCE_TARGET }],
+    })
+    assert.match(unearned.firstViolation ?? '', /followed before its origin owner was read/)
+    assert.deepEqual(unearned.references.followed, [])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: an orphan, prose, qa-only, wildcard, directory, or dead declared link all fail', async () => {
+  const evaluator = await loadEvaluator()
+
+  // Each entry stages ONE defect in the shipped projection and names the message it must produce,
+  // so a fixture cannot pass by matching a violation raised for an unrelated reason.
+  const defects: Array<{ label: string; expected: RegExp; mutate?: (records: InventoryRecord[]) => void; ids?: string[]; removeTarget?: boolean }> = [
+    {
+      label: 'orphan id',
+      ids: ['guides/backend-ui:components/NoSuchForm.tsx'],
+      expected: /source reference is unknown or orphaned/,
+    },
+    {
+      label: 'prose topic with no target file',
+      mutate: (records) => { recordIn(records, REFERENCE_ID).requirement = 'retained-normative-snippet' },
+      expected: /names a prose topic with no target file/,
+    },
+    {
+      label: 'qa-only target',
+      mutate: (records) => { recordIn(records, REFERENCE_ID).readStatus = 'qa-only' },
+      expected: /target is qa-only and cannot be read/,
+    },
+    {
+      label: 'wildcard target',
+      mutate: (records) => { recordIn(records, REFERENCE_ID).resolvedPath = `${EXAMPLE_ROOT}/components/*.tsx` },
+      expected: /target is a wildcard, not one exact file/,
+    },
+    {
+      label: 'directory target',
+      mutate: (records) => { recordIn(records, REFERENCE_ID).resolvedPath = `${EXAMPLE_ROOT}/components` },
+      expected: /must name one exact file, not a directory/,
+    },
+    {
+      label: 'traversal target',
+      mutate: (records) => { recordIn(records, REFERENCE_ID).resolvedPath = `${EXAMPLE_ROOT}/../../../etc/passwd` },
+      expected: /target is unsafe/,
+    },
+    {
+      label: 'dead target',
+      removeTarget: true,
+      expected: /target is dead or unreadable/,
+    },
+  ]
+
+  for (const defect of defects) {
+    const { root } = stageExampleAppWithReferences(defect.mutate)
+    try {
+      if (defect.removeTarget) fs.rmSync(path.join(root, REFERENCE_TARGET))
+      const caseRecord = referencingCase(defect.ids ? { sourceReferenceIds: defect.ids } : {})
+      const errors = evaluator.validateExampleReadPolicyDeclaration(caseRecord, root)
+      assert.ok(
+        errors.some((message) => defect.expected.test(message)),
+        `${defect.label}: expected ${defect.expected}, got ${JSON.stringify(errors)}`,
+      )
+      // The same defect is refused at read time too, so a case cannot skip validation and follow it.
+      const trace = evaluator.evaluateExampleReadPolicy({
+        caseRecord,
+        appRoot: root,
+        reads: [...entrypointReads(), { path: REFERENCE_OWNER }, { path: REFERENCE_TARGET }],
+      })
+      assert.deepEqual(trace.references.followed, [], `${defect.label}: a broken reference must never be followed`)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('family 12: a reference whose origin owner is not routed to the case is refused', async () => {
+  const evaluator = await loadEvaluator()
+  const { root } = stageExampleAppWithReferences()
+  try {
+    // Same reference, same target, but the case never routes the owner that renders the link.
+    const unrouted: CaseRecord = {
+      context: {
+        required: ['AGENTS.md'],
+        forbidden: ['.env'],
+        sourceReferenceIds: [REFERENCE_ID],
+        exampleRoots: [{
+          root: EXAMPLE_ROOT,
+          entrypoints: ENTRYPOINTS,
+          allowedCapabilityIds: ['ui.form-create', 'ui.form-edit'],
+          maxFiles: 12,
+          maxBytes: 131_072,
+        }],
+      },
+    }
+    assert.ok(
+      evaluator.validateExampleReadPolicyDeclaration(unrouted, root)
+        .some((message) => /origin owner is not routed to this case/.test(message)),
+    )
+    // Routing the owner through allowedExtra is enough — the rule is visibility, not required-ness.
+    assert.deepEqual(
+      evaluator.validateExampleReadPolicyDeclaration(
+        referencingCase({ allowedExtra: [REFERENCE_OWNER] }),
+        root,
+      ),
+      [],
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: a declared reference widens the read allowlist by exactly one exact file', async () => {
+  const evaluator = await loadEvaluator()
+  const { root } = stageExampleAppWithReferences()
+  try {
+    // `referenceOnlyCase` declares capabilities that do not map the referenced file, so the
+    // reference is the only thing that can put it on the allowlist.
+    const caseRecord = referenceOnlyCase()
+    const capabilityOnly = evaluator.exampleReadAllowlist(
+      { context: { ...(caseRecord.context as Record<string, unknown>), sourceReferenceIds: undefined } },
+      root,
+    )
+    assert.ok(!capabilityOnly.includes(REFERENCE_TARGET), 'the fixture is vacuous if a capability already grants the target')
+
+    const allowlist = evaluator.exampleReadAllowlist(caseRecord, root)
+    assert.ok(allowlist.includes(REFERENCE_TARGET))
+    assert.equal(allowlist.filter((entry) => entry === REFERENCE_TARGET).length, 1)
+    assert.ok(!allowlist.some((entry) => entry.includes('*')))
+    // A sibling of the referenced file is NOT granted by the reference.
+    assert.ok(!allowlist.includes(`${EXAMPLE_ROOT}/components/TodosTable.tsx`))
+
+    // A broken reference NARROWS the allowlist rather than silently widening it.
+    const { root: brokenRoot } = stageExampleAppWithReferences((records) => {
+      recordIn(records, REFERENCE_ID).readStatus = 'qa-only'
+    })
+    try {
+      assert.ok(!evaluator.exampleReadAllowlist(referenceOnlyCase(), brokenRoot).includes(REFERENCE_TARGET))
+    } finally {
+      fs.rmSync(brokenRoot, { recursive: true, force: true })
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: a missing or malformed projection fails closed instead of granting the reference', async () => {
+  const evaluator = await loadEvaluator()
+  for (const [label, stage] of [
+    ['missing', (root: string) => fs.rmSync(path.join(root, '.ai/harness/source-link-inventory.json'))],
+    ['not JSON', (root: string) => fs.writeFileSync(path.join(root, '.ai/harness/source-link-inventory.json'), 'not json')],
+    ['no records', (root: string) => fs.writeFileSync(path.join(root, '.ai/harness/source-link-inventory.json'), '{"records":[]}')],
+  ] as Array<[string, (root: string) => void]>) {
+    const { root } = stageExampleAppWithReferences()
+    try {
+      stage(root)
+      const caseRecord = referenceOnlyCase()
+      assert.ok(
+        evaluator.validateExampleReadPolicyDeclaration(caseRecord, root)
+          .some((message) => /source-link inventory (is|declares)/.test(message)),
+        `${label}: an unusable projection must be reported`,
+      )
+      const trace = evaluator.evaluateExampleReadPolicy({
+        caseRecord,
+        appRoot: root,
+        reads: [...entrypointReads(), { path: REFERENCE_OWNER }, { path: REFERENCE_TARGET }],
+      })
+      assert.match(trace.firstViolation ?? '', /source-link inventory (is|declares)/, label)
+      assert.deepEqual(trace.references.followed, [], label)
+      assert.ok(!evaluator.exampleReadAllowlist(caseRecord, root).includes(REFERENCE_TARGET), label)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  }
+})
+
+function recordIn(records: InventoryRecord[], referenceId: string): InventoryRecord {
+  const found = records.find((entry) => entry.referenceId === referenceId)
+  assert.ok(found, `the shipped projection must still carry ${referenceId}`)
+  return found
+}
+
+// ---------------------------------------------------------------------------------------------
 // Coverage ledger — the spec enumerates TWELVE oracle families; this file labels its fixtures
 // `family 1`..`family 11` in implementation order, and the two numbering schemes are NOT the
 // same. The ledger states which spec family each fixture family serves, which spec families are
@@ -1737,6 +2075,9 @@ const FIXTURE_FAMILY_TO_SPEC_FAMILIES: Record<number, number[]> = {
   9: [],
   10: [7],
   11: [1, 9],
+  // Declared source references: the visible-link half of spec families 6 and 8. NOT family 4 —
+  // that one needs an INSTALLED-PACKAGE declared reference, and no emitted owner renders one yet.
+  12: [6, 8],
 }
 
 const COVERAGE_LEDGER: LedgerRow[] = [
@@ -1767,8 +2108,8 @@ const COVERAGE_LEDGER: LedgerRow[] = [
     specFamily: 4,
     status: 'uncovered',
     fixtures: [],
-    blockedBy: ['context.sourceReferenceIds'],
-    note: 'Declared installed-source references — reference id, package, version, hash — do not exist. The only installed-source route implemented is the reason-gated fallback of spec family 5. Re-checked 2026-08-04: CANON-C\'s whole-harness ledger DID land (`packages/create-app/scripts/source-links/source-link-inventory.json`, regenerate-and-diff gated), and that is easy to mistake for this family being unblocked. It is not. That ledger binds rendered links in emitted owners to exact files; this family needs the per-CASE `context.sourceReferenceIds` field, which neither `cases.schema.json` nor `evaluate-agent-harness.mjs` mentions, so no case can name a reference id and no trace can record one.',
+    blockedBy: ['an installed-package record in the source-link inventory'],
+    note: 'Updated on 2026-08-05: the blocker MOVED rather than cleared, and it is now much smaller. `context.sourceReferenceIds` exists — schema field, evaluator resolution, allowlist widening, and a trace that records the reference id plus package/version/hash for an installed target (`installedTargetIdentity`). What this family still cannot prove is the INSTALLED half: every one of the 125 inventory records is `canonical-example` or `local-owner`, because no emitted Markdown owner renders a link into `node_modules/@open-mercato/*/src/**` yet. Rendering one requires `validate-source-links.mjs` to resolve an installed target against its workspace package and prove packed presence, which does not exist. Until then a fixture could only assert package/version/hash against a hand-written inventory the harness does not ship — exactly the vacuous shape this file exists to reject.',
   },
   {
     specFamily: 5,
@@ -1785,7 +2126,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 6,
-    status: 'partial',
+    status: 'covered',
     fixtures: [
       'family 5: fallback before local inspection, an unknown reason, and an undeclared reason all fail',
       'family 5: reading must start from a declared entrypoint before any capability file',
@@ -1793,9 +2134,11 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 5: both cumulative budgets are enforced independently',
       'family 5: symlink escapes, generated caches, and sensitive paths fail closed',
       'path normalization accepts Windows-style separators and rejects every escape spelling',
+      'family 12: an orphan, prose, qa-only, wildcard, directory, or dead declared link all fail',
+      'family 12: a missing or malformed projection fails closed instead of granting the reference',
     ],
-    blockedBy: ['context.sourceReferenceIds'],
-    note: 'Fallback ordering, unknown reason, traversal, budget overflow, symlink escape, generated cache, and sensitive path are covered. The absent/dead/directory/wildcard/orphan DECLARED LINK half has no implementation to test.',
+    blockedBy: [],
+    note: 'Closed on 2026-08-05. Fallback ordering, unknown reason, traversal, budget overflow, symlink escape, generated cache, and sensitive path were already covered; the absent/dead/directory/wildcard/orphan DECLARED LINK half now has an implementation and a fixture that stages each defect one at a time into the REAL shipped projection and pins the exact message it must produce, so no defect can pass by matching an unrelated violation.',
   },
   {
     specFamily: 7,
@@ -1819,9 +2162,12 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 7: the published schema rejects every malformed declaration it must reject',
       'family 7: a legacy root, a stale capability mapping, and a qa-only source fail evaluator validation',
       'family 7: an ordinary example surface is never a specialist-route fallback reason',
+      'family 12: a declared reference is followed only after its origin owner is read, and the trace records it',
+      'family 12: a reference whose origin owner is not routed to the case is refused',
+      'family 12: a declared reference widens the read allowlist by exactly one exact file',
     ],
-    blockedBy: ['context.sourceReferenceIds'],
-    note: 'Legacy root, stale mapping, qa-only status, and ordinary-surface fallback are covered. Wrong preset/tier, wrong installed version, unpublished path, and workspace-only target need packed-package resolution that does not exist.',
+    blockedBy: ['an installed-package record in the source-link inventory'],
+    note: 'Updated on 2026-08-05. Legacy root, stale mapping, qa-only status, ordinary-surface fallback, and now the declared-reference half — orphan ID, qa-only target, unrouted origin owner, and following a link before reading the owner that renders it — are covered. What remains blocked is the same installed-package gap as spec family 4: wrong preset/tier, wrong installed version, unpublished path, and workspace-only target all need packed-package resolution, and no inventory record is `installed-package` yet.',
   },
   {
     specFamily: 9,
@@ -1861,8 +2207,10 @@ const COVERAGE_LEDGER: LedgerRow[] = [
 ]
 
 const MISSING_SURFACES: Record<string, () => boolean> = {
-  'context.sourceReferenceIds': () => !fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8').includes('sourceReferenceIds')
-    && !evaluatorSource().includes('sourceReferenceIds'),
+  // The declared-reference field exists now, so the remaining gap is the INSTALLED half: an
+  // inventory record whose target is a packed package file rather than app-local source.
+  'an installed-package record in the source-link inventory': () => projectedInventory().records
+    .every((record) => record.targetKind !== 'installed-package'),
   'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
     .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
@@ -1887,7 +2235,7 @@ test('ledger: the fixture family labels in this file are distinct from the spec 
   const ownSource = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
   const labels = [...ownSource.matchAll(/\btest\('family (\d+):/g)].map((match) => Number(match[1]))
   const fixtureFamilies = [...new Set(labels)].sort((left, right) => left - right)
-  assert.deepEqual(fixtureFamilies, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 'fixture families are contiguous and stop at eleven')
+  assert.deepEqual(fixtureFamilies, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 'fixture families are contiguous and stop at twelve')
   assert.deepEqual(Object.keys(FIXTURE_FAMILY_TO_SPEC_FAMILIES).map(Number).sort((left, right) => left - right), fixtureFamilies)
 
   const claimed = new Set(Object.values(FIXTURE_FAMILY_TO_SPEC_FAMILIES).flat())
@@ -1940,10 +2288,13 @@ test('ledger: every gap the ledger claims is a surface that is genuinely absent 
   }
 })
 
-test('ledger: the honest coverage count is five covered, three partial, and four uncovered of twelve', () => {
+test('ledger: the honest coverage count is six covered, two partial, and four uncovered of twelve', () => {
+  // Moved on 2026-08-05: family 6 closed outright when the declared-link negative half landed,
+  // and family 8 kept only its installed-package remainder. Families 4, 10, 11 and 12 are
+  // untouched — the declared-reference work did not reach any of them.
   const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
-  assert.deepEqual(tally('covered'), [1, 2, 3, 5, 7])
-  assert.deepEqual(tally('partial'), [6, 8, 9])
+  assert.deepEqual(tally('covered'), [1, 2, 3, 5, 6, 7])
+  assert.deepEqual(tally('partial'), [8, 9])
   assert.deepEqual(tally('uncovered'), [4, 10, 11, 12])
   assert.equal(COVERAGE_LEDGER.length, 12)
 })
