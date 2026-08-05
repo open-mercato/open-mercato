@@ -23,6 +23,20 @@ Replace the claim with the verified touch-points, classify the two fix variants 
 - [x] Changelog entry
 - [x] Open the spec-only PR against `develop`
 
+### Phase 2: Apply the review of #4998 (@pkarw — changes-requested)
+
+- [ ] 2.1 Major — recompute the Variant B cost/benefit against the code
+      (`external_messages.sender_identifier` + the `message_channel_links` 1:1 join;
+      `buildPersonLookupFilter` matches only `primary_email` / `primary_phone`), add the third option
+      the A/B pair hid, and correct the recommendation
+- [ ] 2.2 Minor — state which compose paths stay blocked under Variant A (`POST /api/messages`,
+      OpenAPI surface) and that the reply path is unaffected
+- [ ] 2.3 Minor — link #4976 / #4977 / #4978 in § Related, the shared prerequisite and the risks row
+- [ ] 2.4 Nits — name all three `externalEmail` validator sites; flag the CR/LF header-injection
+      guard on `send-as-user`'s `subject` that any widening must preserve
+- [ ] 2.5 Test coverage — record that TC-CHANNEL-DISCORD-003 lives on the #4391 branch (#4665), and
+      make "a non-email provider completes an inbound compose" a required acceptance criterion
+
 ## Verification
 
 Markdown-only change under `.ai/specs/`; no source file touched, so the code validation gate
