@@ -361,6 +361,29 @@ describe('applyPageOverridesToManifests', () => {
     await expect(frontendResult[0].load()).resolves.toBe(Replacement)
   })
 
+  it('applies page-prefixed metadata aliases so an override can reposition and retitle a page', () => {
+    const result = applyPageOverridesToManifests([makeBackendPage('/backend/example')], {
+      '/backend/example': {
+        metadata: { pageOrder: 5, pagePriority: 3, pageTitle: 'Repositioned', pageGroup: 'Operations' },
+      },
+    }, 'backend')
+
+    expect(result).toHaveLength(1)
+    expect(result[0].order).toBe(5)
+    expect(result[0].priority).toBe(3)
+    expect(result[0].title).toBe('Repositioned')
+    expect(result[0].group).toBe('Operations')
+  })
+
+  it('keeps resolved metadata keys working and leaves untouched fields on the entry', () => {
+    const result = applyPageOverridesToManifests([makeBackendPage('/backend/example')], {
+      '/backend/example': { metadata: { order: 7 } },
+    }, 'backend')
+
+    expect(result[0].order).toBe(7)
+    expect(result[0].title).toBe('Original')
+  })
+
   it('lets programmatic page overrides supersede modules.ts inline overrides', () => {
     applyModuleOverridesFromEnabledModules([
       {
