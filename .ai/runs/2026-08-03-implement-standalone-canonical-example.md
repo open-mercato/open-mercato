@@ -1061,3 +1061,57 @@ template (`yarn template:sync:fix`).
 
 PR state after push: `MERGEABLE` (`BLOCKED` is the review requirement only), 100 commits,
 312 files.
+
+## Session 5b — spec-completeness audit (three independent read-only auditors)
+
+Each auditor was told to ignore this plan and the PR body and confirm every requirement against
+source, greps and real test runs. Load-bearing findings were re-verified by hand before publishing.
+
+**Verdict: no spec is fully implemented, and that is mostly by design** — the user-directed scope
+decision at the top of this file delivers Milestone A + foundations, with the rest in the Deferred
+Backlog. The twelve waves went well past that floor. "All waves complete" was never "all specs
+complete"; the PR comment now says so explicitly.
+
+### Defects in shipped work (not deferred scope) — the "apparently satisfied" class
+
+1. GOV `sourceLinkInventory`: seven schema-**required** fields (`expectedOwnerCount`,
+   `expectedTopicCount`, `resolvedLinkCount`, `baselineAssetCount`, `baselineDispositionCount`,
+   `baselinePath`, `baselineSchemaPath`) have **zero** reads in `validate-knowledge-change.mjs`.
+   Verified each independently. A manifest passes with fabricated numbers.
+2. `source-link-baseline.schema.json` does not exist; the schema requires a path to it.
+3. `source-link-parity-ledger.json` does not exist; its classifier branch is unreachable.
+4. `context.sourceReferenceIds` absent from schema AND evaluator — kills READ-P oracle family 4.
+5. Reason-gated fallback unreachable in the shipped catalog (0/216 cases), locked by a test.
+6. SPEC-P decision row 6 (`reuse-spec`) has no read-only case — the spec's own exit criterion.
+7. Cosmetic: `validators.json:42` names `validateSpecRoutingDecision`; the export is
+   `evaluateSpecRoutingDecision`. Documentary only, nothing dispatches on it.
+
+### Fixed this session (`89dcece58`) — stale claims in shipped docs
+
+Same defect class this branch already corrected twice, so fixed rather than reported:
+- CANON spec changelog claimed Milestone B unimplemented while much of it is shipped and green.
+  New entry records what landed AND what B still lacks, so no reader infers completion.
+- `CANON_C_REASON` claimed the inventory "has not landed" — it has, in the monorepo. It stays
+  monorepo-only, so the fail-closed branch is still live in a scaffolded app; text now says that.
+- `knowledge-change.md` justified the out-of-CI position with that resolved reason; the two reasons
+  that actually remain are now named.
+
+### One audit finding was NOT a gap
+
+"Normalize every `injectionTable` slot to an array" is unfixed at the source but was satisfied at the
+**reader** (`module-extension-facts.ts` → `injectionTableSlots`). Stronger fix: the array-only reader
+dropped twelve real contributions across six modules; rewriting only the example's table would have
+left every other module misread. Recorded in the spec.
+
+### Next session starts here
+
+1. The fifteen `TC-EXAMPLE-003…017` integration specs — Milestone B's own hard gate.
+2. `context.sourceReferenceIds` (schema + evaluator + trace).
+3. **Maintainer decision needed:** make the GOV `sourceLinkInventory` block read its seven required
+   fields, or stop requiring them. Schema contract change — deliberately not picked unilaterally.
+4. SPEC-P row 6 + module-shaped writable-proof oracle clauses.
+5. PR #4883 `factCoverage` / #4301 design-system / #4277 design-foundation — all absent; #4883
+   still upstream-blocked.
+6. `frontend/middleware.ts`, `generators.ts`, `aiToolOverrides`/`aiAgentOverrides`, vector/workflow/
+   currency identities, `componentOverrides` `replace` + `props`.
+7. Milestone D certification — untouched, blocked on the above.
