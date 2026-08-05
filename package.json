@@ -78,6 +78,8 @@
     "release:patch": "./scripts/release-patch.sh",
     "release:minor": "./scripts/release-minor.sh",
     "release:major": "./scripts/release-major.sh",
+    "release:bump": "./scripts/bump-version.sh",
+    "release:check-unpublished": "./scripts/check-version-unpublished.sh",
     "i18n:check-sync": "tsx scripts/i18n-check-sync.ts",
     "i18n:check-usage": "tsx scripts/i18n-check-usage.ts",
     "i18n:check-hardcoded": "tsx scripts/i18n-check-hardcoded.ts",
