@@ -17,7 +17,7 @@ test('root layouts render the shared theme initializer as a render-blocking inli
 
     assert.match(
       source,
-      /import \{ THEME_INIT_SCRIPT \} from ['"]@open-mercato\/ui\/theme['"]/,
+      /import \{ THEME_INIT_SCRIPT \} from ['"]@open-mercato\/ui\/theme\/theme-init-script['"]/,
       rootLayoutPath,
     )
     assert.match(
