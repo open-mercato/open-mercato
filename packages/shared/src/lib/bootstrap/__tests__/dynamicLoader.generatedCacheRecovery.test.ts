@@ -29,21 +29,73 @@
  * and then rejects with the error Node raises for a v6 decorator import, which
  * is what the import-time recovery is meant to repair.
  *
- * The assertions stop at the recovery boundary on purpose. Jest's module
- * registry keeps serving a file it has already evaluated, so the guarded retry
- * re-runs the rejecting module from memory no matter what recovery wrote to
- * disk — the outcome of the retry is a property of the test runner, not of the
- * loader. What #4526 broke, and what this guards, is that the catch runs at
- * all: before the fix the rejection escaped the try, so no import-time recovery
- * ever happened.
+ * Every loadBootstrapData call runs in a child process (#4960). Driving the real
+ * loader in-process made this suite flaky at ~30-50%: a load that aborts part way
+ * leaves the sibling compileAndImport calls of its Promise.all still running, and
+ * those in-flight esbuild builds rewrite the very .mjs files the fixture stages
+ * between passes, so priming was a race rather than a loop. A child process also
+ * gives each load a real Node module registry, so esbuild's ESM output imports
+ * natively and the fixture no longer has to stage CommonJS stand-ins for it.
+ *
+ * Because the child is a real Node process, the guarded retry now completes for
+ * real: recovery deletes the stale cache, the loader recompiles from the .ts
+ * sources and the load succeeds. That end state is asserted too — under the old
+ * in-process fixture it was unreachable, because the runner kept serving the
+ * rejecting module from memory no matter what recovery wrote to disk.
  */
+import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import { loadBootstrapData } from '../dynamicLoader'
 
 const STALE_SIBLING_BASENAME = 'stale-entity.generated.mjs'
+const RESULT_MARKER = '__BOOTSTRAP_RUN_RESULT__'
+/**
+ * The Jest budget deliberately exceeds the spawn budget, so a wedged child is
+ * reported as this file's own "runner produced no result" error — with the
+ * child's output attached — rather than as an opaque Jest timeout.
+ */
+const CHILD_SPAWN_TIMEOUT_MS = 120_000
+const CHILD_RUN_TIMEOUT_MS = 180_000
+
+const LOADER_PATH = path.resolve(__dirname, '..', 'dynamicLoader.ts')
+
+/**
+ * Resolved through a real `require` rather than Jest's resolver: this path is
+ * handed to a child process, so it must be the location Node itself would load.
+ */
+const TSX_CLI_PATH = createRequire(__filename).resolve('tsx/cli')
+
+/**
+ * Runs one loadBootstrapData against the fixture app root and reports the
+ * outcome on stdout behind a marker, so the loader's own logging (and the
+ * recovery module's console.warn banner) cannot be mistaken for the result.
+ */
+const RUNNER_SOURCE = [
+  "import { pathToFileURL } from 'node:url'",
+  '',
+  'const [loaderPath, appRoot] = process.argv.slice(2)',
+  '',
+  'let result',
+  'try {',
+  '  const loader = await import(pathToFileURL(loaderPath).href)',
+  '  await loader.loadBootstrapData(appRoot)',
+  '  result = { loaded: true }',
+  '} catch (error) {',
+  '  result = { loaded: false, message: error instanceof Error ? error.message : String(error) }',
+  '}',
+  '',
+  `process.stdout.write('\\n' + ${JSON.stringify(RESULT_MARKER)} + JSON.stringify(result))`,
+].join('\n')
+
+/**
+ * Split so the literal never appears in this file: the repository's Jest
+ * transformer rewrites every `import.meta` occurrence to a CommonJS stub before
+ * ts-jest sees the source, including ones inside a string.
+ */
+const IMPORT_META_URL_EXPRESSION = ['import', '.meta.url'].join('')
 
 /**
  * The decorator import is assembled at runtime rather than written literally:
@@ -52,35 +104,37 @@ const STALE_SIBLING_BASENAME = 'stale-entity.generated.mjs'
  * the import-time path under test would never be exercised.
  */
 const REJECTING_COMPILED_SOURCE = [
-  "const nodeFs = require('node:fs')",
-  "const nodePath = require('node:path')",
-  "const quote = String.fromCharCode(39)",
+  "import nodeFs from 'node:fs'",
+  "import nodePath from 'node:path'",
+  "import { fileURLToPath } from 'node:url'",
+  'const quote = String.fromCharCode(39)',
   "const staleImport = 'import { Entity, PrimaryKey } from ' + quote + '@mikro-orm/core' + quote",
-  `nodeFs.writeFileSync(nodePath.join(__dirname, ${JSON.stringify(STALE_SIBLING_BASENAME)}), staleImport + '\\nexport const stale = true\\n')`,
+  `const generatedDirPath = fileURLToPath(new URL('.', ${IMPORT_META_URL_EXPRESSION}))`,
+  `nodeFs.writeFileSync(nodePath.join(generatedDirPath, ${JSON.stringify(STALE_SIBLING_BASENAME)}), staleImport + '\\nexport const stale = true\\n')`,
   `throw new Error('The requested module ' + quote + '@mikro-orm/core' + quote + ' does not provide an export named ' + quote + 'Entity' + quote)`,
 ].join('\n')
 
 /**
- * Jest resolves the loader's dynamic import through its own CommonJS registry,
- * so a staged .mjs has to be CommonJS to evaluate at all — esbuild's real ESM
- * output fails under the runner with "Unexpected token 'export'". The .ts
- * sources stay honest ESM: they are what the loader recompiles from once
- * recovery has deleted the cache.
+ * The generated sources stay honest ESM. The loader compiles them with esbuild
+ * and the child process imports that output natively, so nothing here has to
+ * model the compiled shape — the loader's real output is what gets imported.
  */
-const GENERATED_MODULES: Record<string, { ts: string; compiled: string }> = {
-  'entities.ids.generated': { ts: 'export const E = {}', compiled: 'module.exports = { E: {} }' },
-  'modules.cli.generated': { ts: 'export const modules = []', compiled: 'module.exports = { modules: [] }' },
-  'entities.generated': { ts: 'export const entities = []', compiled: 'module.exports = { entities: [] }' },
-  'di.generated': { ts: 'export const diRegistrars = []', compiled: 'module.exports = { diRegistrars: [] }' },
+const GENERATED_MODULES: Record<string, string> = {
+  'entities.ids.generated': 'export const E = {}',
+  'modules.cli.generated': 'export const modules = []',
+  'entities.generated': 'export const entities = []',
+  'di.generated': 'export const diRegistrars = []',
 }
+
+type BootstrapRunResult = { loaded: boolean; message?: string }
 
 function contentHash(content: Buffer | string): string {
   return crypto.createHash('sha256').update(content).digest('hex')
 }
 
 /**
- * Replace a compiled cache entry with staged content the runner can evaluate,
- * keeping the loader's own cache metadata authoritative.
+ * Replace a compiled cache entry with staged content, keeping the loader's own
+ * cache metadata authoritative.
  *
  * The loader validates a cache entry by hashing (#4724): it recompiles unless
  * the sibling `.cache.json` matches both the source and the compiled output.
@@ -99,79 +153,87 @@ function stageCompiledCache(generatedDir: string, baseName: string, compiled: st
   fs.writeFileSync(metadataPath, JSON.stringify(metadata))
 }
 
-function hasCacheMetadata(generatedDir: string, baseName: string): boolean {
-  return fs.existsSync(path.join(generatedDir, `${baseName}.mjs.cache.json`))
-}
-
 describe('compileAndImport — generated-cache recovery is reachable (#4526)', () => {
+  let runnerDir: string
+  let runnerPath: string
+  let templateRoot: string
   let appRoot: string
   let generatedDir: string
-  let warnSpy: jest.SpyInstance
 
-  /**
-   * Let the loader compile the generated sources so it writes real cache
-   * metadata for each of them, replacing each compiled output with the
-   * runner-evaluable staged content as it appears.
-   *
-   * The loader writes a module's metadata before importing it, so an import
-   * failing here (esbuild's ESM output under Jest's CommonJS registry) is
-   * expected and irrelevant — the metadata is the only thing this step is
-   * after. That failure does abort the rest of the load, though, so one pass
-   * only reaches the modules the loader got to: entities.ids first and alone,
-   * then the remainder together. Repeating the pass lets each newly staged
-   * module unblock the next batch, and the loop ends on the first pass that
-   * loads cleanly, which is precisely when every module is staged.
-   *
-   * jest.resetModules() between passes is load-bearing. Jest keys its registry
-   * on the resolved path and ignores the loader's `?cache=` query, so without
-   * the reset a module would keep being served from its first (ESM, failing)
-   * evaluation and no later pass could make progress.
-   *
-   * None of these failures carries a decorator-export error, so no recovery
-   * runs and no marker is written during setup; both tests below would fail
-   * loudly if one were.
-   */
-  async function primeAndStageCompiledCaches() {
-    const baseNames = Object.keys(GENERATED_MODULES)
-    for (let pass = 0; pass <= baseNames.length; pass += 1) {
-      let loadedCleanly = true
-      await loadBootstrapData(appRoot).catch(() => { loadedCleanly = false })
-      jest.resetModules()
-      if (loadedCleanly) return
-      for (const baseName of baseNames) {
-        if (!hasCacheMetadata(generatedDir, baseName)) continue
-        stageCompiledCache(generatedDir, baseName, GENERATED_MODULES[baseName].compiled)
-      }
+  function runLoaderInChildProcess(target: string): BootstrapRunResult {
+    const run = spawnSync(process.execPath, [TSX_CLI_PATH, runnerPath, LOADER_PATH, target], {
+      encoding: 'utf8',
+      timeout: CHILD_SPAWN_TIMEOUT_MS,
+      env: { ...process.env, OM_LOG_LEVEL: 'error' },
+    })
+
+    const markerIndex = (run.stdout ?? '').lastIndexOf(RESULT_MARKER)
+    if (markerIndex === -1) {
+      throw new Error(
+        `[internal] bootstrap runner reported no result (status ${run.status})\n`
+          + `stdout: ${run.stdout}\nstderr: ${run.stderr}`,
+      )
     }
-    throw new Error('[internal] loader never reached a fully staged generated cache')
+
+    return JSON.parse(run.stdout.slice(markerIndex + RESULT_MARKER.length)) as BootstrapRunResult
   }
 
-  beforeEach(async () => {
-    appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4526-'))
-    generatedDir = path.join(appRoot, '.mercato', 'generated')
-    fs.mkdirSync(generatedDir, { recursive: true })
+  function createFixtureAppRoot(prefix: string): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+    fs.mkdirSync(path.join(root, '.mercato', 'generated'), { recursive: true })
     fs.writeFileSync(
-      path.join(appRoot, 'tsconfig.json'),
+      path.join(root, 'tsconfig.json'),
       JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext' } }),
     )
     for (const [baseName, source] of Object.entries(GENERATED_MODULES)) {
-      fs.writeFileSync(path.join(generatedDir, `${baseName}.ts`), source.ts)
+      fs.writeFileSync(path.join(root, '.mercato', 'generated', `${baseName}.ts`), source)
     }
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    return root
+  }
 
-    await primeAndStageCompiledCaches()
+  /**
+   * Prime once: a single child-process load compiles every generated source and
+   * writes the loader's real cache metadata for it. The primed tree is copied
+   * per test rather than re-primed — the cache records source and tsconfig
+   * hashes plus app-root-relative dependency paths, so it stays valid under a
+   * different root.
+   */
+  beforeAll(() => {
+    runnerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4526-runner-'))
+    runnerPath = path.join(runnerDir, 'load-bootstrap-data.mjs')
+    fs.writeFileSync(runnerPath, RUNNER_SOURCE)
+
+    templateRoot = createFixtureAppRoot('om-bootstrap-4526-template-')
+    const primed = runLoaderInChildProcess(templateRoot)
+    if (!primed.loaded) {
+      throw new Error(`[internal] fixture priming failed: ${primed.message}`)
+    }
+    if (fs.existsSync(path.join(templateRoot, '.mercato', 'generated', '.mikro-orm-v7-cache-recovery.json'))) {
+      throw new Error('[internal] fixture priming triggered cache recovery')
+    }
+  }, CHILD_RUN_TIMEOUT_MS)
+
+  afterAll(() => {
+    for (const directory of [templateRoot, runnerDir]) {
+      if (directory) fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  beforeEach(() => {
+    appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bootstrap-4526-'))
+    fs.cpSync(templateRoot, appRoot, { recursive: true })
+    generatedDir = path.join(appRoot, '.mercato', 'generated')
   })
 
   afterEach(() => {
-    warnSpy.mockRestore()
     fs.rmSync(appRoot, { recursive: true, force: true })
   })
 
-  it('runs cache recovery when the compiled cache rejects on import', async () => {
+  it('runs cache recovery when the compiled cache rejects on import', () => {
     const rejectingPath = path.join(generatedDir, 'entities.ids.generated.mjs')
     stageCompiledCache(generatedDir, 'entities.ids.generated', REJECTING_COMPILED_SOURCE)
 
-    await loadBootstrapData(appRoot).catch(() => undefined)
+    const run = runLoaderInChildProcess(appRoot)
 
     const markerPath = path.join(generatedDir, '.mikro-orm-v7-cache-recovery.json')
     expect(fs.existsSync(markerPath)).toBe(true)
@@ -182,11 +244,13 @@ describe('compileAndImport — generated-cache recovery is reachable (#4526)', (
     expect(marker.deletedFiles).toContain(path.join(generatedDir, STALE_SIBLING_BASENAME))
 
     expect(fs.readFileSync(rejectingPath, 'utf8')).not.toContain('does not provide an export named')
-  })
+    expect(run).toEqual({ loaded: true })
+  }, CHILD_RUN_TIMEOUT_MS)
 
-  it('does not run recovery when the compiled cache imports cleanly', async () => {
-    await loadBootstrapData(appRoot)
+  it('does not run recovery when the compiled cache imports cleanly', () => {
+    const run = runLoaderInChildProcess(appRoot)
 
+    expect(run).toEqual({ loaded: true })
     expect(fs.existsSync(path.join(generatedDir, '.mikro-orm-v7-cache-recovery.json'))).toBe(false)
-  })
+  }, CHILD_RUN_TIMEOUT_MS)
 })
