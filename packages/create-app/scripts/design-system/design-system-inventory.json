@@ -53,7 +53,15 @@
       "classic": "source-only",
       "crm": "source-only",
       "empty": "source-only"
-    }
+    },
+    "canonicalUiRowCount": 8,
+    "referenceCount": 16,
+    "directReferenceCount": 10,
+    "compositeReferenceCount": 6,
+    "rowsWithoutVisualCoverage": [
+      "ui.frontend-page"
+    ],
+    "coverageGapCount": 4
   },
   "notEvidenced": [
     "External Figma publication. Parse and type success are not publication proof, so every record closes at `publicationStatus: \"not-evidenced\"`.",
@@ -5668,6 +5676,777 @@
         "designSkillSourceReferenceId": null,
         "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
       }
+    }
+  ],
+  "designSystemReferences": [
+    {
+      "capabilityId": "ui.page-shell",
+      "exampleSource": "src/modules/example/backend/todos/page.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/Page",
+      "exportNames": [
+        "Page",
+        "PageBody"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "scaffolding",
+          "entryId": "page",
+          "importPath": "@open-mercato/ui/backend/Page",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/scaffolding.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.page-shell",
+      "exampleSource": "src/modules/example/backend/page.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/Page",
+      "exportNames": [
+        "Page",
+        "PageBody",
+        "PageHeader"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "scaffolding",
+          "entryId": "page",
+          "importPath": "@open-mercato/ui/backend/Page",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/scaffolding.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "exampleSource": "src/modules/example/components/TodosTable.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/DataTable",
+      "exportNames": [
+        "DataTable"
+      ],
+      "galleryCoverage": "composite-not-direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "select",
+          "importPath": "@open-mercato/ui/primitives/select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "compact-select",
+          "importPath": "@open-mercato/ui/primitives/compact-select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "checkbox",
+          "importPath": "@open-mercato/ui/primitives/checkbox",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "feedback",
+          "entryId": "empty-state",
+          "importPath": "@open-mercato/ui/primitives/empty-state",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/feedback.tsx"
+        },
+        {
+          "familyId": "feedback",
+          "entryId": "spinner",
+          "importPath": "@open-mercato/ui/primitives/spinner",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/feedback.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "dialog",
+          "importPath": "@open-mercato/ui/primitives/dialog",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "popover",
+          "importPath": "@open-mercato/ui/primitives/popover",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "tooltip",
+          "importPath": "@open-mercato/ui/primitives/tooltip",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "navigation",
+          "entryId": "pagination",
+          "importPath": "@open-mercato/ui/primitives/pagination",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/navigation.tsx"
+        },
+        {
+          "familyId": "display",
+          "entryId": "table",
+          "importPath": "@open-mercato/ui/primitives/table",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/display.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "filter-bar",
+          "importPath": "@open-mercato/ui/backend/FilterBar",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "advanced-filter-builder",
+          "importPath": "@open-mercato/ui/backend/filters/AdvancedFilterBuilder",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "filtered-empty-results",
+          "importPath": "@open-mercato/ui/backend/filters/FilteredEmptyResults",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "search-empty-results",
+          "importPath": "@open-mercato/ui/backend/filters/SearchEmptyResults",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "banners",
+          "entryId": "flash-messages",
+          "importPath": "@open-mercato/ui/backend/FlashMessages",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/banners.tsx"
+        }
+      ],
+      "compositeImplementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "exampleSource": "src/modules/example/components/TodosTable.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/RowActions",
+      "exportNames": [
+        "RowActions"
+      ],
+      "galleryCoverage": "composite-not-direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        }
+      ],
+      "compositeImplementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx",
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "exampleSource": "src/modules/example/components/TodosTable.tsx",
+      "publicImportPath": "@open-mercato/ui/primitives/button",
+      "exportNames": [
+        "Button"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "exampleSource": "src/modules/example/components/TodosTable.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/DataTable",
+      "exportNames": [
+        "DataTable"
+      ],
+      "galleryCoverage": "composite-not-direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "select",
+          "importPath": "@open-mercato/ui/primitives/select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "compact-select",
+          "importPath": "@open-mercato/ui/primitives/compact-select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "checkbox",
+          "importPath": "@open-mercato/ui/primitives/checkbox",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "feedback",
+          "entryId": "empty-state",
+          "importPath": "@open-mercato/ui/primitives/empty-state",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/feedback.tsx"
+        },
+        {
+          "familyId": "feedback",
+          "entryId": "spinner",
+          "importPath": "@open-mercato/ui/primitives/spinner",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/feedback.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "dialog",
+          "importPath": "@open-mercato/ui/primitives/dialog",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "popover",
+          "importPath": "@open-mercato/ui/primitives/popover",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "tooltip",
+          "importPath": "@open-mercato/ui/primitives/tooltip",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "navigation",
+          "entryId": "pagination",
+          "importPath": "@open-mercato/ui/primitives/pagination",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/navigation.tsx"
+        },
+        {
+          "familyId": "display",
+          "entryId": "table",
+          "importPath": "@open-mercato/ui/primitives/table",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/display.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "filter-bar",
+          "importPath": "@open-mercato/ui/backend/FilterBar",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "advanced-filter-builder",
+          "importPath": "@open-mercato/ui/backend/filters/AdvancedFilterBuilder",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "filtered-empty-results",
+          "importPath": "@open-mercato/ui/backend/filters/FilteredEmptyResults",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "filters",
+          "entryId": "search-empty-results",
+          "importPath": "@open-mercato/ui/backend/filters/SearchEmptyResults",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/filters.tsx"
+        },
+        {
+          "familyId": "banners",
+          "entryId": "flash-messages",
+          "importPath": "@open-mercato/ui/backend/FlashMessages",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/banners.tsx"
+        }
+      ],
+      "compositeImplementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "exampleSource": "src/modules/example/components/TodosTable.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/RowActions",
+      "exportNames": [
+        "RowActions"
+      ],
+      "galleryCoverage": "composite-not-direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        }
+      ],
+      "compositeImplementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx",
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "exampleSource": "src/modules/example/components/TodosTable.tsx",
+      "publicImportPath": "@open-mercato/ui/primitives/button",
+      "exportNames": [
+        "Button"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "exampleSource": "src/modules/example/backend/todos/create/page.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/Page",
+      "exportNames": [
+        "Page",
+        "PageBody"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "scaffolding",
+          "entryId": "page",
+          "importPath": "@open-mercato/ui/backend/Page",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/scaffolding.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "exampleSource": "src/modules/example/components/TodoForm.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/CrudForm",
+      "exportNames": [
+        "CrudForm"
+      ],
+      "galleryCoverage": "composite-not-direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "input",
+          "importPath": "@open-mercato/ui/primitives/input",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "textarea",
+          "importPath": "@open-mercato/ui/primitives/textarea",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "select",
+          "importPath": "@open-mercato/ui/primitives/select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "checkbox",
+          "importPath": "@open-mercato/ui/primitives/checkbox",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "password-input",
+          "importPath": "@open-mercato/ui/primitives/password-input",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "rich-editor",
+          "importPath": "@open-mercato/ui/primitives/rich-editor",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "dialog",
+          "importPath": "@open-mercato/ui/primitives/dialog",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "banners",
+          "entryId": "flash-messages",
+          "importPath": "@open-mercato/ui/backend/FlashMessages",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/banners.tsx"
+        }
+      ],
+      "compositeImplementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "exampleSource": "src/modules/example/components/TodoForm.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/detail",
+      "exportNames": [
+        "ErrorMessage",
+        "RecordNotFoundState"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "detail",
+          "entryId": "error-message",
+          "importPath": "@open-mercato/ui/backend/detail",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/detail.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "exampleSource": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/Page",
+      "exportNames": [
+        "Page",
+        "PageBody"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "scaffolding",
+          "entryId": "page",
+          "importPath": "@open-mercato/ui/backend/Page",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/scaffolding.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "exampleSource": "src/modules/example/components/TodoForm.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/CrudForm",
+      "exportNames": [
+        "CrudForm"
+      ],
+      "galleryCoverage": "composite-not-direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "input",
+          "importPath": "@open-mercato/ui/primitives/input",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "textarea",
+          "importPath": "@open-mercato/ui/primitives/textarea",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "select",
+          "importPath": "@open-mercato/ui/primitives/select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "checkbox",
+          "importPath": "@open-mercato/ui/primitives/checkbox",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "password-input",
+          "importPath": "@open-mercato/ui/primitives/password-input",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "inputs",
+          "entryId": "rich-editor",
+          "importPath": "@open-mercato/ui/primitives/rich-editor",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        },
+        {
+          "familyId": "overlays",
+          "entryId": "dialog",
+          "importPath": "@open-mercato/ui/primitives/dialog",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/overlays.tsx"
+        },
+        {
+          "familyId": "banners",
+          "entryId": "flash-messages",
+          "importPath": "@open-mercato/ui/backend/FlashMessages",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/banners.tsx"
+        }
+      ],
+      "compositeImplementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "exampleSource": "src/modules/example/components/TodoForm.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/detail",
+      "exportNames": [
+        "ErrorMessage",
+        "RecordNotFoundState"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "detail",
+          "entryId": "error-message",
+          "importPath": "@open-mercato/ui/backend/detail",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/detail.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "umes.injection.rendered-widget",
+      "exampleSource": "src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "publicImportPath": "@open-mercato/ui/primitives/select",
+      "exportNames": [
+        "Select",
+        "SelectContent",
+        "SelectItem",
+        "SelectTrigger",
+        "SelectValue"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "inputs",
+          "entryId": "select",
+          "importPath": "@open-mercato/ui/primitives/select",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/inputs.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/select.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    },
+    {
+      "capabilityId": "umes.component-replacement",
+      "exampleSource": "src/modules/example/backend/component-overrides/page.tsx",
+      "publicImportPath": "@open-mercato/ui/backend/Page",
+      "exportNames": [
+        "Page",
+        "PageBody",
+        "PageHeader"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "scaffolding",
+          "entryId": "page",
+          "importPath": "@open-mercato/ui/backend/Page",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/scaffolding.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301"
+    }
+  ],
+  "designSystemCoverageGaps": [
+    {
+      "capabilityId": "ui.datatable",
+      "publicImportPath": "@open-mercato/ui/backend/ValueIcons",
+      "renderedExportNames": [
+        "BooleanIcon",
+        "EnumBadge"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/ValueIcons.tsx",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "publicImportPath": "@open-mercato/ui/backend/ValueIcons",
+      "renderedExportNames": [
+        "BooleanIcon",
+        "EnumBadge"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/ValueIcons.tsx",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "publicImportPath": "@open-mercato/ui/backend/messages",
+      "renderedExportNames": [
+        "SendObjectMessageDialog"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/messages/index.ts",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "publicImportPath": "@open-mercato/ui/backend/messages",
+      "renderedExportNames": [
+        "SendObjectMessageDialog"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/messages/index.ts",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
     }
   ]
 }

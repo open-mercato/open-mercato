@@ -421,6 +421,163 @@ export function foundationTupleErrors(id, foundation) {
   return errors
 }
 
+export const SURFACE_INVENTORY_RELATIVE_PATH =
+  'apps/mercato/src/modules/example/references/surface-inventory.json'
+
+/** The `@open-mercato` specifiers a source file imports, with the symbols taken from each. */
+function importedSymbols(root, appRelativePath) {
+  const source = fs.readFileSync(path.join(root, 'apps/mercato', appRelativePath), 'utf8')
+  const found = new Map()
+  const pattern = /import\s+(type\s+)?(?:\{([^}]*)\}|(\w+)|\*\s+as\s+(\w+))\s+from\s+'(@open-mercato\/[^']+)'/g
+  for (const match of source.matchAll(pattern)) {
+    const [, typeOnly, named, defaultName, namespaceName, specifier] = match
+    // Type-only bindings never render anything. Keeping them would let a generic type argument
+    // such as `useState<FilterValues>` read as a JSX element and manufacture a visual reference
+    // for a type — which is how a mapping starts describing something no user ever sees.
+    if (typeOnly !== undefined) continue
+    const symbols = named !== undefined
+      ? named
+        .split(',')
+        .filter((part) => !/^\s*type\s+/.test(part))
+        .map((part) => part.split(/\s+as\s+/)[0].trim())
+        .filter(Boolean)
+      : [defaultName ?? namespaceName].filter(Boolean)
+    const existing = found.get(specifier) ?? new Set()
+    for (const symbol of symbols) existing.add(symbol)
+    found.set(specifier, existing)
+  }
+  return found
+}
+
+/**
+ * Narrow a barrel import to the gallery entries the example really uses.
+ *
+ * Several gallery entries share one public module (`@open-mercato/ui/backend/detail` covers six).
+ * Claiming all six because the example imports one of them would overstate the mapping, so the
+ * candidates are narrowed by whether the imported symbol appears in an entry's own copyable
+ * snippet. When nothing narrows, the whole set is kept rather than a guess being made.
+ */
+function narrowEntriesBySymbol(candidates, symbols) {
+  if (candidates.length <= 1) return candidates
+  const narrowed = candidates.filter((entry) =>
+    entry.variantSnippets.some((snippet) => [...symbols].some((symbol) => snippet.includes(`<${symbol}`))))
+  return narrowed.length > 0 ? narrowed : candidates
+}
+
+/**
+ * The design-system reference records for one canonical example UI row.
+ *
+ * A public component the example imports maps **direct** when the merged gallery contains an entry
+ * for that exact public module. When it does not, the mapping is **composite-not-direct**: the row
+ * resolves the exact composite implementation and the constituent entries that implementation
+ * really imports. Nothing is invented in either direction — a composite never claims the gallery
+ * renders it, and a missing constituent set is reported rather than filled in.
+ */
+function buildReferencesForRow({ root, row, entriesByImport, galleryItemsById, availabilityByPreset }) {
+  const errors = []
+  const references = []
+  const gaps = []
+
+  for (const sourcePath of row.sourcePaths.filter((candidate) => candidate.endsWith('.tsx'))) {
+    const imports = importedSymbols(root, sourcePath)
+    const exampleSource = fs.readFileSync(path.join(root, 'apps/mercato', sourcePath), 'utf8')
+    for (const [importPath, symbols] of [...imports].sort(([left], [right]) => left.localeCompare(right))) {
+      if (!importPath.startsWith('@open-mercato/ui/')) continue
+
+      // The mapping is exhaustive for canonical example UI, not for every helper the file imports.
+      // "UI" is decided by what the example actually renders — a symbol used as a JSX element —
+      // rather than by an allowlist of module names that would drift the moment either side moved.
+      const rendered = [...symbols].filter((symbol) =>
+        new RegExp(`<${symbol}[\\s/>.]`).test(exampleSource))
+      if (rendered.length === 0) continue
+      const implementation = resolvePackageExport(
+        root, CODE_CONNECT_WORKSPACE_DIR, CODE_CONNECT_PACKAGE, importPath,
+      )
+      if (implementation === null) continue
+
+      const candidates = entriesByImport.get(importPath) ?? []
+      // A barrel module can hold entries for components the example does not render. Claiming
+      // direct coverage from the module alone would credit the gallery for a component it never
+      // shows — a false direct claim. Direct coverage therefore needs either an unambiguous
+      // one-entry module or an entry whose own snippet renders the symbol in hand.
+      const narrowed = candidates.length === 1
+        ? candidates
+        : candidates.filter((entry) => entry.variantSnippets.some((snippet) =>
+          rendered.some((symbol) => snippet.includes(`<${symbol}`))))
+      const direct = narrowed.length > 0 ? narrowed : []
+      if (direct.length > 0) {
+        references.push({
+          capabilityId: row.capabilityId,
+          exampleSource: `src/modules/example/${sourcePath.replace(/^src\/modules\/example\//, '')}`,
+          publicImportPath: importPath,
+          exportNames: rendered.sort(),
+          galleryCoverage: 'direct',
+          galleryEntries: direct.map((entry) => ({
+            familyId: entry.familyId,
+            entryId: entry.entryId,
+            importPath: entry.importPath,
+            entrySource: galleryItemsById.get(`${entry.familyId}/${entry.entryId}`).entrySource,
+          })),
+          compositeImplementationSource: null,
+          implementationSource: installedPathOf(CODE_CONNECT_PACKAGE, implementation),
+          availabilityByPreset,
+          featureId: GALLERY_FEATURE_ID,
+          baselinePrUrl: GALLERY_PR_URL,
+        })
+        continue
+      }
+
+      // No direct entry: prove it really is absent, then resolve the composite's own constituents.
+      const constituents = []
+      const compositeSource = fs.readFileSync(path.join(root, CODE_CONNECT_WORKSPACE_DIR, implementation), 'utf8')
+      for (const [candidateImport, entries] of entriesByImport) {
+        const relative = candidateImport.startsWith(`${CODE_CONNECT_PACKAGE}/`)
+          ? candidateImport.slice(CODE_CONNECT_PACKAGE.length + 1)
+          : null
+        if (relative === null) continue
+        const importedByComposite = compositeSource.includes(`'${candidateImport}'`)
+          || new RegExp(`from '\\.{1,2}/[^']*${relative.split('/').pop()}'`).test(compositeSource)
+        if (importedByComposite) constituents.push(...entries)
+      }
+      if (constituents.length === 0) {
+        // A rendered public component the gallery neither covers directly nor reaches through a
+        // constituent. It is recorded as a named gap rather than mapped: guessing a direct entry
+        // is exactly what the spec forbids, and failing the whole derivation would block this
+        // asset on a coverage hole that belongs to the gallery's owning module. Closing it means
+        // adding the entry there, never pasting an implementation into the example.
+        gaps.push({
+          capabilityId: row.capabilityId,
+          publicImportPath: importPath,
+          renderedExportNames: rendered.sort(),
+          implementationSource: installedPathOf(CODE_CONNECT_PACKAGE, implementation),
+          reason: 'no gallery entry declares this public module, and its implementation imports no '
+            + 'gallery-covered constituent',
+        })
+        continue
+      }
+      references.push({
+        capabilityId: row.capabilityId,
+        exampleSource: `src/modules/example/${sourcePath.replace(/^src\/modules\/example\//, '')}`,
+        publicImportPath: importPath,
+        exportNames: rendered.sort(),
+        galleryCoverage: 'composite-not-direct',
+        galleryEntries: constituents.map((entry) => ({
+          familyId: entry.familyId,
+          entryId: entry.entryId,
+          importPath: entry.importPath,
+          entrySource: galleryItemsById.get(`${entry.familyId}/${entry.entryId}`).entrySource,
+        })),
+        compositeImplementationSource: installedPathOf(CODE_CONNECT_PACKAGE, implementation),
+        implementationSource: installedPathOf(CODE_CONNECT_PACKAGE, implementation),
+        availabilityByPreset,
+        featureId: GALLERY_FEATURE_ID,
+        baselinePrUrl: GALLERY_PR_URL,
+      })
+    }
+  }
+  return { errors, references, gaps }
+}
+
 function buildInventory(root) {
   const errors = []
   const gallery = readGallery(root)
@@ -504,6 +661,34 @@ function buildInventory(root) {
     seen.add(item.galleryItemId)
   }
 
+  // The canonical example's UI rows, mapped to the gallery. A row is "UI" because it ships a
+  // rendered surface, which is a fact about its own source paths rather than a hand-kept list.
+  const surfaceInventory = readJson(path.join(root, SURFACE_INVENTORY_RELATIVE_PATH))
+  const galleryItemsById = new Map(items.map((item) => [item.galleryItemId, item]))
+  const entriesByImport = new Map()
+  for (const entry of gallery.entries) {
+    if (!entriesByImport.has(entry.importPath)) entriesByImport.set(entry.importPath, [])
+    entriesByImport.get(entry.importPath).push(entry)
+  }
+
+  const uiRows = surfaceInventory.capabilities.filter((row) =>
+    row.referenceStatus === 'canonical' && row.sourcePaths.some((candidate) => candidate.endsWith('.tsx')))
+  const references = []
+  const coverageGaps = []
+  const rowsWithoutVisualCoverage = []
+  for (const row of uiRows) {
+    const built = buildReferencesForRow({ root, row, entriesByImport, galleryItemsById, availabilityByPreset })
+    errors.push(...built.errors)
+    coverageGaps.push(...built.gaps)
+    if (built.references.length === 0 && built.gaps.length === 0) {
+      // Honest, and deliberately not an error: a rendered surface that imports no design-system
+      // component has nothing to map. Fabricating a reference here would be exactly the guessed
+      // direct mapping the spec forbids.
+      rowsWithoutVisualCoverage.push(row.capabilityId)
+    }
+    references.push(...built.references)
+  }
+
   const mappedItems = items.filter((item) => item.designFoundation.codeConnectStatus === 'mapped')
   const inventory = {
     version: 1,
@@ -544,6 +729,13 @@ function buildInventory(root) {
       },
       designSkillAvailability: designSkill.availability,
       availabilityByPreset,
+      canonicalUiRowCount: uiRows.length,
+      referenceCount: references.length,
+      directReferenceCount: references.filter((reference) => reference.galleryCoverage === 'direct').length,
+      compositeReferenceCount: references.filter((reference) =>
+        reference.galleryCoverage === 'composite-not-direct').length,
+      rowsWithoutVisualCoverage,
+      coverageGapCount: coverageGaps.length,
     },
     notEvidenced: [
       'External Figma publication. Parse and type success are not publication proof, so every '
@@ -555,6 +747,8 @@ function buildInventory(root) {
       + 'Emitting one requires parity proof against the app-local stylesheet.',
     ],
     items,
+    designSystemReferences: references,
+    designSystemCoverageGaps: coverageGaps,
   }
   return { errors, inventory }
 }
@@ -577,6 +771,8 @@ export function projectInventory(inventory) {
     generatedNote: inventory.generatedNote,
     derived: inventory.derived,
     notEvidenced: inventory.notEvidenced,
+    designSystemReferences: inventory.designSystemReferences,
+    designSystemCoverageGaps: inventory.designSystemCoverageGaps,
     items: inventory.items.map((item) => {
       const projected = {}
       for (const field of PROJECTED_ITEM_FIELDS) projected[field] = item[field]

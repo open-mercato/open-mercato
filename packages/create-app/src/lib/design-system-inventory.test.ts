@@ -313,3 +313,121 @@ test('every impossible designFoundation tuple fails generation', () => {
     assert.ok(errors.length > 0, `${label} must be rejected`)
   }
 })
+
+test('every canonical example UI row is accounted for — mapped or named as a gap', () => {
+  const inventory = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8'),
+  ) as {
+    derived: { canonicalUiRowCount: number; rowsWithoutVisualCoverage: string[] }
+    designSystemReferences: Array<{ capabilityId: string; galleryCoverage: string }>
+    designSystemCoverageGaps: Array<{ capabilityId: string; publicImportPath: string }>
+  }
+  const surface = JSON.parse(
+    fs.readFileSync(
+      path.join(REPO_ROOT, 'apps/mercato/src/modules/example/references/surface-inventory.json'),
+      'utf8',
+    ),
+  ) as { capabilities: Array<{ capabilityId: string; referenceStatus: string; sourcePaths: string[] }> }
+
+  const uiRows = surface.capabilities.filter((row) =>
+    row.referenceStatus === 'canonical' && row.sourcePaths.some((p) => p.endsWith('.tsx')))
+  assert.equal(inventory.derived.canonicalUiRowCount, uiRows.length)
+
+  const accounted = new Set([
+    ...inventory.designSystemReferences.map((reference) => reference.capabilityId),
+    ...inventory.designSystemCoverageGaps.map((gap) => gap.capabilityId),
+    ...inventory.derived.rowsWithoutVisualCoverage,
+  ])
+  for (const row of uiRows) {
+    assert.ok(accounted.has(row.capabilityId), `${row.capabilityId} is neither mapped nor named as a gap`)
+  }
+})
+
+test('a composite reference proves no direct entry exists and names real constituents', () => {
+  const inventory = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8'),
+  ) as { designSystemReferences: Array<Record<string, any>> }
+  const gallery = readGallery(REPO_ROOT)
+  const importPaths = new Set(gallery.entries.map((entry: { importPath: string }) => entry.importPath))
+  const entryIds = new Set(
+    gallery.entries.map((entry: { familyId: string; entryId: string }) => `${entry.familyId}/${entry.entryId}`),
+  )
+
+  const composites = inventory.designSystemReferences.filter((r) => r.galleryCoverage === 'composite-not-direct')
+  assert.ok(composites.length > 0, 'CrudForm and DataTable map as composites at this baseline')
+
+  for (const reference of composites) {
+    assert.ok(
+      !importPaths.has(reference.publicImportPath),
+      `${reference.publicImportPath} has a direct gallery entry and must not be called a composite`,
+    )
+    assert.ok(reference.compositeImplementationSource, 'a composite must resolve its implementation')
+    assert.ok(reference.galleryEntries.length > 0, 'a composite must name constituents')
+    for (const entry of reference.galleryEntries) {
+      assert.ok(
+        entryIds.has(`${entry.familyId}/${entry.entryId}`),
+        `${entry.familyId}/${entry.entryId} is not a real gallery entry`,
+      )
+    }
+  }
+})
+
+test('a direct reference resolves to a gallery entry declaring that exact public import', () => {
+  const inventory = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8'),
+  ) as { designSystemReferences: Array<Record<string, any>> }
+
+  for (const reference of inventory.designSystemReferences) {
+    if (reference.galleryCoverage !== 'direct') continue
+    assert.equal(reference.compositeImplementationSource, null)
+    for (const entry of reference.galleryEntries) {
+      assert.equal(
+        entry.importPath,
+        reference.publicImportPath,
+        'a direct claim must name the same public module the gallery entry declares',
+      )
+    }
+  }
+})
+
+test('the example really imports and renders every symbol a reference claims', () => {
+  const inventory = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8'),
+  ) as { designSystemReferences: Array<Record<string, any>> }
+
+  for (const reference of inventory.designSystemReferences) {
+    const source = fs.readFileSync(
+      path.join(REPO_ROOT, 'apps/mercato', reference.exampleSource),
+      'utf8',
+    )
+    assert.ok(
+      source.includes(`'${reference.publicImportPath}'`),
+      `${reference.exampleSource} does not import ${reference.publicImportPath}`,
+    )
+    for (const symbol of reference.exportNames) {
+      assert.match(
+        source,
+        new RegExp(`<${symbol}[\\s/>.]`),
+        `${reference.exampleSource} does not render <${symbol}>`,
+      )
+    }
+  }
+})
+
+test('a named coverage gap is a real gap, not a mapping someone declined to make', () => {
+  const inventory = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8'),
+  ) as { designSystemCoverageGaps: Array<Record<string, any>> }
+  const gallery = readGallery(REPO_ROOT)
+  const importPaths = new Set(gallery.entries.map((entry: { importPath: string }) => entry.importPath))
+
+  for (const gap of inventory.designSystemCoverageGaps) {
+    // The gap list must never be a place to hide a component the gallery does cover directly.
+    assert.ok(
+      !importPaths.has(gap.publicImportPath) || gap.renderedExportNames.length > 0,
+      `${gap.publicImportPath} is covered directly and cannot be recorded as a gap`,
+    )
+    assert.ok(gap.reason && gap.reason.length > 0, 'every gap states why it is one')
+    assert.ok(gap.implementationSource.startsWith('node_modules/@open-mercato/'))
+  }
+})
