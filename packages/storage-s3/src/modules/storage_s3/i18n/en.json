@@ -13,5 +13,7 @@
   "storage_s3.errors.multipartRequired": "Expected multipart/form-data",
   "storage_s3.errors.prefixAccessDenied": "Access denied: prefix is not scoped to this tenant.",
   "storage_s3.errors.quotaExceeded": "Attachment storage quota exceeded for this tenant.",
+  "storage_s3.errors.quotaTargetExists": "The target storage key already exists.",
+  "storage_s3.errors.quotaUnavailable": "Storage quota accounting is unavailable.",
   "storage_s3.errors.unauthorized": "Unauthorized"
 }
