@@ -762,7 +762,9 @@ checked against the hub as it stands on `develop`:
 1. **The provider-native identity is already persisted; the new column duplicates it.**
    `ExternalMessage.senderIdentifier`
    (`packages/core/src/modules/communication_channels/data/entities.ts:243-244`,
-   `sender_identifier text NULL`) stores the Discord snowflake for every inbound channel message, and
+   `sender_identifier text NULL`) stores the Discord snowflake for every inbound channel message —
+   the row is created unconditionally on every ingest with `senderIdentifier: m.senderIdentifier`
+   (`ingest-inbound-message.ts:426-438`) — and
    `MessageChannelLink` (`:269` onwards) joins it 1:1 to the platform `Message`: `message_id` carries
    the unique index `message_channel_links_message_uq` (`:268`), `external_message_id` is written on
    every inbound ingest (`ingest-inbound-message.ts:450-465`), and the link row already carries

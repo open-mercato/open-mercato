@@ -66,7 +66,8 @@ line numbers can drift when the base moves. Every reference above still resolves
 with one exception: `ContactResolverInput.senderIdentifier` is at `contact-resolver.ts:22` (`:21` is
 the `adapter` field) — corrected in the spec and here. Checked line by line: `validators.ts:107`,
 `:121-137`/`:131`, `:186`, `:220`, `:248-266`; `ingest-inbound-message.ts:292-317`, `:351`, `:354`,
-`:387`, `:450-465`; `entities.ts:243-244`, `:268`, `:269`; `contact-resolver.ts:22`, `:145-149`;
+`:387`, `:426-438` (the `ExternalMessage` row, and with it `sender_identifier`, is created on every
+ingest), `:450-465`; `entities.ts:243-244`, `:268`, `:269`; `contact-resolver.ts:22`, `:145-149`;
 `test-send/route.ts:33`/`:34`; `send-as-user/route.ts:20`, `:23-25`, `:26`;
 `connect-credential-channel.ts:161-169`; `messages/api/route.ts:448`; `messages/api/openapi.ts:267`;
 `commands/messages.ts:741-744`; `shared/src/lib/query/types.ts:12`, `:93`.
