@@ -935,6 +935,7 @@
   "workflows.orderApproval.decisionLabel": "Entscheidung",
   "workflows.orderApproval.groupDescription": "Bestellung prüfen und genehmigen oder ablehnen.",
   "workflows.orderApproval.groupLabel": "Bestellgenehmigung",
+  "workflows.orderApproval.missingOrderId": "Der Genehmigungsworkflow kann erst gestartet werden, wenn die Bestellung geladen ist.",
   "workflows.orderApproval.missingStatuses": "Fehlende Bestellstatus. Stellen Sie sicher, dass pending_approval, approved und rejected vorhanden sind.",
   "workflows.orderApproval.noWorkflowActive": "Kein Genehmigungsworkflow für diese Bestellung aktiv.",
   "workflows.orderApproval.pendingDescription": "Diese Bestellung erfordert eine Genehmigung.",

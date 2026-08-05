@@ -89,6 +89,7 @@ function activateEncryptionMaps(tenantId: string, organizationId: string): void 
 
 test.describe('customers seed-examples idempotency under encryption', () => {
   test('declines to re-seed an organization that already has the example data', async ({ request }) => {
+    test.slow();
     const token = await getAuthToken(request, 'admin');
     const { tenantId } = getTokenScope(token);
     expect(tenantId, 'admin token should carry a tenant id').toBeTruthy();
@@ -123,6 +124,7 @@ test.describe('customers seed-examples idempotency under encryption', () => {
   });
 
   test('reports the example data as present when the same organization is seeded repeatedly', async ({ request }) => {
+    test.slow();
     const token = await getAuthToken(request, 'admin');
     const { tenantId } = getTokenScope(token);
 

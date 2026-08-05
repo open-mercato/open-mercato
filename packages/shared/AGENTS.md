@@ -91,6 +91,8 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organizationId })
 ```
 
+Encryption maps default to tenant-scoped keys. Use the additive `keyScope: 'system'` option only for records that must exist before a tenant does; the system scope remains authoritative after a tenant id is later assigned so existing ciphertext stays readable.
+
 ### Search Tokens — MUST use instead of `$ilike` on encrypted columns
 
 ```typescript
