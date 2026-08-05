@@ -443,10 +443,17 @@ export function readCodeConnectMappings(repoRoot) {
             ? componentArgument.text
             : null
           const url = stringOf(node.arguments[1])
+          const options = node.arguments[2]
+          const optionsLiteral = options && t.isObjectLiteralExpression(options) ? options : null
           mappings.push({
             sourceRelativePath: relative,
             componentName,
             importPath: componentName === null ? null : importedFrom.get(componentName) ?? null,
+            // The mapping's own `imports` entry is the public specifier a consumer would write.
+            // It is the join key to a gallery entry: both sides name the same public module, so
+            // neither has to trust the other's private file layout.
+            publicImportPaths: optionsLiteral === null ? [] : publicImportPathsOf(optionsLiteral),
+            mappedPropValues: optionsLiteral === null ? [] : mappedPropValuesOf(optionsLiteral),
             url,
             nodeId: url === null ? null : nodeIdOfFigmaUrl(url),
             placeholder: url === null ? false : nodeIdOfFigmaUrl(url) === '0-1',
@@ -458,6 +465,44 @@ export function readCodeConnectMappings(repoRoot) {
     visit(sourceFile)
   }
   return mappings
+}
+
+/** The public import specifiers a `figma.connect` call tells consumers to write. */
+function publicImportPathsOf(optionsLiteral) {
+  const t = ts()
+  const imports = propertyOf(optionsLiteral, 'imports')
+  if (imports === null || !t.isArrayLiteralExpression(imports)) return []
+  const specifiers = []
+  for (const element of imports.elements) {
+    const statement = stringOf(element)
+    if (statement === null) continue
+    const match = /from\s+'([^']+)'/.exec(statement)
+    if (match !== null) specifiers.push(match[1])
+  }
+  return specifiers
+}
+
+/**
+ * The prop values a mapping actually binds — every `figma.enum` case value it maps.
+ *
+ * This is what `mappingCoverage` compares against the gallery's own variant ids. Both sides are
+ * read from real declarations, so the coverage verdict moves when either side moves; a count
+ * copied from prose would not.
+ */
+function mappedPropValuesOf(optionsLiteral) {
+  const t = ts()
+  const props = propertyOf(optionsLiteral, 'props')
+  if (props === null || !t.isObjectLiteralExpression(props)) return []
+  const values = new Set()
+  const visit = (node) => {
+    if (t.isPropertyAssignment(node)) {
+      const value = stringOf(node.initializer)
+      if (value !== null) values.add(value)
+    }
+    t.forEachChild(node, visit)
+  }
+  visit(props)
+  return [...values].sort()
 }
 
 /** The `node-id` a Figma design URL points at, in the hyphen form the URL carries. */
