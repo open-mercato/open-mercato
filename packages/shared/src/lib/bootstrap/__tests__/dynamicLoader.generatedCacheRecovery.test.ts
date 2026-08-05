@@ -52,7 +52,13 @@ import path from 'node:path'
 
 const STALE_SIBLING_BASENAME = 'stale-entity.generated.mjs'
 const RESULT_MARKER = '__BOOTSTRAP_RUN_RESULT__'
-const CHILD_RUN_TIMEOUT_MS = 120_000
+/**
+ * The Jest budget deliberately exceeds the spawn budget, so a wedged child is
+ * reported as this file's own "runner produced no result" error — with the
+ * child's output attached — rather than as an opaque Jest timeout.
+ */
+const CHILD_SPAWN_TIMEOUT_MS = 120_000
+const CHILD_RUN_TIMEOUT_MS = 180_000
 
 const LOADER_PATH = path.resolve(__dirname, '..', 'dynamicLoader.ts')
 
@@ -157,7 +163,7 @@ describe('compileAndImport — generated-cache recovery is reachable (#4526)', (
   function runLoaderInChildProcess(target: string): BootstrapRunResult {
     const run = spawnSync(process.execPath, [TSX_CLI_PATH, runnerPath, LOADER_PATH, target], {
       encoding: 'utf8',
-      timeout: CHILD_RUN_TIMEOUT_MS,
+      timeout: CHILD_SPAWN_TIMEOUT_MS,
       env: { ...process.env, OM_LOG_LEVEL: 'error' },
     })
 
@@ -208,8 +214,9 @@ describe('compileAndImport — generated-cache recovery is reachable (#4526)', (
   }, CHILD_RUN_TIMEOUT_MS)
 
   afterAll(() => {
-    fs.rmSync(templateRoot, { recursive: true, force: true })
-    fs.rmSync(runnerDir, { recursive: true, force: true })
+    for (const directory of [templateRoot, runnerDir]) {
+      if (directory) fs.rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   beforeEach(() => {
@@ -237,13 +244,13 @@ describe('compileAndImport — generated-cache recovery is reachable (#4526)', (
     expect(marker.deletedFiles).toContain(path.join(generatedDir, STALE_SIBLING_BASENAME))
 
     expect(fs.readFileSync(rejectingPath, 'utf8')).not.toContain('does not provide an export named')
-    expect(run.loaded).toBe(true)
+    expect(run).toEqual({ loaded: true })
   }, CHILD_RUN_TIMEOUT_MS)
 
   it('does not run recovery when the compiled cache imports cleanly', () => {
     const run = runLoaderInChildProcess(appRoot)
 
-    expect(run.loaded).toBe(true)
+    expect(run).toEqual({ loaded: true })
     expect(fs.existsSync(path.join(generatedDir, '.mikro-orm-v7-cache-recovery.json'))).toBe(false)
   }, CHILD_RUN_TIMEOUT_MS)
 })
