@@ -723,7 +723,7 @@ a lookup key for non-email identities on `customers:customer_entity` and the cor
 (`packages/core/src/modules/communication_channels/lib/contact-resolver.ts:145-149`), which today can
 only filter by `primary_email` or `primary_phone`. **No `messages`-side column**: the provider-native
 identity is already persisted (see Variant B below), and `resolveContact` already receives the raw
-snowflake as `ContactResolverInput.senderIdentifier` (`contact-resolver.ts:21`, passed at
+snowflake as `ContactResolverInput.senderIdentifier` (`contact-resolver.ts:22`, passed at
 `ingest-inbound-message.ts:292-317`) — the missing half is exclusively on the CRM side.
 
 Two shapes are available for that key, and the choice is the CRM owner's, not this spec's:
@@ -771,7 +771,7 @@ checked against the hub as it stands on `develop`:
 2. **A `messages`-side column does not unlock CRM matching.** Contact resolution runs *before*
    compose — `resolveContact` at step (4) (`ingest-inbound-message.ts:292-317`), compose at step (5)
    (`:387`) — and it already receives the raw snowflake (`ContactResolverInput.senderIdentifier`,
-   `contact-resolver.ts:21`). What blocks the match is the CRM side: `buildPersonLookupFilter`
+   `contact-resolver.ts:22`). What blocks the match is the CRM side: `buildPersonLookupFilter`
    (`contact-resolver.ts:145-149`) can only filter `customers:customer_entity` by `primary_email` or
    `primary_phone`, and no field on a CRM person can hold a Discord id to match against. Adding
    `messages.external_identity` leaves that filter returning `null` for every Discord sender, so
@@ -941,6 +941,10 @@ rule 3), and no variant should be considered done without it.
   non-ingest compose paths Variant A leaves blocked, linked #4976/#4977/#4978 for the deferred and
   out-of-scope touch-points, named all three `externalEmail` validator sites, and flagged the CR/LF
   header-injection guard on `send-as-user`'s `subject` that any widening must preserve.
+- **Re-grounded every citation on the current `develop` head (`c514f2eb3`).** All 30 `file:line`
+  references added by this correction still resolve to the quoted code after the base advanced;
+  one off-by-one was found and fixed — `ContactResolverInput.senderIdentifier` is at
+  `communication_channels/lib/contact-resolver.ts:22`, not `:21` (which is the `adapter` field).
 - Recorded how the contradiction survived review: this document already contained both halves
   (`resolveContact` — *"no email/phone"* — and the "verbatim reuse" claim) one section apart. Kept as
   a documented lesson for future non-email providers, with three rules derived from it.

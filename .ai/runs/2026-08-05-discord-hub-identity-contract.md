@@ -37,6 +37,15 @@ Replace the claim with the verified touch-points, classify the two fix variants 
 - [x] 2.5 Test coverage — record that TC-CHANNEL-DISCORD-003 lives on the #4391 branch (#4665), and
       make "a non-email provider completes an inbound compose" a required acceptance criterion
 
+### Phase 3: Merge-ready pass (`om-auto-fix-pr`)
+
+- [x] 3.1 Merge the current `upstream/develop` (`c514f2eb3`) into the PR branch — clean, no conflicts
+- [x] 3.2 Re-ground every `file:line` the correction adds against that head, since Phase 2 verified
+      against `2bcc68e0` and the base has moved 33 commits since
+- [x] 3.3 Fix the one citation the re-grounding disproved (`contact-resolver.ts:21` → `:22`)
+- [x] 3.4 Confirm every finding of @pkarw's review is applied (Major, both Minors, both nits, the
+      coverage note) and request the re-review
+
 ## Verification
 
 Markdown-only change under `.ai/specs/`; no source file touched, so the code validation gate
@@ -52,7 +61,17 @@ carries `external_message_id`), `contact-resolver.ts:21` and `:145-149`, `valida
 `commands/messages.ts:741-744`, `send-as-user/route.ts:20`/`:23-26`, `test-send/route.ts:33-34`. Each
 claim added in this phase is checkable at those lines.
 
+Phase 3 repeated the grounding pass on the merged head (`upstream/develop` at `c514f2eb3`), because
+line numbers can drift when the base moves. Every reference above still resolves to the quoted code
+with one exception: `ContactResolverInput.senderIdentifier` is at `contact-resolver.ts:22` (`:21` is
+the `adapter` field) — corrected in the spec and here. Checked line by line: `validators.ts:107`,
+`:121-137`/`:131`, `:186`, `:220`, `:248-266`; `ingest-inbound-message.ts:292-317`, `:351`, `:354`,
+`:387`, `:450-465`; `entities.ts:243-244`, `:268`, `:269`; `contact-resolver.ts:22`, `:145-149`;
+`test-send/route.ts:33`/`:34`; `send-as-user/route.ts:20`, `:23-25`, `:26`;
+`connect-credential-channel.ts:161-169`; `messages/api/route.ts:448`; `messages/api/openapi.ts:267`;
+`commands/messages.ts:741-744`; `shared/src/lib/query/types.ts:12`, `:93`.
+
 ## Follow-up (not in this PR)
 
-The hub owner decides Variant A vs Variant B on #4975; the implementation and the
+The hub owner decides Variant A+ (recommended) vs Variant B on #4975; the implementation and the
 `TC-CHANNEL-DISCORD-003` rewrite ship on their own PR.
