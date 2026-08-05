@@ -1,3 +1,24 @@
+/**
+ * Unit coverage for the AI auto-reply subscriber's own control flow.
+ *
+ * ⚠️ What these tests do NOT prove (review of #4391, @pkarw 2026-07-30 Major 2):
+ * the AI runtime below is a stub, so nothing here says an armed subscriber would
+ * actually be allowed to run. It would not: every agent this repository ships is
+ * chat-mode and feature-gated, and `runAiAgentObject` is refused by the real
+ * agent policy for the `features: []` call this subscriber makes. That gap is
+ * why the release de-scopes AI auto-reply (→ open-mercato/open-mercato#4778),
+ * which owns the configurable agent identity and the coverage that drives the
+ * real policy instead of a stub.
+ *
+ * The stub is not a shortcut: `@open-mercato/ai-assistant` is a genuinely
+ * soft-optional peer — deliberately absent from this package's dependencies and
+ * peerDependencies so the module-decoupling contract holds — hence
+ * `{ virtual: true }`. A test that imported the real runtime here would break
+ * the very decoupling property it is meant to protect.
+ *
+ * The complementary guarantee — that no product surface can arm this subscriber
+ * in the first place — is executable, and lives in `ai-auto-reply.dormancy.test.ts`.
+ */
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
@@ -93,14 +114,16 @@ describe('channel_discord ai-auto-reply subscriber — cheap early returns', () 
   })
 })
 
-describe('channel_discord ai-auto-reply subscriber — end-to-end gating', () => {
+describe('channel_discord ai-auto-reply subscriber — gating, driven from a hand-armed channel', () => {
   beforeEach(() => {
     findOne.mockReset()
     aiMod.runAiAgentObject.mockClear()
     aiMod.runAiAgentObject.mockResolvedValue({ mode: 'generate', object: { reply: 'We are open 9-5.' } })
   })
 
-  it('(easy) drafts and sends via the generic hub compose command', async () => {
+  // Asserts the wiring, NOT a shipped capability: the channel below is armed by
+  // hand with state no product surface writes, and the agent call is stubbed.
+  it('(easy) routes a stubbed draft through the generic hub compose command', async () => {
     findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
     const { ctx, commandBus } = makeCtx({ aiPresent: true })
 
