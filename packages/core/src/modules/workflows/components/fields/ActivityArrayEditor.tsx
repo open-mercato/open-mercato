@@ -251,7 +251,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       <Input
                         id={`${id}-${index}-timeout`}
                         type="text"
-                        value={activity.timeout || ''}
+                        value={activity.timeout || (activity.timeoutMs != null ? String(activity.timeoutMs) : '')}
                         onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
                         placeholder={t('workflows.fieldEditors.activities.timeoutPlaceholder')}
                         className="text-xs"

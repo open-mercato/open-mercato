@@ -14,6 +14,7 @@ import {
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { toTimeoutMs } from '../lib/duration'
 
 interface Activity {
   activityId: string
@@ -31,6 +32,8 @@ interface Activity {
   // as an ISO 8601 string, so saving a timeout from this editor failed
   // validation outright (#4424).
   timeoutMs?: number
+  /** @deprecated Use `timeoutMs`. Written by the CrudForm activity editor as a duration or millisecond string. */
+  timeout?: string
   compensation?: Record<string, any>
 }
 
@@ -513,7 +516,7 @@ export function TransitionsEditor({ value = [], onChange, steps = [], error }: T
                             <Input
                               id={`activity-${index}-${activityIndex}-timeout`}
                               type="number"
-                              value={activity.timeoutMs || ''}
+                              value={activity.timeoutMs ?? toTimeoutMs(activity.timeout) ?? ''}
                               onChange={(e) => updateActivity(index, activityIndex, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
                               placeholder="30000"
                               className="mt-1 text-xs h-8"
