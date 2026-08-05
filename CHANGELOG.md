@@ -23,6 +23,7 @@ Day to day, the product surface gets noticeably nicer: **DataTable columns resiz
 - ✨ Add phone custom field type with phone-number editor. (#4147) *(@DarrenStasiakDev4You)*
 - ✨ One-command Windows agentic dev environment (app + MCP + OpenCode). (#3988) *(@WebEferen)*
 - ✨ Allow disabling sales channels via feature toggle. (#3935) *(@jtomaszewski)*
+- ✨ Add demo autologin via env vars. (#3799) *(@jtomaszewski)*
 - ✨ DS system & guardian refresh: docs drift fixes, guardian v2, backend reference, structural lint, Tabs migration, Figma canon. (#3777) *(@zielivia)*
 - ✨ DataTable interactive column resize + width persistence (#1835). (#3774) *(@zielivia)*
 
