@@ -182,17 +182,17 @@ export async function POST(req: Request) {
       }
       const code = (error as { code?: unknown })?.code
       if (code === 'quota_exceeded') {
-        return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+        return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
       }
       if (code === 'quota_target_exists') {
-        return NextResponse.json({ error: 'The target storage key already exists.' }, { status: 409 })
+        return NextResponse.json({ error: t('storage_s3.errors.quotaTargetExists', 'The target storage key already exists.') }, { status: 409 })
       }
-      return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+      return NextResponse.json({ error: t('storage_s3.errors.quotaAccountingUnavailable', 'Storage quota accounting is unavailable.') }, { status: 500 })
     }
   } else {
     const tenantUsageBytes = await readTenantStorageUsageBytes(driver, auth.tenantId, auth.orgId)
     if (willExceedAttachmentTenantQuota(tenantUsageBytes, buffer.length)) {
-      return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+      return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
     }
   }
 
