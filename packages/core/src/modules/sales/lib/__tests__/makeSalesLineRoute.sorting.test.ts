@@ -81,5 +81,6 @@ describe('makeSalesLineRoute sorting', () => {
     const { list } = buildRoute()
 
     expect(list.tiebreakSortField).toBe('id')
+    expect(list.sortFieldMap[list.tiebreakSortField!]).toBe('id')
   })
 })

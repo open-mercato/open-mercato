@@ -443,6 +443,28 @@ describe('CRUD Factory', () => {
     expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'asc' }])
   })
 
+  it('GET treats a blank sortField as absent and falls back to list.defaultSort', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField='))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'line_number', dir: 'asc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET keeps falling back to id for a blank sortField when no default is configured', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'desc' }])
+  })
+
   it('GET does not duplicate the tiebreak when it matches the primary sort', async () => {
     const sortedRoute = makeSortedRoute({ tiebreakSortField: 'id' })
 

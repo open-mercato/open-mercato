@@ -201,7 +201,8 @@ list: {
 
 Notes:
 
-- Both options are resolved through `sortFieldMap`, so name the public alias (`lineNumber`), not the underlying column.
+- Both options are resolved through `sortFieldMap`: name the public alias when the map defines one (`lineNumber`), and an unmapped name is used as the column directly (which is why `tiebreakSortField: 'id'` works above without an `id` entry in the map).
+- **Both apply to the Query Engine path only** — the route must set `entityId` *and* `fields`. The plain-ORM fallback list issues an unordered `find` and already ignores `sortField` today, so a route configured without `entityId`/`fields` will set `defaultSort` and observe no ordering at all.
 - `defaultSort.dir` applies only together with `defaultSort.field`. An explicit `sortField` without a `sortDir` still defaults to ascending.
 - The list schema must keep `sortField` **optional**. A zod `.default()` on `sortField` reaches the sort resolver as an explicit request and pins the order itself, so `defaultSort` never takes effect.
 - `tiebreakSortField` is appended as a secondary ascending sort only when it differs from the resolved primary sort, and it applies to explicit sorts too.

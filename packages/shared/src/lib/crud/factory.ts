@@ -209,11 +209,15 @@ export type ListConfig<TList> = {
   sortFieldMap?: Record<string, any>
   /**
    * Sort used when the request carries no `sortField` / `sort` param. The field is
-   * resolved through `sortFieldMap` exactly like an explicit param, so routes name
-   * the public alias (`lineNumber`) rather than the underlying column. `dir` only
-   * applies together with the default field — an explicit `sortField` without
-   * `sortDir` still defaults to ascending. Defaults to `{ field: 'id', dir: 'asc' }`,
-   * which is only a meaningful order for sequential ids, never for random UUIDs.
+   * resolved through `sortFieldMap`, so a name the map defines is translated to its
+   * column and an unmapped name is used as the column directly. `dir` only applies
+   * together with the default field — an explicit `sortField` without `sortDir`
+   * still defaults to ascending. Defaults to `{ field: 'id', dir: 'asc' }`, which is
+   * only a meaningful order for sequential ids, never for random UUIDs.
+   *
+   * Applies to the Query Engine list path only (the route must set both `entityId`
+   * and `fields`). The plain-ORM fallback list issues an unordered `find` and
+   * already ignores `sortField` today, so it ignores this too.
    *
    * The list schema must keep `sortField` optional for this to take effect — a zod
    * `.default()` on `sortField` reaches the sort resolver as an explicit request and
@@ -224,7 +228,8 @@ export type ListConfig<TList> = {
    * Appended as a secondary ascending sort whenever it differs from the resolved
    * primary sort, so rows sharing a primary value keep a stable order across pages
    * and re-fetches instead of falling back to the database's arbitrary row order.
-   * Resolved through `sortFieldMap` like `defaultSort`.
+   * Applies to explicit sorts too, and is resolved through `sortFieldMap` and gated
+   * on the Query Engine path exactly like `defaultSort`.
    */
   tiebreakSortField?: string
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
