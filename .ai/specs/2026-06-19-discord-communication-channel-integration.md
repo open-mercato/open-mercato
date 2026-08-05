@@ -718,14 +718,26 @@ with a `NULL` identity once the inbound message exists.
 ### Variant A+ — Variant A plus a CRM-side identity key (recommended)
 
 Variant A, plus the one change that actually makes a Discord sender resolvable to a CRM person:
-a lookup key for non-email identities on `customers:customer_entity` (a dedicated field or a
-custom-field-backed identity such as `discord_user_id` / a generic `(kind, value)` identity record)
-and the corresponding branch in `buildPersonLookupFilter`
+a lookup key for non-email identities on `customers:customer_entity` and the corresponding branch in
+`buildPersonLookupFilter`
 (`packages/core/src/modules/communication_channels/lib/contact-resolver.ts:145-149`), which today can
 only filter by `primary_email` or `primary_phone`. **No `messages`-side column**: the provider-native
 identity is already persisted (see Variant B below), and `resolveContact` already receives the raw
 snowflake as `ContactResolverInput.senderIdentifier` (`contact-resolver.ts:21`, passed at
 `ingest-inbound-message.ts:292-317`) — the missing half is exclusively on the CRM side.
+
+Two shapes are available for that key, and the choice is the CRM owner's, not this spec's:
+
+- **A custom field on `customer_entity`** (e.g. `discord_user_id`) — no migration at all, and the
+  query engine already filters custom fields with the `cf:<key>` selector convention
+  (`packages/shared/src/lib/query/types.ts:12`, `:93`), so `buildPersonLookupFilter` gains a branch
+  returning `{ 'cf:discord_user_id': value, kind: 'person' }`. Cheapest, per-provider.
+- **A generic `(kind, value)` identity record** on the person — one migration, provider-neutral,
+  and the shape the second and third non-email provider will want. Preferable if more than one
+  non-email channel is on the roadmap.
+
+Either way the hub side is identical: `resolveContact` passes the identity it already has, and the
+filter learns one more way to match.
 
 | Aspect | Assessment |
 |---|---|
@@ -855,6 +867,11 @@ key are provider-neutral, so the second non-email provider inherits both.
 suite. Add coverage for a public message composed with **no** email (accepted for a Discord channel,
 still rejected for an email channel), for `test-send` to a Discord channel id, and for a connected
 Discord channel persisting a non-null `externalIdentifier`.
+
+Under the recommended Variant A+, one more case is required, because it is the only proof the CRM
+unlock actually happened: with the non-email identity key populated on a CRM person, an inbound
+Discord message from that sender MUST resolve `matchedPersonId` to that person (and MUST still fall
+back to `displayName`, without failing ingest, when no person carries the key).
 
 Two notes for whoever picks this up. First, `TC-CHANNEL-DISCORD-003` does not exist on `develop` — it
 lives on the #4391 branch together with the rest of the provider suite (tracked by #4665), so a reader
