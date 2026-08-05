@@ -144,4 +144,23 @@ describe('customers customer-todos widget route', () => {
     })
     expect(listLegacyTodoRows).not.toHaveBeenCalled()
   })
+
+  it('does not narrow the canonical read to the todo adapter source in compatibility mode', async () => {
+    const { resolveCustomerInteractionFeatureFlags } =
+      jest.requireMock('../../../../../lib/interactionFeatureFlags')
+    const { listLegacyTodoRows, listCanonicalTodoRows } =
+      jest.requireMock('../../../../../lib/todoCompatibility')
+
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    listLegacyTodoRows.mockResolvedValue([])
+    listCanonicalTodoRows.mockResolvedValue({ items: [], bridgeIds: new Set<string>() })
+
+    const res = await GET(new Request('http://localhost/api?limit=5'))
+
+    expect(res.status).toBe(200)
+    expect(listCanonicalTodoRows).toHaveBeenCalledTimes(1)
+    const options = listCanonicalTodoRows.mock.calls[0][5]
+    expect(options).toMatchObject({ includeDeleted: true })
+    expect(options).not.toHaveProperty('source')
+  })
 })
