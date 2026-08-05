@@ -121,6 +121,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | **Spec & PR Automation** | |
 | Spec lifecycle (pre-implement → implement → write/update), code review, DS review | `.agents/skills/{om-spec-writing,om-code-review}/SKILL.md` + `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | `.agents/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-auto-qa-pr,om-merge-buddy,om-review-prs,om-close-fixed-issues,om-auto-update-changelog,om-prepare-issue}/SKILL.md` |
+| Cutting a release (version bump PR, tag, npm publish, release notes) | [`CONTRIBUTING.md`](CONTRIBUTING.md) → Releasing |
 | **Agent harness itself** | |
 | Editing this file or a package `AGENTS.md`; the instruction budget and boundary labels | [`.ai/docs/agent-instructions.md`](.ai/docs/agent-instructions.md) + `scripts/check-agents-md-budget.mjs` (`yarn agents:check-budget`) |
 
