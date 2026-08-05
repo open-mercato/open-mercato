@@ -3,13 +3,13 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 28,
-    "recordCount": 125,
-    "sourceRequiredCount": 100,
-    "readableCount": 125,
+    "recordCount": 126,
+    "sourceRequiredCount": 101,
+    "readableCount": 126,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
-    "installed-package targets: no emitted owner renders one yet, so no record carries an installed version or content hash.",
+    "installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.",
     "design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.",
     "preset and tier applicability: every emitted owner ships in every preset, so no record narrows it."
   ],
@@ -43,6 +43,20 @@
         "ui.datatable",
         "ui.datatable-perspectives-filters"
       ]
+    },
+    {
+      "referenceId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "href": "../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/backend/DataTable.tsx"
     },
     {
       "referenceId": "guides/backend-ui:references/surface-map.md",

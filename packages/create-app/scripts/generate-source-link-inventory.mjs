@@ -30,6 +30,7 @@ import {
   authoringPathOfEmittedPath,
   deriveTopicId,
   emittedMarkdownOwners,
+  installedPackageTarget,
   relativeMarkdownLinkHrefs,
   HARNESS_RELATIVE_DIR,
 } from './validate-source-links.mjs'
@@ -66,6 +67,8 @@ export const PROJECTED_RECORD_FIELDS = Object.freeze([
   'resolvedPath',
   'moduleId',
   'capabilityIds',
+  'packageName',
+  'packageRelativePath',
 ])
 
 export const SURFACE_INVENTORY_RELATIVE_PATH =
@@ -321,6 +324,16 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
     } else {
       record.evidence = topic.evidence
     }
+    // An installed target names the package that publishes it and the path inside that package.
+    // Version and content hash are deliberately NOT recorded here: they are properties of the
+    // package a given app actually installed, so the evaluator reads them from that install at
+    // read time. Freezing them at derivation would be asserting something about someone else's
+    // node_modules.
+    const installed = installedPackageTarget(resolvedPath)
+    if (installed) {
+      record.packageName = installed.packageName
+      record.packageRelativePath = installed.packageRelativePath
+    }
     records.push(record)
   }
 
@@ -341,7 +354,7 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
       baselineSha: typeof baseline?.baselineSha === 'string' ? baseline.baselineSha : null,
     },
     notCovered: [
-      'installed-package targets: no emitted owner renders one yet, so no record carries an installed version or content hash.',
+      'installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.',
       'design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.',
       'preset and tier applicability: every emitted owner ships in every preset, so no record narrows it.',
     ],

@@ -317,19 +317,68 @@ harness link-parity guarantee CANON-C is supposed to provide, and it does not ho
 Fabricating references would have meant inventing links no owner renders, so it is recorded here
 for the wave that owns owner rendering.
 
+## Wave 2, slice C — installed-package references INTEGRATED, family 4 CLOSED
+
+The blocker recorded above did not survive the same session. The recon's falsification was correct
+and acting on it was cheap.
+
+**The spec's deferral rationale was false.** Spec L686/L690 defers every `installed-package` target
+because *"no gate in this batch can verify a packed artifact"*. `npm pack --dry-run --json` **is**
+that gate — it lists the tarball contents without building or publishing, and
+`packages/ui` packs `src/backend/DataTable.tsx` (verified: 1437 packed files, that path among them).
+
+What landed:
+
+- `validate-source-links.mjs` resolves a `node_modules/@open-mercato/<pkg>/src/**` link against the
+  **publishing workspace package** and then against **what that package actually packs**. A file
+  present in the workspace but excluded from the tarball is a dead link in every real app, and is
+  now rejected as one.
+- `.ai/guides/backend-ui.md` renders one such link, to the exact installed DataTable implementation.
+- The inventory record carries `packageName` and `packageRelativePath`. It deliberately does **not**
+  carry version or content hash: those belong to the install a given app made, so the evaluator
+  reads them from that install at read time. Freezing them at derivation would be asserting
+  something about someone else's `node_modules`.
+- Four fixtures: the shipped record is packed-verified against the real `npm pack`; a declared
+  installed reference is followed directly **with no reason code** (asserted against
+  `trace.fallback`, so it cannot be confused with the family-5 fallback lane) and the trace carries
+  package, version and hash; a sibling in the same packed directory is refused; and a target the
+  app never installed fails closed.
+
+### Two things the change broke, both of which were right to break
+
+1. **A guide-budget violation.** The first version of the added paragraph pushed a case's declared
+   initial context to 53291 bytes against a 53248 limit — 43 bytes over. The budget exists to keep
+   guides tight, so the prose was tightened rather than the budget raised.
+2. **A duplicated invariant.** `context-guidance-contracts.test.ts` carries its own copy of "every
+   emitted owner links only to files a scaffolded app really has". It now **imports**
+   `installedPackageTarget`/`packedFilesOf` from the validator instead of gaining a third
+   re-implementation of the same rule.
+
+### Ledger after slice C: seven covered, two partial, three uncovered
+
+| Family | Status | Note |
+|---|---|---|
+| 4 | **covered** | Installed-package lane, end to end. |
+| 6 | **covered** | Declared-link negative half. |
+| 8 | partial | Only preset/tier applicability remains: every emitted owner ships in every preset, so no record narrows to one and "wrong preset" has nothing to be wrong about yet. |
+| 9 | partial | Still needs the writable case. |
+| 10, 11, 12 | uncovered | Untouched by this work. |
+
 ### Still open in slice C
 
 - A **writable** shipped case declaring `exampleRoots` (family 9's second clause). Requires a new
   case beyond `OMH-216`, so it also moves `cases.schema.json`'s `minItems`/`maxItems`/id pattern,
   the fixture seeds, a validator ID and a writable oracle. Not started.
-- The installed-package reference work above (families 4 and 8's remainder).
+- Preset/tier applicability on inventory records (family 8's remainder).
+- Visible links for OMH-215's and OMH-216's capabilities, so those two cases can declare
+  references at all.
 
 ### Wave state
 
 | Wave | Slices | Status |
 |---|---|---|
 | 1 | A, E, H | **INTEGRATED** `3e27096ca` |
-| 2 | C (schema/evaluator/cases), F | C **partly integrated** `baf17a6ff`, `ad864d30e`; C's writable case + installed-package half open; F not started |
+| 2 | C (schema/evaluator/cases), F | C **mostly integrated** `baf17a6ff`, `ad864d30e`, plus the installed-package lane; C's writable case + preset/tier applicability open; F not started |
 | 3 | D, G | pending |
 | 4 | B (15 integration specs) | pending — and they must be RUN, see the corrected constraint above |
 | 5 | I + spec changelogs | pending |

@@ -154,6 +154,72 @@ export function authoringPathOfEmittedPath(appRelativePath) {
   return null
 }
 
+// An installed-package target is the one link kind that does NOT live in the generated app's own
+// tree: it lives in a package the app installs. It is validated against the workspace package
+// that publishes it, and — decisively — against what that package actually PACKS. A file present
+// in the workspace but excluded from the tarball would be a dead link in every real app.
+const INSTALLED_PACKAGE_TARGET = /^node_modules\/(@open-mercato\/[a-z0-9][a-z0-9._-]*)\/(src\/.+)$/
+
+/** Split an installed-package target into its package name and package-relative path. */
+export function installedPackageTarget(resolvedPath) {
+  const match = INSTALLED_PACKAGE_TARGET.exec(resolvedPath)
+  if (!match) return null
+  return {
+    packageName: match[1],
+    packageRelativePath: match[2],
+    workspaceDir: `packages/${match[1].slice('@open-mercato/'.length)}`,
+  }
+}
+
+const packedFileCache = new Map()
+
+/**
+ * The exact file set `npm pack` would ship for a workspace package.
+ *
+ * The canonical spec defers installed-package targets because "no gate in this batch can verify a
+ * packed artifact". That is false, and this is the gate: `npm pack --dry-run --json` reports the
+ * tarball contents without building or publishing anything. `--ignore-scripts` keeps it read-only.
+ */
+export function packedFilesOf(repoRootPath, workspaceDir) {
+  if (packedFileCache.has(workspaceDir)) return packedFileCache.get(workspaceDir)
+  let files = null
+  try {
+    const raw = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+      cwd: path.join(repoRootPath, workspaceDir),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024 * 1024,
+    })
+    const parsed = JSON.parse(raw)
+    files = new Set((parsed?.[0]?.files ?? []).map((entry) => entry.path))
+  } catch {
+    files = null
+  }
+  packedFileCache.set(workspaceDir, files)
+  return files
+}
+
+function installedTargetErrors(repoRootPath, href, resolved) {
+  const target = installedPackageTarget(resolved)
+  if (target === null) {
+    return [`link "${href}" resolves to "${resolved}", which is not an exact @open-mercato package src file`]
+  }
+  const absolute = path.join(repoRootPath, target.workspaceDir, target.packageRelativePath)
+  try {
+    if (!fs.statSync(absolute).isFile()) {
+      return [`link "${href}" resolves to "${resolved}", which is not a regular file in ${target.workspaceDir}`]
+    }
+  } catch {
+    return [`link "${href}" resolves to "${resolved}", which ${target.workspaceDir} does not contain`]
+  }
+  const packed = packedFilesOf(repoRootPath, target.workspaceDir)
+  if (packed === null) return [`link "${href}" cannot be verified: npm pack failed for ${target.workspaceDir}`]
+  if (!packed.has(target.packageRelativePath)) {
+    return [`link "${href}" targets "${target.packageRelativePath}", which ${target.packageName} does not pack`]
+  }
+  return []
+}
+
 /** Every emitted Markdown knowledge owner, as its app-relative path. */
 export function emittedMarkdownOwners(packageRoot) {
   const owners = ['AGENTS.md']
@@ -311,6 +377,11 @@ function targetResolutionErrors(packageRoot, owner, href, resolved) {
   }
   if (resolved.split('/').some((segment) => NON_EMITTED_TREE_SEGMENTS.has(segment))) {
     return [`link "${href}" targets a path the scaffolder never copies into a generated app`]
+  }
+  // An installed-package target is resolved against the publishing workspace package and its
+  // packed file list, not against the scaffolder's own authoring tree.
+  if (resolved.startsWith('node_modules/')) {
+    return installedTargetErrors(path.join(packageRoot, '..', '..'), href, resolved)
   }
   const authoring = authoringPathOfEmittedPath(resolved)
   if (authoring === null) return [`link "${href}" resolves to an unrecognized app path "${resolved}"`]

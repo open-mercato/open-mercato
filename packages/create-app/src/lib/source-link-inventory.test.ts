@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -30,6 +31,8 @@ type Record_ = {
   href?: string
   renderedLinkCount?: number
   evidence?: string
+  packageName?: string
+  packageRelativePath?: string
 }
 
 type Inventory = {
@@ -226,17 +229,44 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 100)
-  assert.equal(inventory.records.length, 125)
-  assert.equal(inventory.derived.renderedLinkCount, 102)
+  // 101 source-required of 126: the extra one over the canonical-example set is the single
+  // installed-package link `.ai/guides/backend-ui.md` renders into `@open-mercato/ui`.
+  assert.equal(inventory.derived.sourceRequiredCount, 101)
+  assert.equal(inventory.records.length, 126)
+  assert.equal(inventory.derived.renderedLinkCount, 103)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 100)
+  assert.equal(sourceRequired.length, 101)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
+
+    // An installed-package target is not authored inside `packages/create-app` at all: a
+    // generated app gets it by INSTALLING the package. It is therefore resolved against the
+    // publishing workspace package and, decisively, against what that package packs — a file
+    // present in the workspace but excluded from the tarball is a dead link in every real app.
+    if (record.targetKind === 'installed-package') {
+      assert.equal(record.targetAuthoringPath, null, `${record.topicId} is installed, not authored here`)
+      const installed = record as unknown as { packageName: string; packageRelativePath: string }
+      assert.ok(installed.packageName?.startsWith('@open-mercato/'))
+      const workspaceDir = path.join(repoRoot, 'packages', installed.packageName.slice('@open-mercato/'.length))
+      assert.ok(fs.statSync(path.join(workspaceDir, installed.packageRelativePath)).isFile())
+      const packed = JSON.parse(execFileSync(
+        'npm',
+        ['pack', '--dry-run', '--json', '--ignore-scripts'],
+        { cwd: workspaceDir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+      )) as Array<{ files: Array<{ path: string }> }>
+      assert.ok(
+        packed[0].files.some((entry) => entry.path === installed.packageRelativePath),
+        `${record.topicId} links a path ${installed.packageName} does not pack`,
+      )
+      const ownerSourceForInstalled = fs.readFileSync(path.join(packageRoot, record.originAuthoringPath as string), 'utf8')
+      assert.ok(ownerSourceForInstalled.includes(`](${record.href})`), `${record.topicId} must be rendered by its owner`)
+      continue
+    }
+
     assert.ok(record.targetAuthoringPath, `${record.topicId} must resolve to an authored file`)
     const absolute = path.join(packageRoot, record.targetAuthoringPath as string)
     assert.ok(fs.statSync(absolute).isFile(), `${record.topicId} must resolve to a regular file`)
@@ -312,6 +342,9 @@ test('capability joins come from the example surface inventory, not from the top
   assert.deepEqual(
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
+      // The installed UI implementation joins no example capability: it is the framework's own
+      // component, not a canonical-example surface.
+      'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
       'src/modules/example/README.md',
       'src/modules/example/references/surface-inventory.json',
       'src/modules/example/references/surface-map.md',
@@ -555,7 +588,9 @@ test('derivation helpers classify targets by their real shape', () => {
 test('the inventory records what it does not cover instead of implying coverage', () => {
   const inventory = checkedInventory()
   assert.ok(inventory.notCovered.length > 0)
-  assert.ok(inventory.records.every((record) => record.targetKind !== 'installed-package'))
-  assert.ok(inventory.notCovered.some((note) => note.startsWith('installed-package targets:')))
+  // Installed-package targets ARE covered now; what stays uncovered is their version and hash,
+  // which belong to the install a given app made rather than to this derivation.
+  assert.ok(inventory.records.some((record) => record.targetKind === 'installed-package'))
+  assert.ok(inventory.notCovered.some((note) => note.startsWith('installed-package version and content hash:')))
   assert.match(inventory.generatedNote, /Never hand-edit/)
 })

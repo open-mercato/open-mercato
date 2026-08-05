@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -2063,6 +2064,153 @@ function declaredReferenceOwners(entry: { context: Record<string, unknown> }): s
   return [...new Set(declared.map((referenceId) => recordIn(records, referenceId).originAsset))]
 }
 
+// ---------------------------------------------------------------------------------------------
+// Spec family 4 — a routed owner renders a visible link into an installed package, the case
+// follows that exact packed file directly, and the trace records reference ID, package, version
+// and content hash. This is NOT the reason-gated fallback of family 5: no reason code is
+// involved, because the link was declared.
+// ---------------------------------------------------------------------------------------------
+
+const INSTALLED_REFERENCE_ID = 'guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx'
+const INSTALLED_TARGET = 'node_modules/@open-mercato/ui/src/backend/DataTable.tsx'
+const INSTALLED_PACKAGE_VERSION = '9.9.9-fixture'
+
+/** Stage the packed UI file the installed reference names, with a resolvable package identity. */
+function stageInstalledReferenceTarget(root: string, body: string): string {
+  const packageDir = path.join(root, 'node_modules', '@open-mercato', 'ui')
+  fs.mkdirSync(path.join(packageDir, 'src', 'backend'), { recursive: true })
+  fs.writeFileSync(
+    path.join(packageDir, 'package.json'),
+    `${JSON.stringify({ name: '@open-mercato/ui', version: INSTALLED_PACKAGE_VERSION }, null, 2)}\n`,
+  )
+  const absolute = path.join(packageDir, 'src', 'backend', 'DataTable.tsx')
+  fs.writeFileSync(absolute, body)
+  return absolute
+}
+
+function installedReferenceCase(): CaseRecord {
+  return {
+    context: {
+      required: ['AGENTS.md', REFERENCE_OWNER],
+      forbidden: ['.env'],
+      sourceReferenceIds: [INSTALLED_REFERENCE_ID],
+      exampleRoots: [{
+        root: EXAMPLE_ROOT,
+        entrypoints: ENTRYPOINTS,
+        allowedCapabilityIds: ['ui.datatable'],
+        maxFiles: 12,
+        maxBytes: 131_072,
+      }],
+    },
+  }
+}
+
+test('family 12: the shipped inventory carries an installed-package reference the UI package really packs', () => {
+  const record = recordIn(projectedInventory().records, INSTALLED_REFERENCE_ID)
+  assert.equal(record.targetKind, 'installed-package')
+  assert.equal(record.readStatus, 'readable')
+  assert.equal(record.resolvedPath, INSTALLED_TARGET)
+  assert.equal((record as unknown as { packageName: string }).packageName, '@open-mercato/ui')
+  assert.equal((record as unknown as { packageRelativePath: string }).packageRelativePath, 'src/backend/DataTable.tsx')
+
+  // The record is only honest if the workspace package genuinely publishes that exact path. The
+  // canonical spec deferred this whole family claiming no gate could verify a packed artifact;
+  // `npm pack --dry-run --json` is that gate, and it is what the link validator runs.
+  const packed = JSON.parse(spawnSync(
+    'npm',
+    ['pack', '--dry-run', '--json', '--ignore-scripts'],
+    { cwd: fileURLToPath(new URL('../../../ui/', import.meta.url)), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  ).stdout) as Array<{ files: Array<{ path: string }> }>
+  assert.ok(
+    packed[0].files.some((entry) => entry.path === 'src/backend/DataTable.tsx'),
+    '@open-mercato/ui must actually pack the file the inventory links',
+  )
+})
+
+test('family 12: a declared installed reference is followed directly, with no reason code, and the trace records package, version and hash', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const body = 'export function DataTable() { return null }\n'
+    stageInstalledReferenceTarget(root, body)
+    const caseRecord = installedReferenceCase()
+    assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(caseRecord, root), [])
+
+    const trace = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), { path: REFERENCE_OWNER }, { path: INSTALLED_TARGET }],
+    })
+    assert.equal(trace.firstViolation, null)
+    // Decisively NOT the fallback lane: no reason code was declared or consumed.
+    assert.equal(trace.fallback.reason, null)
+    assert.equal(trace.fallback.files, 0)
+    assert.equal((caseRecord.context as Record<string, unknown>).installedVersionFallback, undefined)
+
+    assert.deepEqual(trace.references.followed.map((entry) => entry.referenceId), [INSTALLED_REFERENCE_ID])
+    const followed = trace.references.followed[0]
+    assert.equal(followed.targetKind, 'installed-package')
+    assert.equal(followed.package, '@open-mercato/ui')
+    assert.equal(followed.version, INSTALLED_PACKAGE_VERSION)
+    assert.equal(followed.hash, createHash('sha256').update(body).digest('hex'))
+    // The read is charged to the declaring root's normal budget, not to a separate allowance.
+    assert.equal(trace.roots[0].files, 3)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: an installed reference grants no sibling, no directory, and nothing before the owner', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    stageInstalledReferenceTarget(root, 'export function DataTable() { return null }\n')
+    const sibling = 'node_modules/@open-mercato/ui/src/backend/Sibling.tsx'
+    fs.writeFileSync(path.join(root, sibling), 'export const sibling = true\n')
+    const caseRecord = installedReferenceCase()
+
+    const allowlist = evaluator.exampleReadAllowlist(caseRecord, root)
+    assert.ok(allowlist.includes(INSTALLED_TARGET))
+    assert.ok(!allowlist.includes(sibling))
+    assert.ok(!allowlist.includes('node_modules/@open-mercato/ui/src/backend'))
+
+    // A sibling in the same packed directory is refused: the case declares no fallback, and the
+    // reference grants exactly one file.
+    const siblingTrace = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), { path: REFERENCE_OWNER }, { path: sibling }],
+    })
+    assert.match(siblingTrace.firstViolation ?? '', /installed-source fallback is not enabled/)
+
+    // And the declared target itself is still refused before its owner is read.
+    const earlyTrace = evaluator.evaluateExampleReadPolicy({
+      caseRecord,
+      appRoot: root,
+      reads: [...entrypointReads(), { path: INSTALLED_TARGET }],
+    })
+    assert.match(earlyTrace.firstViolation ?? '', /followed before its origin owner was read/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: an installed reference whose packed target is missing from the app fails closed', async () => {
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    // The app never installed the package, so the declared link is dead in THIS app.
+    const caseRecord = installedReferenceCase()
+    assert.ok(
+      evaluator.validateExampleReadPolicyDeclaration(caseRecord, root)
+        .some((message) => /target is dead or unreadable/.test(message)),
+    )
+    assert.ok(!evaluator.exampleReadAllowlist(caseRecord, root).includes(INSTALLED_TARGET))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 function recordIn(records: InventoryRecord[], referenceId: string): InventoryRecord {
   const found = records.find((entry) => entry.referenceId === referenceId)
   assert.ok(found, `the shipped projection must still carry ${referenceId}`)
@@ -2101,9 +2249,9 @@ const FIXTURE_FAMILY_TO_SPEC_FAMILIES: Record<number, number[]> = {
   9: [],
   10: [7],
   11: [1, 9],
-  // Declared source references: the visible-link half of spec families 6 and 8. NOT family 4 —
-  // that one needs an INSTALLED-PACKAGE declared reference, and no emitted owner renders one yet.
-  12: [6, 8],
+  // Declared source references: spec family 4 (the installed-package lane) plus the visible-link
+  // half of families 6 and 8.
+  12: [4, 6, 8],
 }
 
 const COVERAGE_LEDGER: LedgerRow[] = [
@@ -2132,10 +2280,15 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 4,
-    status: 'uncovered',
-    fixtures: [],
-    blockedBy: ['an installed-package record in the source-link inventory'],
-    note: 'Updated on 2026-08-05: the blocker MOVED rather than cleared, and it is now much smaller. `context.sourceReferenceIds` exists — schema field, evaluator resolution, allowlist widening, and a trace that records the reference id plus package/version/hash for an installed target (`installedTargetIdentity`). What this family still cannot prove is the INSTALLED half: every one of the 125 inventory records is `canonical-example` or `local-owner`, because no emitted Markdown owner renders a link into `node_modules/@open-mercato/*/src/**` yet. Rendering one requires `validate-source-links.mjs` to resolve an installed target against its workspace package and prove packed presence, which does not exist. Until then a fixture could only assert package/version/hash against a hand-written inventory the harness does not ship — exactly the vacuous shape this file exists to reject.',
+    status: 'covered',
+    fixtures: [
+      'family 12: the shipped inventory carries an installed-package reference the UI package really packs',
+      'family 12: a declared installed reference is followed directly, with no reason code, and the trace records package, version and hash',
+      'family 12: an installed reference grants no sibling, no directory, and nothing before the owner',
+      'family 12: an installed reference whose packed target is missing from the app fails closed',
+    ],
+    blockedBy: [],
+    note: 'Closed on 2026-08-05. The canonical spec deferred this family claiming no gate in the batch could verify a packed artifact; `npm pack --dry-run --json` IS that gate, so the deferral rationale was falsifiable and is now falsified. `.ai/guides/backend-ui.md` renders a visible link to `node_modules/@open-mercato/ui/src/backend/DataTable.tsx`, the link validator resolves it against the publishing workspace package AND its packed file list, and the trace records reference id, package, version and content hash from the app`s own install rather than freezing them at derivation. Historical note, since it explains the shape of the fixtures: the blocker used to be that the field itself did not exist — `context.sourceReferenceIds` exists — schema field, evaluator resolution, allowlist widening, and a trace that records the reference id plus package/version/hash for an installed target (`installedTargetIdentity`). What this family still cannot prove is the INSTALLED half: every one of the 125 inventory records is `canonical-example` or `local-owner`, because no emitted Markdown owner renders a link into `node_modules/@open-mercato/*/src/**` yet. Rendering one requires `validate-source-links.mjs` to resolve an installed target against its workspace package and prove packed presence, which does not exist. Until then a fixture could only assert package/version/hash against a hand-written inventory the harness does not ship — exactly the vacuous shape this file exists to reject.',
   },
   {
     specFamily: 5,
@@ -2192,8 +2345,8 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 12: a reference whose origin owner is not routed to the case is refused',
       'family 12: a declared reference widens the read allowlist by exactly one exact file',
     ],
-    blockedBy: ['an installed-package record in the source-link inventory'],
-    note: 'Updated on 2026-08-05. Legacy root, stale mapping, qa-only status, ordinary-surface fallback, and now the declared-reference half — orphan ID, qa-only target, unrouted origin owner, and following a link before reading the owner that renders it — are covered. What remains blocked is the same installed-package gap as spec family 4: wrong preset/tier, wrong installed version, unpublished path, and workspace-only target all need packed-package resolution, and no inventory record is `installed-package` yet.',
+    blockedBy: ['a preset-narrowed or tier-narrowed inventory record'],
+    note: 'Updated on 2026-08-05. Legacy root, stale mapping, qa-only status, ordinary-surface fallback, the declared-reference half — orphan ID, qa-only target, unrouted origin owner, and following a link before reading the owner that renders it — are covered. and the installed-package half — an unpublished path is rejected by the packed-file gate, and a target the app never installed fails closed — are covered. What remains is preset/tier applicability: every emitted owner ships in every preset today, so no record narrows to one, and `wrong preset` and `wrong tier` have nothing to be wrong about yet.',
   },
   {
     specFamily: 9,
@@ -2235,8 +2388,10 @@ const COVERAGE_LEDGER: LedgerRow[] = [
 const MISSING_SURFACES: Record<string, () => boolean> = {
   // The declared-reference field exists now, so the remaining gap is the INSTALLED half: an
   // inventory record whose target is a packed package file rather than app-local source.
-  'an installed-package record in the source-link inventory': () => projectedInventory().records
-    .every((record) => record.targetKind !== 'installed-package'),
+  // Every emitted owner ships in every preset today, so no inventory record narrows to one.
+  'a preset-narrowed or tier-narrowed inventory record': () => projectedInventory().records
+    .every((record) => (record as unknown as Record<string, unknown>).presets === undefined
+      && (record as unknown as Record<string, unknown>).tiers === undefined),
   'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
     .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
@@ -2314,14 +2469,14 @@ test('ledger: every gap the ledger claims is a surface that is genuinely absent 
   }
 })
 
-test('ledger: the honest coverage count is six covered, two partial, and four uncovered of twelve', () => {
-  // Moved on 2026-08-05: family 6 closed outright when the declared-link negative half landed,
-  // and family 8 kept only its installed-package remainder. Families 4, 10, 11 and 12 are
-  // untouched — the declared-reference work did not reach any of them.
+test('ledger: the honest coverage count is seven covered, two partial, and three uncovered of twelve', () => {
+  // Moved on 2026-08-05: family 6 closed when the declared-link negative half landed, family 4
+  // closed when the installed-package lane landed, and family 8 kept only its preset/tier
+  // remainder. Families 10, 11 and 12 are untouched — this work did not reach any of them.
   const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
-  assert.deepEqual(tally('covered'), [1, 2, 3, 5, 6, 7])
+  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7])
   assert.deepEqual(tally('partial'), [8, 9])
-  assert.deepEqual(tally('uncovered'), [4, 10, 11, 12])
+  assert.deepEqual(tally('uncovered'), [10, 11, 12])
   assert.equal(COVERAGE_LEDGER.length, 12)
 })
 
