@@ -475,6 +475,27 @@ test('the repository inventory is never copied into a scaffolded app; only its p
   }
 })
 
+test('the projection lands at the exact path harness cases resolve references against', () => {
+  // `shared.ts` emits `agentic/shared/ai/**` to `.ai/**` wholesale, so the projection's path
+  // under that tree IS its path in a scaffolded app. The evaluator hard-codes the app-side path;
+  // this pins the two ends together so moving one without the other fails here.
+  const underAgenticAi = path.relative(
+    path.join(packageRoot, 'agentic/shared/ai'),
+    path.join(repoRoot, generator.PROJECTION_RELATIVE_PATH),
+  ).split(path.sep).join('/')
+  assert.equal(underAgenticAi, 'harness/source-link-inventory.json')
+
+  const evaluatorSource = fs.readFileSync(
+    path.join(packageRoot, 'agentic/shared/scripts/evaluate-agent-harness.mjs'),
+    'utf8',
+  )
+  assert.match(
+    evaluatorSource,
+    new RegExp(`SOURCE_LINK_INVENTORY_RELATIVE = '\\.ai/${underAgenticAi.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`),
+  )
+  assert.ok(fs.existsSync(path.join(repoRoot, generator.PROJECTION_RELATIVE_PATH)))
+})
+
 test('a source reference id and its topic id are deliberately the same string', () => {
   // Two identifier spaces would be free to drift; this pins them as one. If a later change wants
   // separate IDs it has to change this assertion and say why.

@@ -80,7 +80,7 @@ function capability(id: string): Capability {
  * Stage a fresh-standalone-shaped app that carries the REAL emitted example references, so the
  * fixtures fail when the shipped inventory drifts away from the paths they exercise.
  */
-function stageExampleApp(): string {
+function stageExampleApp(mutateInventory?: (records: InventoryRecord[]) => void): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-example-policy-')))
   const exampleRoot = path.join(root, EXAMPLE_ROOT)
   fs.mkdirSync(path.join(exampleRoot, 'references'), { recursive: true })
@@ -102,6 +102,21 @@ function stageExampleApp(): string {
     'export async function GET() { return new Response() }\n',
   )
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"om-example-policy-fixture","private":true}\n')
+
+  // A real scaffold always ships the emitted source-link projection and the owners it names, so
+  // every fixture gets them. `mutateInventory` lets one fixture stage its own defect in a copy.
+  const inventory = projectedInventory()
+  if (mutateInventory) mutateInventory(inventory.records)
+  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, '.ai', 'harness', 'source-link-inventory.json'),
+    `${JSON.stringify(inventory, null, 2)}\n`,
+  )
+  for (const owner of new Set(inventory.records.map((entry) => entry.originAsset))) {
+    const absolute = path.join(root, owner)
+    fs.mkdirSync(path.dirname(absolute), { recursive: true })
+    if (!fs.existsSync(absolute)) fs.writeFileSync(absolute, `# staged owner ${owner}\n`)
+  }
   return root
 }
 
@@ -148,20 +163,11 @@ function stageExampleAppWithReferences(mutate?: (records: InventoryRecord[]) => 
   root: string
   reference: InventoryRecord
 } {
-  const root = stageExampleApp()
-  const inventory = projectedInventory()
-  if (mutate) mutate(inventory.records)
-  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
-  fs.writeFileSync(
-    path.join(root, '.ai', 'harness', 'source-link-inventory.json'),
-    `${JSON.stringify(inventory, null, 2)}\n`,
-  )
-  for (const owner of new Set(inventory.records.map((entry) => entry.originAsset))) {
-    const absolute = path.join(root, owner)
-    fs.mkdirSync(path.dirname(absolute), { recursive: true })
-    if (!fs.existsSync(absolute)) fs.writeFileSync(absolute, `# staged owner ${owner}\n`)
-  }
-  const reference = inventory.records.find((entry) => entry.referenceId === REFERENCE_ID)
+  const root = stageExampleApp(mutate)
+  const staged = JSON.parse(
+    fs.readFileSync(path.join(root, '.ai', 'harness', 'source-link-inventory.json'), 'utf8'),
+  ) as { records: InventoryRecord[] }
+  const reference = staged.records.find((entry) => entry.referenceId === REFERENCE_ID)
   assert.ok(reference, `the shipped projection must still carry ${REFERENCE_ID}`)
   return { root, reference }
 }
@@ -1149,13 +1155,25 @@ test('reachability: every shipped declaring case reads its own capability set en
       const allowed = declaredCapabilityIds(entry)
       const reads: PolicyRead[] = [
         ...entrypointReads(),
+        // A case that declares source references must read the owners rendering those links
+        // before it may follow them, so the reachability sequence includes them — exactly the
+        // order a real run produces. Owners are routed context and are not charged to the root.
+        ...declaredReferenceOwners(entry).map((owner) => ({ path: owner })),
         ...allowed.flatMap((id) => capability(id).sourcePaths.map((source) => ({ path: source }))),
       ]
       const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: entry, appRoot: root, reads })
       assert.equal(trace.firstViolation, null, `${entry.id} must be able to read its own declared capabilities`)
       assert.equal(trace.roots.length, 1, `${entry.id} must account exactly one root`)
       assert.deepEqual(trace.roots[0].entrypoints, ENTRYPOINTS, `${entry.id} must record both entrypoints`)
-      assert.equal(trace.roots[0].files, new Set(reads.map((read) => read.path)).size, `${entry.id} must charge every distinct read`)
+      // Only in-root reads are charged to the root budget; a routed owner is ordinary context
+      // and is governed by the case's own context budgets instead.
+      const inRoot = new Set(reads.map((read) => read.path).filter((read) => read.startsWith(`${EXAMPLE_ROOT}/`)))
+      assert.equal(trace.roots[0].files, inRoot.size, `${entry.id} must charge every distinct in-root read`)
+      assert.deepEqual(
+        reads.map((read) => read.path).filter((read) => !read.startsWith(`${EXAMPLE_ROOT}/`)),
+        declaredReferenceOwners(entry),
+        `${entry.id}: the only out-of-root reads in this sequence are its declared reference owners`,
+      )
       assert.ok(trace.roots[0].capabilities.length > 0, `${entry.id} must resolve at least one capability`)
       for (const resolved of trace.roots[0].capabilities) {
         assert.ok(allowed.includes(resolved), `${entry.id} resolved an undeclared capability ${resolved}`)
@@ -2036,6 +2054,14 @@ test('family 12: a missing or malformed projection fails closed instead of grant
     }
   }
 })
+
+/** The emitted owners that render the links a shipped case declares. */
+function declaredReferenceOwners(entry: { context: Record<string, unknown> }): string[] {
+  const declared = (entry.context.sourceReferenceIds ?? []) as string[]
+  if (!declared.length) return []
+  const records = projectedInventory().records
+  return [...new Set(declared.map((referenceId) => recordIn(records, referenceId).originAsset))]
+}
 
 function recordIn(records: InventoryRecord[], referenceId: string): InventoryRecord {
   const found = records.find((entry) => entry.referenceId === referenceId)

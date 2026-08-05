@@ -14183,6 +14183,10 @@
         ".env*",
         ".git/**"
       ],
+      "sourceReferenceIds": [
+        "om-data-model-design/schema-design:data/entities.ts",
+        "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts"
+      ],
       "exampleRoots": [
         {
           "root": "src/modules/example",
@@ -14295,6 +14299,10 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts"
       ],
       "exampleRoots": [
         {
@@ -14413,6 +14421,10 @@
         ".env*",
         ".git/**"
       ],
+      "sourceReferenceIds": [
+        "guides/backend-ui:components/TodoForm.tsx",
+        "guides/backend-ui:components/TodosTable.tsx"
+      ],
       "exampleRoots": [
         {
           "root": "src/modules/example",
@@ -14524,6 +14536,10 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-module-scaffold/api-and-domain:commands/todos.ts",
+        "om-module-scaffold/module-surfaces:events.ts"
       ],
       "exampleRoots": [
         {
