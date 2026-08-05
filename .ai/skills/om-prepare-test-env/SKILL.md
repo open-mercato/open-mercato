@@ -126,25 +126,46 @@ reuse decisions.
 A before/after UI QA run repoints the **same** worktree at another commit and boots again. Two traps
 make that silently serve the wrong build, and both produce evidence that looks real and is not:
 
-- **`--force` is not enough.** It skips the descriptor's reuse check, but the repo CLI's build cache
-  is TTL-based, so the app restarts from the **previous** commit's `.next` artifacts. Symptom: the
-  "before" and "after" screenshots are byte-identical and `startedAt` in the descriptor never moves.
-  Use `--force-rebuild`, which sets `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=0`.
-- **Killing the pids is not enough either.** The CLI runs its own reuse check and reattaches to
-  anything still answering on the app port, logging `Reusing existing ephemeral environment at …`.
-  Run `test-env-down.sh` first and confirm the port is free before booting again.
+- **`--force` is not enough.** It skips the entrypoint descriptor's own reuse check, but the repo
+  CLI still decides independently whether to rebuild, and it can reuse the **previous** commit's
+  `.next` artifacts. Symptom: the "before" and "after" screenshots are byte-identical and `startedAt`
+  in the descriptor never moves. Use `--force-rebuild`, which sets
+  `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=0`.
+- **Killing the pids is not enough either.** The CLI's reuse decision is driven by its state file
+  `.ai/qa/ephemeral-env.json` (`EPHEMERAL_ENV_FILE_PATH`,
+  `packages/cli/src/lib/testing/integration.ts:269`), **not** by probing the app port — it logs
+  `Reusing existing ephemeral environment at …` (`integration.ts:2062`) after reading that file. So
+  deleting the file does not help while the previous launcher is alive, because that process keeps
+  republishing it. Run `test-env-down.sh` and confirm the port is free before booting again; the
+  teardown is the remedy, not the `rm`.
 
-**Always verify the rebuild actually happened before trusting evidence.** A fresh ephemeral Postgres
-port in `services[0].url` plus a moved `startedAt` is the confirmation — and the new port means any
-row you seeded is gone, so re-seed after every rebuild. Recording the built commit in the descriptor
-(and forcing a rebuild when it changes, or is unknown) turns this from a manual check into a guard.
+Know what the CLI's rebuild guards actually are, so a surprise is recognisable. There are two: the
+age of the environment against `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS` (default
+`DEFAULT_BUILD_CACHE_TTL_SECONDS = 600`, `integration.ts:157-159`), and an mtime check,
+`hasBuildInputChangesSince(startedAtMs)` (`integration.ts:2047`), which logs `Source files changed
+since the current ephemeral environment started. Rebuilding.` Reuse has been observed **despite**
+that second guard, so do not treat "I changed files, therefore it rebuilt" as safe.
+
+**That is why the rule is to verify the rebuild rather than to reason about the guards.** A fresh
+ephemeral Postgres port in `services[0].url` plus a moved `startedAt` is the confirmation — and the
+new port means any row you seeded is gone, so re-seed after every rebuild. Recording the built commit
+in the descriptor and forcing a rebuild when it changes, or is unknown, turns this into a guard — but
+note that this lives in the generated `.ai/scripts/test-env-up.sh`, which is gitignored
+(`.gitignore:145`, `.ai/scripts/test-env-*`) and regenerated per checkout. A fresh clone does **not**
+inherit it, and must verify manually or re-add it.
 
 ## Seeding rows the UI needs — 2026-08-05
 
-`users.email` is encrypted at rest, so `select … from users where email = 'admin@acme.com'` finds
-nothing and a seed script keyed on it fails. Resolve the acting identity through the app instead:
-`POST /api/auth/login` with a form-encoded body, then read `sub` / `tenantId` / `orgId` out of the
-returned JWT payload and insert the fixture rows with those ids.
+`users.email` is encrypted at rest with a per-row IV
+(`packages/core/src/modules/auth/data/entities.ts:8`), so `select … from users where email =
+'admin@acme.com'` finds nothing and a seed script keyed on it fails. Two ways out:
+
+- **Simplest when the script already has credentials:** resolve the identity through the app —
+  `POST /api/auth/login` with a form-encoded body, then read `sub` / `tenantId` / `orgId` out of the
+  returned JWT payload and insert the fixture rows with those ids.
+- **When you must stay in SQL:** the schema keeps a deterministic, indexed `email_hash` for exactly
+  this lookup (`entities.ts:27-29`, index `users_email_hash_idx`) — key on that column rather than on
+  the encrypted `email`.
 
 ## Driving the backoffice login — 2026-08-05
 
