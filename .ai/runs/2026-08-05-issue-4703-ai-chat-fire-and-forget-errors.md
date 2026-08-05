@@ -60,4 +60,4 @@ The already-landed fix must stop encoding "the models fetch finished" and "the m
 
 ### Phase 4: Record the out-of-scope route work
 
-- [ ] 4.1 File the follow-up issue for the models route reporting partial degradation as 200
+- [x] 4.1 File the follow-up issue for the models route reporting partial degradation as 200 — filed as #5021
