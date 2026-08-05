@@ -25,16 +25,16 @@ Replace the claim with the verified touch-points, classify the two fix variants 
 
 ### Phase 2: Apply the review of #4998 (@pkarw — changes-requested)
 
-- [ ] 2.1 Major — recompute the Variant B cost/benefit against the code
+- [x] 2.1 Major — recompute the Variant B cost/benefit against the code
       (`external_messages.sender_identifier` + the `message_channel_links` 1:1 join;
       `buildPersonLookupFilter` matches only `primary_email` / `primary_phone`), add the third option
       the A/B pair hid, and correct the recommendation
-- [ ] 2.2 Minor — state which compose paths stay blocked under Variant A (`POST /api/messages`,
+- [x] 2.2 Minor — state which compose paths stay blocked under Variant A (`POST /api/messages`,
       OpenAPI surface) and that the reply path is unaffected
-- [ ] 2.3 Minor — link #4976 / #4977 / #4978 in § Related, the shared prerequisite and the risks row
-- [ ] 2.4 Nits — name all three `externalEmail` validator sites; flag the CR/LF header-injection
+- [x] 2.3 Minor — link #4976 / #4977 / #4978 in § Related, the shared prerequisite and the risks row
+- [x] 2.4 Nits — name all three `externalEmail` validator sites; flag the CR/LF header-injection
       guard on `send-as-user`'s `subject` that any widening must preserve
-- [ ] 2.5 Test coverage — record that TC-CHANNEL-DISCORD-003 lives on the #4391 branch (#4665), and
+- [x] 2.5 Test coverage — record that TC-CHANNEL-DISCORD-003 lives on the #4391 branch (#4665), and
       make "a non-email provider completes an inbound compose" a required acceptance criterion
 
 ## Verification
@@ -43,6 +43,14 @@ Markdown-only change under `.ai/specs/`; no source file touched, so the code val
 (`yarn build:packages` … `yarn build:app`) has nothing to exercise. Verification performed instead:
 every file and line number cited in the spec was re-read on `upstream/develop` at `c11a64ce0` and
 matches the quoted code.
+
+Phase 2 (review follow-up) re-verified every new citation the same way, on the PR head worktree at
+`2bcc68e0`: `entities.ts:243-244` (`sender_identifier`) and `:268-287` (`message_channel_links_message_uq`,
+`provider_key`, `channel_type`), `ingest-inbound-message.ts:292-317` / `:450-465` (the link row always
+carries `external_message_id`), `contact-resolver.ts:21` and `:145-149`, `validators.ts:107` / `:186` /
+`:220` / `:248-266`, `messages/api/route.ts:448`, `messages/api/openapi.ts:267`,
+`commands/messages.ts:741-744`, `send-as-user/route.ts:20`/`:23-26`, `test-send/route.ts:33-34`. Each
+claim added in this phase is checkable at those lines.
 
 ## Follow-up (not in this PR)
 
