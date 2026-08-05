@@ -1298,8 +1298,10 @@ describe('doc-field null equality (issue #4841)', () => {
       )
       .filter((serialized: string) => serialized.includes('->>'))
 
-  // `started_at` / `ended_at` are absent from the base table, so the running-timer
-  // filter shape resolves against entity_indexes.doc instead of a real column.
+  // The synthetic base table declares neither `started_at` nor `ended_at`, so both
+  // filters resolve against entity_indexes.doc instead of a real column — this
+  // covers the doc path only; entities with physical timestamp columns take the
+  // already-null-safe base-column path.
   const runFilters = async (filters: Record<string, unknown>) => {
     const db = createFakeKysely({
       baseTable: 'todos',
@@ -1327,7 +1329,7 @@ describe('doc-field null equality (issue #4841)', () => {
     return serializeWheres(db, 'todos')
   }
 
-  test('the running-timer filter shape compiles to null-safe doc predicates', async () => {
+  test('doc-backed null filters compile to null-safe doc predicates', async () => {
     const predicates = await runFilters({ started_at: { $ne: null }, ended_at: null })
 
     expect(predicates.length).toBeGreaterThan(0)

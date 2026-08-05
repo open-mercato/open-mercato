@@ -1388,11 +1388,12 @@ export class HybridQueryEngine implements QueryEngine {
       case 'eq':
         // An unset custom field has no array element to contain, so the
         // arrContains branch cannot match it — compare the text value only.
-        if (value === null) return builder.where(sql<boolean>`${textExpr} is null`)
-        return builder.where((eb: any) => eb.or([
-          sql<boolean>`${textExpr} = ${value}`,
-          arrContains(value),
-        ]))
+        return value === null
+          ? builder.where(sql<boolean>`${textExpr} is null`)
+          : builder.where((eb: any) => eb.or([
+              sql<boolean>`${textExpr} = ${value}`,
+              arrContains(value),
+            ]))
       case 'ne':
         return value === null
           ? builder.where(sql<boolean>`${textExpr} is not null`)
@@ -1524,11 +1525,12 @@ export class HybridQueryEngine implements QueryEngine {
       case 'eq':
         // An unset custom field has no array element to contain, so the
         // arrContains branch cannot match it — compare the text value only.
-        if (value === null) return q.where(sql<boolean>`${textExpr} is null`)
-        return q.where((eb: any) => eb.or([
-          sql<boolean>`${textExpr} = ${value}`,
-          arrContains(value),
-        ]))
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is null`)
+          : q.where((eb: any) => eb.or([
+              sql<boolean>`${textExpr} = ${value}`,
+              arrContains(value),
+            ]))
       case 'ne':
         return value === null
           ? q.where(sql<boolean>`${textExpr} is not null`)
