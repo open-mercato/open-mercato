@@ -55,6 +55,14 @@ export type SubscriberDescriptor = {
   handler: SubscriberHandler
 }
 
+/** Outcome of one subscriber run during a queued dispatch */
+export type QueuedDispatchResult = {
+  /** Subscriber id, falling back to its registered event pattern when unnamed */
+  subscriberId: string
+  /** Set when the handler rejected. The events worker aggregates these and throws so the job retries. */
+  error?: unknown
+}
+
 // ============================================================================
 // Event Bus Types
 // ============================================================================
@@ -137,6 +145,30 @@ export interface EventBus {
    * @param subs - Array of subscriber descriptors
    */
   registerModuleSubscribers(subs: SubscriberDescriptor[]): void
+
+  /**
+   * Dispatch a queued event to the subscribers the events worker owns.
+   *
+   * The bus - not the worker - decides which subscribers those are, so the two
+   * halves of single-delivery cannot disagree about the same event:
+   * - single-delivery on: every subscriber whose registered pattern matches
+   *   `event` and is marked `persistent`, so wildcard (`event: '*'`) persistent
+   *   subscribers are reached;
+   * - legacy dual-dispatch: exact-match subscribers for `event`.
+   *
+   * Unlike inline delivery, handler failures are returned rather than swallowed:
+   * the caller aggregates them and throws so the queue can retry the job.
+   *
+   * @param event - Event name from the queued job
+   * @param payload - Event payload data
+   * @param options - Trusted scope recorded on the queued job
+   * @returns One entry per dispatched subscriber, `error` set on failure
+   */
+  dispatchQueued(
+    event: string,
+    payload: EventPayload,
+    options?: EmitOptions,
+  ): Promise<QueuedDispatchResult[]>
 
   /**
    * Clear all events from the persistent queue.

@@ -9,7 +9,7 @@ describe('reconcileEventsSingleDelivery', () => {
     expect(reconcileEventsSingleDelivery({}, 'lazy')).toEqual({ effective: true })
   })
 
-  it('falls back to inline dual-dispatch (with a warning) when no worker runs', () => {
+  it('falls back to inline delivery (with a warning) when no worker runs', () => {
     const result = reconcileEventsSingleDelivery({}, 'off')
     expect(result.effective).toBe(false)
     expect(result.warning).toContain('OM_EVENTS_SINGLE_DELIVERY')
@@ -64,5 +64,23 @@ describe('applyEventsSingleDeliveryGuard', () => {
     expect(runtimeEnv.OM_EVENTS_SINGLE_DELIVERY).toBe('true')
     expect(errorSpy).not.toHaveBeenCalled()
     errorSpy.mockRestore()
+  })
+
+  // Interlock with the bus-side guard in @open-mercato/events/single-delivery:
+  // `hasWorkerAvailabilitySignal` treats an EXPLICITLY truthy
+  // OM_EVENTS_SINGLE_DELIVERY as proof that a supervisor already verified worker
+  // availability. If this guard ever stopped writing an explicit truthy token,
+  // every process it launches would silently fall back to inline delivery.
+  // The CLI cannot import the events package to assert that directly, so pin the
+  // written token here.
+  it('writes an explicit truthy token the bus-side guard accepts as a worker signal', () => {
+    const processEnv: NodeJS.ProcessEnv = {}
+    const runtimeEnv: NodeJS.ProcessEnv = {}
+
+    applyEventsSingleDeliveryGuard({ processEnv, runtimeEnv, autoSpawnWorkersMode: 'lazy' })
+
+    for (const value of [processEnv.OM_EVENTS_SINGLE_DELIVERY, runtimeEnv.OM_EVENTS_SINGLE_DELIVERY]) {
+      expect(['1', 'true', 'yes', 'on']).toContain(value)
+    }
   })
 })

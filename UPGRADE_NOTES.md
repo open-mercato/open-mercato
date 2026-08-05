@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.6 → 0.6.7 (unreleased)
 
+### Events worker dispatches through the DI event bus instead of the CLI-only module registry
+
+The events worker used to build its own subscriber map from `getCliModules()` - a registry populated **only** by `registerCliModules()` inside the `mercato` bin. Any worker started another way (a custom entrypoint, an in-process runner, a container whose command bypasses the CLI) resolved zero subscribers, returned early, and marked the job **completed**: no error, no log. Because default-on single-delivery had already skipped those subscribers inline, the side effect vanished - taking every wildcard `event: '*'` persistent subscriber with it (outbound webhooks, workflow event triggers, business-rule CRUD triggers).
+
+The worker now resolves `eventBus` from its per-job DI container and calls the new `EventBus.dispatchQueued(event, payload, options)`. The bus owns subscriber selection for both halves of single-delivery, so they cannot disagree. `packages/cli`-launched workers are unaffected: `mercato queue worker` already bootstraps the app module registry (`registerModules`) before the CLI one, from the same array.
+
+Two related changes:
+
+- **The worker fails loudly instead of silently.** If `eventBus` cannot be resolved (or predates `dispatchQueued`), `handle()` throws. The job retries and dead-letters with an actionable message rather than disappearing.
+- **Turning single-delivery off no longer dual-dispatches.** The producer stamps the queued job `persistentDeliveredInline: true` when it delivered inline, and the worker skips such jobs, so `OM_EVENTS_SINGLE_DELIVERY=false` now means inline-only rather than inline *and* worker.
+
+**Action for downstream:** none for delivery semantics - `OM_EVENTS_SINGLE_DELIVERY` is read exactly as before. Custom `EventBus` implementations must add `dispatchQueued`; the worker's exported `clearListenerCache()` is now a deprecated no-op and will be removed in a later release. If you carry a local patch swapping the worker's `getCliModules()` for `getModules()`, remove it - `patch-package` will fail to apply against this release.
+
 ### Query index reindex now fails when a batch loses records
 
 `upsertIndexBatch` used to swallow every write error: the bulk `INSERT … ON CONFLICT` had a bare `catch`, and the per-row fallback ran inside a transaction whose per-row `catch` could not actually recover — in Postgres a failed statement aborts the transaction, and `COMMIT` on an aborted transaction returns a `ROLLBACK` tag without raising. A single bad record therefore discarded its entire batch (up to 500 rows) while the reindex job still credited the coverage counters and finished green, and the subsequent orphan purge then deleted the pre-existing index rows for those records.

@@ -19,14 +19,17 @@ type EnvSource = Record<string, string | undefined>
  * persistent subscribers are reached), ephemeral subscribers still run inline.
  * This is the correct behavior; the legacy dual-dispatch (inline AND worker)
  * double-ran exact-match persistent subscribers and never reached wildcard
- * persistent subscribers in the worker. Set the env to a false token to opt back
- * into legacy dual-dispatch.
+ * persistent subscribers in the worker. Set the env to a false token to run
+ * persistent subscribers inline instead. That is no longer dual-dispatch: the
+ * producer stamps the queued job with what it already delivered, so the worker
+ * skips it. Either way a persistent emit runs its subscribers exactly once.
  *
- * The server bootstrap reconciles this against worker availability (see
- * {@link reconcileSingleDelivery}) and may rewrite the env to `false` for a
- * process that would otherwise skip inline delivery with no worker to drain the
- * queue. The bus and the events worker both read the (possibly reconciled) env,
- * so they always agree within a process.
+ * The `mercato server` bootstrap may rewrite the env to `false` for a process it
+ * knows runs no worker (see {@link reconcileSingleDelivery}). The bus does NOT
+ * second-guess the flag itself: the queue is durable, so a persistent emit with
+ * no worker yet is delayed, not lost, and a worker started later drains the
+ * backlog. The bus and the events worker read the same env, so they always agree
+ * within a process.
  */
 export function isSingleDeliveryRequested(env: EnvSource = process.env): boolean {
   return parseBooleanWithDefault(env[EVENTS_SINGLE_DELIVERY_ENV], true)

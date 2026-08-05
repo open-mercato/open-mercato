@@ -135,7 +135,9 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, queueStrategy: 'local' })
     } catch {
-      // In extreme cases, provide a no-op bus to avoid crashes
+      // In extreme cases, provide a no-op bus to avoid crashes. It deliberately
+      // omits `dispatchQueued` so the events worker fails its job loudly instead
+      // of quietly completing it with zero subscribers dispatched.
       eventBus = {
         emit: async () => {},
         on: () => {},
@@ -153,7 +155,12 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
       loadedModules = getModules()
-    } catch {}
+    } catch (err) {
+      // The events worker dispatches persistent subscribers through this bus, so
+      // an empty registry here means queued events silently run nothing. Swallowing
+      // it made that failure invisible; log it.
+      logger.warn('Module registry unavailable; event bus starts with no module subscribers', { err })
+    }
     const subs = loadedModules.flatMap((m) =>
       (m.subscribers || []).map((subscriber: ModuleSubscriber) => ({
         ...subscriber,

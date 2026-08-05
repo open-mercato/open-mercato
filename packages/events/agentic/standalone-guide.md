@@ -113,5 +113,9 @@ Missing `tenantId` in payload = no delivery.
 
 For production, start the event worker:
 ```bash
-yarn mercato events worker event-processing --concurrency=5
+yarn mercato queue worker events --concurrency=5
 ```
+
+If the app and the worker run as separate services, set `OM_EVENTS_EXTERNAL_WORKER=true` on **both**.
+Without it the app cannot tell that a worker exists, so it falls back to delivering persistent
+subscribers inline (with a warning) rather than risk dropping them.

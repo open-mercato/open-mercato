@@ -1,8 +1,6 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
-import { getCliModules } from '@open-mercato/shared/modules/registry'
-import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { isSingleDeliveryRequested } from '../../../single-delivery'
+import type { EventBus, QueuedDispatchResult } from '../../../types'
 
 export const EVENTS_QUEUE_NAME = 'events'
 
@@ -23,6 +21,12 @@ type EventJobPayload = {
     tenantId?: string | null
     organizationId?: string | null
   }
+  /**
+   * Producer stamp: the emitting process already ran the persistent subscribers
+   * inline because single-delivery was reconciled off there. Dispatching again
+   * here would double-run them, so the job is a no-op.
+   */
+  persistentDeliveredInline?: boolean
 }
 
 type HandlerContext = {
@@ -32,119 +36,87 @@ type HandlerContext = {
   organizationId?: string | null
 }
 
-type SubscriberEntry = {
-  id: string
-  event: string
-  persistent?: boolean
-  handler: (payload: unknown, ctx: unknown) => Promise<void> | void
-}
-
 /**
- * Mirror of the event bus single-delivery flag. When enabled, the worker owns
- * dispatch of every persistent subscriber and matches by pattern so wildcard
- * (`event: '*'`) persistent subscribers are finally reached. Defaults ON;
- * reconciled by the server bootstrap against worker availability and read from
- * the same env var as the bus so the two always agree within a process.
+ * Resolves the DI event bus that owns subscriber dispatch for this job.
+ *
+ * The worker deliberately has no subscriber registry of its own. It used to build
+ * one from `getCliModules()`, which is populated only by the `mercato` bin, so any
+ * process that started a worker another way dispatched zero subscribers and
+ * completed the job silently - dropping webhook deliveries, workflow event
+ * triggers and business-rule triggers with no error and no log. The per-job
+ * request container already carries a bus with every module subscriber registered,
+ * so that is the single source of truth. When it is missing, fail the job loudly
+ * rather than repeat the silent drop.
  */
-function isSingleDeliveryEnabled(): boolean {
-  return isSingleDeliveryRequested()
+function resolveEventBus(ctx: HandlerContext, event: string): EventBus {
+  let bus: unknown
+  try {
+    bus = ctx.resolve('eventBus')
+  } catch (error) {
+    throw new Error(
+      `[internal] Events worker cannot dispatch "${event}": no "eventBus" in the job container ` +
+      `(${error instanceof Error ? error.message : String(error)}). The events worker must run inside a ` +
+      `bootstrapped process, e.g. \`mercato queue worker events\` or \`mercato queue worker --all\`. ` +
+      `Failing the job so it retries instead of dropping the event's subscribers.`,
+    )
+  }
+  if (!bus || typeof (bus as EventBus).dispatchQueued !== 'function') {
+    throw new Error(
+      `[internal] Events worker cannot dispatch "${event}": the resolved "eventBus" has no ` +
+      `dispatchQueued(). Either the bus failed to initialize and the degraded no-op fallback is in ` +
+      `place, or a stale @open-mercato/events build is loaded alongside a newer one. Failing the job ` +
+      `so it retries instead of dropping the event's subscribers.`,
+    )
+  }
+  return bus as EventBus
 }
 
-/**
- * Resolves the subscribers to run for a queued event.
- * - Legacy (flag off): exact-match lookup of every subscriber for the event.
- * - Single-delivery (flag on): persistent subscribers whose pattern matches the
- *   event, including wildcards, so they run exactly once here instead of inline.
- */
-function resolveSubscribers(
-  listeners: Map<string, SubscriberEntry[]>,
-  event: string,
-): SubscriberEntry[] {
-  if (!isSingleDeliveryEnabled()) {
-    return listeners.get(event) ?? []
+function reportFailures(event: string, results: QueuedDispatchResult[]): void {
+  const failures = results.filter((result) => result.error !== undefined)
+  if (failures.length === 0) {
+    return
   }
-  const matched: SubscriberEntry[] = []
-  for (const [pattern, subs] of listeners) {
-    if (!matchEventPattern(event, pattern)) continue
-    for (const sub of subs) {
-      if (sub.persistent) matched.push(sub)
-    }
+
+  for (const failure of failures) {
+    logger.error('Subscriber failed for event', {
+      event,
+      subscriberId: failure.subscriberId,
+      err: failure.error,
+    })
   }
-  return matched
-}
 
-// Cached listener map - built once on first use
-let cachedListenerMap: Map<string, SubscriberEntry[]> | null = null
-
-/**
- * Clear the cached listener map (for testing purposes).
- */
-export function clearListenerCache(): void {
-  cachedListenerMap = null
-}
-
-// Build listener map from module subscribers
-function buildListenerMap(): Map<string, SubscriberEntry[]> {
-  const listeners = new Map<string, SubscriberEntry[]>()
-  for (const mod of getCliModules()) {
-    const subs = (mod as { subscribers?: SubscriberEntry[] }).subscribers
-    if (!subs) continue
-    for (const sub of subs) {
-      if (!listeners.has(sub.event)) listeners.set(sub.event, [])
-      listeners.get(sub.event)!.push(sub)
-    }
-  }
-  return listeners
-}
-
-// Get cached listener map, building on first access
-function getListenerMap(): Map<string, SubscriberEntry[]> {
-  if (!cachedListenerMap) {
-    cachedListenerMap = buildListenerMap()
-  }
-  return cachedListenerMap
+  const failedIds = failures.map((failure) => failure.subscriberId).join(', ')
+  throw new Error(
+    `${failures.length}/${results.length} subscriber(s) failed for event "${event}": ${failedIds}`,
+  )
 }
 
 /**
  * Events worker handler.
- * Dispatches queued events to registered module subscribers.
+ * Dispatches queued events to the subscribers registered on the DI event bus.
  * Each subscriber is isolated - failures in one don't affect others.
  */
 export default async function handle(
   job: QueuedJob<EventJobPayload>,
   ctx: JobContext & HandlerContext
 ): Promise<void> {
-  const { event, payload, options } = job.payload
-  const listeners = getListenerMap()
-  const subscribers = resolveSubscribers(listeners, event)
+  const { event, payload, options, persistentDeliveredInline } = job.payload
+  if (persistentDeliveredInline) {
+    return
+  }
 
-  if (!subscribers || subscribers.length === 0) return
-
-  const handlerCtx = {
-    resolve: ctx.resolve,
-    eventName: event,
+  const bus = resolveEventBus(ctx, event)
+  const results = await bus.dispatchQueued(event, payload, {
     tenantId: options?.tenantId ?? null,
     organizationId: options?.organizationId ?? null,
-  }
+  })
 
-  const results = await Promise.allSettled(
-    subscribers.map((sub) => Promise.resolve(sub.handler(payload, handlerCtx)))
-  )
-
-  const errors: Array<{ subscriberId: string; error: unknown }> = []
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i]
-    if (result.status === 'rejected') {
-      const sub = subscribers[i]
-      logger.error('Subscriber failed for event', { event, subscriberId: sub.id, err: result.reason })
-      errors.push({ subscriberId: sub.id, error: result.reason })
-    }
-  }
-
-  if (errors.length > 0) {
-    const failedIds = errors.map((e) => e.subscriberId).join(', ')
-    throw new Error(
-      `${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}": ${failedIds}`
-    )
-  }
+  reportFailures(event, results)
 }
+
+/**
+ * @deprecated The worker no longer keeps a listener cache; subscriber resolution
+ * lives on the DI event bus. Kept as a no-op for one minor so existing callers
+ * (tests, custom worker harnesses) keep compiling.
+ */
+export function clearListenerCache(): void {}

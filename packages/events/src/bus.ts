@@ -19,6 +19,7 @@ import type {
   SubscriberDescriptor,
   EventPayload,
   EmitOptions,
+  QueuedDispatchResult,
 } from './types'
 
 /** Queue name for persistent events */
@@ -38,10 +39,16 @@ type RegisteredSubscriber = {
  * When enabled, a persistent emit delivers each subscriber on exactly one path:
  * persistent-marked subscribers are skipped inline (the events worker dispatches
  * them via pattern match, so wildcard persistent subscribers are reached), while
- * ephemeral subscribers keep running inline. Defaults ON; the server bootstrap
- * reconciles the env against worker availability (and may rewrite it to `false`
- * for a worker-less process). Both the bus and the events worker read the same
- * (possibly reconciled) env var, so they always agree within a process.
+ * ephemeral subscribers keep running inline. Defaults ON.
+ *
+ * The bus never second-guesses this against "is a worker running": the queue is
+ * durable, so a persistent emit with no worker yet is delayed, not lost, and a
+ * worker started later drains the backlog. Delivering inline instead would move
+ * the work back onto the caller's request path — exactly what a split app/worker
+ * deployment sets `AUTO_SPAWN_WORKERS=false` to avoid.
+ *
+ * The events worker asks this same bus for its subscribers via `dispatchQueued`,
+ * so both halves of single-delivery read one decision.
  */
 function isSingleDeliveryEnabled(): boolean {
   return isSingleDeliveryRequested()
@@ -78,6 +85,14 @@ type EventJobData = {
   event: string
   payload: EventPayload
   options?: EmitOptions
+  /**
+   * Set by the producer when it already ran the persistent subscribers inline
+   * (single-delivery reconciled off). The worker skips such jobs, so the app and
+   * the worker staying exactly-once no longer depends on both processes agreeing
+   * about `OM_EVENTS_SINGLE_DELIVERY`. Absent on jobs queued before this field
+   * existed, which keeps their behavior unchanged.
+   */
+  persistentDeliveredInline?: boolean
 }
 
 // Process-wide cache of the async (BullMQ) persistent-events producer queue.
@@ -242,6 +257,75 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   }
 
   /**
+   * Selects the subscribers the events worker owns for a queued event.
+   * - Single-delivery on: pattern match across every registered pattern, keeping
+   *   persistent subscribers only, so wildcard persistent subscribers are reached
+   *   exactly once here instead of inline.
+   * - Legacy dual-dispatch: exact-match lookup of every subscriber for the event.
+   */
+  function selectQueuedSubscribers(event: string): RegisteredSubscriber[] {
+    if (!isSingleDeliveryEnabled()) {
+      return [...(listeners.get(event) ?? [])]
+    }
+    const matched: RegisteredSubscriber[] = []
+    for (const [pattern, handlers] of listeners) {
+      if (!matchEventPattern(event, pattern)) {
+        continue
+      }
+      for (const subscriber of handlers) {
+        if (subscriber.persistent) {
+          matched.push(subscriber)
+        }
+      }
+    }
+    return matched
+  }
+
+  /**
+   * Dispatches a queued event on behalf of the events worker.
+   *
+   * Handler failures are returned instead of logged-and-swallowed the way
+   * `deliver()` does them: the worker needs them to propagate so the queue retries
+   * the job and eventually dead-letters it.
+   */
+  async function dispatchQueued(
+    event: string,
+    payload: EventPayload,
+    options?: EmitOptions,
+  ): Promise<QueuedDispatchResult[]> {
+    const subscribers = selectQueuedSubscribers(event)
+    if (subscribers.length === 0) {
+      return []
+    }
+
+    const settled = await Promise.allSettled(
+      subscribers.map((subscriber) =>
+        withModuleResourceUsage(
+          {
+            moduleId: subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id),
+            surface: 'subscriber',
+            operation: `${event} -> ${subscriber.id ?? subscriber.event}`,
+            resourceId: subscriber.id ?? subscriber.event,
+          },
+          () => subscriber.handler(payload, {
+            resolve: opts.resolve,
+            eventName: event,
+            tenantId: options?.tenantId ?? null,
+            organizationId: options?.organizationId ?? null,
+          }),
+        ),
+      ),
+    )
+
+    return settled.map((result, index) => {
+      const subscriberId = subscribers[index].id ?? subscribers[index].event
+      return result.status === 'rejected'
+        ? { subscriberId, error: result.reason }
+        : { subscriberId }
+    })
+  }
+
+  /**
    * Registers a handler for an event. Pass `moduleId` whenever the subscribing
    * module is known (e.g. a module reacting to another module's event) so
    * resource-usage telemetry attributes the handler correctly instead of
@@ -306,8 +390,10 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // happens). Without this, a persistent emit dual-dispatches by default and
     // runs the subscriber inline in the caller's request too.
     const enqueueOnly = Boolean(options?.persistent) && options?.deliverInline === false
+    // Read the mode once so the inline skip and the stamp below cannot disagree.
+    const singleDelivery = isSingleDeliveryEnabled()
     if (!enqueueOnly) {
-      const skipPersistentInline = Boolean(options?.persistent) && isSingleDeliveryEnabled()
+      const skipPersistentInline = Boolean(options?.persistent) && singleDelivery
       await deliver(event, payload, options, skipPersistentInline)
     }
 
@@ -322,7 +408,12 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // If persistent, also enqueue for async processing
     if (options?.persistent) {
       const q = getQueue()
-      await q.enqueue({ event, payload, options })
+      await q.enqueue({
+        event,
+        payload,
+        options,
+        persistentDeliveredInline: !enqueueOnly && !singleDelivery,
+      })
     }
   }
 
@@ -342,6 +433,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     emitEvent, // Alias for backward compatibility
     on,
     registerModuleSubscribers,
+    dispatchQueued,
     clearQueue,
   }
 }

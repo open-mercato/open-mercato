@@ -5,6 +5,14 @@ import type { AutoSpawnWorkersMode } from './auto-spawn-workers'
 // `@open-mercato/events/single-delivery`. The CLI cannot import the events
 // package (no dependency edge), so the reconcile logic is mirrored here for the
 // server-bootstrap guard only; the bus and worker own the runtime behavior.
+//
+// The two guards compose rather than compete: the bus runs its own reconciliation
+// on every process, and it accepts an EXPLICITLY truthy
+// `OM_EVENTS_SINGLE_DELIVERY` as proof that a supervisor already checked worker
+// availability. `applyEventsSingleDeliveryGuard` writes exactly that explicit
+// value into both envs below, so processes launched by `mercato server` keep
+// single-delivery unchanged while processes the CLI never wraps fall back to safe
+// inline delivery.
 const EVENTS_SINGLE_DELIVERY_ENV = 'OM_EVENTS_SINGLE_DELIVERY'
 const EVENTS_EXTERNAL_WORKER_ENV = 'OM_EVENTS_EXTERNAL_WORKER'
 
@@ -23,7 +31,8 @@ export type SingleDeliveryReconciliation = {
  * (auto-spawn off and no acknowledged external worker) would skip those
  * subscribers with nothing to drain the queue — silently dropping notifications,
  * queued emails, and indexing. This fails safe by disabling single-delivery for
- * such a process (back to inline dual-dispatch) and returning a loud warning.
+ * such a process (persistent subscribers run inline instead) and returning a loud
+ * warning. The bus stamps the queued job, so the inline run stays exactly-once.
  *
  * Transient worker downtime is NOT this guard's concern: the durable queue holds
  * the job until a worker returns. Only the "no worker at all" config is guarded.
@@ -43,9 +52,10 @@ export function reconcileEventsSingleDelivery(
       `[events] ${EVENTS_SINGLE_DELIVERY_ENV} is on (default) but this process auto-spawns no events worker ` +
       `(AUTO_SPAWN_WORKERS=off) and ${EVENTS_EXTERNAL_WORKER_ENV} is not set. Persistent subscribers would be ` +
       `skipped inline with nothing to drain the queue, silently dropping notifications, queued emails, and ` +
-      `indexing. Falling back to legacy inline dual-dispatch for safety. To keep single-delivery, run an events ` +
-      `worker (\`mercato queue worker events\`) and set ${EVENTS_EXTERNAL_WORKER_ENV}=true, or enable ` +
-      `AUTO_SPAWN_WORKERS.`,
+      `indexing. Running them inline instead, on the caller's request path. Delivery stays exactly-once: the ` +
+      `queued job is stamped so an events worker that does drain the queue skips it. To move this work off the ` +
+      `request path, run an events worker (\`mercato queue worker events\`) and set ` +
+      `${EVENTS_EXTERNAL_WORKER_ENV}=true, or enable AUTO_SPAWN_WORKERS.`,
   }
 }
 
