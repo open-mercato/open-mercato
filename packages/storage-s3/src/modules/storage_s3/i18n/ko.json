@@ -12,6 +12,8 @@
   "storage_s3.errors.maxUploadSize": "첨부파일이 최대 업로드 크기를 초과합니다.",
   "storage_s3.errors.multipartRequired": "예상되는 멀티파트/양식 데이터",
   "storage_s3.errors.prefixAccessDenied": "액세스 거부됨: 접두사의 범위가 이 테넌트로 지정되지 않았습니다.",
-  "storage_s3.errors.quotaExceeded": "이 테넌트에 대한 첨부 파일 저장소 할당량이 초과되었습니다.",
+  "storage_s3.errors.quotaExceeded": "이 테넌트의 첨부 파일 저장 용량 한도를 초과했습니다.",
+  "storage_s3.errors.quotaTargetExists": "대상 저장 키가 이미 존재합니다.",
+  "storage_s3.errors.quotaUnavailable": "저장 용량 정산을 사용할 수 없습니다.",
   "storage_s3.errors.unauthorized": "승인되지 않은"
 }

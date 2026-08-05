@@ -4752,7 +4752,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@eslint-community/eslint-utils@npm:^4.8.0, @eslint-community/eslint-utils@npm:^4.9.1":
+"@eslint-community/eslint-utils@npm:4.9.1, @eslint-community/eslint-utils@npm:^4.8.0, @eslint-community/eslint-utils@npm:^4.9.1":
   version: 4.9.1
   resolution: "@eslint-community/eslint-utils@npm:4.9.1"
   dependencies:
@@ -7191,6 +7191,16 @@ __metadata:
   dependencies:
     fast-glob: "npm:3.3.1"
   checksum: 10/b9aae8cca37c069a4437ca1c341329184a598a35ea11b774ad3e2fb523899b7ed7dc91b10f84cc41ebd637d6c2c64bdab54672da95dc7f369b0ea8ecf9883a7d
+  languageName: node
+  linkType: hard
+
+"@next/eslint-plugin-next@npm:^16.2.9":
+  version: 16.3.0
+  resolution: "@next/eslint-plugin-next@npm:16.3.0"
+  dependencies:
+    "@eslint-community/eslint-utils": "npm:4.9.1"
+    fast-glob: "npm:3.3.1"
+  checksum: 10/249b1eeb8853ed8bd378e89f30b7aa96723e567280a1711d443cb195fefa87049e1584a7326e4ee37ba4a7c979d1b16e41cf53b0232f42d53cf1781e5e19b421
   languageName: node
   linkType: hard
 
@@ -18628,7 +18638,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-react@npm:^7.37.0":
+"eslint-plugin-react-hooks@npm:^7.0.1":
+  version: 7.1.1
+  resolution: "eslint-plugin-react-hooks@npm:7.1.1"
+  dependencies:
+    "@babel/core": "npm:^7.24.4"
+    "@babel/parser": "npm:^7.24.4"
+    hermes-parser: "npm:^0.25.1"
+    zod: "npm:^3.25.0 || ^4.0.0"
+    zod-validation-error: "npm:^3.5.0 || ^4.0.0"
+  peerDependencies:
+    eslint: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0-0 || ^9.0.0 || ^10.0.0
+  checksum: 10/9dfe543af9813343f7cc7c5079b02da94a3b4c15df5cefdeef731f220120df26471d0db24c943222d2d9c6b43c3b78faea47ada9acc9dfd9c28492153cbc6902
+  languageName: node
+  linkType: hard
+
+"eslint-plugin-react@npm:^7.37.0, eslint-plugin-react@npm:^7.37.5":
   version: 7.37.5
   resolution: "eslint-plugin-react@npm:7.37.5"
   dependencies:
@@ -25233,6 +25258,7 @@ __metadata:
     "@mikro-orm/migrations": "npm:^7.1.8"
     "@mikro-orm/postgresql": "npm:^7.1.8"
     "@napi-rs/canvas": "npm:^1.0.3"
+    "@next/eslint-plugin-next": "npm:^16.2.9"
     "@playwright/test": "npm:^1.62.0"
     "@radix-ui/react-checkbox": "npm:^1.3.11"
     "@radix-ui/react-dialog": "npm:^1.1.23"
@@ -25263,6 +25289,8 @@ __metadata:
     dotenv: "npm:^17.4.2"
     esbuild: "npm:^0.28.1"
     eslint: "npm:^9.39.4"
+    eslint-plugin-react: "npm:^7.37.5"
+    eslint-plugin-react-hooks: "npm:^7.0.1"
     glob: "npm:^13.0.6"
     husky: "npm:^9.1.7"
     jest: "npm:^30.4.2"
