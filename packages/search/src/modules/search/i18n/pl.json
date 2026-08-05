@@ -214,6 +214,8 @@
   "search.settings.vector.sectionTitle": "Wyszukiwanie wektorowe",
   "search.settings.vector.setEnvVar": "Ustaw zmienną środowiskową",
   "search.settings.vector.store": "Magazyn wektorów",
+  "search.settings.vector.storeUnavailable": "Magazyn wektorów jest niedostępny",
+  "search.settings.vector.storeUnavailableHint": "Indeksowanie wektorowe i wyszukiwanie semantyczne są pomijane, dopóki magazyn nie będzie dostępny. Zainstaluj rozszerzenie pgvector na serwerze PostgreSQL; status jest sprawdzany ponownie mniej więcej co minutę.",
   "search.settings.vector.usingTenantConfig": "Ten najemca używa własnych ustawień osadzania.",
   "search.settings.vectorDocumentsLabel": "Dokumenty wektorowe",
   "search.settings.vectorNotConfigured": "Wyszukiwanie wektorowe nie jest skonfigurowane.",

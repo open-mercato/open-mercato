@@ -633,6 +633,18 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 
+  it('returns a retryable 503 when a handler hits a transient DB connection failure', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('sorry, too many clients already'), { code: '53300' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(503)
+    expect(res.headers.get('Retry-After')).toBe('2')
+    // The failed write is still rolled back — no created event/index leaks out.
+    expect(Object.values(db)).toHaveLength(0)
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
   it('POST surfaces CRUD side-effect failures after custom field writes', async () => {
     mockDataEngine.emitOrmEntityEvent.mockImplementationOnce(async () => {
       throw new Error('index write failed')

@@ -23,6 +23,7 @@ const queueAdd = jest.fn(async () => ({ id: 'bull-job-id' }))
 
 jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(),
+  parseRedisUrl: jest.requireActual('@open-mercato/shared/lib/redis/connection').parseRedisUrl,
 }))
 
 jest.mock('bullmq', () => {

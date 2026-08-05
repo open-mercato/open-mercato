@@ -137,3 +137,41 @@ describe('filterOperatorSchema', () => {
     ])
   })
 })
+
+/**
+ * The bound tests above reject a null *member* (`['open', null]`). This block covers the shape a
+ * real client is far more likely to send: `value` itself set to `null`.
+ *
+ * It matters because the request arrives as JSON, where `undefined` is not expressible — so
+ * `{"value": null}` is the idiomatic way to say "no value", while omitting the key is the only
+ * way to reach the empty-set path. Before the boundary rejected it, a null value rendered as
+ * `column IN (NULL)`, which evaluates to SQL NULL for every row: the aggregation returned zero
+ * rows with no error, and a dashboard rendered that as a legitimate-looking zero (#4821 review).
+ */
+describe('widget data set filters reject a null value, not just a null member', () => {
+  test.each(['in', 'not_in'] as const)('rejects an explicit null value for %s', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: null }]))
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.success ? undefined : parsed.error.issues[0]?.path).toEqual(['filters', 0, 'value'])
+  })
+
+  test('rejects a null member mixed among otherwise valid members', () => {
+    const parsed = widgetDataRequestSchema.safeParse(
+      buildRequest([{ field: 'status', operator: 'not_in', value: ['completed', null, 'shipped'] }]),
+    )
+
+    expect(parsed.success).toBe(false)
+  })
+
+  /**
+   * `is_null` / `is_not_null` build their predicate from the operator alone and never read the
+   * value, so an explicit null there stays valid. The guard is scoped to the set operators rather
+   * than applied blanket, and this pins that distinction.
+   */
+  test.each(['is_null', 'is_not_null'] as const)('keeps an explicit null value valid for %s', (operator) => {
+    const parsed = widgetDataRequestSchema.safeParse(buildRequest([{ field: 'status', operator, value: null }]))
+
+    expect(parsed.success).toBe(true)
+  })
+})

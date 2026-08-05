@@ -36,6 +36,7 @@
       "qa-approved",
       "qa-self-verified",
       "in-progress",
+      "ci-monitoring",
       "screenshots"
     ],
     "priority": [

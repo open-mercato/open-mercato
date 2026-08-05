@@ -24,6 +24,13 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### Workflow activities now fail on unresolved `{{...}}` templates (#4334)
+
+`interpolateVariables()` returns the **original string** when a context path is missing, so a workflow definition referencing a key its start path never seeds passed the literal `"{{context.orderId}}"` downstream. With `continueOnActivityFailure: true` the resulting command rejection was swallowed: the workflow advanced, the user saw the decision accepted, and nothing happened. `UPDATE_ENTITY` inputs and `EMIT_EVENT` payloads are now scanned at every depth, and an activity carrying an unresolved template fails loudly instead — naming the offending key path.
+
+**Action for authors of stored workflow definitions:** an activity that previously "succeeded" while silently shipping an unresolved template now fails. That is almost always the bug becoming visible rather than a new one, but there is a genuine regression case: a definition that deliberately passes brace-delimited text through to a field the target command accepts verbatim — a message body, a note, or a template meant to be rendered later downstream. The guard cannot tell that apart from a missing context key, so such a definition now fails the activity.
+
+If you hit this, the fix is to stop routing literal `{{...}}` text through `UPDATE_ENTITY` input or `EMIT_EVENT` payload fields — escape it, or move the templating to the consumer that is supposed to render it. Search stored definitions for `{{` in activity `config.input` and `config.payload` before upgrading if you want to find these ahead of time.
 ### `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` is removed
 
 The `example` module's `widgets/injection-table.ts` used to export a value chosen by a
@@ -91,6 +98,7 @@ module look empty to the agent harness.
 **Action for module authors generally:** export `injectionTable` and `componentOverrides` as
 plain literals. Gate behavior *inside* a widget or wrapper, or declare
 `metadata.requiredModules` on the widget; do not branch the exported registry value itself.
+
 
 ### Settings sections are identified by their untranslated group id (#4843)
 

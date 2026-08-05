@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { ScheduledJob } from '../../../../data/entities.js'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -79,7 +79,9 @@ export async function GET(
 
     // Fetch jobs from BullMQ scheduler-execution queue
     const { Queue } = await import('bullmq')
-    const queue = new Queue('scheduler-execution', { connection: { url: getRedisUrlOrThrow('QUEUE') } })
+    const queue = new Queue('scheduler-execution', {
+      connection: parseRedisUrl(getRedisUrlOrThrow('QUEUE')),
+    })
 
     try {
       // Validate query params with Zod schema

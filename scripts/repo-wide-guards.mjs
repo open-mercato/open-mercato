@@ -159,6 +159,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/telemetry',
+    workspaceDir: 'packages/telemetry',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/default-unloaded.test.ts',
+        scans: 'apps/mercato, packages/create-app/template, packages/cli and packages/queue runtime hosts — telemetry stays unloaded unless a backend is configured (#4475)',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/ui',
     workspaceDir: 'packages/ui',
     jestConfig: 'jest.config.cjs',
@@ -179,12 +190,20 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules plus every packages/ acl.ts — module override keys anchored to declared ACL features (#4462)',
+      },
+      {
         path: 'src/components/__tests__/starter-chrome-ds.test.ts',
         scans: 'apps/mercato and packages/create-app/template components — DS status tokens in starter chrome',
       },
       {
         path: 'src/components/__tests__/StartPageContent.test.tsx',
         scans: 'apps/mercato and packages/create-app/template StartPageContent — hydration-safety guard',
+      },
+      {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules and every packages/ acl.ts — ACL override keys anchored to a declared feature (#4944)',
       },
     ],
   },
