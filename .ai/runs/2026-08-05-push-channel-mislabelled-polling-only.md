@@ -68,8 +68,12 @@ this provider?*
 - [x] Full validation gate
 - [x] Review loop (`om-auto-review-pr`) — first pass
 - [x] Second review pass — three further defects found and fixed (below)
-- [ ] UI verification evidence (`om-auto-qa-pr`) — **not performed**; no `realtimePush: true`
-      provider ships on `develop`, so the state is only reachable via a seeded row
+- [x] UI verification evidence (`om-auto-qa-pr`) — **PASS**, posted on the PR (before/after
+      screenshots in `en` and `pl`). No `realtimePush: true` provider ships on `develop`, so the
+      push-driven state was reached through a seeded channel row rather than the connect flow;
+      `qa-self-verified` reflects that this was engineer self-QA with evidence, not a QA-team run
+- [x] Refresh onto current `develop` (merge `upstream/develop`) so CI re-verifies the fix against
+      #4990's provider-agnostic copy and #4317's escalated `lint:ds` gate
 
 ## Second pass — what the first review missed
 
