@@ -7,6 +7,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../../data/entities'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../../../../../lib/queue'
+import { isHubPolledChannel } from '../../../../../lib/polling-eligibility'
 import type { PollChannelJobPayload } from '../../../../../workers/poll-channel'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
@@ -118,6 +119,18 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       { status: 409 },
     )
   }
+  // The poll worker returns immediately for a channel whose adapter declares
+  // real-time push, so enqueueing a job here would answer 202 for work that can
+  // never run and the UI would promise messages that never arrive (#4980).
+  if (!isHubPolledChannel(channel.capabilities)) {
+    return NextResponse.json(
+      {
+        error:
+          'Channel is push-driven — polling does not apply. Inbound messages arrive through the provider push connection.',
+      },
+      { status: 409 },
+    )
+  }
 
   const guard = await validateRouteMutationGuard({
     container,
@@ -166,7 +179,7 @@ export const openApi = {
         { status: 400, description: 'Invalid channel id' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Channel not found' },
-        { status: 409, description: 'Channel disabled or not connected' },
+        { status: 409, description: 'Channel disabled, not connected, or push-driven (never polled)' },
       ],
     },
   },
