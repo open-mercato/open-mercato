@@ -1349,6 +1349,43 @@ describe('doc-field null equality (issue #4841)', () => {
     expect(predicates.join('\n')).not.toContain('is null')
   })
 
+  // Boundary pin: entities whose filtered fields ARE physical columns (like
+  // staff_time_entries.started_at/ended_at) never reach the doc builders — the
+  // base-column path emits the null-safe predicates on its own.
+  test('physical-column null filters take the base-column path, not the doc path', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'started_at' },
+        { table_name: 'todos', column_name: 'ended_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { started_at: { $ne: null }, ended_at: null },
+    })
+
+    expect(serializeWheres(db, 'todos')).toHaveLength(0)
+    const columnWheres = (db._chains as ChainLog[])
+      .filter((chain) => chain.table === 'todos')
+      .flatMap((chain) => chain.wheres as any[])
+    expect(columnWheres).toContainEqual(['b.started_at', 'is not', null])
+    expect(columnWheres).toContainEqual(['b.ended_at', 'is', null])
+  })
+
   // Custom-field values are doc-backed too, so the cf: filter builders need the
   // same null handling — an unset cf must be findable with `$eq: null`.
   const runCfFilters = async (filters: Record<string, unknown>) => {
