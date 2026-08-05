@@ -393,3 +393,82 @@ What landed:
   `CLOSED_LEDGER_STATUSES` is a test-local literal with no runtime counterpart.
 - Slice H left three minors, all in `ai-overrides.test.ts` spy handling and one residual unqualified
   clause in the override reference.
+
+## Wave 2, slices F and G — INTEGRATED (`b34f5bb98`, `11e84e4d2`, `f34827af6`)
+
+Both design-system slices landed together, because the spec requires a **non-null**
+`designFoundation` on every gallery item: shipping F without G would have produced an asset that
+violated its own contract at every row. One derived asset, two facets.
+
+### What landed
+
+- `scripts/design-system-sources.mjs` — static readers for the PR #4301 gallery and the PR #4891
+  Code Connect layer, through the TypeScript compiler API (both are TSX with live render closures
+  and a Figma runtime, so neither can be imported by a plain Node script).
+- `scripts/generate-design-system-inventory.mjs` (+ `harness:generate/check-design-system-inventory`)
+  — derives `design-system-inventory.json` and its app-facing projection: **113 items across 17
+  families, 297 variants**, each with entry source, resolved implementation, route, per-preset
+  availability and a closed `designFoundation`.
+- `designSystemReferences` — the 8 canonical example UI rows mapped: **10 direct, 6
+  composite-not-direct, 4 named coverage gaps**, one row (`ui.frontend-page`) with nothing to map.
+- 19 create-app tests + 5 runtime parity tests in `packages/core`.
+
+### The parity decision worth defending
+
+A static reader is a convenience, **not a second authority**. `inventory-parity.test.ts` loads the
+real registry and asserts the derived asset matches it family for family, entry for entry, variant
+for variant. Mutation-probed: an under-counted variant list and an invented node id each kill it.
+Without that, a reader that quietly failed to resolve some shape would ship an inventory that
+under-reports the gallery while every other gate stayed green.
+
+That risk was not hypothetical. The first reader returned **one** variant for `state-tokens` where
+seven render, because the family builds them with `...FIGMA_STATE_TO_CODE.map(...)`. The reader now
+resolves that shape and **throws** on any spread it cannot account for — silence was the bug.
+
+### Five findings, three of which contradict something previously written down
+
+1. **The recon's "no `./figma/*` export key" was right for the wrong reason.** `@open-mercato/ui`
+   *does* declare wildcard export keys (`./*`, `./*/*`, …) — but every one targets `./src/**`, and
+   the Code Connect files live *outside* `src/`. So they are packed and still unreachable by any
+   public specifier. `codeConnectArtifactAvailability` and `codeConnectExportStatus` are recorded
+   separately precisely so "packed" can never imply "importable".
+2. **The spec's audited head `fb9b8ddfe` is NOT an ancestor of this tree** — verified, not assumed.
+   PR #4277 was closed and merged nothing. The generator keeps it as provenance only and checks the
+   **real** baseline `b2d26489c` (PR #4891) for ancestry on every run.
+3. **Drawer is the only `nodeComparison: "match"`**, exactly as the recon predicted — now derived
+   rather than asserted. Alert has a real Code Connect node with no gallery counterpart, and Table
+   has a gallery node with no mapping; both are `not-comparable`, because the two node authorities
+   stay independent.
+4. **A generic type argument is not a rendered component.** `useState<FilterValues>` matched a
+   naive JSX probe and manufactured a visual reference for a type-only import. Caught in this
+   slice's own output before commit.
+5. **A barrel module is not evidence of direct coverage.** The first pass credited the gallery with
+   covering `SendObjectMessageDialog` because a sibling entry shares its module. It does not.
+   Direct coverage now needs an unambiguous one-entry module or an entry whose snippet renders the
+   symbol; that component moved to a named gap.
+
+### A gallery gap this work surfaces, owned by another module
+
+`ValueIcons` (`BooleanIcon`, `EnumBadge`) is rendered by the canonical DataTable rows, has **no**
+gallery entry, and its implementation composes nothing the gallery covers. Recorded as a named gap,
+never fabricated. **Why it went unnoticed:** `gallery-coverage.test.ts` only scans
+`packages/ui/src/primitives`, so `src/backend` components are outside the guard entirely. Closing
+this means adding the entry through `design_system`, not pasting an implementation into `example`.
+
+### Deliberately NOT done, and stated rather than implied
+
+The references live in the derived asset and are joined to `surface-inventory.json` by
+`capabilityId`; they are **not yet inlined into the canonical rows themselves**, which is the shape
+the spec's row definition describes. Inlining means the generator becomes a writer for that file
+and its template mirror. That is the next unit of F work, not a completed one.
+
+### Wave state
+
+| Wave | Slices | Status |
+|---|---|---|
+| 1 | A, E, H | **INTEGRATED** `3e27096ca` |
+| 2 | C | mostly integrated; writable case + preset/tier applicability still open |
+| 2 | F, G | **INTEGRATED** `b34f5bb98`, `11e84e4d2`, `f34827af6` |
+| 3 | D | not started |
+| 4 | B (15 integration specs) | not started — and they must be RUN |
+| 5 | I + spec changelogs | not started |
