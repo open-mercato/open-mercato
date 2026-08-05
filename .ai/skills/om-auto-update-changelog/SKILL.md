@@ -101,8 +101,20 @@ Start the calendar window a few days **before** the previous release date. Devel
 Additional exclusions on top of the shared skill's (runs-only and prior changelog PRs):
 
 - Branch-sync and release plumbing — titles matching `^chore:\s*(sync back main|sync develop with main|prepare main for release)$`. The changelog has never listed these.
-- Any PR whose number already appears in an earlier `CHANGELOG.md` entry.
+- Any PR already credited in an earlier `CHANGELOG.md` entry. **Match the reference slot only** — the `(#N)` group at the end of a bullet, immediately before the optional `*(@author)*` credit — never a bare `#N` anywhere in the file:
+
+  ```js
+  // per bullet line; the numbers in m[1] are the credited PRs
+  const m = /\((#\d+(?:, #\d+)*)\)(?: \*\([^)]*\)\*)?\s*$/.exec(line)
+  ```
+
+  A bare-number search cannot tell a credited bullet from a passing mention inside someone else's bullet text, and silently deletes a real release entry along with its author's credit.
+
+  > Real failure this rule exists to prevent: `#3799` (`feat(auth): add demo autologin via env vars`, `@jtomaszewski`) was dropped from the 0.6.7 entry because the string `#3799` appears in the 0.6.6 bullet *"Close template-sync gap that let PR #3799 ship unsynced. (#3802)"* — which credits `#3802`, not `#3799`. The feature shipped with no changelog line and its author uncredited. Re-running the corrected match over the same 163-PR window excludes **nothing**: no window PR was genuinely credited earlier.
+
 - Sub-PRs merged into an intermediate feature branch are **not** excluded automatically — see the umbrella rule below.
+
+**Every exclusion must be justified per PR in the changelog PR body.** The window check verifies what is present and which PRs are absent, but not *why* an absence is acceptable — and that unchecked prose is exactly where the `#3799` error lived. List each excluded number with its reason so a reviewer can falsify it.
 
 ## Credit resolution — three additional paths and a verification pass
 
