@@ -210,3 +210,72 @@ touch that file**. Integrate H before launching them, or expect a conflict.
 
 Fix wave launched: each slice's findings written to a file, fixed in its existing worktree, then
 re-verified by a fresh adversarial agent that re-runs every originally-vacuous probe.
+
+## Wave 1 INTEGRATED — `3e27096ca`, full gate green
+
+Three rounds of adversarial verification before anything merged. Round 1: all three slices
+`needs-fixes`, 15 vacuous probes. Round 2: every original probe closed; deeper probing found new
+holes in A and E. Round 3: A and E closed those; H `sound`.
+
+### The two most instructive findings
+
+**A's gate was redirectable, twice over.** Round 2 closed "delete the anchor key"; round 3 found
+"change the anchor key" still open — the parity-ledger path was anchored only to a string inside the
+asset under audit, so an author could point it at a rogue ledger they also committed. Now pinned to a
+module-level literal; the inventory can only agree or fail. Separately the schema pin was purely
+behavioural and an `anyOf` escape hatch defeated it (a schema can pass all 21 probes while accepting
+anything) — now a SHA-256 pin.
+
+**E introduced an escape hatch out of its own oracle.** `requiresGeneratedRegistry` made the
+anti-silent-zero proof `continue`, with nothing checking the flag was warranted — one boolean could
+silence the exact guarantee the ledger exists to provide. Same shape as the three silent-zero fact
+families this programme already found.
+
+### A cross-slice artifact that would have read as a defect
+
+E's only blocking finding — `OMH-209 declares 113151 bytes against maxBytes 102400` — was NOT an E
+defect. H raised that cap to 131072 independently, in a worktree E could not see. Verified by
+comparing both worktrees' `cases.json` before concluding. Integrated together: read-policy 50/50.
+**Lesson for later waves: a per-slice verifier cannot see cross-slice interactions. Check them at
+integration, and do not let a verifier's blocking verdict short-circuit that check.**
+
+### My brief was wrong twice more
+
+- Eight fields were unread, not seven (`baselineRef` too) — found by slice A.
+- The 10 "pre-existing" create-app failures the agents saw were stale-build artifacts. After
+  `yarn build:packages` on the integrated tree the whole suite is green — 25/25 tasks. The agents
+  were right that the failures pre-dated their work, and right to flag them; the cause was the
+  worktrees never having been built.
+
+### Also fixed during integration
+
+H added 10 new i18n keys to en/de/es/pl but skipped `ko.json` (486 vs 496 keys), which would have
+failed `i18n:check-sync`. Translated properly rather than left as English placeholders, and mirrored.
+
+### Gate at `3e27096ca`
+
+`build:packages`, `generate`, `i18n:check-sync`, `typecheck`, `test` **25/25 tasks**, `build:app`,
+`repo-wide-guards` (27 files), `agents:check-budget` (exit 0), `template:sync`,
+`validate-source-links` (8 assets / 136 dispositions / 125 topics),
+`source-link-inventory --check` (125 records / 28 owners / 102 links) — all green.
+
+### Wave state
+
+| Wave | Slices | Status |
+|---|---|---|
+| 1 | A, E, H | **INTEGRATED** `3e27096ca` |
+| 2 | C, F | next — H's `cases.json` bump is in, so the conflict warning is cleared |
+| 3 | D, G | pending |
+| 4 | B (15 integration specs) | pending — and they must be RUN, see the corrected constraint above |
+| 5 | I + spec changelogs | pending |
+
+### Carried into wave 2
+
+- Slice A left three minors: `isRegularFile` follows symlinks (string pin, not bytes-at-path);
+  `checkSourceLinkInventory` returns silently when `baselinePath`/`baselineSchemaPath` are non-strings,
+  delegating its preconditions to an author-editable schema read off disk; and `makeFixtureRoot` leaks
+  `/tmp/om-knowledge-change-*` dirs (8944 swept).
+- Slice E left two minors: `getFrameworkOverrideModes` now has no production consumer, and
+  `CLOSED_LEDGER_STATUSES` is a test-local literal with no runtime counterpart.
+- Slice H left three minors, all in `ai-overrides.test.ts` spy handling and one residual unqualified
+  clause in the override reference.
