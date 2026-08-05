@@ -320,8 +320,8 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     return settled.map((result, index) => {
       const subscriberId = subscribers[index].id ?? subscribers[index].event
       return result.status === 'rejected'
-        ? { subscriberId, error: result.reason }
-        : { subscriberId }
+        ? { subscriberId, ok: false, error: result.reason }
+        : { subscriberId, ok: true }
     })
   }
 

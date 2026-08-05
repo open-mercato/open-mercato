@@ -88,6 +88,36 @@ describe('EventBus.dispatchQueued', () => {
     expect(succeeded?.error).toBeUndefined()
   })
 
+  test('reports a rejection with an undefined reason as a failure', async () => {
+    // `Promise.allSettled` sets `reason: undefined` for `throw undefined` and
+    // `Promise.reject()`, so an outcome inferred from `error !== undefined` would
+    // score this as a success and let the worker complete the job.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const bus = makeBus([
+      {
+        id: 'throws-undefined',
+        event: 'user.created',
+        persistent: true,
+        handler: () => { throw undefined },
+      },
+      {
+        id: 'rejects-undefined',
+        event: 'user.created',
+        persistent: true,
+        handler: () => Promise.reject(),
+      },
+    ])
+
+    const results = await bus.dispatchQueued('user.created', {})
+
+    expect(results.map((r) => ({ id: r.subscriberId, ok: r.ok })).sort((a, b) => a.id.localeCompare(b.id)))
+      .toEqual([
+        { id: 'rejects-undefined', ok: false },
+        { id: 'throws-undefined', ok: false },
+      ])
+    expect(results.every((r) => r.error === undefined)).toBe(true)
+  })
+
   test('forwards trusted scope and the concrete event name to wildcard subscribers', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
     const seen: Array<Record<string, unknown>> = []
@@ -118,7 +148,7 @@ describe('EventBus.dispatchQueued', () => {
 
     const results = await bus.dispatchQueued('user.created', {})
 
-    expect(results).toEqual([{ subscriberId: 'user.created' }])
+    expect(results).toEqual([{ subscriberId: 'user.created', ok: true }])
   })
 
   test('returns an empty result set when nothing matches', async () => {

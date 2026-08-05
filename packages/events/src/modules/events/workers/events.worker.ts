@@ -72,7 +72,10 @@ function resolveEventBus(ctx: HandlerContext, event: string): EventBus {
 }
 
 function reportFailures(event: string, results: QueuedDispatchResult[]): void {
-  const failures = results.filter((result) => result.error !== undefined)
+  // Keyed on `ok`, never on `error !== undefined`: a handler can reject with
+  // `undefined`, which would otherwise be scored as a success and the job
+  // completed despite a failed subscriber.
+  const failures = results.filter((result) => !result.ok)
   if (failures.length === 0) {
     return
   }

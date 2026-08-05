@@ -6,13 +6,13 @@ import type { AutoSpawnWorkersMode } from './auto-spawn-workers'
 // package (no dependency edge), so the reconcile logic is mirrored here for the
 // server-bootstrap guard only; the bus and worker own the runtime behavior.
 //
-// The two guards compose rather than compete: the bus runs its own reconciliation
-// on every process, and it accepts an EXPLICITLY truthy
-// `OM_EVENTS_SINGLE_DELIVERY` as proof that a supervisor already checked worker
-// availability. `applyEventsSingleDeliveryGuard` writes exactly that explicit
-// value into both envs below, so processes launched by `mercato server` keep
-// single-delivery unchanged while processes the CLI never wraps fall back to safe
-// inline delivery.
+// This guard is the ONLY place that reconciles the flag against worker
+// availability. The event bus deliberately does not: the queue is durable, so a
+// persistent emit with no worker yet is delayed rather than lost, and delivering
+// inline instead would move the work onto the caller's request path. Only this
+// bootstrap knows for a fact that the process it is launching runs no worker, so
+// only it rewrites the value - into both envs below, so the app and any spawned
+// child agree.
 const EVENTS_SINGLE_DELIVERY_ENV = 'OM_EVENTS_SINGLE_DELIVERY'
 const EVENTS_EXTERNAL_WORKER_ENV = 'OM_EVENTS_EXTERNAL_WORKER'
 

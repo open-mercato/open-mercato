@@ -59,7 +59,13 @@ export type SubscriberDescriptor = {
 export type QueuedDispatchResult = {
   /** Subscriber id, falling back to its registered event pattern when unnamed */
   subscriberId: string
-  /** Set when the handler rejected. The events worker aggregates these and throws so the job retries. */
+  /**
+   * Whether the handler settled successfully. This is the authoritative outcome:
+   * a handler can reject with `undefined` (`throw undefined`, `Promise.reject()`),
+   * so `error` alone cannot distinguish failure from success.
+   */
+  ok: boolean
+  /** The rejection reason when `ok` is false. May itself be `undefined`. */
   error?: unknown
 }
 

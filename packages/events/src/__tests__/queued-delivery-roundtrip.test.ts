@@ -143,6 +143,20 @@ describe('queued persistent delivery round trip (no CLI module registry)', () =>
     expect(ran).toEqual(['sub'])
   })
 
+  it('fails the job when a subscriber rejects with an undefined reason', async () => {
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([
+      { id: 'silent', event: '*', persistent: true, handler: () => { throw undefined } },
+    ])
+
+    await bus.emit('customers.deal.won', { id: 'deal-9' }, { persistent: true })
+    const [job] = readQueuedJobs()
+
+    await expect(handle(job as never, workerContext(bus) as never)).rejects.toThrow(
+      '1/1 subscriber(s) failed for event "customers.deal.won": silent',
+    )
+  })
+
   it('surfaces a failing subscriber so the queue retries the job', async () => {
     const bus = createEventBus({ resolve: ((name: string) => name) as never })
     bus.registerModuleSubscribers([
