@@ -7,11 +7,14 @@
   "storage_s3.errors.invalidPayload": "Invalid payload",
   "storage_s3.errors.invalidQuery": "Invalid query parameters",
   "storage_s3.errors.keyAccessDenied": "Access denied: key is not scoped to this tenant.",
+  "storage_s3.errors.keyAlreadyExists": "The target storage key already exists.",
   "storage_s3.errors.keyOverrideAccessDenied": "Access denied: key override is not scoped to this tenant.",
   "storage_s3.errors.keyRequired": "key query param is required",
   "storage_s3.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
   "storage_s3.errors.multipartRequired": "Expected multipart/form-data",
+  "storage_s3.errors.persistFailed": "Failed to persist attachment.",
   "storage_s3.errors.prefixAccessDenied": "Access denied: prefix is not scoped to this tenant.",
+  "storage_s3.errors.quotaAccountingUnavailable": "Storage quota accounting is unavailable.",
   "storage_s3.errors.quotaExceeded": "Attachment storage quota exceeded for this tenant.",
   "storage_s3.errors.unauthorized": "Unauthorized"
 }

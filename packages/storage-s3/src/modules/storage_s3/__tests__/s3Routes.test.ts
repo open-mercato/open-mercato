@@ -105,6 +105,23 @@ describe('storage_s3 standalone route key scope', () => {
     expect(mockGetSignedUrl).not.toHaveBeenCalled()
   })
 
+  // Regression guard for the quota-admission responses #4076 shipped unlocalized
+  // (#4995). This suite mocks `resolveTranslations`, so a localized body reads
+  // `translated:<key>` while a hardcoded English string does not — which is what
+  // lets the guard live next to the route instead of only in the app-level suite.
+  it('localizes the quota-accounting failure on signed upload URLs', async () => {
+    const response = await POST(jsonRequest({
+      key: 'docs/org_org-1/tenant_tenant-1/mine.txt',
+      operation: 'upload',
+      expiresIn: 600,
+    }))
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: 'translated:storage_s3.errors.quotaAccountingUnavailable',
+    })
+  })
+
   it('localizes invalid delete payload errors', async () => {
     const response = await DELETE(new Request('http://example.test/api/storage-providers/s3/delete', {
       method: 'DELETE',

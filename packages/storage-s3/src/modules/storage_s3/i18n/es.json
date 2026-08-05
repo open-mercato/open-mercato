@@ -7,11 +7,14 @@
   "storage_s3.errors.invalidPayload": "Contenido de solicitud no válido",
   "storage_s3.errors.invalidQuery": "Parámetros de consulta no válidos",
   "storage_s3.errors.keyAccessDenied": "Acceso denegado: la clave no está limitada a este tenant.",
+  "storage_s3.errors.keyAlreadyExists": "La clave de almacenamiento de destino ya existe.",
   "storage_s3.errors.keyOverrideAccessDenied": "Acceso denegado: la sobrescritura de la clave no está limitada a este tenant.",
   "storage_s3.errors.keyRequired": "Se requiere el parámetro de consulta key",
   "storage_s3.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
   "storage_s3.errors.multipartRequired": "Se esperaba multipart/form-data",
+  "storage_s3.errors.persistFailed": "No se pudo guardar el archivo adjunto.",
   "storage_s3.errors.prefixAccessDenied": "Acceso denegado: el prefijo no está limitado a este tenant.",
+  "storage_s3.errors.quotaAccountingUnavailable": "La contabilidad de la cuota de almacenamiento no está disponible.",
   "storage_s3.errors.quotaExceeded": "Se superó la cuota de almacenamiento de adjuntos para este tenant.",
   "storage_s3.errors.unauthorized": "No autorizado"
 }
