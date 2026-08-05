@@ -211,9 +211,24 @@ function canonicalWhereClauses(em: ReturnType<typeof createFakeEntityManager>) {
     .map(([, where]) => where as Record<string, unknown>)
 }
 
-async function callRoute(query = ''): Promise<{ status: number; body: any }> {
+type AggregateItem = {
+  id: string
+  todoId: string
+  todoSource: string
+  todoTitle: string | null
+}
+
+type AggregateResponse = {
+  items: AggregateItem[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+async function callRoute(query = ''): Promise<{ status: number; body: AggregateResponse }> {
   const res = await GET(new Request(`http://localhost/api/customers/interactions/tasks${query}`))
-  return { status: res.status, body: await res.json() }
+  return { status: res.status, body: (await res.json()) as AggregateResponse }
 }
 
 describe('GET /api/customers/interactions/tasks', () => {
@@ -241,11 +256,11 @@ describe('GET /api/customers/interactions/tasks', () => {
 
     expect(status).toBe(200)
     expect(body.total).toBe(2)
-    expect(body.items.map((item: { todoTitle: string }) => item.todoTitle)).toEqual([
+    expect(body.items.map((item) => item.todoTitle)).toEqual([
       'Call the company',
       'Call the person',
     ])
-    expect(body.items.every((item: { todoSource: string }) => item.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE)).toBe(true)
+    expect(body.items.every((item) => item.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE)).toBe(true)
     for (const where of canonicalWhereClauses(em)) {
       expect(where).not.toHaveProperty('source')
     }
@@ -275,12 +290,12 @@ describe('GET /api/customers/interactions/tasks', () => {
 
     expect(status).toBe(200)
     expect(body.total).toBe(2)
-    expect(body.items.map((item: { todoTitle: string }) => item.todoTitle)).toEqual([
+    expect(body.items.map((item) => item.todoTitle)).toEqual([
       'Source-less task',
       'Bridged legacy task',
     ])
     expect(
-      body.items.filter((item: { todoId: string }) => item.todoId === bridgedTodoId),
+      body.items.filter((item) => item.todoId === bridgedTodoId),
     ).toHaveLength(1)
   })
 
@@ -303,7 +318,7 @@ describe('GET /api/customers/interactions/tasks', () => {
 
     expect(status).toBe(200)
     expect(body.total).toBe(2)
-    expect(body.items.map((item: { todoSource: string }) => item.todoSource).sort()).toEqual([
+    expect(body.items.map((item) => item.todoSource).sort()).toEqual([
       CUSTOMER_INTERACTION_TASK_SOURCE,
       EXAMPLE_TODO_SOURCE,
     ])
@@ -434,13 +449,13 @@ describe('GET /api/customers/interactions/tasks', () => {
     const first = await callRoute('?page=1&pageSize=2&search=invoice')
     expect(first.status).toBe(200)
     expect(first.body).toMatchObject({ total: 3, page: 1, pageSize: 2, totalPages: 2 })
-    expect(first.body.items.map((item: { todoTitle: string }) => item.todoTitle)).toEqual([
+    expect(first.body.items.map((item) => item.todoTitle)).toEqual([
       'Invoice follow-up one',
       'Invoice follow-up two',
     ])
 
     const second = await callRoute('?page=2&pageSize=2&search=invoice')
-    expect(second.body.items.map((item: { todoTitle: string }) => item.todoTitle)).toEqual([
+    expect(second.body.items.map((item) => item.todoTitle)).toEqual([
       'Invoice follow-up three',
     ])
   })
