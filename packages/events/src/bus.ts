@@ -307,6 +307,18 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    * Handler failures are returned instead of logged-and-swallowed the way
    * `deliver()` does them: the worker needs them to propagate so the queue retries
    * the job and eventually dead-letters it.
+   *
+   * Subscribers run against `opts.resolve`, the bus's own resolver, exactly as
+   * inline `deliver()` does. On the default configuration that is the calling
+   * job's container: the worker builds a fresh request container per job
+   * (`createPerJobWorkerHandler`) and each one bootstraps its own bus. It is NOT
+   * the calling job's container under `OM_BOOTSTRAP_CACHE`, where the cached bus
+   * is replayed into later containers while its captured resolver stays bound to
+   * the first one. That flag is opt-in precisely because this class of staleness
+   * is unresolved for every cached service - `lib/di/container.ts` names the
+   * event-bus resolver among them and reports 500s from CRUD list endpoints - so
+   * queued dispatch is not made an exception to a cache that is not yet usable.
+   * Whoever verifies that flag must thread a per-call resolver through here.
    */
   async function dispatchQueued(
     event: string,

@@ -312,7 +312,6 @@ describe('Events Worker', () => {
           id: 'a:failing-subscriber',
           event: 'test.event',
           persistent: true,
-          persistent: true,
           handler: async () => {
             subscriber1Calls.push('called')
             throw new Error('Subscriber A failed')
@@ -321,7 +320,6 @@ describe('Events Worker', () => {
         {
           id: 'b:working-subscriber',
           event: 'test.event',
-          persistent: true,
           persistent: true,
           handler: async (payload) => { subscriber2Calls.push(payload) },
         },
@@ -378,13 +376,11 @@ describe('Events Worker', () => {
           id: 'a:failing-subscriber',
           event: 'test.event',
           persistent: true,
-          persistent: true,
           handler: async () => { throw new Error('Subscriber A failed') },
         },
         {
           id: 'b:failing-subscriber',
           event: 'test.event',
-          persistent: true,
           persistent: true,
           handler: async () => { throw new Error('Subscriber B failed') },
         },
