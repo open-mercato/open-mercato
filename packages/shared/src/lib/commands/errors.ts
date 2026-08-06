@@ -5,7 +5,11 @@ const COMMAND_INTERCEPTOR_ERROR_MARKER = Symbol.for('@open-mercato/CommandInterc
 export type CommandInterceptorErrorOptions = {
   /** HTTP status the transport layer should answer with. Omit to keep the generic 500. */
   status?: number
-  /** Response body the transport layer should answer with. Defaults to `{ error: message }`. */
+  /**
+   * Response body the transport layer should answer with, defaulting to `{ error: message }`.
+   * Only meaningful together with `status` — a body on its own is ignored, mirroring the same
+   * rule on `CommandInterceptorBeforeResult`.
+   */
   body?: Record<string, unknown>
   cause?: unknown
 }
@@ -17,7 +21,10 @@ export class CommandInterceptorError extends Error {
    * interceptor supplied none, in which case the transport layer keeps its generic 500.
    */
   readonly status?: number
-  /** Response body for the rejection. Populated from `options.body`, else `{ error: message }`. */
+  /**
+   * Response body for the rejection — `options.body`, else `{ error: message }`. Set only
+   * alongside `status`, so the two are always populated together or not at all.
+   */
   readonly body?: Record<string, unknown>
 
   constructor(message: string, options?: CommandInterceptorErrorOptions) {
@@ -26,8 +33,6 @@ export class CommandInterceptorError extends Error {
     if (typeof options?.status === 'number') {
       this.status = options.status
       this.body = options.body ?? { error: message }
-    } else if (options?.body) {
-      this.body = options.body
     }
   }
 }

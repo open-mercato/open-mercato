@@ -34,6 +34,12 @@ describe('CommandInterceptorError', () => {
     expect(error.body).toEqual(body)
   })
 
+  it('ignores a body supplied without a status, so status and body move together', () => {
+    const error = new CommandInterceptorError('Blocked', { body: { error: 'Blocked' } })
+    expect(error.status).toBeUndefined()
+    expect(error.body).toBeUndefined()
+  })
+
   it('preserves the cause when one is supplied', () => {
     const cause = new Error('underlying')
     const error = new CommandInterceptorError('Blocked', { cause })
