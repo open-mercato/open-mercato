@@ -40,7 +40,10 @@ module.exports = {
       },
     ],
   },
-  setupFiles: ['<rootDir>/../../jest.setup.ts'],
+  setupFiles: [
+    '<rootDir>/../../jest.setup.ts',
+    '<rootDir>/jest.modules.setup.ts',
+  ],
   setupFilesAfterEnv: ['<rootDir>/../../jest.dom.setup.ts'],
   transformIgnorePatterns: [
     '/node_modules/(?!(@mikro-orm|kysely|meilisearch|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',

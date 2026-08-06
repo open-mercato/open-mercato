@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -146,7 +147,7 @@ export default function RolesListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
-          perspective={{ tableId: 'auth.roles.list' }}
+          perspective={{ tableId: extensionPoints.hosts.rolesTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('auth.roles.list.title', 'Roles')}

@@ -37,6 +37,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
+    rel: 'scripts/dev-memory-sampler.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash.html'),
     rel: 'scripts/dev-splash.html',
@@ -138,6 +143,12 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+  // The template's pinned core version does not expose the autologin helper subpath yet.
+  'app/page.tsx': (content) =>
+    content.replace(
+      "import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'\n",
+      "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
+    ),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
       .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")

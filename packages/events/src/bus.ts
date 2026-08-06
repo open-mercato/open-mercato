@@ -261,6 +261,9 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             persistentFailures += 1
           }
           logger.error('Handler error', { event, pattern, err: error })
+          if (options?.rethrowHandlerErrors) {
+            throw error
+          }
         }
       }
     }

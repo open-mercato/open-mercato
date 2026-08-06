@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -71,29 +72,30 @@ function resolveTenantScopedPrefix(prefix: string, tenantId: string, orgId: stri
 }
 
 export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('storage_s3.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const params = Object.fromEntries(new URL(req.url).searchParams.entries())
   const parsed = querySchema.safeParse(params)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.invalidQuery', 'Invalid query parameters') }, { status: 400 })
   }
 
   // Always scope list operations to the tenant namespace to prevent cross-tenant enumeration.
   const effectivePrefix = resolveTenantScopedPrefix(parsed.data.prefix, auth.tenantId, auth.orgId)
   if (effectivePrefix === null) {
     return NextResponse.json(
-      { error: 'Access denied: prefix is not scoped to this tenant.' },
+      { error: t('storage_s3.errors.prefixAccessDenied', 'Access denied: prefix is not scoped to this tenant.') },
       { status: 403 },
     )
   }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
-    return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
+    return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
   const result = await driver.listObjects(

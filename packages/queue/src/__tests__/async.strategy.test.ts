@@ -18,6 +18,7 @@ const workerOn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(),
+  parseRedisUrl: jest.requireActual('@open-mercato/shared/lib/redis/connection').parseRedisUrl,
 }))
 
 jest.mock('bullmq', () => {
@@ -60,7 +61,7 @@ describe('Queue - async strategy', () => {
     getRedisUrlOrThrowMock.mockReturnValue('rediss://default:secret@example.com:6380/1')
   })
 
-  it('passes the full Redis URL to BullMQ when using env-based async config', async () => {
+  it('passes parsed Redis connection fields to BullMQ for env-based async config', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async', {
       concurrency: 3,
     })
@@ -69,19 +70,35 @@ describe('Queue - async strategy', () => {
     await queue.process(async () => {})
 
     expect(queueCtor).toHaveBeenCalledWith('test-queue', {
-      connection: { url: 'rediss://default:secret@example.com:6380/1' },
+      connection: {
+        host: 'example.com',
+        port: 6380,
+        username: 'default',
+        password: 'secret',
+        db: 1,
+        tls: {},
+        family: undefined,
+      },
     })
     expect(workerCtor).toHaveBeenCalledWith(
       'test-queue',
       expect.any(Function),
       {
-        connection: { url: 'rediss://default:secret@example.com:6380/1' },
+        connection: {
+          host: 'example.com',
+          port: 6380,
+          username: 'default',
+          password: 'secret',
+          db: 1,
+          tls: {},
+          family: undefined,
+        },
         concurrency: 3,
       },
     )
   })
 
-  it('preserves an explicit Redis URL without converting it to host/port fields', async () => {
+  it('preserves URL connection semantics when converting to BullMQ fields', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async', {
       connection: {
         url: 'rediss://user:secret@example.com:6380/4?family=6',
@@ -91,7 +108,15 @@ describe('Queue - async strategy', () => {
     await queue.enqueue({ value: 42 })
 
     expect(queueCtor).toHaveBeenCalledWith('test-queue', {
-      connection: { url: 'rediss://user:secret@example.com:6380/4?family=6' },
+      connection: {
+        host: 'example.com',
+        port: 6380,
+        username: 'user',
+        password: 'secret',
+        db: 4,
+        tls: {},
+        family: 6,
+      },
     })
   })
 
@@ -112,6 +137,38 @@ describe('Queue - async strategy', () => {
     )
 
     await queue.close()
+  })
+
+  it('threads queue retry, lock-duration and stalled-job options to BullMQ', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {
+      attempts: 5,
+      lockDuration: 120_000,
+      maxStalledCount: 10,
+    })
+
+    await queue.enqueue({ value: 42 })
+    await queue.process(async () => {})
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ payload: { value: 42 } }),
+      expect.objectContaining({ attempts: 5 }),
+    )
+    expect(workerCtor).toHaveBeenCalledWith(
+      'test-queue',
+      expect.any(Function),
+      expect.objectContaining({ lockDuration: 120_000, maxStalledCount: 10 }),
+    )
+  })
+
+  it('leaves BullMQ on its own lock and stall defaults when the options are unset', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {})
+
+    await queue.process(async () => {})
+
+    const workerOptions = workerCtor.mock.calls[0]?.[2] as Record<string, unknown>
+    expect(workerOptions).not.toHaveProperty('lockDuration')
+    expect(workerOptions).not.toHaveProperty('maxStalledCount')
   })
 
   it('removeQueuedJobsByScope removes only queued jobs matching tenant scope', async () => {

@@ -2,6 +2,7 @@ import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyJwt } from './jwt'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
+import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
 
 const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
@@ -253,7 +254,14 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     }
     cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
     return auth
-  } catch {
+  } catch (err) {
+    // A transient DB failure (pool exhausted, `max_connections` reached, DB
+    // restarting) means we could not confirm the key — NOT that it is invalid.
+    // Surface it so callers return a retryable 503 instead of masking it as an
+    // auth miss (401). Genuine misses already returned `null` above.
+    if (isTransientDbError(err)) {
+      throw new AuthResolutionUnavailableError(err)
+    }
     return null
   }
 }
@@ -365,7 +373,20 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   if (!apiKey) {
     return { auth: null, status: resolveUnauthenticatedStatus() }
   }
-  const apiAuth = await resolveApiKeyAuth(apiKey)
+  let apiAuth: AuthContext
+  try {
+    apiAuth = await resolveApiKeyAuth(apiKey)
+  } catch (err) {
+    // Only a transient canonical-resolution failure maps to 'error' (retryable
+    // 503), mirroring the interactive-token path above. Anything else is an
+    // unexpected bug — rethrow so it surfaces as a 500 rather than being masked
+    // as an auth failure.
+    if (!(err instanceof AuthResolutionUnavailableError)) {
+      throw err
+    }
+    hadUnavailableResolution = true
+    return { auth: null, status: resolveUnauthenticatedStatus() }
+  }
   if (!apiAuth) {
     return { auth: null, status: resolveUnauthenticatedStatus() }
   }

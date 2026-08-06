@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/business_rules/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -342,7 +343,7 @@ export default function RulesListPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{
-            tableId: 'business-rules.rules.list',
+            tableId: extensionPoints.hosts.rulesTable.tableId,
           }}
           emptyState={(
             <ListEmptyState

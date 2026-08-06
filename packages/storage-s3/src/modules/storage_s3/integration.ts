@@ -79,7 +79,7 @@ export const integration: IntegrationDefinition = {
         type: 'url',
         required: false,
         placeholder: 'https://fra1.digitaloceanspaces.com',
-        helpText: 'Custom S3 endpoint URL. Leave empty for AWS S3. Required for MinIO, DigitalOcean Spaces, and other providers.',
+        helpText: 'Custom S3 endpoint URL. Leave empty for AWS S3. Internal/private endpoints require OM_STORAGE_S3_ALLOW_INTERNAL_ENDPOINTS=true.',
       },
       {
         key: 'forcePathStyle',

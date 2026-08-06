@@ -9,6 +9,19 @@ jest.mock('../../../backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { apiCallOrThrow } from '../../../backend/utils/apiCall'
 import { useAiPendingActionPolling } from '../useAiPendingActionPolling'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from '../types'
@@ -48,9 +61,12 @@ function mockResponse(action: AiPendingActionCardAction) {
   }))
 }
 
+const loggerError = createLogger('ui').error as jest.Mock
+
 describe('useAiPendingActionPolling', () => {
   beforeEach(() => {
     ;(apiCallOrThrow as jest.Mock).mockReset()
+    loggerError.mockClear()
   })
 
   it('fetches on mount and continues polling while status is pending', async () => {
@@ -144,6 +160,51 @@ describe('useAiPendingActionPolling', () => {
         jest.advanceTimersByTime(10_000)
       })
       expect((apiCallOrThrow as jest.Mock).mock.calls.length).toBe(callsAtUnmount)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('logs a failed fetch and keeps polling until it recovers', async () => {
+    const failure = new Error('[internal] pending action endpoint unreachable')
+    ;(apiCallOrThrow as jest.Mock)
+      .mockImplementationOnce(async () => {
+        throw failure
+      })
+      .mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        result: { pendingAction: makeAction({ status: 'pending' }) },
+        response: {},
+        cacheStatus: null,
+      }))
+
+    jest.useFakeTimers()
+    try {
+      const { result, unmount } = renderHook(() =>
+        useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 1000 }),
+      )
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(loggerError).toHaveBeenCalledWith('Failed to load the pending AI action', {
+        err: failure,
+        pendingActionId: 'pa-1',
+      })
+      expect(result.current.error?.message).toBe(failure.message)
+      expect(result.current.action).toBeNull()
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(result.current.action?.status).toBe('pending')
+      expect(result.current.error).toBeNull()
+
+      unmount()
     } finally {
       jest.useRealTimers()
     }

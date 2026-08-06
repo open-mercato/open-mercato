@@ -56,9 +56,27 @@ jest.mock('../../backend/utils/apiCall', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { apiFetch } from '../../backend/utils/api'
 import { apiCall } from '../../backend/utils/apiCall'
 import { AiChat } from '../AiChat'
+
+const loggerError = createLogger('ui').error as jest.Mock
+const loggerWarn = createLogger('ui').warn as jest.Mock
+
+const MODEL_PICKER_STORAGE_KEY = 'om-ai-model-picker:customers.account_assistant'
 
 let lastResizeObserver: MockResizeObserver | null = null
 
@@ -93,6 +111,8 @@ const dict = {
   'ai_assistant.chat.emptyTranscript':
     'No messages yet. Ask the agent anything to get started.',
   'ai_assistant.chat.errorTitle': 'Agent dispatch failed',
+  'ai_assistant.errors.moderationBlocked':
+    'Your message was blocked by the content safety filter. Please rephrase and try again.',
   'ai_assistant.chat.agentTasksTitle': 'Tool calls',
   'ai_assistant.chat.regionLabel': 'AI chat',
   'ai_assistant.chat.send': 'Send message',
@@ -239,7 +259,7 @@ describe('<AiChat>', () => {
       },
     })
     window.localStorage.setItem(
-      'om-ai-model-picker:customers.account_assistant',
+      MODEL_PICKER_STORAGE_KEY,
       JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' }),
     )
 
@@ -252,7 +272,134 @@ describe('<AiChat>', () => {
       )
     })
     await waitFor(() => {
-      expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBeNull()
+      expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBeNull()
+    })
+  })
+
+  it('logs and keeps the stored model picker value when the models endpoint errors', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 500, result: null })
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem(MODEL_PICKER_STORAGE_KEY, storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(loggerError).toHaveBeenCalledWith('Failed to load AI agent models', {
+        agent: 'customers.account_assistant',
+        status: 500,
+      })
+    })
+    await act(async () => {})
+
+    expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBe(storedValue)
+    expect(screen.getByLabelText('Message composer')).toBeInTheDocument()
+  })
+
+  it('logs and keeps the stored model picker value when the models request rejects', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    const failure = new Error('[internal] models endpoint unreachable')
+    apiCallMock.mockRejectedValueOnce(failure)
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem(MODEL_PICKER_STORAGE_KEY, storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(loggerError).toHaveBeenCalledWith('Failed to load AI agent models', {
+        agent: 'customers.account_assistant',
+        err: failure,
+      })
+    })
+    await act(async () => {})
+
+    expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBe(storedValue)
+    expect(screen.getByLabelText('Message composer')).toBeInTheDocument()
+  })
+
+  it('logs a denied models response at warning level and keeps the stored model picker value', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 403, result: null })
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem(MODEL_PICKER_STORAGE_KEY, storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to load AI agent models', {
+        agent: 'customers.account_assistant',
+        status: 403,
+      })
+    })
+    await act(async () => {})
+
+    expect(loggerError).not.toHaveBeenCalledWith(
+      'Failed to load AI agent models',
+      expect.anything(),
+    )
+    expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBe(storedValue)
+  })
+
+  it('logs a rejected models request at warning level when the error carries a denied status', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    const failure = Object.assign(new Error('[internal] Forbidden'), { status: 403 })
+    apiCallMock.mockRejectedValueOnce(failure)
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem(MODEL_PICKER_STORAGE_KEY, storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to load AI agent models', {
+        agent: 'customers.account_assistant',
+        err: failure,
+      })
+    })
+    await act(async () => {})
+
+    expect(loggerError).not.toHaveBeenCalledWith(
+      'Failed to load AI agent models',
+      expect.anything(),
+    )
+    expect(window.localStorage.getItem(MODEL_PICKER_STORAGE_KEY)).toBe(storedValue)
+  })
+
+  it('does not render the model picker while the models request is still in flight', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    let resolveModels: ((value: unknown) => void) | null = null
+    apiCallMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveModels = resolve
+        }),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    expect(screen.queryByRole('button', { name: 'Select AI model' })).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveModels?.({
+        ok: true,
+        status: 200,
+        result: {
+          agentId: 'customers.account_assistant',
+          allowRuntimeModelOverride: true,
+          defaultProviderId: 'openai',
+          defaultModelId: 'gpt-5-mini',
+          providers: [
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              models: [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }],
+            },
+          ],
+        },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select AI model' })).toBeInTheDocument()
     })
   })
 
@@ -575,6 +722,35 @@ describe('<AiChat>', () => {
     expect(screen.getByText('Agent dispatch failed')).toBeInTheDocument()
     expect(screen.getByText(/Unknown agent/)).toBeInTheDocument()
     expect(screen.getByText('agent_unknown')).toBeInTheDocument()
+  })
+
+  it('renders the translated message (not the raw server text) for a moderation_blocked envelope', async () => {
+    const fetchMock = apiFetch as unknown as jest.Mock
+    fetchMock.mockResolvedValueOnce(
+      createErrorResponse(400, {
+        error: 'Input rejected by the content safety filter.',
+        code: 'moderation_blocked',
+      }),
+    )
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'flagged input' } })
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('moderation_blocked')).toBeInTheDocument()
+    })
+    // The friendly localized copy is shown; the internal server text is not.
+    expect(
+      screen.getByText(/blocked by the content safety filter/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Input rejected by the content safety filter.')).toBeNull()
+    // Content-safety rejections render as a soft warning, not destructive.
+    expect(document.querySelector('[data-ai-chat-error="moderation_blocked"]')).not.toBeNull()
   })
 
   it('Escape aborts an in-flight streaming response', async () => {

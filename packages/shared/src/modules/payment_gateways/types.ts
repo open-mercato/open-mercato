@@ -1,3 +1,5 @@
+import { DEFAULT_WEBHOOK_BODY_LIMIT_BYTES } from '../../lib/webhooks/body'
+
 // ── Unified Payment Status ──────────────────────────────────────────────────
 
 export type UnifiedPaymentStatus =
@@ -112,6 +114,32 @@ export type PaymentGatewayClientSession =
   | EmbeddedPaymentGatewayClientSession
   | RedirectPaymentGatewayClientSession
 
+// ── Order Amount Reconciliation ─────────────────────────────────────────────
+
+export interface PaymentGatewayScope {
+  organizationId: string
+  tenantId: string
+}
+
+export interface PaymentOrderTotal {
+  orderId: string
+  currencyCode: string
+  amountDue: number
+}
+
+/**
+ * Contract a module that owns orders implements so `payment_gateways` can
+ * reconcile a caller-supplied session amount against the authoritative amount
+ * due, without depending on that module. Implementations MUST scope the lookup
+ * by tenant and organization and MUST return `null` for anything outside the
+ * caller's scope, so an out-of-scope order is indistinguishable from a missing
+ * one. The `sales` module registers the default implementation under the
+ * `paymentOrderTotalResolver` DI name.
+ */
+export interface PaymentOrderTotalResolver {
+  resolveOrderTotal(orderId: string, scope: PaymentGatewayScope): Promise<PaymentOrderTotal | null>
+}
+
 // ── Input / Output Types ────────────────────────────────────────────────────
 
 export interface CreateSessionInput {
@@ -225,6 +253,7 @@ export interface WebhookHandlerRegistration {
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>
   queue?: string
   readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+  maxBodyBytes?: number
 }
 
 // ── Adapter Registry Options ────────────────────────────────────────────────
@@ -319,13 +348,25 @@ export function registerWebhookHandler(
   options?: {
     queue?: string
     readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+    maxBodyBytes?: number
   },
 ): () => void {
+  if (
+    options?.maxBodyBytes !== undefined
+    && (!Number.isSafeInteger(options.maxBodyBytes)
+      || options.maxBodyBytes <= 0
+      || options.maxBodyBytes > DEFAULT_WEBHOOK_BODY_LIMIT_BYTES)
+  ) {
+    throw new Error(
+      `[internal] Payment gateway webhook maxBodyBytes must be a positive safe integer no greater than ${DEFAULT_WEBHOOK_BODY_LIMIT_BYTES}`,
+    )
+  }
   const webhookHandlerRegistry = getWebhookHandlerRegistry()
   webhookHandlerRegistry.set(providerKey, {
     handler,
     queue: options?.queue,
     readSessionIdHint: options?.readSessionIdHint,
+    maxBodyBytes: options?.maxBodyBytes,
   })
   return () => {
     webhookHandlerRegistry.delete(providerKey)

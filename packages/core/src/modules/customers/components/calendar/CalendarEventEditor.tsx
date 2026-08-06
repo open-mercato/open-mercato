@@ -189,7 +189,7 @@ function EditorBody({
     // and the type switcher span both columns.
     <div className="grid w-full grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-6">
       {conflict ? (
-        <Alert variant="warning" className="rounded-lg lg:col-span-2">
+        <Alert status="warning" className="rounded-lg lg:col-span-2">
           <AlertTitle>{t('customers.calendar.editor.conflictTitle', 'Calendar conflict')}</AlertTitle>
           <AlertDescription>{conflict}</AlertDescription>
         </Alert>
