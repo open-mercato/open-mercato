@@ -40,7 +40,7 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
       APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
-      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-ws://localhost:4101}
+      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
       DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:-dev-only-documents-collab-v2-secret}
       CACHE_REDIS_URL: redis://redis:6379
       CACHE_STRATEGY: ${CACHE_STRATEGY:-redis}
@@ -79,6 +79,8 @@ services:
       - mercato-network-fullapp
 
   documents-collab:
+    profiles:
+      - documents-collab
     build:
       context: .
       target: dev

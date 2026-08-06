@@ -21,6 +21,10 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
+  // Mirror apps/mercato: scaffolded apps ship their own AGENTS.md/CLAUDE.md
+  // from the template, so let Next 16.3+ leave them alone rather than
+  // appending its managed agent-rules block on every `next dev`.
+  agentRules: false,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,

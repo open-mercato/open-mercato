@@ -94,6 +94,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   features = ['documents.view']
   process.env.DOCUMENTS_COLLAB_JWT_SECRET_V2 = 'collab-route-v2-secret-at-least-32-bytes'
+  delete process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
   mockCreateRequestContainer.mockResolvedValue(container)
   mockGetAuthFromRequest.mockResolvedValue({
     sub: USER_ID,
@@ -196,6 +197,19 @@ describe('collaboration token route capabilities', () => {
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it('disables collaboration instead of failing when the endpoint is invalid', async () => {
+    process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL = 'https://collab.example.test'
+
+    const response = await GET(request(), context())
+    const body = await response.json() as Record<string, unknown>
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({ url: null })
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('NEXT_PUBLIC_DOCUMENTS_COLLAB_URL'),
+    )
   })
 
   it('refuses API-key collaboration tokens until the sidecar can preserve the key subject', async () => {

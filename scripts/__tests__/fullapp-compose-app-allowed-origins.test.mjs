@@ -60,11 +60,13 @@ for (const relPath of COMPOSE_FILES) {
 for (const relPath of COMPOSE_FILES) {
   test(`${relPath} wires the Documents collaboration sidecar`, () => {
     const content = readCompose(relPath)
+    const sidecar = documentsCollabBlock(content, relPath)
     assert.match(content, /documents-collab:/)
-    assert.match(content, /command:\s*\["yarn", "documents:collab"\]/)
-    assert.match(content, /DOCUMENTS_COLLAB_REDIS_URL:/)
-    assert.match(content, /DOCUMENTS_COLLAB_REDIS_PREFIX:/)
-    assert.match(content, /DOCUMENTS_COLLAB_APP_ROOT:/)
+    assert.match(sidecar, /profiles:\s*\n\s+- documents-collab/)
+    assert.match(sidecar, /command:\s*\["yarn", "documents:collab"\]/)
+    assert.match(sidecar, /DOCUMENTS_COLLAB_REDIS_URL:/)
+    assert.match(sidecar, /DOCUMENTS_COLLAB_REDIS_PREFIX:/)
+    assert.match(sidecar, /DOCUMENTS_COLLAB_APP_ROOT:/)
   })
 
   test(`${relPath} mirrors app encryption and Redis env into the sidecar`, () => {
@@ -113,5 +115,16 @@ for (const relPath of [
       /DOCUMENTS_COLLAB_JWT_SECRET_V2:\s*\$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:-\}/,
     )
     assert.doesNotMatch(content, /DOCUMENTS_COLLAB_JWT_SECRET_V2[^\n]*:-dev-only/)
+  })
+}
+
+for (const relPath of COMPOSE_FILES) {
+  test(`${relPath} leaves collaboration disabled until its profile is selected`, () => {
+    const content = readCompose(relPath)
+    assert.match(
+      content,
+      /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:\s*\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-\}/,
+    )
+    assert.doesNotMatch(content, /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL[^\n]*:-ws:\/\/localhost/)
   })
 }

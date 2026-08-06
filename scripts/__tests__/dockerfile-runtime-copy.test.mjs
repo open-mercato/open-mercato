@@ -77,17 +77,17 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
   assert.doesNotMatch(dockerfile, /^RUN yarn install$/m)
 })
 
-test('production runtime image includes Chromium for Documents PDF export', async () => {
+test('production runtime image supports Chromium for Documents PDF export', async () => {
   const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
 
   assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
   assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl sudo/)
 })
 
-test('production runtime Chromium install is opt-out via INSTALL_CHROMIUM build arg', async () => {
+test('production runtime Chromium install is opt-in via INSTALL_CHROMIUM build arg', async () => {
   const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
 
-  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=1/, 'runner stage should default INSTALL_CHROMIUM to 1')
+  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=0/, 'runner stage should default INSTALL_CHROMIUM to 0')
   assert.match(
     dockerfile,
     /if \[ "\$INSTALL_CHROMIUM" = "1" \]; then[\s\S]*?apk add --no-cache ca-certificates chromium openssl sudo/,

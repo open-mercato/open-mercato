@@ -251,7 +251,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
       APP_URL: ${APP_URL:-http://localhost:3000}
-      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-ws://localhost:4101}
+      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
       DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:-dev-only-documents-collab-v2-secret}
       # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
       APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
@@ -337,6 +337,8 @@ services:
       - mercato-network-fullapp
 
   documents-collab:
+    profiles:
+      - documents-collab
     build:
       context: .
       target: dev

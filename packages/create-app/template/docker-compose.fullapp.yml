@@ -5,9 +5,11 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+        - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
         # Optional: browser-reachable ws(s):// endpoint baked in at build time.
         # Leave unset to disable realtime document collaboration (the editor
-        # falls back to single-user editing). Loopback values are rejected.
+        # falls back to single-user editing). Invalid production values are
+        # ignored at runtime instead of failing the image build.
         - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
         - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
       extra_hosts:
@@ -104,11 +106,14 @@ services:
       - mercato-network-fullapp
 
   documents-collab:
+    profiles:
+      - documents-collab
     build:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
         - DOCUMENTS_COLLAB_PORT=${DOCUMENTS_COLLAB_PORT:-4101}
+        - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
         - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
         - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
       extra_hosts:

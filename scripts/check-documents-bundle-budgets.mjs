@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { fileURLToPath } from 'node:url'
+import { carriesDocumentsEditorRuntime } from './lib/documents-bundle-runtime.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const BUILD_ROOTS = [
@@ -25,9 +26,6 @@ const BUILD_ROOTS = [
 ]
 
 const EDITOR_ENTRY_BUDGET_BYTES = 750 * 1024
-// Modules that only the editor/template surfaces may pull in. Their presence in a chunk marks it
-// as an editor entry; their presence in a list-route chunk is a budget breach on its own.
-const EDITOR_RUNTIME_MARKERS = ['@tiptap', 'prosemirror', 'yjs', '@hocuspocus']
 
 function findBuildRoot() {
   return BUILD_ROOTS.find((candidate) => fs.existsSync(path.join(candidate, 'BUILD_ID'))) ?? null
@@ -78,7 +76,7 @@ for (const file of chunkFiles) {
   } catch {
     continue
   }
-  const carriesEditorRuntime = EDITOR_RUNTIME_MARKERS.some((marker) => source.includes(marker))
+  const carriesEditorRuntime = carriesDocumentsEditorRuntime(source)
   if (!carriesEditorRuntime) continue
 
   const bytes = gzipSize(file)

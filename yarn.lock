@@ -4752,7 +4752,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@eslint-community/eslint-utils@npm:^4.8.0, @eslint-community/eslint-utils@npm:^4.9.1":
+"@eslint-community/eslint-utils@npm:4.9.1, @eslint-community/eslint-utils@npm:^4.8.0, @eslint-community/eslint-utils@npm:^4.9.1":
   version: 4.9.1
   resolution: "@eslint-community/eslint-utils@npm:4.9.1"
   dependencies:
@@ -5081,72 +5081,72 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hocuspocus/common@npm:^4.4.0":
-  version: 4.4.0
-  resolution: "@hocuspocus/common@npm:4.4.0"
+"@hocuspocus/common@npm:^4.5.0":
+  version: 4.5.0
+  resolution: "@hocuspocus/common@npm:4.5.0"
   dependencies:
-    lib0: "npm:^0.2.87"
-  checksum: 10/7d4f88c2dda2ec0dc5face500bb110d4beeef25516145d450686261ffab9c5be44ee86d0191fa5f4898a3b679f16125c9e8e5a64b0e68776b33fa3a79a082c27
+    lib0: "npm:^0.2.117"
+  checksum: 10/7fc7d0cff635faf0d3d3c959a831e8d79e77da46fcae5b308232ae636017894d55534ad27255eb5d48bfd52586a76778483ce4f21acbb11adbc7775b00c6f653
   languageName: node
   linkType: hard
 
 "@hocuspocus/extension-redis@npm:^4.3.0":
-  version: 4.4.0
-  resolution: "@hocuspocus/extension-redis@npm:4.4.0"
+  version: 4.5.0
+  resolution: "@hocuspocus/extension-redis@npm:4.5.0"
   dependencies:
-    "@hocuspocus/common": "npm:^4.4.0"
-    "@hocuspocus/server": "npm:^4.4.0"
+    "@hocuspocus/common": "npm:^4.5.0"
+    "@hocuspocus/server": "npm:^4.5.0"
     "@sesamecare-oss/redlock": "npm:^1.4.0"
     ioredis: "npm:~5.6.1"
-    kleur: "npm:^4.1.4"
+    kleur: "npm:^4.1.5"
   peerDependencies:
     y-protocols: ^1.0.6
     yjs: ^13.6.8
-  checksum: 10/c833d2e72fe0266ea05634ce9f10d4b7bc27a2b3695587b5a45307868f1e29e27e511378055a238ac5035ac4146ca6989c2a882a361ef056524ec38e8149ce89
+  checksum: 10/2bad7713554a1b42708568615c4395f57d8b35547496adf38a665fc1ba559aeda84a96fac14d5ecfb4e0e6964546af68ad74fdc46620adbeb00ae5fdb0187330
   languageName: node
   linkType: hard
 
 "@hocuspocus/provider@npm:^4.3.0":
-  version: 4.4.0
-  resolution: "@hocuspocus/provider@npm:4.4.0"
+  version: 4.5.0
+  resolution: "@hocuspocus/provider@npm:4.5.0"
   dependencies:
-    "@hocuspocus/common": "npm:^4.4.0"
-    "@lifeomic/attempt": "npm:^3.0.2"
-    lib0: "npm:^0.2.87"
+    "@hocuspocus/common": "npm:^4.5.0"
+    "@lifeomic/attempt": "npm:^3.1.0"
+    lib0: "npm:^0.2.117"
   peerDependencies:
     y-protocols: ^1.0.6
     yjs: ^13.6.8
-  checksum: 10/2af1b464ecdfef5dd8b72240acdeaff753574e76a58bfdb644b565eeb1417e0a6b02c7040c4663d85903ded07a85ef729943a267c822bb55bbad34af4eeaf7b6
+  checksum: 10/dc9c623a17941924450a660e37aedcea37a02583de08dca16fd88d5b48d81f25397c6f0280c30ebe2cb19d5a8be292f1ac366d479863c9f00fab691ca6f0bcde
   languageName: node
   linkType: hard
 
-"@hocuspocus/server@npm:^4.4.0":
-  version: 4.4.0
-  resolution: "@hocuspocus/server@npm:4.4.0"
+"@hocuspocus/server@npm:^4.4.0, @hocuspocus/server@npm:^4.5.0":
+  version: 4.5.0
+  resolution: "@hocuspocus/server@npm:4.5.0"
   dependencies:
-    "@hocuspocus/common": "npm:^4.4.0"
+    "@hocuspocus/common": "npm:^4.5.0"
     async-mutex: "npm:^0.5.0"
     crossws: "npm:^0.4.4"
-    kleur: "npm:^4.1.4"
-    lib0: "npm:^0.2.47"
+    kleur: "npm:^4.1.5"
+    lib0: "npm:^0.2.117"
   peerDependencies:
     y-protocols: ^1.0.6
     yjs: ^13.6.8
-  checksum: 10/48fa6406620029b4e6ec27459e35f589462af5a70e915d41c66f4692bdf952f940b123538cf640331b33d25cda819679f6fab8d8e618c2535dc22b44d3e86091
+  checksum: 10/020058c5621a7574ce50af930a56fa64da0b59f51accfa5e74f29b62c18fa2cdd4e99006b0816c8fb8d5ec539f534fd37369bca6db55b842afe51e1d60ee8570
   languageName: node
   linkType: hard
 
 "@hocuspocus/transformer@npm:^4.3.0":
-  version: 4.4.0
-  resolution: "@hocuspocus/transformer@npm:4.4.0"
+  version: 4.5.0
+  resolution: "@hocuspocus/transformer@npm:4.5.0"
   dependencies:
-    "@tiptap/starter-kit": "npm:^3.0.1"
+    "@tiptap/starter-kit": "npm:^3.19.0"
   peerDependencies:
     "@tiptap/core": ^3.0.1
     "@tiptap/pm": ^3.0.1
     y-prosemirror: ^1.2.1
     yjs: ^13.6.8
-  checksum: 10/5b1a2232bb8161416fd5c41dc2ba4e6fe59b250a8fcbc04b43b150a624ca6787632ab61c7ff1d4e7b8e50558b2ac658dc0272dd7b309185a8bb2806efbc8de7c
+  checksum: 10/b0f3318b2fbd556442aa9c22fbba4f5b767ef641e9cfc450393299112b3a6da2219e05abbd15f732183e7ebd8e83b6c8302706480b380447a43d3f88c90bd986
   languageName: node
   linkType: hard
 
@@ -6669,7 +6669,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lifeomic/attempt@npm:^3.0.2":
+"@lifeomic/attempt@npm:^3.1.0":
   version: 3.1.0
   resolution: "@lifeomic/attempt@npm:3.1.0"
   checksum: 10/051502a81c8aa1914d01f87989280fcf7213872851b5e0c673717d6c85ac78e9509bf916056425fafba3937079c1130823a4d95aec7c9f6ae3a22ad1e59b475e
@@ -7287,74 +7287,75 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@next/env@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/env@npm:16.2.12"
-  checksum: 10/b9cfd8e32892dc1bcfc34496cbc09a30bdba9a83d2caaf828fd646d03da65a8e2f2a01db2a6779ac9527592cfacf6a6e71975851657da277d8c4af6097bc5b21
+"@next/env@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/env@npm:16.3.0"
+  checksum: 10/ffe56c5fe45e3c054487a795584ff17c7261db2a07d1244dc68d497e5aa54c13bfdff95155fbe8f9e8db21b73481ad1b463145231055a681668ac9de3a3b86ac
   languageName: node
   linkType: hard
 
-"@next/eslint-plugin-next@npm:16.2.11":
-  version: 16.2.11
-  resolution: "@next/eslint-plugin-next@npm:16.2.11"
+"@next/eslint-plugin-next@npm:16.3.0, @next/eslint-plugin-next@npm:^16.2.9":
+  version: 16.3.0
+  resolution: "@next/eslint-plugin-next@npm:16.3.0"
   dependencies:
+    "@eslint-community/eslint-utils": "npm:4.9.1"
     fast-glob: "npm:3.3.1"
-  checksum: 10/b9aae8cca37c069a4437ca1c341329184a598a35ea11b774ad3e2fb523899b7ed7dc91b10f84cc41ebd637d6c2c64bdab54672da95dc7f369b0ea8ecf9883a7d
+  checksum: 10/249b1eeb8853ed8bd378e89f30b7aa96723e567280a1711d443cb195fefa87049e1584a7326e4ee37ba4a7c979d1b16e41cf53b0232f42d53cf1781e5e19b421
   languageName: node
   linkType: hard
 
-"@next/swc-darwin-arm64@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-darwin-arm64@npm:16.2.12"
+"@next/swc-darwin-arm64@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-darwin-arm64@npm:16.3.0"
   conditions: os=darwin & cpu=arm64
   languageName: node
   linkType: hard
 
-"@next/swc-darwin-x64@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-darwin-x64@npm:16.2.12"
+"@next/swc-darwin-x64@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-darwin-x64@npm:16.3.0"
   conditions: os=darwin & cpu=x64
   languageName: node
   linkType: hard
 
-"@next/swc-linux-arm64-gnu@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-linux-arm64-gnu@npm:16.2.12"
+"@next/swc-linux-arm64-gnu@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-linux-arm64-gnu@npm:16.3.0"
   conditions: os=linux & cpu=arm64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@next/swc-linux-arm64-musl@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-linux-arm64-musl@npm:16.2.12"
+"@next/swc-linux-arm64-musl@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-linux-arm64-musl@npm:16.3.0"
   conditions: os=linux & cpu=arm64 & libc=musl
   languageName: node
   linkType: hard
 
-"@next/swc-linux-x64-gnu@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-linux-x64-gnu@npm:16.2.12"
+"@next/swc-linux-x64-gnu@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-linux-x64-gnu@npm:16.3.0"
   conditions: os=linux & cpu=x64 & libc=glibc
   languageName: node
   linkType: hard
 
-"@next/swc-linux-x64-musl@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-linux-x64-musl@npm:16.2.12"
+"@next/swc-linux-x64-musl@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-linux-x64-musl@npm:16.3.0"
   conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
-"@next/swc-win32-arm64-msvc@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-win32-arm64-msvc@npm:16.2.12"
+"@next/swc-win32-arm64-msvc@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-win32-arm64-msvc@npm:16.3.0"
   conditions: os=win32 & cpu=arm64
   languageName: node
   linkType: hard
 
-"@next/swc-win32-x64-msvc@npm:16.2.12":
-  version: 16.2.12
-  resolution: "@next/swc-win32-x64-msvc@npm:16.2.12"
+"@next/swc-win32-x64-msvc@npm:16.3.0":
+  version: 16.3.0
+  resolution: "@next/swc-win32-x64-msvc@npm:16.3.0"
   conditions: os=win32 & cpu=x64
   languageName: node
   linkType: hard
@@ -7758,12 +7759,12 @@ __metadata:
     cross-spawn: "npm:^7.0.6"
     dotenv: "npm:^17.4.2"
     eslint: "npm:^9.39.4"
-    eslint-config-next: "npm:16.2.11"
+    eslint-config-next: "npm:16.3.0"
     ioredis: "npm:^5.11.1"
     jest: "npm:^30.4.2"
     lucide-react: "npm:^1.27.0"
     newrelic: "npm:^14.3.4"
-    next: "npm:16.2.12"
+    next: "npm:16.3.0"
     pdfjs-dist: "npm:^6.1.200"
     pg: "npm:8.22.0"
     react: "npm:19.2.8"
@@ -9475,9 +9476,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@puppeteer/browsers@npm:3.0.6":
-  version: 3.0.6
-  resolution: "@puppeteer/browsers@npm:3.0.6"
+"@puppeteer/browsers@npm:3.1.0":
+  version: 3.1.0
+  resolution: "@puppeteer/browsers@npm:3.1.0"
   dependencies:
     modern-tar: "npm:^0.7.6"
     yargs: "npm:^18.0.0"
@@ -9491,7 +9492,7 @@ __metadata:
       optional: true
   bin:
     browsers: lib/main-cli.js
-  checksum: 10/e2507e7ad36323a042a37f8bd80191a020a8a0119c8923edaf589f86be2f7289c140bbb16289408efdf6e7ba82922239e217c1cbc131362a51175dbc2933b5bd
+  checksum: 10/9c4a0e6795fc95079a834cb0d54a24a98e92ea1dc8a9c0ec5d71170a382b1eb6d7fdf255460707afcbbeaa4edd11d6a4a838985df7afeb0a00347b2d51de1671
   languageName: node
   linkType: hard
 
@@ -12739,7 +12740,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tiptap/starter-kit@npm:^3, @tiptap/starter-kit@npm:^3.0.1":
+"@tiptap/starter-kit@npm:^3, @tiptap/starter-kit@npm:^3.19.0":
   version: 3.29.2
   resolution: "@tiptap/starter-kit@npm:3.29.2"
   dependencies:
@@ -18486,6 +18487,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dockerode@npm:^5.0.1":
+  version: 5.0.1
+  resolution: "dockerode@npm:5.0.1"
+  dependencies:
+    "@balena/dockerignore": "npm:^1.0.2"
+    "@grpc/grpc-js": "npm:^1.11.1"
+    "@grpc/proto-loader": "npm:^0.7.13"
+    docker-modem: "npm:^5.0.7"
+    protobufjs: "npm:^7.3.2"
+    tar-fs: "npm:^2.1.4"
+  checksum: 10/8809c7f6b2d5bcec06589cb7f3f677656f96ad1c9b46b2bb6f3487964730b3e9ce59d2809cb356a80c3ff0625c1d01ca25d02586be92104b8b8c3d793b03df13
+  languageName: node
+  linkType: hard
+
 "doctrine@npm:^2.1.0":
   version: 2.1.0
   resolution: "doctrine@npm:2.1.0"
@@ -19410,11 +19425,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-config-next@npm:16.2.11":
-  version: 16.2.11
-  resolution: "eslint-config-next@npm:16.2.11"
+"eslint-config-next@npm:16.3.0":
+  version: 16.3.0
+  resolution: "eslint-config-next@npm:16.3.0"
   dependencies:
-    "@next/eslint-plugin-next": "npm:16.2.11"
+    "@next/eslint-plugin-next": "npm:16.3.0"
     eslint-import-resolver-node: "npm:^0.3.6"
     eslint-import-resolver-typescript: "npm:^3.5.2"
     eslint-plugin-import: "npm:^2.32.0"
@@ -19429,7 +19444,7 @@ __metadata:
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/f1ffc5f48278c16744734df26fc8ca1bda8f49fac3144c9fb0a91f888c57fdc28ad603eaacd9c2a9b982b4baba88a03603d23ae7d2a67223ab1dc45ef61da877
+  checksum: 10/a77e9a5d6c391ffb50bf861326f74912036ff6512d1c3db669aa09fe74fa3ff539fc4c5f82809dbe39c80a1ca04ab038016db36273b1bf0bb4e889cf2408780b
   languageName: node
   linkType: hard
 
@@ -19549,7 +19564,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-react@npm:^7.37.0":
+"eslint-plugin-react-hooks@npm:^7.0.1":
+  version: 7.1.1
+  resolution: "eslint-plugin-react-hooks@npm:7.1.1"
+  dependencies:
+    "@babel/core": "npm:^7.24.4"
+    "@babel/parser": "npm:^7.24.4"
+    hermes-parser: "npm:^0.25.1"
+    zod: "npm:^3.25.0 || ^4.0.0"
+    zod-validation-error: "npm:^3.5.0 || ^4.0.0"
+  peerDependencies:
+    eslint: ^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0-0 || ^9.0.0 || ^10.0.0
+  checksum: 10/9dfe543af9813343f7cc7c5079b02da94a3b4c15df5cefdeef731f220120df26471d0db24c943222d2d9c6b43c3b78faea47ada9acc9dfd9c28492153cbc6902
+  languageName: node
+  linkType: hard
+
+"eslint-plugin-react@npm:^7.37.0, eslint-plugin-react@npm:^7.37.5":
   version: 7.37.5
   resolution: "eslint-plugin-react@npm:7.37.5"
   dependencies:
@@ -23692,7 +23722,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"kleur@npm:^4.0.3, kleur@npm:^4.1.4":
+"kleur@npm:^4.0.3, kleur@npm:^4.1.5":
   version: 4.1.5
   resolution: "kleur@npm:4.1.5"
   checksum: 10/44d84cc4eedd4311099402ef6d4acd9b2d16e08e499d6ef3bb92389bd4692d7ef09e35248c26e27f98acac532122acb12a1bfee645994ae3af4f0a37996da7df
@@ -23827,7 +23857,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lib0@npm:^0.2.100, lib0@npm:^0.2.109, lib0@npm:^0.2.47, lib0@npm:^0.2.85, lib0@npm:^0.2.87, lib0@npm:^0.2.99":
+"lib0@npm:^0.2.100, lib0@npm:^0.2.109, lib0@npm:^0.2.117, lib0@npm:^0.2.85, lib0@npm:^0.2.99":
   version: 0.2.117
   resolution: "lib0@npm:0.2.117"
   dependencies:
@@ -25893,24 +25923,24 @@ __metadata:
   languageName: node
   linkType: hard
 
-"next@npm:16.2.12":
-  version: 16.2.12
-  resolution: "next@npm:16.2.12"
+"next@npm:16.3.0":
+  version: 16.3.0
+  resolution: "next@npm:16.3.0"
   dependencies:
-    "@next/env": "npm:16.2.12"
-    "@next/swc-darwin-arm64": "npm:16.2.12"
-    "@next/swc-darwin-x64": "npm:16.2.12"
-    "@next/swc-linux-arm64-gnu": "npm:16.2.12"
-    "@next/swc-linux-arm64-musl": "npm:16.2.12"
-    "@next/swc-linux-x64-gnu": "npm:16.2.12"
-    "@next/swc-linux-x64-musl": "npm:16.2.12"
-    "@next/swc-win32-arm64-msvc": "npm:16.2.12"
-    "@next/swc-win32-x64-msvc": "npm:16.2.12"
+    "@next/env": "npm:16.3.0"
+    "@next/swc-darwin-arm64": "npm:16.3.0"
+    "@next/swc-darwin-x64": "npm:16.3.0"
+    "@next/swc-linux-arm64-gnu": "npm:16.3.0"
+    "@next/swc-linux-arm64-musl": "npm:16.3.0"
+    "@next/swc-linux-x64-gnu": "npm:16.3.0"
+    "@next/swc-linux-x64-musl": "npm:16.3.0"
+    "@next/swc-win32-arm64-msvc": "npm:16.3.0"
+    "@next/swc-win32-x64-msvc": "npm:16.3.0"
     "@swc/helpers": "npm:0.5.15"
     baseline-browser-mapping: "npm:^2.9.19"
     caniuse-lite: "npm:^1.0.30001579"
-    postcss: "npm:8.4.31"
-    sharp: "npm:^0.34.5"
+    postcss: "npm:8.5.23"
+    sharp: "npm:^0.35.3"
     styled-jsx: "npm:5.1.6"
   peerDependencies:
     "@opentelemetry/api": ^1.1.0
@@ -25949,7 +25979,7 @@ __metadata:
       optional: true
   bin:
     next: dist/bin/next
-  checksum: 10/29434e14b1a3026eeb2e2e719885be592319f4777cb0414017769d87c382051fb1352cb2c94b9b1b0a5f17526d8c6d731f5d425012146135a4583b09c1e7be00
+  checksum: 10/d568df8e16d2cda6c9e08ed6936bd9b170c7f6d0643fb78d7b2483f5a98303e453c8aaf7ebdf8e38c67ebe283b09c78d1c1ca5a9e519e9698a3dfa145d919565
   languageName: node
   linkType: hard
 
@@ -26392,6 +26422,7 @@ __metadata:
     "@mikro-orm/migrations": "npm:^7.1.8"
     "@mikro-orm/postgresql": "npm:^7.1.8"
     "@napi-rs/canvas": "npm:^1.0.3"
+    "@next/eslint-plugin-next": "npm:^16.2.9"
     "@playwright/test": "npm:^1.62.0"
     "@radix-ui/react-checkbox": "npm:^1.3.11"
     "@radix-ui/react-dialog": "npm:^1.1.23"
@@ -26422,13 +26453,15 @@ __metadata:
     dotenv: "npm:^17.4.2"
     esbuild: "npm:^0.28.1"
     eslint: "npm:^9.39.4"
+    eslint-plugin-react: "npm:^7.37.5"
+    eslint-plugin-react-hooks: "npm:^7.0.1"
     glob: "npm:^13.0.6"
     husky: "npm:^9.1.7"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
     lucide-react: "npm:^1.27.0"
     newrelic: "npm:^14.3.4"
-    next: "npm:16.2.12"
+    next: "npm:16.3.0"
     openapi-typescript: "npm:^7.13.0"
     pdfjs-dist: "npm:^6.1.200"
     pg: "npm:8.22.0"
@@ -28440,13 +28473,13 @@ __metadata:
   linkType: hard
 
 "prosemirror-commands@npm:^1.7.1":
-  version: 1.7.1
-  resolution: "prosemirror-commands@npm:1.7.1"
+  version: 1.7.2
+  resolution: "prosemirror-commands@npm:1.7.2"
   dependencies:
     prosemirror-model: "npm:^1.0.0"
     prosemirror-state: "npm:^1.0.0"
     prosemirror-transform: "npm:^1.10.2"
-  checksum: 10/60efe77a9a6b9f06d66442980946f49a4804c24a7aca06ee4d55333a6c55d0f1e3189613bc27f31d16496133969a454f29f071caa8ef2d38126aefbc36f81c4a
+  checksum: 10/12e5dcc6885214a3a15adad0182967a50e3775174ee6553b8aea32f48f669263c2936841581ceb4f416fcacd8cb22eb03a6d370d091f5e803442cc0751ff7fa7
   languageName: node
   linkType: hard
 
@@ -28655,16 +28688,16 @@ __metadata:
   linkType: hard
 
 "puppeteer-core@npm:^25.3.0":
-  version: 25.4.0
-  resolution: "puppeteer-core@npm:25.4.0"
+  version: 25.5.0
+  resolution: "puppeteer-core@npm:25.5.0"
   dependencies:
-    "@puppeteer/browsers": "npm:3.0.6"
+    "@puppeteer/browsers": "npm:3.1.0"
     chromium-bidi: "npm:17.0.2"
     devtools-protocol: "npm:0.0.1653615"
     typed-query-selector: "npm:^2.12.2"
     webdriver-bidi-protocol: "npm:0.4.2"
     ws: "npm:^8.21.1"
-  checksum: 10/7443f3ba378e7151f317b5d68c649dab264a660b2e649adc177582d273be11fd7ff21845af0d11e3d1540ae1b028a96ef27039cc1f671630acdc816fded559c7
+  checksum: 10/9f57cadb504773eb300244e50698eaaeb89effc59cb8674ca1459005fda9d925d924456e5ac4371f7467ddc1c8dd9cb2ee0db5758d16fd0d3bbe90d172db922a
   languageName: node
   linkType: hard
 
@@ -31621,6 +31654,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"tar-fs@npm:^3.1.3":
+  version: 3.1.3
+  resolution: "tar-fs@npm:3.1.3"
+  dependencies:
+    bare-fs: "npm:^4.0.1"
+    bare-path: "npm:^3.0.0"
+    pump: "npm:^3.0.0"
+    tar-stream: "npm:^3.1.5"
+  dependenciesMeta:
+    bare-fs:
+      optional: true
+    bare-path:
+      optional: true
+  checksum: 10/858176af2e7c41a302026c6f21940160d50045f567e4276950c921c501e8ddb42edbf5b5437298092fe60d42c7b999a599279d94c3f369b9adb1cfc5b57486fe
+  languageName: node
+  linkType: hard
+
 "tar-stream@npm:^2.1.4":
   version: 2.2.0
   resolution: "tar-stream@npm:2.2.0"
@@ -31705,7 +31755,30 @@ __metadata:
   languageName: node
   linkType: hard
 
-"testcontainers@npm:^12.0.3, testcontainers@npm:^12.0.4":
+"testcontainers@npm:^12.0.3":
+  version: 12.1.0
+  resolution: "testcontainers@npm:12.1.0"
+  dependencies:
+    "@balena/dockerignore": "npm:^1.0.2"
+    "@types/dockerode": "npm:^4.0.1"
+    archiver: "npm:^7.0.1"
+    async-lock: "npm:^1.4.1"
+    byline: "npm:^5.0.0"
+    debug: "npm:^4.4.3"
+    docker-compose: "npm:^1.4.2"
+    dockerode: "npm:^5.0.1"
+    get-port: "npm:^5.1.1"
+    proper-lockfile: "npm:^4.1.2"
+    properties-reader: "npm:^3.0.1"
+    ssh-remote-port-forward: "npm:^1.0.4"
+    tar-fs: "npm:^3.1.3"
+    tmp: "npm:^0.2.7"
+    undici: "npm:^8.9.0"
+  checksum: 10/8695f49cac89a80a94ac49e01f38ed46d60b3bd12b6b5f0d44dc76c72bb6ef667cfd2315f69720d4553572c93fd034a25116ca4ad6764b7028b0731e078cb3d4
+  languageName: node
+  linkType: hard
+
+"testcontainers@npm:^12.0.4":
   version: 12.0.4
   resolution: "testcontainers@npm:12.0.4"
   dependencies:
@@ -32114,8 +32187,8 @@ __metadata:
   linkType: hard
 
 "tsx@npm:^4.22.4":
-  version: 4.23.5
-  resolution: "tsx@npm:4.23.5"
+  version: 4.23.8
+  resolution: "tsx@npm:4.23.8"
   dependencies:
     esbuild: "npm:~0.28.0"
     fsevents: "npm:~2.3.3"
@@ -32124,7 +32197,7 @@ __metadata:
       optional: true
   bin:
     tsx: dist/cli.mjs
-  checksum: 10/f0dfea2f4cd546c608e3da7e30c5b3949b77d001c601000af1c879fad3c317b793c701ea95a81c6b813718b5fa585f3ba756f8ff2fd07feefb3eee5553909296
+  checksum: 10/abff23c1fcaf7848e9890cd4f1dcd95c47ecf5031064596321fda1ac590ce625f95d99d4168e0d663335a543c1a6623d7f547583e76688f898c92049d072b78c
   languageName: node
   linkType: hard
 
@@ -33778,7 +33851,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ws@npm:^8.21.0, ws@npm:^8.21.1, ws@npm:~8.21.0":
+"ws@npm:^8.21.0, ws@npm:^8.21.1":
+  version: 8.21.2
+  resolution: "ws@npm:8.21.2"
+  peerDependencies:
+    bufferutil: ^4.0.1
+    utf-8-validate: ">=5.0.2"
+  peerDependenciesMeta:
+    bufferutil:
+      optional: true
+    utf-8-validate:
+      optional: true
+  checksum: 10/1fa65bfadc0dc73674638482b448e2a8cf1833d0acc2263fd27bf74b98f6f2917b2db8263b460a1ff37b6c2b8b892eba0e0eca33325a1ed7a8fe187f38550b40
+  languageName: node
+  linkType: hard
+
+"ws@npm:~8.21.0":
   version: 8.21.1
   resolution: "ws@npm:8.21.1"
   peerDependencies:
@@ -34023,11 +34111,11 @@ __metadata:
   linkType: hard
 
 "yjs@npm:^13.6.31":
-  version: 13.6.31
-  resolution: "yjs@npm:13.6.31"
+  version: 13.6.32
+  resolution: "yjs@npm:13.6.32"
   dependencies:
     lib0: "npm:^0.2.99"
-  checksum: 10/dff74bdd31e9b4864fcc00b8da439b2716d2ad9a171ff9dde24db343a30015c34efc62006fd613d897f0d3d51c86f843491fbc1e87d0ba5f95a9e0415fbd6d45
+  checksum: 10/2b34da80105f138cf65e2154ac18155e818bddc8dbca689c190f186068ded7d648aeff69ae84ccc76166f3efb4524c6146d7a4befdda6b0c0ae394f97d421d02
   languageName: node
   linkType: hard
 

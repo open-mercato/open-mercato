@@ -29,6 +29,7 @@ build
 # misc
 .DS_Store
 *.pem
+/release-output.txt
 
 # Exception: Allow public CA certificates for SSL verification
 !certs/*.pem

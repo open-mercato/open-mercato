@@ -12,6 +12,7 @@ import {
 } from '../../../lib/collabToken'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import { resolveCollaborationUserColor } from '../../../lib/collaborationAwareness'
+import { resolveDocumentsCollaborationEndpoint } from '../../../lib/collabEndpoint'
 import { resolvePermission } from '../../../lib/permissions'
 import {
   loadDocumentArchivedState,
@@ -51,6 +52,7 @@ export const metadata = {
 const logger = createLogger('documents').child({ component: 'api' })
 
 let warnedCollabTokenSecretNotReady = false
+let warnedCollabEndpointInvalid = false
 
 function warnCollabTokenSecretNotReadyOnce(): void {
   if (warnedCollabTokenSecretNotReady) return
@@ -59,6 +61,15 @@ function warnCollabTokenSecretNotReadyOnce(): void {
     'DOCUMENTS_COLLAB_JWT_SECRET_V2 is missing, shorter than 32 UTF-8 bytes, '
     + 'or equal to DOCUMENTS_COLLAB_JWT_SECRET; collaboration tokens cannot be minted '
     + 'and clients fall back to non-collaborative editing.',
+  )
+}
+
+function warnCollabEndpointInvalidOnce(): void {
+  if (warnedCollabEndpointInvalid) return
+  warnedCollabEndpointInvalid = true
+  logger.warn(
+    'Ignoring NEXT_PUBLIC_DOCUMENTS_COLLAB_URL because it is not a valid browser-reachable '
+    + 'ws(s) endpoint; collaboration is disabled and clients fall back to non-collaborative editing.',
   )
 }
 
@@ -128,6 +139,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         { headers: { 'Cache-Control': 'private, no-store' } },
       )
     }
+    const collaborationEndpoint = resolveDocumentsCollaborationEndpoint()
+    if (process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL && !collaborationEndpoint) {
+      warnCollabEndpointInvalidOnce()
+    }
     const token = mintCollabTokenV2({
       userId,
       tenantId: ctx.tenantId,
@@ -145,7 +160,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     return NextResponse.json(
       {
         token,
-        url: process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ?? null,
+        url: collaborationEndpoint,
         documentId: id,
         tier: relationshipTier,
         expiresInSec: COLLAB_TOKEN_TTL_SECONDS,

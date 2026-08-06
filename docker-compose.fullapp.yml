@@ -119,9 +119,11 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+        - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
         # Optional: browser-reachable ws(s):// endpoint baked in at build time.
         # Leave unset to disable realtime document collaboration (the editor
-        # falls back to single-user editing). Loopback values are rejected.
+        # falls back to single-user editing). Invalid production values are
+        # ignored at runtime instead of failing the image build.
         - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     # Without a restart policy the app stays down after a daemon/host reboot
@@ -240,11 +242,14 @@ services:
       - mercato-network-fullapp
 
   documents-collab:
+    profiles:
+      - documents-collab
     build:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
         - DOCUMENTS_COLLAB_PORT=${DOCUMENTS_COLLAB_PORT:-4101}
+        - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
         - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     command: ["yarn", "documents:collab"]
