@@ -168,7 +168,7 @@ export async function POST(req: Request) {
         storageDriver: 's3',
         storagePath: key,
       })
-      if (!recoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+      if (!recoveryScheduler) throw new Error('[internal] Storage quota recovery is unavailable.')
       await recoveryScheduler({
         reservationId: reservation.id,
         tenantId: auth.tenantId,
@@ -211,7 +211,7 @@ export async function POST(req: Request) {
         // Retain the reservation when object absence cannot be proven.
       }
     }
-    return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
+    return NextResponse.json({ error: t('storage_s3.errors.persistFailed', 'Failed to persist attachment.') }, { status: 500 })
   }
 
   return NextResponse.json({
