@@ -38,7 +38,7 @@
   "notifications.preferences.channels.pushHint": "Powiadomienia push (aktywne po podłączeniu kanału push).",
   "notifications.preferences.columns.type": "Typ powiadomienia",
   "notifications.preferences.empty": "Nie zarejestrowano jeszcze żadnych typów powiadomień.",
-  "notifications.preferences.entityNamePlural": "typ\u00f3w powiadomie\u0144",
+  "notifications.preferences.entityNamePlural": "typów powiadomień",
   "notifications.preferences.filters.category": "Kategoria",
   "notifications.preferences.filters.categoryPlaceholder": "Szukaj kategorii",
   "notifications.preferences.loadError": "Nie udało się załadować preferencji powiadomień",
@@ -92,5 +92,6 @@
   "notifications.types.invalidChannels": "Nieprawidłowe dane kanałów",
   "notifications.types.overrideConflict": "Inny operator właśnie zapisał ten typ powiadomienia. Odśwież i spróbuj ponownie.",
   "notifications.types.unknownType": "Nieznany typ powiadomienia",
-  "notifications.unreadSummary": "{count} nieprzeczytanych"
+  "notifications.unreadSummary": "{count} nieprzeczytanych",
+  "notifications.types.unknownChannel": "Nieznany kanał powiadomień"
 }

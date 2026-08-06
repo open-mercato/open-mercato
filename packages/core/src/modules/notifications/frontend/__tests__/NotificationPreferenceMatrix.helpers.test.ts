@@ -7,7 +7,7 @@ import {
   type NotificationTypeItem,
   type PreferenceItem,
 } from '../NotificationPreferenceMatrix'
-import { computeChannelsPatch, computeNextChannels } from '../typeChannelSettings'
+import { computeChannelsPatch, computeNextChannels } from '../../lib/typeChannelSettings'
 
 const CHANNELS = PREFERENCE_CHANNELS
 const FIRST = CHANNELS[0]!.key

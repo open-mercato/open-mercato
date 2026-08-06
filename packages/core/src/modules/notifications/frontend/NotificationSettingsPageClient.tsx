@@ -13,7 +13,6 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
-import { computeChannelsPatch } from './typeChannelSettings'
 
 type NotificationTypeCatalogueItem = {
   id: string
@@ -106,32 +105,23 @@ export function NotificationSettingsPageClient() {
     fetchCatalogue()
   }, [fetchCatalogue])
 
-  const patchType = async (
+  const saveTypeCell = async (
     type: NotificationTypeCatalogueItem,
     cellKey: string,
-    payload: { channels?: string[] | null; nonOptOut?: boolean | null },
+    mutationPayload: Record<string, unknown>,
+    operation: () => Promise<Awaited<ReturnType<typeof apiCall<PatchTypeResponse>>>>,
   ) => {
     setSavingTypeCell(cellKey)
     try {
       const response = await runMutation({
-        operation: () =>
-          // The override row's updatedAt is the optimistic-lock version: a concurrent
-          // operator save flips it, and the full `channels` array replaces — so a stale
-          // blind write would silently revert their edit. The server 409s instead.
-          withScopedApiRequestHeaders(buildOptimisticLockHeader(type.updatedAt), () =>
-            apiCall<PatchTypeResponse>('/api/notifications/types', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: type.id, ...payload }),
-            }),
-          ),
+        operation,
         context: {
           formId: SETTINGS_CONTEXT_ID,
           resourceKind: 'notifications.settings',
           resourceId: type.id,
           retryLastMutation,
         },
-        mutationPayload: { id: type.id, ...payload },
+        mutationPayload,
       })
       if (!response.ok || !response.result?.ok) {
         if (surfaceRecordConflict({ status: response.status, body: response.result }, t, { onRefresh: fetchCatalogue })) {
@@ -165,18 +155,56 @@ export function NotificationSettingsPageClient() {
     }
   }
 
+  /**
+   * `nonOptOut` is a single scalar the request replaces wholesale, so it keeps the
+   * optimistic-lock header: a concurrent operator save flips the override row's `updatedAt`
+   * and the server 409s rather than letting a stale blind write revert their edit.
+   */
+  const patchType = (
+    type: NotificationTypeCatalogueItem,
+    cellKey: string,
+    payload: { channels?: string[] | null; nonOptOut?: boolean | null },
+  ) =>
+    saveTypeCell(type, cellKey, { id: type.id, ...payload }, () =>
+      withScopedApiRequestHeaders(buildOptimisticLockHeader(type.updatedAt), () =>
+        apiCall<PatchTypeResponse>('/api/notifications/types', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: type.id, ...payload }),
+        }),
+      ),
+    )
+
+  /**
+   * optimistic-lock-exempt: notification type channel add/remove. Addressing the single
+   * channel lets the server derive the next eligibility set from the CURRENT stored state
+   * under a row lock, so two operators toggling different channels both land instead of the
+   * later one clobbering the earlier with a client-computed array. There is no shared
+   * aggregate left for a version check to protect — the same reason the sibling preference
+   * matrix and the customers/catalog add-remove endpoints are exempt.
+   */
+  const toggleTypeChannel = (
+    type: NotificationTypeCatalogueItem,
+    cellKey: string,
+    channel: string,
+    enabled: boolean,
+  ) =>
+    saveTypeCell(type, cellKey, { id: type.id, channel, enabled }, () =>
+      apiCall<PatchTypeResponse>(
+        `/api/notifications/types/${encodeURIComponent(type.id)}/channels/${encodeURIComponent(channel)}`,
+        { method: enabled ? 'PUT' : 'DELETE' },
+      ),
+    )
+
   const handleTypeChannelToggle = async (
     type: NotificationTypeCatalogueItem,
     channelId: string,
     enabled: boolean,
-    registeredChannelIds: string[],
   ) => {
-    const effective = type.channels ?? registeredChannelIds
-    // Unchecking the last channel maps to `null` (clear the override → code default reapplies)
-    // rather than an empty set, which the API rejects and which would black-hole the type.
-    await patchType(type, `${type.id}::${channelId}`, {
-      channels: computeChannelsPatch(effective, channelId, enabled),
-    })
+    // The server resolves the base set (stored override ?? code declaration ?? every
+    // registered channel) and clears the override when the last channel is unchecked, so the
+    // client no longer computes — or can stale-clobber — the whole array.
+    await toggleTypeChannel(type, `${type.id}::${channelId}`, channelId, enabled)
   }
 
   const handleTypeNonOptOutToggle = async (type: NotificationTypeCatalogueItem, required: boolean) => {
@@ -413,7 +441,6 @@ export function NotificationSettingsPageClient() {
                       </td>
                       {channels.map((channel) => {
                         const cellKey = `${type.id}::${channel.id}`
-                        const registeredChannelIds = channels.map((item) => item.id)
                         const channelEnabled = type.channels === null || type.channels.includes(channel.id)
                         return (
                           <td key={channel.id} className="px-4 py-3">
@@ -426,7 +453,7 @@ export function NotificationSettingsPageClient() {
                                 disabled={savingTypeCell !== null}
                                 aria-label={`${t(type.labelKey, type.id)} – ${t(channel.labelKey, channel.id)}`}
                                 onCheckedChange={(checked) =>
-                                  handleTypeChannelToggle(type, channel.id, checked, registeredChannelIds)
+                                  handleTypeChannelToggle(type, channel.id, checked)
                                 }
                               />
                               {savingTypeCell === cellKey ? (

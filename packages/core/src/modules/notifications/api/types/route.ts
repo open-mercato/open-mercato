@@ -2,16 +2,14 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { detectLocale, loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
-import { resolveSupportedLocale } from '@open-mercato/shared/lib/i18n/locale'
-import { resolveLocaleFromRequest } from '../../../translations/lib/locale'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import { NotificationType, NotificationTypeOverride } from '../../data/entities'
-import { getNotificationType, syncNotificationTypes } from '../../lib/notification-type-registry'
+import { syncNotificationTypes } from '../../lib/notification-type-registry'
+import { applyTypeOverride, resolveCatalogueTranslate, typeItem } from '../../lib/typeCatalogue'
 import { notificationTypeItemSchema, updateNotificationTypeSchema } from '../../data/validators'
 import { errorResponseSchema } from '../openapi'
 import {
@@ -22,66 +20,10 @@ import {
 
 const logger = createLogger('notifications').child({ component: 'types-api' })
 
-const CATEGORY_LABEL_KEY_PREFIX = 'notifications.categories.'
-
-type Translate = (key: string, fallback: string) => string
-
-/**
- * Locale for the display strings, following the repo-wide request-locale convention
- * (`resolveLocaleFromRequest`: `?locale=` → `x-locale` → cookie → `Accept-Language`).
- * Only the `Accept-Language` branch of that helper validates its input, so the result is
- * re-checked against the supported set here — an unsupported `?locale=zz` would otherwise
- * load an empty dictionary instead of degrading. Falls back to ambient detection, which
- * also honours `OM_FORCE_LOCALE`.
- */
-async function resolveCatalogueTranslate(req: Request): Promise<Translate> {
-  const requested = resolveSupportedLocale(resolveLocaleFromRequest(req))
-  const locale = requested ?? (await detectLocale())
-  return createFallbackTranslator(await loadDictionary(locale))
-}
-
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['notifications.view'] },
   PATCH: { requireAuth: true, requireFeatures: ['notifications.manage'] },
 }
-
-/**
- * Catalogue item with the caller tenant's stored overrides merged in — matching
- * `resolveEligibleChannels` in the delivery gate, so preference UIs lock exactly the cells
- * delivery would reject. `channels: null` = no restriction (every registered channel).
- * `updatedAt` is the override row's version token for optimistic locking (`null` when the
- * tenant stores no override yet).
- *
- * `label` / `description` / `categoryLabel` are resolved server-side so clients without the
- * Open Mercato dictionary (the mobile app) can render the screen directly. Group on
- * `category` — the raw key, stable across locales — and display `categoryLabel`; grouping on
- * the localized string re-partitions the list whenever the language changes.
- *
- * A category whose owning module ships no `notifications.categories.<key>` entry falls back
- * to the raw key, so `categoryLabel === category` is the client's signal that no server-side
- * translation exists and it may apply its own presentation.
- */
-const typeItem = (
-  row: NotificationType,
-  override: NotificationTypeOverride | null | undefined,
-  translate: Translate,
-) => ({
-  id: row.id,
-  labelKey: row.labelKey,
-  descriptionKey: row.descriptionKey ?? null,
-  category: row.category ?? null,
-  categoryLabel: row.category
-    ? translate(`${CATEGORY_LABEL_KEY_PREFIX}${row.category}`, row.category)
-    : null,
-  label: row.labelKey ? translate(row.labelKey, row.id) : null,
-  description: row.descriptionKey ? translate(row.descriptionKey, '') : null,
-  silent: row.silent === true,
-  nonOptOut: (override?.nonOptOut ?? row.nonOptOut) === true,
-  channels: override?.channels ?? getNotificationType(row.id)?.channels ?? null,
-  storedChannels: override?.channels ?? null,
-  storedNonOptOut: override?.nonOptOut ?? null,
-  updatedAt: override?.updatedAt ? override.updatedAt.toISOString() : null,
-})
 
 export async function GET(req: Request) {
   const { t } = await resolveTranslations()
@@ -188,24 +130,13 @@ export async function PATCH(req: Request) {
         })
         const nextChannels = parsed.data.channels !== undefined ? parsed.data.channels : existing?.channels ?? null
         const nextNonOptOut = parsed.data.nonOptOut !== undefined ? parsed.data.nonOptOut : existing?.nonOptOut ?? null
-        let override: NotificationTypeOverride | null = existing
-        if (nextChannels === null && nextNonOptOut === null) {
-          // Both overrides cleared ⇒ the code declarations apply again; drop the row
-          // instead of keeping an all-null husk.
-          if (existing) em.remove(existing)
-          override = null
-        } else if (existing) {
-          existing.channels = nextChannels
-          existing.nonOptOut = nextNonOptOut
-        } else {
-          override = em.create(NotificationTypeOverride, {
-            tenantId,
-            notificationTypeId: row.id,
-            channels: nextChannels,
-            nonOptOut: nextNonOptOut,
-          })
-          em.persist(override)
-        }
+        const override = applyTypeOverride(em, {
+          tenantId,
+          notificationTypeId: row.id,
+          existing,
+          nextChannels,
+          nextNonOptOut,
+        })
         try {
           await em.flush()
         } catch (err) {

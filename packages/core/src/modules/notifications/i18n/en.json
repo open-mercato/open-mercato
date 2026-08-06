@@ -92,5 +92,6 @@
   "notifications.types.invalidChannels": "Invalid channels payload",
   "notifications.types.overrideConflict": "Another operator just saved this notification type. Reload and try again.",
   "notifications.types.unknownType": "Unknown notification type",
-  "notifications.unreadSummary": "{count} unread"
+  "notifications.unreadSummary": "{count} unread",
+  "notifications.types.unknownChannel": "Unknown notification channel"
 }

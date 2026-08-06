@@ -38,8 +38,8 @@
   "notifications.preferences.channels.pushHint": "Push móvil (activo cuando se conecta un canal push).",
   "notifications.preferences.columns.type": "Tipo de notificación",
   "notifications.preferences.empty": "Aún no hay tipos de notificación registrados.",
-  "notifications.preferences.entityNamePlural": "tipos de notificaci\u00f3n",
-  "notifications.preferences.filters.category": "Categor\u00eda",
+  "notifications.preferences.entityNamePlural": "tipos de notificación",
+  "notifications.preferences.filters.category": "Categoría",
   "notifications.preferences.filters.categoryPlaceholder": "Buscar categorías",
   "notifications.preferences.loadError": "No se pudieron cargar las preferencias de notificaciones",
   "notifications.preferences.loading": "Cargando preferencias de notificaciones...",
@@ -92,5 +92,6 @@
   "notifications.types.invalidChannels": "Payload de canales no válido",
   "notifications.types.overrideConflict": "Otro operador acaba de guardar este tipo de notificación. Vuelve a cargar e inténtalo de nuevo.",
   "notifications.types.unknownType": "Tipo de notificación desconocido",
-  "notifications.unreadSummary": "{count} sin leer"
+  "notifications.unreadSummary": "{count} sin leer",
+  "notifications.types.unknownChannel": "Canal de notificación desconocido"
 }

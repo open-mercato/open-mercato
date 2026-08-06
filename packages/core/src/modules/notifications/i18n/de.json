@@ -92,5 +92,6 @@
   "notifications.types.invalidChannels": "Ungültige Kanal-Daten",
   "notifications.types.overrideConflict": "Ein anderer Operator hat diesen Benachrichtigungstyp gerade gespeichert. Bitte neu laden und erneut versuchen.",
   "notifications.types.unknownType": "Unbekannter Benachrichtigungstyp",
-  "notifications.unreadSummary": "{count} ungelesen"
+  "notifications.unreadSummary": "{count} ungelesen",
+  "notifications.types.unknownChannel": "Unbekannter Benachrichtigungskanal"
 }
