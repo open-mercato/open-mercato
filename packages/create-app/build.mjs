@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join, basename, resolve } from 'path'
 
 const shebang = '#!/usr/bin/env node\n'
@@ -27,10 +27,19 @@ if (existsSync('src/lib/templates')) {
   console.log('Copied src/lib/templates/ → dist/templates/')
 }
 
-// Copy agentic source content to dist/ so generators can read it at runtime
+// Copy agentic source content to dist/ so generators can read it at runtime.
+// The tree is assembled in a staging directory and swapped in at the end of the build: refreshing
+// dist/agentic in place deletes the whole harness plus ~55 fact-sheets and copies them back, which
+// leaves the published tree incomplete for seconds and makes any concurrent reader fail with ENOENT
+// on files that exist (#5059). Staging also makes stale per-module artifacts structurally impossible,
+// so no purge of previous output is needed — the swapped-in tree only contains what this build wrote.
+const agenticDist = join('dist', 'agentic')
+const agenticStaging = join('dist', 'agentic.staging')
+const agenticPrevious = join('dist', 'agentic.previous')
+for (const leftover of [agenticStaging, agenticPrevious]) rmSync(leftover, { recursive: true, force: true })
+mkdirSync(agenticStaging, { recursive: true })
 if (existsSync('agentic')) {
-  rmSync('dist/agentic', { recursive: true, force: true })
-  cpSync('agentic', 'dist/agentic', { recursive: true })
+  cpSync('agentic', agenticStaging, { recursive: true })
   console.log('Copied agentic/ → dist/agentic/')
 }
 
@@ -38,7 +47,7 @@ if (existsSync('agentic')) {
 // apps when installed package/module context is not enough. Both files remain
 // read-only reference material in the generated app.
 const repositoryRoot = resolve('..', '..')
-const upstreamDir = join('dist', 'agentic', 'guides', 'upstream')
+const upstreamDir = join(agenticStaging, 'guides', 'upstream')
 mkdirSync(upstreamDir, { recursive: true })
 const createAppVersion = JSON.parse(readFileSync('package.json', 'utf8')).version ?? null
 const upstreamManifest = { version: 1, generator: `create-mercato-app@${createAppVersion ?? 'unknown'}`, files: {} }
@@ -54,31 +63,18 @@ writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamMani
 // Package-level guides are intentionally not shipped: the routed conceptual guides and
 // generated module fact-sheets are the standalone sources of truth.
 const packagesDir = join('..') // packages/create-app/.. = packages/
-const guidesDestDir = join('dist', 'agentic', 'guides')
+const guidesDestDir = join(agenticStaging, 'guides')
 mkdirSync(guidesDestDir, { recursive: true })
 
-// Clean stale per-module artifacts before regenerating so an incremental dist never
-// retains a removed module's full guide or fact-sheet. The legacy `core.<module>.md`
-// redirect stubs are no longer emitted (#3754); this purge also deletes any that linger
-// in an incremental `dist/` from an older build. The conceptual `module-system.md` remains;
-// stale single-dot package guides (`core.md`, …) are removed below.
-rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
-for (const entry of readdirSync(guidesDestDir)) {
-  if (/^core\..+\.md$/.test(entry)) {
-    rmSync(join(guidesDestDir, entry))
-  }
-}
+// Nothing stale can survive here: the staged tree is built from `agentic/` alone, so the legacy
+// `core.<module>.md` redirect stubs (#3754) and the unreachable package-level `<pkg>.md` guides are
+// absent unless this build writes them — which it does not. The conceptual `module-system.md` remains.
 
 let guidesFound = 0
 for (const pkg of readdirSync(packagesDir)) {
-  // Package-level source guides remain for monorepo context, but standalone apps route
-  // through conceptual and module-level guides, so remove their stale emitted copies.
-  const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
-  if (existsSync(guideSource)) {
-    rmSync(join(guidesDestDir, `${pkg}.md`), { force: true })
-  }
-
   // Module-level guides: packages/<pkg>/src/modules/<mod>/agentic/standalone-guide.md → <pkg>.<mod>.md
+  // Package-level source guides stay monorepo-only: standalone apps route through the conceptual
+  // guides and the generated module fact-sheets, so they are never emitted into the staged tree.
   const modulesDir = join(packagesDir, pkg, 'src', 'modules')
   if (!existsSync(modulesDir)) continue
   for (const mod of readdirSync(modulesDir)) {
@@ -137,5 +133,12 @@ if (sources.length > 0) {
 } else {
   console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
 }
+
+// Publish the staged tree. A reader either sees the complete previous build or the complete new
+// one; the only gap is between the two renames, instead of the multi-second incomplete window an
+// in-place refresh leaves behind (#5059).
+if (existsSync(agenticDist)) renameSync(agenticDist, agenticPrevious)
+renameSync(agenticStaging, agenticDist)
+rmSync(agenticPrevious, { recursive: true, force: true })
 
 console.log('Build complete: dist/index.js')
