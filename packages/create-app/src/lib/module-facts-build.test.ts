@@ -112,6 +112,18 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
   }
 })
 
+// dist/ is published (package.json `files`), so a staging tree the build forgot to swap in or clean
+// up would ship with the package — and a surviving `agentic.previous` would mean the swap never
+// completed (#5059).
+test('build leaves no staging artifacts behind in dist', () => {
+  for (const leftover of ['agentic.staging', 'agentic.previous']) {
+    assert.ok(
+      !fs.existsSync(join(pkgRoot, 'dist', leftover)),
+      `dist/${leftover} must not survive the build`,
+    )
+  }
+})
+
 test('build does not emit unreachable package-level standalone guides', () => {
   for (const guide of LEGACY_PACKAGE_GUIDES) {
     assert.ok(
