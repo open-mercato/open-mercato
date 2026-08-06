@@ -664,6 +664,60 @@ describe('HybridQueryEngine', () => {
     expect(phase2Chain.wheres.some((args: any[]) => args.includes('in'))).toBe(true)
   })
 
+  // Mirrors the BasicQueryEngine multi-sort test: `list.tiebreakSortField` sends a
+  // second sort element, and both engines serve the sales line routes depending on
+  // configuration, so both have to emit every element into ORDER BY. Unencrypted
+  // path — the encrypted path sorts in memory and is covered above.
+  test('emits every sort element as an ORDER BY column, in order', async () => {
+    const db = createFakeKysely({
+      baseTable: 'sales_order_lines',
+      hasIndexAny: true,
+      baseCount: 2,
+      indexCount: 2,
+      columns: [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+      rows: {
+        sales_order_lines: [
+          { id: 'b', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+          { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+        ],
+      },
+    })
+    const engine = new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+      undefined,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      fields: ['id', 'line_number'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [
+        { field: 'line_number', dir: SortDir.Asc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const lineChains = db._chains.filter((chain: ChainLog) => chain.table === 'sales_order_lines')
+    const orderedChain = lineChains.find((chain: ChainLog) => chain.orderBys.length > 0)
+    expect(orderedChain?.orderBys).toEqual([
+      ['b.line_number', 'asc'],
+      ['b.id', 'asc'],
+    ])
+  })
+
   test('paginates encrypted-sorted results correctly on page 1 and the tail page', async () => {
     const db = createFakeKysely({
       baseTable: 'customer_entities',

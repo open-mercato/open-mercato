@@ -42,7 +42,7 @@ On the degraded path, `degraded` is `true` and `degradedReason` is `"tenant_allo
 | Always emit both fields (`false` / `null` on the healthy path) | A stable response shape lets consumers read `degraded` directly instead of distinguishing "absent" from "false", and it keeps the healthy payload from leaking whether a tenant snapshot exists. |
 | Reuse `tenant_allowlist_unavailable` as the reason code | The chat dispatcher already publishes that code for this failure; a second name for one condition would fragment client handling. A `degradedReason` string (not a boolean-only marker) leaves room for future, additively-named causes. |
 | One flag for the whole tenant-scoped block | The snapshot read and both runtime-override reads share one `try/catch` and one consequence — the effective allowlist lost its tenant narrowing. Splitting them would imply a per-source recovery that no consumer can act on differently. |
-| Client change limited to the destructive prune branch | Suppressing the prune preserves user state; suppressing more (e.g. hiding the picker) would degrade a surface the fallback exists to keep usable. |
+| Client change scoped to the stored-selection cleanup effect | Returning early from that whole effect preserves user state on both of its clearing paths — an unavailable stored value and the "override disabled / no providers" reset — which is what the UI/UX section describes. Suppressing more (e.g. hiding the picker) would degrade a surface the fallback exists to keep usable, and `effectiveModelPickerValue` still gates `allowRuntimeOverride` and a non-empty provider list, so a suppressed prune never lets a stale value reach a request. |
 
 ### Alternative considered
 
@@ -129,7 +129,8 @@ No persisted state, migration, or cache invalidation. Rollback is a code revert.
 
 1. In `…/models/__tests__/route.test.ts`, assert a rejected `getSnapshot` still returns `200` with `degraded: true`, `degradedReason: 'tenant_allowlist_unavailable'`, an environment-only provider list, and `tenantAllowlist: null` passed to the model factory.
 2. Assert the same marker for a rejected per-agent runtime-override read (`getExact`), since it shares the `try/catch`.
-3. Assert a fully resolved response reports `degraded: false` / `degradedReason: null`.
+3. Assert that when only the override read fails — a restricting snapshot already resolved, then `getExact` rejects — the response is still `degraded: true` **and** the provider list stays tenant-clipped, with the snapshot passed to the model factory. This is the case that pins the reason code's documented meaning to the whole tenant-scoped block instead of promising an environment-only list.
+4. Assert a fully resolved response reports `degraded: false` / `degradedReason: null`.
 
 ### Phase 3 — Client recovery
 
@@ -142,7 +143,8 @@ No persisted state, migration, or cache invalidation. Rollback is a code revert.
 - Automated: `yarn workspace @open-mercato/ai-assistant test` (route suite) and `yarn workspace @open-mercato/ui test src/ai` (picker suite), plus the repository's configured validation gate.
 - Regression proof: each new case fails against the unmodified source (no `degraded` field → the route assertions fail; no prune guard → the persisted selection is deleted).
 - Existing behavior: the pre-existing route cases (401/403/404, `allowRuntimeModelOverride: false`, allowlist clipping, tenant runtime override) and the "clears a stale stored model picker value" UI case must stay green, proving the healthy path is untouched.
-- Integration-test rationale: no new `.ai/qa/tests/` Playwright case is added. The degraded branch is reachable only by making the allowlist repository throw, which the integration harness cannot induce without fault injection into a live database session; the route-level unit tests exercise that branch deterministically, and the jsdom render test covers the user-visible consequence (a surviving selection). The endpoint's happy path stays covered by existing suites.
+- Integration coverage: `packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-RUNTIME-OVERRIDES-006-model-picker.spec.ts` already asserts the `200` contract for this endpoint; its API-contract case gains `degraded: false` / `degradedReason: null` assertions so the "always emit both fields" decision is locked at the contract level and a third-party picker cannot regress to reading an absent field.
+- Integration-test rationale for the degraded branch specifically: no new `.ai/qa/tests/` Playwright case is added for it. That branch is reachable only by making the allowlist repository throw, which the integration harness cannot induce without fault injection into a live database session; the route-level unit tests exercise it deterministically, and the jsdom render test covers the user-visible consequence (a surviving selection).
 
 ## Risks & Impact Review
 
@@ -176,7 +178,8 @@ No persisted state, migration, or cache invalidation. Rollback is a code revert.
 - **Severity:** Low
 - **Affected area:** `packages/ui/src/ai/AiChat.tsx`.
 - **Mitigation:** Whichever change lands second resolves the overlap; the two recoveries are the same rule ("do not prune") and collapse cleanly into one guard.
-- **Residual risk:** Accepted — mechanical conflict resolution only.
+- **Outcome:** #4967 landed on `develop` first, so this branch merged it forward and landed `degraded` **on top of** its shape rather than beside the old `loaded` flag. #4967's tri-state `status: 'loading' | 'ready' | 'failed'`, its `cancelled` guard and effect cleanup, its `.catch()` arm, and its severity-routing `logModelsFailure()` (401/403 at warning level) are all preserved; `degraded` resets alongside `setStatus('loading')` and is only set inside the already-cancellation-guarded success arm. The cleanup effect now carries **both** guards (`status !== 'ready'` from #4967, `degraded` from this spec) and both dependencies, so neither recovery overwrites the other — proven by #4967's failure-path tests and this change's degraded-path test passing together.
+- **Residual risk:** Accepted — resolution was slightly more than mechanical (#4967 added cancellation and severity routing that had to survive), but it is covered by both PRs' tests.
 
 ### Operational impact
 
@@ -232,3 +235,10 @@ None.
 ### 2026-08-05
 
 - Initial specification for marking a partially degraded agent-models response (`degraded` / `degradedReason`) and teaching the chat model picker not to prune a stored selection against a degraded provider list. Filed from issue #5021, carved out of the review of PR #4967.
+
+### 2026-08-06
+
+- Second review pass on PR #5028. Merged `develop` forward and recorded the actual resolution of the anticipated #4967 collision: `degraded` now sits on top of #4967's tri-state `status`, cancellation guard and severity routing rather than beside the removed `loaded` flag, with the cleanup effect carrying both guards.
+- Corrected the documented meaning of `degradedReason: "tenant_allowlist_unavailable"`: it marks a failure anywhere in the tenant-scoped block, so the list may be missing the tenant allowlist and/or the per-agent override narrowing. It no longer promises an environment-only list, which was false when only the runtime-override read threw.
+- Aligned the design-decision row for the client change with the UI/UX section: the guard scopes to the whole stored-selection cleanup effect, not only its destructive prune branch.
+- Added the discriminating route case (restricting snapshot + rejected `getExact` keeps the tenant clipping) and the integration-level assertion that both degradation fields are always emitted.

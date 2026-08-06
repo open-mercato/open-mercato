@@ -53,9 +53,10 @@ export const openApi: OpenApiRouteDoc = {
         '`allowRuntimeOverride: false`, the response reflects that constraint so the ' +
         'UI picker can hide itself. Includes the agent\'s resolved default provider/model so ' +
         'the picker can render a "(default)" badge next to the right entry. ' +
-        'When the per-tenant allowlist snapshot cannot be loaded, the route still answers 200 ' +
-        'with an env-only provider list and sets `degraded: true` plus a `degradedReason` code, ' +
-        'so callers can tell a full entitlement list from a partial one. ' +
+        'When a tenant-scoped lookup (the allowlist snapshot or the per-agent runtime override) ' +
+        'cannot be loaded, the route still answers 200 with a partially resolved provider list ' +
+        'and sets `degraded: true` plus a `degradedReason` code, so callers can tell a full ' +
+        'entitlement list from a partial one. ' +
         'RBAC: requires the same features as the agent itself (typically `ai_assistant.view`).',
       responses: [
         {
@@ -64,10 +65,12 @@ export const openApi: OpenApiRouteDoc = {
             'Providers and curated models available for the agent picker. ' +
             'Empty `providers` array when `allowRuntimeOverride` is false. ' +
             '`degraded` is `false` and `degradedReason` is `null` on a fully resolved response; ' +
-            '`degraded: true` with `degradedReason: "tenant_allowlist_unavailable"` means the tenant ' +
-            'allowlist lookup failed and `providers` reflects environment configuration only — ' +
-            'clients SHOULD render the list but MUST NOT treat it as the tenant\'s authoritative ' +
-            'entitlement (for example, do not prune a stored model selection against it).',
+            '`degraded: true` with `degradedReason: "tenant_allowlist_unavailable"` means a ' +
+            'tenant-scoped lookup failed, so `providers` may be missing the tenant allowlist ' +
+            'and/or the per-agent override narrowing — one code covers the whole tenant-scoped ' +
+            'block because no client can act differently per source. Clients SHOULD render the ' +
+            'list but MUST NOT treat it as the tenant\'s authoritative entitlement (for example, ' +
+            'do not prune a stored model selection against it).',
         },
       ],
       errors: [
@@ -179,11 +182,11 @@ export async function GET(
           ? tenantAgentAllowlist
           : null
       } catch (snapshotError) {
-        // Picker still renders against env-only so the UI does not break, but log at
-        // error level so an outage is operationally visible and mark the response
-        // `degraded` so callers know the provider list was built without the tenant's
-        // allowlist. The chat dispatcher refuses to dispatch when this lookup fails,
-        // so writes stay safe.
+        // Picker still renders against whatever resolved so the UI does not break, but log
+        // at error level so an outage is operationally visible and mark the response
+        // `degraded` so callers know a tenant-scoped read failed and the provider list may
+        // be missing the tenant allowlist and/or the per-agent override narrowing. The chat
+        // dispatcher refuses to dispatch when this lookup fails, so writes stay safe.
         tenantAllowlistDegraded = true
         logger.error('AI Agents Models — Failed to load tenant allowlist', { err: snapshotError })
       }
