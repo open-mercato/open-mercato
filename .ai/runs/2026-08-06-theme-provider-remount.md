@@ -74,4 +74,4 @@ User-visible consequence on `/login`: credentials typed before the remount are d
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Full validation gate green
+- [x] 3.1 Full validation gate green
