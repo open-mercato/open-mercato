@@ -76,6 +76,7 @@ Both run before the container resolve and before the cache lookup, so an unresol
 | `NotificationScope.tenantId` stays `string` | Widening to `string \| null` breaks assignability at eight call sites into `NotificationServiceContext.tenantId: string`, plus `RouteMutationGuardAuth.tenantId: string`. A contract change for no behavioral gain. |
 | **No** `isSuperAdmin` escape hatch | The audit-log guard admits a tenant-less super-admin because audit logs have an intended cross-tenant read mode. Notifications do not — rows are per-recipient and per-tenant — and admitting one here would walk straight into the same uuid failure the guard exists to prevent. |
 | **No** `actorTenantId` fallback in `resolveNotificationContext` | `resolveOrganizationScopeForRequest` already prefers `actorTenantId`, so a second fallback would be dead code that implies a safety it does not add. |
+| …but **yes** in `api/settings/route.ts` | That route builds its own scope from `getAuthFromRequest` and never sees the organization scope, so the fallback is not redundant there — it is the only thing standing between a super-admin scoped away from their own tenant and a 403 on a write that is instance-global anyway (`moduleConfigService` is called without a scope, so delivery settings live in the `tenant_id IS NULL` row). Without it the guard would have removed working behavior the defect never touched. |
 | Guard at the route boundary, not in `resolveOrganizationScope` | The null-tenant widening in `resolveOrganizationScope` is the shared root cause across modules, but it has hundreds of call sites; changing it is a platform-wide behavior change and belongs in its own spec. Matches the precedent set for the undo, redo and audit-log routes. |
 | Helper lives in `lib/routeHelpers.ts` | It returns a web-standard `Response` (the module's own convention — `notificationCrudErrorResponse` does the same), and the two route factories that need it live in that file. `audit_logs` put its guard under `api/` only because it returns a `NextResponse`. |
 | Reads go through a guarded context wrapper, not a bare guard call | An opt-in guard on reads is skippable by omission — nothing fails if a future read route forgets it. `resolveGuardedNotificationContext` makes the rejection part of the return type instead of the convention. |
@@ -91,6 +92,8 @@ One added status: the twelve entry points above answer **403** when the request 
 ## Migration & Backward Compatibility
 
 No contract surface under `BACKWARD_COMPATIBILITY.md` is touched — no auto-discovery file, public type, import path, event ID, route URL, DB column, DI key or ACL feature changes. `requireResolvedNotificationTenantScope` is a new export (additive).
+
+Unchanged by construction: the ~36 subscribers, commands and workers that raise notifications build their own `{ tenantId, organizationId }` context and call `notificationService` directly, never `runGuardedNotificationWrite`. Nothing outside this module imports the guarded write helper or `NotificationScope`. For any ordinary (non-super-admin) account the guard is unreachable — `applySuperAdminScope` returns early, so `auth.tenantId` is always the tenant in the token — and the switcher's remediation branch never fires either, because the switcher API returns `actorTenantId` for a non-super-admin.
 
 Two intentional behavior changes:
 

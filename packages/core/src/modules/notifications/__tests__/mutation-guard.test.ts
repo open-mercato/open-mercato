@@ -7,7 +7,12 @@ const roleIdForNotifications = '66666666-6666-4666-8666-666666666666'
 
 const container = { resolve: jest.fn() }
 
-type TestAuth = { sub: string; tenantId?: string | null; orgId?: string | null }
+type TestAuth = {
+  sub: string
+  tenantId?: string | null
+  actorTenantId?: string | null
+  orgId?: string | null
+}
 
 const resolvedAuth: TestAuth = { sub: userId, tenantId, orgId: organizationId }
 
@@ -377,6 +382,27 @@ describe('notification write routes fail closed on an unresolved tenant', () => 
         expect(serviceMock[serviceMethod]).not.toHaveBeenCalled()
       }
     })
+  })
+
+  // Delivery settings are instance-global and this route never sees the organization scope's
+  // `actorTenantId` fallback, so a super-admin scoped away from their own tenant must keep working
+  // rather than be caught by the guard.
+  it('still accepts a settings update from a super-admin scoped away from their tenant', async () => {
+    const scopedAwayAuth = { sub: userId, tenantId: null, actorTenantId: tenantId, orgId: null }
+    ctx.auth = scopedAwayAuth
+    getAuthFromRequestMock.mockImplementation(async () => scopedAwayAuth)
+
+    const response = await updateNotificationSettings(
+      jsonRequest('http://localhost/api/notifications/settings', 'POST', {
+        strategies: { database: { enabled: true } },
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(saveNotificationDeliveryConfigMock).toHaveBeenCalled()
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ auth: expect.objectContaining({ tenantId }) }),
+    )
   })
 
   it('still allows a write once the tenant resolves', async () => {
