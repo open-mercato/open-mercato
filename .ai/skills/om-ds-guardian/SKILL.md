@@ -342,7 +342,7 @@ bash .ai/scripts/ds-health-check.sh
 ```
 
 The script automatically:
-- Saves the report to `.ai/reports/ds-health-latest.txt`, overwriting the previous run — the trend is kept in git history (`git log -p .ai/reports/ds-health-latest.txt`), so there is nothing to prune
+- Saves the report to `.ai/reports/ds-health-latest.txt`, overwriting the previous run — the trend is kept in git history (`git log -p .ai/reports/ds-health-latest.txt`), so there is nothing to prune. That history starts when the rolling file landed; runs from before it live under their old dated paths (`git log --diff-filter=D -- '.ai/reports/ds-health-2026-*.txt'` finds them)
 - Compares with the previous run, snapshotted before the overwrite
 - Shows delta per metric
 - Appends a **per-module breakdown** ranked by total violations (colors, arbitrary text, SVG files, pages without empty state) — the "suggested next module" comes from this table, never from guessing
@@ -372,7 +372,9 @@ Commentary:
 Suggested next module: top of the per-module breakdown table
 ```
 
-Compare with baseline at `.ai/reports/ds-health-baseline-2026-04-11.txt`.
+Compare with baseline at `.ai/reports/ds-health-baseline-2026-04-11.txt`. It predates the 2026-07-17 `HC_PATTERN`/scanned-roots change, so read it as a historical anchor rather than a like-for-like diff input.
+
+`ds-health-latest.txt` is tracked, so a run refreshes a committed file: commit the refreshed report only in a DS-pass PR, and `git checkout -- .ai/reports/ds-health-latest.txt` otherwise so a `git add -A` on unrelated work cannot sweep it in.
 
 ---
 
