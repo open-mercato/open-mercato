@@ -282,6 +282,73 @@ describe('BasicQueryEngine — null equality', () => {
   })
 })
 
+describe('BasicQueryEngine — doc-field null equality (issue #4841)', () => {
+  function serializeNode(value: any): string {
+    return JSON.stringify(value, (_key, inner) =>
+      inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+    )
+  }
+
+  // The doc-backed predicates land inside the entity_indexes EXISTS sub-builder;
+  // pick out the one that reads the JSONB doc (`doc ->> 'field'`).
+  function docPredicates(fakeDb: any, table: string): string[] {
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === table)
+    expect(baseCall).toBeTruthy()
+    const existsEntries = (baseCall._ops.wheres as any[]).filter(
+      (where: any) => Array.isArray(where) && where[0] === 'exists',
+    )
+    expect(existsEntries.length).toBeGreaterThan(0)
+    return existsEntries
+      .flatMap((entry: any) => (entry[1]?._ops?.wheres ?? []) as any[])
+      .map((where: any) => serializeNode(where))
+      .filter((serialized: string) => serialized.includes('->>'))
+  }
+
+  async function runDocFilter(filters: Record<string, unknown>) {
+    const fakeDb = createFakeKysely({
+      scheduled_jobs: [],
+      // `ended_at` is deliberately absent, so the field resolves to the
+      // entity_indexes doc rather than to a base column.
+      'information_schema.columns': [
+        { table_name: 'scheduled_jobs', column_name: 'id' },
+      ],
+      'information_schema.tables': [{ table_name: 'entity_indexes' }],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id'],
+      omitAutomaticTenantOrgScope: true,
+      filters,
+    })
+    return docPredicates(fakeDb, 'scheduled_jobs')
+  }
+
+  test('$eq null on a doc field compiles to "is null", never "= null"', async () => {
+    const predicates = await runDocFilter({ ended_at: { $eq: null } })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    expect(predicates.some((sql: string) => sql.includes('is null'))).toBe(true)
+    // `(doc ->> 'ended_at') = NULL` is never TRUE in SQL, so it silently
+    // returns zero rows instead of matching unset values.
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('bare null on a doc field compiles to "is null"', async () => {
+    const predicates = await runDocFilter({ ended_at: null })
+
+    expect(predicates.some((sql: string) => sql.includes('is null'))).toBe(true)
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('$ne null on a doc field compiles to "is not null", never "<> null"', async () => {
+    const predicates = await runDocFilter({ started_at: { $ne: null } })
+
+    expect(predicates.some((sql: string) => sql.includes('is not null'))).toBe(true)
+    expect(predicates.some((sql: string) => sql.includes('<>'))).toBe(false)
+  })
+})
+
 describe('BasicQueryEngine — omitAutomaticTenantOrgScope', () => {
   test('skips automatic tenant and organization guards when flag is set', async () => {
     const fakeDb = createFakeKysely({
