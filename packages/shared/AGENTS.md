@@ -69,8 +69,10 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
-| Resolving authored `PageMetadata` into a route manifest's flat shape (`resolvePageRouteMetadata`, and `resolveDeclaredPageRouteMetadata` for partial merges such as page overrides) | `@open-mercato/shared/modules/registry` stays the canonical import for `resolvePageRouteMetadata`; the implementation lives in `@open-mercato/shared/modules/pageRouteMetadata` only so `overrides.ts` can reuse it without an import cycle |
+| Resolving authored `PageMetadata` into a route manifest's flat shape (`resolvePageRouteMetadata`, and `resolveDeclaredPageRouteMetadata` for partial merges such as page overrides) | `@open-mercato/shared/modules/registry` |
 | Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
+
+`registry.ts` re-exports `resolvePageRouteMetadata` from `@open-mercato/shared/modules/pageRouteMetadata`, where it lives so `overrides.ts` can reuse it without an import cycle. Import it from `registry` — the split is an implementation detail.
 
 ## Key Patterns
 
