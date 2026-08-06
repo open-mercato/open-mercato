@@ -2,10 +2,19 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const agenticRoot = fileURLToPath(new URL('../../agentic/', import.meta.url))
 const packagesRoot = fileURLToPath(new URL('../../../', import.meta.url))
+
+// The link validator owns installed-package resolution and the packed-file gate; this fixture
+// mirrors the same invariant, so it imports that authority instead of reimplementing it.
+const { installedPackageTarget, packedFilesOf } = (await import(
+  pathToFileURL(path.join(packagesRoot, 'create-app/scripts/validate-source-links.mjs')).href
+)) as unknown as {
+  installedPackageTarget: (resolvedPath: string) => { packageName: string; packageRelativePath: string; workspaceDir: string } | null
+  packedFilesOf: (repoRootPath: string, workspaceDir: string) => Set<string> | null
+}
 
 function readAgentic(relativePath: string): string {
   return fs.readFileSync(path.join(agenticRoot, relativePath), 'utf8')
@@ -857,6 +866,27 @@ test('every emitted knowledge owner links only to exact files a scaffolded app r
         !emittedTarget.split('/').some((segment) => NON_EMITTED_TREE_SEGMENTS.has(segment)),
         `${owner} links to ${target}, which the scaffolder never copies into a generated app`,
       )
+      // An installed-package target is the one link kind a generated app gets by INSTALLING
+      // rather than by scaffolding, so it is checked against the publishing workspace package
+      // and its packed file list. That check is the link validator's, imported rather than
+      // reimplemented, so this fixture cannot drift from the gate it mirrors.
+      if (emittedTarget.startsWith('node_modules/')) {
+        const installed = installedPackageTarget(emittedTarget)
+        assert.ok(installed, `${owner} links to an unrecognized installed path: ${emittedTarget}`)
+        const workspaceFile = path.join(packagesRoot, '..', installed.workspaceDir, installed.packageRelativePath)
+        assert.ok(
+          fs.existsSync(workspaceFile) && fs.statSync(workspaceFile).isFile(),
+          `${owner} links to ${target}, which ${installed.workspaceDir} does not contain`,
+        )
+        const packed = packedFilesOf(path.join(packagesRoot, '..'), installed.workspaceDir)
+        assert.ok(packed, `npm pack failed for ${installed.workspaceDir}`)
+        assert.ok(
+          packed.has(installed.packageRelativePath),
+          `${owner} links to ${target}, which ${installed.packageName} does not pack`,
+        )
+        checkedLinks += 1
+        continue
+      }
       const authoringTarget = authoringPathOfEmittedOwner(emittedTarget)
       assert.ok(authoringTarget, `${owner} links to an unrecognized app path: ${emittedTarget}`)
       const absoluteTarget = path.join(packagesRoot, authoringTarget)

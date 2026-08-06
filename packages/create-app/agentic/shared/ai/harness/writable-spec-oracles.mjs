@@ -19,7 +19,15 @@ const EXIT_FAILURE = 1
 const EXIT_INVALID = 2
 
 const SPEC_ROOT = '.ai/specs'
-const RESERVED_SPEC_FILES = Object.freeze(['README.md', 'SPEC-000-template.md'])
+// Everything the scaffold itself emits under `.ai/specs`. None of these is an authored
+// deliverable, so a planning proof neither counts them nor may repurpose them: the folder
+// README, the blank skeleton, and the shipped covering specification for reference-module
+// activation that gives the `reuse-spec` routing row an honest target.
+const RESERVED_SPEC_FILES = Object.freeze([
+  'README.md',
+  'SPEC-000-template.md',
+  '2026-08-06-reference-module-activation.md',
+])
 const SPEC_FILE_PATTERN = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 const MAX_SPEC_BYTES = 256 * 1024
 const MODULE_ROOT = 'src/modules'
@@ -31,12 +39,47 @@ const PLACEHOLDER_TOKEN_PATTERN = /(?:^|[^A-Za-z])(?:TBD|TODO|FIXME|XXX|lorem ip
 const CURLY_PLACEHOLDER_PATTERN = /\{(?!\s)[^{}\n,]{1,80}(?<!\s)\}/
 const PHASE_HEADING_PATTERN = /^#{3,4}\s+Phase\s+(\d+)\b/i
 const TEST_IDENTIFIER_PATTERN = /\bTEST-\d{3}\b|[\w./-]+\.(?:test|spec)\.tsx?\b|__integration__/
+
+// --- module-shaped planning contract ------------------------------------------------------
+// A module-shaped proof must ground its implementation in the reference module the app already
+// ships rather than describing a second teaching module. These are the target-side facts the
+// oracle reads to check that grounding; the plan under grading never supplies them.
+const EXAMPLE_ROOT = 'src/modules/example'
+const EXAMPLE_INVENTORY = `${EXAMPLE_ROOT}/references/surface-inventory.json`
+const EXAMPLE_FILE_PATTERN = /\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g
+// A directory-only or globbed hint is not a source link. `src/modules/example/api/**`,
+// `src/modules/example/widgets/*.ts` and a bare `src/modules/example/commands/` all name a
+// place to look rather than a file to read, which is exactly what the read policy forbids.
+const EXAMPLE_GLOB_PATTERN = /\bsrc\/modules\/example\/[A-Za-z0-9._/-]*(?:\*|\/(?=[\s`)|,.]|$))/
+const AFTER_OPT_IN_PATTERN = /(?:source[-\s]present|not registered|unregistered|disabled|inert)[\s\S]{0,120}?(?:opt[-\s]?in|until it is registered|registration)|(?:opt[-\s]?in|register(?:ed|ing)?)[\s\S]{0,120}?(?:source[-\s]present|not registered|unregistered|disabled|inert)/i
+const SHADOW_MODULE_PATTERNS = Object.freeze([
+  { id: 'shadow-teaching-module', pattern: /\b(?:new|second|another|own)\s+(?:teaching|example|demo|reference|sample)\s+module\b/i },
+  { id: 'whole-example-copy', pattern: /\bcopy(?:ing)?\s+(?:the\s+)?(?:whole|entire|complete|full)\s+(?:example|reference)\s+(?:module|tree|directory)\b|\bcp\s+-r\s+src\/modules\/example\b/i },
+  { id: 'ratelimit-probe-blueprint', pattern: /\bratelimit_probe\b/i },
+])
+// Fixed by the spec-first routing contract, which owns this vocabulary. `pending-emission` is
+// deliberately absent: it is a lifecycle marker on the canonical ledger, not a statement about
+// which mechanism a proposed surface uses.
+const MECHANISM_CLASSIFICATIONS = Object.freeze([
+  'emitted-example',
+  'framework-only',
+  'catalog-only',
+  'currently-unbound',
+  'negative-fixture',
+])
+// Activated canonical output may never claim this one: only a deliberately broken fixture
+// produces it, so a plan that proposes it is proposing a defect.
+const FORBIDDEN_CLASSIFICATION = 'negative-fixture'
+const TRACEABILITY_HEADING_PATTERN = /traceab/i
+const REQUIREMENT_ID_PATTERN = /\bREQ-\d{3}\b/
+const PHASE_REFERENCE_PATTERN = /\bPhase\s+\d+\b/i
 // Reserved scaffolding must still look like scaffolding afterwards. Byte equality against the
 // controller is not usable: `.ai/specs/README.md` carries the generated project name, which
 // legitimately differs between the controller app and the disposable target.
 const RESERVED_SPEC_MARKERS = Object.freeze({
   'README.md': /^#\s+Feature Specs/m,
   'SPEC-000-template.md': /\{Title\}/,
+  '2026-08-06-reference-module-activation.md': /^#\s+Reference Module Activation/m,
 })
 
 // Each requirement resolves to one distinct level-2 section, preferring the exact heading the
@@ -75,6 +118,15 @@ const SPEC_CASES = Object.freeze({
     // The ordering proof is that planning delivered one covering spec and no implementation.
     // These are the module-directory names a warehouse-transfer implementation would occupy.
     implementationKeywords: ['transfer', 'warehouse'],
+    // Stock transfers are a module, so this proof is also the module-shaped one: its plan has
+    // to route implementation to the scaffold skill and name the exact reference sources it
+    // will adapt, rather than describing a second teaching module in prose.
+    moduleShaped: {
+      scaffoldSkill: 'om-module-scaffold',
+      minCapabilityIds: 2,
+      minExactSourcePaths: 2,
+      minTraceabilityRows: 2,
+    },
   },
   'OMH-214': {
     kind: 'existing-spec',
@@ -289,7 +341,144 @@ function implementationChecks(root, definition) {
   )]
 }
 
-function newFeatureChecks(root) {
+// The capability IDs and exact source paths the target's own reference module publishes. Read
+// from the target, never from the plan: a plan cannot widen its own grounding by asserting a
+// capability the shipped inventory does not carry.
+function exampleGrounding(root) {
+  const raw = readContainedFile(root, EXAMPLE_INVENTORY)
+  if (raw === null) return null
+  let parsed
+  try { parsed = JSON.parse(raw) } catch { return null }
+  const capabilities = Array.isArray(parsed?.capabilities) ? parsed.capabilities : []
+  if (!capabilities.length) return null
+  const capabilityIds = new Set()
+  const sourcePaths = new Set()
+  for (const capability of capabilities) {
+    if (typeof capability?.capabilityId === 'string') capabilityIds.add(capability.capabilityId)
+    for (const relative of capability?.sourcePaths ?? []) if (typeof relative === 'string') sourcePaths.add(relative)
+  }
+  return { capabilityIds, sourcePaths }
+}
+
+// Splits every Markdown table in a section into its data rows. Header detection follows the
+// grammar rather than the wording: a header is the line immediately above a delimiter row, so a
+// data row whose first cell reads `REQ-001` is never mistaken for one.
+function tableRows(body) {
+  const lines = body.split(/\r?\n/).map((line) => line.trim())
+  const isRow = (line) => line.startsWith('|') && line.endsWith('|') && line.length > 2
+  const cellsOf = (line) => line.slice(1, -1).split('|').map((cell) => cell.trim())
+  const isDelimiter = (line) => isRow(line) && cellsOf(line).every((cell) => /^:?-{2,}:?$/.test(cell))
+  const rows = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!isRow(lines[index]) || isDelimiter(lines[index])) continue
+    // The header sits directly above the delimiter; skip both and read the body that follows.
+    if (index + 1 < lines.length && isDelimiter(lines[index + 1])) { index += 1; continue }
+    const cells = cellsOf(lines[index])
+    if (cells.length < 3) continue
+    rows.push({ cells, text: lines[index] })
+  }
+  return rows
+}
+
+function moduleShapedChecks(root, markdown, contract) {
+  const checks = []
+  const resolved = resolveRequiredSections(markdown)
+  const implementation = resolved.get('phases')
+  const prose = strippedOfCodeBlocks(markdown)
+
+  checks.push(check(
+    'plan.module-scaffold-route',
+    implementation !== null && implementation !== undefined && implementation.body.includes(contract.scaffoldSkill),
+    `the implementation section must route module work to \`${contract.scaffoldSkill}\``,
+  ))
+
+  const grounding = exampleGrounding(root)
+  if (grounding === null) {
+    checks.push(check(
+      'plan.example-inventory-readable',
+      false,
+      `the target must ship ${EXAMPLE_INVENTORY}; without it no plan can be checked against the reference module`,
+    ))
+    return checks
+  }
+
+  const citedCapabilities = [...grounding.capabilityIds].filter((id) => prose.includes(id))
+  checks.push(check(
+    'plan.example-capability-ids',
+    citedCapabilities.length >= contract.minCapabilityIds,
+    `the plan must name at least ${contract.minCapabilityIds} capability IDs published by ${EXAMPLE_INVENTORY} (found ${citedCapabilities.length ? citedCapabilities.join(', ') : 'none'})`,
+  ))
+
+  const cited = [...new Set(prose.match(EXAMPLE_FILE_PATTERN) ?? [])]
+  const grounded = cited.filter((relative) => grounding.sourcePaths.has(relative) && readContainedFile(root, relative) !== null)
+  checks.push(check(
+    'plan.example-exact-source-paths',
+    grounded.length >= contract.minExactSourcePaths,
+    `the plan must name at least ${contract.minExactSourcePaths} exact reference source files that exist and are mapped by the inventory (found ${grounded.length ? grounded.join(', ') : 'none'})`,
+  ))
+  const ungrounded = cited.filter((relative) => !grounding.sourcePaths.has(relative))
+  checks.push(check(
+    'plan.example-paths-resolve',
+    ungrounded.length === 0,
+    `every named reference source must exist and be mapped by the inventory (unmapped: ${ungrounded.join(', ')})`,
+  ))
+  const glob = EXAMPLE_GLOB_PATTERN.exec(prose)
+  checks.push(check(
+    'plan.example-no-directory-hint',
+    glob === null,
+    `reference sources must be exact files, not a directory or wildcard${glob ? ` (found ${glob[0]})` : ''}`,
+  ))
+
+  checks.push(check(
+    'plan.example-after-opt-in',
+    AFTER_OPT_IN_PATTERN.test(prose),
+    'the plan must state that the reference module is source-present and applies only after opt-in, not that it is already live',
+  ))
+
+  for (const { id, pattern } of SHADOW_MODULE_PATTERNS) {
+    checks.push(check(`plan.rejects.${id}`, !pattern.test(prose), `the plan must not propose ${id.replaceAll('-', ' ')}`))
+  }
+
+  const sections = level2Sections(markdown)
+  const traceability = sections.find((section) => TRACEABILITY_HEADING_PATTERN.test(section.heading))
+  if (!traceability) {
+    checks.push(check('plan.traceability.section', false, 'the plan needs a requirement traceability section'))
+    return checks
+  }
+  const rows = tableRows(traceability.body)
+  checks.push(check(
+    'plan.traceability.rows',
+    rows.length >= contract.minTraceabilityRows,
+    `the traceability table needs at least ${contract.minTraceabilityRows} rows, one per added extension surface (found ${rows.length})`,
+  ))
+  const incomplete = rows.filter((row) => !(
+    REQUIREMENT_ID_PATTERN.test(row.text)
+    && PHASE_REFERENCE_PATTERN.test(row.text)
+    && TEST_IDENTIFIER_PATTERN.test(row.text)
+  ))
+  checks.push(check(
+    'plan.traceability.complete',
+    rows.length > 0 && incomplete.length === 0,
+    `every traceability row must carry a requirement ID, an implementation phase, and a self-contained integration test (incomplete: ${incomplete.length})`,
+  ))
+  const classified = rows.map((row) => ({
+    row,
+    values: MECHANISM_CLASSIFICATIONS.filter((value) => row.text.includes(value)),
+  }))
+  checks.push(check(
+    'plan.traceability.classification',
+    rows.length > 0 && classified.every((entry) => entry.values.length === 1),
+    `every traceability row must state exactly one mechanism classification from ${MECHANISM_CLASSIFICATIONS.join(', ')}`,
+  ))
+  checks.push(check(
+    'plan.traceability.no-negative-fixture',
+    classified.every((entry) => !entry.values.includes(FORBIDDEN_CLASSIFICATION)),
+    `no proposed surface may be classified ${FORBIDDEN_CLASSIFICATION}: only a deliberately broken fixture produces it`,
+  ))
+  return checks
+}
+
+function newFeatureChecks(root, definition) {
   const authored = authoredSpecFiles(root)
   const checks = [check(
     'spec.single',
@@ -305,6 +494,7 @@ function newFeatureChecks(root) {
     return checks
   }
   checks.push(...specStructureChecks(markdown))
+  if (definition.moduleShaped) checks.push(...moduleShapedChecks(root, markdown, definition.moduleShaped))
   return checks
 }
 
@@ -349,7 +539,7 @@ export function evaluateWritableSpecOracle({ root: requestedRoot, caseId, phase 
   if (!['before', 'after'].includes(phase)) throw new Error('phase must be before or after')
   const root = fs.realpathSync(requestedRoot)
   const checks = [
-    ...(definition.kind === 'new-feature' ? newFeatureChecks(root) : existingSpecChecks(root, definition)),
+    ...(definition.kind === 'new-feature' ? newFeatureChecks(root, definition) : existingSpecChecks(root, definition)),
     ...reservedSpecChecks(root),
     ...implementationChecks(root, definition),
   ]

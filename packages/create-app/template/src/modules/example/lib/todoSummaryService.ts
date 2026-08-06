@@ -29,16 +29,26 @@ export async function countTodosForScope(
 /**
  * Awilix provider registered in `di.ts` as `exampleTodoSummaryService`.
  *
- * Declared with a destructured cradle so the container's PROXY injection mode
- * resolves `em` and `cache` by name; `.scoped()` ties the instance to the request
- * container that owns that `em`.
+ * The parameters MUST be listed individually rather than taken as one cradle object. The
+ * platform container is built with `InjectionMode.CLASSIC`
+ * (`packages/shared/src/lib/di/container.ts`), which resolves one registration per *parameter
+ * name*, and neither cradle shape survives that mode:
+ *
+ * - a single named parameter (`deps`) makes the container look for a registration called `deps`
+ *   and throw `Could not resolve 'deps'`, which is how this surfaced — every request to
+ *   `/api/example/todos/summary` answered 500;
+ * - a destructured parameter (`{ em, cache }`) is worse, because classic injection passes
+ *   nothing at all and the factory silently receives `undefined` for both.
+ *
+ * Listing `em` and `cache` as parameters is what classic injection resolves by name.
+ * `.scoped()` then ties the instance to the request container that owns that `em`.
  */
-export function createExampleTodoSummaryService(deps: {
-  em: EntityManager
-  cache: CacheStrategy
-}): TodoSummaryService {
+export function createExampleTodoSummaryService(
+  em: EntityManager,
+  cache: CacheStrategy,
+): TodoSummaryService {
   return createTodoSummaryCache({
-    cache: deps.cache,
-    loadCounts: (scope) => countTodosForScope(deps.em, scope),
+    cache,
+    loadCounts: (scope) => countTodosForScope(em, scope),
   })
 }

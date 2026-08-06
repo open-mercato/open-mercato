@@ -88,6 +88,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
         scans: 'packages/ui/src/primitives — design-system gallery coverage',
       },
+      {
+        path: 'src/modules/design_system/gallery/__tests__/inventory-parity.test.ts',
+        scans: 'packages/create-app/scripts/design-system-sources.mjs and its derived inventory asset — the only guard that compares the runtime gallery registry against the statically derived inventory, so a reader change that silently under-reports a family is caught here and nowhere else. It lives in core while the reader lives in create-app, and core is a dependency of create-app rather than a dependent, so the turbo filter never selects it for a reader-only PR (#4991).',
+      },
     ],
   },
   {
@@ -126,6 +130,14 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/__tests__/release-notes-retired.test.ts',
         scans: 'repo-root docs — RELEASE_NOTES.md retirement (#4024)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.example-fact-coverage.test.ts',
+        scans: 'live apps/mercato/src/modules/example sources — the enum-derived factCoverage ledger, which fails both ways (a fact value with no row, and a row for a value the enum dropped), so a module change that adds an unledgered fact must fail its own PR (#4991)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live apps/mercato/src/modules/example sources — local-reference fact discovery, projection and source fingerprints (#4991)',
       },
     ],
   },
@@ -253,6 +265,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/agent-harness-release.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779); its process.cwd() anchor sits inside a fixture script string, not a repository read.',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
+    reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
   },
   {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',

@@ -24,6 +24,10 @@ import {
   withModuleExtensionFactExtractionCache,
 } from './module-extension-facts'
 import {
+  ALL_OVERRIDE_DOMAINS,
+  MODULE_OVERRIDE_MODES,
+  MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
+  MODULE_OVERRIDE_TARGET_NOTES,
   collectModuleOverrideTargets,
   type ModuleOverrideTarget,
   type ModuleOverrideTargetDiagnostic,
@@ -119,45 +123,57 @@ export type ModuleFactRef = {
   factKey: string
 }
 
-export type ModuleFactSourceKind =
-  | 'module-metadata'
-  | 'entity'
-  | 'event'
-  | 'acl-feature'
-  | 'api-route'
-  | 'di-registration'
-  | 'search'
-  | 'vector'
-  | 'notification'
-  | 'cli-command'
-  | 'backend-page'
-  | 'frontend-page'
-  | 'ai-tool'
-  | 'ai-agent'
-  | 'ai-extension'
-  | 'command'
-  | 'subscriber'
-  | 'worker'
-  | 'page-middleware'
-  | 'setup'
-  | 'encryption'
-  | 'custom-entity'
-  | 'integration'
-  | 'generator-plugin'
-  | 'extension-host'
-  | 'extension-contribution'
+/**
+ * Closed provenance/contract sets, published as `as const` ledgers whose types
+ * derive from them. The `factCoverage` ledger enumerates these at runtime, so a
+ * kind added here without a ledger row fails the coverage contract test rather
+ * than silently joining the public surface unclassified.
+ */
+export const MODULE_FACT_SOURCE_KINDS = [
+  'module-metadata',
+  'entity',
+  'event',
+  'acl-feature',
+  'api-route',
+  'di-registration',
+  'search',
+  'vector',
+  'notification',
+  'cli-command',
+  'backend-page',
+  'frontend-page',
+  'ai-tool',
+  'ai-agent',
+  'ai-extension',
+  'command',
+  'subscriber',
+  'worker',
+  'page-middleware',
+  'setup',
+  'encryption',
+  'custom-entity',
+  'integration',
+  'generator-plugin',
+  'extension-host',
+  'extension-contribution',
+] as const
 
-export type ModuleOwnedContractKind =
-  | 'module-metadata'
-  | 'command'
-  | 'worker'
-  | 'page-middleware'
-  | 'setup'
-  | 'encryption'
-  | 'di-registration'
-  | 'custom-entity'
-  | 'ai-extension'
-  | 'generator-plugin'
+export type ModuleFactSourceKind = (typeof MODULE_FACT_SOURCE_KINDS)[number]
+
+export const MODULE_OWNED_CONTRACT_KINDS = [
+  'module-metadata',
+  'command',
+  'worker',
+  'page-middleware',
+  'setup',
+  'encryption',
+  'di-registration',
+  'custom-entity',
+  'ai-extension',
+  'generator-plugin',
+] as const
+
+export type ModuleOwnedContractKind = (typeof MODULE_OWNED_CONTRACT_KINDS)[number]
 
 export type ModuleFactSafeScalar = string | number | boolean | null
 
@@ -2982,6 +2998,13 @@ export interface ReferenceModuleFactsEntry {
   runtimeSelected: false
   sourceFingerprint: string
   taxonomyFingerprint: string
+  /**
+   * The enum-derived classification of every taxonomy `facts` is expressed in, built
+   * by the same generation run. It travels with the projection so a reader of the
+   * emitted sheet can tell a value the example really emits from one that is only
+   * reserved, pending, or reachable through a negative fixture.
+   */
+  factCoverage: ModuleFactCoverageFamily[]
   facts: ModuleFactsJsonEntry
 }
 
@@ -3076,6 +3099,7 @@ export function extractLocalReferenceModuleFacts(
       sourceKind: 'local-reference',
       runtimeSelected: false,
       ...fingerprints,
+      factCoverage: activated.factCoverage,
       facts: jsonEntry,
     },
     markdown: renderModuleFactsMarkdown(facts, fingerprints),
@@ -3113,6 +3137,12 @@ export interface ExtractAllModuleFactsResult {
   frameworkMarkdown: string
   /** Always empty under the default `throw` policy, which aborts before returning. */
   unresolvedFirstPartyTargets: string[]
+  /**
+   * The enum-derived coverage ledger for the taxonomies these facts are expressed
+   * in, built during generation so an enum value with no classification aborts the
+   * run instead of shipping an unclassified public value.
+   */
+  factCoverage: ModuleFactCoverageFamily[]
 }
 
 /**
@@ -3137,6 +3167,7 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
 }
 
 function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
+  const factCoverage = buildModuleFactCoverageLedger()
   const sources: ModuleFactSource[] = options.sources
     ? [...options.sources]
     : (options.coreSrcRoot
@@ -3223,5 +3254,334 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
     warnings,
     frameworkMarkdown: renderFrameworkExtensionPointsMarkdown(),
     unresolvedFirstPartyTargets,
+    factCoverage,
+  }
+}
+
+/**
+ * Enum-derived `factCoverage` ledger — spec
+ * `.ai/specs/2026-07-31-standalone-canonical-example-module.md`,
+ * § PR #4883 Module-Fact and Extension-Topology Contract.
+ *
+ * Every finite public set is enumerated from the `as const` ledger that also derives
+ * its type, so an added enum value has no ledger row and fails
+ * {@link buildModuleFactCoverageLedger} instead of joining the public surface
+ * unclassified. The purpose of the ledger is to make a *silent zero* impossible: a
+ * family cannot claim canonical coverage while the real extractor publishes no
+ * contribution for it.
+ */
+export type ModuleFactCoverageStatus =
+  /** The canonical example really emits it; a real extraction proves a non-zero count. */
+  | 'emitted-example'
+  /** A framework/app-level setting that never becomes a module contribution. */
+  | 'framework-only'
+  /** Described by the framework catalog only; the example contributes nothing for it. */
+  | 'catalog-only'
+  /** In the closed public set, but no generator code path emits it today. */
+  | 'currently-unbound'
+  /**
+   * Required to be `emitted-example` by the spec but NOT emitted yet. The status
+   * itself states the gap, so a machine reader keying on `status` alone is never
+   * told the example emits something it does not.
+   */
+  | 'pending-emission'
+  /** Only a deliberately broken fixture produces it; canonical output emits none. */
+  | 'negative-fixture'
+
+export type ModuleFactCoverageRow = {
+  value: string
+  status: ModuleFactCoverageStatus
+  note: string
+  /**
+   * Names the slice that owns closing a `pending-emission` gap. A pending row is
+   * asserted to have a *zero* real count, so it can never be mistaken for proven
+   * coverage and cannot go stale once the gap closes.
+   */
+  pendingEmission?: string
+  /**
+   * Set when the value is extractable only from the generated module registry rather
+   * than from module source, so a source-only extraction legitimately reports zero.
+   *
+   * This is the only way a row skips the non-zero proof, so the flag is proven rather
+   * than trusted: `module-facts.example-fact-coverage.test.ts` asserts every row
+   * carrying it counts zero from a source-only extraction of the example AND non-zero
+   * once the same extraction is handed a module registry.
+   */
+  requiresGeneratedRegistry?: true
+}
+
+export type ModuleFactCoverageFamily = {
+  family: string
+  enumSource: string
+  rows: ModuleFactCoverageRow[]
+}
+
+const FACT_SOURCE_KIND_COVERAGE: Record<ModuleFactSourceKind, ModuleFactCoverageRow> = {
+  'module-metadata': { value: 'module-metadata', status: 'emitted-example', note: 'example/index.ts ModuleInfo export' },
+  entity: { value: 'entity', status: 'emitted-example', note: 'example/data/entities.ts ORM entities' },
+  event: { value: 'event', status: 'emitted-example', note: 'example/events.ts typed event definitions' },
+  'acl-feature': { value: 'acl-feature', status: 'emitted-example', note: 'example/acl.ts RBAC features' },
+  'api-route': {
+    value: 'api-route',
+    status: 'emitted-example',
+    note: 'example/api/**/route.ts; route facts are read from the generated module registry, not from module source',
+    requiresGeneratedRegistry: true,
+  },
+  'di-registration': { value: 'di-registration', status: 'emitted-example', note: 'example/di.ts Awilix container.register' },
+  search: { value: 'search', status: 'emitted-example', note: 'example/search.ts indexed entity declaration' },
+  vector: {
+    value: 'vector',
+    status: 'pending-emission',
+    note: 'REQUIRED: a vector-search identity for the Todo entity; the example declares none today',
+    pendingEmission: 'slice-H-missing-example-surfaces',
+  },
+  notification: { value: 'notification', status: 'emitted-example', note: 'example/notifications.ts notification types' },
+  'cli-command': { value: 'cli-command', status: 'emitted-example', note: 'example/cli.ts module commands' },
+  'backend-page': { value: 'backend-page', status: 'emitted-example', note: 'example/backend/**/page.tsx admin pages' },
+  'frontend-page': { value: 'frontend-page', status: 'emitted-example', note: 'example/frontend/**/page.tsx portal pages' },
+  'ai-tool': { value: 'ai-tool', status: 'emitted-example', note: 'example/ai-tools.ts defineAiTool declarations' },
+  'ai-agent': { value: 'ai-agent', status: 'emitted-example', note: 'example/ai-agents.ts defineAiAgent declarations' },
+  'ai-extension': { value: 'ai-extension', status: 'emitted-example', note: 'example AI agent/tool override and extension records' },
+  command: { value: 'command', status: 'emitted-example', note: 'example/commands/todos.ts command handlers' },
+  subscriber: { value: 'subscriber', status: 'emitted-example', note: 'example/subscribers/*.ts event subscribers' },
+  worker: { value: 'worker', status: 'emitted-example', note: 'example/workers/*.ts queue workers' },
+  'page-middleware': { value: 'page-middleware', status: 'emitted-example', note: 'example/backend/middleware.ts page guard' },
+  setup: { value: 'setup', status: 'emitted-example', note: 'example/setup.ts tenant setup hooks' },
+  encryption: { value: 'encryption', status: 'emitted-example', note: 'example/encryption.ts field encryption map' },
+  'custom-entity': { value: 'custom-entity', status: 'emitted-example', note: 'example/ce.ts custom entity and field DSL' },
+  integration: { value: 'integration', status: 'emitted-example', note: 'example/lib/mock-*-adapter.ts integration registrations' },
+  'generator-plugin': {
+    value: 'generator-plugin',
+    status: 'pending-emission',
+    note: 'REQUIRED: an example/generators.ts GeneratorPlugin declaration; the file does not exist yet',
+    pendingEmission: 'slice-H-missing-example-surfaces',
+  },
+  'extension-host': { value: 'extension-host', status: 'emitted-example', note: 'example/extension-points.ts declared hosts' },
+  'extension-contribution': {
+    value: 'extension-contribution',
+    status: 'emitted-example',
+    note: 'example widget, DataTable, CrudForm, interceptor and enricher contributions',
+  },
+}
+
+const OWNED_CONTRACT_KIND_COVERAGE: Record<ModuleOwnedContractKind, ModuleFactCoverageRow> = {
+  'module-metadata': { value: 'module-metadata', status: 'emitted-example', note: 'ModuleInfo owned contract' },
+  command: { value: 'command', status: 'emitted-example', note: 'example/commands/todos.ts' },
+  worker: { value: 'worker', status: 'emitted-example', note: 'example/workers/*.ts' },
+  'page-middleware': { value: 'page-middleware', status: 'emitted-example', note: 'example/backend/middleware.ts' },
+  setup: { value: 'setup', status: 'emitted-example', note: 'example/setup.ts' },
+  encryption: { value: 'encryption', status: 'emitted-example', note: 'example/encryption.ts' },
+  'di-registration': {
+    value: 'di-registration',
+    status: 'emitted-example',
+    note: 'example/di.ts scoped Todo summary cache service consumed by a route',
+  },
+  'custom-entity': { value: 'custom-entity', status: 'emitted-example', note: 'example/ce.ts' },
+  'ai-extension': { value: 'ai-extension', status: 'emitted-example', note: 'example AI override/extension record' },
+  'generator-plugin': {
+    value: 'generator-plugin',
+    status: 'pending-emission',
+    note: 'REQUIRED: an example/generators.ts GeneratorPlugin declaration; the file does not exist yet',
+    pendingEmission: 'slice-H-missing-example-surfaces',
+  },
+}
+
+const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  ai: { value: 'ai', status: 'emitted-example', note: 'ai.agents, ai.tools and ai.extensions targets' },
+  routes: { value: 'routes', status: 'emitted-example', note: 'routes.api and routes.pages targets' },
+  events: { value: 'events', status: 'emitted-example', note: 'events.subscribers targets' },
+  workers: { value: 'workers', status: 'emitted-example', note: 'workers targets' },
+  widgets: { value: 'widgets', status: 'emitted-example', note: 'widgets.injection, .components and .dashboard targets' },
+  notifications: { value: 'notifications', status: 'emitted-example', note: 'notifications.types and notifications.handlers targets' },
+  interceptors: { value: 'interceptors', status: 'emitted-example', note: 'API interceptor targets' },
+  commandInterceptors: { value: 'commandInterceptors', status: 'emitted-example', note: 'command interceptor targets' },
+  enrichers: { value: 'enrichers', status: 'emitted-example', note: 'response enricher targets' },
+  guards: { value: 'guards', status: 'emitted-example', note: 'page-middleware guard targets' },
+  cli: { value: 'cli', status: 'emitted-example', note: 'CLI command targets' },
+  setup: { value: 'setup', status: 'emitted-example', note: 'setup hook and default-role targets' },
+  acl: { value: 'acl', status: 'emitted-example', note: 'acl.features targets' },
+  di: { value: 'di', status: 'emitted-example', note: 'DI token targets' },
+  encryption: { value: 'encryption', status: 'emitted-example', note: 'encryption.maps targets' },
+  nav: {
+    value: 'nav',
+    status: 'framework-only',
+    note: 'nav.groupOrder is an app-level framework setting; no module target is ever emitted for it',
+  },
+}
+
+const OVERRIDE_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'disable-replace': {
+    value: 'disable-replace',
+    status: 'emitted-example',
+    note: 'default mode for most example override hosts',
+  },
+  replace: { value: 'replace', status: 'emitted-example', note: 'the setup host replaces wholesale' },
+  additive: { value: 'additive', status: 'emitted-example', note: 'the ai.extensions host merges additively' },
+}
+
+const OVERRIDE_NOTE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'safe-metadata-only': {
+    value: 'safe-metadata-only',
+    status: 'emitted-example',
+    note: 'emitted on the metadata-only override target',
+  },
+  'page-middleware-not-mutation-guard': {
+    value: 'page-middleware-not-mutation-guard',
+    status: 'emitted-example',
+    note: 'emitted on the guards target so a page guard is not read as a mutation guard',
+  },
+}
+
+/**
+ * Every `negative-fixture` row here names a code that a real fixture in
+ * `module-override-targets.diagnostic-wiring.test.ts` drives out of
+ * `collectModuleOverrideTargets`; the coverage test asserts that fixture set matches
+ * these rows exactly, so a row can never claim a fixture that does not exist.
+ */
+const OVERRIDE_DIAGNOSTIC_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'missing-owned-fact': {
+    value: 'missing-owned-fact',
+    status: 'currently-unbound',
+    note: 'reserved by the spec\'s closed diagnostic set; no adapter emits it today, so not even a broken fixture can produce it',
+  },
+  'missing-source': {
+    value: 'missing-source',
+    status: 'negative-fixture',
+    note: 'a fact whose provenance cannot be proven yields this and no target; activated canonical output emits none',
+  },
+  'unsupported-dynamic-key': {
+    value: 'unsupported-dynamic-key',
+    status: 'negative-fixture',
+    note: 'a key the runtime cannot address yields this and no target; activated canonical output emits none',
+  },
+  'unknown-framework-domain': {
+    value: 'unknown-framework-domain',
+    status: 'negative-fixture',
+    note: 'the framework catalog does not describe the dotted host at all',
+  },
+  'unknown-framework-mode': {
+    value: 'unknown-framework-mode',
+    status: 'negative-fixture',
+    note: 'the framework catalog describes the host but names an operation that is not a public mode',
+  },
+}
+
+/**
+ * One family of the ledger. Both directions are enforced: an enumerated value with
+ * no row, and a row classifying a value the enum no longer carries, each throw — so
+ * neither an unclassified new value nor a stale row for a removed one can ship.
+ */
+export function buildCoverageFamily(
+  family: string,
+  enumSource: string,
+  values: readonly string[],
+  coverage: Readonly<Record<string, ModuleFactCoverageRow>>,
+): ModuleFactCoverageFamily {
+  const rows: ModuleFactCoverageRow[] = []
+  const missing: string[] = []
+  for (const value of values) {
+    const row = coverage[value]
+    if (!row) {
+      missing.push(value)
+      continue
+    }
+    rows.push(row)
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `[module-facts] factCoverage family "${family}" has no row for: ${missing.join(', ')}. ` +
+        'Add an explicit classification instead of leaving the value unclassified.',
+    )
+  }
+  const extra = Object.keys(coverage).filter((value) => !values.includes(value))
+  if (extra.length > 0) {
+    throw new Error(
+      `[module-facts] factCoverage family "${family}" classifies values absent from the enum: ${extra.join(', ')}.`,
+    )
+  }
+  return { family, enumSource, rows }
+}
+
+/**
+ * Builds the whole ledger, throwing when an enumerated value lacks a row or a row
+ * classifies a value the enum no longer carries. {@link extractAllModuleFacts} calls
+ * it on every run, so either violation fails fact generation — not only the unit
+ * test — and the built ledger is returned on the generation result so the published
+ * mirrors have a single generated authority to be checked against.
+ */
+export function buildModuleFactCoverageLedger(): ModuleFactCoverageFamily[] {
+  return [
+    buildCoverageFamily(
+      'ModuleFactSourceKind',
+      'packages/cli/src/lib/generators/module-facts.ts#MODULE_FACT_SOURCE_KINDS',
+      MODULE_FACT_SOURCE_KINDS,
+      FACT_SOURCE_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOwnedContractKind',
+      'packages/cli/src/lib/generators/module-facts.ts#MODULE_OWNED_CONTRACT_KINDS',
+      MODULE_OWNED_CONTRACT_KINDS,
+      OWNED_CONTRACT_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideDomain',
+      'packages/cli/src/lib/generators/module-override-targets.ts#ALL_OVERRIDE_DOMAINS',
+      ALL_OVERRIDE_DOMAINS,
+      OVERRIDE_DOMAIN_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideMode',
+      'packages/cli/src/lib/generators/module-override-targets.ts#MODULE_OVERRIDE_MODES',
+      MODULE_OVERRIDE_MODES,
+      OVERRIDE_MODE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideTargetNote',
+      'packages/cli/src/lib/generators/module-override-targets.ts#MODULE_OVERRIDE_TARGET_NOTES',
+      MODULE_OVERRIDE_TARGET_NOTES,
+      OVERRIDE_NOTE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideTargetDiagnosticCode',
+      'packages/cli/src/lib/generators/module-override-targets.ts#MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES',
+      MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
+      OVERRIDE_DIAGNOSTIC_COVERAGE,
+    ),
+  ]
+}
+
+/**
+ * Real per-value counts for every ledger family, read from an extracted module's
+ * facts. This is the anti-silent-zero oracle: a ledger claim is checked against what
+ * the extractor actually published, never against a hand-maintained inventory row.
+ */
+export function countModuleFactCoverage(facts: ModuleFacts): Record<string, Record<string, number>> {
+  const factSourceKind: Record<string, number> = {}
+  for (const entry of facts.factSources ?? []) {
+    factSourceKind[entry.kind] = (factSourceKind[entry.kind] ?? 0) + 1
+  }
+  const ownedContractKind: Record<string, number> = {}
+  for (const [kind, list] of Object.entries(facts.ownedContracts ?? {})) {
+    ownedContractKind[kind] = (list ?? []).length
+  }
+  const overrideDomain: Record<string, number> = {}
+  const overrideMode: Record<string, number> = {}
+  const overrideNote: Record<string, number> = {}
+  for (const target of facts.overrideTargets ?? []) {
+    overrideDomain[target.domain] = (overrideDomain[target.domain] ?? 0) + 1
+    for (const mode of target.modes) overrideMode[mode] = (overrideMode[mode] ?? 0) + 1
+    for (const note of target.notes ?? []) overrideNote[note] = (overrideNote[note] ?? 0) + 1
+  }
+  const overrideDiagnosticCode: Record<string, number> = {}
+  for (const diagnostic of facts.overrideTargetDiagnostics ?? []) {
+    overrideDiagnosticCode[diagnostic.code] = (overrideDiagnosticCode[diagnostic.code] ?? 0) + 1
+  }
+  return {
+    ModuleFactSourceKind: factSourceKind,
+    ModuleOwnedContractKind: ownedContractKind,
+    ModuleOverrideDomain: overrideDomain,
+    ModuleOverrideMode: overrideMode,
+    ModuleOverrideTargetNote: overrideNote,
+    ModuleOverrideTargetDiagnosticCode: overrideDiagnosticCode,
   }
 }

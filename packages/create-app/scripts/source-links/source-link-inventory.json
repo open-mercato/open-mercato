@@ -9,19 +9,20 @@
   },
   "derived": {
     "ownerCount": 28,
-    "recordCount": 125,
-    "sourceRequiredCount": 100,
-    "renderedLinkCount": 102,
+    "recordCount": 126,
+    "sourceRequiredCount": 101,
+    "renderedLinkCount": 103,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
-    "installed-package targets: no emitted owner renders one yet, so no record carries an installed version or content hash.",
+    "installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.",
     "design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.",
     "preset and tier applicability: every emitted owner ships in every preset, so no record narrows it."
   ],
   "records": [
     {
       "topicId": "guides/backend-ui:components/TodoForm.tsx",
+      "referenceId": "guides/backend-ui:components/TodoForm.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/guides/backend-ui.md",
       "originAuthoringPath": "agentic/guides/backend-ui.md",
@@ -36,7 +37,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-014",
@@ -126,6 +128,7 @@
     },
     {
       "topicId": "guides/backend-ui:components/TodosTable.tsx",
+      "referenceId": "guides/backend-ui:components/TodosTable.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/guides/backend-ui.md",
       "originAuthoringPath": "agentic/guides/backend-ui.md",
@@ -229,7 +232,110 @@
       "renderedLinkCount": 1
     },
     {
+      "topicId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "referenceId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "originAuthoringPath": "agentic/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-014",
+        "OMH-015",
+        "OMH-016",
+        "OMH-020",
+        "OMH-023",
+        "OMH-024",
+        "OMH-026",
+        "OMH-027",
+        "OMH-028",
+        "OMH-030",
+        "OMH-035",
+        "OMH-036",
+        "OMH-037",
+        "OMH-055",
+        "OMH-058",
+        "OMH-061",
+        "OMH-062",
+        "OMH-067",
+        "OMH-068",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-093",
+        "OMH-094",
+        "OMH-095",
+        "OMH-097",
+        "OMH-098",
+        "OMH-099",
+        "OMH-100",
+        "OMH-101",
+        "OMH-103",
+        "OMH-104",
+        "OMH-105",
+        "OMH-108",
+        "OMH-111",
+        "OMH-112",
+        "OMH-114",
+        "OMH-115",
+        "OMH-117",
+        "OMH-118",
+        "OMH-119",
+        "OMH-120",
+        "OMH-123",
+        "OMH-124",
+        "OMH-128",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-133",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-138",
+        "OMH-141",
+        "OMH-153",
+        "OMH-155",
+        "OMH-169",
+        "OMH-172",
+        "OMH-175",
+        "OMH-176",
+        "OMH-180",
+        "OMH-181",
+        "OMH-185",
+        "OMH-193",
+        "OMH-203",
+        "OMH-207",
+        "OMH-211"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "renderedLinkCount": 1,
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/backend/DataTable.tsx"
+    },
+    {
       "topicId": "guides/backend-ui:references/surface-map.md",
+      "referenceId": "guides/backend-ui:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/guides/backend-ui.md",
       "originAuthoringPath": "agentic/guides/backend-ui.md",
@@ -329,6 +435,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:README.md",
+      "referenceId": "om-backend-ui-design/crud-surfaces:README.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -353,6 +460,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
+      "referenceId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -366,7 +474,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -385,6 +494,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx",
+      "referenceId": "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -398,7 +508,8 @@
         "ui.form-create"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -417,6 +528,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
+      "referenceId": "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -431,7 +543,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -460,6 +573,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
+      "referenceId": "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -505,6 +619,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:widgets/components.ts",
+      "referenceId": "om-backend-ui-design/crud-surfaces:widgets/components.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -519,6 +634,7 @@
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
         "src/modules/example/widgets/__tests__/components.test.ts"
       ],
       "affectedCaseIds": [
@@ -534,6 +650,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "referenceId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -562,6 +679,7 @@
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx",
+      "referenceId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
@@ -598,6 +716,7 @@
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/page.meta.ts",
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/page.meta.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
@@ -622,6 +741,7 @@
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/page.tsx",
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/page.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
@@ -646,6 +766,7 @@
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts",
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
@@ -674,6 +795,7 @@
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
@@ -704,6 +826,7 @@
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:frontend/example.tsx",
+      "referenceId": "om-backend-ui-design/page-and-navigation:frontend/example.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/page-and-navigation.md",
@@ -728,6 +851,7 @@
     },
     {
       "topicId": "om-backend-ui-design:references/surface-map.md",
+      "referenceId": "om-backend-ui-design:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-backend-ui-design/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
@@ -817,6 +941,7 @@
     },
     {
       "topicId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
+      "referenceId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
@@ -830,7 +955,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-185",
@@ -845,6 +971,7 @@
     },
     {
       "topicId": "om-data-model-design/integrity-and-concurrency:commands/interceptors.ts",
+      "referenceId": "om-data-model-design/integrity-and-concurrency:commands/interceptors.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
@@ -873,6 +1000,7 @@
     },
     {
       "topicId": "om-data-model-design/integrity-and-concurrency:commands/todos.ts",
+      "referenceId": "om-data-model-design/integrity-and-concurrency:commands/todos.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
@@ -891,6 +1019,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
@@ -914,6 +1043,7 @@
     },
     {
       "topicId": "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json",
+      "referenceId": "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
@@ -937,6 +1067,7 @@
     },
     {
       "topicId": "om-data-model-design/migration-workflow:migrations/Migration20251030150038.ts",
+      "referenceId": "om-data-model-design/migration-workflow:migrations/Migration20251030150038.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
@@ -960,6 +1091,7 @@
     },
     {
       "topicId": "om-data-model-design/migration-workflow:migrations/Migration20260226161000_example.ts",
+      "referenceId": "om-data-model-design/migration-workflow:migrations/Migration20260226161000_example.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
@@ -983,6 +1115,7 @@
     },
     {
       "topicId": "om-data-model-design/schema-design:ce.ts",
+      "referenceId": "om-data-model-design/schema-design:ce.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/schema-design.md",
@@ -1014,6 +1147,7 @@
     },
     {
       "topicId": "om-data-model-design/schema-design:data/entities.ts",
+      "referenceId": "om-data-model-design/schema-design:data/entities.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/schema-design.md",
@@ -1028,6 +1162,7 @@
         "data.entities"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -1070,6 +1205,7 @@
     },
     {
       "topicId": "om-data-model-design/schema-design:data/validators.ts",
+      "referenceId": "om-data-model-design/schema-design:data/validators.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/schema-design.md",
@@ -1100,6 +1236,7 @@
     },
     {
       "topicId": "om-data-model-design:references/surface-map.md",
+      "referenceId": "om-data-model-design:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/SKILL.md",
@@ -1171,6 +1308,7 @@
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:acl.ts",
+      "referenceId": "om-eject-and-customize/decision-and-procedure:acl.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -1198,6 +1336,7 @@
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+      "referenceId": "om-eject-and-customize/decision-and-procedure:data/entities.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -1212,6 +1351,7 @@
         "data.entities"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -1229,6 +1369,7 @@
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:index.ts",
+      "referenceId": "om-eject-and-customize/decision-and-procedure:index.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -1254,6 +1395,7 @@
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
+      "referenceId": "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -1279,6 +1421,7 @@
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:setup.ts",
+      "referenceId": "om-eject-and-customize/decision-and-procedure:setup.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -1308,6 +1451,7 @@
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:src/modules.ts",
+      "referenceId": "om-eject-and-customize/decision-and-procedure:src/modules.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -1335,6 +1479,7 @@
     },
     {
       "topicId": "om-eject-and-customize:references/surface-map.md",
+      "referenceId": "om-eject-and-customize:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-eject-and-customize/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
@@ -1354,6 +1499,7 @@
     },
     {
       "topicId": "om-integration-builder/provider-families:di.ts",
+      "referenceId": "om-integration-builder/provider-families:di.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -1367,6 +1513,7 @@
         "module.di-registration"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__tests__/di-registration.test.ts"
@@ -1389,6 +1536,7 @@
     },
     {
       "topicId": "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
+      "referenceId": "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -1424,6 +1572,7 @@
     },
     {
       "topicId": "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts",
+      "referenceId": "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -1457,6 +1606,7 @@
     },
     {
       "topicId": "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts",
+      "referenceId": "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -1490,6 +1640,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:README.md",
+      "referenceId": "om-module-scaffold/api-and-domain:README.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1516,6 +1667,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1546,6 +1698,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1577,6 +1730,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/openapi.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/openapi.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1611,6 +1765,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/organizations/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/organizations/route.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1639,6 +1794,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1669,6 +1825,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/todos/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/todos/route.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1710,6 +1867,7 @@
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:commands/todos.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:commands/todos.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
@@ -1728,6 +1886,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
@@ -1749,6 +1908,7 @@
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:ce.ts",
+      "referenceId": "om-module-scaffold/data-and-migrations:ce.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
@@ -1773,6 +1933,7 @@
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:data/entities.ts",
+      "referenceId": "om-module-scaffold/data-and-migrations:data/entities.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
@@ -1787,6 +1948,7 @@
         "data.entities"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -1802,6 +1964,7 @@
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:data/validators.ts",
+      "referenceId": "om-module-scaffold/data-and-migrations:data/validators.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
@@ -1829,6 +1992,7 @@
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:migrations/.snapshot-open-mercato.json",
+      "referenceId": "om-module-scaffold/data-and-migrations:migrations/.snapshot-open-mercato.json",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
@@ -1850,6 +2014,7 @@
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:migrations/Migration20260226161000_example.ts",
+      "referenceId": "om-module-scaffold/data-and-migrations:migrations/Migration20260226161000_example.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/data-and-migrations.md",
@@ -1871,6 +2036,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:acl.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:acl.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -1904,6 +2070,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:ce.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:ce.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -1932,6 +2099,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:cli.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:cli.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -1963,6 +2131,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:di.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:di.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -1976,6 +2145,7 @@
         "module.di-registration"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__tests__/di-registration.test.ts"
@@ -1996,6 +2166,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:events.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:events.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2031,6 +2202,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:extension-points.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:extension-points.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2058,6 +2230,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:i18n/en.json",
+      "referenceId": "om-module-scaffold/module-surfaces:i18n/en.json",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2091,6 +2264,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:index.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:index.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2122,6 +2296,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:notifications.client.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:notifications.client.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2135,6 +2310,7 @@
         "notifications.client-renderer"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts",
         "src/modules/example/__tests__/notifications.client.test.tsx"
       ],
       "affectedCaseIds": [
@@ -2149,6 +2325,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:notifications.handlers.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:notifications.handlers.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2176,6 +2353,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:notifications.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:notifications.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2189,6 +2367,7 @@
         "notifications.type"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts",
         "src/modules/example/__integration__/TC-UMES-008.spec.ts"
       ],
       "affectedCaseIds": [
@@ -2203,6 +2382,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:references/surface-map.md",
+      "referenceId": "om-module-scaffold/module-surfaces:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2232,6 +2412,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:setup.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:setup.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2267,6 +2448,7 @@
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:translations.ts",
+      "referenceId": "om-module-scaffold/module-surfaces:translations.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -2280,6 +2462,7 @@
         "module.translatable-fields"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-009-translations.spec.ts",
         "src/modules/example/__tests__/translations.test.ts"
       ],
       "affectedCaseIds": [
@@ -2300,6 +2483,7 @@
     },
     {
       "topicId": "om-module-scaffold:README.md",
+      "referenceId": "om-module-scaffold:README.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
@@ -2389,6 +2573,7 @@
         "OMH-193",
         "OMH-209",
         "OMH-212",
+        "OMH-213",
         "OMH-215"
       ],
       "replacesBaselineBlockIds": [
@@ -2404,6 +2589,7 @@
     },
     {
       "topicId": "om-module-scaffold:references/surface-inventory.json",
+      "referenceId": "om-module-scaffold:references/surface-inventory.json",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
@@ -2493,6 +2679,7 @@
         "OMH-193",
         "OMH-209",
         "OMH-212",
+        "OMH-213",
         "OMH-215"
       ],
       "replacesBaselineBlockIds": [],
@@ -2502,6 +2689,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:api/interceptors.ts",
+      "referenceId": "om-system-extension/extension-branches:api/interceptors.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2539,6 +2727,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:commands/interceptors.ts",
+      "referenceId": "om-system-extension/extension-branches:commands/interceptors.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2568,6 +2757,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:data/enrichers.ts",
+      "referenceId": "om-system-extension/extension-branches:data/enrichers.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2614,6 +2804,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:data/guards.ts",
+      "referenceId": "om-system-extension/extension-branches:data/guards.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2647,6 +2838,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:extension-points.ts",
+      "referenceId": "om-system-extension/extension-branches:extension-points.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2676,6 +2868,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:notifications.client.ts",
+      "referenceId": "om-system-extension/extension-branches:notifications.client.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2689,6 +2882,7 @@
         "notifications.client-renderer"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts",
         "src/modules/example/__tests__/notifications.client.test.tsx"
       ],
       "affectedCaseIds": [
@@ -2705,6 +2899,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:notifications.handlers.ts",
+      "referenceId": "om-system-extension/extension-branches:notifications.handlers.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2734,6 +2929,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/audit-delete.ts",
+      "referenceId": "om-system-extension/extension-branches:subscribers/audit-delete.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2767,6 +2963,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/auto-default-priority.ts",
+      "referenceId": "om-system-extension/extension-branches:subscribers/auto-default-priority.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2800,6 +2997,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/example-event.ts",
+      "referenceId": "om-system-extension/extension-branches:subscribers/example-event.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2827,6 +3025,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts",
+      "referenceId": "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2860,6 +3059,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/components.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/components.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2874,6 +3074,7 @@
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
         "src/modules/example/widgets/__tests__/components.test.ts"
       ],
       "affectedCaseIds": [
@@ -2894,6 +3095,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection-table.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection-table.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2932,6 +3134,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2965,6 +3168,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -2998,6 +3202,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -3033,6 +3238,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -3074,6 +3280,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -3109,6 +3316,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -3142,6 +3350,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -3176,6 +3385,7 @@
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/example-profile-menu/widget.ts",
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/example-profile-menu/widget.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/extension-branches.md",
@@ -3206,6 +3416,7 @@
     },
     {
       "topicId": "om-system-extension/unified-overrides:src/modules.ts",
+      "referenceId": "om-system-extension/unified-overrides:src/modules.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/unified-overrides.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/unified-overrides.md",
@@ -3237,6 +3448,7 @@
     },
     {
       "topicId": "om-system-extension:references/surface-map.md",
+      "referenceId": "om-system-extension:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/SKILL.md",
@@ -3345,6 +3557,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3375,6 +3588,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:backend/todos/[id]/edit/page.tsx",
+      "referenceId": "om-troubleshooter/diagnosis-map:backend/todos/[id]/edit/page.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3388,7 +3602,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [],
       "replacesBaselineBlockIds": [],
@@ -3398,6 +3613,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3425,6 +3641,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:commands/todos.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:commands/todos.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3443,6 +3660,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
@@ -3457,6 +3675,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:components/TodosTable.tsx",
+      "referenceId": "om-troubleshooter/diagnosis-map:components/TodosTable.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3481,6 +3700,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:data/validators.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:data/validators.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3504,6 +3724,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:index.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:index.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3529,6 +3750,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:src/modules.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:src/modules.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3556,6 +3778,7 @@
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:widgets/injection-table.ts",
+      "referenceId": "om-troubleshooter/diagnosis-map:widgets/injection-table.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -3584,6 +3807,7 @@
     },
     {
       "topicId": "om-troubleshooter:references/surface-map.md",
+      "referenceId": "om-troubleshooter:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-troubleshooter/SKILL.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
@@ -3627,6 +3851,7 @@
     },
     {
       "topicId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
+      "referenceId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/testing-debugging.md",
       "originAuthoringPath": "agentic/guides/testing-debugging.md",
@@ -3694,6 +3919,7 @@
     },
     {
       "topicId": "rule:guides/testing-debugging#validation-gate",
+      "referenceId": "rule:guides/testing-debugging#validation-gate",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/testing-debugging.md",
       "originAuthoringPath": "agentic/guides/testing-debugging.md",
@@ -3764,6 +3990,7 @@
     },
     {
       "topicId": "rule:om-data-model-design/migration-workflow#migration-procedure",
+      "referenceId": "rule:om-data-model-design/migration-workflow#migration-procedure",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/migration-workflow.md",
@@ -3789,6 +4016,7 @@
     },
     {
       "topicId": "rule:om-data-model-design/sensitive-data#decrypted-reads",
+      "referenceId": "rule:om-data-model-design/sensitive-data#decrypted-reads",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
@@ -3813,6 +4041,7 @@
     },
     {
       "topicId": "rule:om-data-model-design/sensitive-data#encryption-map-declaration",
+      "referenceId": "rule:om-data-model-design/sensitive-data#encryption-map-declaration",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
@@ -3837,6 +4066,7 @@
     },
     {
       "topicId": "rule:om-data-model-design/sensitive-data#encryption-seeding",
+      "referenceId": "rule:om-data-model-design/sensitive-data#encryption-seeding",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
@@ -3861,6 +4091,7 @@
     },
     {
       "topicId": "rule:om-eject-and-customize/decision-and-procedure#eject-command",
+      "referenceId": "rule:om-eject-and-customize/decision-and-procedure#eject-command",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -3881,6 +4112,7 @@
     },
     {
       "topicId": "rule:om-eject-and-customize/decision-and-procedure#installed-module-identification",
+      "referenceId": "rule:om-eject-and-customize/decision-and-procedure#installed-module-identification",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -3901,6 +4133,7 @@
     },
     {
       "topicId": "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification",
+      "referenceId": "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
@@ -3922,6 +4155,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
+      "referenceId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
@@ -3944,6 +4178,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/package-and-activation#degraded-provider-tests",
+      "referenceId": "rule:om-integration-builder/package-and-activation#degraded-provider-tests",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
@@ -3966,6 +4201,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/package-and-activation#generation-proof",
+      "referenceId": "rule:om-integration-builder/package-and-activation#generation-proof",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
@@ -3988,6 +4224,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/package-and-activation#integration-descriptor-exports",
+      "referenceId": "rule:om-integration-builder/package-and-activation#integration-descriptor-exports",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
@@ -4012,6 +4249,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/package-and-activation#reusable-package-branch",
+      "referenceId": "rule:om-integration-builder/package-and-activation#reusable-package-branch",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/package-and-activation.md",
@@ -4037,6 +4275,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/provider-families#data-sync-branch",
+      "referenceId": "rule:om-integration-builder/provider-families#data-sync-branch",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -4059,6 +4298,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/provider-families#payment-branch",
+      "referenceId": "rule:om-integration-builder/provider-families#payment-branch",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -4081,6 +4321,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/provider-families#webhooks-branch",
+      "referenceId": "rule:om-integration-builder/provider-families#webhooks-branch",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
@@ -4104,6 +4345,7 @@
     },
     {
       "topicId": "rule:om-integration-builder/security-and-reliability#health-check-redaction",
+      "referenceId": "rule:om-integration-builder/security-and-reliability#health-check-redaction",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/security-and-reliability.md",
@@ -4127,6 +4369,7 @@
     },
     {
       "topicId": "rule:om-module-scaffold/module-surfaces#search-configuration",
+      "referenceId": "rule:om-module-scaffold/module-surfaces#search-configuration",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -4151,6 +4394,7 @@
     },
     {
       "topicId": "rule:om-module-scaffold/verification#post-scaffold-gate",
+      "referenceId": "rule:om-module-scaffold/verification#post-scaffold-gate",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/verification.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/verification.md",
@@ -4177,6 +4421,7 @@
     },
     {
       "topicId": "rule:om-system-extension/verification#extension-gate",
+      "referenceId": "rule:om-system-extension/verification#extension-gate",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-system-extension/references/verification.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/verification.md",
@@ -4195,6 +4440,7 @@
     },
     {
       "topicId": "rule:om-troubleshooter/diagnosis-map#symptom-routing",
+      "referenceId": "rule:om-troubleshooter/diagnosis-map#symptom-routing",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/diagnosis-map.md",
@@ -4213,6 +4459,7 @@
     },
     {
       "topicId": "rule:om-troubleshooter/regression-oracles#pre-fix-failure",
+      "referenceId": "rule:om-troubleshooter/regression-oracles#pre-fix-failure",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-troubleshooter/references/regression-oracles.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-troubleshooter/references/regression-oracles.md",
@@ -4231,6 +4478,7 @@
     },
     {
       "topicId": "rule:root#generation-after-discovery-change",
+      "referenceId": "rule:root#generation-after-discovery-change",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "originAuthoringPath": "agentic/shared/AGENTS.md.template",
@@ -4458,7 +4706,8 @@
         "OMH-213",
         "OMH-214",
         "OMH-215",
-        "OMH-216"
+        "OMH-216",
+        "OMH-217"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -4468,6 +4717,7 @@
     },
     {
       "topicId": "rule:root#migration-probe-and-approval",
+      "referenceId": "rule:root#migration-probe-and-approval",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "originAuthoringPath": "agentic/shared/AGENTS.md.template",
@@ -4695,7 +4945,8 @@
         "OMH-213",
         "OMH-214",
         "OMH-215",
-        "OMH-216"
+        "OMH-216",
+        "OMH-217"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

@@ -82,3 +82,5 @@ For a new editable entity or module, unless the brief explicitly excludes an ope
 ## Canonical example source
 
 This guide stays the rule owner. For one compiling implementation of a table, form, page shell, or rendered injected widget, open the exact row in [`src/modules/example/references/surface-map.md`](../../src/modules/example/references/surface-map.md) — its `Backend UI` section links each file — or go straight to [`components/TodosTable.tsx`](../../src/modules/example/components/TodosTable.tsx) and [`components/TodoForm.tsx`](../../src/modules/example/components/TodoForm.tsx). That module is source-present and runtime-disabled: read one row, never the tree, and rename every `example` identifier.
+
+When you need what the component *accepts*, not how the example uses it, open the installed implementation: [`@open-mercato/ui/src/backend/DataTable.tsx`](../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx). That exact file is what your app installs. Read-only: never edit inside `node_modules`, and take no sibling or import target this guide does not link.

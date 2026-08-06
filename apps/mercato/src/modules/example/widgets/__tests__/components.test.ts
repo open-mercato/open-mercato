@@ -16,6 +16,7 @@ const moduleRoot = path.join(__dirname, '..', '..')
 const NOTES_HANDLE = ComponentReplacementHandles.section('ui.detail', 'NotesSection')
 const CHECKOUT_SUMMARY_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'summary')
 const CHECKOUT_HELP_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'help')
+const SHOWCASE_HANDLE = ComponentReplacementHandles.section('example.overrides', 'showcase')
 
 const PaySummary = (props: unknown) =>
   React.createElement('section', { 'data-testid': 'pay-summary' }, String((props as { total?: string }).total ?? ''))
@@ -57,8 +58,14 @@ describe('example component overrides', () => {
     jest.resetModules()
   })
 
-  it('registers all three handles unconditionally, in both flag states', async () => {
-    const expectedHandles = [NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE]
+  it('registers every handle unconditionally, in both flag states', async () => {
+    const expectedHandles = [
+      NOTES_HANDLE,
+      CHECKOUT_SUMMARY_HANDLE,
+      CHECKOUT_HELP_HANDLE,
+      SHOWCASE_HANDLE,
+      SHOWCASE_HANDLE,
+    ]
 
     const disabled = await loadComponentOverridesWithFlag(undefined)
     expect(disabled.map((override) => override.target.componentId)).toEqual(expectedHandles)
@@ -114,15 +121,23 @@ describe('example component overrides', () => {
    * `staticValue` could not fold, so the framework's own reader published ZERO
    * component-override contributions for the canonical module.
    */
-  it('is read by the real fact extractor, with every handle resolved in wrapper mode', () => {
+  it('is read by the real fact extractor, with every declared mode resolved', () => {
     const facts = readComponentOverrideFacts()
 
-    expect(facts).toHaveLength(3)
+    expect(facts).toHaveLength(5)
     expect(facts.map((fact) => (fact as { details: { handle: string } }).details.handle))
-      .toEqual([NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE])
+      .toEqual([NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE, SHOWCASE_HANDLE, SHOWCASE_HANDLE])
+    expect(facts.map((fact) => (fact as { details: { mode: string } }).details.mode))
+      .toEqual(['wrapper', 'wrapper', 'wrapper', 'replace', 'props'])
     for (const fact of facts) {
-      expect((fact as { details: { mode: string } }).details.mode).toBe('wrapper')
       expect(fact.kind).toBe('component-override')
     }
+  })
+
+  it('covers all three modes the ComponentOverride union defines', () => {
+    const modes = new Set(
+      readComponentOverrideFacts().map((fact) => (fact as { details: { mode: string } }).details.mode),
+    )
+    expect([...modes].sort()).toEqual(['props', 'replace', 'wrapper'])
   })
 })

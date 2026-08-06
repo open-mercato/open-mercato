@@ -30,6 +30,15 @@ type ValidationResult = {
     unclassifiedPaths?: string[]
     sourceLinkInventoryRequired?: boolean
     sourceLinkInventoryStatus?: string
+    sourceLinkInventoryFacts?: {
+      ownerCount: number
+      topicCount: number
+      resolvedLinkCount: number
+      declaredBaselinePath: string | null
+      baselineAssetCount: number | null
+      baselineDispositionCount: number | null
+      baselineSha: string | null
+    }
     exampleSourceMirrors?: Array<{ path: string; mirrorPath: string; state: string; readStatus: string }>
     focusedExecutions?: FocusedExecution[]
   }
@@ -50,6 +59,12 @@ type Validator = {
   CONTROLLER_OWNED_FIELDS: readonly string[]
   CANON_C_REASON: string
   SOURCE_LINK_INVENTORY_PATH: string
+  SOURCE_LINK_BASELINE_PATH: string
+  SOURCE_LINK_BASELINE_SCHEMA_BASENAME: string
+  SOURCE_LINK_BASELINE_SCHEMA_ID: string
+  SOURCE_LINK_BASELINE_SCHEMA_SHA256: string
+  BASELINE_SCHEMA_PROBES: ReadonlyArray<readonly [string, unknown]>
+  baselineSchemaPinErrors: (baselineSchema: unknown, schemaSha256: string | null) => string[]
   STRIPPED_EXECUTION_ENV_KEYS: readonly string[]
   DEFAULT_EXECUTION_TIMEOUT_MS: number
   deriveFocusedCommand: (
@@ -955,4 +970,654 @@ test('both package manifests expose the knowledge-change validator under the spe
   })
   assert.equal(placeholder.status, 2, placeholder.stderr || placeholder.stdout)
   assert.match(placeholder.stderr, /mercato agentic:init/)
+})
+
+const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+const BASELINE_PATH = 'packages/create-app/scripts/source-links/source-link-baseline.json'
+const BASELINE_SCHEMA_PATH = 'packages/create-app/scripts/source-links/source-link-baseline.schema.json'
+const SHIPPED_FOCUSED_TEST = 'packages/create-app/src/lib/agent-harness-knowledge-change.test.ts'
+
+type InventoryRecord = { topicId: string; originAsset: string; renderedLinkCount?: number }
+type ShippedInventory = {
+  inputs: { baseline: string }
+  derived: { ownerCount: number; recordCount: number; renderedLinkCount: number }
+  records: InventoryRecord[]
+}
+type BaselineBlock = Record<string, unknown>
+type ShippedBaseline = { baselineSha: string; baselineAssets: unknown[]; blocks: BaselineBlock[] }
+
+function readJsonAt<Shape>(root: string, relativePath: string): Shape {
+  return JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8')) as Shape
+}
+
+const shippedInventory = readJsonAt<ShippedInventory>(repositoryRoot, validator.SOURCE_LINK_INVENTORY_PATH)
+const shippedBaseline = readJsonAt<ShippedBaseline>(repositoryRoot, BASELINE_PATH)
+const shippedBaselineSchemaSource = fs.readFileSync(path.join(repositoryRoot, BASELINE_SCHEMA_PATH), 'utf8')
+const shippedBaselineSchemaSha = sha256(shippedBaselineSchemaSource)
+
+const shippedCounts = {
+  expectedOwnerCount: new Set(shippedInventory.records.map((record) => record.originAsset)).size,
+  expectedTopicCount: new Set(shippedInventory.records.map((record) => record.topicId)).size,
+  resolvedLinkCount: shippedInventory.records.reduce((total, record) => total + (record.renderedLinkCount ?? 0), 0),
+  baselineAssetCount: shippedBaseline.baselineAssets.length,
+  baselineDispositionCount: shippedBaseline.blocks.length,
+}
+
+function shippedInventoryBlock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    path: validator.SOURCE_LINK_INVENTORY_PATH,
+    baselineRef: shippedBaseline.baselineSha,
+    ...shippedCounts,
+    baselinePath: BASELINE_PATH,
+    baselineSchemaPath: BASELINE_SCHEMA_PATH,
+    ...overrides,
+  }
+}
+
+function validateAgainstShippedAssets(inventoryOverrides: Record<string, unknown> = {}): ValidationResult {
+  const manifest = baseManifest({
+    changedContracts: ['source-link', 'evaluator'],
+    focusedTestFiles: [SHIPPED_FOCUSED_TEST],
+    sourceLinkInventory: shippedInventoryBlock(inventoryOverrides),
+  })
+  return validator.validateKnowledgeChange({
+    root: repositoryRoot,
+    manifest,
+    schema,
+    changedPaths: [validator.SOURCE_LINK_INVENTORY_PATH, SHIPPED_FOCUSED_TEST],
+    cases: Array.from({ length: 5 }, (_, index) => ({ id: `OMH-${String(index + 1).padStart(3, '0')}` })),
+    releaseMatrix: { deterministic: { caseIds: 'all' } },
+    executionEvidence: satisfiedEvidence(manifest),
+  })
+}
+
+function sourceLinkErrors(result: ValidationResult): string[] {
+  return result.errors.filter((error) => error.startsWith('sourceLinkInventory'))
+}
+
+// Deliberately built so record count (4), owner count (3), topic count (2) and rendered-link total
+// (5) are four different numbers: a fixture where they coincide cannot tell one derivation from
+// another, so counting the wrong thing would go unnoticed.
+const FIXTURE_INVENTORY = {
+  inputs: { baseline: BASELINE_PATH },
+  records: [
+    { topicId: 'guides/a:one.ts', originAsset: '.ai/guides/a.md', renderedLinkCount: 2 },
+    { topicId: 'guides/a:one.ts', originAsset: '.ai/guides/b.md', renderedLinkCount: 1 },
+    { topicId: 'guides/b:two.ts', originAsset: '.ai/guides/b.md', renderedLinkCount: 2 },
+    { topicId: 'guides/b:two.ts', originAsset: '.ai/guides/c.md' },
+  ],
+}
+
+const FIXTURE_RECORD_FACTS = { ownerCount: 3, topicCount: 2, resolvedLinkCount: 5 }
+
+// The same records under a summary block that declares something else entirely. The gate must read
+// the records; an author who edits the summary must not be able to make a wrong declaration agree.
+const LAUNDERED_INVENTORY = {
+  ...FIXTURE_INVENTORY,
+  derived: { ownerCount: 91, topicCount: 92, recordCount: 93, renderedLinkCount: 94, sourceRequiredCount: 95 },
+}
+
+const FIXTURE_BASELINE = {
+  baselineSha: 'a'.repeat(40),
+  baselineAssets: [{ path: 'AGENTS.md', sha256: '0'.repeat(64), expectedFenceCount: 1 }],
+  blocks: [{
+    id: 'main:AGENTS.md#fence:1',
+    asset: 'AGENTS.md',
+    ordinal: 1,
+    heading: 'Module Anatomy',
+    openingLine: '```',
+    info: '',
+    contentSha256: '1'.repeat(64),
+    topicIds: ['guides/a:one.ts'],
+    disposition: 'linked',
+    targetTopicIds: ['guides/a:one.ts'],
+  }],
+}
+
+const FIXTURE_INVENTORY_BLOCK = {
+  path: validator.SOURCE_LINK_INVENTORY_PATH,
+  baselineRef: FIXTURE_BASELINE.baselineSha,
+  expectedOwnerCount: FIXTURE_RECORD_FACTS.ownerCount,
+  expectedTopicCount: FIXTURE_RECORD_FACTS.topicCount,
+  resolvedLinkCount: FIXTURE_RECORD_FACTS.resolvedLinkCount,
+  baselineAssetCount: 1,
+  baselineDispositionCount: 1,
+  baselinePath: BASELINE_PATH,
+  baselineSchemaPath: BASELINE_SCHEMA_PATH,
+}
+
+function makeSourceLinkFixtureRoot(options: {
+  inventory?: unknown
+  baseline?: unknown
+  schemaSource?: string
+  omitBaseline?: boolean
+  omitSchema?: boolean
+} = {}): string {
+  const root = makeFixtureRoot()
+  writeFixtureFile(root, SHIPPED_FOCUSED_TEST, 'export {}\n')
+  writeFixtureFile(
+    root,
+    validator.SOURCE_LINK_INVENTORY_PATH,
+    JSON.stringify(options.inventory ?? FIXTURE_INVENTORY, null, 2),
+  )
+  if (!options.omitBaseline) {
+    writeFixtureFile(root, BASELINE_PATH, JSON.stringify(options.baseline ?? FIXTURE_BASELINE, null, 2))
+  }
+  if (!options.omitSchema) {
+    writeFixtureFile(root, BASELINE_SCHEMA_PATH, options.schemaSource ?? shippedBaselineSchemaSource)
+  }
+  return root
+}
+
+function runFixtureSourceLink(root: string, inventoryOverrides: Record<string, unknown> = {}): ValidationResult {
+  return runValidation(
+    root,
+    baseManifest({
+      changedContracts: ['source-link', 'evaluator'],
+      focusedTestFiles: [SHIPPED_FOCUSED_TEST],
+      sourceLinkInventory: { ...FIXTURE_INVENTORY_BLOCK, ...inventoryOverrides },
+    }),
+    [validator.SOURCE_LINK_INVENTORY_PATH, SHIPPED_FOCUSED_TEST],
+  )
+}
+
+function validateFixtureSourceLink(root: string, inventoryOverrides: Record<string, unknown> = {}): string[] {
+  return sourceLinkErrors(runFixtureSourceLink(root, inventoryOverrides))
+}
+
+test('the shipped source-link assets resolve every count a run manifest declares', () => {
+  for (const [field, value] of Object.entries(shippedCounts)) {
+    assert.ok(value > 0, `${field} must be a real, non-zero count in the shipped assets`)
+  }
+  assert.equal(shippedCounts.expectedOwnerCount, shippedInventory.derived.ownerCount)
+  assert.equal(shippedCounts.resolvedLinkCount, shippedInventory.derived.renderedLinkCount)
+  assert.equal(shippedInventory.inputs.baseline, BASELINE_PATH)
+  // The generator emits exactly one record per topic, so the shipped asset cannot distinguish a
+  // topic count from a record count. FIXTURE_INVENTORY exists to make that distinction observable.
+  assert.equal(shippedCounts.expectedTopicCount, shippedInventory.records.length)
+  assert.equal(shippedInventory.derived.recordCount, shippedInventory.records.length)
+
+  const result = validateAgainstShippedAssets()
+  assert.deepEqual(sourceLinkErrors(result), [])
+  assert.equal(result.derived.sourceLinkInventoryStatus, 'present')
+  assert.deepEqual(result.derived.sourceLinkInventoryFacts, {
+    ownerCount: shippedCounts.expectedOwnerCount,
+    topicCount: shippedCounts.expectedTopicCount,
+    resolvedLinkCount: shippedCounts.resolvedLinkCount,
+    declaredBaselinePath: BASELINE_PATH,
+    baselineAssetCount: shippedCounts.baselineAssetCount,
+    baselineDispositionCount: shippedCounts.baselineDispositionCount,
+    baselineSha: shippedBaseline.baselineSha,
+  })
+  assert.equal(result.ok, true, result.errors.join('\n'))
+})
+
+test('every declared sourceLinkInventory count is compared with the real one', () => {
+  const declarations: Array<[string, number, number]> = [
+    ['expectedOwnerCount', 0, shippedCounts.expectedOwnerCount],
+    ['expectedOwnerCount', shippedCounts.expectedOwnerCount + 1, shippedCounts.expectedOwnerCount],
+    ['expectedTopicCount', 1, shippedCounts.expectedTopicCount],
+    ['resolvedLinkCount', 0, shippedCounts.resolvedLinkCount],
+    ['baselineAssetCount', shippedCounts.baselineAssetCount + 1, shippedCounts.baselineAssetCount],
+    ['baselineDispositionCount', 0, shippedCounts.baselineDispositionCount],
+  ]
+  for (const [field, declared, actual] of declarations) {
+    const errors = validateAgainstShippedAssets({ [field]: declared })
+    const reported = sourceLinkErrors(errors)
+    assert.equal(reported.length, 1, `${field}=${declared}: ${reported.join('\n')}`)
+    assert.match(
+      reported[0],
+      new RegExp(`^sourceLinkInventory\\.${field} declares ${declared}, but \\S+ .+ resolves ${actual}$`),
+      `${field}=${declared}`,
+    )
+    assert.equal(errors.ok, false)
+  }
+})
+
+test('a declared baselineRef that does not pin the ledger commit fails', () => {
+  const wrongRef = 'b'.repeat(40)
+  const errors = sourceLinkErrors(validateAgainstShippedAssets({ baselineRef: wrongRef }))
+  assert.deepEqual(errors, [
+    `sourceLinkInventory.baselineRef declares ${wrongRef}, but ${BASELINE_PATH} pins ${shippedBaseline.baselineSha}`,
+  ])
+})
+
+test('a complete fixture sourceLinkInventory block passes every derived check', () => {
+  const result = runFixtureSourceLink(makeSourceLinkFixtureRoot())
+  assert.deepEqual(sourceLinkErrors(result), [])
+  assert.deepEqual(result.derived.sourceLinkInventoryFacts, {
+    ...FIXTURE_RECORD_FACTS,
+    declaredBaselinePath: BASELINE_PATH,
+    baselineAssetCount: FIXTURE_BASELINE.baselineAssets.length,
+    baselineDispositionCount: FIXTURE_BASELINE.blocks.length,
+    baselineSha: FIXTURE_BASELINE.baselineSha,
+  })
+})
+
+test('each declared count is derived from the records it names, not from the record total', () => {
+  const root = makeSourceLinkFixtureRoot()
+  const recordCount = FIXTURE_INVENTORY.records.length
+  for (const [field, factKey] of [
+    ['expectedOwnerCount', 'ownerCount'],
+    ['expectedTopicCount', 'topicCount'],
+    ['resolvedLinkCount', 'resolvedLinkCount'],
+  ] as const) {
+    assert.notEqual(FIXTURE_RECORD_FACTS[factKey], recordCount, `${field} must not coincide with the record count`)
+    assert.deepEqual(validateFixtureSourceLink(root, { [field]: recordCount }), [
+      `sourceLinkInventory.${field} declares ${recordCount}, but ${validator.SOURCE_LINK_INVENTORY_PATH} `
+      + `${{ expectedOwnerCount: 'distinct originAsset owners', expectedTopicCount: 'distinct topic IDs', resolvedLinkCount: 'rendered links' }[field]} `
+      + `resolves ${FIXTURE_RECORD_FACTS[factKey]}`,
+    ])
+  }
+  const distinct = new Set(Object.values(FIXTURE_RECORD_FACTS))
+  assert.equal(distinct.size, 3, 'the fixture facts must be mutually distinguishable')
+  assert.ok(!distinct.has(recordCount), 'no fixture fact may coincide with the record count')
+})
+
+test('an inventory summary block cannot launder a declaration the records contradict', () => {
+  const root = makeSourceLinkFixtureRoot({ inventory: LAUNDERED_INVENTORY })
+  const result = runFixtureSourceLink(root)
+  assert.deepEqual(sourceLinkErrors(result), [], 'the record-derived declaration must still pass')
+  assert.deepEqual(result.derived.sourceLinkInventoryFacts, {
+    ...FIXTURE_RECORD_FACTS,
+    declaredBaselinePath: BASELINE_PATH,
+    baselineAssetCount: FIXTURE_BASELINE.baselineAssets.length,
+    baselineDispositionCount: FIXTURE_BASELINE.blocks.length,
+    baselineSha: FIXTURE_BASELINE.baselineSha,
+  })
+
+  const laundered = LAUNDERED_INVENTORY.derived
+  assert.deepEqual(
+    validateFixtureSourceLink(root, {
+      expectedOwnerCount: laundered.ownerCount,
+      expectedTopicCount: laundered.topicCount,
+      resolvedLinkCount: laundered.renderedLinkCount,
+    }),
+    [
+      `sourceLinkInventory.expectedOwnerCount declares ${laundered.ownerCount}, but ${validator.SOURCE_LINK_INVENTORY_PATH} distinct originAsset owners resolves ${FIXTURE_RECORD_FACTS.ownerCount}`,
+      `sourceLinkInventory.expectedTopicCount declares ${laundered.topicCount}, but ${validator.SOURCE_LINK_INVENTORY_PATH} distinct topic IDs resolves ${FIXTURE_RECORD_FACTS.topicCount}`,
+      `sourceLinkInventory.resolvedLinkCount declares ${laundered.renderedLinkCount}, but ${validator.SOURCE_LINK_INVENTORY_PATH} rendered links resolves ${FIXTURE_RECORD_FACTS.resolvedLinkCount}`,
+    ],
+  )
+})
+
+test('a baselinePath that is not the pinned parity ledger fails', () => {
+  assert.equal(validator.SOURCE_LINK_BASELINE_PATH, BASELINE_PATH)
+  const root = makeSourceLinkFixtureRoot()
+  const otherLedger = 'packages/create-app/scripts/source-links/other-ledger.json'
+  writeFixtureFile(root, otherLedger, JSON.stringify(FIXTURE_BASELINE, null, 2))
+  assert.deepEqual(validateFixtureSourceLink(root, { baselinePath: otherLedger }), [
+    `sourceLinkInventory.baselinePath must be ${BASELINE_PATH}`,
+  ])
+})
+
+test('an inventory cannot redirect the gate to a ledger the author fabricated', () => {
+  // The exploit the pin closes: `inputs.baseline` is a string inside the asset under audit, so an
+  // author who moves it — and moves `baselinePath` with it — used to have both sides agree on a
+  // ledger they wrote, carrying whatever counts the manifest declares. Nothing here is missing or
+  // malformed; the whole rogue set is internally consistent and schema-valid.
+  const rogueLedger = 'packages/create-app/scripts/source-links/v2/source-link-baseline.json'
+  const rogueSchema = 'packages/create-app/scripts/source-links/v2/source-link-baseline.schema.json'
+  const root = makeSourceLinkFixtureRoot({
+    inventory: { ...FIXTURE_INVENTORY, inputs: { baseline: rogueLedger } },
+  })
+  writeFixtureFile(root, rogueLedger, JSON.stringify({
+    baselineSha: 'f'.repeat(40),
+    baselineAssets: [],
+    blocks: [],
+  }, null, 2))
+  writeFixtureFile(root, rogueSchema, shippedBaselineSchemaSource)
+
+  assert.deepEqual(
+    validateFixtureSourceLink(root, {
+      baselinePath: rogueLedger,
+      baselineSchemaPath: rogueSchema,
+      baselineRef: 'f'.repeat(40),
+      baselineAssetCount: 0,
+      baselineDispositionCount: 0,
+    }),
+    [
+      `sourceLinkInventory: ${validator.SOURCE_LINK_INVENTORY_PATH} declares inputs.baseline `
+      + `${JSON.stringify(rogueLedger)}, but the parity ledger is pinned to ${BASELINE_PATH}, `
+      + 'so no asset under audit may redirect which ledger is checked',
+    ],
+  )
+})
+
+test('a missing parity ledger fails instead of passing unread', () => {
+  const result = runFixtureSourceLink(makeSourceLinkFixtureRoot({ omitBaseline: true }))
+  assert.deepEqual(sourceLinkErrors(result), [
+    `sourceLinkInventory.baselinePath ${BASELINE_PATH} is not an exact regular file in the working tree`,
+  ])
+  assert.deepEqual(
+    result.derived.sourceLinkInventoryFacts,
+    {
+      ...FIXTURE_RECORD_FACTS,
+      declaredBaselinePath: BASELINE_PATH,
+      baselineAssetCount: null,
+      baselineDispositionCount: null,
+      baselineSha: null,
+    },
+    'the facts a reader most needs on a failing run must still be published',
+  )
+})
+
+test('an inventory that names no baseline cannot let a manifest anchor the ledger anywhere', () => {
+  const rogueLedger = 'packages/create-app/scripts/source-links/rogue-ledger.json'
+  const anchorError = `sourceLinkInventory: ${validator.SOURCE_LINK_INVENTORY_PATH} declares inputs.baseline null, `
+    + `but the parity ledger is pinned to ${BASELINE_PATH}, so no asset under audit may redirect `
+    + 'which ledger is checked'
+
+  for (const inputs of [undefined, {}, { baseline: 7 }, { baseline: null }]) {
+    const inventory = inputs === undefined
+      ? { records: FIXTURE_INVENTORY.records }
+      : { records: FIXTURE_INVENTORY.records, inputs }
+    const root = makeSourceLinkFixtureRoot({ inventory })
+    // The exploit: the author fabricates a ledger carrying whatever counts the manifest declares.
+    writeFixtureFile(root, rogueLedger, JSON.stringify({
+      baselineSha: 'c'.repeat(40),
+      baselineAssets: [],
+      blocks: [],
+    }, null, 2))
+    assert.deepEqual(
+      validateFixtureSourceLink(root, {
+        baselinePath: rogueLedger,
+        baselineRef: 'c'.repeat(40),
+        baselineAssetCount: 0,
+        baselineDispositionCount: 0,
+        baselineSchemaPath: 'packages/create-app/scripts/source-links/source-link-baseline.schema.json',
+      }),
+      [anchorError],
+      JSON.stringify(inputs ?? null),
+    )
+  }
+})
+
+test('baselineSchemaPath must name the ledger schema that sits beside the ledger', () => {
+  const root = makeSourceLinkFixtureRoot()
+  const elsewhere = 'packages/create-app/scripts/elsewhere.schema.json'
+  writeFixtureFile(root, elsewhere, shippedBaselineSchemaSource)
+  assert.deepEqual(validateFixtureSourceLink(root, { baselineSchemaPath: elsewhere }), [
+    `sourceLinkInventory.baselineSchemaPath declares ${elsewhere}, but the ledger's schema is ${BASELINE_SCHEMA_PATH}`,
+  ])
+  assert.equal(
+    validator.SOURCE_LINK_BASELINE_SCHEMA_BASENAME,
+    BASELINE_SCHEMA_PATH.slice(BASELINE_SCHEMA_PATH.lastIndexOf('/') + 1),
+  )
+})
+
+test('a baselineSchemaPath that names no real file fails', () => {
+  assert.deepEqual(validateFixtureSourceLink(makeSourceLinkFixtureRoot({ omitSchema: true })), [
+    `sourceLinkInventory.baselineSchemaPath ${BASELINE_SCHEMA_PATH} is not an exact regular file in the working tree`,
+  ])
+})
+
+test('the parity ledger is validated against the schema its manifest names', () => {
+  const brokenDisposition = {
+    ...FIXTURE_BASELINE,
+    blocks: [{ ...FIXTURE_BASELINE.blocks[0], disposition: 'invented-disposition' }],
+  }
+  const errors = validateFixtureSourceLink(makeSourceLinkFixtureRoot({ baseline: brokenDisposition }))
+  assert.equal(errors.length, 1, errors.join('\n'))
+  assert.match(
+    errors[0],
+    new RegExp(`^sourceLinkInventory ${BASELINE_PATH} violates ${BASELINE_SCHEMA_PATH}: \\$\\.blocks\\[0\\]\\.disposition is not in its schema enum$`),
+  )
+
+  const missingHash = {
+    ...FIXTURE_BASELINE,
+    blocks: [{ ...FIXTURE_BASELINE.blocks[0], contentSha256: 'not-a-hash' }],
+  }
+  const hashErrors = validateFixtureSourceLink(makeSourceLinkFixtureRoot({ baseline: missingHash }))
+  assert.equal(hashErrors.length, 1, hashErrors.join('\n'))
+  assert.match(hashErrors[0], /\$\.blocks\[0\]\.contentSha256 does not match its schema pattern$/)
+
+  const strayField = {
+    ...FIXTURE_BASELINE,
+    blocks: [{ ...FIXTURE_BASELINE.blocks[0], supersededBy: 'guides/a:one.ts' }],
+  }
+  const strayErrors = validateFixtureSourceLink(makeSourceLinkFixtureRoot({ baseline: strayField }))
+  assert.equal(strayErrors.length, 1, strayErrors.join('\n'))
+  assert.match(strayErrors[0], /\$\.blocks\[0\]\.supersededBy is not allowed$/)
+})
+
+function gutSchema(mutate: (schema: Record<string, any>) => void): Record<string, any> {
+  const schemaCopy = JSON.parse(shippedBaselineSchemaSource) as Record<string, any>
+  mutate(schemaCopy)
+  return schemaCopy
+}
+
+test('the shipped ledger schema is the pinned one and still asserts every clause the gate relies on', () => {
+  const shippedBaselineSchema = JSON.parse(shippedBaselineSchemaSource) as Record<string, any>
+  assert.equal(validator.SOURCE_LINK_BASELINE_SCHEMA_SHA256, shippedBaselineSchemaSha)
+  assert.deepEqual(validator.baselineSchemaPinErrors(shippedBaselineSchema, shippedBaselineSchemaSha), [])
+  assert.equal(shippedBaselineSchema.$id, validator.SOURCE_LINK_BASELINE_SCHEMA_ID)
+  assert.deepEqual(
+    validator.validateJsonSchema(shippedBaseline, shippedBaselineSchema, '$', shippedBaselineSchema),
+    [],
+    'the shipped ledger must satisfy the schema the gate pins',
+  )
+})
+
+test('a ledger schema that stops pinning a clause is refused before the ledger is checked', () => {
+  const guttings: Array<[string, Record<string, any>]> = [
+    ['wholesale replacement', { type: 'object' }],
+    ['an always-true schema', {}],
+    ['a foreign $id', gutSchema((s) => { s.$id = 'https://example.com/other.schema.json' })],
+    ['a widened gitSha pattern', gutSchema((s) => { s.$defs.gitSha.pattern = '^.*$' })],
+    ['a widened sha256 pattern', gutSchema((s) => { s.$defs.sha256.pattern = '^.*$' })],
+    ['a widened assetPath pattern', gutSchema((s) => { s.$defs.assetPath.pattern = '^.*$' })],
+    ['a widened block id pattern', gutSchema((s) => { s.$defs.blockDisposition.properties.id.pattern = '^.*$' })],
+    ['a widened disposition enum', gutSchema((s) => { s.$defs.disposition.enum.push('invented-disposition') })],
+    ['a shortened top-level required list', gutSchema((s) => { s.required = ['baselineSha'] })],
+    ['an open top-level object', gutSchema((s) => { s.additionalProperties = true })],
+    ['a shortened baselineAsset required list', gutSchema((s) => { s.$defs.baselineAsset.required = ['path'] })],
+    ['an open baselineAsset', gutSchema((s) => { s.$defs.baselineAsset.additionalProperties = true })],
+    ['a shortened blockDisposition required list', gutSchema((s) => { s.$defs.blockDisposition.required = ['id'] })],
+    ['an open blockDisposition', gutSchema((s) => { s.$defs.blockDisposition.additionalProperties = true })],
+    ['a loosened block ordinal', gutSchema((s) => { s.$defs.blockDisposition.properties.ordinal.type = ['integer', 'string'] })],
+    ['a topicIdList that admits repeats', gutSchema((s) => { delete s.$defs.topicIdList.uniqueItems })],
+  ]
+  // Each is checked with the SHA pin satisfied, so only the behavioural probes can produce a reason:
+  // the probe layer must still refuse these on the one occasion the pin is legitimately updated.
+  for (const [label, gutted] of guttings) {
+    assert.ok(validator.baselineSchemaPinErrors(gutted, validator.SOURCE_LINK_BASELINE_SCHEMA_SHA256).length > 0, label)
+  }
+  // A stricter-than-pinned schema is refused too: the gate must know exactly what it is trusting.
+  assert.ok(validator.baselineSchemaPinErrors(
+    gutSchema((s) => { s.$defs.gitSha.pattern = '^[0-9a-f]{64}$' }),
+    validator.SOURCE_LINK_BASELINE_SCHEMA_SHA256,
+  ).length > 0)
+})
+
+// Enumerated independently of the validator so no clause can be dropped from BASELINE_SCHEMA_PROBES
+// without failing here — the twenty-one the spec and om-evolve-harness advertise.
+const PINNED_LEDGER_CLAUSES = [
+  'a non-hex baselineSha',
+  'a ledger missing its blocks array',
+  'a ledger missing its baselineAssets array',
+  'an undeclared top-level ledger field',
+  'an absolute baseline asset path',
+  'a parent-traversal baseline asset path',
+  'a baseline asset missing its sha256',
+  'a baseline asset missing its expectedFenceCount',
+  'a non-hex baseline asset sha256',
+  'an undeclared baseline asset field',
+  'a parent-traversal block asset path',
+  'a block id that is not main:<asset>#fence:<ordinal>',
+  'a block missing its contentSha256',
+  'a block missing its topicIds',
+  'a block missing its disposition',
+  'a block missing its ordinal',
+  'a non-integer block ordinal',
+  'a non-hex block contentSha256',
+  'an invented block disposition',
+  'an undeclared block field',
+  'repeated block topic IDs',
+]
+
+test('every ledger clause the gate advertises as probed is individually load-bearing', () => {
+  assert.equal(PINNED_LEDGER_CLAUSES.length, 21)
+  assert.deepEqual(validator.BASELINE_SCHEMA_PROBES.map(([label]) => label), PINNED_LEDGER_CLAUSES)
+
+  const shippedBaselineSchema = JSON.parse(shippedBaselineSchemaSource) as Record<string, any>
+  const permissive = { $id: validator.SOURCE_LINK_BASELINE_SCHEMA_ID }
+  const reasons = validator.baselineSchemaPinErrors(permissive, validator.SOURCE_LINK_BASELINE_SCHEMA_SHA256)
+  for (const [label, ledger] of validator.BASELINE_SCHEMA_PROBES) {
+    assert.ok(
+      validator.validateJsonSchema(ledger, shippedBaselineSchema, '$', shippedBaselineSchema).length > 0,
+      `${label} must be a real violation of the pinned schema, not a probe that proves nothing`,
+    )
+    assert.ok(reasons.includes(`it accepts ${label}`), `an always-true schema must be reported as accepting ${label}`)
+  }
+  assert.equal(reasons.length, PINNED_LEDGER_CLAUSES.length, reasons.join('\n'))
+})
+
+test('a schema that passes every probe but is not the pinned bytes is refused', () => {
+  // The anyOf escape hatch: branch one is the real body, so every probe ledger and the canonical
+  // minimal ledger behave exactly as before; branch two accepts anything carrying a key no probe
+  // knows about. Behavioural probing cannot see it, which is why the schema is pinned by sha256.
+  const shippedBaselineSchema = JSON.parse(shippedBaselineSchemaSource) as Record<string, any>
+  const { $id: _pinnedId, ...realBody } = shippedBaselineSchema
+  const escapeHatchSchema = {
+    $id: validator.SOURCE_LINK_BASELINE_SCHEMA_ID,
+    $defs: shippedBaselineSchema.$defs,
+    anyOf: [realBody, { type: 'object', required: ['escapeHatch'] }],
+  }
+  assert.deepEqual(
+    validator.baselineSchemaPinErrors(escapeHatchSchema, validator.SOURCE_LINK_BASELINE_SCHEMA_SHA256),
+    [],
+    'the probes alone cannot catch an escape branch — the sha256 pin is what closes this',
+  )
+
+  const escapeHatchSource = `${JSON.stringify(escapeHatchSchema, null, 2)}\n`
+  const lawlessLedger = {
+    escapeHatch: true,
+    baselineSha: 'f'.repeat(40),
+    baselineAssets: [{ path: '/etc/passwd' }, { path: '../../outside.md' }],
+    blocks: [{ id: 'anything', asset: '../../outside.md', disposition: 'invented-disposition' }],
+  }
+  assert.deepEqual(
+    validator.validateJsonSchema(lawlessLedger, escapeHatchSchema, '$', escapeHatchSchema),
+    [],
+    'the escape branch must really accept a lawless ledger, or this test proves nothing',
+  )
+
+  const errors = validateFixtureSourceLink(
+    makeSourceLinkFixtureRoot({ schemaSource: escapeHatchSource, baseline: lawlessLedger }),
+    { baselineRef: 'f'.repeat(40), baselineAssetCount: 2, baselineDispositionCount: 1 },
+  )
+  assert.deepEqual(errors, [
+    `sourceLinkInventory.baselineSchemaPath ${BASELINE_SCHEMA_PATH} no longer pins the ledger contract: `
+    + `its sha256 is ${JSON.stringify(sha256(escapeHatchSource))} rather than the pinned `
+    + `${validator.SOURCE_LINK_BASELINE_SCHEMA_SHA256}`,
+  ])
+})
+
+test('a gutted ledger schema fails the run instead of waving the ledger through', () => {
+  const errors = validateFixtureSourceLink(makeSourceLinkFixtureRoot({ schemaSource: '{"type":"object"}\n' }))
+  assert.ok(errors.length > 0, 'a schema that asserts nothing must not validate the ledger')
+  for (const error of errors) {
+    assert.match(
+      error,
+      new RegExp(`^sourceLinkInventory\\.baselineSchemaPath ${BASELINE_SCHEMA_PATH} no longer pins the ledger contract: `),
+    )
+  }
+  assert.ok(errors.some((error) => error.endsWith('it accepts a non-hex baselineSha')))
+  assert.ok(errors.some((error) => error.includes('its $id is undefined')))
+
+  const ledgerViolation = validateFixtureSourceLink(makeSourceLinkFixtureRoot({
+    schemaSource: '{"type":"object"}\n',
+    baseline: { ...FIXTURE_BASELINE, blocks: [{ ...FIXTURE_BASELINE.blocks[0], disposition: 'invented-disposition' }] },
+  }))
+  assert.ok(
+    !ledgerViolation.some((error) => error.includes('violates')),
+    'a ledger must never be reported as schema-clean by a schema the gate has refused',
+  )
+})
+
+test('a refused schema never gets to report violations against the ledger', () => {
+  // A refused schema that WOULD emit violations. `{"type":"object"}` cannot cover the fail-closed
+  // return — it reports nothing either way — so the refusal is proved with a schema strict enough
+  // that running the ledger through it would produce output the run must never carry.
+  const strictened = `${JSON.stringify(gutSchema((s) => { s.required = [...s.required, 'neverPresent'] }), null, 2)}\n`
+  const wouldBeViolations = validator.validateJsonSchema(
+    FIXTURE_BASELINE,
+    JSON.parse(strictened),
+    '$',
+    JSON.parse(strictened),
+  )
+  assert.deepEqual(wouldBeViolations, ['$.neverPresent is required'])
+
+  const errors = validateFixtureSourceLink(makeSourceLinkFixtureRoot({ schemaSource: strictened }))
+  assert.ok(errors.length > 0)
+  for (const error of errors) {
+    assert.match(
+      error,
+      new RegExp(`^sourceLinkInventory\\.baselineSchemaPath ${BASELINE_SCHEMA_PATH} no longer pins the ledger contract: `),
+    )
+  }
+  assert.ok(
+    !errors.some((error) => error.includes('violates')),
+    'the gate must stop at the refusal, not go on to judge the ledger by a schema it does not trust',
+  )
+})
+
+test('a ledger that repeats a block id fails even though uniqueItems accepts it', () => {
+  const duplicated = {
+    ...FIXTURE_BASELINE,
+    blocks: [FIXTURE_BASELINE.blocks[0], { ...FIXTURE_BASELINE.blocks[0], ordinal: 2 }],
+  }
+  const shippedBaselineSchema = JSON.parse(shippedBaselineSchemaSource) as Record<string, any>
+  assert.deepEqual(
+    validator.validateJsonSchema(duplicated, shippedBaselineSchema, '$', shippedBaselineSchema),
+    [],
+    'uniqueItems compares whole records, so the schema alone cannot catch a repeated id',
+  )
+  assert.deepEqual(
+    validateFixtureSourceLink(makeSourceLinkFixtureRoot({ baseline: duplicated }), { baselineDispositionCount: 2 }),
+    [`sourceLinkInventory ${BASELINE_PATH} repeats block ids: ${FIXTURE_BASELINE.blocks[0].id}`],
+  )
+})
+
+test('an inventory without resolvable records fails instead of counting as present', () => {
+  const errors = validateFixtureSourceLink(makeSourceLinkFixtureRoot({ inventory: { inputs: { baseline: BASELINE_PATH } } }))
+  assert.deepEqual(errors, [
+    `sourceLinkInventory.path ${validator.SOURCE_LINK_INVENTORY_PATH} is not a readable inventory: it carries no records array`,
+  ])
+})
+
+test('the governance spec example names the source-link paths the validator enforces', () => {
+  const specPath = '.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md'
+  const spec = fs.readFileSync(path.join(repositoryRoot, specPath), 'utf8')
+  const blocks = [...spec.matchAll(/```json\n([\s\S]*?)\n```/g)]
+    .map((match) => match[1])
+    .filter((block) => block.includes('"sourceLinkInventory"'))
+  assert.equal(blocks.length, 1, `${specPath} must carry exactly one sourceLinkInventory example`)
+
+  const example = (JSON.parse(blocks[0]) as { sourceLinkInventory: Record<string, string> }).sourceLinkInventory
+  // Copied verbatim, the example must satisfy the three path rules the gate enforces.
+  assert.equal(example.path, validator.SOURCE_LINK_INVENTORY_PATH)
+  assert.equal(example.baselinePath, validator.SOURCE_LINK_BASELINE_PATH)
+  assert.equal(shippedInventory.inputs.baseline, validator.SOURCE_LINK_BASELINE_PATH)
+  assert.equal(
+    example.baselineSchemaPath,
+    `${example.baselinePath.slice(0, example.baselinePath.lastIndexOf('/'))}/${validator.SOURCE_LINK_BASELINE_SCHEMA_BASENAME}`,
+  )
+  for (const declaredPath of [example.path, example.baselinePath, example.baselineSchemaPath]) {
+    assert.ok(fs.statSync(path.join(repositoryRoot, declaredPath)).isFile(), declaredPath)
+  }
+})
+
+test('the topic registry the inventory derives from carries the source-link contract', () => {
+  for (const relativePath of [
+    'packages/create-app/scripts/source-links/source-link-topics.json',
+    'packages/create-app/scripts/source-links/source-link-baseline.json',
+    'packages/create-app/scripts/source-links/source-link-baseline.schema.json',
+    validator.SOURCE_LINK_INVENTORY_PATH,
+  ]) {
+    const record = validator.classifyChangedPath(relativePath)
+    assert.equal(record.contract, 'source-link', relativePath)
+    assert.equal(record.rule, 'source-link-inventory', relativePath)
+  }
 })

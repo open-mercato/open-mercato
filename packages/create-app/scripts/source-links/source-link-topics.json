@@ -2,6 +2,13 @@
   "$comment": "Checked topic registry for the CANON-C source-link contract. source-required topics are one per (emitted owner, rendered exact-file link) pair; their topicId is derived as <ownerSlug>:<targetKey> and re-derived by the validator. retained-normative-snippet topics name a rule that survives in prose; evidence is a literal substring the owner must still contain. The derived source-link inventory must assert that its topic set equals this registry exactly; this file is a contract, not a second authority.",
   "topics": [
     {
+      "topicId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "owner": ".ai/guides/backend-ui.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx"
+    },
+    {
       "topicId": "guides/backend-ui:references/surface-map.md",
       "owner": ".ai/guides/backend-ui.md",
       "requirement": "source-required",

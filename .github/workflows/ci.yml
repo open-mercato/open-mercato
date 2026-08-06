@@ -26,17 +26,24 @@ env:
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
 
+# `feat/implement-standalone-canonical-example` is a temporary stacking base (#4897). PRs stacked
+# on it (#4991) target that branch rather than `develop`, and while it is absent from these lists
+# no job is scheduled for them at all — a large change reaches review with no automated
+# verification of its own. `feat/wms` is listed for the same reason. Drop both entries once their
+# stacks have landed on `develop`.
 on:
   push:
     branches:
       - main
       - develop
       - feat/wms
+      - feat/implement-standalone-canonical-example
   pull_request:
     branches:
       - main
       - develop
       - feat/wms
+      - feat/implement-standalone-canonical-example
 
 # Cancel any in-progress run on the same branch when a new push arrives.
 # Prevents multiple long runs queuing up from rapid pushes.

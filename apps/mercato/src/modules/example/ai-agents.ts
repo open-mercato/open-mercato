@@ -28,6 +28,7 @@ import {
   type AiAgentDefinition,
   type AiAgentExtension,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import type { AiAgentOverridesMap } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-overrides'
 
 const AGENT_ID = 'example.todo_assistant'
 const MODULE_ID = 'example'
@@ -154,6 +155,45 @@ const todoAssistantAgent: AiAgentDefinition = defineAiAgent({
 })
 
 export const aiAgents: AiAgentDefinition[] = [todoAssistantAgent]
+
+/**
+ * Feature id the file-tier override raises `example.todo_assistant` to.
+ *
+ * `acl.ts` declares `example.todos.manage` with `dependsOn: ['example.todos.view']`,
+ * so tightening to it is a narrowing of the base gate rather than a different one.
+ */
+export const TODO_ASSISTANT_OVERRIDE_FEATURE = 'example.todos.manage'
+
+/**
+ * File-tier agent override — the third mechanism this file carries, and the one most
+ * often confused with the extension below.
+ *
+ * `aiAgentOverrides` is a keyed **replace-or-disable** map: `null` deletes the agent
+ * from the registry, a definition replaces it wholesale, and `applyAgentOverrideMap`
+ * skips any replacement whose `id` does not equal its key. `aiAgentExtensions` is the
+ * opposite — additive, unkeyed, and applied *after* overrides resolve. Reach for the
+ * override when you must change what an agent IS; reach for the extension when you
+ * only want to lend it something.
+ *
+ * Same two constraints as the tool override in `ai-tools.ts`: it is tier 3 of four
+ * (programmatic > `modules.ts` > this file > base), and it deliberately names an id
+ * this module owns so that enabling the canonical reference module cannot rewrite a
+ * shipped assistant in the app you are inspecting. When you copy it, the key is the
+ * foreign agent id you actually want to replace or disable.
+ *
+ * The replacement is derived from the base by spread, so the prompt, the whitelist and
+ * the read-only policy stay single-sourced; only the gate moves.
+ *
+ * As with the tool override, this one is LIVE but its narrowing is unobservable in a
+ * seeded app: `setup.ts` grants `example.*` to superadmin, admin and employee, so no
+ * seeded role loses access. It demonstrates the shape, not a closed gate.
+ */
+export const aiAgentOverrides: AiAgentOverridesMap = {
+  'example.todo_assistant': {
+    ...todoAssistantAgent,
+    requiredFeatures: [TODO_ASSISTANT_OVERRIDE_FEATURE],
+  },
+}
 
 /**
  * Additive patch against an agent this module does not own.

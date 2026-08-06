@@ -29,7 +29,12 @@ function stubCache(): CacheStrategy {
 }
 
 function buildContainer(counts: { total: number; done: number }) {
-  const container = createContainer({ injectionMode: InjectionMode.PROXY })
+  // CLASSIC, matching `packages/shared/src/lib/di/container.ts`. This is not a detail: classic
+  // injection resolves one registration per PARAMETER NAME, so a factory declared with a single
+  // named parameter resolves nothing and throws at request time. Building this fixture with
+  // PROXY hid exactly that failure — the summary route returned 500 for every caller while this
+  // test stayed green — so the fixture now mirrors the container the app actually builds.
+  const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   const count = jest.fn(async (_entity: unknown, where: Record<string, unknown>) =>
     where.isDone === true ? counts.done : counts.total,
   )
