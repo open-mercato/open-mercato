@@ -4,6 +4,8 @@
 **Spec:** [`.ai/specs/2026-07-30-ast-first-module-registry-emitters.md`](../specs/2026-07-30-ast-first-module-registry-emitters.md)
 **Design PR:** [#4636](https://github.com/open-mercato/open-mercato/pull/4636) (merged 2026-07-30)
 **Branch:** `refactor/issue-4672-ast-module-registry-emitters`
+**Implementation PR:** [#5034](https://github.com/open-mercato/open-mercato/pull/5034)
+**Follow-up:** [#5035](https://github.com/open-mercato/open-mercato/issues/5035)
 
 ## Goal
 
@@ -27,7 +29,7 @@ already existed, delete the duplicate, and convert the remaining string emitters
 - [x] **Phase 3, steps 10–12** — convert `moduleDecls` and `runtimeModuleDecls`, repoint both call sites,
       delete `renderAstLegacyModuleRegistryOutput` and `renderLegacyCompatibleArray`
 - [x] **Phase 3, step 13** — full validation gate
-- [ ] **Phase 3, step 14** — file the `buildImportStatement` follow-up issue
+- [x] **Phase 3, step 14** — filed the `buildImportStatement` follow-up as [#5035](https://github.com/open-mercato/open-mercato/issues/5035)
 
 ## Deviations from the spec
 

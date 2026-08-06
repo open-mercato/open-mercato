@@ -102,7 +102,7 @@ Converge on the existing AST emitters and delete the legacy ones, in three phase
 
 ### Non-Goals
 
-`buildImportStatement(importClause, importPath)` builds import statements as strings at ~30 call sites; those strings are collected into arrays and handed to `addImportStatements`, which **parses them back** into `ImportDeclarationStructure`s via `toImportSpec` (`ast/imports.ts:11`). The round-trip is wasteful, but it is not a correctness hazard: `toImportSpec` throws on anything it cannot parse, so a malformed import fails at generation time with the offending statement in the message — the property this whole effort is trying to obtain. Converting the call sites is a mechanical follow-up that would triple the diff of Phase 3 without changing any failure mode. Left as a follow-up issue, referenced from this spec.
+`buildImportStatement(importClause, importPath)` builds import statements as strings at ~30 call sites; those strings are collected into arrays and handed to `addImportStatements`, which **parses them back** into `ImportDeclarationStructure`s via `toImportSpec` (`ast/imports.ts:11`). The round-trip is wasteful, but it is not a correctness hazard: `toImportSpec` throws on anything it cannot parse, so a malformed import fails at generation time with the offending statement in the message — the property this whole effort is trying to obtain. Converting the call sites is a mechanical follow-up that would triple the diff of Phase 3 without changing any failure mode. Left as a follow-up issue, referenced from this spec: [#5035](https://github.com/open-mercato/open-mercato/issues/5035).
 
 ## Architecture
 
