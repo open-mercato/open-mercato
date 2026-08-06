@@ -149,6 +149,33 @@ describe('apiFetch', () => {
     expect(flash).not.toHaveBeenCalled()
   })
 
+  it('stays silent when a login-page 401 lands after the post-login navigation', async () => {
+    window.history.pushState({}, '', '/login')
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => {
+      // The sign-in completes while the pre-auth probe is still in flight, so the
+      // app has already client-navigated to /backend when the 401 arrives.
+      window.history.pushState({}, '', '/backend')
+      return createMockResponse(401, { error: 'Unauthorized' })
+    })
+
+    const result = await apiFetch('/api/auth/feature-check', { method: 'POST' })
+
+    expect(result.status).toBe(401)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when a 401 lands after navigating to the login page', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => {
+      window.history.pushState({}, '', '/login')
+      return createMockResponse(401, { error: 'Unauthorized' })
+    })
+
+    const result = await apiFetch('/api/private')
+
+    expect(result.status).toBe(401)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
   it('throws UnauthorizedError for 401 responses by default', async () => {
     ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
       createMockResponse(401, { error: 'Unauthorized' }),

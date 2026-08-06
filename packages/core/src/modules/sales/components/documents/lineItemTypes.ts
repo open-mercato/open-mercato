@@ -3,6 +3,7 @@ import type { SalesLineUomSnapshot } from '../../lib/types'
 export type SalesLineRecord = {
   id: string
   name: string | null
+  description?: string | null
   productId: string | null
   productVariantId: string | null
   quantity: number

@@ -252,6 +252,7 @@ const DEFAULT_EXPORT_FORMATS: CrudExportFormat[] = ['csv', 'json', 'xml', 'markd
 const DEFAULT_EXPORT_BATCH_SIZE = 1000
 const MIN_EXPORT_BATCH_SIZE = 100
 const MAX_EXPORT_BATCH_SIZE = 10000
+const EXPORT_MAX_PAGES = 1000
 
 type ColumnResolver = {
   field: string
@@ -1806,13 +1807,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           const initialExportItems = exportFullRequested
             ? rawItems.map(normalizeFullRecordForExport)
             : transformedItems
-          let exportItems = [...initialExportItems]
-          if (total > exportItems.length) {
-            const exportPageSizeNumber = typeof page.pageSize === 'number' ? page.pageSize : exportPageSize
+          const exportItems = [...initialExportItems]
+          const exportPageSizeNumber = typeof page.pageSize === 'number' ? page.pageSize : exportPageSize
+          // Short-page termination: `total` is a display value, not a loop bound — it can
+          // under-report (capped counts) or drift while rows are inserted/deleted mid-export.
+          // Keep fetching while pages come back full; fail closed at the page ceiling rather
+          // than serializing a partial export.
+          if (rawItems.length >= exportPageSizeNumber) {
             const queryBase: any = { ...queryOpts }
             delete queryBase.page
             let nextPage = 2
-            while (exportItems.length < total) {
+            for (;;) {
               profiler.mark('export_next_page_request', { page: nextPage })
               const nextRes = await qe.query(opts.list.entityId as any, {
                 ...queryBase,
@@ -1827,7 +1832,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
                 ? nextItemsRaw.map(normalizeFullRecordForExport)
                 : nextTransformed
               exportItems.push(...nextExportItems)
-              if (nextExportItems.length < exportPageSizeNumber) break
+              if (nextItemsRaw.length < exportPageSizeNumber) break
+              if (nextPage >= EXPORT_MAX_PAGES) {
+                throw new Error(`[internal] export exceeded ${EXPORT_MAX_PAGES} pages; refusing to return a partial export`)
+              }
               nextPage += 1
             }
           }
