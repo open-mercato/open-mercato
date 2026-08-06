@@ -459,6 +459,51 @@ The references live in the derived asset and are joined to `surface-inventory.js
 the spec's row definition describes. Inlining means the generator becomes a writer for that file
 and its template mirror. That is the next unit of F work, not a completed one.
 
+## Slice B is UNBLOCKED — the integration lane was executed here, green, on 2026-08-06
+
+The corrected constraint above said the fifteen specs "may be executable here … to be attempted, not
+assumed". It has now been **attempted and proven**, so no future entry may record slice B as
+write-only. `TC-EXAMPLE-001` was run end to end through the managed ephemeral runner and **passed**:
+
+```
+$ yarn test:integration:ephemeral --filter TC-EXAMPLE-001 --verbose
+Running 1 test using 1 worker
+  ✓  1 …/TC-EXAMPLE-001-todo-label-edit.spec.ts:58:3 › … replaces its search token (3.7s)
+  1 passed (6.9m)
+```
+
+The whole stack works in this environment: testcontainers Postgres, migrations for 30+ modules,
+`yarn initialize`, the production app build, the app on `127.0.0.1:5001`, and the queue workers.
+
+**Three findings that cost the first two attempts, recorded so the next run skips them:**
+
+1. **A worktree needs `yarn generate && yarn build:packages` before the ephemeral runner.** Without
+   it the run dies at bootstrap on `packages/core/dist/generated/entities.ids.generated.js`, and the
+   message names `audit_logs`/`wms` rather than the missing generation step, which reads like a
+   module defect instead of a build-order one.
+2. **The trailing `exit code 143` is teardown, not failure.** The runner reports
+   `[server] Next.js production server exited unexpectedly with exit code 143` *after* Playwright has
+   already printed its result; 143 is SIGTERM from the runner's own shutdown. Read the Playwright
+   tally, not the last line — the green run above still ends with that message.
+3. **Chromium's system libraries are absent here and there is no root.** The failure surfaces as
+   `browserType.launch: Target page, context or browser has been closed` with a 1 ms test duration,
+   which reads like a test defect; the real cause is
+   `chrome-headless-shell: error while loading shared libraries: libnspr4.so`. Eleven libraries are
+   missing (`libnspr4`, `libnss3`, `libnssutil3`, `libasound2t64`, `libgbm1`, `libxcomposite1`,
+   `libxdamage1`, `libxfixes3`, `libxkbcommon0`, `libxrandr2`, `libxrender1`). `playwright
+   install-deps` needs root, but the packages can be staged into userspace without it:
+
+   ```bash
+   mkdir -p /tmp/om-pw-libs && cd /tmp/om-pw-libs
+   apt-get download libnspr4 libnss3 libasound2t64 libgbm1 libxcomposite1 \
+     libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 libxrender1
+   for f in *.deb; do dpkg -x "$f" extracted; done
+   export LD_LIBRARY_PATH=/tmp/om-pw-libs/extracted/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+   ```
+
+   This modifies nothing outside `/tmp` and is a machine property, not a repository change, so
+   nothing about it belongs in the tree — it belongs here, where the next run will look.
+
 ### Wave state
 
 | Wave | Slices | Status |
