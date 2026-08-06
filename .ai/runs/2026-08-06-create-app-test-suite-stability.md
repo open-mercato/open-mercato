@@ -116,6 +116,8 @@ linked, labels and summary comment.
 
 ## Progress
 
+PR: #5064
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Measure the baseline
@@ -139,6 +141,7 @@ linked, labels and summary comment.
 
 ### Phase 4: Prove it and ship
 
-- [ ] 4.1 After-measurement against the baseline
-- [ ] 4.2 Full validation gate
-- [ ] 4.3 PR body, labels, summary comment
+- [x] 4.1 After-measurement against the baseline — measurement, see Measurements
+- [x] 4.2 Full validation gate — all eight configured commands green
+- [x] 4.3 PR body, labels, summary comment — PR #5064
+- [x] 4.4 Code-review pass and its one finding (no test covered the new staging artifacts) — 87153a75d
