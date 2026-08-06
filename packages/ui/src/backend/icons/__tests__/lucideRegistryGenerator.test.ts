@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Project, ScriptKind, SyntaxKind, type ObjectLiteralExpression, type SourceFile } from 'ts-morph'
 import { buildLucideRegistrySource } from '../../../../scripts/lucideRegistrySource.cjs'
+import jestConfig from '../../../../jest.config.cjs'
 
 const packageDir = join(__dirname, '..', '..', '..', '..')
 const iconsDir = join(packageDir, 'src', 'backend', 'icons')
@@ -152,9 +154,43 @@ describe('lucideRegistry barrel', () => {
   })
 })
 
+type GitWorkTreeProbe = { available: true } | { available: false; reason: string }
+
+function gitProbeFailureReason(error: unknown, cwd: string): string {
+  const { code, status } = error as { code?: string; status?: number }
+  if (code === 'ENOENT') return `git could not be executed for ${cwd} (no git executable, or the directory is missing)`
+  if (typeof status === 'number') return `git exited with status ${status} for ${cwd}`
+  return `git could not be executed for ${cwd}`
+}
+
+function detectGitWorkTree(cwd: string): GitWorkTreeProbe {
+  try {
+    const output = execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    if (output.trim() === 'true') return { available: true }
+    return { available: false, reason: `git reported no work tree for ${cwd}` }
+  } catch (error) {
+    return { available: false, reason: gitProbeFailureReason(error, cwd) }
+  }
+}
+
+function importersOutsideIconsFolder(matches: string[]): string[] {
+  return matches.filter((path) => !path.startsWith('packages/ui/src/backend/icons/'))
+}
+
 describe('lucideRegistry.generated importers', () => {
-  it('is imported only from within src/backend/icons', () => {
-    const repoRoot = join(packageDir, '..', '..')
+  const repoRoot = join(packageDir, '..', '..')
+  const workTree = detectGitWorkTree(repoRoot)
+  // `git grep` reads the index, so the guard can only run inside a checkout. Outside
+  // one (a source tarball, or no git binary) it degrades to a skip that states why,
+  // instead of failing an invariant it cannot evaluate.
+  const itInsideWorkTree = workTree.available ? it : it.skip
+  const skipReason = workTree.available ? '' : ` — skipped: ${workTree.reason}`
+
+  itInsideWorkTree(`is imported only from within src/backend/icons${skipReason}`, () => {
     let matches: string[] = []
     try {
       matches = execFileSync(
@@ -169,9 +205,36 @@ describe('lucideRegistry.generated importers', () => {
       if (status !== 1) throw error
     }
 
-    const outsideIconsFolder = matches.filter(
-      (path) => !path.startsWith('packages/ui/src/backend/icons/')
-    )
-    expect(outsideIconsFolder).toEqual([])
+    expect(importersOutsideIconsFolder(matches)).toEqual([])
+  })
+
+  it('flags an importer that lives outside the icons folder', () => {
+    expect(
+      importersOutsideIconsFolder([
+        'packages/ui/src/backend/icons/lucideRegistry.ts',
+        'packages/core/src/modules/catalog/backend/products/page.tsx',
+      ])
+    ).toEqual(['packages/core/src/modules/catalog/backend/products/page.tsx'])
+  })
+
+  it('states a reason instead of throwing when git cannot resolve a work tree', () => {
+    const absentDir = join(tmpdir(), 'lucide-registry-absent-work-tree')
+    const probe = detectGitWorkTree(absentDir)
+    expect(probe.available).toBe(false)
+    expect(probe.available ? '' : probe.reason).toContain(absentDir)
+  })
+})
+
+describe('jest transform scope', () => {
+  const transformPatterns = Object.keys(jestConfig.transform).map((key) => new RegExp(key))
+
+  it('transforms the build-time emitter under scripts/', () => {
+    const emitterPath = join(packageDir, 'scripts', 'lucideRegistrySource.cjs')
+    expect(transformPatterns.some((pattern) => pattern.test(emitterPath))).toBe(true)
+  })
+
+  it('leaves .cjs files inside node_modules untransformed', () => {
+    const vendorPath = join(packageDir, 'node_modules', '@mikro-orm', 'core', 'dist', 'index.cjs')
+    expect(transformPatterns.some((pattern) => pattern.test(vendorPath))).toBe(false)
   })
 })
