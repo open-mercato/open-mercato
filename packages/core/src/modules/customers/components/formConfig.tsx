@@ -422,6 +422,7 @@ const createPrimaryPhoneField = (t: Translator, defaultCountryIso2?: string): Cr
   id: 'primaryPhone',
   label: t('customers.people.form.primaryPhone'),
   type: 'custom',
+  rendersOwnError: true,
   component: function PrimaryPhoneField({ value, setValue, error, autoFocus, disabled, recordId }: CrudCustomFieldRenderProps) {
     const currentRecordId = React.useMemo(() => (typeof recordId === 'string' ? recordId : null), [recordId])
 
