@@ -190,4 +190,133 @@ describe('createPresenterEnricher', () => {
     const [enriched] = await enrich(results, 'tenant-1', null)
     expect(enriched.presenter?.title).toBe('Stored')
   })
+
+  it('merges person and company profile hits into their matching customer entities', async () => {
+    mockedDecryptIndexDocForSearch.mockImplementation(async (_entityId, doc) => doc)
+
+    const rows: IndexRow[] = [
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: 'person-entity',
+        doc: { id: 'person-entity', display_name: 'Ada Lovelace', kind: 'person' },
+      },
+      {
+        entity_type: 'customers:customer_person_profile',
+        entity_id: 'person-profile',
+        doc: { id: 'person-profile', entity_id: 'person-entity', display_name: 'Ada Lovelace' },
+      },
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: 'company-entity',
+        doc: { id: 'company-entity', display_name: 'Analytical Engines', kind: 'company' },
+      },
+      {
+        entity_type: 'customers:customer_company_profile',
+        entity_id: 'company-profile',
+        doc: { id: 'company-profile', entity_id: 'company-entity', display_name: 'Analytical Engines' },
+      },
+    ]
+    const personConfig = createConfig({
+      entityId: 'customers:customer_person_profile' as EntityId,
+      formatResult: async (context) => ({ title: String(context.record.display_name) }),
+      resolveUrl: async (context) => `/backend/customers/people-v2/${String(context.record.entity_id)}`,
+    })
+    const companyConfig = createConfig({
+      entityId: 'customers:customer_company_profile' as EntityId,
+      formatResult: async (context) => ({ title: String(context.record.display_name) }),
+      resolveUrl: async (context) => `/backend/customers/companies-v2/${String(context.record.entity_id)}`,
+    })
+    const enrich = createPresenterEnricher(
+      createKyselyMock(rows),
+      new Map([
+        [personConfig.entityId, personConfig],
+        [companyConfig.entityId, companyConfig],
+      ]),
+    )
+
+    const enriched = await enrich([
+      createResult({
+        entityId: 'customers:customer_entity' as EntityId,
+        recordId: 'person-entity',
+        presenter: undefined,
+        score: 0.9,
+      }),
+      createResult({
+        entityId: 'customers:customer_person_profile' as EntityId,
+        recordId: 'person-profile',
+        presenter: undefined,
+        score: 0.8,
+      }),
+      createResult({
+        entityId: 'customers:customer_entity' as EntityId,
+        recordId: 'company-entity',
+        presenter: undefined,
+        score: 0.7,
+      }),
+      createResult({
+        entityId: 'customers:customer_company_profile' as EntityId,
+        recordId: 'company-profile',
+        presenter: undefined,
+        score: 0.6,
+      }),
+    ], 'tenant-1', null)
+
+    expect(enriched).toEqual([
+      expect.objectContaining({
+        entityId: 'customers:customer_entity',
+        recordId: 'person-entity',
+        presenter: { title: 'Ada Lovelace' },
+        url: '/backend/customers/people-v2/person-entity',
+      }),
+      expect.objectContaining({
+        entityId: 'customers:customer_entity',
+        recordId: 'company-entity',
+        presenter: { title: 'Analytical Engines' },
+        url: '/backend/customers/companies-v2/company-entity',
+      }),
+    ])
+  })
+
+  it('keeps linked content hits when their navigation includes a page anchor', async () => {
+    mockedDecryptIndexDocForSearch.mockImplementation(async (_entityId, doc) => doc)
+
+    const entityId = 'person-entity'
+    const rows: IndexRow[] = [
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: entityId,
+        doc: { id: entityId, display_name: 'Ada Lovelace' },
+      },
+      {
+        entity_type: 'customers:customer_comment',
+        entity_id: 'comment-1',
+        doc: { id: 'comment-1', body: 'Ada Lovelace', entity_id: entityId },
+      },
+    ]
+    const commentConfig = createConfig({
+      entityId: 'customers:customer_comment' as EntityId,
+      formatResult: async () => ({ title: 'Ada Lovelace' }),
+      resolveUrl: async () => `/backend/customers/people-v2/${entityId}#notes`,
+    })
+    const enrich = createPresenterEnricher(
+      createKyselyMock(rows),
+      new Map([[commentConfig.entityId, commentConfig]]),
+    )
+
+    const enriched = await enrich([
+      createResult({
+        entityId: 'customers:customer_entity' as EntityId,
+        recordId: entityId,
+        presenter: undefined,
+      }),
+      createResult({
+        entityId: 'customers:customer_comment' as EntityId,
+        recordId: 'comment-1',
+        presenter: undefined,
+      }),
+    ], 'tenant-1', null)
+
+    expect(enriched).toHaveLength(2)
+    expect(enriched[1]?.url).toBe(`/backend/customers/people-v2/${entityId}#notes`)
+  })
 })
