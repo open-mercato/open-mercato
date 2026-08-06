@@ -64,9 +64,9 @@ User-visible consequence on `/login`: credentials typed before the remount are d
 
 ### Phase 1: Fix and unit coverage
 
-- [ ] 1.1 Remove the early return in ThemeProvider
-- [ ] 1.2 Unit test: subtree is not remounted
-- [ ] 1.3 Unit test: theme context still resolves after mount
+- [x] 1.1 Remove the early return in ThemeProvider — 70bf15a3f
+- [x] 1.2 Unit test: subtree is not remounted — 70bf15a3f
+- [x] 1.3 Unit test: theme context still resolves after mount — 70bf15a3f
 
 ### Phase 2: Integration coverage
 
