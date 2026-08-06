@@ -339,9 +339,7 @@ services:
   documents-collab:
     profiles:
       - documents-collab
-    build:
-      context: .
-      target: dev
+    # Reuse the dev image built by app instead of rebuilding the same tag.
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     command: ["yarn", "documents:collab"]
     working_dir: /app

@@ -244,13 +244,8 @@ services:
   documents-collab:
     profiles:
       - documents-collab
-    build:
-      context: .
-      args:
-        - CONTAINER_PORT=${CONTAINER_PORT:-3000}
-        - DOCUMENTS_COLLAB_PORT=${DOCUMENTS_COLLAB_PORT:-4101}
-        - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
-        - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
+    # Reuse the image built by app. A second build of the same tag with a
+    # different arg set races the app build and needlessly rebuilds the repo.
     image: open-mercato/app:${DEPLOY_ENV:-local}
     command: ["yarn", "documents:collab"]
     working_dir: /app

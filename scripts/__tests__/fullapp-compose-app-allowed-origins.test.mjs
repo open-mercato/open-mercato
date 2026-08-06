@@ -13,6 +13,11 @@ const COMPOSE_FILES = [
   'packages/create-app/template/docker-compose.fullapp.yml',
 ]
 
+const MONOREPO_COMPOSE_FILES = [
+  'docker-compose.fullapp.dev.yml',
+  'docker-compose.fullapp.yml',
+]
+
 function readCompose(relPath) {
   return fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
 }
@@ -23,6 +28,20 @@ function documentsCollabBlock(content, relPath) {
   assert.ok(start >= 0, `${relPath} must define a documents-collab service`)
   assert.ok(end > start, `${relPath} must define postgres after documents-collab`)
   return content.slice(start, end)
+}
+
+function appBlock(content, relPath) {
+  const start = content.indexOf('\n  app:')
+  const end = content.indexOf('\n  documents-collab:')
+  assert.ok(start >= 0, `${relPath} must define an app service`)
+  assert.ok(end > start, `${relPath} must define documents-collab after app`)
+  return content.slice(start, end)
+}
+
+function serviceImage(block, relPath, service) {
+  const match = block.match(/^\s+image:\s*(\S+)\s*$/m)
+  assert.ok(match, `${relPath} ${service} must declare an image`)
+  return match[1]
 }
 
 for (const relPath of COMPOSE_FILES) {
@@ -85,6 +104,24 @@ for (const relPath of COMPOSE_FILES) {
       sidecar,
       /^\s+REDIS_URL:\s*redis:\/\//m,
       `${relPath} documents-collab must receive REDIS_URL for multi-instance collaboration sync`
+    )
+  })
+}
+
+for (const relPath of MONOREPO_COMPOSE_FILES) {
+  test(`${relPath} reuses the app image for Documents collaboration`, () => {
+    const content = readCompose(relPath)
+    const app = appBlock(content, relPath)
+    const sidecar = documentsCollabBlock(content, relPath)
+    assert.doesNotMatch(
+      sidecar,
+      /^\s+build:/m,
+      `${relPath} documents-collab must not rebuild the app image`,
+    )
+    assert.equal(
+      serviceImage(sidecar, relPath, 'documents-collab'),
+      serviceImage(app, relPath, 'app'),
+      `${relPath} documents-collab must run the exact image built by app`,
     )
   })
 }
