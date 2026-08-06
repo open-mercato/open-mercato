@@ -85,7 +85,10 @@ No deprecation bridge is required because nothing is deprecated.
 - [x] `handleError` maps a status-carrying interceptor error
 - [x] Regression tests — error class, runner (both hooks), CRUD route (500 path and 422 path)
 - [x] Full validation gate green (local mode)
-- [ ] PR opened with labels and summary comment
+- [x] PR opened with labels and summary comment — #5067
+- [x] Self-review pass; one minor finding (status/body could drift apart) fixed in `8e74cdd77`
+- [x] Gate re-run on the final head `8e74cdd77` — 8/8 green, `yarn test` 25/25 first try, no generated drift
+- [ ] Maintainer approving review (self-approval not possible) and remote `test` / `ephemeral-integration` green
 
 ## Validation
 
