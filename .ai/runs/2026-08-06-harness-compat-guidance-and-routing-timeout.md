@@ -162,3 +162,12 @@ both are `dist/` contention from concurrent turbo runs on this machine.
   (`agent-harness-release.test.ts`) — the drift this review caught, now caught by a test
 - [x] 5.7 Targeted validation: `agent-harness-release.test.ts` 47 passed / 5 skipped,
   `agent-harness-evaluator.test.ts` 89 passed, plus the surface/context/budget contract files 46 passed
+
+### Phase 6: Unblock CI after the GitHub Actions outage
+
+- [x] 6.1 Merge the current `develop` (`368d4de38`) into the branch so a fresh CI run replaces the one
+  GitHub Actions lost to its own outage (run 31114866191: `Failed to resolve action download info` /
+  `Service Unavailable` on `Analyze javascript-typescript` and `Analyze python`; the run refuses a retry,
+  so only a new head starts CI). Clean merge — `develop` touches none of the four files this PR owns. — 768feac95
+- [x] 6.2 Ask @adeptofvoltron for a re-review, naming `e6eb4c3f7` as the commit that addresses every
+  finding of the 2026-08-06 changes-requested review
