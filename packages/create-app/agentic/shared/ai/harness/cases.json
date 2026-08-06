@@ -15062,5 +15062,107 @@
         ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
       ]
     }
+  },
+  {
+    "id": "OMH-217",
+    "title": "Reuse the shipped reference-module activation specification instead of writing a second one",
+    "family": "architecture",
+    "mode": "spec",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "The team wants the Todo demo this app already ships in source actually switched on for their staff, and the component gallery reachable for the two designers who keep asking for it. They want to know which roles will see each surface and what turning them on does to the database before anyone touches the registry. Before any implementation starts, decide how this request must be handled under the emitted planning gate, name the delivery route that owns it, and name the exact app-relative path of the specification that already covers this work. Do not write, amend, or stage any file while deciding.",
+    "tags": [
+      "spec-gate",
+      "planning-decision",
+      "reuse-spec",
+      "reference-module-activation"
+    ],
+    "owner": {
+      "kind": "root",
+      "path": "AGENTS.md",
+      "ruleIds": [
+        "BC-01"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "spec-pr"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "module-data"
+      ]
+    },
+    "requiredSkills": [
+      "om-spec-writing"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/spec-delivery.md",
+        ".ai/specs/README.md"
+      ],
+      "allowedExtra": [
+        ".ai/specs/2026-08-06-reference-module-activation.md",
+        ".ai/agentic.config.json"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "decisionVocabulary": [
+      "reuse-spec",
+      "spec-first",
+      "direct",
+      "ask"
+    ],
+    "expectedSpecRouting": {
+      "decision": "reuse-spec",
+      "requiredReasonCodes": [
+        "COVERING_SPEC_FOUND",
+        "NEW_CAPABILITY"
+      ],
+      "reasonCodeVocabulary": [
+        "COVERING_SPEC_FOUND",
+        "NEW_CAPABILITY",
+        "MULTI_PHASE_BEHAVIOR",
+        "BOUNDED_FIX",
+        "REPRODUCIBLE_DEFECT",
+        "EXPLICIT_SKIP_REQUESTED",
+        "AMBIGUOUS_CLASSIFICATION"
+      ],
+      "coveringSpecPath": ".ai/specs/2026-08-06-reference-module-activation.md"
+    },
+    "requiredDecisions": [
+      "reuse-spec"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "routing.spec-decision",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-204",
+      "OMH-214"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md"
+      ]
+    }
   }
 ]

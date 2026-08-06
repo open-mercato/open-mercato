@@ -583,12 +583,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-216', () => {
+test('deterministic evaluation enforces the case schema through OMH-217', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-216')
+    assert.equal(cases.at(-1)?.id, 'OMH-217')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -1974,7 +1974,9 @@ for (const command of [
     assert.ok(!storedResults(root)[0].actualContext.paths.includes('.ai/specs'))
     assert.ok(!storedResults(root)[0].actualContext.initialPaths.includes('.agents/skills/om-spec-writing/SKILL.md'))
     assert.deepEqual(storedResults(root)[0].actualContext.metadataPaths, ['.ai/specs'])
-    assert.equal(storedResults(root)[0].actualContext.metadataEntries, 3)
+    // Derived from what the scaffold emits plus the one spec this fixture writes, so shipping
+    // another reserved spec stays a one-file change instead of a literal this test contradicts.
+    assert.equal(storedResults(root)[0].actualContext.metadataEntries, fs.readdirSync(emittedSpecRoot).length + 1)
     assert.ok(storedResults(root)[0].actualContext.metadataBytes > 0)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
@@ -3742,22 +3744,24 @@ test('the spec routing declaration contract fails closed on every malformed shap
   )
 })
 
-// The SPEC-P2 decision table, one shipped read-only case per row. `reuse-spec` is absent on
-// purpose: its oracle requires an existing covering spec under `.ai/specs/`, and a fresh
-// scaffold ships only the folder README and the blank template, so no honest covering-spec
-// path exists to declare yet.
+// The SPEC-P2 decision table, one shipped read-only case per row — all six rows, since the
+// scaffold now emits `.ai/specs/2026-08-06-reference-module-activation.md`. That file is the
+// honest covering spec the `reuse-spec` oracle needs: it genuinely describes the opt-in the
+// shipped-but-unregistered reference modules require, so OMH-217 can declare it as context
+// without a fixture, which a read-only routing case is forbidden to carry.
 const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
   ['OMH-204', 'spec-first'],
   ['OMH-205', 'direct'],
   ['OMH-206', 'direct'],
   ['OMH-207', 'direct'],
   ['OMH-208', 'ask'],
+  ['OMH-217', 'reuse-spec'],
 ]
 
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 216)
+  assert.equal(cases.length, 217)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
@@ -3803,6 +3807,7 @@ test('every shipped spec-gate case scores its own decision table row and rejects
     validators: string[]
     requiredDecisions?: string[]
     decisionVocabulary?: string[]
+    context?: { required?: string[]; allowedExtra?: string[] }
     expectedSpecRouting?: SpecRoutingDeclaration
   }]))
 
@@ -3831,7 +3836,11 @@ test('every shipped spec-gate case scores its own decision table row and rejects
 
     const correct = {
       ...omh001Response,
-      specRouting: { decision: declaration.decision, reasonCodes: [...declaration.requiredReasonCodes] },
+      specRouting: {
+        decision: declaration.decision,
+        reasonCodes: [...declaration.requiredReasonCodes],
+        ...(declaration.coveringSpecPath === undefined ? {} : { coveringSpecPath: declaration.coveringSpecPath }),
+      },
     }
     assert.deepEqual(evaluator.evaluateSpecRoutingDecision(record, correct), [], `${id} must accept its own answer`)
 
@@ -3874,7 +3883,37 @@ test('every shipped spec-gate case scores its own decision table row and rejects
       `${id} must reject a write observed during planning`,
     )
 
-    assert.equal(declaration.coveringSpecPath, undefined, `${id} must not claim a covering spec`)
+    if (decision === 'reuse-spec') {
+      // The reuse row is the only one that may name a covering spec, and the path it names has
+      // to be a file a fresh scaffold actually emits — otherwise the case grades an answer that
+      // no agent could honestly give.
+      assert.ok(declaration.coveringSpecPath, `${id} must name the covering spec it reuses`)
+      const emittedSpec = path.join(sharedRoot, 'ai', declaration.coveringSpecPath.slice('.ai/'.length))
+      assert.ok(fs.existsSync(emittedSpec), `${id} must reuse a spec the scaffold emits (${declaration.coveringSpecPath})`)
+      const declaredContext = [...(record.context?.required ?? []), ...(record.context?.allowedExtra ?? [])]
+      assert.ok(
+        declaredContext.includes(declaration.coveringSpecPath),
+        `${id} must declare the covering spec as readable context`,
+      )
+      assert.deepEqual(
+        evaluator.evaluateSpecRoutingDecision(record, {
+          ...correct,
+          specRouting: { decision: declaration.decision, reasonCodes: [...declaration.requiredReasonCodes] },
+        }),
+        [`wrong covering spec path: expected ${declaration.coveringSpecPath}, received null`],
+        `${id} must reject a reuse decision that names no spec`,
+      )
+      assert.deepEqual(
+        evaluator.evaluateSpecRoutingDecision(record, {
+          ...correct,
+          specRouting: { ...correct.specRouting, coveringSpecPath: '.ai/specs/2026-08-06-invented.md' },
+        }),
+        [`wrong covering spec path: expected ${declaration.coveringSpecPath}, received .ai/specs/2026-08-06-invented.md`],
+        `${id} must reject an invented covering spec`,
+      )
+    } else {
+      assert.equal(declaration.coveringSpecPath, undefined, `${id} must not claim a covering spec`)
+    }
   }
 })
 
@@ -4090,7 +4129,10 @@ function seededFixtureFiles(fixtureId: string): Record<string, string> {
 function stageSpecTarget(fixtureId: string): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-spec-')))
   fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
-  for (const name of ['README.md', 'SPEC-000-template.md']) {
+  // Derived, not listed: the emitted scaffolding now includes the shipped covering spec the
+  // `reuse-spec` routing row names, and a stale literal here would stage a target the oracle's
+  // reserved-file checks legitimately reject.
+  for (const name of fs.readdirSync(emittedSpecRoot).filter((entry) => entry.endsWith('.md'))) {
     fs.copyFileSync(path.join(emittedSpecRoot, name), path.join(root, '.ai', 'specs', name))
   }
   fs.mkdirSync(path.join(root, 'src', 'modules', 'example'), { recursive: true })

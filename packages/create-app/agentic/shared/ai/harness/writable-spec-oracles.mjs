@@ -19,7 +19,15 @@ const EXIT_FAILURE = 1
 const EXIT_INVALID = 2
 
 const SPEC_ROOT = '.ai/specs'
-const RESERVED_SPEC_FILES = Object.freeze(['README.md', 'SPEC-000-template.md'])
+// Everything the scaffold itself emits under `.ai/specs`. None of these is an authored
+// deliverable, so a planning proof neither counts them nor may repurpose them: the folder
+// README, the blank skeleton, and the shipped covering specification for reference-module
+// activation that gives the `reuse-spec` routing row an honest target.
+const RESERVED_SPEC_FILES = Object.freeze([
+  'README.md',
+  'SPEC-000-template.md',
+  '2026-08-06-reference-module-activation.md',
+])
 const SPEC_FILE_PATTERN = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 const MAX_SPEC_BYTES = 256 * 1024
 const MODULE_ROOT = 'src/modules'
@@ -37,6 +45,7 @@ const TEST_IDENTIFIER_PATTERN = /\bTEST-\d{3}\b|[\w./-]+\.(?:test|spec)\.tsx?\b|
 const RESERVED_SPEC_MARKERS = Object.freeze({
   'README.md': /^#\s+Feature Specs/m,
   'SPEC-000-template.md': /\{Title\}/,
+  '2026-08-06-reference-module-activation.md': /^#\s+Reference Module Activation/m,
 })
 
 // Each requirement resolves to one distinct level-2 section, preferring the exact heading the
