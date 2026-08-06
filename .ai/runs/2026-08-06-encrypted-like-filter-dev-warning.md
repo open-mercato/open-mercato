@@ -38,13 +38,13 @@ The query engines only pay that in a rare fallback branch; these helpers would p
 
 - [x] Confirm the gap is real and not already covered (`ciphertext-search-warning` is query-engine only)
 - [x] Confirm no open PR already addresses #5051
-- [ ] Add the `raw-orm-filter` reason + hint to `ciphertext-search-warning.ts` (additive)
-- [ ] Add `packages/shared/src/lib/encryption/likeFilterWarning.ts` — `FilterQuery` scanner + dev gate
-- [ ] Wire it into the three `find.ts` helpers
-- [ ] Unit tests: operator scanner (nested `$and`/`$or`/`$not`, relation filters), dev gate, warn-once, never-throws
-- [ ] Docs: expand `apps/docs/docs/architecture/data-encryption.mdx` → "Querying encrypted columns"
-- [ ] `packages/shared/AGENTS.md`: note the raw-ORM warning next to the existing query-engine one
-- [ ] Validation gate
+- [x] Add the `raw-orm-filter` reason + hint to `ciphertext-search-warning.ts` (additive)
+- [x] Add `packages/shared/src/lib/encryption/likeFilterWarning.ts` — `FilterQuery` scanner + dev gate
+- [x] Wire it into the three `find.ts` helpers
+- [x] Unit tests: operator scanner (nested `$and`/`$or`/`$not`, relation filters), dev gate, warn-once, never-throws
+- [x] Docs: expand `apps/docs/docs/architecture/data-encryption.mdx` → "Querying encrypted columns"
+- [x] `packages/shared/AGENTS.md`: note the raw-ORM warning next to the existing query-engine one
+- [x] Validation gate
 - [ ] Open PR, link #2990, apply labels
 
 ## Design notes
