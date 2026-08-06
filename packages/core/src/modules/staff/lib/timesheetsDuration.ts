@@ -8,9 +8,11 @@ export type DurationParseResult =
   | { ok: true; minutes: number }
   | { ok: false; reason: DurationParseError }
 
+const NUMBER_SOURCE = '(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)'
+
 const CLOCK_PATTERN = /^(\d+):([0-5]?\d)$/
-const DECIMAL_HOURS_PATTERN = /^\d+(?:[.,]\d+)?$/
-const UNIT_PATTERN = /^(?:(\d+(?:[.,]\d+)?)\s*h)?\s*(?:(\d+(?:[.,]\d+)?)\s*m(?:in)?)?$/
+const DECIMAL_HOURS_PATTERN = new RegExp(`^${NUMBER_SOURCE}$`)
+const UNIT_PATTERN = new RegExp(`^(?:(${NUMBER_SOURCE})\\s*h)?\\s*(?:(${NUMBER_SOURCE})\\s*m(?:in)?)?$`)
 
 function toNumber(raw: string): number {
   return Number.parseFloat(raw.replace(',', '.'))

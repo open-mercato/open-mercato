@@ -92,6 +92,36 @@ describe('parseDurationInput', () => {
     })
   })
 
+  describe('separators without a digit on both sides', () => {
+    it('reads a leading dot decimal as hours', () => {
+      expectMinutes('.5', 30)
+    })
+
+    it('reads a leading comma decimal as hours', () => {
+      expectMinutes(',5', 30)
+    })
+
+    it('reads a trailing dot as whole hours', () => {
+      expectMinutes('1.', 60)
+    })
+
+    it('reads a trailing comma as whole hours', () => {
+      expectMinutes('8,', 480)
+    })
+
+    it('reads a leading dot decimal with an hour suffix', () => {
+      expectMinutes('.5h', 30)
+    })
+
+    it('rejects a bare separator with no digits', () => {
+      expectRejected('.', 'invalid')
+    })
+
+    it('rejects a separator pair with no digits', () => {
+      expectRejected(',.', 'invalid')
+    })
+  })
+
   describe('empty input', () => {
     it('treats an empty string as zero', () => {
       expectMinutes('', 0)

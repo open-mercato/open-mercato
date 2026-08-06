@@ -967,7 +967,7 @@
   "staff.timesheets.my.calendar.prevMonth": "Poprzedni miesiąc",
   "staff.timesheets.my.calendar.thisWeek": "Ten tydzień",
   "staff.timesheets.my.confirm_save.body": "Twoje wpisy w karcie czasu pracy zostaną zapisane.",
-  "staff.timesheets.my.confirm_save.summary": "{count} komórek, łącznie {total} h.",
+  "staff.timesheets.my.confirm_save.summary": "Zaznaczone komórki: {count}, łącznie {total} h.",
   "staff.timesheets.my.confirm_save.title": "Zapisać zmiany?",
   "staff.timesheets.my.createProfile": "Create Team Member Profile",
   "staff.timesheets.my.daily_average": "Średnia dzienna",
