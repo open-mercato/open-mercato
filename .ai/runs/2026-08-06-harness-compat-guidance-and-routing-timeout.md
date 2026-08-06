@@ -58,27 +58,75 @@ Re-run the affected live cases, then the ordered `validation.commands` gate.
 - Live runs are model-variance-bound; a single failing run is not evidence on its own. Report run counts.
 - `cases.json` is also touched by open PR #5038; this run must not edit it.
 
+## Findings
+
+Measured on a controller built exactly as the audit built one: an empty root holding the template's
+`src/modules.ts`, populated with `node packages/cli/dist/bin.js agentic:init --tool claude-code`.
+Live runs: `claude` 2.1.223, `sonnet` selector, one fresh sandboxed process per case.
+
+**#5058 does not reproduce on current `develop`.** Two independent measurements say so.
+
+1. OMH-169 no longer requires the guide. Upstream commit `dd2c172e` (2026-07-29, "fix(harness): tighten
+   residual routing contracts") removed `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` from its
+   `context.required` and dropped it from `compatibilityRequiredCaseIds`. The case's prompt builds a new
+   feature; it never changes a public contract, so the requirement was the thing that was wrong.
+2. The blind spot the issue's step 5 asks about is real as a *documentation* asymmetry but not as a
+   *behavioral* one. Of the 20 cases still registered as compatibility-required, five (OMH-007, OMH-048,
+   OMH-057, OMH-064, OMH-150) route no guide or skill that names the guide — they have only the generic
+   contract-surface line the scaffolded root has carried since `64ea7a760` (2026-07-26). Three of those
+   five were run live, and **all three observed the guide anyway**:
+
+   | Case | Result | Attempts | Duration | `BACKWARD_COMPATIBILITY.md` observed |
+   |---|---|---|---|---|
+   | OMH-007 | pass | 1 | 100 397 ms | yes |
+   | OMH-048 | pass | 1 | 86 483 ms | yes |
+   | OMH-064 | fail — `context byte budget exceeded: 104452/98304` | 2 | 521 990 ms | yes |
+
+   OMH-064's only violation is a live byte budget it overran by reading four references beyond its
+   declared set; the guide was not the problem. Route-level pointers were written for these five cases and
+   then reverted (`f4490baed`): they add 251–289 B to skills that cases like OMH-064 already read past
+   their budget, and no measurement supports the cost. OMH-057 (writable regression) and OMH-150 (fails
+   the deterministic gate, below) were not sampled.
+
+**A separate regression blocks the issue's own repro instructions.** On that controller the deterministic
+gate reports **105/203**. Ninety-six of the 98 failures are `maxTotalContextBytes` overruns, and every one
+of them is explained by generated fact-sheet weight alone — `customers.md` is now 216 249 B and the 49
+sheets total 1 880 763 B, against a catalog ceiling of 262 144 B. The growth arrives with #4883
+(2026-08-03), which added per-row source links and topology sections to the sheets. It goes unseen because
+`stageApp()` in `agent-harness-evaluator.test.ts` never creates `.ai/guides/modules/`, and
+`pathReferenceExists` treats a generated module reference as present-and-weightless when that directory is
+absent — so the unit gate measures every case against 0 B of fact-sheet context. OMH-169 is one of the 96,
+which is why the issue's "re-run OMH-169 live" step cannot be executed at all. Filed separately.
+
+**#5057 lands on option 2, and the fresh measurements support it.** `resolveLiveCaseTimeout` has been
+runner-aware since the same `dd2c172e`: an explicit `--timeout` wins, otherwise Claude floors at
+600 000 ms, a Codex `gpt-5.4-mini` high-effort run at 900 000 ms, and everything else keeps 300 000 ms. The
+audit's "77% of the ceiling" was measured on `claude` against the 300 000 ms number that runner no longer
+uses. The three runs above span 86 s to 522 s; the 522 s is two attempts of a correcting run, roughly 261 s
+each, which is 43% of the Claude floor and 87% of the generic default. Duration therefore tracks the runner
+and the attempt count, not the case, and belongs on the operator budget rather than in a portable catalog.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Re-establish the facts
 
-- [ ] 1.1 Scaffold a controller root with `agentic:init --tool claude-code` and run the deterministic gate
-- [ ] 1.2 Map the compatibility-required cohort against its routed guidance and record the gaps
-- [ ] 1.3 Run OMH-169 live and record whether the issue's repro still reproduces
+- [x] 1.1 Scaffold a controller root with `agentic:init --tool claude-code` and run the deterministic gate
+- [x] 1.2 Map the compatibility-required cohort against its routed guidance and record the gaps
+- [x] 1.3 Run OMH-169 live and record whether the issue's repro still reproduces
 
 ### Phase 2: #5058 route-level compatibility guidance
 
-- [ ] 2.1 Add the missing route-level pointers for the cases whose chain carries none
-- [ ] 2.2 Add the deterministic guard that every compatibility-required case routes a pointer
+- [x] 2.1 Add the missing route-level pointers for the cases whose chain carries none — ec3a68d64, reverted in f4490baed (see Findings)
+- [x] 2.2 Add the deterministic guard that every compatibility-required case routes a pointer — ec3a68d64, reverted in f4490baed (see Findings)
 
 ### Phase 3: #5057 duration-budget decision
 
-- [ ] 3.1 Record the decision and its evidence in the harness release notes
-- [ ] 3.2 Pin the routing-vs-writable `timeoutMs` contract with a deterministic test
+- [x] 3.1 Record the decision and its evidence in the harness release notes — d0ee937a6
+- [x] 3.2 Pin the routing-vs-writable `timeoutMs` contract with a deterministic test — d0ee937a6
 
 ### Phase 4: Live re-verification and the gate
 
-- [ ] 4.1 Re-run the affected live cases and record the result
+- [x] 4.1 Re-run the affected live cases and record the result
 - [ ] 4.2 Run the full validation gate
