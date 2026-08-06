@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import {
   ADVISORY_NOTE,
   collectSurvivors,
   parseReportArgs,
   renderMarkdown,
+  renderMissingReportMarkdown,
 } from '../stryker/report.mjs'
+
+const REPORT_SCRIPT = fileURLToPath(new URL('../stryker/report.mjs', import.meta.url))
 
 const SOURCE = [
   'export function isPositive(value) {',
@@ -160,4 +167,62 @@ test('parses the report path, package name and enforcement flag', () => {
     packageName: 'shared',
     enforced: true,
   })
+})
+
+test('the missing-report fallback explains itself and names the package', () => {
+  const markdown = renderMissingReportMarkdown('shared')
+
+  assert.match(markdown, /## Mutation testing/)
+  assert.match(markdown, /No mutation report was produced for `shared`/)
+  assert.match(markdown, /did not get far enough to write/)
+})
+
+test('the missing-report fallback works without a package name', () => {
+  assert.match(renderMissingReportMarkdown(), /No mutation report was produced\./)
+})
+
+test('the missing-report path reaches the job summary, not only stdout', () => {
+  const summaryPath = fs.mkdtempSync(`${os.tmpdir()}/stryker-report-`) + '/summary.md'
+  const result = spawnSync(process.execPath, [REPORT_SCRIPT, '/nonexistent/mutation.json', '--package', 'shared'], {
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_STEP_SUMMARY: summaryPath },
+  })
+
+  assert.equal(result.status, 0)
+  assert.match(result.stdout, /No mutation report was produced for `shared`/)
+  assert.match(
+    fs.readFileSync(summaryPath, 'utf8'),
+    /No mutation report was produced for `shared`/,
+    'a crashed mutation run must still explain itself in the job summary',
+  )
+})
+
+test('escapes backticks so a survivor cell cannot break out of its code span', () => {
+  const report = {
+    files: {
+      'src/lib/thing.ts': {
+        source: 'const label = `tagged ${name}`\n',
+        mutants: [
+          {
+            status: 'Survived',
+            mutatorName: 'StringLiteral',
+            location: { start: { line: 1, column: 15 }, end: { line: 1, column: 30 } },
+            replacement: '`@maintainer see `ls`',
+          },
+        ],
+      },
+    },
+  }
+
+  const markdown = renderMarkdown(report)
+  const row = markdown.split('\n').find((line) => line.includes('src/lib/thing.ts'))
+
+  // Every backtick that came from the source is escaped, so the only unescaped ones
+  // left are the six delimiters of the row's three code spans (location, original,
+  // replacement). A survivor whose text ended a span early would push this above six
+  // and let the following `@maintainer` render as a live mention.
+  const unescapedBackticks = row.replace(/\\`/g, '').match(/`/g) ?? []
+
+  assert.equal(unescapedBackticks.length, 6, `code spans not intact: ${row}`)
+  assert.match(row, /\\`@maintainer/)
 })

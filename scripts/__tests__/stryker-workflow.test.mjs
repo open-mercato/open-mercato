@@ -84,7 +84,10 @@ test('passes --enforced to the report only when enforcement is on', () => {
     (step) => step.name === 'Write the survivor report to the job summary',
   )
 
-  assert.match(reportStep.run, /MUTATION_ENFORCE == 'true' && '--enforced'/)
+  // The conditional moved into env: so no GitHub expression is expanded into the
+  // run: script; the flag it resolves to is unchanged.
+  assert.match(reportStep.env.ENFORCED, /MUTATION_ENFORCE == 'true' && '--enforced'/)
+  assert.match(reportStep.run, /\$\{ENFORCED\}/)
 })
 
 test('uploads the mutation report as an artifact, tolerating an absent report', () => {
@@ -141,4 +144,55 @@ test('the enforcement step runs and is fed MUTATION_ENFORCE, defaulting to false
   assert.equal(step.if, 'always()')
   assert.match(step.run, /scripts\/stryker\/enforce\.mjs/)
   assert.match(String(step.env.MUTATION_ENFORCE), /\|\|\s*'false'/)
+})
+
+test('never interpolates a GitHub expression into a run: script', () => {
+  const offenders = []
+
+  for (const [jobName, job] of Object.entries(workflow.jobs)) {
+    for (const step of job.steps ?? []) {
+      if (typeof step.run !== 'string') continue
+      if (!step.run.includes('${{')) continue
+      offenders.push(`${jobName} → ${step.name ?? step.id ?? 'unnamed step'}`)
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'a ${{ }} expression inside run: is expanded as shell source before bash parses ' +
+      'it, so an untrusted value becomes code — pass it through env: instead. ' +
+      `Offending steps: ${offenders.join(', ')}`,
+  )
+})
+
+test('passes the diff-derived mutate list through the environment, quoted', () => {
+  const mutateStep = workflow.jobs.mutate.steps.find((step) => step.id === 'mutate')
+
+  assert.equal(mutateStep.env.MUTATE_LIST, '${{ matrix.mutate }}')
+  assert.match(mutateStep.run, /--mutate "\$MUTATE_LIST"/)
+})
+
+test('exposes a workflow_dispatch trigger so the mutate job can be proven on demand', () => {
+  const dispatch = workflow.on.workflow_dispatch
+
+  assert.ok(dispatch, 'workflow_dispatch is what makes the runner path executable on demand')
+  assert.ok(dispatch.inputs.package, 'a dispatch must be able to name the package')
+  assert.ok(dispatch.inputs.mutate, 'a dispatch must be able to name the files to mutate')
+})
+
+test('the scope job routes a dispatch selection through scope.mjs rather than trusting it', () => {
+  const scopeStep = workflow.jobs.scope.steps.find((step) => step.id === 'scope')
+
+  assert.equal(scopeStep.env.DISPATCH_PACKAGE, '${{ inputs.package }}')
+  assert.equal(scopeStep.env.DISPATCH_MUTATE, '${{ inputs.mutate }}')
+  assert.match(scopeStep.run, /scope\.mjs --package "\$\{DISPATCH_PACKAGE\}"/)
+})
+
+test('the advisory comment job cannot turn an infrastructure hiccup into a merge blocker', () => {
+  assert.equal(workflow.jobs.comment['continue-on-error'], true)
+})
+
+test('the scope job stays loud, so a misconfigured gate cannot silently no-op', () => {
+  assert.equal(workflow.jobs.scope['continue-on-error'], undefined)
 })

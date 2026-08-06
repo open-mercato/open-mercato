@@ -5,6 +5,7 @@ import {
   DEFAULT_BASE_REF,
   DEFAULT_MAX_FILES,
   computeScope,
+  explicitChangedFiles,
   isInScopePath,
   parseArgs,
   readChangedFiles,
@@ -136,15 +137,116 @@ test('isInScopePath rejects non-string and empty input instead of throwing', () 
 })
 
 test('parses the base ref and defaults it', () => {
-  assert.deepEqual(parseArgs([]), { base: DEFAULT_BASE_REF })
-  assert.deepEqual(parseArgs(['--base', 'origin/main']), { base: 'origin/main' })
+  assert.deepEqual(parseArgs([]), { base: DEFAULT_BASE_REF, package: null, mutate: null })
+  assert.deepEqual(parseArgs(['--base', 'origin/main']), {
+    base: 'origin/main',
+    package: null,
+    mutate: null,
+  })
 })
 
 test('exposes no flag it does not act on', () => {
-  assert.deepEqual(Object.keys(parseArgs([])), ['base'])
+  assert.deepEqual(Object.keys(parseArgs([])), ['base', 'package', 'mutate'])
 })
 
 test('the shipped allowlist is explicit about which packages are measured', () => {
   assert.ok(Array.isArray(ALLOWLISTED_PACKAGES))
   assert.ok(ALLOWLISTED_PACKAGES.includes('shared'))
+})
+
+test('drops a changed path carrying shell metacharacters before it can reach the matrix', () => {
+  const { matrix } = computeScope([
+    'packages/shared/src/lib/pwn$(id > /tmp/om-pwn.txt).ts',
+    'packages/shared/src/lib/boolean.ts',
+  ])
+
+  assert.deepEqual(matrix.include, [{ package: 'shared', mutate: 'src/lib/boolean.ts' }])
+})
+
+test('rejects every shell metacharacter class in a source path', () => {
+  const hostileNames = [
+    'pwn$(id).ts',
+    'pwn`id`.ts',
+    'pwn;id.ts',
+    'pwn|id.ts',
+    'pwn&id.ts',
+    'pwn>out.ts',
+    'pwn<in.ts',
+    "pwn'quote.ts",
+    'pwn"quote.ts',
+    'pwn id.ts',
+    'pwn\tid.ts',
+    'pwn\nid.ts',
+    'pwn*glob.ts',
+    'pwn?glob.ts',
+    'pwn{brace}.ts',
+    'pwn\\escape.ts',
+    'pwn!bang.ts',
+    'pwn#hash.ts',
+    'pwn~tilde.ts',
+  ]
+
+  for (const name of hostileNames) {
+    assert.equal(
+      isInScopePath(`src/lib/${name}`),
+      false,
+      `expected src/lib/${name} to be rejected as an unsafe path`,
+    )
+    assert.deepEqual(
+      computeScope([`packages/shared/src/lib/${name}`]).matrix.include,
+      [],
+      `expected packages/shared/src/lib/${name} to produce an empty matrix`,
+    )
+  }
+})
+
+test('still accepts the square brackets of Next.js dynamic route segments', () => {
+  assert.equal(isInScopePath('src/modules/auth/backend/roles/[id]/edit/page.meta.ts'), true)
+})
+
+test('a manual dispatch selection is filtered by the same scope rules as a diff', () => {
+  const changed = explicitChangedFiles('shared', 'src/lib/boolean.ts, src/lib/number.ts')
+
+  assert.deepEqual(changed, [
+    'packages/shared/src/lib/boolean.ts',
+    'packages/shared/src/lib/number.ts',
+  ])
+  assert.deepEqual(computeScope(changed).matrix.include, [
+    { package: 'shared', mutate: 'src/lib/boolean.ts,src/lib/number.ts' },
+  ])
+})
+
+test('a manual dispatch cannot mutate a non-allowlisted package or an out-of-scope file', () => {
+  assert.deepEqual(
+    computeScope(explicitChangedFiles('core', 'src/lib/thing.ts')).matrix.include,
+    [],
+  )
+  assert.deepEqual(
+    computeScope(explicitChangedFiles('shared', 'src/lib/thing.test.ts')).matrix.include,
+    [],
+  )
+  assert.deepEqual(
+    computeScope(explicitChangedFiles('shared', 'src/lib/pwn$(id).ts')).matrix.include,
+    [],
+  )
+})
+
+test('an empty dispatch selection yields no work rather than mutating everything', () => {
+  assert.deepEqual(explicitChangedFiles('shared', ''), [])
+  assert.deepEqual(explicitChangedFiles('', 'src/lib/boolean.ts'), [])
+})
+
+test('parseArgs reads the dispatch package and mutate selection', () => {
+  const args = parseArgs(['--package', 'shared', '--mutate', 'src/lib/boolean.ts'])
+
+  assert.equal(args.package, 'shared')
+  assert.equal(args.mutate, 'src/lib/boolean.ts')
+})
+
+test('parseArgs leaves the dispatch selection null for a plain diff run', () => {
+  const args = parseArgs(['--base', 'origin/main'])
+
+  assert.equal(args.base, 'origin/main')
+  assert.equal(args.package, null)
+  assert.equal(args.mutate, null)
 })

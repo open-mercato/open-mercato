@@ -46,8 +46,32 @@ const OUT_OF_SCOPE_SEGMENTS = Object.freeze([
   '/testing/',
 ])
 
+/**
+ * The mutate list this module emits is consumed as a command argument
+ * (`stryker run --mutate <list>`), and its input is the diff of a pull request that
+ * anyone may open — so a changed path is untrusted text, not a trusted filename.
+ *
+ * The allowlist is derived from what the repository actually contains rather than
+ * guessed: across all 2376 in-scope `.ts` files, the only characters outside
+ * `[A-Za-z0-9._/-]` are the square brackets of Next.js dynamic route segments
+ * (87 `page.meta.ts` files such as `.../roles/[id]/edit/page.meta.ts`), which are
+ * inert once the value is passed through the environment. Anything else — a space,
+ * `$`, a backtick, a quote, `;`, `|`, `&`, `(`, `)`, a newline — is not a legitimate
+ * source path here, so it is dropped at the source.
+ *
+ * An allowlist rather than a denylist of shell metacharacters, and enforced here
+ * rather than only at the call site, so the guarantee does not depend on every
+ * present and future consumer quoting the value correctly.
+ */
+const SAFE_PATH_PATTERN = /^[A-Za-z0-9._/[\]-]+$/
+
+export function hasSafePathCharacters(relativePath) {
+  return typeof relativePath === 'string' && SAFE_PATH_PATTERN.test(relativePath)
+}
+
 export function isInScopePath(relativePath) {
   if (typeof relativePath !== 'string' || relativePath === '') return false
+  if (!hasSafePathCharacters(relativePath)) return false
   if (!relativePath.endsWith('.ts')) return false
   if (relativePath.endsWith('.d.ts')) return false
   if (relativePath.endsWith('.test.ts')) return false
@@ -123,11 +147,17 @@ function defaultRunGit(args) {
 }
 
 export function parseArgs(argv) {
-  const args = { base: DEFAULT_BASE_REF }
+  const args = { base: DEFAULT_BASE_REF, package: null, mutate: null }
 
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--base' && index + 1 < argv.length) {
       args.base = argv[index + 1]
+      index += 1
+    } else if (argv[index] === '--package' && index + 1 < argv.length) {
+      args.package = argv[index + 1]
+      index += 1
+    } else if (argv[index] === '--mutate' && index + 1 < argv.length) {
+      args.mutate = argv[index + 1]
       index += 1
     }
   }
@@ -135,9 +165,28 @@ export function parseArgs(argv) {
   return args
 }
 
+/**
+ * Turns an explicit `--package`/`--mutate` selection into the same repository-root
+ * paths a diff would have produced, so a manually dispatched run is filtered by
+ * exactly the allowlist, scope and character rules a pull-request run is. An
+ * operator-supplied file that would never be mutated from a diff is not mutated
+ * from a dispatch either.
+ */
+export function explicitChangedFiles(packageName, mutateList) {
+  if (typeof packageName !== 'string' || packageName === '') return []
+  return String(mutateList ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+    .map((entry) => `packages/${packageName}/${entry}`)
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2))
-  const changedFiles = readChangedFiles(args.base)
+  const changedFiles =
+    args.package === null && args.mutate === null
+      ? readChangedFiles(args.base)
+      : explicitChangedFiles(args.package, args.mutate)
   const { matrix, dropped } = computeScope(changedFiles)
 
   for (const entry of dropped) {

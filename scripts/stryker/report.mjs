@@ -56,10 +56,22 @@ function sliceOriginal(source, location) {
   return [first, ...middle, last].join('\n')
 }
 
+/**
+ * Survivor cells carry arbitrary source text into a markdown table that is also
+ * posted as a PR comment, so two characters have to be neutralised: `|` would break
+ * the table structure, and a backtick would close the inline code span the cell
+ * wraps its content in.
+ *
+ * Escaping the backtick is also what keeps `@mention` text inert. GitHub does not
+ * linkify a mention inside a code span, so an intact span means a mutated line
+ * containing `@someone` renders as text instead of notifying that person — the span
+ * only leaks if a stray backtick ends it early, which is exactly what this prevents.
+ */
 function toSingleLine(text) {
   return String(text ?? '')
     .replace(/\s+/g, ' ')
     .replace(/\|/g, '\\|')
+    .replace(/`/g, '\\`')
     .trim()
 }
 
@@ -190,27 +202,44 @@ export function parseReportArgs(argv) {
   return args
 }
 
-function main() {
-  const args = parseReportArgs(process.argv.slice(2))
+/**
+ * The report the summary shows when Stryker died before writing mutation.json. The
+ * reporting step runs `if: always()` precisely so a failed run still explains itself,
+ * so this path must reach the job summary like any other — a crashed run that leaves
+ * the summary blank buries its only explanation in the step log.
+ */
+export function renderMissingReportMarkdown(packageName = null) {
+  const suffix = packageName === null ? '' : ` for \`${packageName}\``
+  return (
+    `## Mutation testing\n\nNo mutation report was produced${suffix}. ` +
+    'The mutation run did not get far enough to write `mutation.json` — check the ' +
+    'mutation step above for the failure.\n'
+  )
+}
 
-  if (args.reportPath === null || !fs.existsSync(args.reportPath)) {
-    process.stdout.write(
-      `## Mutation testing\n\nNo mutation report was produced${args.packageName === null ? '' : ` for \`${args.packageName}\``}.\n`,
-    )
-    return
-  }
-
-  const report = JSON.parse(fs.readFileSync(args.reportPath, 'utf8'))
-  const markdown = renderMarkdown(report, {
-    packageName: args.packageName,
-    enforced: args.enforced,
-  })
-
+function emit(markdown) {
   process.stdout.write(markdown)
 
   if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown)
   }
+}
+
+function main() {
+  const args = parseReportArgs(process.argv.slice(2))
+
+  if (args.reportPath === null || !fs.existsSync(args.reportPath)) {
+    emit(renderMissingReportMarkdown(args.packageName))
+    return
+  }
+
+  const report = JSON.parse(fs.readFileSync(args.reportPath, 'utf8'))
+  emit(
+    renderMarkdown(report, {
+      packageName: args.packageName,
+      enforced: args.enforced,
+    }),
+  )
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
