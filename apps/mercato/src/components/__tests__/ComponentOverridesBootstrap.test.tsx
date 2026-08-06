@@ -6,10 +6,17 @@ import '@testing-library/jest-dom'
 import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { getComponentOverrides, registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { ComponentOverridesBootstrap } from '../ComponentOverridesBootstrap'
 
 jest.mock('@/.mercato/generated/component-overrides.generated', () => ({
-  componentOverrideEntries: [{ componentOverrides: [{ target: { componentId: 'test' }, priority: 1 }] }],
+  componentOverrideEntries: [{
+    componentOverrides: [{
+      target: { componentId: 'test' },
+      priority: 1,
+      propsTransform: (props: { label: string }) => ({ ...props, label: 'Override active' }),
+    }],
+  }],
 }))
 
 describe('ComponentOverridesBootstrap', () => {
@@ -17,13 +24,21 @@ describe('ComponentOverridesBootstrap', () => {
     registerComponentOverrides([])
   })
 
-  it('preserves child state when asynchronous overrides activate', async () => {
+  it('preserves child state and updates mounted consumers when asynchronous overrides activate', async () => {
+    function Label({ label }: { label: string }) {
+      return <span>{label}</span>
+    }
+
     function StatefulChild() {
       const [count, setCount] = React.useState(0)
+      const ResolvedLabel = useRegisteredComponent<{ label: string }>('test', Label)
       return (
-        <button type="button" onClick={() => setCount((value) => value + 1)}>
-          Count {count}
-        </button>
+        <>
+          <button type="button" onClick={() => setCount((value) => value + 1)}>
+            Count {count}
+          </button>
+          <ResolvedLabel label="Fallback active" />
+        </>
       )
     }
 
@@ -33,9 +48,11 @@ describe('ComponentOverridesBootstrap', () => {
       </ComponentOverridesBootstrap>,
     )
 
+    expect(screen.getByText('Fallback active')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Count 0' }))
     expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
     await waitFor(() => expect(getComponentOverrides('test')).toHaveLength(1))
+    await waitFor(() => expect(screen.getByText('Override active')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
   })
 })
