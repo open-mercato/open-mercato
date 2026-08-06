@@ -17,9 +17,15 @@ export function invalidateWidgetCache() {
   widgetEntriesPromise = null;
   widgetCache.clear();
 }
+/**
+ * An empty resolution means the module registry was not populated yet — a boot
+ * race, not "this app has no dashboard widgets". Memoizing it would serve an
+ * empty registry for the lifetime of the process, so the entry is dropped and
+ * the next call retries. A rejected resolution is dropped for the same reason.
+ */
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = Promise.resolve().then(() => {
+    const pending = Promise.resolve().then(() => {
       const list = getModules() as Module[]
       const entries = list.flatMap((mod) => {
         const moduleEntries = mod.dashboardWidgets ?? []
@@ -30,6 +36,20 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
       })
       return applyDashboardWidgetOverridesToEntries(entries) as WidgetEntry[]
     })
+    widgetEntriesPromise = pending
+    const forgetWhenUnusable = (entries: WidgetEntry[] | null) => {
+      if (widgetEntriesPromise === pending && (entries === null || entries.length === 0)) {
+        widgetEntriesPromise = null
+      }
+    }
+    try {
+      const entries = await pending
+      forgetWhenUnusable(entries)
+      return entries
+    } catch (err) {
+      forgetWhenUnusable(null)
+      throw err
+    }
   }
   return widgetEntriesPromise
 }

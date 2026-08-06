@@ -106,6 +106,12 @@ export async function GET(req: Request) {
   )
   const allowedWidgets = widgets.filter((w) => allowedIds.includes(w.metadata.id))
 
+  // An empty widget registry means the module registry has not been populated yet
+  // (a boot race), not that this app has no widgets. Every write below is derived
+  // from it, so a read request must persist nothing until it recovers — otherwise a
+  // restart-recoverable glitch is written into saved layouts for good (#5041).
+  const registryLoaded = widgets.length > 0
+
   let layout = await loadScopeLayout(em, scope)
   let items = layout ? normalizeLayoutItems(layout.layoutJson) : []
   let hasChanged = false
@@ -120,15 +126,17 @@ export async function GET(req: Request) {
       size: widget.metadata.defaultSize ?? DEFAULT_SIZE,
       settings: widget.metadata.defaultSettings ?? undefined,
     }))
-    layout = em.create(DashboardLayout, {
-      userId: scope.userId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      layoutJson: items,
-    })
-    em.persist(layout)
-    hasChanged = true
-  } else {
+    if (registryLoaded) {
+      layout = em.create(DashboardLayout, {
+        userId: scope.userId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        layoutJson: items,
+      })
+      em.persist(layout)
+      hasChanged = true
+    }
+  } else if (registryLoaded) {
     const existingLayout = layout
     const filtered = items.filter((item) => allowedIds.includes(item.widgetId))
     if (filtered.length !== items.length) {
