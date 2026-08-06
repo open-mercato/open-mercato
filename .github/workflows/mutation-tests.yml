@@ -84,10 +84,15 @@ jobs:
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
           DISPATCH_PACKAGE: ${{ inputs.package }}
           DISPATCH_MUTATE: ${{ inputs.mutate }}
         run: |
-          if [ -n "${DISPATCH_PACKAGE}" ] || [ -n "${DISPATCH_MUTATE}" ]; then
+          # Branch on the event, not on whether the inputs happen to be populated: a
+          # dispatch whose inputs were cleared must resolve to "nothing in scope" and
+          # skip, not fall through to a diff against an empty base ref and fail the
+          # one job in this workflow that is deliberately allowed to go red.
+          if [ "${IS_DISPATCH}" = "true" ]; then
             MATRIX=$(node scripts/stryker/scope.mjs --package "${DISPATCH_PACKAGE}" --mutate "${DISPATCH_MUTATE}")
           else
             MATRIX=$(node scripts/stryker/scope.mjs --base "${BASE_SHA}")

@@ -174,7 +174,7 @@ test('passes the diff-derived mutate list through the environment, quoted', () =
 })
 
 test('exposes a workflow_dispatch trigger so the mutate job can be proven on demand', () => {
-  const dispatch = workflow.on.workflow_dispatch
+  const dispatch = (workflow.on ?? workflow[true]).workflow_dispatch
 
   assert.ok(dispatch, 'workflow_dispatch is what makes the runner path executable on demand')
   assert.ok(dispatch.inputs.package, 'a dispatch must be able to name the package')
@@ -187,6 +187,15 @@ test('the scope job routes a dispatch selection through scope.mjs rather than tr
   assert.equal(scopeStep.env.DISPATCH_PACKAGE, '${{ inputs.package }}')
   assert.equal(scopeStep.env.DISPATCH_MUTATE, '${{ inputs.mutate }}')
   assert.match(scopeStep.run, /scope\.mjs --package "\$\{DISPATCH_PACKAGE\}"/)
+})
+
+test('the scope job branches on the event, not on whether dispatch inputs are populated', () => {
+  const scopeStep = workflow.jobs.scope.steps.find((step) => step.id === 'scope')
+
+  // A dispatch with cleared inputs must skip cleanly rather than diff against an
+  // empty base ref and redden the one job allowed to go red.
+  assert.equal(scopeStep.env.IS_DISPATCH, "${{ github.event_name == 'workflow_dispatch' }}")
+  assert.match(scopeStep.run, /if \[ "\$\{IS_DISPATCH\}" = "true" \]/)
 })
 
 test('the advisory comment job cannot turn an infrastructure hiccup into a merge blocker', () => {
