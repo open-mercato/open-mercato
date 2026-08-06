@@ -1,9 +1,10 @@
 /**
- * Regression tests for #5041 — the layout GET is a read endpoint and must not
- * write a layout derived from a widget registry that came back empty. Before the
- * fix, a boot-race empty registry made GET intersect every saved layout with an
- * empty allowlist and persist the result, so the data loss survived the restart
- * that repaired the registry.
+ * Regression tests for #5041 on the write path. `PUT` filters the submitted layout
+ * through an allowlist derived from the widget registry and persists the result
+ * unconditionally, so a boot-race empty registry made it save `[]` while answering
+ * `{ ok: true }` — the same data loss as the `GET` trim, but worse, because the whole
+ * layout is replaced and the client is told the save succeeded. The handler now
+ * refuses the write while the registry is empty.
  */
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -48,6 +49,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async () => null),
 }))
 
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
+  validateCrudMutationGuard: jest.fn(async () => ({ ok: true, shouldRunAfterSuccess: false, metadata: null })),
+  runCrudMutationGuardAfterSuccess: jest.fn(async () => undefined),
+}))
+
 jest.mock('@open-mercato/core/modules/dashboards/lib/widgets', () => ({
   loadAllWidgets: (...args: unknown[]) => loadAllWidgetsMock(...args),
 }))
@@ -56,81 +62,76 @@ jest.mock('@open-mercato/core/modules/dashboards/lib/access', () => ({
   resolveAllowedWidgetIds: (...args: unknown[]) => resolveAllowedWidgetIdsMock(...args),
 }))
 
-import { GET } from '../route'
+import { PUT } from '../route'
 
 const savedItems = [
   { id: layoutItemId, widgetId: 'sales-summary', order: 0, priority: 0, size: 'md' },
 ]
 
-function buildRequest(): Request {
-  return new Request('http://localhost/api/dashboards/layout', { method: 'GET' })
+function buildRequest(items: unknown[]): Request {
+  return new Request('http://localhost/api/dashboards/layout', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items }),
+  })
 }
 
-describe('#5041: dashboards layout GET with an empty widget registry', () => {
+describe('#5041: dashboards layout PUT with an empty widget registry', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     em.fork.mockReturnValue(em)
     em.flush.mockResolvedValue(undefined)
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
-    rbac.getEffectiveFeatures.mockResolvedValue(['dashboards.view'])
+    rbac.userHasAllFeatures.mockResolvedValue(true)
+    rbac.getEffectiveFeatures.mockResolvedValue(['dashboards.view', 'dashboards.configure'])
     resolveAllowedWidgetIdsMock.mockResolvedValue([])
   })
 
-  it('serves the saved layout untouched and persists nothing', async () => {
+  it('refuses the write and leaves the stored layout untouched', async () => {
     const storedLayout = { id: 'layout-1', layoutJson: [...savedItems] }
     em.findOne.mockResolvedValue(storedLayout)
     loadAllWidgetsMock.mockResolvedValue([])
 
-    const response = await GET(buildRequest())
+    const response = await PUT(buildRequest(savedItems))
     const body = await response.json()
 
-    expect(response.status).toBe(200)
-    expect(body.layout.items).toHaveLength(1)
-    expect(body.layout.items[0].widgetId).toBe('sales-summary')
+    expect(response.status).toBe(503)
+    expect(body.ok).toBeUndefined()
     expect(storedLayout.layoutJson).toEqual(savedItems)
     expect(em.flush).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()
   })
 
-  it('does not seed a layout row for a first-time user', async () => {
+  it('does not create a layout row for a first-time user', async () => {
     em.findOne.mockResolvedValue(null)
     loadAllWidgetsMock.mockResolvedValue([])
 
-    const response = await GET(buildRequest())
+    const response = await PUT(buildRequest(savedItems))
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(503)
     expect(em.create).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
   })
 
-  it('still prunes widgets the user lost access to when the registry is healthy', async () => {
-    const storedLayout = {
-      id: 'layout-1',
-      layoutJson: [
-        ...savedItems,
-        { id: '77777777-7777-4777-8777-777777777777', widgetId: 'revoked-widget', order: 1, priority: 1, size: 'md' },
-      ],
-    }
+  it('still saves normally when the registry is healthy', async () => {
+    const storedLayout = { id: 'layout-1', layoutJson: [] as unknown[] }
     em.findOne.mockResolvedValue(storedLayout)
     loadAllWidgetsMock.mockResolvedValue([
       { key: 'core:sales:widget', moduleId: 'sales', metadata: { id: 'sales-summary', title: 'Sales' } },
     ])
     resolveAllowedWidgetIdsMock.mockResolvedValue(['sales-summary'])
 
-    const response = await GET(buildRequest())
+    const response = await PUT(buildRequest(savedItems))
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body.layout.items.map((item: { widgetId: string }) => item.widgetId)).toEqual(['sales-summary'])
+    expect(body).toEqual({ ok: true })
+    expect(storedLayout.layoutJson.map((item: any) => item.widgetId)).toEqual(['sales-summary'])
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
-  // The guard keys off the registry, not off the allowlist. A user whose allowlist is
-  // legitimately empty on a healthy registry — every widget revoked, or a tenant with no
-  // grants yet — must still be pruned exactly as before, or a future refactor could
-  // conflate "no widgets registered" with "no widgets allowed" and disable trimming.
-  it('still trims to an empty layout when the registry is healthy but the allowlist is empty', async () => {
+  it('still drops a submitted widget the user is not allowed to place', async () => {
     const storedLayout = { id: 'layout-1', layoutJson: [...savedItems] }
     em.findOne.mockResolvedValue(storedLayout)
     loadAllWidgetsMock.mockResolvedValue([
@@ -138,28 +139,10 @@ describe('#5041: dashboards layout GET with an empty widget registry', () => {
     ])
     resolveAllowedWidgetIdsMock.mockResolvedValue([])
 
-    const response = await GET(buildRequest())
-    const body = await response.json()
+    const response = await PUT(buildRequest(savedItems))
 
     expect(response.status).toBe(200)
-    expect(body.layout.items).toEqual([])
     expect(storedLayout.layoutJson).toEqual([])
-    expect(em.flush).toHaveBeenCalledTimes(1)
-  })
-
-  it('seeds defaults for a first-time user when the registry is healthy', async () => {
-    em.findOne.mockResolvedValue(null)
-    loadAllWidgetsMock.mockResolvedValue([
-      { key: 'core:sales:widget', moduleId: 'sales', metadata: { id: 'sales-summary', title: 'Sales', defaultEnabled: true } },
-    ])
-    resolveAllowedWidgetIdsMock.mockResolvedValue(['sales-summary'])
-
-    const response = await GET(buildRequest())
-    const body = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(body.layout.items.map((item: { widgetId: string }) => item.widgetId)).toEqual(['sales-summary'])
-    expect(em.persist).toHaveBeenCalledTimes(1)
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 })

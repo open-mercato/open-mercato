@@ -34,8 +34,14 @@ Two compounding problems:
 
 - Not removing the trim itself when the registry is healthy — pruning widgets a user
   genuinely lost access to stays the intended behavior.
-- No change to the PUT path or to `resolveAllowedWidgetIds`.
+- No change to `resolveAllowedWidgetIds`.
 - No new invalidation triggers for `invalidateWidgetCache()`.
+
+Originally "no change to the PUT path" was a non-goal too. Review of #5054 showed
+`PUT` carries the *same* data loss — it filters the submitted layout through the
+same registry-derived allowlist and persists `[]` while answering `{ ok: true }` —
+so leaving it would have shipped a fix that reads as "layouts are safe now" while
+the write path stayed exposed. It is in scope as of Phase 3.
 
 ## Risks
 
@@ -59,3 +65,12 @@ PR: #5054
 - [x] 2.1 Skip every layout write when the widget registry is empty — 21b527666
 - [x] 2.2 Unit tests: no flush and no layout mutation on an empty registry — 21b527666
 - [x] 2.3 Run the full validation gate
+
+### Phase 3: Review follow-up (#5054 changes-requested)
+
+- [ ] 3.1 Refuse the layout PUT with 503 while the widget registry is empty, and document the 503 in the OpenAPI doc
+- [ ] 3.2 Unit tests: PUT persists nothing on an empty registry, still saves and still filters on a healthy one
+- [ ] 3.3 Drop a rejected widget-module loader from `widgetCache` instead of memoizing it, with a regression test
+- [ ] 3.4 Rename `registryLoaded` to `hasRegisteredWidgets`, matching the client-side name for the same idea
+- [ ] 3.5 Pin the boundary the new flag sits on: a healthy registry with an empty allowlist must still trim and still seed
+- [ ] 3.6 Re-run the full validation gate

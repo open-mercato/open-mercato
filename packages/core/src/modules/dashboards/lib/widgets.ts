@@ -85,6 +85,14 @@ async function loadEntry(entry: WidgetEntry): Promise<LoadedWidgetModule> {
     const promise = entry.loader()
       .then((mod) => ensureValidWidgetModule(mod, entry.key, entry.moduleId))
     widgetCache.set(entry.key, promise)
+    // Same policy as the entries cache above: a rejected resolution is a transient
+    // failure (a dynamic import that lost a race), not a permanent fact about the
+    // widget. Memoizing it would make loadAllWidgets() reject for the lifetime of the
+    // process. The identity check mirrors `widgetEntriesPromise === pending`, so a
+    // concurrent invalidateWidgetCache() is never clobbered.
+    promise.catch(() => {
+      if (widgetCache.get(entry.key) === promise) widgetCache.delete(entry.key)
+    })
   }
   return widgetCache.get(entry.key)!
 }
