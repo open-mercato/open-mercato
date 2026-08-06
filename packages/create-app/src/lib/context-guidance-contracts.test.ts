@@ -654,3 +654,39 @@ test('public lead eval keeps the request business-oriented while owners enforce 
   assert.match(sensitiveData, /Let `TenantDataEncryptionService` populate it/)
   assert.match(sensitiveData, /`lookupHashCandidates\(value\)` from `@open-mercato\/shared\/lib\/encryption\/aes`/)
 })
+
+test('every compatibility-required case routes guidance that names the backward-compatibility guide', () => {
+  const cases = JSON.parse(readAgentic('shared/ai/harness/cases.json')) as Array<{
+    id: string
+    context: { required: string[] }
+  }>
+  const registry = JSON.parse(readAgentic('shared/ai/harness/validators.json')) as {
+    catalog: { compatibilityRequiredCaseIds: string[] }
+  }
+  const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
+  // The scaffolded root carries one generic contract-surface line, which is why it is deliberately
+  // excluded here: OMH-169 sat in this registry for three days while that line was the only thing
+  // pointing at the guide, and the model never opened it. The assertion is that the *routed* chain —
+  // the guides and skills the case's own context selects — names the guide too. Generated
+  // fact-sheets and the guide itself are skipped; they have no source counterpart to read.
+  const routedSource = (reference: string): string | null => {
+    if (reference.startsWith('.ai/skills/')) return `shared/ai/${reference.slice('.ai/'.length)}`
+    if (reference.startsWith('.ai/guides/modules/') || reference.startsWith('.ai/guides/upstream/')) return null
+    if (reference.startsWith('.ai/guides/')) return `guides/${reference.slice('.ai/guides/'.length)}`
+    return null
+  }
+  const withoutRoutedPointer = registry.catalog.compatibilityRequiredCaseIds.filter((id) => {
+    const record = cases.find((entry) => entry.id === id)
+    assert.ok(record, `${id} is registered as compatibility-required but is missing from the catalog`)
+    return !record.context.required
+      .filter((reference) => reference !== compatibilityPath)
+      .map(routedSource)
+      .filter((source): source is string => source !== null && fs.existsSync(path.join(agenticRoot, source)))
+      .some((source) => readAgentic(source).includes('BACKWARD_COMPATIBILITY.md'))
+  })
+  assert.deepEqual(
+    withoutRoutedPointer,
+    [],
+    'these compatibility-required cases route no guide or skill that names the backward-compatibility guide',
+  )
+})
