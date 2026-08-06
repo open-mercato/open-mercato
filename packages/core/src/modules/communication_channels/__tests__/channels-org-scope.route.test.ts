@@ -2,6 +2,7 @@
 
 import { GET as listChannels } from '../api/get/channels/route'
 import { GET as getChannel } from '../api/get/channels/[id]/route'
+import { GET as getChannelHealth } from '../api/get/channels/[id]/health/route'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
@@ -10,6 +11,7 @@ const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const HOME_ORG_ID = '223e4567-e89b-12d3-a456-426614174001'
 const OTHER_ORG_ID = '223e4567-e89b-12d3-a456-426614174002'
 const CHANNEL_ID = '323e4567-e89b-12d3-a456-426614174001'
+const OTHER_ORG_CHANNEL_ID = '323e4567-e89b-12d3-a456-426614174002'
 
 type ChannelRecord = {
   id: string
@@ -47,7 +49,18 @@ const homeOrgChannel: ChannelRecord = {
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
 }
 
-const channelStore: ChannelRecord[] = [homeOrgChannel]
+// A second shared channel in the organization the admin can switch to. It only
+// joins the store in the cases that assert cross-organization visibility, so the
+// single-channel expectations above stay exact.
+const otherOrgChannel: ChannelRecord = {
+  ...homeOrgChannel,
+  id: OTHER_ORG_CHANNEL_ID,
+  organizationId: OTHER_ORG_ID,
+  displayName: 'Resend marketing email',
+  externalIdentifier: 'marketing@resend.dev',
+}
+
+const channelStore: ChannelRecord[] = []
 
 function matchesOrganizationFilter(record: ChannelRecord, expected: unknown): boolean {
   if (expected === undefined) return true
@@ -129,6 +142,8 @@ function makeRequest(path: string, selectedOrganizationId?: string): Request {
 
 describe('communication_channels channel reads follow the selected organization (#5012)', () => {
   beforeEach(() => {
+    channelStore.length = 0
+    channelStore.push(homeOrgChannel)
     listWhereCalls.length = 0
     detailWhereCalls.length = 0
     mockEm.find.mockClear()
@@ -207,5 +222,56 @@ describe('communication_channels channel reads follow the selected organization 
 
     expect(response.status).toBe(404)
     expect(detailWhereCalls[0].organizationId).toEqual({ $in: [OTHER_ORG_ID] })
+  })
+
+  test('health reads 404 for a channel outside the selected organization', async () => {
+    const response = await getChannelHealth(
+      makeRequest(`/api/communication_channels/channels/${CHANNEL_ID}/health`, OTHER_ORG_ID),
+      { params: { id: CHANNEL_ID } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(detailWhereCalls[0].organizationId).toEqual({ $in: [OTHER_ORG_ID] })
+  })
+
+  test('a super-admin with no selection sees every organization in the tenant', async () => {
+    channelStore.push(otherOrgChannel)
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: TENANT_ID,
+      orgId: HOME_ORG_ID,
+      isSuperAdmin: true,
+      roles: ['superadmin'],
+    })
+    mockLoadAcl.mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null })
+
+    const response = await listChannels(makeRequest('/api/communication_channels/channels'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.total).toBe(2)
+    expect(body.items.map((item: { id: string }) => item.id).sort()).toEqual(
+      [CHANNEL_ID, OTHER_ORG_CHANNEL_ID].sort(),
+    )
+    expect(listWhereCalls[0]).not.toHaveProperty('organizationId')
+  })
+
+  test('a selection the caller cannot access falls back to the accessible organizations', async () => {
+    channelStore.push(otherOrgChannel)
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['communication_channels.view', 'communication_channels.admin'],
+      organizations: [HOME_ORG_ID],
+    })
+
+    const response = await listChannels(
+      makeRequest('/api/communication_channels/channels', OTHER_ORG_ID),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(listWhereCalls[0].organizationId).toEqual({ $in: [HOME_ORG_ID] })
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].id).toBe(CHANNEL_ID)
   })
 })
