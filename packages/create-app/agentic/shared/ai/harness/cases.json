@@ -14033,28 +14033,28 @@
     },
     "expectedRouter": {
       "required": [
-        "architecture"
+        "umes"
       ],
       "allowedExtra": [
+        "architecture",
         "module-data",
-        "umes",
-        "framework-context",
-        "backend-ui"
+        "backend-ui",
+        "framework-context"
       ]
     },
-    "requiredSkills": [
-      "om-help"
-    ],
+    "requiredSkills": [],
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/entities.md"
       ],
       "allowedExtra": [
         ".ai/guides/contracts.md",
+        ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/query_index.md"
       ],
       "warn": [
@@ -14084,9 +14084,9 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 7,
-    "maxInitialContextBytes": 36864,
-    "maxTotalContextBytes": 94208,
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 106496,
     "relatedCases": [
       "OMH-002",
       "OMH-194"
@@ -14290,14 +14290,11 @@
         "framework-context"
       ]
     },
-    "requiredSkills": [
-      "om-help"
-    ],
+    "requiredSkills": [],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md",
         ".ai/guides/modules/onboarding.md"
       ],
       "allowedExtra": [
@@ -14331,9 +14328,9 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 36864,
-    "maxTotalContextBytes": 73728,
+    "maxContextFiles": 5,
+    "maxInitialContextBytes": 32768,
+    "maxTotalContextBytes": 61440,
     "relatedCases": [
       "OMH-002",
       "OMH-194"
@@ -14346,7 +14343,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, jobs are being booked onto staff who are part-time, on holiday, or already committed elsewhere, because nothing in the system knows when each person is actually free. The team wants recurring weekly patterns plus one-off exceptions, wants a single pattern shared by everyone on the same shift instead of retyped per person, and wants other parts of the application to be able to ask the same question. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing availability versus changing it, and identify the smallest relevant validation. Do not model your own availability, shift, or working-hours tables before establishing whether an installed module already owns this capability.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, jobs are being booked onto staff who are part-time, on holiday, or already committed elsewhere, because nothing in the system knows when each person is actually free. The team wants recurring weekly patterns plus one-off exceptions, wants a single pattern shared by everyone on the same shift instead of retyped per person, and wants other parts of the application to be able to ask the same question. Before proposing any schema, establish whether an installed module already owns this capability and name it, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing availability versus changing it, and identify the smallest relevant validation. Do not model your own availability, shift, or working-hours tables, and do not scaffold a new module, before that check is done.",
     "tags": [
       "architecture",
       "module-facts",
@@ -14372,18 +14369,16 @@
         "backend-ui"
       ]
     },
-    "requiredSkills": [
-      "om-help"
-    ],
+    "requiredSkills": [],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/architecture.md",
-        ".ai/skills/om-help/SKILL.md",
         ".ai/guides/modules/planner.md"
       ],
       "allowedExtra": [
         ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-data-model-design/SKILL.md"
       ],
       "warn": [
@@ -14414,8 +14409,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 7,
-    "maxInitialContextBytes": 36864,
-    "maxTotalContextBytes": 61440,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 77824,
     "relatedCases": [
       "OMH-002",
       "OMH-194"

@@ -89,7 +89,6 @@ The test applied to each module, all four conditions required for a case to be w
 | `onboarding` | `onboarding_requests` | 3 | case | #4603 names "a second onboarding flow" explicitly; a hand-rolled signup bypasses the verification feature. |
 | `planner` | `planner_availability_rule_sets`, `planner_availability_rules` | 2 | case | "Staff working hours so bookings land in open slots" invites a private availability table; loses the shared rules other modules consume. |
 | `translations` | `entity_translations` | 3 | case | Per-entity translation columns are the classic re-model; loses the locale overlay applied to CRUD responses. |
-
 | `design_system` | none | 1 (`design_system.view`) | **no case** | See below — fails (a), same class as `api_docs`. |
 
 ### The two exemptions: `api_docs` and `design_system`
@@ -137,11 +136,11 @@ Calibration rule, applied identically to all ten and rounded to the 4 KiB grid:
 | OMH-205 | `business_rules` | 3 / 20 785 | 6 / 46 198 | 75 100 | 8 | 53 248 | 86 016 |
 | OMH-206 | `dashboards` | 3 / 20 785 | 6 / 45 175 | 85 580 | 8 | 53 248 | 94 208 |
 | OMH-207 | `directory` | 3 / 20 785 | 5 / 33 893 | 60 166 | 7 | 40 960 | 69 632 |
-| OMH-208 | `entities` | 3 / 20 785 | 5 / 31 400 | 83 637 | 7 | 36 864 | 94 208 |
+| OMH-208 | `entities` | 3 / 28 870 | 7 / 49 825 | 90 729 | 9 | 57 344 | 106 496 |
 | OMH-209 | `inbox_ops` | 3 / 20 785 | 5 / 36 846 | 82 479 | 7 | 40 960 | 94 208 |
 | OMH-210 | `messages` | 3 / 20 785 | 4 / 29 142 | 109 091 | 6 | 36 864 | 118 784 |
-| OMH-211 | `onboarding` | 3 / 20 785 | 4 / 29 142 | 63 310 | 6 | 36 864 | 73 728 |
-| OMH-212 | `planner` | 3 / 20 785 | 5 / 31 400 | 50 292 | 7 | 36 864 | 61 440 |
+| OMH-211 | `onboarding` | 2 / 18 968 | 3 / 27 326 | 51 978 | 5 | 32 768 | 61 440 |
+| OMH-212 | `planner` | 2 / 18 968 | 5 / 34 050 | 48 173 | 7 | 40 960 | 77 824 |
 | OMH-213 | `translations` | 3 / 20 785 | 5 / 41 447 | 53 944 | 7 | 49 152 | 65 536 |
 
 Global ceilings are untouched and none is approached: `maxContextFiles` 16, `maxInitialContextBytes`
@@ -155,6 +154,31 @@ Two calibration consequences worth recording:
   gain and weakens the assertion, so extras stay on conceptual guides, skills, and small related
   sheets. An early draft declaring `.ai/guides/modules/customers.md` (216 249 B) pushed three cases
   past the 262 144 B global ceiling; that is a measurement result, not a style preference.
+
+### Three cases recalibrated from live evidence
+
+The declared-set calibration above was the starting point; three cases were then corrected against
+what live routing actually did, which is the stronger measurement. This is the same move the #4602
+audit made for OMH-199/200/201 (§3.2) — align the assertion with what correct routing selects, and
+keep the fact-sheet in `context.required`, which is the part that fails when an agent hand-rolls the
+capability.
+
+- **OMH-208 `entities`** routed to `umes`, not `architecture`, and opened `om-system-extension`
+  rather than `om-help`. For a "custom fields and record types" prompt that is the *correct* domain —
+  `architecture` was the guess. Its required context now names the `umes` route's own standard guide
+  and skill, and its budgets come from the live footprint.
+- **OMH-211 `onboarding`** produced the right route, the fact-sheet read, and all four decisions with
+  **no skill opened at all**. Requiring `om-help` asserted process rather than outcome, so neither the
+  skill nor its `SKILL.md` is required any more.
+- **OMH-212 `planner`** was the only case that never read its own fact-sheet: it routed to
+  "scaffold a new module" instead of "reuse the installed one". That is the prompt failing at its one
+  job, so the prompt now demands the installed owner be named *before* any schema is proposed. It
+  reads `planner.md` on the re-run.
+
+`requiredSkills` is empty on these three rather than naming a skill: every skill live routing did
+select is already the standard skill of a route the case permits (`ROUTE_STANDARD_CONTEXT`), so it is
+allowed without being asserted. An `optionalSkills` entry cannot express this — the evaluator requires
+an optional skill's route to be an `allowedExtra` route, never a required one.
 
 ### Metadata caveat
 
