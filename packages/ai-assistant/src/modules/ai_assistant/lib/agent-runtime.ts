@@ -1891,11 +1891,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
   if (builtToolLoopAgent !== undefined) {
     // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
-    // pipeline. prepareStep is already wired at construction (security-critical).
+    // pipeline. prepareStep is already wired at construction (security-critical),
+    // and so is `onStepFinish` — passing it here too makes the SDK merge both
+    // wirings without dedup, so the budget enforcer and the loop trace would count
+    // every step twice and abort the turn before the final answer (#5042).
     const agentStreamResult = await builtToolLoopAgent.stream({
       messages: modelMessages,
       abortSignal: abortController.signal,
-      onStepFinish: wiredOnStepFinish,
     })
     if (wallClockTimer !== undefined) {
       const clearTimer = () => clearTimeout(wallClockTimer!)
