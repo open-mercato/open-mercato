@@ -216,13 +216,20 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   /**
    * Delivers an event to all registered in-memory handlers.
    * Supports wildcard pattern matching for event patterns.
+   *
+   * Handler errors are logged and delivery continues - one bad subscriber must
+   * not stop the others. The count of failed PERSISTENT handlers is returned so
+   * the caller can decide whether the inline run may be recorded as complete:
+   * a persistent subscriber that threw inline has no retry of its own, so the
+   * queued job must stay unstamped and let the worker run it again.
    */
   async function deliver(
     event: string,
     payload: EventPayload,
     options?: EmitOptions,
     skipPersistent = false,
-  ): Promise<void> {
+  ): Promise<{ persistentFailures: number }> {
+    let persistentFailures = 0
     // Check all registered patterns (including wildcards)
     for (const [pattern, handlers] of listeners) {
       if (!matchEventPattern(event, pattern)) continue
@@ -250,10 +257,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             }),
           )
         } catch (error) {
+          if (persistentSubscribers.has(subscriber)) {
+            persistentFailures += 1
+          }
           logger.error('Handler error', { event, pattern, err: error })
         }
       }
     }
+    return { persistentFailures }
   }
 
   /**
@@ -401,9 +412,11 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     const enqueueOnly = Boolean(options?.persistent) && options?.deliverInline === false
     // Read the mode once so the inline skip and the stamp below cannot disagree.
     const singleDelivery = isSingleDeliveryEnabled()
+    let inlinePersistentFailed = false
     if (!enqueueOnly) {
       const skipPersistentInline = Boolean(options?.persistent) && singleDelivery
-      await deliver(event, payload, options, skipPersistentInline)
+      const delivered = await deliver(event, payload, options, skipPersistentInline)
+      inlinePersistentFailed = delivered.persistentFailures > 0
     }
 
     if (isBroadcastEvent(event) && hasTenantScope(payload)) {
@@ -421,7 +434,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
         event,
         payload,
         options,
-        persistentDeliveredInline: !enqueueOnly && !singleDelivery,
+        // Only record the inline run as complete when every persistent
+        // subscriber actually succeeded. Inline delivery logs-and-continues, so a
+        // handler that threw has no retry of its own; leaving the job unstamped
+        // hands it to the worker, where a failure gets queue retry and
+        // dead-lettering. Without this, flipping the flag off (which the
+        // `mercato server` guard can do automatically) silently downgrades
+        // persistent delivery to at-most-once.
+        persistentDeliveredInline: !enqueueOnly && !singleDelivery && !inlinePersistentFailed,
       })
     }
   }

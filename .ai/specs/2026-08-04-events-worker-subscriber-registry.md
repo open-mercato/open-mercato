@@ -74,7 +74,8 @@ are dead code at runtime.
 Add one additive method to `EventBus`:
 
 ```ts
-dispatchQueued(
+// optional, so the interface change stays ADDITIVE-ONLY
+dispatchQueued?(
   event: string,
   payload: EventPayload,
   options?: EmitOptions,
@@ -106,7 +107,12 @@ dead-letters with a visible cause rather than disappearing.
 ### 3. A per-job delivery stamp
 
 The bus stamps `persistentDeliveredInline: true` on the enqueued job when it ran the persistent
-subscribers inline (i.e. single-delivery is off), and the worker skips such jobs. Delivery mode
+subscribers inline (i.e. single-delivery is off) **and every one of them succeeded**, and the worker
+skips such jobs. The success condition matters: inline delivery logs-and-continues, so a persistent
+handler that throws there has no retry. Stamping unconditionally would strand it - the worker would
+skip a job whose only run failed - silently downgrading persistent delivery to at-most-once in exactly
+the configuration `applyEventsSingleDeliveryGuard` selects automatically. Leaving a failed inline run
+unstamped hands the retry back to the queue. Delivery mode
 becomes a property of the job rather than something each process infers from its own env, so the
 producer and the consumer cannot disagree. The stamp only ever suppresses dispatch, so no path
 starts running more work, and jobs queued before the upgrade (no stamp) keep the previous behavior.
@@ -119,8 +125,10 @@ path - exactly what a split app/worker deployment sets `AUTO_SPAWN_WORKERS=false
 
 ## Migration & Backward Compatibility
 
-- `dispatchQueued` and `QueuedDispatchResult` are **additive** to `EventBus` / the package types
-  (`BACKWARD_COMPATIBILITY.md` §2 ADDITIVE-ONLY). No existing signature changes.
+- `dispatchQueued` is an **optional** member of `EventBus`, and `QueuedDispatchResult` is a new type,
+  so this stays ADDITIVE-ONLY (`BACKWARD_COMPATIBILITY.md` §2): a custom bus written before this
+  release still satisfies the interface. The worker runtime-guards for the member and throws when it
+  is absent, so fail-loud does not depend on the type. No existing signature changes.
 - `clearListenerCache()` is exported from `events.worker.ts` and stays as a `@deprecated` no-op for at
   least one minor, per the deprecation protocol.
 - `persistentDeliveredInline` is optional on the queued job payload, so jobs already sitting in
@@ -167,6 +175,9 @@ No API route or UI path changes, so no new Playwright specs. Unit coverage:
 ## Changelog
 
 - 2026-08-04: Initial spec.
+- 2026-08-06: Stamp is now conditional on inline persistent handlers succeeding (review feedback):
+  unconditional stamping removed queue retry for the flag-off path, which the CLI guard can select
+  automatically. `dispatchQueued` made optional on `EventBus` to keep the type change ADDITIVE-ONLY.
 - 2026-08-06: Worker-side selection no longer reads `OM_EVENTS_SINGLE_DELIVERY` (review feedback):
   the flag-off branch was only reachable under producer/worker env skew, where it re-ran ephemeral
   subscribers and missed wildcards. Documented the residual empty-registry path and added a worker

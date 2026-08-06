@@ -155,6 +155,12 @@ export interface EventBus {
   /**
    * Dispatch a queued event to the subscribers the events worker owns.
    *
+   * Optional so this stays an ADDITIVE-ONLY change to a contract surface
+   * (`BACKWARD_COMPATIBILITY.md`): a custom `EventBus` written before this
+   * release still satisfies the interface. The events worker runtime-guards for
+   * it and throws an actionable error when it is absent, so the fail-loud
+   * behaviour does not depend on the type.
+   *
    * Selects every subscriber whose registered pattern matches `event` and is
    * marked `persistent`, so wildcard (`event: '*'`) persistent subscribers are
    * reached. The selection does not depend on `OM_EVENTS_SINGLE_DELIVERY`:
@@ -170,7 +176,7 @@ export interface EventBus {
    * @param options - Trusted scope recorded on the queued job
    * @returns One entry per dispatched subscriber, `error` set on failure
    */
-  dispatchQueued(
+  dispatchQueued?(
     event: string,
     payload: EventPayload,
     options?: EmitOptions,

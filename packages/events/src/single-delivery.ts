@@ -35,6 +35,13 @@ export function isSingleDeliveryRequested(env: EnvSource = process.env): boolean
   return parseBooleanWithDefault(env[EVENTS_SINGLE_DELIVERY_ENV], true)
 }
 
+/**
+ * @deprecated Not read at runtime by this package - the bus never reconciles the
+ * flag against worker availability. The live consumer is the `mercato server`
+ * bootstrap, which mirrors this logic in
+ * `packages/cli/src/lib/events-single-delivery.ts` (the CLI cannot import this
+ * package). Kept for one minor because it is published API.
+ */
 export function isExternalWorkerAcknowledged(env: EnvSource = process.env): boolean {
   return parseBooleanWithDefault(env[EVENTS_EXTERNAL_WORKER_ENV], false)
 }
@@ -52,12 +59,18 @@ export type SingleDeliveryReconciliation = {
  * the events worker dispatches them. If no worker drains the queue, those
  * persistent side effects (notifications, queued emails, indexing) never run.
  *
- * The durable queue already covers transient worker downtime — a job persists
+ * The durable queue already covers transient worker downtime - a job persists
  * and drains when a worker returns. The dangerous case is a process configured
  * to run with NO events worker at all (auto-spawn off and no external worker).
  * For that case this fails safe: it disables single-delivery so persistent
- * subscribers run inline (dual-dispatch) and side effects are never dropped,
- * and surfaces a loud warning telling the operator how to opt back in.
+ * subscribers run inline, and surfaces a loud warning telling the operator how
+ * to move the work back off the request path.
+ *
+ * @deprecated Not read at runtime by this package - the bus never reconciles the
+ * flag against worker availability. The live consumer is the `mercato server`
+ * bootstrap, which mirrors this logic in
+ * `packages/cli/src/lib/events-single-delivery.ts` (the CLI cannot import this
+ * package). Kept for one minor because it is published API.
  */
 export function reconcileSingleDelivery(input: {
   requested: boolean
@@ -71,8 +84,8 @@ export function reconcileSingleDelivery(input: {
       `[events] ${EVENTS_SINGLE_DELIVERY_ENV} is on (default) but this process auto-spawns no events worker ` +
       `(AUTO_SPAWN_WORKERS=off) and ${EVENTS_EXTERNAL_WORKER_ENV} is not set. Persistent subscribers would be ` +
       `skipped inline with nothing to drain the queue, silently dropping notifications, queued emails, and ` +
-      `indexing. Falling back to legacy inline dual-dispatch for safety. To keep single-delivery, run an events ` +
-      `worker (\`mercato queue worker events\`) and set ${EVENTS_EXTERNAL_WORKER_ENV}=true, or enable ` +
-      `AUTO_SPAWN_WORKERS.`,
+      `indexing. Running them inline instead, on the caller's request path. To move this work back off ` +
+      `the request path, run an events worker (\`mercato queue worker events\`) and set ` +
+      `${EVENTS_EXTERNAL_WORKER_ENV}=true, or enable AUTO_SPAWN_WORKERS.`,
   }
 }

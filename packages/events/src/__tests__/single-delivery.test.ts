@@ -84,6 +84,40 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: true })
   })
 
+  test('flag OFF: a failed inline persistent subscriber leaves the job unstamped for the worker', async () => {
+    // Inline delivery logs-and-continues, so a persistent subscriber that throws
+    // there gets no retry of its own. Stamping the job would strand it: the
+    // worker would skip a job whose only run failed, silently downgrading
+    // persistent delivery to at-most-once. Leaving it unstamped hands the retry
+    // back to the queue.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([
+      { id: 'boom', event: 'demo', persistent: true, handler: () => { throw new Error('downstream down') } },
+    ])
+
+    await bus.emit('demo', { a: 1 }, { persistent: true })
+
+    expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: false })
+  })
+
+  test('flag OFF: a failed EPHEMERAL subscriber does not unstamp the job', async () => {
+    // Ephemeral subscribers are never worker-dispatched, so their failure must
+    // not hand the job to the worker - that would re-run the persistent ones.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    const calls: string[] = []
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([
+      { id: 'ephemeral-boom', event: 'demo', persistent: false, handler: () => { throw new Error('nope') } },
+      makeSub('persistent-ok', 'demo', true, calls),
+    ])
+
+    await bus.emit('demo', { a: 1 }, { persistent: true })
+
+    expect(calls).toEqual(['persistent-ok'])
+    expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: true })
+  })
+
   test('flag ON: a persistent subscriber is skipped inline (deferred to the worker)', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
     const calls: string[] = []

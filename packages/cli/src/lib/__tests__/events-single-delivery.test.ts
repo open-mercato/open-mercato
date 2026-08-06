@@ -66,14 +66,12 @@ describe('applyEventsSingleDeliveryGuard', () => {
     errorSpy.mockRestore()
   })
 
-  // Interlock with the bus-side guard in @open-mercato/events/single-delivery:
-  // `hasWorkerAvailabilitySignal` treats an EXPLICITLY truthy
-  // OM_EVENTS_SINGLE_DELIVERY as proof that a supervisor already verified worker
-  // availability. If this guard ever stopped writing an explicit truthy token,
-  // every process it launches would silently fall back to inline delivery.
-  // The CLI cannot import the events package to assert that directly, so pin the
-  // written token here.
-  it('writes an explicit truthy token the bus-side guard accepts as a worker signal', () => {
+  // The written value is what the spawned children actually consume: the guard
+  // copies it into the child `runtimeEnv`, so a Next.js or worker process started
+  // by `mercato server` reads this explicit token instead of re-deriving the
+  // default. An empty or non-boolean value would silently hand children the
+  // default-on behaviour the guard just decided against, so pin the token here.
+  it('writes an explicit boolean token into the env handed to spawned children', () => {
     const processEnv: NodeJS.ProcessEnv = {}
     const runtimeEnv: NodeJS.ProcessEnv = {}
 

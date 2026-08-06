@@ -2,6 +2,9 @@ import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EventBus, QueuedDispatchResult } from '../../../types'
 
+/** An `EventBus` proven at runtime to implement the optional `dispatchQueued`. */
+type DispatchCapableBus = EventBus & Required<Pick<EventBus, 'dispatchQueued'>>
+
 export const EVENTS_QUEUE_NAME = 'events'
 
 const logger = createLogger('events')
@@ -48,7 +51,7 @@ type HandlerContext = {
  * so that is the single source of truth. When it is missing, fail the job loudly
  * rather than repeat the silent drop.
  */
-function resolveEventBus(ctx: HandlerContext, event: string): EventBus {
+function resolveEventBus(ctx: HandlerContext, event: string): DispatchCapableBus {
   let bus: unknown
   try {
     bus = ctx.resolve('eventBus')
@@ -68,7 +71,7 @@ function resolveEventBus(ctx: HandlerContext, event: string): EventBus {
       `so it retries instead of dropping the event's subscribers.`,
     )
   }
-  return bus as EventBus
+  return bus as DispatchCapableBus
 }
 
 function reportFailures(event: string, results: QueuedDispatchResult[]): void {
