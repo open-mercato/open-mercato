@@ -1386,12 +1386,18 @@ export class HybridQueryEngine implements QueryEngine {
 
     switch (op) {
       case 'eq':
-        return builder.where((eb: any) => eb.or([
-          sql<boolean>`${textExpr} = ${value}`,
-          arrContains(value),
-        ]))
+        // An unset custom field has no array element to contain, so the
+        // arrContains branch cannot match it — compare the text value only.
+        return value === null
+          ? builder.where(sql<boolean>`${textExpr} is null`)
+          : builder.where((eb: any) => eb.or([
+              sql<boolean>`${textExpr} = ${value}`,
+              arrContains(value),
+            ]))
       case 'ne':
-        return builder.where(sql<boolean>`${textExpr} <> ${value}`)
+        return value === null
+          ? builder.where(sql<boolean>`${textExpr} is not null`)
+          : builder.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const values = this.toArray(value)
         return builder.where((eb: any) => eb.or(
@@ -1517,12 +1523,18 @@ export class HybridQueryEngine implements QueryEngine {
     }
     switch (op) {
       case 'eq':
-        return q.where((eb: any) => eb.or([
-          sql<boolean>`${textExpr} = ${value}`,
-          arrContains(value),
-        ]))
+        // An unset custom field has no array element to contain, so the
+        // arrContains branch cannot match it — compare the text value only.
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is null`)
+          : q.where((eb: any) => eb.or([
+              sql<boolean>`${textExpr} = ${value}`,
+              arrContains(value),
+            ]))
       case 'ne':
-        return q.where(sql<boolean>`${textExpr} <> ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
         return q.where((eb: any) => eb.or(
@@ -1589,9 +1601,13 @@ export class HybridQueryEngine implements QueryEngine {
     }
     switch (op) {
       case 'eq':
-        return q.where(sql<boolean>`${textExpr} = ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is null`)
+          : q.where(sql<boolean>`${textExpr} = ${value}`)
       case 'ne':
-        return q.where(sql<boolean>`${textExpr} <> ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -1709,8 +1725,8 @@ export class HybridQueryEngine implements QueryEngine {
   ): any {
     const textExpr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${key})`
     switch (op) {
-      case 'eq': return sql<boolean>`${textExpr} = ${value}`
-      case 'ne': return sql<boolean>`${textExpr} <> ${value}`
+      case 'eq': return value === null ? sql<boolean>`${textExpr} is null` : sql<boolean>`${textExpr} = ${value}`
+      case 'ne': return value === null ? sql<boolean>`${textExpr} is not null` : sql<boolean>`${textExpr} <> ${value}`
       case 'gt':
       case 'gte':
       case 'lt':

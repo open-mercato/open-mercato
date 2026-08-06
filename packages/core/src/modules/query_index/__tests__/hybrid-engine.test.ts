@@ -1339,3 +1339,153 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
     })
   })
 })
+
+describe('doc-field null equality (issue #4841)', () => {
+  const serializeWheres = (db: any, table: string): string[] =>
+    (db._chains as ChainLog[])
+      .filter((chain) => chain.table === table)
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) =>
+        JSON.stringify(entry, (_key, inner) =>
+          inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+        ),
+      )
+      .filter((serialized: string) => serialized.includes('->>'))
+
+  // The synthetic base table declares neither `started_at` nor `ended_at`, so both
+  // filters resolve against entity_indexes.doc instead of a real column — this
+  // covers the doc path only; entities with physical timestamp columns take the
+  // already-null-safe base-column path.
+  const runFilters = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+
+    return serializeWheres(db, 'todos')
+  }
+
+  test('doc-backed null filters compile to null-safe doc predicates', async () => {
+    const predicates = await runFilters({ started_at: { $ne: null }, ended_at: null })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    const combined = predicates.join('\n')
+    // `(doc ->> 'ended_at') = NULL` and `<> NULL` are never TRUE, which silently
+    // emptied the active-timer lookup instead of narrowing it.
+    expect(combined).toContain('is null')
+    expect(combined).toContain('is not null')
+    expect(combined).not.toContain('<>')
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('non-null doc comparisons keep using the equality operators', async () => {
+    const predicates = await runFilters({ ended_at: '2026-01-01' })
+
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(true)
+    expect(predicates.join('\n')).not.toContain('is null')
+  })
+
+  // Boundary pin: entities whose filtered fields ARE physical columns (like
+  // staff_time_entries.started_at/ended_at) never reach the doc builders — the
+  // base-column path emits the null-safe predicates on its own.
+  test('physical-column null filters take the base-column path, not the doc path', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'started_at' },
+        { table_name: 'todos', column_name: 'ended_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { started_at: { $ne: null }, ended_at: null },
+    })
+
+    expect(serializeWheres(db, 'todos')).toHaveLength(0)
+    const columnWheres = (db._chains as ChainLog[])
+      .filter((chain) => chain.table === 'todos')
+      .flatMap((chain) => chain.wheres as any[])
+    expect(columnWheres).toContainEqual(['b.started_at', 'is not', null])
+    expect(columnWheres).toContainEqual(['b.ended_at', 'is', null])
+  })
+
+  // Custom-field values are doc-backed too, so the cf: filter builders need the
+  // same null handling — an unset cf must be findable with `$eq: null`.
+  const runCfFilters = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+
+    return (db._chains as ChainLog[])
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) =>
+        JSON.stringify(entry, (_key, inner) =>
+          inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+        ),
+      )
+      .filter((serialized: string) => serialized.includes('->>'))
+  }
+
+  test('an unset custom field is matched with is null rather than = null', async () => {
+    const predicates = await runCfFilters({ 'cf:priority': null })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    const combined = predicates.join('\n')
+    expect(combined).toContain('is null')
+    // `@> '[null]'::jsonb` cannot match an absent value, so the eq-null branch
+    // must not fall back to the array-contains form.
+    expect(combined).not.toContain('@>')
+  })
+
+  test('a set custom field is matched with is not null rather than <> null', async () => {
+    const predicates = await runCfFilters({ 'cf:priority': { $ne: null } })
+
+    expect(predicates.join('\n')).toContain('is not null')
+    expect(predicates.join('\n')).not.toContain('<>')
+  })
+})

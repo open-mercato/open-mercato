@@ -4,7 +4,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import { resolveCustomerInteractionFeatureFlags } from '../../../../lib/interactionFeatureFlags'
-import { CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE } from '../../../../lib/interactionCompatibility'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
@@ -91,7 +90,6 @@ export async function GET(req: Request) {
             organizationIds ?? null,
             {
               includeDeleted: true,
-              source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
               limit: mergedWindow,
             },
           ),
