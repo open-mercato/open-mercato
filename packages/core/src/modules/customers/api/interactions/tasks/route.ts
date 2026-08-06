@@ -8,7 +8,6 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema } from '../../openapi'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { resolveCustomersRequestContext } from '../../../lib/interactionRequestContext'
-import { CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE } from '../../../lib/interactionCompatibility'
 import {
   filterTodoRows,
   listCanonicalTodoRows,
@@ -33,9 +32,9 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
 }
 
-// Per-source fetch cap used when the legacy adapter must merge legacy and
-// canonical-bridge rows without DB-side union. Bounds memory on tenants with
-// large task history.
+// Per-source fetch cap used when compatibility mode must merge legacy todo
+// links and canonical task rows without DB-side union. Bounds memory on
+// tenants with large task history.
 const MERGED_TASK_FETCH_CAP = 2000
 
 export async function GET(request: Request): Promise<Response> {
@@ -91,7 +90,6 @@ export async function GET(request: Request): Promise<Response> {
         {
           entityId: query.entityId,
           includeDeleted: true,
-          source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
           limit: legacyWindow,
         },
       ),
