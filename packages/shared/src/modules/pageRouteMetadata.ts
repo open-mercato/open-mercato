@@ -5,6 +5,11 @@
  * This lives in its own module rather than in `registry.ts` so `overrides.ts` can reuse
  * it without an import cycle (`registry.ts` imports the override appliers). `registry.ts`
  * re-exports `resolvePageRouteMetadata` so its published import path stays valid.
+ *
+ * Because `overrides.ts` feeds this module-authored override metadata it deliberately treats
+ * as untrusted (it warns and skips on malformed keys and values), the guard arrays are copied
+ * behind an `Array.isArray` check: a mistyped `requireRoles` in one app's `modules.ts` must not
+ * throw while route manifests are being built, nor be spread into a bogus character array.
  */
 import type { ModuleRouteMetadata, PageMetadata } from './registry'
 
@@ -12,10 +17,10 @@ export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata
   return {
     pattern: pattern || '/',
     requireAuth: metadata?.requireAuth,
-    requireRoles: metadata?.requireRoles ? [...metadata.requireRoles] : undefined,
-    requireFeatures: metadata?.requireFeatures ? [...metadata.requireFeatures] : undefined,
+    requireRoles: Array.isArray(metadata?.requireRoles) ? [...metadata.requireRoles] : undefined,
+    requireFeatures: Array.isArray(metadata?.requireFeatures) ? [...metadata.requireFeatures] : undefined,
     requireCustomerAuth: metadata?.requireCustomerAuth,
-    requireCustomerFeatures: metadata?.requireCustomerFeatures ? [...metadata.requireCustomerFeatures] : undefined,
+    requireCustomerFeatures: Array.isArray(metadata?.requireCustomerFeatures) ? [...metadata.requireCustomerFeatures] : undefined,
     nav: metadata?.nav,
     title: metadata?.pageTitle ?? metadata?.title,
     titleKey: metadata?.pageTitleKey ?? metadata?.titleKey,

@@ -394,6 +394,23 @@ describe('applyPageOverridesToManifests', () => {
     expect(result[0].title).toBe('Original')
   })
 
+  it('tolerates a malformed guard on an override instead of breaking manifest construction', () => {
+    const entries = [makeBackendPage('/backend/example')]
+
+    expect(() => applyPageOverridesToManifests(entries, {
+      // @ts-expect-error intentionally malformed: requireRoles must be an array
+      '/backend/example': { metadata: { requireRoles: 5, pageOrder: 5 } },
+    }, 'backend')).not.toThrow()
+
+    const result = applyPageOverridesToManifests(entries, {
+      // @ts-expect-error intentionally malformed: a bare string must not become a character array
+      '/backend/example': { metadata: { requireRoles: 'admin' } },
+    }, 'backend')
+
+    expect(result).toHaveLength(1)
+    expect(result[0].requireRoles).not.toEqual(['a', 'd', 'm', 'i', 'n'])
+  })
+
   it('lets programmatic page overrides supersede modules.ts inline overrides', () => {
     applyModuleOverridesFromEnabledModules([
       {
