@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import { parseEnv } from 'node:util'
 import spawn from 'cross-spawn'
 import {
   attachLoggedProcessStreams,
@@ -585,9 +586,49 @@ function buildSplashChildEnv(options = {}) {
   }
 }
 
+const localDevEnvFileNames = [
+  '.env',
+  '.env.development',
+  '.env.local',
+  '.env.development.local',
+]
+
+function resolveLocalDevEnvFileValue(appDir, key) {
+  let resolvedValue
+
+  for (const fileName of localDevEnvFileNames) {
+    try {
+      const fileValue = parseEnv(fs.readFileSync(path.join(appDir, fileName), 'utf8'))[key]
+      if (fileValue !== undefined) {
+        resolvedValue = fileValue
+      }
+    } catch {}
+  }
+
+  return resolvedValue
+}
+
+function resolveLocalDevModuleResourceUsageDir() {
+  const appDir = isMonorepo
+    ? path.join(process.cwd(), 'apps', 'mercato')
+    : process.cwd()
+  const shellValue = process.env.OM_MODULE_RESOURCE_USAGE_DIR
+  if (typeof shellValue === 'string' && shellValue.trim() !== '') {
+    return shellValue
+  }
+
+  const envFileValue = resolveLocalDevEnvFileValue(appDir, 'OM_MODULE_RESOURCE_USAGE_DIR')
+  if (typeof envFileValue === 'string' && envFileValue.trim() !== '') {
+    return envFileValue
+  }
+
+  return path.join(appDir, '.mercato', 'next', 'module-resource-usage')
+}
+
 function applyLocalDevBackgroundServiceDefaults(childEnv) {
   const env = {
     ...(childEnv ?? {}),
+    OM_MODULE_RESOURCE_USAGE_DIR: resolveLocalDevModuleResourceUsageDir(),
     OM_DEV_WARMUP_READY_FILE: (childEnv && 'OM_DEV_WARMUP_READY_FILE' in childEnv)
       ? childEnv.OM_DEV_WARMUP_READY_FILE
       : warmupReadyFilePath,

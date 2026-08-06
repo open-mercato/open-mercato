@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/telemetry",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Vendor-neutral spans, metrics, and error reporting backed by a pluggable OTLP provider. Off by default; the telemetry runtime is loaded only when explicitly enabled.",
   "type": "module",
   "main": "./dist/index.js",
