@@ -67,21 +67,21 @@
     }
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1085.0",
-    "@aws-sdk/s3-request-presigner": "^3.1085.0",
+    "@aws-sdk/client-s3": "3.1085.0",
+    "@aws-sdk/s3-request-presigner": "3.1085.0",
     "@open-mercato/core": "workspace:*"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.6.10",
+    "@mikro-orm/postgresql": "6.6.10",
     "@open-mercato/shared": "workspace:*"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
-    "@types/jest": "^30.0.0",
-    "esbuild": "^0.28.1",
-    "glob": "^13.0.6",
-    "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
+    "@types/jest": "30.0.0",
+    "esbuild": "0.28.1",
+    "glob": "13.0.6",
+    "jest": "30.4.2",
+    "ts-jest": "29.4.11",
     "typescript": "7.0.2"
   },
   "publishConfig": {
