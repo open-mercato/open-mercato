@@ -153,6 +153,19 @@ The run mutates real files on disk (Stryker's sandbox is incompatible with our p
 configs), so it refuses to start on a dirty working tree. If a run is ever killed mid-flight,
 `git checkout -- .` restores everything.
 
+### Running the CI workflow on demand
+
+Because the gate is diff-scoped, the CI job only runs when a pull request happens to touch an
+in-scope file — which makes it awkward to verify the workflow itself, or to debug a run that
+misbehaved. The **Mutation tests** workflow therefore accepts a manual dispatch:
+
+```bash
+gh workflow run mutation-tests.yml -f package=shared -f mutate=src/lib/boolean.ts
+```
+
+The selection is filtered by exactly the same allowlist, scope and path rules a diff-derived run
+uses, so a dispatch cannot mutate a package or a file the automatic path would have skipped.
+
 ### A surviving mutant is a question, not a verdict
 
 Three different findings look identical in the report, and only the first one means "write a test":

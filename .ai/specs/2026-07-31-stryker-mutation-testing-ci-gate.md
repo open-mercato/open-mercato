@@ -321,6 +321,17 @@ Nothing persists between runs; nothing else depends on it.
 > **To enable it, after that decision:** set the `MUTATION_ENFORCE` repository variable to `'true'`.
 > That is the whole change — no code edit, no workflow edit. Reverting is setting it back.
 >
+> **Verify one thing at the moment of flipping the flag: that `vars` actually reaches fork pull
+> requests.** Every enforcement decision reads `vars.MUTATION_ENFORCE` and falls back to the
+> advisory branch when the value is absent. While the gate is dormant that is harmless, because
+> absent and `'false'` mean the same thing. Once the variable is `'true'` they stop being
+> equivalent: if configuration variables are not exposed to `pull_request` runs from forks,
+> enforcement would be silently **off** for exactly the external contributions it is most meant to
+> scrutinise and **on** for internal branches — an asymmetry nobody would notice, because both
+> states render as a passing check. Confirm it with one `workflow_dispatch` run plus one fork PR
+> before trusting the flag; if `vars` does not reach fork runs, drive enforcement from a committed
+> value in the workflow instead of a repository variable.
+>
 > One design note. Step 2 below says "set `thresholds.break`". It is implemented in
 > `scripts/stryker/enforce.mjs` rather than in Stryker's own `thresholds.break`, which stays `null`.
 > Stryker's built-in break has no notion of the minimum-mutant floor, so it would fail a four-mutant

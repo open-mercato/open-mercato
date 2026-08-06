@@ -20,7 +20,9 @@
  * Usage:
  *   node scripts/stryker/enforce.mjs <mutation.json> [--threshold 70] [--min-mutants 20]
  *
- * Exits 1 only when enforcement is enabled AND the run genuinely failed.
+ * Exits 1 only when enforcement is enabled AND the run genuinely failed — including
+ * the case where no report exists at all, since an absent report is missing evidence
+ * rather than a pass.
  *
  * @see .ai/specs/2026-07-31-stryker-mutation-testing-ci-gate.md
  */
@@ -124,8 +126,22 @@ export function parseEnforceArgs(argv) {
 function main() {
   const args = parseEnforceArgs(process.argv.slice(2))
 
+  // A missing report means the run produced no evidence, which is not the same as
+  // evidence of a pass. While enforcement is off that distinction does not matter and
+  // this stays advisory; with enforcement on, the module that owns the pass/fail
+  // decision must not answer "no data ⇒ pass" — an absent report is the shape a
+  // crashed or misconfigured mutation step takes, so it fails closed.
   if (args.reportPath === null || !fs.existsSync(args.reportPath)) {
-    process.stdout.write('[stryker:enforce] No mutation report found; nothing to enforce.\n')
+    if (isEnforcementEnabled()) {
+      process.stdout.write(
+        '[stryker:enforce] No mutation report found and enforcement is enabled; failing closed.\n',
+      )
+      process.exit(1)
+    }
+
+    process.stdout.write(
+      '[stryker:enforce] No mutation report found; nothing to enforce (advisory).\n',
+    )
     return
   }
 

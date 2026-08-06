@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import {
   DEFAULT_BREAK_THRESHOLD,
   DEFAULT_MIN_MUTANTS,
@@ -7,6 +9,8 @@ import {
   isEnforcementEnabled,
   parseEnforceArgs,
 } from '../stryker/enforce.mjs'
+
+const ENFORCE_SCRIPT = fileURLToPath(new URL('../stryker/enforce.mjs', import.meta.url))
 
 const LOCATION = { start: { line: 1, column: 1 }, end: { line: 1, column: 5 } }
 
@@ -103,4 +107,38 @@ test('parses the threshold and floor overrides', () => {
     threshold: 85,
     minMutants: 5,
   })
+})
+
+function runEnforceCli({ args = [], env = {} } = {}) {
+  return spawnSync(process.execPath, [ENFORCE_SCRIPT, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, MUTATION_ENFORCE: '', ...env },
+  })
+}
+
+test('fails closed when the report is absent and enforcement is enabled', () => {
+  const result = runEnforceCli({
+    args: ['/nonexistent/mutation.json'],
+    env: { MUTATION_ENFORCE: 'true' },
+  })
+
+  assert.equal(result.status, 1)
+  assert.match(result.stdout, /No mutation report found and enforcement is enabled/)
+})
+
+test('stays advisory when the report is absent and enforcement is disabled', () => {
+  const result = runEnforceCli({ args: ['/nonexistent/mutation.json'] })
+
+  assert.equal(result.status, 0)
+  assert.match(result.stdout, /nothing to enforce \(advisory\)/)
+})
+
+test('an absent report is missing evidence, not a pass — the two modes differ', () => {
+  const advisory = runEnforceCli({ args: ['/nonexistent/mutation.json'] })
+  const enforced = runEnforceCli({
+    args: ['/nonexistent/mutation.json'],
+    env: { MUTATION_ENFORCE: 'true' },
+  })
+
+  assert.notEqual(advisory.status, enforced.status)
 })
