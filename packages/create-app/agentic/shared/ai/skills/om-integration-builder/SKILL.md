@@ -25,7 +25,6 @@ A new or complete provider implementation cannot stop at this file: `references/
 ## Rules
 
 - Provider-specific code belongs to its app module or published provider package, not generic integrations/data-sync/core setup. Never create an undeclared `packages/*` workspace in a standalone app.
-- Keeping a public provider, handler, descriptor, event, or route ID stable — and any defer-or-remove plan for a superseded provider phase — is a contract-surface decision: read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` before proposing it.
 - Provider credentials, mappings, external IDs, and cursors stay in this skill; do not add `om-data-model-design` unless the brief also creates a separate business-domain schema.
 - Never log/return secrets, bypass SSRF/signature checks, or advance a cursor after an uncommitted/failed page.
 - When those decision labels are offered, commit a cursor only after a successful page (`cursor-after-success`) and bound retries to transient provider failures (`transient-retry`).
