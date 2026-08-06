@@ -26,7 +26,16 @@ import { Migration } from '@mikro-orm/migrations';
 // migrations one-by-one, so this opt-out is safe (same pattern as
 // Migration20260611103000_query_index). Drop first so retrying a failed
 // concurrent build removes PostgreSQL's invalid index stub instead of letting
-// IF NOT EXISTS silently accept it.
+// IF NOT EXISTS silently accept it: a half-built concurrent index is left
+// INVALID, the planner ignores it, and IF NOT EXISTS would report success while
+// the table stays unindexed.
+//
+// On a database that does not have the index yet — every fresh install — the
+// drop is a no-op and there is no window without it. An operator who already
+// created this index out of band should expect it to be rebuilt here, and the
+// document-scoped scans to fall back to their pre-index cost until the
+// concurrent build finishes; on a large table, run this while the writers that
+// depend on it are paused.
 export class Migration20260806120000_sales_tag_assignment_document_idx extends Migration {
 
   override isTransactional(): boolean {
