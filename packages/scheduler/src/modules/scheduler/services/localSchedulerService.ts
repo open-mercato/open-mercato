@@ -31,14 +31,19 @@ export interface LocalSchedulerConfig {
  * 
  * Features:
  * - PostgreSQL polling (configurable interval, default 30s)
- * - PostgreSQL advisory locks for duplicate prevention
+ * - In-process duplicate prevention across overlapping poll ticks
  * - Supports both queue and command targets
  * - Emits the same events as async strategy
  * - Updates nextRunAt after execution
- * 
+ *
  * Limitations:
  * - Polling delay (up to configured interval)
- * - Single instance only (no distributed locking across instances)
+ * - Single instance only (no distributed locking across instances). Duplicate
+ *   prevention is in-process only: the advisory lock serialises the claim, not
+ *   the execution, and nextRunAt is advanced only after the target has run, so
+ *   two processes polling the same database will both execute a due schedule.
+ *   Run exactly one process with QUEUE_STRATEGY=local, or use the async
+ *   strategy, which locks across instances.
  * - Higher database load than async strategy
  * 
  * Set QUEUE_STRATEGY=local to use this service.
@@ -68,6 +73,9 @@ export class LocalSchedulerService {
 
     this.isRunning = true
     logger.info('Starting polling engine', { pollIntervalMs: this.config.pollIntervalMs })
+    logger.warn(
+      'Local scheduler strategy provides no cross-process protection: duplicate prevention is in-process only, so a second process polling the same database will execute the same due schedule. Run exactly one process with QUEUE_STRATEGY=local, or use the async strategy for distributed locking.',
+    )
 
     // Run initial poll immediately
     await this.poll()

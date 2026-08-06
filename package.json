@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "packageManager": "yarn@4.17.1+sha512.ccbfabf7d7b6b32075088be9386fb9a2e00bb6887ef07fa56effabc890a56d53da1ccc4128d62db245fcbd3961b236d75335bdf7d5320ed6eafb7588b7ad4697",
   "engines": {
@@ -78,6 +78,8 @@
     "release:patch": "./scripts/release-patch.sh",
     "release:minor": "./scripts/release-minor.sh",
     "release:major": "./scripts/release-major.sh",
+    "release:bump": "./scripts/bump-version.sh",
+    "release:check-unpublished": "./scripts/check-version-unpublished.sh",
     "i18n:check-sync": "tsx scripts/i18n-check-sync.ts",
     "i18n:check-usage": "tsx scripts/i18n-check-usage.ts",
     "i18n:check-hardcoded": "tsx scripts/i18n-check-hardcoded.ts",
@@ -144,7 +146,7 @@
     "dotenv": "^17.4.2",
     "lucide-react": "^1.27.0",
     "newrelic": "^14.3.4",
-    "next": "16.2.12",
+    "next": "16.3.0",
     "pdfjs-dist": "^6.1.200",
     "pg": "8.22.0",
     "react": "19.2.8",

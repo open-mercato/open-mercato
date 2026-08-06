@@ -17,14 +17,103 @@ import {
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 
 const logger = createLogger('customer_accounts').child({ component: 'admin-users-invite' })
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const metadata = {}
 
 function resolveInvitedByUserId(auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>): string | null {
   if (auth.isApiKey) return auth.userId ?? null
   return auth.sub
+}
+
+function parsePositiveInt(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+// Pending invitations are the only trace a not-yet-accepted invite leaves: the
+// customer user row is created on accept, so every users-backed surface (admin
+// users list, the CRM person "account status" widget) shows the same empty
+// state right after a successful invite (#4950). This read surface makes that
+// pending state queryable. The one-time token stays server-side.
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+  }
+
+  const container = await createRequestContainer()
+  const rbacService = container.resolve('rbacService') as RbacService
+  const hasAccess = await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.view'], { tenantId: auth.tenantId, organizationId: auth.orgId })
+  if (!hasAccess) {
+    return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
+  }
+
+  const url = new URL(req.url)
+  // A non-numeric page/pageSize must not reach the query as NaN.
+  const page = Math.max(1, parsePositiveInt(url.searchParams.get('page'), 1))
+  const pageSize = Math.min(100, Math.max(1, parsePositiveInt(url.searchParams.get('pageSize'), 25)))
+  const personEntityId = url.searchParams.get('personEntityId')
+  const customerEntityId = url.searchParams.get('customerEntityId')
+  const email = url.searchParams.get('email')
+
+  for (const value of [personEntityId, customerEntityId]) {
+    if (value && !UUID_PATTERN.test(value)) {
+      return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
+    }
+  }
+
+  // Pending means: still open (not accepted, not cancelled) and not expired.
+  const where: Record<string, unknown> = {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    acceptedAt: null,
+    cancelledAt: null,
+    expiresAt: { $gt: new Date() },
+  }
+  if (personEntityId) where.personEntityId = personEntityId
+  if (customerEntityId) where.customerEntityId = customerEntityId
+  // email is stored encrypted, so match on the deterministic lookup hash.
+  if (email) where.emailHash = { $in: lookupHashCandidates(email) }
+
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const [invitations, total] = await findAndCountWithDecryption(
+    em,
+    CustomerUserInvitation,
+    where as any,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    },
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
+
+  const items = invitations.map((invitation) => ({
+    id: invitation.id,
+    email: invitation.email,
+    displayName: invitation.displayName || null,
+    customerEntityId: invitation.customerEntityId || null,
+    personEntityId: invitation.personEntityId || null,
+    roleIds: Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : [],
+    invitedByUserId: invitation.invitedByUserId || null,
+    expiresAt: invitation.expiresAt,
+    createdAt: invitation.createdAt,
+  }))
+
+  return NextResponse.json({
+    ok: true,
+    items,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    page,
+  })
 }
 
 export async function POST(req: Request) {
@@ -185,7 +274,46 @@ const methodDoc: OpenApiMethodDoc = {
   ],
 }
 
+const listQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  personEntityId: z.string().uuid().optional(),
+  customerEntityId: z.string().uuid().optional(),
+  email: z.string().optional(),
+})
+
+const listSuccessSchema = z.object({
+  ok: z.literal(true),
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    email: z.string(),
+    displayName: z.string().nullable(),
+    customerEntityId: z.string().uuid().nullable(),
+    personEntityId: z.string().uuid().nullable(),
+    roleIds: z.array(z.string().uuid()),
+    invitedByUserId: z.string().uuid().nullable(),
+    expiresAt: z.string().datetime(),
+    createdAt: z.string().datetime(),
+  })),
+  total: z.number(),
+  totalPages: z.number(),
+  page: z.number(),
+})
+
+const listMethodDoc: OpenApiMethodDoc = {
+  summary: 'List pending customer invitations (admin)',
+  description: 'Lists invitations that are still pending — not accepted, not cancelled, and not expired — for the caller\'s tenant and organization. The invitation token is never returned.',
+  tags: ['Customer Accounts Admin'],
+  query: listQuerySchema,
+  responses: [{ status: 200, description: 'Pending invitations', schema: listSuccessSchema }],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'Insufficient permissions', schema: errorSchema },
+  ],
+}
+
 export const openApi: OpenApiRouteDoc = {
   summary: 'Invite customer user (admin)',
-  methods: { POST: methodDoc },
+  methods: { GET: listMethodDoc, POST: methodDoc },
 }
