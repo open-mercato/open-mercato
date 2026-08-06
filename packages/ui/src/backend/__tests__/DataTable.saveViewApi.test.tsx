@@ -5,7 +5,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { render, fireEvent, waitFor, screen, act } from '@testing-library/react'
-import type { PerspectivesIndexResponse } from '@open-mercato/shared/modules/perspectives/types'
+import type { PerspectiveSettings, PerspectivesIndexResponse } from '@open-mercato/shared/modules/perspectives/types'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -103,9 +103,10 @@ type HarnessProps = {
   withPerspective?: boolean
   initialSearchValue?: string
   savedViews?: PerspectivesIndexResponse['perspectives']
+  initialSettings?: PerspectiveSettings
 }
 
-function renderTable({ apiRef, onDirty, showSaveViewButton, withPerspective = true, initialSearchValue = '', savedViews = [] }: HarnessProps) {
+function renderTable({ apiRef, onDirty, showSaveViewButton, withPerspective = true, initialSearchValue = '', savedViews = [], initialSettings }: HarnessProps) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, gcTime: Infinity, retry: false },
@@ -124,7 +125,15 @@ function renderTable({ apiRef, onDirty, showSaveViewButton, withPerspective = tr
             data={[]}
             searchValue={searchValue}
             onSearchChange={() => {}}
-            perspective={withPerspective ? { tableId: 'test-table' } : undefined}
+            perspective={withPerspective
+              ? {
+                  tableId: 'test-table',
+                  // Rebuilt on every render on purpose: this is what a server
+                  // component hands down, and what the page re-creates whenever
+                  // the table re-renders.
+                  ...(initialSettings ? { initialState: { initialSettings: { ...initialSettings } } } : {}),
+                }
+              : undefined}
             viewApiRef={apiRef}
             onColumnsDirtyChange={onDirty}
             showSaveViewButton={showSaveViewButton}
@@ -186,6 +195,28 @@ describe('DataTable public save-view API', () => {
 
     setSearchValue('other')
     await waitFor(() => expect(apiRef.current?.getDirtyState().isDirty).toBe(true))
+  })
+
+  it('settles a table restored from server-provided initial settings instead of re-rendering forever', async () => {
+    // `sanitizePerspectiveSettings` returns a fresh object on every render, so a
+    // baseline update that does not compare by value re-triggers its own effect
+    // and React tears the tree down with "Maximum update depth exceeded" —
+    // taking the whole table (resize handles included) with it.
+    const states: DataTableViewDirtyState[] = []
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      initialSettings: { columnSizing: { name: 320 } },
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(apiRef.current?.getDirtyState().isDirty).toBe(false)
+
+    const settledCount = states.length
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
+    expect(states.length).toBe(settledCount)
   })
 
   it('does not notify tables that do not wire perspectives', async () => {

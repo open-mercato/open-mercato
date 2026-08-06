@@ -1331,8 +1331,14 @@ export function DataTable<T>({
   const [viewBaseline, setViewBaselineState] = React.useState<PerspectiveSettings>(() => mergedInitialSettings ?? {})
   const viewBaselineInitializedRef = React.useRef(Boolean(mergedInitialSettings))
   const setViewBaseline = React.useCallback((settings: PerspectiveSettings) => {
+    const initialized = viewBaselineInitializedRef.current
     viewBaselineInitializedRef.current = true
-    setViewBaselineState(settings)
+    // Compared by value, not by identity: the callers hand over freshly
+    // sanitized objects (a new one on every render), so storing them blindly
+    // would let an effect keyed on those settings re-trigger itself forever.
+    setViewBaselineState((previous) => (
+      initialized && diffPerspectiveSettings(previous, settings).length === 0 ? previous : settings
+    ))
   }, [])
 
   const perspectiveFeatureQuery = useQuery<{ use: boolean; roleDefaults: boolean }>({
