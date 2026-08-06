@@ -173,6 +173,7 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
 })
 
 test('published CLI bin executes the dist entrypoint', () => {
+  // Only this test needs the build, so the check lives here rather than at module scope.
   requirePackageBuild(PACKAGE_ROOT)
 
   const result = spawnSync(process.execPath, [CLI_BIN, '--help'], {
