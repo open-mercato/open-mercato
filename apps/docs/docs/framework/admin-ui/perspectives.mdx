@@ -58,6 +58,47 @@ Then forward `initialPerspective` to `DataTable`:
 
 The `DataTable` component keeps a lightweight snapshot in `localStorage` so subsequent navigations reapply the last view even before React Query has revalidated against the API. The snapshot is invalidated automatically when a perspective is deleted or a role default is cleared.
 
+## Building your own “Save view” affordance
+
+The perspectives sidebar is the default place to save a view, but a host application can render its own toolbar button and unsaved-changes indicator without patching `DataTable`. Three additive props expose the state and the action:
+
+| Prop | Purpose |
+|------|---------|
+| `onColumnsDirtyChange` | Read-only callback fired whenever the unsaved-changes state changes. Only fires for tables that wire `perspective`. |
+| `viewApiRef` | Imperative handle: `getCurrentSettings()`, `getDirtyState()`, `saveCurrentView(input?)`, `openViewsSidebar()`. |
+| `showSaveViewButton` | Renders the built-in “Save view” button next to the views switcher. Off by default. |
+
+```tsx
+const viewApi = React.useRef<DataTableViewApi | null>(null)
+const [dirty, setDirty] = React.useState<DataTableViewDirtyState | null>(null)
+
+<Button
+  type="button"
+  variant="outline"
+  disabled={!dirty?.isDirty}
+  onClick={async () => {
+    const result = await viewApi.current?.saveCurrentView()
+    // No personal view is active yet — let the user name it in the sidebar.
+    if (result && !result.ok && result.reason === 'name-required') viewApi.current?.openViewsSidebar()
+  }}
+>
+  Save view{dirty?.changedCount ? ` (${dirty.changedCount})` : ''}
+</Button>
+
+<DataTable
+  perspective={{ tableId: 'sales:orders' }}
+  viewApiRef={viewApi}
+  onColumnsDirtyChange={setDirty}
+  …
+/>
+```
+
+`DataTableViewDirtyState` reports `isDirty`, the `changedKeys` (`columnOrder`, `columnVisibility`, `columnSizing`, `sorting`, `filters`, `searchValue`), `changedCount`, `activePerspectiveId`, and `canSaveToActiveView` — the last one is `false` for role perspectives and for “No view”, where a save needs an explicit name.
+
+“Dirty” is measured against the settings the view was last applied or saved from, so restoring a view on page load never flags changes the user did not make. `pageSize` is not compared: the live settings never carry one.
+
+`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'name-required' | 'failed' }`. Conflicts (HTTP 409) are surfaced by the shared conflict bar exactly as in the sidebar flow. Note that a custom `toolbar` prop replaces the built-in toolbar entirely, so `showSaveViewButton` has no effect there — use `viewApiRef` instead.
+
 ## API surface
 
 `/api/perspectives/{tableId}`
