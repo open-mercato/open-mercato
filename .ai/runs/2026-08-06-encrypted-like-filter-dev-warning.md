@@ -45,7 +45,7 @@ The query engines only pay that in a rare fallback branch; these helpers would p
 - [x] Docs: expand `apps/docs/docs/architecture/data-encryption.mdx` → "Querying encrypted columns"
 - [x] `packages/shared/AGENTS.md`: note the raw-ORM warning next to the existing query-engine one
 - [x] Validation gate
-- [ ] Open PR, link #2990, apply labels
+- [x] Open PR, link #2990, apply labels — PR #5069
 
 ## Design notes
 
