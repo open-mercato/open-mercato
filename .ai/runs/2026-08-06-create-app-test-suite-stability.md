@@ -145,3 +145,21 @@ PR: #5064
 - [x] 4.2 Full validation gate — all eight configured commands green
 - [x] 4.3 PR body, labels, summary comment — PR #5064
 - [x] 4.4 Code-review pass and its one finding (no test covered the new staging artifacts) — 87153a75d
+
+### Phase 5: External review follow-up (@adeptofvoltron, changes-requested)
+
+- [x] 5.1 Restore the PR description — a spec-writing run had overwritten the body with an unrelated
+      4catalog design summary, which would have become the squash-merge message and falsely claimed
+      "design only, no contract change"
+- [x] 5.2 Declare `create-mercato-app#test` → `dependsOn: ["^build"]` in `turbo.json`, and turn an
+      unresolved sibling import in `build.mjs` into the actionable "run `yarn build:packages` first"
+      message (`scripts/sibling-build.mjs`) so a direct `node build.mjs` says the same thing turbo's
+      graph now prevents — with `src/lib/sibling-build.test.ts` and a `turbo.json` policy assertion
+      covering the gap the review named
+- [x] 5.3 Note in the reporter header that the banner needs node:test's run-level summary, so a hard
+      kill printing only node's own interruption notice reads as expected rather than as a reporter
+      that failed to fire
+- [x] 5.4 Build-log honesty: the copy and fact-sheet lines now name `dist/agentic.staging/`, and the
+      header states that a single builder at a time is an assumption of the staged-swap design
+- [x] 5.5 Follow-up issue for the same in-place `rmSync` + `cpSync` pattern still in
+      `packages/cli/build.mjs` — out of scope here, nothing reads that tree concurrently today
