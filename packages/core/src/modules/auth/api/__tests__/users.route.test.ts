@@ -130,6 +130,15 @@ function findRoleLinkFilter(expectedRoleId: string): Record<string, unknown> {
   return (call?.[1] ?? {}) as Record<string, unknown>
 }
 
+function findRoleLinkFilters(expectedRoleId: string): Array<Record<string, unknown>> {
+  return mockEm.find.mock.calls
+    .filter((args: unknown[]) => {
+      const roleClause = (args[1] as { role?: { $in?: string[] } })?.role
+      return Array.isArray(roleClause?.$in) && roleClause.$in.includes(expectedRoleId)
+    })
+    .map((args: unknown[]) => args[1] as Record<string, unknown>)
+}
+
 function readUserScopeClauses(filter: Record<string, unknown>): Array<Record<string, unknown>> {
   const userScope = filter.user as Record<string, unknown> | undefined
   if (!userScope) return []
@@ -783,7 +792,7 @@ describe('GET /api/auth/users', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body).toEqual({ items: [], total: 0, totalPages: 1 })
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 
@@ -963,6 +972,131 @@ describe('GET /api/auth/users', () => {
     ]))
     expect(body.items).toHaveLength(1)
     expect(body.items[0].id).toBe(requestedUserId)
+  })
+
+  test('scopes the role-name search branch role-link lookup by tenant', async () => {
+    const matchedUserId = '523e4567-e89b-12d3-a456-426614174061'
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: roleId, name: 'admin', tenantId }])
+      .mockResolvedValueOnce([{ user: { id: matchedUserId }, role: { id: roleId } }])
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest('/api/auth/users?search=admin&page=1&pageSize=50'))
+
+    expect(response.status).toBe(200)
+    const roleLinkFilter = findRoleLinkFilter(roleId)
+    expect(roleLinkFilter.deletedAt).toBeNull()
+    expect(readUserScopeClauses(roleLinkFilter)).toEqual(expect.arrayContaining([
+      { deletedAt: null },
+      { tenantId },
+    ]))
+  })
+
+  test('does not let a foreign-tenant role-name match inflate the search candidate set', async () => {
+    const inScopeUserId = '523e4567-e89b-12d3-a456-426614174071'
+    const foreignTenantUserId = '523e4567-e89b-12d3-a456-426614174072'
+    const foreignTenantId = '123e4567-e89b-12d3-a456-426614174998'
+    const linkRows = [
+      { user: { id: inScopeUserId, tenantId }, role: { id: roleId } },
+      { user: { id: foreignTenantUserId, tenantId: foreignTenantId }, role: { id: roleId } },
+    ]
+    mockEm.find.mockImplementation(async (entity: unknown, filter: Record<string, unknown>) => {
+      if (entity === Role) return [{ id: roleId, name: 'admin', tenantId }]
+      const roleClause = (filter as { role?: { $in?: string[] } }).role
+      if (!Array.isArray(roleClause?.$in)) return []
+      const scopedTenantId = readScopedTenantId(filter)
+      if (!scopedTenantId) return linkRows
+      return linkRows.filter((row) => row.user.tenantId === scopedTenantId)
+    })
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest('/api/auth/users?search=admin&page=1&pageSize=50'))
+
+    expect(response.status).toBe(200)
+    const where = JSON.stringify(mockEm.findAndCount.mock.calls[0][1])
+    expect(where).toContain(inScopeUserId)
+    expect(where).not.toContain(foreignTenantUserId)
+  })
+
+  test('narrows the role-name search lookup with the id set the roleId branch already matched', async () => {
+    const firstUserId = '523e4567-e89b-12d3-a456-426614174081'
+    const secondUserId = '523e4567-e89b-12d3-a456-426614174082'
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { user: { id: firstUserId }, role: { id: roleId } },
+        { user: { id: secondUserId }, role: { id: roleId } },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: roleId, name: 'admin', tenantId }])
+      .mockResolvedValueOnce([{ user: { id: firstUserId }, role: { id: roleId } }])
+    mockEm.findAndCount.mockResolvedValueOnce([[], 0])
+
+    const response = await GET(makeRequest(`/api/auth/users?roleId=${roleId}&search=admin`))
+
+    expect(response.status).toBe(200)
+    const roleLinkFilters = findRoleLinkFilters(roleId)
+    expect(roleLinkFilters).toHaveLength(2)
+    expect(readUserScopeClauses(roleLinkFilters[1])).toEqual(expect.arrayContaining([
+      { id: { $in: [firstUserId, secondUserId] } },
+    ]))
+  })
+
+  test('keeps the id intersection when the role-link lookup returns a user outside the requested id', async () => {
+    const requestedUserId = '523e4567-e89b-12d3-a456-426614174091'
+    const otherUserId = '523e4567-e89b-12d3-a456-426614174092'
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ user: { id: otherUserId }, role: { id: roleId } }])
+
+    const response = await GET(makeRequest(`/api/auth/users?id=${requestedUserId}&roleId=${roleId}`))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('excludes soft-deleted role links from the role enrichment read', async () => {
+    const listedUserId = '523e4567-e89b-12d3-a456-426614174095'
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [{ id: listedUserId, email: 'enriched@example.com', tenantId, organizationId }],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=50'))
+
+    expect(response.status).toBe(200)
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      expect.anything(),
+      expect.objectContaining({ deletedAt: null, user: { $in: [listedUserId] } }),
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  test('reports isSuperAdmin on the empty role-filter short circuit', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({
+      sub: 'user-1',
+      tenantId,
+      orgId: organizationId,
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    })
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockEm.find.mockResolvedValueOnce([])
+
+    const response = await GET(makeRequest(`/api/auth/users?roleId=${roleId}`))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: true })
   })
 
   test('allows superadmin to query by organization without forcing tenant filter', async () => {
