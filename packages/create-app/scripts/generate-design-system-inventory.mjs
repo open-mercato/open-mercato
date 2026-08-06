@@ -22,6 +22,14 @@
  * Usage:
  *   node scripts/generate-design-system-inventory.mjs           # write the inventory
  *   node scripts/generate-design-system-inventory.mjs --check   # regenerate and diff (no write)
+ *
+ * The `harness:generate-design-system-inventory` / `harness:check-design-system-inventory` package
+ * scripts are convenience aliases for those two invocations; no CI step invokes either one. Staleness
+ * is enforced from the test suite instead — `src/lib/design-system-inventory.test.ts` calls
+ * `main(['--check'])` directly — and the derived asset is compared against the live runtime registry
+ * by `packages/core/src/modules/design_system/gallery/__tests__/inventory-parity.test.ts`, which
+ * `scripts/repo-wide-guards.mjs` runs unconditionally because the turbo filter cannot select it from
+ * a change to this reader.
  */
 
 import { createHash } from 'node:crypto'

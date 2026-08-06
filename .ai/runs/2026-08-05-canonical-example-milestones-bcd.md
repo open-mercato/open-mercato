@@ -70,13 +70,10 @@ caught seven false premises, eight vacuous tests and three silent-zero fact fami
 
 ## Wave state
 
-| Wave | Slices | Status |
-|---|---|---|
-| 1 | A, E, H | not started |
-| 2 | C, F | not started |
-| 3 | D, G | not started |
-| 4 | B | not started |
-| 5 | I + spec changelogs | not started |
+The waves are `1: A, E, H`, `2: C, F, G`, `3: D`, `4: B`, `5: I + spec changelogs`. Their **status**
+lives in exactly one place: the **"Wave state"** table at the end of this document, rewritten in
+place as waves land. This header previously carried a second status table, which drifted and ended
+up contradicting the authoritative one (#4991 review nit) — it is deliberately not duplicated here.
 
 ## Handoff log
 
