@@ -106,6 +106,18 @@ uses. The three runs above span 86 s to 522 s; the 522 s is two attempts of a co
 each, which is 43% of the Claude floor and 87% of the generic default. Duration therefore tracks the runner
 and the attempt count, not the case, and belongs on the operator budget rather than in a portable catalog.
 
+**Gate outcome.** `yarn build:packages` → `generate` → `build:packages` → `i18n:check-sync` →
+`i18n:check-usage` → `typecheck` → `test` all pass (`yarn test`: 25/25 turbo tasks). `yarn build:app` fails
+on `apps/mercato/next.config.ts:29` with `'agentRules' does not exist in type 'NextConfig'`. That file
+comes from `develop`'s tip commit `6aefc2f19` (the Next.js 16.3.0 upgrade, #5020) and is untouched by this
+branch, whose entire diff is three files containing no application TypeScript. It is a pre-existing
+`develop` failure, not a regression here. `yarn generate` produced no working-tree drift.
+
+Two transient failures were seen and did not reproduce: `@open-mercato/app#test` once under turbo (the
+workspace passes standalone, 40 suites / 186 tests) and `create-mercato-app#test` once in
+`published CLI bin executes the dist entrypoint`, whose `node build.mjs` exits 0 when run directly —
+both are `dist/` contention from concurrent turbo runs on this machine.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -129,4 +141,4 @@ and the attempt count, not the case, and belongs on the operator budget rather t
 ### Phase 4: Live re-verification and the gate
 
 - [x] 4.1 Re-run the affected live cases and record the result
-- [ ] 4.2 Run the full validation gate
+- [x] 4.2 Run the full validation gate — green through `yarn test`; `yarn build:app` fails on `develop` itself (see below)
