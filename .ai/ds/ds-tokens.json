@@ -35,10 +35,10 @@
     "accent-indigo": {
       "kind": "color",
       "light": "#6366f1",
-      "dark": "#818cf8",
+      "dark": "#6d74f4",
       "hex": {
         "light": "#6366f1",
-        "dark": "#818cf8"
+        "dark": "#6d74f4"
       },
       "themeInvariant": false,
       "themeAlias": "color-accent-indigo",
@@ -662,10 +662,10 @@
     },
     "muted-foreground": {
       "kind": "color",
-      "light": "oklch(0.556 0 0)",
+      "light": "oklch(0.545 0 0)",
       "dark": "oklch(0.708 0 0)",
       "hex": {
-        "light": "#737373",
+        "light": "#707070",
         "dark": "#a1a1a1"
       },
       "themeInvariant": false,
@@ -673,7 +673,8 @@
       "figma": {
         "name": "muted-foreground",
         "type": "COLOR"
-      }
+      },
+      "note": "darkened from 0.556: 4.54:1 on --muted (AA), was 4.34"
     },
     "popover": {
       "kind": "color",
@@ -1067,6 +1068,37 @@
       },
       "note": "red-600 #dc2626 = --destructive"
     },
+    "status-error-solid": {
+      "kind": "color",
+      "light": "oklch(0.577 0.245 27.325)",
+      "dark": "oklch(0.577 0.245 27.325)",
+      "hex": {
+        "light": "#e7000b",
+        "dark": "#e7000b"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-error-solid",
+      "figma": {
+        "name": "status-error-solid",
+        "type": "COLOR"
+      },
+      "note": "red-600 #dc2626, on white 4.83"
+    },
+    "status-error-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-error-solid-foreground",
+      "figma": {
+        "name": "status-error-solid-foreground",
+        "type": "COLOR"
+      }
+    },
     "status-error-text": {
       "kind": "color",
       "light": "oklch(0.396 0.141 25.723)",
@@ -1130,6 +1162,37 @@
         "type": "COLOR"
       },
       "note": "indigo-600 #4f46e5 = --chart-indigo"
+    },
+    "status-info-solid": {
+      "kind": "color",
+      "light": "oklch(0.511 0.262 276.966)",
+      "dark": "oklch(0.511 0.262 276.966)",
+      "hex": {
+        "light": "#4f39f6",
+        "dark": "#4f39f6"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-info-solid",
+      "figma": {
+        "name": "status-info-solid",
+        "type": "COLOR"
+      },
+      "note": "indigo-600 #4f46e5, on white 6.29"
+    },
+    "status-info-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-info-solid-foreground",
+      "figma": {
+        "name": "status-info-solid-foreground",
+        "type": "COLOR"
+      }
     },
     "status-info-text": {
       "kind": "color",
@@ -1195,6 +1258,37 @@
       },
       "note": "neutral-500 #737373 (≈ Figma #7b7b7b)"
     },
+    "status-neutral-solid": {
+      "kind": "color",
+      "light": "oklch(0.439 0 0)",
+      "dark": "oklch(0.439 0 0)",
+      "hex": {
+        "light": "#525252",
+        "dark": "#525252"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-neutral-solid",
+      "figma": {
+        "name": "status-neutral-solid",
+        "type": "COLOR"
+      },
+      "note": "neutral-600 #525252, on white 7.81"
+    },
+    "status-neutral-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-neutral-solid-foreground",
+      "figma": {
+        "name": "status-neutral-solid-foreground",
+        "type": "COLOR"
+      }
+    },
     "status-neutral-text": {
       "kind": "color",
       "light": "oklch(0.371 0 0)",
@@ -1258,6 +1352,37 @@
         "type": "COLOR"
       },
       "note": "pink-500 #EC4899"
+    },
+    "status-pink-solid": {
+      "kind": "color",
+      "light": "oklch(0.388 0.180 340)",
+      "dark": "oklch(0.388 0.180 340)",
+      "hex": {
+        "light": "#7b0062",
+        "dark": "#7b0062"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-pink-solid",
+      "figma": {
+        "name": "status-pink-solid",
+        "type": "COLOR"
+      },
+      "note": "pink-700 #be185d, on white 6.04"
+    },
+    "status-pink-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-pink-solid-foreground",
+      "figma": {
+        "name": "status-pink-solid-foreground",
+        "type": "COLOR"
+      }
     },
     "status-pink-text": {
       "kind": "color",
@@ -1323,6 +1448,37 @@
       },
       "note": "green-600 #16a34a"
     },
+    "status-success-solid": {
+      "kind": "color",
+      "light": "oklch(0.527 0.154 150.069)",
+      "dark": "oklch(0.527 0.154 150.069)",
+      "hex": {
+        "light": "#008236",
+        "dark": "#008236"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-success-solid",
+      "figma": {
+        "name": "status-success-solid",
+        "type": "COLOR"
+      },
+      "note": "green-700 #15803d, on white 5.02"
+    },
+    "status-success-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-success-solid-foreground",
+      "figma": {
+        "name": "status-success-solid-foreground",
+        "type": "COLOR"
+      }
+    },
     "status-success-text": {
       "kind": "color",
       "light": "oklch(0.393 0.095 152.535)",
@@ -1386,6 +1542,37 @@
         "type": "COLOR"
       },
       "note": "amber-600 #d97706"
+    },
+    "status-warning-solid": {
+      "kind": "color",
+      "light": "oklch(0.555 0.163 48.998)",
+      "dark": "oklch(0.555 0.163 48.998)",
+      "hex": {
+        "light": "#bb4d00",
+        "dark": "#bb4d00"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-warning-solid",
+      "figma": {
+        "name": "status-warning-solid",
+        "type": "COLOR"
+      },
+      "note": "amber-700 #b45309, on white 5.02"
+    },
+    "status-warning-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-status-warning-solid-foreground",
+      "figma": {
+        "name": "status-warning-solid-foreground",
+        "type": "COLOR"
+      }
     },
     "status-warning-text": {
       "kind": "color",

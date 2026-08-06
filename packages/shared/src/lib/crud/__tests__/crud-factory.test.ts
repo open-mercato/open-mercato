@@ -539,6 +539,59 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('export loop termination', () => {
+    const EXPORT_PAGE_SIZE = 1000
+
+    afterEach(() => {
+      queryEngine.query.mockImplementation(async (_entityId: any, _q: any) => ({ items: [{ id: 'id-1', title: 'A', is_done: false, organization_id: defaultOrganizationId, tenant_id: defaultTenantId }], total: 1 }))
+    })
+
+    const makeItems = (count: number, offset = 0) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `id-${offset + index}`,
+        title: `Todo ${offset + index}`,
+        is_done: false,
+        organization_id: defaultOrganizationId,
+        tenant_id: defaultTenantId,
+      }))
+
+    const queuePages = (pages: Array<Array<Record<string, unknown>>>, total: number) => {
+      queryEngine.query.mockImplementation(async (_entityId: any, q: any) => {
+        const page = q?.page?.page ?? 1
+        return { items: pages[page - 1] ?? [], total }
+      })
+    }
+
+    it('GET export enumerates every page even when total under-reports the result set', async () => {
+      queuePages(
+        [makeItems(EXPORT_PAGE_SIZE), makeItems(EXPORT_PAGE_SIZE, EXPORT_PAGE_SIZE), makeItems(5, EXPORT_PAGE_SIZE * 2)],
+        3,
+      )
+      const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+      expect(res.status).toBe(200)
+      const parsed = JSON.parse(await res.text())
+      expect(parsed).toHaveLength(EXPORT_PAGE_SIZE * 2 + 5)
+      expect(queryEngine.query).toHaveBeenCalledTimes(3)
+    })
+
+    it('GET export terminates on a short final page instead of trusting an inflated total', async () => {
+      queuePages([makeItems(4)], 10_000)
+      const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+      expect(res.status).toBe(200)
+      const parsed = JSON.parse(await res.text())
+      expect(parsed).toHaveLength(4)
+      expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    })
+
+    it('GET export fails closed at the page ceiling rather than serializing a partial export', async () => {
+      const fullPage = makeItems(EXPORT_PAGE_SIZE)
+      queryEngine.query.mockImplementation(async () => ({ items: fullPage, total: EXPORT_PAGE_SIZE }))
+      const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+      expect(res.status).toBe(500)
+      expect(queryEngine.query).toHaveBeenCalledTimes(1000)
+    })
+  })
+
   it('POST creates entity, saves custom fields, emits created event', async () => {
     const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'B', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(201)
@@ -591,6 +644,18 @@ describe('CRUD Factory', () => {
     // Entity write was rolled back together with the failed custom field write
     expect(Object.values(db)).toHaveLength(0)
     // No created event/index is emitted for a rolled-back create
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('returns a retryable 503 when a handler hits a transient DB connection failure', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('sorry, too many clients already'), { code: '53300' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(503)
+    expect(res.headers.get('Retry-After')).toBe('2')
+    // The failed write is still rolled back — no created event/index leaks out.
+    expect(Object.values(db)).toHaveLength(0)
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 

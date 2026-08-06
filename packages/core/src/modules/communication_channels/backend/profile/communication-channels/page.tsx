@@ -463,7 +463,7 @@ export default function ProfileCommunicationChannelsPage() {
             <p className="text-sm text-muted-foreground">
               {t(
                 'communication_channels.profile.subtitle',
-                'Connect your personal mailbox so outbound messages come from your address and inbound emails land in your unified inbox.',
+                'Connect your communication channels so outbound messages come from your own account and inbound messages land in your unified inbox.',
               )}
             </p>
           </div>
@@ -477,7 +477,7 @@ export default function ProfileCommunicationChannelsPage() {
         </header>
 
         {reauthRows.length > 0 ? (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription>
               {t(
                 'communication_channels.profile.alerts.requiresReauth',
@@ -497,7 +497,7 @@ export default function ProfileCommunicationChannelsPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use the "Connect channel" entry above to add Gmail or IMAP.',
+            'You have no connected channels yet. Use one of the Connect buttons above to add a channel.',
           )}
         />
         <ImportHistoryDialog
@@ -736,7 +736,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
           </div>
 
           {fieldErrors.channelId ? (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertDescription>{fieldErrors.channelId}</AlertDescription>
             </Alert>
           ) : null}
@@ -871,7 +871,7 @@ function DisconnectChannelDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.disconnect.cancel', 'Cancel')}
           </Button>
-          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={submitting}>
+          <Button type="button" variant="destructive-solid" onClick={() => void handleConfirm()} disabled={submitting}>
             {submitting
               ? t('communication_channels.profile.disconnect.submitting', 'Disconnecting…')
               : t('communication_channels.profile.disconnect.confirm', 'Disconnect')}

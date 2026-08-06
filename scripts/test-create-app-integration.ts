@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -247,6 +248,13 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
+
+    console.log(cyan('Building the scaffolded app in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,

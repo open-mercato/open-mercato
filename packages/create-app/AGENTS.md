@@ -12,6 +12,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 6. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
 7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`)
 8. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
+9. **MUST keep the generated standalone root inside its byte budget** — the scaffolded `AGENTS.md` targets `STANDALONE_ROOT_TARGET_BYTES` (12 KiB) so a routed chain still fits Codex's 32 KiB `project_doc_max_bytes`. `enforceRootInstructionBudget` runs after every tool generator has patched the root and sheds the enumerated module-fact index for an O(1) pointer form rather than overflowing, so enabling another template module is safe — but an addition that trips the fallback costs the app its inline routing index and fails `packages/create-app/src/lib/agent-instruction-budget.test.ts`. Reclaim root bytes or accept the fallback deliberately; do not raise the target without re-measuring the routed chains
 
 ## Ask First
 
@@ -58,6 +59,15 @@ When changes affect app shell behavior, verify all relevant template files are r
 8. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 9. `apps/mercato/src/app/page.tsx` ↔ `packages/create-app/template/src/app/page.tsx`
 10. `apps/mercato/.env.example` ↔ `packages/create-app/template/.env.example` (env var names + their doc comments)
+
+Telemetry / observability wiring (keep at parity when the `@open-mercato/telemetry` integration changes):
+
+9. `apps/mercato/src/instrumentation.ts` ↔ `packages/create-app/template/src/instrumentation.ts` (both check `isTelemetryBackendEnabled` from shared code before dynamically importing `registerTelemetryForNextjs`; the package is not loaded while off)
+10. `apps/mercato/src/app/api/[...slug]/route.ts` ↔ `packages/create-app/template/src/app/api/[...slug]/route.ts` (kept **byte-identical** — enforced by `packages/create-app/src/lib/template-api-dispatcher-require-roles.test.ts`; both call the optional shared telemetry runtime bridge rather than statically importing telemetry)
+11. `apps/mercato/next.config.ts` ↔ `packages/create-app/template/next.config.ts` — both spread `telemetryServerExternalPackages` from the runtime-free `@open-mercato/telemetry/nextjs-config` entrypoint into `serverExternalPackages`. The `@opentelemetry/*` list lives in the package (single source of truth); do **not** re-inline it.
+12. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
+13. `packages/cli/src/lib/telemetry-init.ts` (the `mercato telemetry init` adoption command) embeds copies of the `.env` telemetry block and the `instrumentation.ts` bootstrap so it can patch a pre-telemetry app — keep those constants in sync when items 9/12 change.
+14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
 
 ## Dev Runtime Expectations
 

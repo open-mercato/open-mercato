@@ -101,7 +101,7 @@ export default function PortalLoginPage({ params }: Props) {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error ? (
-          <Alert variant="destructive">
+          <Alert status="error">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}

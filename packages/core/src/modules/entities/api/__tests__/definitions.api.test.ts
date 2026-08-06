@@ -199,6 +199,50 @@ describe('entities/definitions API', () => {
     expect(notes?.defaultValue).toBeUndefined()
   })
 
+  it('exposes relation targets only for relation-kind fields', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'goods',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Goods', relatedEntityId: 'custom:goods' },
+        },
+        {
+          key: 'missing_target',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Missing target', relatedEntityId: '  ' },
+        },
+        {
+          key: 'notes',
+          kind: 'text',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Notes', relatedEntityId: 'custom:goods' },
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=custom:stock_in'),
+    )
+
+    expect(response.status).toBe(200)
+    const items = (await response.json()).items as Array<Record<string, unknown>>
+    expect(items.find((item) => item.key === 'goods')?.relatedEntityId).toBe('custom:goods')
+    expect(items.find((item) => item.key === 'missing_target')?.relatedEntityId).toBeUndefined()
+    expect(items.find((item) => item.key === 'notes')?.relatedEntityId).toBeUndefined()
+  })
+
   it('passes phone defaultCountryIso2 from configJson into the normalized response (#62)', async () => {
     mockEm.find
       .mockResolvedValueOnce([

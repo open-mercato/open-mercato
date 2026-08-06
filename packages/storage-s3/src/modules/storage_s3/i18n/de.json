@@ -11,7 +11,14 @@
   "storage_s3.errors.keyRequired": "Der Abfrageparameter „key“ ist erforderlich",
   "storage_s3.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
   "storage_s3.errors.multipartRequired": "multipart/form-data wurde erwartet",
+  "storage_s3.errors.persistFailed": "Der Anhang konnte nicht gespeichert werden.",
   "storage_s3.errors.prefixAccessDenied": "Zugriff verweigert: Das Präfix ist nicht auf diesen Tenant beschränkt.",
-  "storage_s3.errors.quotaExceeded": "Das Speicherlimit für Anhänge dieses Tenants wurde überschritten.",
-  "storage_s3.errors.unauthorized": "Nicht autorisiert"
+  "storage_s3.errors.quotaExceeded": "Das Speicherkontingent für Anhänge dieses Mandanten ist erschöpft.",
+  "storage_s3.errors.quotaTargetExists": "Der Ziel-Speicherschlüssel existiert bereits.",
+  "storage_s3.errors.quotaUnavailable": "Die Kontingentabrechnung des Speichers ist nicht verfügbar.",
+  "storage_s3.errors.readFailed": "Der Anhang konnte nicht gelesen werden.",
+  "storage_s3.errors.reservedSizeExceeded": "Der Anhang überschreitet die reservierte Upload-Größe.",
+  "storage_s3.errors.unauthorized": "Nicht autorisiert",
+  "storage_s3.errors.uploadTokenInvalid": "Das Upload-Token ist ungültig oder abgelaufen.",
+  "storage_s3.errors.uploadTokenRequired": "Ein Upload-Token ist erforderlich."
 }

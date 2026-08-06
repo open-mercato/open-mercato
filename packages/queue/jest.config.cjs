@@ -26,5 +26,6 @@ module.exports = {
   passWithNoTests: true,
   moduleNameMapper: {
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/telemetry$': '<rootDir>/../telemetry/src/index.ts',
   },
 }
