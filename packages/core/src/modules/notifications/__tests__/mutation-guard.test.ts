@@ -375,6 +375,9 @@ describe('notification write routes fail closed on an unresolved tenant', () => 
       const response = await invoke()
 
       expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toEqual(
+        expect.objectContaining({ code: 'tenant_scope_required' }),
+      )
       expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
       expect(runAfterSuccessMock).not.toHaveBeenCalled()
       expect(saveNotificationDeliveryConfigMock).not.toHaveBeenCalled()

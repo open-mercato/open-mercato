@@ -23,12 +23,13 @@ import {
   resolveGuardedNotificationContext,
   resolveNotificationContext,
   runGuardedNotificationWrite,
+  TENANT_SCOPE_REQUIRED_ERROR_CODE,
 } from '../lib/routeHelpers'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
-  errorResponseSchema,
   notificationItemSchema,
+  scopeErrorResponseSchema,
 } from './openapi'
 
 export const metadata = {
@@ -257,8 +258,8 @@ export const openApi: OpenApiRouteDoc = {
         ...(notificationsCrudGet.errors ?? []),
         {
           status: 403,
-          description: 'Request could not be resolved to a tenant scope',
-          schema: errorResponseSchema,
+          description: `Request could not be resolved to a tenant scope (code: ${TENANT_SCOPE_REQUIRED_ERROR_CODE})`,
+          schema: scopeErrorResponseSchema,
         },
       ],
     },

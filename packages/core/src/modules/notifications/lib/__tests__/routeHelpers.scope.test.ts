@@ -36,7 +36,11 @@ jest.mock('../notificationService', () => ({
   resolveNotificationService: () => service,
 }))
 
-import { requireResolvedNotificationTenantScope, resolveNotificationContext } from '../routeHelpers'
+import {
+  requireResolvedNotificationTenantScope,
+  resolveNotificationContext,
+  TENANT_SCOPE_REQUIRED_ERROR_CODE,
+} from '../routeHelpers'
 
 describe('resolveNotificationContext organization scope', () => {
   beforeEach(() => {
@@ -131,7 +135,12 @@ describe('requireResolvedNotificationTenantScope', () => {
 
     expect(response).not.toBeNull()
     expect(response!.status).toBe(403)
-    await expect(response!.json()).resolves.toEqual({ error: expect.any(String) })
+    // The code is what lets a client tell an unresolved scope apart from a permission denial,
+    // which is otherwise the same status carrying the same shape.
+    await expect(response!.json()).resolves.toEqual({
+      error: expect.any(String),
+      code: TENANT_SCOPE_REQUIRED_ERROR_CODE,
+    })
   })
 
   it('passes a resolved tenant through', async () => {

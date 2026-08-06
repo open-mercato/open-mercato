@@ -80,14 +80,16 @@ Both run before the container resolve and before the cache lookup, so an unresol
 | Guard at the route boundary, not in `resolveOrganizationScope` | The null-tenant widening in `resolveOrganizationScope` is the shared root cause across modules, but it has hundreds of call sites; changing it is a platform-wide behavior change and belongs in its own spec. Matches the precedent set for the undo, redo and audit-log routes. |
 | Helper lives in `lib/routeHelpers.ts` | It returns a web-standard `Response` (the module's own convention — `notificationCrudErrorResponse` does the same), and the two route factories that need it live in that file. `audit_logs` put its guard under `api/` only because it returns a `NextResponse`. |
 | Reads go through a guarded context wrapper, not a bare guard call | An opt-in guard on reads is skippable by omission — nothing fails if a future read route forgets it. `resolveGuardedNotificationContext` makes the rejection part of the return type instead of the convention. |
-| 403 body is translated | Every other error body in this module routes through `resolveTranslations`. `api.errors.forbidden` already exists in all shipped locales, so no new keys. |
+| 403 body is translated and carries a `code` | Every other error body in this module routes through `resolveTranslations`; `api.errors.forbidden` already exists in all shipped locales, so no new keys. The body also carries `code: 'tenant_scope_required'`, mirroring `ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE` — without it a client cannot tell an unresolved scope apart from an ordinary permission denial, since both are a 403 with the same shape. This deliberately goes beyond the audit-log guard, which returns a bare untranslated `{ error: 'Forbidden' }`. |
 | Client expires rather than blanks | A blank value is indistinguishable from a deliberate override server-side, and the UI offers no tenant-less selection to preserve. An absent cookie and a blank one are already equivalent to `parseSelectedTenantCookie`, so the documented global super-admin views are unaffected. |
 
 ## API Contracts
 
 No route added, renamed or removed; no request or response field changed.
 
-One added status: the twelve entry points above answer **403** when the request cannot be resolved to a tenant. It is documented explicitly on `GET /api/notifications`, the one affected method whose generated spec does not already carry a 403 — `buildResponses` auto-appends "Forbidden – missing required features" for any method declaring `requireFeatures`, which covers the writes.
+One added status: the twelve entry points above answer **403** with `{ error, code: 'tenant_scope_required' }` when the request cannot be resolved to a tenant. It is documented explicitly on `GET /api/notifications`, the one affected method whose generated spec does not already carry a 403 — `buildResponses` auto-appends "Forbidden – missing required features" for any method declaring `requireFeatures`, which covers the writes.
+
+`TENANT_SCOPE_REQUIRED_ERROR_CODE` is exported from `lib/routeHelpers.ts` for callers that need to branch on it.
 
 ## Migration & Backward Compatibility
 
@@ -130,6 +132,7 @@ No integration coverage: the vulnerable principal cannot be constructed through 
 - The same `tenantId ?? ''` coercion appears roughly 85 more times across `packages/core`, `packages/shared`, `packages/enterprise` and `packages/ai-assistant` (perspectives, dashboards, workflows, staff, sales, messages, business rules). Most feed guard, enricher or cache contexts rather than a raw ORM filter, so the failure mode varies from a driver error to silent mis-scoping. Auditing them warrants its own spec.
 - `resolveOrganizationScope` still returns `filterIds`/`allowedIds: null` for a null tenant — the shared root cause behind this class of finding, already recorded as a follow-up by the audit-log spec.
 - Five notification route files export hand-written `openApi` objects that are not `OpenApiRouteDoc`-shaped (no `methods` key), so the generator silently discards them and emits stubs instead. Unrelated to this defect, but worth correcting.
+- There is no shared tenant analog of `organizationScopeRequiredResponse`. Three variants now exist: the shared organization helper (400 + `code`), the module-local audit-log guard (403, untranslated, no `code`), and this one (403, translated, `code`). Extracting a `requireResolvedTenantScope` into `packages/shared/src/lib/auth` and migrating both modules onto it would settle the pattern, but it changes the audit-log response body and touches three modules, so it belongs in its own change. The example module's notification route answers `401` for the same condition and would be the third caller to migrate — semantically it should not be a 401, since the caller is authenticated.
 
 ## Changelog
 

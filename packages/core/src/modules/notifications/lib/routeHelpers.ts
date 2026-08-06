@@ -61,6 +61,13 @@ export function notificationCrudErrorResponse(error: unknown): Response | null {
 }
 
 /**
+ * Machine-readable discriminator for the tenant-scope rejection, mirroring
+ * `ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE`. Without it a client cannot tell an unresolved scope
+ * apart from an ordinary permission denial, since both are a 403 carrying only a message.
+ */
+export const TENANT_SCOPE_REQUIRED_ERROR_CODE = 'tenant_scope_required'
+
+/**
  * Fail closed when a request cannot be resolved to a tenant.
  *
  * `resolveNotificationContext` falls back to `''` when neither the organization scope nor the auth
@@ -80,7 +87,13 @@ export async function requireResolvedNotificationTenantScope(
 ): Promise<Response | null> {
   if (scope.tenantId) return null
   const { t } = await resolveTranslations()
-  return Response.json({ error: t('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  return Response.json(
+    {
+      error: t('api.errors.forbidden', 'Forbidden'),
+      code: TENANT_SCOPE_REQUIRED_ERROR_CODE,
+    },
+    { status: 403 },
+  )
 }
 
 /**
