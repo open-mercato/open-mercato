@@ -13,7 +13,6 @@ import type { SubscriberDescriptor } from '@open-mercato/events/types'
 describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
   const origCwd = process.cwd()
   const origFlag = process.env.OM_EVENTS_SINGLE_DELIVERY
-  const origExternalWorker = process.env.OM_EVENTS_EXTERNAL_WORKER
   const origAutoSpawn = process.env.AUTO_SPAWN_WORKERS
   let tmp: string
 
@@ -22,7 +21,6 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     process.chdir(tmp)
     delete process.env.QUEUE_STRATEGY
     delete process.env.EVENTS_STRATEGY
-    delete process.env.OM_EVENTS_EXTERNAL_WORKER
     delete process.env.AUTO_SPAWN_WORKERS
   })
 
@@ -37,7 +35,6 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
   afterEach(() => {
     process.chdir(origCwd)
     restoreEnv('OM_EVENTS_SINGLE_DELIVERY', origFlag)
-    restoreEnv('OM_EVENTS_EXTERNAL_WORKER', origExternalWorker)
     restoreEnv('AUTO_SPAWN_WORKERS', origAutoSpawn)
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
   })
@@ -58,7 +55,6 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
 
   test('flag unset (default on): a persistent subscriber is skipped inline', async () => {
     delete process.env.OM_EVENTS_SINGLE_DELIVERY
-    process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
     const calls: string[] = []
     const bus = createEventBus({ resolve: ((name: string) => name) as never })
     bus.registerModuleSubscribers([

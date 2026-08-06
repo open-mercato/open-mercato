@@ -155,12 +155,12 @@ export interface EventBus {
   /**
    * Dispatch a queued event to the subscribers the events worker owns.
    *
-   * The bus - not the worker - decides which subscribers those are, so the two
-   * halves of single-delivery cannot disagree about the same event:
-   * - single-delivery on: every subscriber whose registered pattern matches
-   *   `event` and is marked `persistent`, so wildcard (`event: '*'`) persistent
-   *   subscribers are reached;
-   * - legacy dual-dispatch: exact-match subscribers for `event`.
+   * Selects every subscriber whose registered pattern matches `event` and is
+   * marked `persistent`, so wildcard (`event: '*'`) persistent subscribers are
+   * reached. The selection does not depend on `OM_EVENTS_SINGLE_DELIVERY`:
+   * whether inline delivery already ran is carried by the job's
+   * `persistentDeliveredInline` stamp, so a producer and a worker that disagree
+   * about the flag still agree about the job.
    *
    * Unlike inline delivery, handler failures are returned rather than swallowed:
    * the caller aggregates them and throws so the queue can retry the job.

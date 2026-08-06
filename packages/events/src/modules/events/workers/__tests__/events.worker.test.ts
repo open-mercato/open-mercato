@@ -68,7 +68,6 @@ function createMockContext(bus?: EventBus): WorkerContext {
 
 describe('Events Worker', () => {
   const ORIG_SINGLE_DELIVERY = process.env.OM_EVENTS_SINGLE_DELIVERY
-  const ORIG_EXTERNAL_WORKER = process.env.OM_EVENTS_EXTERNAL_WORKER
 
   beforeEach(() => {
     workerLoggerError.mockClear()
@@ -84,7 +83,6 @@ describe('Events Worker', () => {
 
   afterEach(() => {
     restoreEnv('OM_EVENTS_SINGLE_DELIVERY', ORIG_SINGLE_DELIVERY)
-    restoreEnv('OM_EVENTS_EXTERNAL_WORKER', ORIG_EXTERNAL_WORKER)
   })
 
   describe('metadata', () => {
@@ -186,13 +184,10 @@ describe('Events Worker', () => {
   })
 
   describe('handle', () => {
-    // These tests exercise the legacy exact-match dispatch (the worker runs every
-    // matching subscriber, persistent or not). Single-delivery (default-on)
-    // dispatches only persistent subscribers in the worker, so pin the legacy
-    // path here; single-delivery semantics are covered in the sibling describe.
-    beforeEach(() => {
-      process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
-    })
+    // The worker only ever dispatches `persistent` subscribers, by pattern, and
+    // that selection does not depend on OM_EVENTS_SINGLE_DELIVERY - the job's
+    // stamp carries the producer's decision instead. These fixtures are therefore
+    // all persistent.
 
     it('should do nothing when no subscribers are registered', async () => {
       const job = createMockJob('test.event', { data: 'test' })
@@ -206,6 +201,7 @@ describe('Events Worker', () => {
         {
           id: 'test:subscriber1',
           event: 'user.created',
+          persistent: true,
           handler: (payload) => { receivedPayloads.push(payload) },
         },
       ])
@@ -222,8 +218,8 @@ describe('Events Worker', () => {
       const subscriber1Calls: unknown[] = []
       const subscriber2Calls: unknown[] = []
       const bus = createBusWith([
-        { id: 'a:subscriber', event: 'order.placed', handler: (p) => { subscriber1Calls.push(p) } },
-        { id: 'b:subscriber', event: 'order.placed', handler: (p) => { subscriber2Calls.push(p) } },
+        { id: 'a:subscriber', event: 'order.placed', persistent: true, handler: (p) => { subscriber1Calls.push(p) } },
+        { id: 'b:subscriber', event: 'order.placed', persistent: true, handler: (p) => { subscriber2Calls.push(p) } },
       ])
 
       await handle(createMockJob('order.placed', { orderId: '456' }), createMockContext(bus))
@@ -235,7 +231,7 @@ describe('Events Worker', () => {
     it('should not dispatch to non-matching event subscribers', async () => {
       const receivedPayloads: unknown[] = []
       const bus = createBusWith([
-        { id: 'test:subscriber', event: 'user.created', handler: (p) => { receivedPayloads.push(p) } },
+        { id: 'test:subscriber', event: 'user.created', persistent: true, handler: (p) => { receivedPayloads.push(p) } },
       ])
 
       await handle(createMockJob('user.deleted', { userId: '123' }), createMockContext(bus))
@@ -246,7 +242,7 @@ describe('Events Worker', () => {
     it('should pass resolve function to subscriber context', async () => {
       let capturedContext: unknown = null
       const bus = createBusWith([
-        { id: 'test:subscriber', event: 'test.event', handler: (_p, ctx) => { capturedContext = ctx } },
+        { id: 'test:subscriber', event: 'test.event', persistent: true, handler: (_p, ctx) => { capturedContext = ctx } },
       ])
 
       await handle(createMockJob('test.event', {}), createMockContext(bus))
@@ -261,6 +257,7 @@ describe('Events Worker', () => {
         {
           id: 'test:subscriber',
           event: 'test.event',
+          persistent: true,
           handler: (_p, ctx) => {
             capturedContext = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
           },
@@ -281,6 +278,7 @@ describe('Events Worker', () => {
         {
           id: 'test:subscriber',
           event: 'test.event',
+          persistent: true,
           handler: (_p, ctx) => {
             capturedContext = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
           },
@@ -298,7 +296,7 @@ describe('Events Worker', () => {
     it('should handle synchronous handlers', async () => {
       let called = false
       const bus = createBusWith([
-        { id: 'test:sync-subscriber', event: 'sync.event', handler: () => { called = true } },
+        { id: 'test:sync-subscriber', event: 'sync.event', persistent: true, handler: () => { called = true } },
       ])
 
       await handle(createMockJob('sync.event', {}), createMockContext(bus))
@@ -313,6 +311,8 @@ describe('Events Worker', () => {
         {
           id: 'a:failing-subscriber',
           event: 'test.event',
+          persistent: true,
+          persistent: true,
           handler: async () => {
             subscriber1Calls.push('called')
             throw new Error('Subscriber A failed')
@@ -321,6 +321,8 @@ describe('Events Worker', () => {
         {
           id: 'b:working-subscriber',
           event: 'test.event',
+          persistent: true,
+          persistent: true,
           handler: async (payload) => { subscriber2Calls.push(payload) },
         },
       ])
@@ -350,9 +352,9 @@ describe('Events Worker', () => {
       }
 
       const bus = createBusWith([
-        { id: 'a:slow', event: 'test.parallel', handler: createDelayedHandler('a:slow', 100) },
-        { id: 'b:slow', event: 'test.parallel', handler: createDelayedHandler('b:slow', 100) },
-        { id: 'c:slow', event: 'test.parallel', handler: createDelayedHandler('c:slow', 100) },
+        { id: 'a:slow', event: 'test.parallel', persistent: true, handler: createDelayedHandler('a:slow', 100) },
+        { id: 'b:slow', event: 'test.parallel', persistent: true, handler: createDelayedHandler('b:slow', 100) },
+        { id: 'c:slow', event: 'test.parallel', persistent: true, handler: createDelayedHandler('c:slow', 100) },
       ])
 
       await handle(createMockJob('test.parallel', {}), createMockContext(bus))
@@ -375,11 +377,15 @@ describe('Events Worker', () => {
         {
           id: 'a:failing-subscriber',
           event: 'test.event',
+          persistent: true,
+          persistent: true,
           handler: async () => { throw new Error('Subscriber A failed') },
         },
         {
           id: 'b:failing-subscriber',
           event: 'test.event',
+          persistent: true,
+          persistent: true,
           handler: async () => { throw new Error('Subscriber B failed') },
         },
       ])
@@ -418,9 +424,8 @@ describe('Events Worker', () => {
       expect(calls).toEqual(['p'])
     })
 
-    it('flag unset with an acknowledged external worker: dispatches wildcard persistent subscribers', async () => {
+    it('worker selection ignores the flag: wildcard persistent subscribers are always reached', async () => {
       delete process.env.OM_EVENTS_SINGLE_DELIVERY
-      process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
       const calls: string[] = []
       const bus = createBusWith([
         { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
@@ -434,9 +439,8 @@ describe('Events Worker', () => {
       expect(calls.sort()).toEqual(['p', 'w'])
     })
 
-    it('flag unset with an acknowledged external worker: forwards eventName and trusted scope', async () => {
+    it('forwards eventName and trusted scope to persistent wildcard subscribers', async () => {
       delete process.env.OM_EVENTS_SINGLE_DELIVERY
-      process.env.OM_EVENTS_EXTERNAL_WORKER = 'true'
       const contexts: Array<{
         eventName?: string
         tenantId?: string | null
@@ -473,7 +477,10 @@ describe('Events Worker', () => {
       }])
     })
 
-    it('flag explicitly OFF (legacy opt-out): preserves exact-match dispatch and never reaches wildcards', async () => {
+    // Producer/worker env skew: the worker's own flag must not change selection.
+    // A stamp-less job reaching a worker with the flag OFF used to fall back to
+    // exact-match, re-running ephemerals and missing wildcards.
+    it('flag explicitly OFF on the worker still selects persistent subscribers by pattern', async () => {
       process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
       const calls: string[] = []
       const bus = createBusWith([
@@ -483,8 +490,7 @@ describe('Events Worker', () => {
 
       await handle(createMockJob('user.created', {}), createMockContext(bus))
 
-      // Legacy behavior: exact-match only, so the wildcard subscriber is not reached here.
-      expect(calls).toEqual(['p'])
+      expect(calls.sort()).toEqual(['p', 'w'])
     })
   })
 })

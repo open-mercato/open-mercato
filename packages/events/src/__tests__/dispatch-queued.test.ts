@@ -54,7 +54,12 @@ describe('EventBus.dispatchQueued', () => {
     expect(results.every((r) => r.error === undefined)).toBe(true)
   })
 
-  test('single-delivery off: exact-match dispatch of every subscriber for the event', async () => {
+  test('selection ignores OM_EVENTS_SINGLE_DELIVERY (producer/worker env skew)', async () => {
+    // A worker whose env has the flag OFF must still select persistent
+    // subscribers by pattern. Reading the flag here used to fall back to
+    // exact-match, which re-ran ephemeral subscribers the producer had already
+    // run inline and never reached wildcard persistent subscribers - the failure
+    // this change exists to remove, reintroduced under env skew.
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
     const calls: string[] = []
     const bus = makeBus([
@@ -65,7 +70,7 @@ describe('EventBus.dispatchQueued', () => {
 
     await bus.dispatchQueued('user.created', {})
 
-    expect(calls.sort()).toEqual(['exact-ephemeral', 'exact-persistent'])
+    expect(calls.sort()).toEqual(['exact-persistent', 'wildcard-persistent'])
   })
 
   test('returns handler failures instead of swallowing them', async () => {

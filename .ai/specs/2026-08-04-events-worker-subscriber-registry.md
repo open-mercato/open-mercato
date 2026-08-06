@@ -81,15 +81,19 @@ dispatchQueued(
 ): Promise<QueuedDispatchResult[]>
 ```
 
-It selects subscribers from the bus's own `listeners` / `persistentSubscribers`:
+It selects subscribers from the bus's own `listeners` / `persistentSubscribers`: every pattern
+matching `event` via `matchEventPattern`, filtered to persistent.
 
-- single-delivery on -> every pattern matching `event` via `matchEventPattern`, filtered to persistent;
-- legacy (flag off) -> exact-match `listeners.get(event)`, all subscribers.
+Selection deliberately does **not** read `OM_EVENTS_SINGLE_DELIVERY`. Whether inline delivery already
+happened is carried by the job stamp (§3), so the producer owns that decision and a worker whose env
+disagrees cannot act on its own copy of the flag. Every job that reaches dispatch wants this
+selection: a job is only dispatched when its stamp is false, which means either the producer had
+single-delivery on, or the emit was enqueue-only (documented as "every subscriber is persistent").
 
 Handlers run through `withModuleResourceUsage` with the same attribution `deliver()` uses, and
 failures are **returned** rather than swallowed (`deliver()` logs and continues, which would break
-queue retry). Placing the single-delivery branch on the bus makes the documented "bus and worker agree
-within a process" invariant structural instead of an env coincidence.
+queue retry). Moving selection onto the bus - and off the worker's env - makes the documented "bus and
+worker agree" invariant structural rather than dependent on two processes sharing a flag value.
 
 ### 2. The worker dispatches through the bus and fails loud
 
@@ -130,6 +134,19 @@ path - exactly what a split app/worker deployment sets `AUTO_SPAWN_WORKERS=false
 - Non-goal: `globalThis`-backing `_cliModules`. After this change no runtime code reads that registry
   outside CLI processes.
 
+### Residual risk: a valid bus with an empty registry
+
+The fail-loud path covers an unresolvable bus and a bus predating `dispatchQueued`. It does **not**
+cover a *valid* bus whose registry is empty: `core/bootstrap.ts` logs and continues when `getModules()`
+fails, so `dispatchQueued` returns `[]`, no failure is reported, and the job completes green -
+indistinguishable from a legitimate "no subscriber for this event".
+
+Severity: low but non-zero. Mitigation: the bootstrap now logs a warning instead of swallowing the
+failure, and the worker logs a warning when a queued job dispatches to zero subscribers, so the
+condition is visible from two sides. It cannot throw, because zero subscribers is legitimate for an
+event nobody listens to. Residual risk: an operator who ignores both warnings still loses the side
+effects silently from the queue's point of view.
+
 ## Integration Coverage
 
 No API route or UI path changes, so no new Playwright specs. Unit coverage:
@@ -150,6 +167,10 @@ No API route or UI path changes, so no new Playwright specs. Unit coverage:
 ## Changelog
 
 - 2026-08-04: Initial spec.
+- 2026-08-06: Worker-side selection no longer reads `OM_EVENTS_SINGLE_DELIVERY` (review feedback):
+  the flag-off branch was only reachable under producer/worker env skew, where it re-ran ephemeral
+  subscribers and missed wildcards. Documented the residual empty-registry path and added a worker
+  warning when a queued job dispatches zero subscribers.
 - 2026-08-05: Dropped the proposed bus-side reconciliation after testing against a real split
   app/worker deployment showed it would move persistent work onto the HTTP request path. Scope is
   now the worker's subscriber source, the fail-loud path, the delivery stamp, and the CI boundary

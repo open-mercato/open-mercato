@@ -257,16 +257,25 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   }
 
   /**
-   * Selects the subscribers the events worker owns for a queued event.
-   * - Single-delivery on: pattern match across every registered pattern, keeping
-   *   persistent subscribers only, so wildcard persistent subscribers are reached
-   *   exactly once here instead of inline.
-   * - Legacy dual-dispatch: exact-match lookup of every subscriber for the event.
+   * Selects the subscribers the events worker owns for a queued event: every
+   * pattern matching `event`, keeping persistent subscribers only, so wildcard
+   * (`event: '*'`) persistent subscribers are reached exactly once here.
+   *
+   * Deliberately does NOT read `OM_EVENTS_SINGLE_DELIVERY`. Whether inline
+   * delivery already happened is carried by the job's `persistentDeliveredInline`
+   * stamp, so the producer owns that decision entirely and the worker cannot
+   * disagree with it across processes. Reading the flag here would reintroduce
+   * exactly that skew: a worker whose env has the flag off would fall back to
+   * exact-match, re-running ephemeral subscribers the producer already ran inline
+   * and never reaching wildcard persistent subscribers - the failure this whole
+   * change exists to remove.
+   *
+   * Every job that reaches this point wants persistent-pattern selection: a job
+   * is only dispatched when its stamp is false, which means either the producer
+   * had single-delivery on, or the emit was enqueue-only (`deliverInline: false`,
+   * documented as "every subscriber to the event is persistent").
    */
   function selectQueuedSubscribers(event: string): RegisteredSubscriber[] {
-    if (!isSingleDeliveryEnabled()) {
-      return [...(listeners.get(event) ?? [])]
-    }
     const matched: RegisteredSubscriber[] = []
     for (const [pattern, handlers] of listeners) {
       if (!matchEventPattern(event, pattern)) {

@@ -114,6 +114,17 @@ export default async function handle(
     organizationId: options?.organizationId ?? null,
   })
 
+  // A resolvable bus with an empty registry is the residual silent-loss path:
+  // `core/bootstrap.ts` logs and continues when `getModules()` fails, leaving a
+  // valid bus with no subscribers, and this job would then complete green.
+  // Zero subscribers is legitimate for an event nobody listens to, so this
+  // cannot throw - but at job-dispatch time it is more often a bug than a no-op,
+  // so make it visible rather than silent.
+  if (results.length === 0) {
+    logger.warn('Queued event dispatched to zero subscribers', { event, jobId: ctx.jobId })
+    return
+  }
+
   reportFailures(event, results)
 }
 
