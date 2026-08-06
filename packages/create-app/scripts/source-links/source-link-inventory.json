@@ -37,7 +37,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-014",
@@ -473,7 +474,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -506,7 +508,8 @@
         "ui.form-create"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -540,7 +543,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-181",
@@ -951,7 +955,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [
         "OMH-185",
@@ -1014,6 +1019,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
@@ -1156,6 +1162,7 @@
         "data.entities"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -1344,6 +1351,7 @@
         "data.entities"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -1505,6 +1513,7 @@
         "module.di-registration"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__tests__/di-registration.test.ts"
@@ -1877,6 +1886,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
@@ -1938,6 +1948,7 @@
         "data.entities"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
@@ -2134,6 +2145,7 @@
         "module.di-registration"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__tests__/di-registration.test.ts"
@@ -2298,6 +2310,7 @@
         "notifications.client-renderer"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts",
         "src/modules/example/__tests__/notifications.client.test.tsx"
       ],
       "affectedCaseIds": [
@@ -2354,6 +2367,7 @@
         "notifications.type"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts",
         "src/modules/example/__integration__/TC-UMES-008.spec.ts"
       ],
       "affectedCaseIds": [
@@ -2448,6 +2462,7 @@
         "module.translatable-fields"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-009-translations.spec.ts",
         "src/modules/example/__tests__/translations.test.ts"
       ],
       "affectedCaseIds": [
@@ -2867,6 +2882,7 @@
         "notifications.client-renderer"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts",
         "src/modules/example/__tests__/notifications.client.test.tsx"
       ],
       "affectedCaseIds": [
@@ -3586,7 +3602,8 @@
         "ui.form-edit"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
       ],
       "affectedCaseIds": [],
       "replacesBaselineBlockIds": [],
@@ -3643,6 +3660,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",

@@ -405,7 +405,8 @@
       "integrationTestPaths": [
         "src/modules/example/__tests__/di-registration.test.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
-        "src/modules/example/__integration__/TC-UMES-020.spec.ts"
+        "src/modules/example/__integration__/TC-UMES-020.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts"
       ],
       "dependencyModules": ["payment_gateways", "shipping_carriers", "webhooks"],
       "ruleOwner": "om-integration-builder"
@@ -426,7 +427,8 @@
       "integrationTestPaths": [
         "src/modules/example/lib/__tests__/todoSummaryCache.test.ts",
         "src/modules/example/__tests__/invalidate-todo-summary.test.ts",
-        "src/modules/example/api/__tests__/todos.summary.test.ts"
+        "src/modules/example/api/__tests__/todos.summary.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts"
       ],
       "dependencyModules": [],
       "ruleOwner": "om-module-scaffold"
@@ -468,7 +470,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/translations.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/translations.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/translations.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-009-translations.spec.ts"
+      ],
       "dependencyModules": ["translations"],
       "ruleOwner": "om-module-scaffold"
     },
@@ -542,7 +547,8 @@
       ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
-        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts"
       ],
       "dependencyModules": ["entities"],
       "ruleOwner": "om-data-model-design"
@@ -555,7 +561,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/data/extensions.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/entity-extensions.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/entity-extensions.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-005-extension-links.spec.ts"
+      ],
       "dependencyModules": ["customers"],
       "ruleOwner": "om-system-extension"
     },
@@ -568,7 +577,8 @@
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/search.ts"],
       "integrationTestPaths": [
-        "src/modules/example/__tests__/encryption-search-contract.test.ts"
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-006-search.spec.ts"
       ],
       "dependencyModules": ["query_index"],
       "ruleOwner": "om-module-scaffold"
@@ -834,7 +844,10 @@
         "src/modules/example/backend/todos/create/page.meta.ts",
         "src/modules/example/components/TodoForm.tsx"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-backend-ui-design"
     },
@@ -850,7 +863,10 @@
         "src/modules/example/backend/todos/[id]/edit/page.meta.ts",
         "src/modules/example/components/TodoForm.tsx"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-011-form-locking.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-backend-ui-design"
     },
@@ -874,7 +890,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/backend/middleware.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/backend-middleware.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/backend-middleware.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-013-page-middleware.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
     },
@@ -886,7 +905,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/frontend/middleware.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/frontend-middleware.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/frontend-middleware.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-013-page-middleware.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
     },
@@ -1116,7 +1138,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/notifications.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-008.spec.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-008.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts"
+      ],
       "dependencyModules": ["notifications"],
       "ruleOwner": "om-system-extension"
     },
@@ -1140,7 +1165,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/notifications.client.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/notifications.client.test.tsx"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/notifications.client.test.tsx",
+        "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts"
+      ],
       "dependencyModules": ["notifications"],
       "ruleOwner": "om-system-extension"
     },
