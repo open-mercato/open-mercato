@@ -635,7 +635,7 @@ describe('api-routes.generated.ts', () => {
 
   it('products API route has all 4 methods', () => {
     expect(content).toContain('path: "/products"')
-    expect(content).toMatch(/methods:[\s\S]*GET[\s\S]*POST[\s\S]*PUT[\s\S]*DELETE/)
+    expect(content).toMatch(/methods:\s*\[\s*"GET",\s*"POST",\s*"PUT",\s*"DELETE",?\s*\]/)
   })
 
   it('keeps API handler imports lazy in route entries', () => {

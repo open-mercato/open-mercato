@@ -5,7 +5,7 @@
  * applied before they were retired — otherwise the migration would have silently dropped
  * that hardening from every generated file.
  */
-import { stringLiteral, writeValue } from '../ast/writers'
+import { escapeGeneratedJsonLiteral, stringLiteral, writeValue } from '../ast/writers'
 import type { CodeBlockWriter } from 'ts-morph'
 
 function render(value: unknown): string {
@@ -35,6 +35,18 @@ describe('stringLiteral', () => {
   it('denotes the same runtime string after escaping', () => {
     const original = 'a</script>b c'
     expect(JSON.parse(stringLiteral(original))).toBe(original)
+  })
+})
+
+describe('escapeGeneratedJsonLiteral', () => {
+  it('hardens strings nested inside a serialized object', () => {
+    const literal = escapeGeneratedJsonLiteral(JSON.stringify({ GET: { title: 'a</script>b' } }))
+    expect(literal).toBe('{"GET":{"title":"a\\u003c/script\\u003eb"}}')
+  })
+
+  it('keeps the object literal parseable back to the same value', () => {
+    const value = { GET: { title: 'a</script>b c d' } }
+    expect(JSON.parse(escapeGeneratedJsonLiteral(JSON.stringify(value)))).toEqual(value)
   })
 })
 

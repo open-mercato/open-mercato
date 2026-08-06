@@ -26,6 +26,7 @@ import {
   conditionalExpression,
   createGeneratedSourceFile,
   elementAccess,
+  escapeGeneratedJsonLiteral,
   returnStatement,
   getSourceText,
   identifier,
@@ -991,11 +992,7 @@ function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean 
 }
 
 function toLiteral(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
+  return escapeGeneratedJsonLiteral(JSON.stringify(value))
 }
 
 const GENERATED_MODULE_RELATIVE_PREFIXES = ['@/', '../../src/modules/', './'] as const
@@ -2294,12 +2291,6 @@ function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): Writ
 }
 
 /**
- * `(X.<first> ?? X.<second>)` — the member-fallback shape the main registry path emits.
- * It is deliberately not `namespaceFallback`, which the app path uses: that helper walks
- * the members in an IIFE and treats only `!= null` as present, which is a different
- * expression. Converging the two is a behaviour change, not a formatting one.
- */
-/**
  * Wraps expressions that are still produced as pre-rendered strings by collaborators this
  * change does not convert (page routes, api handlers, dashboard widgets) so they can sit
  * inside an AST-built array without being re-quoted as string literals. It disappears once
@@ -2309,6 +2300,12 @@ function preRenderedExpressionList(expressions: readonly string[]): WriterFuncti
   return arrayLiteral(expressions.map((expression) => identifier(expression)), writeValue)
 }
 
+/**
+ * `(X.<first> ?? X.<second>)` — the member-fallback shape the main registry path emits.
+ * It is deliberately not `namespaceFallback`, which the app path uses: that helper walks
+ * the members in an IIFE and treats only `!= null` as present, which is a different
+ * expression. Converging the two is a behaviour change, not a formatting one.
+ */
 function legacyNamespaceMemberFallback(importName: string, members: readonly [string, string]): WriterFunction {
   return parenthesized(nullishCoalesce([
     propertyAccess(identifier(importName), members[0]),

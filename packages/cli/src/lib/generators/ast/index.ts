@@ -11,6 +11,7 @@ export {
   callExpression,
   conditionalExpression,
   elementAccess,
+  escapeGeneratedJsonLiteral,
   expressionStatement,
   forOfStatement,
   identifier,
