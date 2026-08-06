@@ -3,28 +3,39 @@
  */
 
 import '@testing-library/jest-dom'
-import { render, screen, waitFor } from '@testing-library/react'
+import * as React from 'react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { getComponentOverrides, registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { ComponentOverridesBootstrap } from '../ComponentOverridesBootstrap'
 
 jest.mock('@/.mercato/generated/component-overrides.generated', () => ({
   componentOverrideEntries: [{ componentOverrides: [{ target: { componentId: 'test' }, priority: 1 }] }],
 }))
 
-jest.mock('@open-mercato/ui/backend/injection/ComponentOverrideProvider', () => ({
-  ComponentOverrideProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="override-provider">{children}</div>
-  ),
-}))
-
 describe('ComponentOverridesBootstrap', () => {
-  it('hydrates children without suspending and activates overrides asynchronously', async () => {
+  afterEach(() => {
+    registerComponentOverrides([])
+  })
+
+  it('preserves child state when asynchronous overrides activate', async () => {
+    function StatefulChild() {
+      const [count, setCount] = React.useState(0)
+      return (
+        <button type="button" onClick={() => setCount((value) => value + 1)}>
+          Count {count}
+        </button>
+      )
+    }
+
     render(
       <ComponentOverridesBootstrap profile="login">
-        <button type="button">Sign in</button>
+        <StatefulChild />
       </ComponentOverridesBootstrap>,
     )
 
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled()
-    await waitFor(() => expect(screen.getByTestId('override-provider')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Count 0' }))
+    expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
+    await waitFor(() => expect(getComponentOverrides('test')).toHaveLength(1))
+    expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
   })
 })
