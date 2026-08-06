@@ -207,6 +207,30 @@ describe('customers.deals.update closure event scope', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
+    expect(emitted!.payload).toMatchObject({
+      id: DEAL_ID,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+  })
+
+  it('passes trusted scope when a deal moves straight from won to lost', async () => {
+    const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const deal = createDeal('win')
+    const { ctx, emitCalls } = createHarness(deal)
+
+    await handler.execute!({ id: DEAL_ID, status: 'loose' }, ctx)
+
+    expect(findClosureEmit(emitCalls, 'customers.deal.won')).toBeUndefined()
+    const emitted = findClosureEmit(emitCalls, 'customers.deal.lost')
+    expect(emitted).toBeDefined()
+    expect(emitted!.options).toMatchObject({
+      persistent: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
   })
 
   it('does not emit a closure event when the status is unchanged', async () => {
