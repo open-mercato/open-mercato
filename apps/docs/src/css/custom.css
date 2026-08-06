@@ -1,10 +1,10 @@
 :root {
-  --ifm-color-primary: #71af43;
-  --ifm-color-primary-dark: #63993b;
-  --ifm-color-primary-darker: #548133;
-  --ifm-color-primary-darkest: #45692a;
-  --ifm-color-primary-light: #8cc95d;
-  --ifm-color-primary-lighter: #b4f372;
+  --ifm-color-primary: #3f7228;
+  --ifm-color-primary-dark: #355f22;
+  --ifm-color-primary-darker: #2c4f1c;
+  --ifm-color-primary-darkest: #223e16;
+  --ifm-color-primary-light: #548133;
+  --ifm-color-primary-lighter: #71af43;
   --ifm-color-primary-lightest: #ebfbc9;
   --ifm-background-color: #fafcf6;
   --ifm-navbar-background-color: rgba(255, 255, 255, 0.85);
@@ -101,7 +101,7 @@ body {
 
 .hero .button--outline {
   color: #1f2937;
-  border-color: rgba(31, 41, 55, 0.2);
+  border-color: rgba(31, 41, 55, 0.5);
 }
 
 .feature-grid {
@@ -151,4 +151,20 @@ body {
 .screenshot-link:hover .screenshot-thumb {
   transform: translateY(-4px) scale(1.01);
   box-shadow: var(--docs-screenshot-shadow-hover);
+}
+
+.feature-card:focus-visible,
+.screenshot-link:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.feature-card h3 {
+  text-decoration: underline;
+  text-decoration-color: var(--ifm-color-primary-lighter);
+  text-underline-offset: 2px;
+}
+
+.feature-card:hover h3 {
+  text-decoration-color: var(--ifm-color-primary);
 }
