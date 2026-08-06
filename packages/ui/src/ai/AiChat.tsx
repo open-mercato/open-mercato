@@ -1284,7 +1284,7 @@ export function AiChat({
 
   React.useEffect(() => {
     if (modelProvidersStatus !== 'ready') return
-    // A degraded response was built without the tenant allowlist, so it is not an
+    // A degraded response lost part of its tenant-scoped narrowing, so it is not an
     // authoritative view of what this agent offers — dropping the user's stored
     // selection against it would lose a still-valid choice.
     if (modelProvidersDegraded) return
