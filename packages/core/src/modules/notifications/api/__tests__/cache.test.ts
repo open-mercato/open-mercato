@@ -37,6 +37,7 @@ const runWithCacheTenantMock = jest.fn((_tenantId: string, fn: () => unknown) =>
 const mockDebugCrudCache = jest.fn()
 
 jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/notifications/lib/routeHelpers'),
   resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
 }))
 

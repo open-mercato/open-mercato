@@ -8,7 +8,10 @@ import {
 } from '@open-mercato/shared/lib/crud/cache'
 import { Notification } from '../../data/entities'
 import { unreadCountResponseSchema } from '../openapi'
-import { resolveNotificationContext } from '../../lib/routeHelpers'
+import {
+  requireResolvedNotificationTenantScope,
+  resolveNotificationContext,
+} from '../../lib/routeHelpers'
 import {
   buildNotificationReadScopeWhere,
   getNotificationReadScopeTagOrganizationIds,
@@ -40,6 +43,8 @@ function buildUnreadCountCacheKey(params: {
 
 export async function GET(req: Request) {
   const { scope, ctx } = await resolveNotificationContext(req)
+  const tenantScopeGuard = await requireResolvedNotificationTenantScope(scope)
+  if (tenantScopeGuard) return tenantScopeGuard
   const em = ctx.container.resolve('em') as EntityManager
 
   const userId = scope.userId

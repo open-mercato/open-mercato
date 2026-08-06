@@ -8,6 +8,7 @@ import {
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
@@ -19,12 +20,14 @@ import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
   notificationValidationErrorResponse,
+  requireResolvedNotificationTenantScope,
   resolveNotificationContext,
   runGuardedNotificationWrite,
 } from '../lib/routeHelpers'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
+  errorResponseSchema,
   notificationItemSchema,
 } from './openapi'
 
@@ -90,6 +93,8 @@ function isNotificationsListPayload(value: unknown): value is NotificationsListP
 
 export async function GET(req: Request) {
   const { ctx, scope } = await resolveNotificationContext(req)
+  const tenantScopeGuard = await requireResolvedNotificationTenantScope(scope)
+  if (tenantScopeGuard) return tenantScopeGuard
   const em = ctx.container.resolve('em') as EntityManager
 
   const url = new URL(req.url)
@@ -226,7 +231,7 @@ export async function POST(req: Request) {
   }
 }
 
-export const openApi = buildNotificationsCrudOpenApi({
+const notificationsCrudOpenApi = buildNotificationsCrudOpenApi({
   resourceName: 'Notification',
   querySchema: listNotificationsSchema,
   listResponseSchema: createPagedListResponseSchema(notificationItemSchema),
@@ -236,3 +241,24 @@ export const openApi = buildNotificationsCrudOpenApi({
     description: 'Creates a notification for a user.',
   },
 })
+
+// The CRUD factory documents errors only for DELETE, and POST already gets an auto-generated 403
+// from its `requireFeatures` metadata. GET is authenticated-only, so its tenant-scope rejection has
+// to be declared here to reach the generated spec.
+export const openApi: OpenApiRouteDoc = {
+  ...notificationsCrudOpenApi,
+  methods: {
+    ...notificationsCrudOpenApi.methods,
+    GET: {
+      ...notificationsCrudOpenApi.methods!.GET!,
+      errors: [
+        ...(notificationsCrudOpenApi.methods!.GET!.errors ?? []),
+        {
+          status: 403,
+          description: 'Request could not be resolved to a tenant scope',
+          schema: errorResponseSchema,
+        },
+      ],
+    },
+  },
+}

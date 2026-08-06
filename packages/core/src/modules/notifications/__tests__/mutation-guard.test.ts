@@ -6,9 +6,17 @@ const recipientUserId = '55555555-5555-4555-8555-555555555555'
 
 const container = { resolve: jest.fn() }
 
-const ctx = {
+type TestAuth = { sub: string; tenantId?: string | null; orgId?: string | null }
+
+const resolvedAuth: TestAuth = { sub: userId, tenantId, orgId: organizationId }
+
+const ctx: {
+  container: typeof container
+  auth: TestAuth
+  selectedOrganizationId: string
+} = {
   container,
-  auth: { tenantId, sub: userId },
+  auth: { ...resolvedAuth },
   selectedOrganizationId: organizationId,
 }
 
@@ -52,8 +60,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
 
+const getAuthFromRequestMock = jest.fn(async (): Promise<TestAuth> => ({ ...resolvedAuth }))
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: jest.fn(async () => ({ sub: userId, tenantId, orgId: organizationId })),
+  getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...(args as [])),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -88,6 +98,8 @@ const guardCall = (input: Record<string, unknown>) =>
 describe('notification write routes run the mutation guard registry', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ctx.auth = { ...resolvedAuth }
+    getAuthFromRequestMock.mockImplementation(async () => ({ ...resolvedAuth }))
     runAfterSuccessMock.mockResolvedValue(undefined)
     runRouteMutationGuardsMock.mockResolvedValue({ ok: true, runAfterSuccess: runAfterSuccessMock })
     serviceMock.create.mockResolvedValue({ id: notificationId })
@@ -233,5 +245,114 @@ describe('notification write routes run the mutation guard registry', () => {
     await expect(response.json()).resolves.toEqual({ error: 'conflict' })
     expect(serviceMock.markAllAsRead).not.toHaveBeenCalled()
     expect(runAfterSuccessMock).not.toHaveBeenCalled()
+  })
+})
+
+// A tenant-less principal (an unscoped super-admin API key, or a request whose organization scope
+// cannot be resolved) leaves `scope.tenantId` as the `''` sentinel. `notifications.tenant_id` is a
+// NOT NULL uuid, so letting that through means a driver-level 500 on every write; fail closed
+// before the mutation guard runs instead.
+describe('notification write routes fail closed on an unresolved tenant', () => {
+  const tenantlessAuths: Array<[string, TestAuth]> = [
+    ['explicit null tenant', { sub: userId, tenantId: null, orgId: organizationId }],
+    ['omitted tenant', { sub: userId, orgId: organizationId }],
+    ['empty-string tenant', { sub: userId, tenantId: '', orgId: organizationId }],
+  ]
+
+  const writes: Array<[string, () => Promise<Response>, keyof typeof serviceMock | null]> = [
+    [
+      'POST /api/notifications',
+      () => createNotification(
+        jsonRequest('http://localhost/api/notifications', 'POST', { type: 'test', title: 'Hi', recipientUserId }),
+      ),
+      'create',
+    ],
+    [
+      'POST /api/notifications/batch',
+      () => createBatchNotifications(
+        jsonRequest('http://localhost/api/notifications/batch', 'POST', {
+          type: 'test',
+          title: 'Hi',
+          recipientUserIds: [recipientUserId],
+        }),
+      ),
+      'createBatch',
+    ],
+    [
+      'PUT /api/notifications/[id]/read',
+      () => markNotificationRead(
+        jsonRequest(`http://localhost/api/notifications/${notificationId}/read`, 'PUT'),
+        { params: Promise.resolve({ id: notificationId }) },
+      ),
+      'markAsRead',
+    ],
+    [
+      'PUT /api/notifications/[id]/restore',
+      () => restoreNotification(
+        jsonRequest(`http://localhost/api/notifications/${notificationId}/restore`, 'PUT', { status: 'unread' }),
+        { params: Promise.resolve({ id: notificationId }) },
+      ),
+      'restoreDismissed',
+    ],
+    [
+      'POST /api/notifications/[id]/action',
+      () => executeNotificationAction(
+        jsonRequest(`http://localhost/api/notifications/${notificationId}/action`, 'POST', { actionId: 'do' }),
+        { params: Promise.resolve({ id: notificationId }) },
+      ),
+      'executeAction',
+    ],
+    [
+      'PUT /api/notifications/mark-all-read',
+      () => markAllNotificationsRead(jsonRequest('http://localhost/api/notifications/mark-all-read', 'PUT')),
+      'markAllAsRead',
+    ],
+    [
+      'POST /api/notifications/settings',
+      () => updateNotificationSettings(
+        jsonRequest('http://localhost/api/notifications/settings', 'POST', {
+          strategies: { database: { enabled: true } },
+        }),
+      ),
+      null,
+    ],
+  ]
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ctx.auth = { ...resolvedAuth }
+    getAuthFromRequestMock.mockImplementation(async () => ({ ...resolvedAuth }))
+    runAfterSuccessMock.mockResolvedValue(undefined)
+    runRouteMutationGuardsMock.mockResolvedValue({ ok: true, runAfterSuccess: runAfterSuccessMock })
+  })
+
+  describe.each(tenantlessAuths)('%s', (_label, auth) => {
+    beforeEach(() => {
+      ctx.auth = auth
+      getAuthFromRequestMock.mockImplementation(async () => auth)
+    })
+
+    it.each(writes)('rejects %s with 403', async (_route, invoke, serviceMethod) => {
+      const response = await invoke()
+
+      expect(response.status).toBe(403)
+      expect(runRouteMutationGuardsMock).not.toHaveBeenCalled()
+      expect(runAfterSuccessMock).not.toHaveBeenCalled()
+      expect(saveNotificationDeliveryConfigMock).not.toHaveBeenCalled()
+      if (serviceMethod) {
+        expect(serviceMock[serviceMethod]).not.toHaveBeenCalled()
+      }
+    })
+  })
+
+  it('still allows a write once the tenant resolves', async () => {
+    serviceMock.markAllAsRead.mockResolvedValue(3)
+
+    const response = await markAllNotificationsRead(
+      jsonRequest('http://localhost/api/notifications/mark-all-read', 'PUT'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(runRouteMutationGuardsMock).toHaveBeenCalled()
   })
 })

@@ -61,6 +61,29 @@ export function notificationCrudErrorResponse(error: unknown): Response | null {
 }
 
 /**
+ * Fail closed when a request cannot be resolved to a tenant.
+ *
+ * `resolveNotificationContext` falls back to `''` when neither the organization scope nor the auth
+ * context yields a tenant — reachable for a genuinely tenant-less principal such as an unscoped
+ * super-admin API key. `notifications.tenant_id` is a NOT NULL uuid, so that `''` makes the driver
+ * reject every read and write built from the scope; dropping the tenant predicate instead would
+ * leave `recipientUserId` as the only thing keeping a read inside one tenant.
+ *
+ * Unlike the audit-log read guard there is no `isSuperAdmin` escape hatch: notification rows are
+ * per-recipient and per-tenant, so there is no cross-tenant read mode to preserve.
+ *
+ * Plain truthiness is deliberate — it matches the `?? ''` sentinel and also rejects a null or
+ * omitted tenant reaching this helper from a caller that builds its own scope.
+ */
+export async function requireResolvedNotificationTenantScope(
+  scope: { tenantId?: string | null },
+): Promise<Response | null> {
+  if (scope.tenantId) return null
+  const { t } = await resolveTranslations()
+  return Response.json({ error: t('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+}
+
+/**
  * Resolve notification service and scope from a request.
  * Centralizes the common pattern used across all notification API routes.
  */
@@ -120,6 +143,11 @@ export async function runGuardedNotificationWrite<T>(
   options: NotificationMutationGuardOptions,
   write: () => Promise<T>,
 ): Promise<GuardedNotificationWriteResult<T>> {
+  const tenantScopeGuard = await requireResolvedNotificationTenantScope(scope)
+  if (tenantScopeGuard) {
+    return { ok: false, response: tenantScopeGuard }
+  }
+
   const guarded = await runRouteMutationGuards({
     container,
     req,

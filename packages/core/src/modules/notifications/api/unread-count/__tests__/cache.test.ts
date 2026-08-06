@@ -39,6 +39,7 @@ const resolveNotificationContextMock = jest.fn(async () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/notifications/lib/routeHelpers'),
   resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
 }))
 
@@ -229,6 +230,33 @@ describe('GET /api/notifications/unread-count caching', () => {
 
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ unreadCount: 3 })
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  // The guard runs before the cache so an unresolved tenant never opens a cache scope either —
+  // `runWithCacheTenant('')` would namespace every such caller into one shared bucket.
+  it.each([
+    ['explicit null', null],
+    ['omitted', undefined],
+    ['empty string', ''],
+  ])('rejects an unresolved tenant (%s) without counting or caching', async (_label, unresolvedTenantId) => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const { GET } = await loadRoute()
+    resolveNotificationContextMock.mockResolvedValue({
+      ctx: { container },
+      scope: {
+        userId,
+        ...(unresolvedTenantId === undefined ? {} : { tenantId: unresolvedTenantId }),
+        organizationId: orgId,
+        organizationIds: [orgId],
+      },
+    } as never)
+
+    const res = await GET(new Request('http://localhost/api/notifications/unread-count'))
+
+    expect(res.status).toBe(403)
+    expect(count).not.toHaveBeenCalled()
     expect(cache.get).not.toHaveBeenCalled()
     expect(cache.set).not.toHaveBeenCalled()
   })

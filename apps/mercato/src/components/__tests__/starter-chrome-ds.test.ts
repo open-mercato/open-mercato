@@ -32,4 +32,22 @@ describe('starter chrome design-system coverage', () => {
 
     expect(source).not.toMatch(/<button\b/)
   })
+
+  // The two copies are the only writers of `om_selected_tenant`, and only the app copy is covered
+  // by behavioral tests — parity is what keeps a scaffolded app from silently keeping the bug.
+  // See packages/create-app/AGENTS.md § Template Sync Checklist.
+  it('keeps the app and template OrganizationSwitcher byte-identical', () => {
+    const [[, appDir], [, templateDir]] = componentPairs
+
+    expect(fs.readFileSync(path.join(templateDir, 'OrganizationSwitcher.tsx'), 'utf8')).toBe(
+      fs.readFileSync(path.join(appDir, 'OrganizationSwitcher.tsx'), 'utf8'),
+    )
+  })
+
+  it.each(componentPairs)('%s OrganizationSwitcher never persists a blank tenant cookie', (_label, componentsDir) => {
+    const source = fs.readFileSync(path.join(componentsDir, 'OrganizationSwitcher.tsx'), 'utf8')
+
+    expect(source).toMatch(/om_selected_tenant=; path=\/; max-age=0/)
+    expect(source).not.toMatch(/om_selected_tenant=\$\{encodeURIComponent\(resolved\)\}/)
+  })
 })
