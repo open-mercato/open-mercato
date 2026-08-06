@@ -10,7 +10,7 @@
  * carried in the token.
  */
 import '@testing-library/jest-dom'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
 
@@ -57,15 +57,21 @@ function clearCookies() {
   }
 }
 
-function readTenantCookie(): string | null {
+function readCookie(name: string): string | null {
   for (const entry of document.cookie.split(';')) {
     const trimmed = entry.trim()
-    if (trimmed.startsWith('om_selected_tenant=')) {
-      return trimmed.slice('om_selected_tenant='.length)
+    if (trimmed.startsWith(`${name}=`)) {
+      return trimmed.slice(name.length + 1)
     }
   }
   return null
 }
+
+const readTenantCookie = () => readCookie('om_selected_tenant')
+
+// The organization cookie is written by the same `persistSelection` pass that used to write the
+// blank tenant cookie, so its presence proves the load continuation actually ran.
+const readSelectedOrgCookie = () => readCookie('om_selected_org')
 
 function mockSwitcherPayload(payload: Record<string, unknown>) {
   // jsdom has no global Response; the component only reads `ok`/`status`/`result` on success.
@@ -90,8 +96,13 @@ describe('OrganizationSwitcher tenant cookie', () => {
 
     render(<OrganizationSwitcher />)
 
+    // The blank write happened in the continuation after `apiCall` resolved, so the assertion has
+    // to run against a settled tree — otherwise "no cookie" is just the state before the load ran.
     await waitFor(() => expect(apiCallMock).toHaveBeenCalled())
-    await waitFor(() => expect(readTenantCookie()).toBeNull())
+    await waitFor(() => expect(readSelectedOrgCookie()).not.toBeNull())
+    await act(async () => {})
+
+    expect(readTenantCookie()).toBeNull()
   })
 
   it('clears a cookie an earlier build left blank', async () => {

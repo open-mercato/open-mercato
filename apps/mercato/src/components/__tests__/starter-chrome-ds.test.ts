@@ -44,10 +44,12 @@ describe('starter chrome design-system coverage', () => {
     )
   })
 
-  it.each(componentPairs)('%s OrganizationSwitcher never persists a blank tenant cookie', (_label, componentsDir) => {
+  // Behavioral coverage lives in OrganizationSwitcher.tenantCookie.test.tsx against the app copy;
+  // this only pins that the template carries the expiring write, since the parity test above is
+  // what actually keeps the two in step.
+  it.each(componentPairs)('%s OrganizationSwitcher expires the tenant cookie instead of blanking it', (_label, componentsDir) => {
     const source = fs.readFileSync(path.join(componentsDir, 'OrganizationSwitcher.tsx'), 'utf8')
 
     expect(source).toMatch(/om_selected_tenant=; path=\/; max-age=0/)
-    expect(source).not.toMatch(/om_selected_tenant=\$\{encodeURIComponent\(resolved\)\}/)
   })
 })

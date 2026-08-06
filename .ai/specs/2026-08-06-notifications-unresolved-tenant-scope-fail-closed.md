@@ -62,9 +62,11 @@ export async function requireResolvedNotificationTenantScope(
 Applied in two places, which between them cover all twelve entry points:
 
 - inside `runGuardedNotificationWrite`, before `runRouteMutationGuards` — every write route funnels through it, including `settings`;
-- explicitly at the top of the two polled read routes, before the container resolve and before the cache lookup, so an unresolved tenant never opens a `""` cache scope either.
+- inside `resolveGuardedNotificationContext`, the wrapper the two polled read routes use instead of `resolveNotificationContext`. It returns a discriminated `{ ok: true, … } | { ok: false, response }`, so a read route cannot reach the query without handling the rejection. Writes are structurally safe through their shared helper; reads had no such choke point, and a convention ("remember to call the guard") would have been silently breakable by the next read route added.
 
-**Client — expire the cookie instead of blanking it.** `persistTenant(null)` now writes `max-age=0` and reports `hasCookie: false`, so the session falls back to the tenant carried in the token. The `load()` branch that previously only touched React state now calls `persistTenant(null)`, which is what remediates a cookie an earlier build already left blank.
+Both run before the container resolve and before the cache lookup, so an unresolved tenant never opens a `""` cache scope either.
+
+**Client — expire the cookie instead of blanking it.** `persistTenant(null)` now writes `max-age=0` and reports `hasCookie: false`, so the session falls back to the tenant carried in the token. The `load()` branch that previously only touched React state now calls `persistTenant(null)` — scoped to `value === ''`, which is what remediates a cookie an earlier build already left blank. The old condition was `value !== ''`, excluding exactly the blank cookie it needed to clear; scoping to the blank value clears the poisoned cookie without discarding an explicit tenant selection when the switcher API happens to return `tenantId: null`.
 
 ## Design Decisions
 
@@ -76,6 +78,7 @@ Applied in two places, which between them cover all twelve entry points:
 | **No** `actorTenantId` fallback in `resolveNotificationContext` | `resolveOrganizationScopeForRequest` already prefers `actorTenantId`, so a second fallback would be dead code that implies a safety it does not add. |
 | Guard at the route boundary, not in `resolveOrganizationScope` | The null-tenant widening in `resolveOrganizationScope` is the shared root cause across modules, but it has hundreds of call sites; changing it is a platform-wide behavior change and belongs in its own spec. Matches the precedent set for the undo, redo and audit-log routes. |
 | Helper lives in `lib/routeHelpers.ts` | It returns a web-standard `Response` (the module's own convention — `notificationCrudErrorResponse` does the same), and the two route factories that need it live in that file. `audit_logs` put its guard under `api/` only because it returns a `NextResponse`. |
+| Reads go through a guarded context wrapper, not a bare guard call | An opt-in guard on reads is skippable by omission — nothing fails if a future read route forgets it. `resolveGuardedNotificationContext` makes the rejection part of the return type instead of the convention. |
 | 403 body is translated | Every other error body in this module routes through `resolveTranslations`. `api.errors.forbidden` already exists in all shipped locales, so no new keys. |
 | Client expires rather than blanks | A blank value is indistinguishable from a deliberate override server-side, and the UI offers no tenant-less selection to preserve. An absent cookie and a blank one are already equivalent to `parseSelectedTenantCookie`, so the documented global super-admin views are unaffected. |
 
@@ -101,7 +104,7 @@ The switcher fix is mirrored byte-for-byte into `packages/create-app/template/sr
 Unit coverage, parameterized over **explicit null, omitted, and empty-string** tenant scope per the established convention:
 
 - `lib/__tests__/routeHelpers.scope.test.ts` — the guard itself, plus the previously untested branch where both the organization scope and the auth context are tenant-less and the scope falls back to the `''` sentinel.
-- `__tests__/mutation-guard.test.ts` — all seven mutating entry points (create, batch, read, restore, action, mark-all-read, settings) answer 403, the mutation-guard registry is never reached, and no service method runs. Verified to fail against the previous code.
+- `__tests__/mutation-guard.test.ts` — all ten mutating entry points (create, batch, role, feature, read, dismiss, restore, action, mark-all-read, settings) answer 403, the mutation-guard registry is never reached, and no service method runs. Verified to fail against the previous code.
 - `api/__tests__/route.read-scope.test.ts` — `GET /api/notifications` answers 403 without touching `em.find` / `em.count`.
 - `api/unread-count/__tests__/cache.test.ts` — same for the unread count, additionally asserting the cache is neither read nor written.
 - `apps/mercato/src/components/__tests__/OrganizationSwitcher.tenantCookie.test.tsx` — no blank cookie is written when the switcher resolves no tenant; a cookie an earlier build left blank is cleared; a resolved tenant is still persisted. The first two fail against the previous component.
@@ -113,7 +116,8 @@ No integration coverage: the vulnerable principal cannot be constructed through 
 
 | Risk | Severity | Mitigation | Residual |
 |---|---|---|---|
-| A tenant-less principal loses notification access entirely | Low | That principal received a driver-level 500 on every one of these routes before; there is no working behavior to preserve | An empty bell and a 403 instead of a 500 for a genuinely tenant-less account |
+| A tenant-less principal loses notification access entirely | Low | That principal received a driver-level 500 on every one of these routes before; there is no working behavior to preserve | A 403 instead of a 500 for a genuinely tenant-less account |
+| The bell renders a visible error rather than degrading quietly | Low | `apiFetch` throws `ForbiddenError` on 403 where the previous 500 returned `ok: false`, so `useNotificationsPoll`/`useNotificationsSse` land in their `catch` and `setError(...)`. No redirect fires (the 403 is not on a login/portal route) and no flash toast fires (the body carries no `requiredRoles`/`requiredFeatures` hints), but the inline error state is user-visible and repeats each poll | An unactionable inline error for a session that cannot resolve a tenant. Deliberate: this is an anomaly an operator should see, not hide. Sending the two polls with `x-om-forbidden-redirect: 0` (or branching on `status === 403` in the hooks) is the one-line lever if quiet degradation is preferred later |
 | Expiring the cookie discards an intended "no tenant" scope | Low | No UI can select one (`includeEmptyOption={false}`, no `__all__` equivalent for tenants), and the switcher API always resolves a concrete tenant for a super-admin | None found; re-check if an all-tenants selection is ever introduced |
 | Template drift leaves scaffolded apps writing the blank cookie | Medium | Mirrored in the same change and enforced by a byte-identical parity test | None while the test stands |
 | The guard hides a genuine scope-resolution regression behind a 403 | Low | The guarded branch is unreachable for any principal with a tenant, and the unit tests pin the resolved-tenant path | A future scope regression surfaces as 403 rather than 500 |

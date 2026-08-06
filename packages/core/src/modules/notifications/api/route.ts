@@ -20,7 +20,7 @@ import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
   notificationValidationErrorResponse,
-  requireResolvedNotificationTenantScope,
+  resolveGuardedNotificationContext,
   resolveNotificationContext,
   runGuardedNotificationWrite,
 } from '../lib/routeHelpers'
@@ -92,9 +92,9 @@ function isNotificationsListPayload(value: unknown): value is NotificationsListP
 }
 
 export async function GET(req: Request) {
-  const { ctx, scope } = await resolveNotificationContext(req)
-  const tenantScopeGuard = await requireResolvedNotificationTenantScope(scope)
-  if (tenantScopeGuard) return tenantScopeGuard
+  const resolved = await resolveGuardedNotificationContext(req)
+  if (!resolved.ok) return resolved.response
+  const { ctx, scope } = resolved
   const em = ctx.container.resolve('em') as EntityManager
 
   const url = new URL(req.url)
@@ -242,6 +242,8 @@ const notificationsCrudOpenApi = buildNotificationsCrudOpenApi({
   },
 })
 
+const notificationsCrudGet = notificationsCrudOpenApi.methods?.GET ?? {}
+
 // The CRUD factory documents errors only for DELETE, and POST already gets an auto-generated 403
 // from its `requireFeatures` metadata. GET is authenticated-only, so its tenant-scope rejection has
 // to be declared here to reach the generated spec.
@@ -250,9 +252,9 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     ...notificationsCrudOpenApi.methods,
     GET: {
-      ...notificationsCrudOpenApi.methods!.GET!,
+      ...notificationsCrudGet,
       errors: [
-        ...(notificationsCrudOpenApi.methods!.GET!.errors ?? []),
+        ...(notificationsCrudGet.errors ?? []),
         {
           status: 403,
           description: 'Request could not be resolved to a tenant scope',

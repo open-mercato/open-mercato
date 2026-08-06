@@ -36,10 +36,20 @@ const resolveNotificationContextMock = jest.fn(async () => ({
 const runWithCacheTenantMock = jest.fn((_tenantId: string, fn: () => unknown) => fn())
 const mockDebugCrudCache = jest.fn()
 
-jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
-  ...jest.requireActual('@open-mercato/core/modules/notifications/lib/routeHelpers'),
-  resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
-}))
+// Only the context resolution is stubbed; the guard the route relies on is the real one, so a
+// tenant-less scope exercises the shipped predicate rather than a copy of it.
+jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => {
+  const actual = jest.requireActual('@open-mercato/core/modules/notifications/lib/routeHelpers')
+  return {
+    ...actual,
+    resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
+    resolveGuardedNotificationContext: async (req: Request) => {
+      const resolved = await resolveNotificationContextMock(req)
+      const guard = await actual.requireResolvedNotificationTenantScope(resolved.scope)
+      return guard ? { ok: false, response: guard } : { ok: true, ...resolved }
+    },
+  }
+})
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: (...args: unknown[]) => runWithCacheTenantMock(...args),

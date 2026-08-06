@@ -266,9 +266,10 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         if (!currentTenantCookie.hasCookie || currentTenantCookie.value !== resolvedTenantId) {
           persistTenant(resolvedTenantId, { refresh: false })
         }
-      } else if (currentTenantCookie.hasCookie) {
-        // Covers a cookie left blank by an earlier build: `value` is already `''`, so a condition
-        // on the value alone would never clear it and the session would stay tenant-less.
+      } else if (currentTenantCookie.hasCookie && currentTenantCookie.value === '') {
+        // Covers a cookie left blank by an earlier build. The old condition was `value !== ''`,
+        // which excluded exactly the blank cookie it needed to clear; scoping to `value === ''`
+        // clears it without discarding an explicit tenant selection.
         persistTenant(null, { refresh: false })
       }
       const currentCookie = cookieStateRef.current

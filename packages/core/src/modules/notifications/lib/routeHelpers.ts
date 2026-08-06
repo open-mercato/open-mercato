@@ -115,6 +115,25 @@ export async function resolveNotificationContext(req: Request): Promise<Notifica
   }
 }
 
+export type GuardedNotificationContext =
+  | ({ ok: true } & NotificationRequestContext)
+  | { ok: false; response: Response }
+
+/**
+ * Resolve the notification context and reject the request when it has no tenant.
+ *
+ * Writes are structurally safe because every one of them funnels through
+ * `runGuardedNotificationWrite`. Reads have no such choke point, so they resolve their context
+ * through this wrapper instead: a route that forgets to check cannot compile past the discriminated
+ * result, which makes the guard impossible to skip by omission rather than by convention.
+ */
+export async function resolveGuardedNotificationContext(req: Request): Promise<GuardedNotificationContext> {
+  const resolved = await resolveNotificationContext(req)
+  const tenantScopeGuard = await requireResolvedNotificationTenantScope(resolved.scope)
+  if (tenantScopeGuard) return { ok: false, response: tenantScopeGuard }
+  return { ok: true, ...resolved }
+}
+
 /**
  * Mutation-guard options for a notification write.
  */

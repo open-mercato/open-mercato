@@ -3,6 +3,7 @@ const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 const notificationId = '44444444-4444-4444-8444-444444444444'
 const recipientUserId = '55555555-5555-4555-8555-555555555555'
+const roleIdForNotifications = '66666666-6666-4666-8666-666666666666'
 
 const container = { resolve: jest.fn() }
 
@@ -75,6 +76,9 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import { POST as createNotification } from '../api/route'
 import { POST as createBatchNotifications } from '../api/batch/route'
+import { POST as createRoleNotifications } from '../api/role/route'
+import { POST as createFeatureNotifications } from '../api/feature/route'
+import { PUT as dismissNotification } from '../api/[id]/dismiss/route'
 import { PUT as markNotificationRead } from '../api/[id]/read/route'
 import { PUT as restoreNotification } from '../api/[id]/restore/route'
 import { POST as executeNotificationAction } from '../api/[id]/action/route'
@@ -277,6 +281,36 @@ describe('notification write routes fail closed on an unresolved tenant', () => 
         }),
       ),
       'createBatch',
+    ],
+    [
+      'POST /api/notifications/role',
+      () => createRoleNotifications(
+        jsonRequest('http://localhost/api/notifications/role', 'POST', {
+          type: 'test',
+          title: 'Hi',
+          roleId: roleIdForNotifications,
+        }),
+      ),
+      'createForRole',
+    ],
+    [
+      'POST /api/notifications/feature',
+      () => createFeatureNotifications(
+        jsonRequest('http://localhost/api/notifications/feature', 'POST', {
+          type: 'test',
+          title: 'Hi',
+          requiredFeature: 'notifications.view',
+        }),
+      ),
+      'createForFeature',
+    ],
+    [
+      'PUT /api/notifications/[id]/dismiss',
+      () => dismissNotification(
+        jsonRequest(`http://localhost/api/notifications/${notificationId}/dismiss`, 'PUT'),
+        { params: Promise.resolve({ id: notificationId }) },
+      ),
+      'dismiss',
     ],
     [
       'PUT /api/notifications/[id]/read',
