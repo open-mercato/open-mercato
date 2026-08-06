@@ -34,11 +34,13 @@ tool-call count.
 
 ## Progress
 
+PR: #5053
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix and lock the invariant
 
-- [ ] 1.1 Remove the duplicate `onStepFinish` from the `ToolLoopAgent.stream(...)` call
-- [ ] 1.2 Add a regression test asserting a single SDK-side wiring and one caller callback per step
-- [ ] 1.3 Run the targeted ai-assistant test suite
-- [ ] 1.4 Run the full validation gate
+- [x] 1.1 Remove the duplicate `onStepFinish` from the `ToolLoopAgent.stream(...)` call — e506fb866
+- [x] 1.2 Add a regression test asserting a single SDK-side wiring and one caller callback per step — e506fb866
+- [x] 1.3 Run the targeted ai-assistant test suite
+- [x] 1.4 Run the full validation gate
