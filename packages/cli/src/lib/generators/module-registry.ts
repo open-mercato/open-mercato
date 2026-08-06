@@ -2299,6 +2299,16 @@ function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): Writ
  * the members in an IIFE and treats only `!= null` as present, which is a different
  * expression. Converging the two is a behaviour change, not a formatting one.
  */
+/**
+ * Wraps expressions that are still produced as pre-rendered strings by collaborators this
+ * change does not convert (page routes, api handlers, dashboard widgets) so they can sit
+ * inside an AST-built array without being re-quoted as string literals. It disappears once
+ * those producers emit writers themselves — see the follow-up noted in the spec's Non-Goals.
+ */
+function preRenderedExpressionList(expressions: readonly string[]): WriterFunction {
+  return arrayLiteral(expressions.map((expression) => identifier(expression)), writeValue)
+}
+
 function legacyNamespaceMemberFallback(importName: string, members: readonly [string, string]): WriterFunction {
   return parenthesized(nullishCoalesce([
     propertyAccess(identifier(importName), members[0]),
@@ -3255,9 +3265,6 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }
     }
 
-    const rawExpressionList = (expressions: string[]): WriterFunction =>
-      arrayLiteral(expressions.map((expression) => identifier(expression)), writeValue)
-
     const identityEntries: GeneratedObjectEntry[] = [{ name: 'id', value: modId }]
     if (infoImportName) {
       identityEntries.push({ name: 'info', value: propertyAccess(identifier(infoImportName), 'metadata') })
@@ -3342,33 +3349,33 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
 
     const eagerEntries: GeneratedObjectEntry[] = [...identityEntries]
     if (frontendRoutes.length > 0) {
-      eagerEntries.push({ name: 'frontendRoutes', value: rawExpressionList(frontendRoutes) })
+      eagerEntries.push({ name: 'frontendRoutes', value: preRenderedExpressionList(frontendRoutes) })
     }
     if (backendRoutes.length > 0) {
-      eagerEntries.push({ name: 'backendRoutes', value: rawExpressionList(backendRoutes) })
+      eagerEntries.push({ name: 'backendRoutes', value: preRenderedExpressionList(backendRoutes) })
     }
     if (apis.length > 0) {
-      eagerEntries.push({ name: 'apis', value: rawExpressionList(apis) })
+      eagerEntries.push({ name: 'apis', value: preRenderedExpressionList(apis) })
     }
     if (cliImportName) {
       eagerEntries.push({ name: 'cli', value: identifier(cliImportName) })
     }
     eagerEntries.push(...sharedTailEntries)
     if (dashboardWidgets.length > 0) {
-      eagerEntries.push({ name: 'dashboardWidgets', value: rawExpressionList(dashboardWidgets) })
+      eagerEntries.push({ name: 'dashboardWidgets', value: preRenderedExpressionList(dashboardWidgets) })
     }
     eagerEntries.push(...setupAndBeyondEntries)
     moduleDecls.push(objectLiteral(eagerEntries))
 
     const runtimeEntries: GeneratedObjectEntry[] = [...identityEntries]
     if (runtimeFrontendRoutes.length > 0) {
-      runtimeEntries.push({ name: 'frontendRoutes', value: rawExpressionList(runtimeFrontendRoutes) })
+      runtimeEntries.push({ name: 'frontendRoutes', value: preRenderedExpressionList(runtimeFrontendRoutes) })
     }
     if (runtimeBackendRoutes.length > 0) {
-      runtimeEntries.push({ name: 'backendRoutes', value: rawExpressionList(runtimeBackendRoutes) })
+      runtimeEntries.push({ name: 'backendRoutes', value: preRenderedExpressionList(runtimeBackendRoutes) })
     }
     if (runtimeApis.length > 0) {
-      runtimeEntries.push({ name: 'apis', value: rawExpressionList(runtimeApis) })
+      runtimeEntries.push({ name: 'apis', value: preRenderedExpressionList(runtimeApis) })
     }
     runtimeEntries.push(...sharedTailEntries, ...setupAndBeyondEntries)
     runtimeModuleDecls.push(objectLiteral(runtimeEntries))
