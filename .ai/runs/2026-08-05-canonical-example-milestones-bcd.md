@@ -514,3 +514,95 @@ The whole stack works in this environment: testcontainers Postgres, migrations f
 | 3 | D | not started |
 | 4 | B (15 integration specs) | not started — and they must be RUN |
 | 5 | I + spec changelogs | not started |
+
+## Slice D INTEGRATED, slice B eight-of-fifteen INTEGRATED and RUN — 2026-08-06 session 3
+
+Commits: `3167576ba` (D1), `9e803f5b0` (D2 + D3), `b17d06306` (slice B partial + a runtime fix).
+
+### Slice D is complete
+
+- **D1 — SPEC-P decision row 6.** The previous entry's diagnosis was right and its conclusion was
+  the blocker: unblocking `reuse-spec` needed a *product* decision, not a harness change. That
+  decision is now made. The scaffold emits
+  `packages/create-app/agentic/shared/ai/specs/2026-08-06-reference-module-activation.md`, a real
+  covering spec for opting the two shipped-but-unregistered reference modules into an app, and
+  `OMH-217` grades `reuse-spec` + `COVERING_SPEC_FOUND`/`NEW_CAPABILITY` against it. Catalog
+  216 → 217.
+- **D2/D3 — module-shaped and traceability clauses.** `OMH-213` became the module-shaped planning
+  proof: twelve new graded properties, one negative control each. The vocabulary had to be emitted
+  before it could be graded — no scaffold file named `emitted-example`/`framework-only`/
+  `catalog-only`/`currently-unbound`/`negative-fixture`, so `agentic/guides/spec-delivery.md` now
+  owns it. Grading output the instructions never asked for would have been a rigged case.
+
+### The correction worth carrying forward
+
+Family 9's ledger probe read "a WRITABLE shipped case declaring `context.exampleRoots`".
+`OMH-213` became exactly that — while asserting nothing whatsoever about progress. The probe was
+**restated, not satisfied**: it now asks for a writable lane whose own contract names the
+connected `progressJobId` lifecycle, and family 9 stays honestly `partial`. A coverage ledger that
+closes on a coincidence is worse than one that stays open.
+
+### Slice B — eight specs, executed
+
+`TC-EXAMPLE-004` (encryption), `005` (extension links), `006` (search), `007` (cache + scoped DI),
+`008` (notifications), `009` (translations), `011` (shared form + locking), `013` (page
+middleware). 18 tests, all executed green against a real app, database and queue. Not written and
+shipped unexecuted.
+
+**A runtime defect the specs found, which every unit test had missed.**
+`/api/example/todos/summary` answered **500 for every caller** in a production build:
+`AwilixResolutionError: Could not resolve 'deps'. Resolution path: exampleTodoSummaryService ->
+deps`. The platform container is `InjectionMode.CLASSIC`, which resolves one registration per
+*parameter name*; the factory took a single cradle parameter, so the container looked for a
+registration literally called `deps`. `di-registration.test.ts` had built its own container with
+`InjectionMode.PROXY` and therefore could never have caught it. Both are fixed: the factory lists
+`em` and `cache` as parameters, and the test now mirrors the real injection mode. Probed
+empirically rather than reasoned about — under CLASSIC a destructured parameter is worse than the
+named one, because it silently injects nothing at all instead of throwing.
+
+**Three findings pinned rather than asserted away**, each with its precondition made explicit so a
+future change trips over it:
+
+1. `encryption_maps` rows are materialized per `(tenant, organization)`. An organization created
+   after tenant seeding has no row, and a write in that scope is stored **unencrypted** rather
+   than refused. `TC-EXAMPLE-004` asserts the map count is zero for its own fixture organization,
+   so the day seeding covers a later organization the expectation fails and someone must decide
+   what that scope stores. Reported on the PR.
+2. The translations route accepts and stores a field the module never registered as translatable.
+   `translatableFields` is discoverability, not a whitelist. `TC-EXAMPLE-009` pins today's
+   behaviour and asserts the unregistered value never reaches the record row.
+3. `PUT /api/example/todos` accepts a camelCase `isDone` and silently ignores it; the write field
+   is `is_done`. `TC-EXAMPLE-007` asserts the completion read-back before the counters, so a
+   silent drop can never pass again.
+
+### Wave state
+
+| Wave | Slices | Status |
+|---|---|---|
+| 1 | A, E, H | **INTEGRATED** `3e27096ca` |
+| 2 | C | mostly integrated; family 8's preset/tier applicability still open |
+| 2 | F, G | **INTEGRATED** `b34f5bb98`, `11e84e4d2`, `f34827af6` |
+| 3 | D | **INTEGRATED** `3167576ba`, `9e803f5b0` |
+| 4 | B | **8 of 15 integrated and run** `b17d06306`. Remaining: `003` (bulk progress + outbox/lease/checkpoint), `010` (setup seeding), `012` (extension facts/topology), `014` (AI contracts), `015` (specialized registries), `016` (generator plugin), `017` (bound extension UI) |
+| 5 | I + spec changelogs | not started |
+
+### How to run the lane, so the next session does not re-derive it
+
+Start the stack with `yarn test:integration:ephemeral:start --verbose` (~2 min, stays up), then:
+
+```bash
+export LD_LIBRARY_PATH=/tmp/om-pw-libs/extracted/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+export BASE_URL=http://127.0.0.1:5001 DATABASE_URL=postgres://mercato:secret@127.0.0.1:<port>/mercato_test
+export OM_INTEGRATION_TEST=true OM_INTEGRATION_MODULES=example
+yarn test:integration --grep "TC-EXAMPLE-00X" --workers=1 --reporter=list
+```
+
+`OM_INTEGRATION_MODULES=example` is not optional. The Playwright config derives `testMatch` from
+it; without it a `--grep` run still compiles the entire repository suite and costs about five
+minutes before the first test starts.
+
+Four API facts that cost a cycle each: the summary route authenticates from **cookies** only
+(`getAuthFromCookies`), so a bearer token gets 401 and the read must come from a page fetch; the
+optimistic-lock header is `x-om-ext-optimistic-lock-expected-updated-at`; the todos list projection
+returns `notes: null` rather than omitting the key; and the search envelope echoes the caller's own
+query string, so never assert "the body does not contain <search term>" against the whole response.
