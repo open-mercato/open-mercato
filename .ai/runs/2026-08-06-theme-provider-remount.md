@@ -70,7 +70,7 @@ User-visible consequence on `/login`: credentials typed before the remount are d
 
 ### Phase 2: Integration coverage
 
-- [ ] 2.1 Integration spec: login submitted with no settle
+- [x] 2.1 Integration spec: login submitted with no settle — 973e44a17
 
 ### Phase 3: Validation
 
