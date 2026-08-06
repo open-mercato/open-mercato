@@ -31,6 +31,19 @@ test('the test script builds once before the runner starts', () => {
   )
 })
 
+test('turbo knows the test task now needs the sibling builds', () => {
+  const turbo = JSON.parse(fs.readFileSync(join(pkgRoot, '..', '..', 'turbo.json'), 'utf8')) as {
+    tasks: Record<string, { dependsOn?: string[] }>
+  }
+
+  assert.deepEqual(
+    turbo.tasks['create-mercato-app#test']?.dependsOn,
+    ['^build'],
+    'building before the runner means the suite cannot start on a tree where the packages this '
+    + 'build imports are not compiled yet; the generic `test` task declares no dependencies',
+  )
+})
+
 test('the test script keeps the per-test timeout pinned', () => {
   assert.match(testScript, /--test-timeout=120000/)
 })

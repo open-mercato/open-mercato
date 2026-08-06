@@ -2,6 +2,7 @@ import * as esbuild from 'esbuild'
 import { createHash } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join, basename, resolve } from 'path'
+import { describeMissingSiblingBuild } from './scripts/sibling-build.mjs'
 
 const shebang = '#!/usr/bin/env node\n'
 
@@ -33,6 +34,11 @@ if (existsSync('src/lib/templates')) {
 // leaves the published tree incomplete for seconds and makes any concurrent reader fail with ENOENT
 // on files that exist (#5059). Staging also makes stale per-module artifacts structurally impossible,
 // so no purge of previous output is needed — the swapped-in tree only contains what this build wrote.
+// The staging and previous directory names are fixed, so a single builder at a time is an assumption
+// of this design: two concurrent runs would clear each other's staging tree below and the loser would
+// fail loudly on the rename at the end. Nothing in the repository builds this package concurrently
+// any more — removing that is what this change is for — and a loud failure beats the silent partial
+// tree the in-place refresh produced.
 const agenticDist = join('dist', 'agentic')
 const agenticStaging = join('dist', 'agentic.staging')
 const agenticPrevious = join('dist', 'agentic.previous')
@@ -40,7 +46,7 @@ for (const leftover of [agenticStaging, agenticPrevious]) rmSync(leftover, { rec
 mkdirSync(agenticStaging, { recursive: true })
 if (existsSync('agentic')) {
   cpSync('agentic', agenticStaging, { recursive: true })
-  console.log('Copied agentic/ → dist/agentic/')
+  console.log('Copied agentic/ → dist/agentic.staging/')
 }
 
 // Bundle the release-matched upstream instruction boundary used by standalone
@@ -96,13 +102,21 @@ if (guidesFound > 0) {
 // Auth comes from the generated module registry (`apis[].metadata`); a missing registry
 // yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
 // packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
-const { extractAllModuleFacts, renderModuleFactsJson } = await import(
-  '@open-mercato/cli/lib/generators/module-facts'
-)
-const { discoverPackageModuleSources } = await import(
-  '@open-mercato/cli/lib/generators/module-facts-discovery'
-)
-const { createResolver } = await import('@open-mercato/cli/lib/resolver')
+let extractAllModuleFacts
+let renderModuleFactsJson
+let discoverPackageModuleSources
+let createResolver
+try {
+  ;({ extractAllModuleFacts, renderModuleFactsJson } = await import(
+    '@open-mercato/cli/lib/generators/module-facts'
+  ))
+  ;({ discoverPackageModuleSources } = await import(
+    '@open-mercato/cli/lib/generators/module-facts-discovery'
+  ))
+  ;({ createResolver } = await import('@open-mercato/cli/lib/resolver'))
+} catch (error) {
+  throw describeMissingSiblingBuild(error) ?? error
+}
 
 const sources = discoverPackageModuleSources(createResolver(resolve(packagesDir, '..')))
 if (sources.length > 0) {
@@ -129,7 +143,7 @@ if (sources.length > 0) {
   writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
   for (const warning of warnings) console.warn(warning)
-  console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
+  console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic.staging/guides/modules/`)
 } else {
   console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
 }
