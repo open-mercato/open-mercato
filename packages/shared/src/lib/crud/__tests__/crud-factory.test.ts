@@ -373,6 +373,107 @@ describe('CRUD Factory', () => {
     ])
   })
 
+  // Routes that delegate the fallback order to `list.defaultSort` leave `sortField`
+  // optional; a zod `.default()` would make every request look explicitly sorted.
+  const sortableQuerySchema = z.object({
+    page: z.coerce.number().default(1),
+    pageSize: z.coerce.number().default(50),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+
+  const makeSortedRoute = (list?: Partial<Parameters<typeof makeCrudRoute>[0]['list']>) => makeCrudRoute({
+    metadata: { GET: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    list: {
+      schema: sortableQuerySchema,
+      entityId: 'example.todo',
+      fields: ['id', 'title'],
+      sortFieldMap: { id: 'id', title: 'title', lineNumber: 'line_number' },
+      buildFilters: () => ({} as any),
+      disableListCache: true,
+      ...list,
+    } as any,
+  })
+
+  it('GET falls back to sorting by id when no default sort is configured', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'asc' }])
+  })
+
+  it('GET applies list.defaultSort through sortFieldMap when the request omits a sort', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'line_number', dir: 'asc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET honours an explicit sort over list.defaultSort and keeps the tiebreak', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=title&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'title', dir: 'desc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET keeps an explicit sort ascending by default even when list.defaultSort is descending', async () => {
+    const sortedRoute = makeSortedRoute({ defaultSort: { field: 'title', dir: 'desc' } })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'asc' }])
+  })
+
+  it('GET treats a blank sortField as absent and falls back to list.defaultSort', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField='))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'line_number', dir: 'asc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET keeps falling back to id for a blank sortField when no default is configured', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'desc' }])
+  })
+
+  it('GET does not duplicate the tiebreak when it matches the primary sort', async () => {
+    const sortedRoute = makeSortedRoute({ tiebreakSortField: 'id' })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'desc' }])
+  })
+
   it('GET intersects ids with existing buildFilters id constraint', async () => {
     const routeWithIdFilter = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
@@ -536,6 +637,59 @@ describe('CRUD Factory', () => {
       'Is Done': false,
       'Organization Id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'Tenant Id': '123e4567-e89b-12d3-a456-426614174000',
+    })
+  })
+
+  describe('export loop termination', () => {
+    const EXPORT_PAGE_SIZE = 1000
+
+    afterEach(() => {
+      queryEngine.query.mockImplementation(async (_entityId: any, _q: any) => ({ items: [{ id: 'id-1', title: 'A', is_done: false, organization_id: defaultOrganizationId, tenant_id: defaultTenantId }], total: 1 }))
+    })
+
+    const makeItems = (count: number, offset = 0) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `id-${offset + index}`,
+        title: `Todo ${offset + index}`,
+        is_done: false,
+        organization_id: defaultOrganizationId,
+        tenant_id: defaultTenantId,
+      }))
+
+    const queuePages = (pages: Array<Array<Record<string, unknown>>>, total: number) => {
+      queryEngine.query.mockImplementation(async (_entityId: any, q: any) => {
+        const page = q?.page?.page ?? 1
+        return { items: pages[page - 1] ?? [], total }
+      })
+    }
+
+    it('GET export enumerates every page even when total under-reports the result set', async () => {
+      queuePages(
+        [makeItems(EXPORT_PAGE_SIZE), makeItems(EXPORT_PAGE_SIZE, EXPORT_PAGE_SIZE), makeItems(5, EXPORT_PAGE_SIZE * 2)],
+        3,
+      )
+      const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+      expect(res.status).toBe(200)
+      const parsed = JSON.parse(await res.text())
+      expect(parsed).toHaveLength(EXPORT_PAGE_SIZE * 2 + 5)
+      expect(queryEngine.query).toHaveBeenCalledTimes(3)
+    })
+
+    it('GET export terminates on a short final page instead of trusting an inflated total', async () => {
+      queuePages([makeItems(4)], 10_000)
+      const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+      expect(res.status).toBe(200)
+      const parsed = JSON.parse(await res.text())
+      expect(parsed).toHaveLength(4)
+      expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    })
+
+    it('GET export fails closed at the page ceiling rather than serializing a partial export', async () => {
+      const fullPage = makeItems(EXPORT_PAGE_SIZE)
+      queryEngine.query.mockImplementation(async () => ({ items: fullPage, total: EXPORT_PAGE_SIZE }))
+      const res = await route.GET(new Request('http://x/api/example/todos?format=json'))
+      expect(res.status).toBe(500)
+      expect(queryEngine.query).toHaveBeenCalledTimes(1000)
     })
   })
 

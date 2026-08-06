@@ -1,12 +1,14 @@
 # L. Structural Lint Rules
 
-> ESLint v9 flat config plugin — 6 rules, configuration, CI integration.
+> ESLint v9 flat config plugin — 7 rules, configuration, CI integration.
 
 ---
 
-> **STATUS: IMPLEMENTED (2026-07-05).** The plugin ships as the workspace `@open-mercato/eslint-plugin-ds` (`packages/eslint-plugin-ds/`), wired via the dedicated `eslint.ds.config.mjs` and run with `yarn lint:ds`. It is separate from `yarn lint` because `turbo run lint` only lints `apps/mercato` — the DS rules target `packages/{core,enterprise}/src/modules/**/backend/**` and `packages/ui/src/backend/**`. All rules currently run at `warn` (rollout baseline 2026-07-05: 231 findings). Rule tests: `yarn workspace @open-mercato/eslint-plugin-ds test`. The pseudo-implementations below are the original design sketches; the shipped code hardens them (page-file scoping, `emptyState` prop detection, variant-prefix handling in color checks).
+> **STATUS: IMPLEMENTED (2026-07-05).** The plugin ships as the workspace `@open-mercato/eslint-plugin-ds` (`packages/eslint-plugin-ds/`), wired via the dedicated `eslint.ds.config.mjs` and run with `yarn lint:ds`. It is separate from `yarn lint` because `turbo run lint` only lints `apps/mercato` — the six structural rules target `packages/{core,enterprise}/src/modules/**/backend/**` and `packages/ui/src/backend/**`; the seventh rule (`no-legacy-alert-variant`, added 2026-07-20) alone scopes wider (`packages/*/src/**/*.tsx` + `apps/*/src/**/*.tsx`), and `yarn lint:ds` accordingly scans `packages apps`. All rules currently run at `warn` (rollout baseline 2026-07-05: 231 findings for the six structural rules; the Alert rule entered at 0 after the migration campaign). Rule tests: `yarn workspace @open-mercato/eslint-plugin-ds test`. The pseudo-implementations below are the original design sketches; the shipped code hardens them (page-file scoping, `emptyState` prop detection, variant-prefix handling in color checks).
+>
+> **CI + escalation (2026-07-20).** The advisory `ds-lint` job in `.github/workflows/ci.yml` reports per-rule counts and the delta vs the base branch on every PR (`scripts/ci/ds-lint-report.mjs`). A rule flips from `warn` to `error` per module via the escalation override block in `eslint.ds.config.mjs` once the module's counter reads zero in two consecutive `.ai/reports/ds-health-*.txt` reports; per-line opt-outs (`// eslint-disable-next-line om-ds/<rule> -- <reason>`, reason mandatory) are available and counted by the health check. See `.ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md` for the full policy.
 
-Six ESLint rules for enforcing the design system. The project uses ESLint v9 flat config. Rules are implemented as the custom plugin `@open-mercato/eslint-plugin-ds`.
+Seven ESLint rules for enforcing the design system. The project uses ESLint v9 flat config. Rules are implemented as the custom plugin `@open-mercato/eslint-plugin-ds`.
 
 ### L.0 Deployment Strategy
 
@@ -46,7 +48,7 @@ export default [
 ]
 ```
 
-**Rollout plan**: All rules start as `warn` on existing code. New modules (created after the hackathon) use `error`. After migrating a module, switch to `error` globally.
+**Rollout plan**: All rules start as `warn` on existing code. New modules get a full `error` override block in the same PR that scaffolds them (no baseline debt — see the escalation spec). A rule flips to `error` per module (escalation override block in `eslint.ds.config.mjs`) once the module's counter is zero in two consecutive health reports; when every module is at zero, the per-module entries are deleted and the rule flips to `error` in `configs.recommended` — the terminal state.
 
 ### L.1 `om-ds/require-empty-state`
 
@@ -405,7 +407,19 @@ export const noHardcodedStatusColors: Rule.RuleModule = {
 }
 ```
 
-### L.7 Rules Summary
+### L.7 `om-ds/no-legacy-alert-variant`
+
+**Goal**: Keep the deprecated Alert `variant` prop out of in-repo code after the 2026-07 migration campaign drove the count from 119 to 0. The BC shim in `packages/ui/src/primitives/alert.tsx` still maps `variant` → `status` for third-party code; in-repo call sites must use `status` (+ optional `style`/`size`).
+
+Shipped implementation (`packages/eslint-plugin-ds/rules/no-legacy-alert-variant.js`):
+
+- Fires only when `Alert` is imported from a path ending in `primitives/alert` (or the intra-primitives `./alert`) — a bare name match is deliberately avoided because other libraries legitimately expose `Alert variant=`.
+- Provides ESLint **suggestions** (not autofix — the `light` vs `lighter` style decision is a human call): `variant="destructive"` → `status="error"`, `variant="info"` → `status="information"`, `variant="success"`/`variant="warning"` map 1:1, `variant="default"` → remove the prop (information is the default). Dynamic `variant={expr}` is flagged without a suggestion.
+- Unlike the six structural rules it is not backend-scoped: `eslint.ds.config.mjs` applies it to `packages/*/src/**/*.tsx` and `apps/*/src/**/*.tsx`.
+
+Mapping table: `.ai/skills/om-ds-guardian/references/token-mapping.md` § "Legacy Alert `variant` → `status`".
+
+### L.8 Rules Summary
 
 | Rule | Severity (new code) | Severity (legacy) | Auto-fix |
 |------|---------------------|--------------------|----------|
@@ -415,6 +429,7 @@ export const noHardcodedStatusColors: Rule.RuleModule = {
 | `om-ds/require-loading-state` | error | warn | No |
 | `om-ds/require-status-badge` | error | warn | No |
 | `om-ds/no-hardcoded-status-colors` | error | error | Yes (suggestion) |
+| `om-ds/no-legacy-alert-variant` | error | warn | No (suggestions) |
 
 **Success metric**: 0 warnings on new modules, legacy warnings down 30% per sprint.
 

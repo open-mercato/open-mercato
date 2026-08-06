@@ -125,6 +125,16 @@ describe('LocalSchedulerService', () => {
       expect(loggerInfo).toHaveBeenCalledWith('Polling engine started')
     })
 
+    it('should warn that the local strategy has no cross-process protection', async () => {
+      mockForkedEm.find.mockResolvedValue([])
+
+      await service.start()
+
+      expect(loggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('no cross-process protection'),
+      )
+    })
+
     it('should run initial poll immediately', async () => {
       mockForkedEm.find.mockResolvedValue([])
 
