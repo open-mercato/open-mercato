@@ -8,6 +8,7 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { isCommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   runMutationGuards,
@@ -556,6 +557,12 @@ function attachOperationHeader(res: Response, logEntry: any) {
 function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+  // A command interceptor that blocked with an explicit status is a deliberate business
+  // rejection, not a server fault — surface its status and message instead of a generic 500.
+  // Without a status the error falls through to the historical handling below (issue #5045).
+  if (isCommandInterceptorError(err) && typeof err.status === 'number') {
+    return json(err.body ?? { error: err.message }, { status: err.status })
+  }
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB

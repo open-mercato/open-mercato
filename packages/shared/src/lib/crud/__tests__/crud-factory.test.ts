@@ -11,6 +11,7 @@ import {
 } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { z } from 'zod'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
@@ -880,6 +881,62 @@ describe('CRUD Factory', () => {
       resourceId: 'cmd-created-1',
       operation: 'create',
     }))
+  })
+
+  // Issue #5045 — a deliberate interceptor rejection must not be laundered into a generic 500.
+  const interceptorErrorRoute = () => makeCrudRoute({
+    metadata: { POST: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    actions: {
+      create: {
+        commandId: 'example.todo.create',
+        schema: createSchema,
+        response: () => ({ ok: true }),
+      },
+    },
+  })
+
+  const postInterceptorErrorRequest = (route: ReturnType<typeof interceptorErrorRoute>) => route.POST(
+    new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'A' }),
+      headers: { 'content-type': 'application/json' },
+    }),
+  )
+
+  it('POST command route keeps the generic 500 when an interceptor blocks without a status', async () => {
+    commandBus.execute.mockRejectedValue(new CommandInterceptorError('Missing required fields: VAT id'))
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Internal server error',
+      message: 'Something went wrong. Please try again later.',
+    })
+  })
+
+  it('POST command route surfaces the interceptor status and message when the block carries a status', async () => {
+    commandBus.execute.mockRejectedValue(
+      new CommandInterceptorError('Missing required fields: VAT id', { status: 422 }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({ error: 'Missing required fields: VAT id' })
+  })
+
+  it('POST command route surfaces the interceptor body verbatim when one is supplied', async () => {
+    commandBus.execute.mockRejectedValue(
+      new CommandInterceptorError('Blocked', { status: 422, body: { error: 'Blocked', missingFields: ['vatId'] } }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({ error: 'Blocked', missingFields: ['vatId'] })
   })
 
   it('POST command route falls back to the response payload id for guard afterSuccess', async () => {
