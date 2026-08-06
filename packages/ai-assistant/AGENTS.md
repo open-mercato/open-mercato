@@ -23,6 +23,7 @@
 - Never call the OpenCode HTTP API directly from chat flows; use the module handlers.
 - Never log credentials, session tokens, API keys, prompt secrets, or raw tenant data.
 - Never cache MCP server instances across requests or skip per-tool ACL checks.
+- Never hydrate user-scoped records in `resolvePageContext` without checking their owner against `input.userId` (the authenticated caller; `recordId` is browser-supplied). Fail closed when it is `null`/`undefined`.
 
 ## Validation Commands
 
