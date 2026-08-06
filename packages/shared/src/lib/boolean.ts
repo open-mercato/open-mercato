@@ -1,3 +1,9 @@
+// TEMPORARY mutation-gate probe — reverted in the commit that follows.
+// Touching an in-scope file is the only way to make the diff-scoped `mutate` job
+// execute on this PR, which is the end-to-end runner evidence PR review asked for.
+// Deliberately comment-only: it adds no mutants, so the reported score must
+// reproduce the Phase 0 pilot's 93.33% for src/lib/boolean.ts exactly. A different
+// number means the runner path, not the source, changed.
 export const TRUE_VALUES = new Set(['1', 'true', 'yes', 'y', 'on', 'enable', 'enabled'])
 export const FALSE_VALUES = new Set(['0', 'false', 'no', 'n', 'off', 'disable', 'disabled'])
 
