@@ -120,6 +120,7 @@ export const metadata = {
 }
 
 const DEFAULT_EXPORT_PAGE_SIZE = 1000
+const EXPORT_MAX_PAGES = 1000
 
 const listRecordsQuerySchema = z
   .object({
@@ -330,10 +331,14 @@ export async function GET(req: Request) {
     }
 
     if (requestedExport) {
-      let exportItems: any[] = exportFullRequested ? [...fullPageItems] : [...viewPageItems]
-      if (total > exportItems.length) {
+      const exportItems: any[] = exportFullRequested ? [...fullPageItems] : [...viewPageItems]
+      // Short-page termination: `total` is a display value, not a loop bound — it can
+      // under-report (capped counts) or drift while rows are inserted/deleted mid-export.
+      // Keep fetching while pages come back full; fail closed at the page ceiling rather
+      // than serializing a partial export.
+      if (rawItems.length >= pageSize) {
         let nextPage = 2
-        while (exportItems.length < total) {
+        for (;;) {
           const nextRes = await qe.query(entityId as any, {
             ...qopts,
             page: { page: nextPage, pageSize },
@@ -344,7 +349,10 @@ export async function GET(req: Request) {
           const nextFullItems = nextRawItems.map(mapFullRow)
           const nextBatch = exportFullRequested ? nextFullItems : nextViewItems
           exportItems.push(...nextBatch)
-          if (nextBatch.length < pageSize) break
+          if (nextRawItems.length < pageSize) break
+          if (nextPage >= EXPORT_MAX_PAGES) {
+            throw new Error(`[internal] export exceeded ${EXPORT_MAX_PAGES} pages; refusing to return a partial export`)
+          }
           nextPage += 1
         }
       }

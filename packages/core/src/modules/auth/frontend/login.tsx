@@ -139,7 +139,10 @@ export default function LoginPage() {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
+            // Probing for an already-active session: a 401 is the expected answer
+            // for an anonymous visitor, never a session that just expired.
             'x-om-unauthorized-redirect': '0',
+            'x-om-forbidden-redirect': '0',
           },
           body: JSON.stringify({ features: [] }),
           cache: 'no-store',
@@ -360,7 +363,7 @@ export default function LoginPage() {
                 <input type="hidden" name="tenantId" value={tenantId} />
               ) : null}
               {!!translatedRoles.length && (
-                <Alert variant="info" className="text-center">
+                <Alert status="information" className="text-center">
                   <AlertDescription>
                     {translate(
                       translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
@@ -373,7 +376,7 @@ export default function LoginPage() {
                 </Alert>
               )}
               {!!translatedFeatures.length && (
-                <Alert variant="info" className="text-center">
+                <Alert status="information" className="text-center">
                   <AlertDescription>
                     {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
                       feature: translatedFeatures.join(', '),
