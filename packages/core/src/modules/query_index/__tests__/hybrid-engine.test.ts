@@ -1371,3 +1371,53 @@ describe('HybridQueryEngine custom-field leaves inside an $or group (#5039)', ()
     expect(nodes.some((node) => serialize(node).includes('high'))).toBe(true)
   })
 })
+
+describe('HybridQueryEngine cf filter operator coverage (#5039)', () => {
+  // `cfFilterHasPredicate` decides, without an ExpressionBuilder, whether
+  // `buildCfFilterExpression` will produce anything. The two must agree: if the switch
+  // grows an operator and the operator set does not, OR-grouped leaves using it get
+  // silently dropped. This pins them together.
+  const SUPPORTED_OPS = ['eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte'] as const
+
+  // A cf predicate always reads the doc as text, so `->>` in the serialized WHERE is a
+  // reliable marker that one was emitted. Callback-form wheres are replayed against a
+  // recording ExpressionBuilder so the eq/in branches (which wrap themselves in an OR)
+  // are visible too.
+  const cfPredicatesFor = async (op: string, value: unknown): Promise<string[]> => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: [{ field: 'cf:priority', op: op as any, value }],
+    })
+    const eb: any = (column: any, cmpOp: any, cmpValue: any) => ({ kind: 'cmp', column, op: cmpOp, value: cmpValue })
+    eb.and = (parts: any[]) => ({ kind: 'and', parts })
+    eb.or = (parts: any[]) => ({ kind: 'or', parts })
+    eb.exists = (sub: any) => ({ kind: 'exists', sub })
+    eb.ref = (name: string) => ({ kind: 'ref', name })
+    eb.val = (value_: any) => ({ kind: 'val', value: value_ })
+    return (db._chains as ChainLog[])
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) => (Array.isArray(entry) && entry.length === 1 && typeof entry[0] === 'function' ? entry[0](eb) : entry))
+      .map((node: unknown) => JSON.stringify(node, (_key, inner) =>
+        inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+      ))
+      .filter((serialized: string) => typeof serialized === 'string' && serialized.includes('->>'))
+  }
+
+  test.each(SUPPORTED_OPS)('operator %s compiles to a custom-field predicate', async (op) => {
+    const value = op === 'in' || op === 'nin' ? ['high'] : op === 'exists' ? true : 'high'
+    const predicates = await cfPredicatesFor(op, value)
+    expect(predicates.length).toBeGreaterThan(0)
+  })
+
+  test('an operator the builder does not compile emits no custom-field predicate at all', async () => {
+    // `cfFilterHasPredicate` must agree with the switch: an unsupported operator has to
+    // drop out entirely rather than reach SQL as a half-built or always-true clause.
+    const predicates = await cfPredicatesFor('regex', 'high')
+    expect(predicates).toHaveLength(0)
+  })
+})

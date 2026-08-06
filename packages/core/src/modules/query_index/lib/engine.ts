@@ -785,6 +785,10 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
+      // Also used by the optimized count path, which builds from a bare base table with
+      // no index/custom-field joins. Emitting a cf predicate there would reference an
+      // alias that query has never joined, so this stays safe only while
+      // `canOptimizeCount` is false whenever any cf filter exists (see `hasCustomFieldFilters`).
       const applyOrGroupedBaseFilters = (q: AnyBuilder): AnyBuilder => {
         if (orGroupFilters.length === 0 && orGroupCfFilters.length === 0) return q
         // `BaseFilter` here is just the normalized-leaf shape; the `cf` bucket holds

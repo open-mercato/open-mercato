@@ -909,10 +909,15 @@ export class BasicQueryEngine implements QueryEngine {
 
       // OR groups are applied here, after the cf:* value expressions exist, so a
       // disjunct mixing base/doc and custom-field leaves is united rather than
-      // intersected. A leaf whose expression cannot be built is dropped; a disjunct
-      // left with no leaves is dropped too, because an empty AND would read as TRUE.
-      // A cf leaf whose key resolved no value expression yields no predicate; drop it,
-      // and drop a disjunct left empty by that, because an empty AND would read as TRUE.
+      // intersected. A cf leaf whose key resolved no value expression yields no
+      // predicate and is dropped; a disjunct left empty by that is dropped too,
+      // because an empty AND would read as TRUE and widen the result.
+      //
+      // Known limitation, shared with the `doc` clause kind above: a leaf inside an OR
+      // group compares against the stored value directly and does not route `like` /
+      // `ilike` through the search-token index the way the ungrouped path does. On a
+      // field covered by an encryption map such a leaf therefore compares against
+      // ciphertext and will not match.
       const applicableGroupFilters = resolvedGroupFilters
         .map((group) => group.filter((rf) => rf.kind !== 'cf' || Boolean(cfValueExprByKey[rf.key])))
         .filter((group) => group.length > 0)
