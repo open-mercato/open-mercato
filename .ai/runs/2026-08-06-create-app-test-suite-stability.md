@@ -41,6 +41,40 @@ module fact-sheets) is executed *from inside* the test files, concurrently, seve
 - Reducing per-case cost in `business-writable-oracles.test.ts` must not weaken what the 23 `OMH-*`
   oracle cases assert; any sharing has to keep each case's writes isolated.
 
+## Measurements
+
+Machine: 11-core macOS laptop that is not idle (a second agent worktree and an endpoint-security
+daemon run throughout), so wall clock is noisy and **CPU time (user+sys) is the primary metric** — it
+measures the work the suite performs rather than how much of the machine it got. Three runs per state,
+whole `test` script, 461 tests each.
+
+| State | wall (median of 3) | CPU user+sys (median of 3) |
+|-------|--------------------|----------------------------|
+| before (develop tip) | 114.5 s (138.9 / 114.5 / 92.9) | 200.8 s (209.0 / 200.8 / 188.6) |
+| after | 101.2 s (101.2 / 107.7 / 98.4) | 178.3 s (177.6 / 181.1 / 178.3) |
+
+**−22.5 s CPU (−11.2%) and −13.3 s wall (−11.6%)** for the same 461 tests: the suite used to build the
+package twice (`module-facts-build.test.ts` and `ready-apps.test.ts`), now it builds once.
+
+Pinning `--test-concurrency` was measured rather than assumed, and every pinned value came out worse
+than the runner default (which is `availableParallelism()`), so the suite keeps the default and this
+PR adds no concurrency knob:
+
+| run | wall | CPU user+sys |
+|-----|------|--------------|
+| after, runner default | 101.2 s / 108.2 s (control) | 178.3 s / 181.3 s (control) |
+| after, `--test-concurrency=4` | 135.1 s | 188.4 s |
+| after, `--test-concurrency=8` | 167.2 s | 199.2 s |
+| after, `--test-concurrency=16` | 136.6 s | 196.9 s |
+
+`dist/agentic` availability during one build, sampled every 5 ms (`build exit=0`):
+
+| probe path | before | after |
+|------------|--------|-------|
+| `guides/module-facts.json` | missing 98.0% of the build (~5.28 s) | missing 0.0% |
+| `guides/modules/customers.md` | missing 97.8% (~5.26 s) | missing 0.0% |
+| `shared/ai/harness/cases.json` | missing 0.5% (~0.03 s) | missing 0.0% |
+
 ## Implementation Plan
 
 ### Phase 1 — Measure the baseline
@@ -54,11 +88,26 @@ Build the package once, before the runner starts, and drop the in-test `build.mj
 can delete `dist/agentic` while another reads it. Make `build.mjs` refresh `dist/agentic` through a
 staged swap so any other concurrent consumer sees a complete tree. Pin the policy with a guard test.
 
-### Phase 3 — Give the suite real headroom (#5052)
+### Phase 3 — Make the truncation readable (#5052)
 
-Re-measure after Phase 2 and only then decide what else is required: cut the dominant per-case cost in
-`business-writable-oracles.test.ts`, pin runner concurrency so behavior does not vary with the runner's
-core count, and make a truncated run fail with a message that names the abort.
+Reading both CI jobs the issue cites changed the diagnosis, so this phase follows the evidence rather
+than the issue's hypothesis:
+
+| PR | job | turbo summary | create-app suite |
+|----|-----|---------------|------------------|
+| #4974 | 92297927575 | `Failed: @open-mercato/checkout#test` | `fail 0`, 27 cancelled |
+| #4358 | 92281599626 | `Failed: @open-mercato/app#test` | `fail 0`, 26 cancelled |
+
+Both truncations happened inside the turbo **Test** step (`yarn turbo run test --filter=…`, 23 tasks at
+turbo's concurrency of 32), not in the "Check create-app template parity" step, and in both cases a
+*different* package's test task failed first. Turbo then aborted the siblings still running; the
+create-app suite is the longest-running one, so it is the one caught mid-flight, and the files it had
+not started yet are reported as cancelled with `fail 0`. It was not running out of headroom on its own.
+
+So the remedy is the issue's own step 5 — make truncation loud instead of confusing — plus Phase 2's
+removal of two redundant package builds, which shortens the window in which the suite can be caught.
+Raising a timeout would have masked nothing real, and cutting the `business-writable-oracles.test.ts`
+per-case cost is not pursued without evidence that duration is what breaks the run.
 
 ### Phase 4 — Prove it and ship
 
@@ -71,26 +120,25 @@ linked, labels and summary comment.
 
 ### Phase 1: Measure the baseline
 
-- [ ] 1.1 Record full-suite wall time and node:test counters on the develop tip
-- [ ] 1.2 Record per-file durations and identify the hot spots
-- [ ] 1.3 Reproduce the #5059 race deterministically and record the failure signature
+- [x] 1.1 Record full-suite wall time, CPU time and node:test counters on the develop tip — measurement, see Measurements
+- [x] 1.2 Quantify the `dist/agentic` window a concurrent reader can observe — measurement, see Measurements
+- [x] 1.3 Diagnose the truncation from the two CI jobs the issue cites — see Phase 3 table
 
 ### Phase 2: Remove the concurrent build (#5059)
 
-- [ ] 2.1 Build once before the runner in the create-app `test` script
-- [ ] 2.2 Drop the in-test `build.mjs` spawns and fail actionably when `dist/` is missing
-- [ ] 2.3 Refresh `dist/agentic` through a staged swap in `build.mjs`
-- [ ] 2.4 Guard test pinning the `test` script policy
+- [x] 2.1 Build once before the runner in the create-app `test` script — 85d73399d
+- [x] 2.2 Drop the in-test `build.mjs` spawns and fail actionably when `dist/` is missing — 85d73399d
+- [x] 2.3 Refresh `dist/agentic` through a staged swap in `build.mjs` — b2208f747
+- [x] 2.4 Guard test pinning the `test` script policy — d900cf931
 
-### Phase 3: Give the suite real headroom (#5052)
+### Phase 3: Make the truncation readable (#5052)
 
-- [ ] 3.1 Re-measure after Phase 2 and decide the remaining work from the numbers
-- [ ] 3.2 Cut the dominant per-case cost in `business-writable-oracles.test.ts`
-- [ ] 3.3 Pin runner concurrency so behavior is deterministic across runner sizes
-- [ ] 3.4 Make a truncated run fail with a readable message instead of `fail 0`
+- [x] 3.1 Re-measure after Phase 2 and decide the remaining work from the numbers — measurement, see Measurements
+- [x] 3.2 Report a truncated run as truncated instead of as 26 failing tests — d900cf931
+- [x] 3.3 Decide runner-concurrency pinning from the measurements, not from assumption — measured, not pinned
 
 ### Phase 4: Prove it and ship
 
-- [ ] 4.1 After-measurement, including a starved-runner comparison
+- [ ] 4.1 After-measurement against the baseline
 - [ ] 4.2 Full validation gate
 - [ ] 4.3 PR body, labels, summary comment
