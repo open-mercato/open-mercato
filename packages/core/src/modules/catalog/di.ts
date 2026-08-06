@@ -15,13 +15,24 @@ type AppCradle = AppContainer['cradle'] & {
 
 export function register(container: AppContainer) {
   container.register({
+    // `.proxy()` is mandatory, not decorative: the app container runs in
+    // InjectionMode.CLASSIC, where Awilix injects by PARAMETER NAME. A factory
+    // whose only parameter is a destructuring pattern has no readable name, so
+    // CLASSIC mode passes `undefined` and every dependency silently resolves to
+    // nothing. `.proxy()` opts this registration back into cradle injection so
+    // the destructuring works. Without it `catalogOmnibusService` was built with
+    // `moduleConfigService === undefined` and threw on its first getConfig call.
     catalogPricingService: asFunction(({ eventBus }: AppCradle) => {
       return new DefaultCatalogPricingService(eventBus ?? null)
-    }).singleton(),
+    })
+      .singleton()
+      .proxy(),
     // Scoped, not singleton: resolution reads tenant-scoped config per request.
     catalogOmnibusService: asFunction(({ moduleConfigService, cache }: AppCradle) => {
       return new DefaultCatalogOmnibusService(moduleConfigService, cache ?? null)
-    }).scoped(),
+    })
+      .scoped()
+      .proxy(),
     CatalogProduct: asValue(CatalogProduct),
     CatalogProductPrice: asValue(CatalogProductPrice),
     CatalogPriceHistoryEntry: asValue(CatalogPriceHistoryEntry),

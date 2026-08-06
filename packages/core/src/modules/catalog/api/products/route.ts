@@ -424,10 +424,19 @@ async function decorateProductsWithOmnibus(
       })
       .filter((target): target is NonNullable<typeof target> => target !== null);
 
+    // Request-level facts, resolved once instead of once per row.
+    // Personalization is written before the early return: it is derived from the
+    // request, not from a resolved price, so an item without a pricing block must
+    // still carry the Art. 6(1)(ea) disclosure flags. Otherwise the field appears
+    // or vanishes depending on whether anything in the page happened to price.
+    const personalization = detectOmnibusPersonalization(ctx);
+    for (const item of items) {
+      item.isPersonalized = personalization.isPersonalized;
+      item.personalizationReason = personalization.personalizationReason;
+    }
+
     if (!targets.length) return;
 
-    // Request-level facts, resolved once instead of once per row.
-    const personalization = detectOmnibusPersonalization(ctx);
     const priceKindCache: PriceKindPromotionCache = new Map();
 
     const results = await Promise.all(
@@ -458,13 +467,6 @@ async function decorateProductsWithOmnibus(
 
     for (const { item, block } of results) {
       item.omnibus = block;
-    }
-    // Authoritative contract: top-level camelCase. Never nested snake_case under `pricing`.
-    // Set on every item, not only the priced ones, so one response never mixes items that
-    // carry the disclosure flag with items that silently omit it.
-    for (const item of items) {
-      item.isPersonalized = personalization.isPersonalized;
-      item.personalizationReason = personalization.personalizationReason;
     }
   } catch (error) {
     logger.error('decorateProductsAfterList Failed to resolve Omnibus reference prices', { err: error });

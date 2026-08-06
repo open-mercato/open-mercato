@@ -776,3 +776,80 @@ describe('DefaultCatalogOmnibusService — request-scoped config memo', () => {
     expect(moduleConfigService.getValue).toHaveBeenCalledTimes(2)
   })
 })
+
+// A backfilled baseline is a synthetic "price as it stood when the window opened"
+// row, not a campaign step. Treating it as the offer anchor freezes the window at
+// the moment of the backfill, which pushes every later real reduction outside the
+// window and reports no reference at all.
+describe('DefaultCatalogOmnibusService — offer anchor ignores backfilled rows', () => {
+  const offerCtx: OmnibusResolutionContext = { ...baseCtx, offerId: 'offer-1' }
+
+  const backfilled = {
+    ...row({ id: 'seed', recordedAt: '2026-07-12T00:00:00.000Z', gross: '168', offerId: 'offer-1' }),
+    changeType: 'create',
+    source: 'system',
+  }
+  const realReduction = {
+    ...row({ id: 'promo', recordedAt: '2026-08-11T00:00:00.000Z', gross: '79', offerId: 'offer-1' }),
+    changeType: 'update',
+    source: 'api',
+  }
+
+  // Callers always hand over a mapped row, whose recordedAt is an ISO string.
+  const presentedReduction: OmnibusHistoryRow = {
+    id: realReduction.id,
+    priceId: realReduction.priceId,
+    changeType: realReduction.changeType,
+    unitPriceNet: null,
+    unitPriceGross: '79',
+    recordedAt: '2026-08-11T00:00:00.000Z',
+    startsAt: null,
+    offerId: 'offer-1',
+    isAnnounced: null,
+  }
+
+  it('does not anchor the window to a system-backfilled entry', async () => {
+    const { service } = makeService(euConfig)
+    // first-offer-entry probe, then baseline, then in-window
+    findMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([backfilled])
+      .mockResolvedValueOnce([realReduction])
+
+    const block = await service.resolveOmnibusBlock(em, offerCtx, presentedReduction, false)
+
+    // With no anchor the window ends at `now`, so the pre-reduction price is the
+    // reference. Anchoring to the seed row reported no_history instead.
+    expect(block?.applicabilityReason).not.toBe('no_history')
+    expect(block?.lowestPriceGross).toBe('168')
+  })
+
+  it('excludes backfilled rows from the offer-anchor query', async () => {
+    const { service } = makeService(euConfig)
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, offerCtx, realReduction, false)
+
+    expect(findMock.mock.calls[0][2]).toMatchObject({ source: { $ne: 'system' } })
+  })
+
+  it('reports the anchor it actually used even when no reference is found', async () => {
+    const { service } = makeService(euConfig)
+    const anchored = {
+      ...row({ id: 'campaign', recordedAt: '2026-08-01T00:00:00.000Z', gross: '90', offerId: 'offer-1' }),
+      changeType: 'update',
+      source: 'api',
+    }
+    findMock
+      .mockResolvedValueOnce([anchored])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const block = await service.resolveOmnibusBlock(em, offerCtx, anchored, false)
+
+    // An empty block that hides the anchor contradicts its own window bounds.
+    expect(block?.applicabilityReason).toBe('no_history')
+    expect(block?.promotionAnchorAt).toBe('2026-08-01T00:00:00.000Z')
+    expect(block?.windowEnd).toBe('2026-08-01T00:00:00.000Z')
+  })
+})

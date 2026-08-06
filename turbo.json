@@ -1,7 +1,21 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "concurrency": "32",
-  "globalEnv": ["NODE_ENV"],
+  // Turbo 2.x defaults to envMode "strict", which passes ONLY declared variables
+  // to tasks. Every runtime variable an operator or script exports — DATABASE_URL
+  // above all — was silently dropped on the way into a task. `yarn dev:ephemeral`
+  // exports the throwaway container's DATABASE_URL and then calls
+  // `yarn initialize` (= `turbo run initialize`); strict mode stripped it, the CLI
+  // fell back to apps/mercato/.env, and the ephemeral boot re-initialized the
+  // developer's own local database while leaving the container empty. Loose mode
+  // forwards the whole environment, so the class of bug cannot recur. Cache keys
+  // are unaffected: variables that change build OUTPUT stay declared in globalEnv
+  // below, and every database/init task is already `"cache": false`.
+  "envMode": "loose",
+  // NEXT_PUBLIC_* is inlined into the client bundle at build time, so it must
+  // take part in the hash — otherwise a cached build is served for a different
+  // public configuration.
+  "globalEnv": ["NODE_ENV", "NEXT_PUBLIC_*"],
   "globalDependencies": ["scripts/build-package.mjs", "scripts/watch.mjs", "scripts/lib/add-js-extension.mjs"],
   "tasks": {
     "build": {

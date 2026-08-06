@@ -804,6 +804,44 @@ async function resolveDockerPublishedPort(containerId: string): Promise<number> 
   return Number.parseInt(match[1] ?? '0', 10)
 }
 
+/**
+ * Prove the initialize step actually landed in the throwaway container.
+ *
+ * `initialize` runs through `turbo run`, so anything that stops DATABASE_URL from
+ * reaching the task — a stricter env mode, a stray override — makes the CLI fall
+ * back to `apps/mercato/.env` and migrate whatever database the developer happens
+ * to point at. That failure is silent and destructive: it reported success while
+ * rebuilding a real local database and leaving this container empty. Fail loudly
+ * instead, before the dev server starts serving against an empty schema.
+ */
+async function assertEphemeralDatabaseWasInitialized(postgres: EphemeralPostgresHandle): Promise<void> {
+  const result = await runCommandCapture('docker', [
+    'exec',
+    postgres.containerId,
+    'psql',
+    '-U',
+    postgresUser,
+    '-d',
+    postgres.databaseName,
+    '-tAc',
+    "select count(*) from information_schema.tables where table_schema = 'public'",
+  ])
+  const tableCount = Number.parseInt(result.stdout.trim(), 10)
+  if (result.code === 0 && Number.isFinite(tableCount) && tableCount > 0) return
+
+  const detail = result.code === 0
+    ? `the ephemeral database "${postgres.databaseName}" still has no tables after initialize`
+    : `could not inspect the ephemeral database: ${result.stderr.trim() || `psql exited ${result.code}`}`
+  console.error(`❌ [dev:ephemeral] ${detail}.`)
+  console.error(
+    '   DATABASE_URL did not reach the initialize task, so the migrations were applied somewhere else —',
+  )
+  console.error(
+    '   most likely the database in apps/mercato/.env. Check turbo.json envMode and globalEnv/globalPassThroughEnv.',
+  )
+  await shutdown(1)
+}
+
 async function waitForPostgresReady(containerId: string, databaseName: string): Promise<void> {
   const deadline = Date.now() + postgresReadyTimeoutMs
   while (Date.now() < deadline) {
@@ -1198,6 +1236,8 @@ async function main(): Promise<void> {
       await shutdown(initializeExitCode)
       return
     }
+
+    await assertEphemeralDatabaseWasInitialized(postgres)
 
     console.log(`[dev:ephemeral] Starting development runtime on ${baseUrl}/backend`)
     const exitCode = await startDevServer(port, postgres)

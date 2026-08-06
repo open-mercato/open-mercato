@@ -120,3 +120,38 @@ leftover from a dead run — kill it so the runner gets its stable preferred por
 After boot, mirror the state into `.ai/qa/test-env.json` (shared descriptor) as the shared skill
 prescribes; `.ai/qa/ephemeral-env.json` (CLI-owned) stays authoritative for the runner's own
 reuse decisions.
+
+## MUST: verify the ephemeral boot actually reached the ephemeral database (2026-08-11)
+
+Turborepo 2.x defaults to `envMode: "strict"`, which passes ONLY declared variables into
+`turbo run` tasks. `turbo.json` declared just `NODE_ENV`, so **`DATABASE_URL` was stripped on the
+way into every turbo-run task**. `yarn initialize` goes through turbo, so an ephemeral boot that
+exported the throwaway container's `DATABASE_URL` still had the CLI fall back to
+`apps/mercato/.env` — it migrated and re-seeded the developer's own local database, reported
+success, and left the container empty. The app (spawned via `yarn workspace`, not turbo) then
+served against the empty schema and failed with `relation "users" does not exist`.
+
+Fixed in `turbo.json` (`envMode: "loose"`, `NEXT_PUBLIC_*` moved into `globalEnv` so build-affecting
+variables stay hashed) plus a post-initialize assertion in `scripts/dev-ephemeral.ts` that fails
+loudly when the ephemeral database still has zero tables.
+
+Rules that follow:
+
+- **Never trust "initialize completed" as proof.** Assert the target database has tables before
+  running anything against it:
+  `docker exec <container> psql -U postgres -d <db> -tAc "select count(*) from information_schema.tables where table_schema='public'"`.
+- **Any new turbo task that needs runtime configuration** must keep working under `envMode`
+  changes — if strict mode is ever restored, declare the variables explicitly.
+- **Prefer `yarn test:integration:ephemeral:start`** (the authoritative command in the section
+  above) over `yarn dev:ephemeral`. Both provision a throwaway database, but the integration
+  runner owns its own lock, state file, and env block; `dev:ephemeral` is a developer convenience
+  and was the path that exposed the bug above.
+
+## Password policy vs the documented seed credentials
+
+The documented `secret` password does not always survive the password policy. When
+`admin@acme.com` / `secret` is rejected, reset it rather than assuming a broken environment:
+`yarn mercato auth set-password --email admin@acme.com --password '<policy-valid>'`
+(space-separated flags — `--flag=value` is silently not parsed and only prints usage).
+Login is rate-limited at 5 attempts / 60s per email, so a burst of failed probes returns 401s that
+look like bad credentials; wait a minute before concluding anything.

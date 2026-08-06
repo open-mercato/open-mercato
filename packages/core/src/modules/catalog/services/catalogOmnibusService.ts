@@ -408,10 +408,18 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     offerId: string,
   ): Promise<OmnibusHistoryRow | null> {
+    const filters = buildScopeFilters({ ...ctx, offerId })
+    // A backfilled row is a synthetic "price as it stood when the window opened",
+    // not the start of a campaign — and `omnibus:backfill` copies the offer id
+    // from the price it seeds. Accepting one as the anchor freezes the window at
+    // the moment of the backfill, so every later real reduction falls outside it
+    // and the reference collapses (to nothing, or to the promotion itself).
+    // Only a genuine recorded price change can mark a campaign start.
+    filters.source = { $ne: 'system' }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
-      buildScopeFilters({ ...ctx, offerId }),
+      filters,
       { orderBy: { recordedAt: 'ASC', id: 'ASC' }, limit: 1 },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
@@ -764,10 +772,14 @@ function buildEmptyBlock(
     presentedPriceKindId,
     lookbackDays: result.lookbackDays,
     minimizationAxis: result.minimizationAxis,
-    promotionAnchorAt: null,
+    // Report the anchor that actually shaped the window. Hard-coding null here
+    // made the response contradict itself: an anchored windowEnd alongside
+    // "no anchor", which is unreadable for anyone auditing why a reference is
+    // missing.
+    promotionAnchorAt: result.promotionAnchorAt,
     windowStart: result.windowStart,
     windowEnd: result.windowEnd,
-    coverageStartAt: null,
+    coverageStartAt: result.coverageStartAt,
     lowestPriceNet: null,
     lowestPriceGross: null,
     previousPriceNet: null,
