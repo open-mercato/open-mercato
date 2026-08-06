@@ -335,12 +335,12 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     // checked against the origin tenant — where they no longer hold anything — and the
     // undo would hard-delete the destination tenant's last administrator unchecked.
     // The create snapshot is only a fallback for a row that is already gone.
-    const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-    const floorTenantId = current?.tenantId ? String(current.tenantId) : (snapshot?.tenantId ?? null)
-
     let removed: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+        const floorTenantId = current?.tenantId ? String(current.tenantId) : (snapshot?.tenantId ?? null)
+
         // Undoing a create hard-deletes the user, so it can strip a tenant's last active
         // admin exactly like `auth.users.delete` can — promote a second admin, delete the
         // first, then undo the promotion's create. Same guard applies.
@@ -371,7 +371,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
           soft: false,
         })
       },
-    ], { transaction: true })
+    ], { transaction: true, label: 'auth.users.create.undo' })
 
     await emitCrudUndoSideEffects({
       dataEngine: de,
@@ -748,13 +748,14 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     // forward path can — restoring an empty `before.roles` on what is now the last admin,
     // or restoring `isConfirmed: false`. Undo is reachable from the audit-log UI, so the
     // guard has to run here too, inside a transaction so the row lock is valid.
-    const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
-    const currentTenantId = current?.tenantId ? String(current.tenantId) : null
     const restoredTenantId = before.tenantId ? String(before.tenantId) : null
 
     let updated: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+        const currentTenantId = current?.tenantId ? String(current.tenantId) : null
+
         await enforceProtectedRoleFloor(em, currentTenantId, userId, {
           deactivating: before.isConfirmed === false || restoredTenantId !== currentTenantId,
           newRoles: before.roles,

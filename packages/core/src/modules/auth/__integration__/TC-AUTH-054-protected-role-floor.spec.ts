@@ -65,6 +65,23 @@ test.describe('TC-AUTH-054: Protected Role Floors and Deactivation Semantics', (
     let foreignUserId: string | null = null;
 
     try {
+      const rolesResponse = await apiRequest(request, 'GET', '/api/auth/roles?pageSize=100&search=admin', {
+        token: adminToken,
+      });
+      expect(rolesResponse.status()).toBe(200);
+      const rolesBody = await readJsonSafe<{ items?: Array<{ id?: string; name?: string }> }>(rolesResponse);
+      const adminRoleId = expectId(
+        rolesBody?.items?.find((role) => role.name === 'admin')?.id,
+        'Admin role should be listed',
+      );
+      const deleteAdminRoleResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/auth/roles?id=${encodeURIComponent(adminRoleId)}`,
+        { token: adminToken },
+      );
+      await expectError(deleteAdminRoleResponse, 400, 'Role has assigned users');
+
       const removeRoleResponse = await apiRequest(request, 'PUT', '/api/auth/users', {
         token: adminToken,
         data: { id: adminUserId, roles: [] },

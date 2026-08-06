@@ -473,12 +473,17 @@ describe('auth.users protected role floor checks', () => {
 
   it('rejects undoing an update that would strip the last active admin', async () => {
     const em = makeEm()
+    const beginTransaction = jest.spyOn(em, 'begin')
     const dataEngine = {
       updateOrmEntity: jest.fn(async () => mockUser1),
     }
     const ctx = makeCtx(em, dataEngine)
 
-    findOneMock.mockImplementation((entity) => (entity === User ? mockUser1 : null))
+    findOneMock.mockImplementation((entity) => {
+      if (entity !== User) return null
+      expect(beginTransaction).toHaveBeenCalledTimes(1)
+      return mockUser1
+    })
     findMock.mockImplementation((entity) => {
       if (entity === Role) return [mockAdminRole]
       if (entity === UserRole) return [{ user: mockUser1, role: mockAdminRole }]
@@ -544,10 +549,15 @@ describe('auth.users protected role floor checks', () => {
     const originTenantId = 'a1111111-1111-1111-1111-111111111111'
 
     const em = makeEm()
+    const beginTransaction = jest.spyOn(em, 'begin')
     const dataEngine = { deleteOrmEntity: jest.fn(async () => movedUser) }
     const ctx = makeCtx(em, dataEngine)
 
-    findOneMock.mockImplementation((entity) => (entity === User ? movedUser : null))
+    findOneMock.mockImplementation((entity) => {
+      if (entity !== User) return null
+      expect(beginTransaction).toHaveBeenCalledTimes(1)
+      return movedUser
+    })
     findMock.mockImplementation((entity, where) => {
       // Only the CURRENT tenant has a protected role with the user as its last holder.
       if (entity === Role) {

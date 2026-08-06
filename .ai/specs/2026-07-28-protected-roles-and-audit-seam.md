@@ -32,6 +32,7 @@ Prevent lockouts in tenants by enforcing a minimum active holder floor constrain
 | `auth.users.delete` (execute) | `{ deleting: true }` |
 | `auth.users.update` (undo) | `{ deactivating: before.isConfirmed === false \|\| isTenantChanging, newRoles: before.roles }` |
 | `auth.users.create` (undo) | `{ deleting: true }` |
+| `auth.roles.delete` (execute) | The existing assignment guard rejects any role with a non-deleted `UserRole` assignment, which is stricter than checking protected roles alone. |
 
 Undo is a first-class, user-reachable operation (`POST /api/audit_logs/audit-logs/actions/undo`), so skipping it there would leave the guard trivially bypassable: promote a second admin, delete the first, then undo the promotion.
 
@@ -55,15 +56,18 @@ The lock and the holder queries are skipped entirely when the operation cannot r
 - **Information leakage** — *Severity: medium, area: cross-tenant probing.* Scoped commands return `404` for cross-tenant targets before executing floor checks, so the floor error never confirms the existence of a foreign user. Residual risk: low.
 - **Superadmin cannot remove a tenant's last admin** — *Severity: low, area: platform operations.* The floor is deliberately enforced for superadmins too: a superadmin slip would lock a tenant out with no guard, and the failure mode of being blocked is recoverable while the lockout is not. Operators offboarding a tenant should delete the tenant rather than its last admin, or promote a second admin first. Internal automation uses `ctx.systemActor`. Residual risk: accepted.
 - **Holder counting reads unbounded rows** — *Severity: low, area: `enforceProtectedRoleFloor`.* The active-holder query selects one row per link. Mitigated by dropping `populate: ['user']`, which keeps the rows narrow and — importantly — avoids `decryptEntityGraph` walking into every admin's encrypted `email`/`name` on each check. Tenant scoping is enforced by the query's nested `user.tenantId` filter. Residual risk: low.
+- **Undo tenant resolution can race with a tenant move** — *Severity: medium, area: user command undo.* Both undo handlers now read the user's current tenant inside the same transaction that takes the protected-role lock. The user row is deliberately not locked first because forward mutations lock protected roles before writing the user, and reversing that order would introduce a deadlock cycle. A concurrent move can still commit between the user read and the role lock, leaving a narrow residual stale-tenant window. Residual risk: low; closing it requires a retry/revalidation protocol that preserves the global lock order.
 
 ## Future Work
 - `minActiveHolders` is currently seeded (`1` for `admin`, `0` otherwise) and backfilled by migration; there is no API or UI to configure it per role. Exposing it on the roles CRUD surface is deliberately out of scope for this change.
+- Before `minActiveHolders` becomes configurable for high-cardinality roles, replace the in-memory distinct-user count with `COUNT(DISTINCT user_id)` plus a targeted membership check so the locked section remains constant-space.
 - Enterprise SSO tracks deprovisioning in `SsoUserDeactivation`, not `isConfirmed`, so a SCIM-deprovisioned admin still counts as an active holder. Reconciling the two notions of "deactivated" is tracked separately.
 
 ## Integration Coverage
-- `packages/core/src/modules/auth/__integration__/TC-AUTH-054-protected-role-floor.spec.ts` — covers `PUT /api/auth/users` (role removal, deactivation), `DELETE /api/auth/users`, `POST /api/auth/login` rejection of deactivated users, `GET /api/auth/profile` session invalidation, cross-tenant `404`s on both `PUT` and `DELETE`, and the two-contender concurrency case.
+- `packages/core/src/modules/auth/__integration__/TC-AUTH-054-protected-role-floor.spec.ts` — covers `PUT /api/auth/users` (role removal, deactivation), `DELETE /api/auth/users`, rejection of `DELETE /api/auth/roles` while the protected role has an assigned holder, `POST /api/auth/login` rejection of deactivated users, `GET /api/auth/profile` session invalidation, cross-tenant `404`s on both `PUT` and `DELETE`, and the two-contender concurrency case.
 - Unit coverage:
   - `packages/shared/src/lib/commands/__tests__/command-bus.test.ts`
+  - `packages/core/src/modules/auth/commands/__tests__/roles.tenant-move.test.ts`
   - `packages/core/src/modules/auth/commands/__tests__/users.protected-role-floor.test.ts`
   - `packages/core/src/modules/auth/api/__tests__/login.test.ts`
   - `packages/core/src/modules/auth/lib/__tests__/setup-app.protected-roles.test.ts`
@@ -79,3 +83,4 @@ The lock and the holder queries are skipped entirely when the operation cannot r
 - **2026-07-28**: Initial spec drafted.
 - **2026-08-01**: Expanded spec to document locking, deactivation semantics, and backward compatibility.
 - **2026-08-04**: Carried forward after review. Added undo-path enforcement, skip conditions and the `systemActor` bypass, renamed the interceptor audit key to `logContext`, documented the superadmin constraint and holder-count query shape, and expanded integration coverage and BC notes.
+- **2026-08-06**: Merged the latest `develop`, moved undo tenant reads inside their protected-role transactions, documented the residual move race and holder-count scaling boundary, and pinned the existing role-delete assignment guard with unit and API integration coverage.
