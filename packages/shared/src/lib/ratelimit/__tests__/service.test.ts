@@ -1,11 +1,16 @@
-import { RateLimiterMemory } from 'rate-limiter-flexible'
+import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
 import {
   registerLoggerExtension,
   resetLoggerExtension,
   type LoggerExtensionRecord,
-} from '@open-mercato/shared/lib/logger'
+} from '../../logger'
 import { RateLimiterService } from '../service'
 import type { RateLimitConfig, RateLimitGlobalConfig } from '../types'
+
+jest.mock('ioredis', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({ disconnect: jest.fn() })),
+}))
 
 function createConfig(overrides: Partial<RateLimitGlobalConfig> = {}): RateLimitGlobalConfig {
   return {
@@ -201,6 +206,58 @@ describe('RateLimiterService', () => {
       const result = await service.consume('key3', defaultLimitConfig)
       expect(result.allowed).toBe(true)
       expect(result.degraded).toBeFalsy()
+    })
+
+    // Which failure modes actually reach `degraded` under the redis strategy: the store
+    // abstraction absorbs a plain outage through the in-memory insurance limiter, so only
+    // an error it re-throws gets there.
+    describe('redis strategy', () => {
+      async function createRedisService(): Promise<RateLimiterService> {
+        const redisService = new RateLimiterService(createConfig({
+          strategy: 'redis',
+          redisUrl: 'redis://localhost:6379',
+        }))
+        await redisService.initialize()
+        return redisService
+      }
+
+      function buildLimiter(redisService: RateLimiterService): unknown {
+        const internals = redisService as unknown as {
+          getOrCreateLimiter: (config: RateLimitConfig) => unknown
+        }
+        return internals.getOrCreateLimiter(defaultLimitConfig)
+      }
+
+      it('flags an error the redis limiter re-throws as degraded', async () => {
+        service = await createRedisService()
+        expect(buildLimiter(service)).toBeInstanceOf(RateLimiterRedis)
+        jest.spyOn(RateLimiterRedis.prototype, 'consume').mockRejectedValue(new Error('redis down'))
+
+        const result = await service.consume('redis-key', defaultLimitConfig)
+
+        expect(result.degraded).toBe(true)
+        expect(result.allowed).toBe(true)
+        expect(logRecords).toEqual([
+          expect.objectContaining({
+            level: 'error',
+            namespace: 'ratelimit',
+            message: 'Rate limiter unavailable, request was not counted',
+          }),
+        ])
+      })
+
+      it('does not flag a resolved redis decision as degraded, including one the insurance limiter produced', async () => {
+        service = await createRedisService()
+        expect(buildLimiter(service)).toBeInstanceOf(RateLimiterRedis)
+        jest.spyOn(RateLimiterRedis.prototype, 'consume')
+          .mockResolvedValue(new RateLimiterRes(2, 0, 1, undefined))
+
+        const result = await service.consume('redis-key', defaultLimitConfig)
+
+        expect(result.allowed).toBe(true)
+        expect(result.degraded).toBeFalsy()
+        expect(logRecords).toEqual([])
+      })
     })
   })
 

@@ -6,6 +6,7 @@ import type { RateLimiterService } from './service'
 export const RATE_LIMIT_ERROR_KEY = 'api.errors.rateLimit'
 export const RATE_LIMIT_ERROR_FALLBACK = 'Too many requests. Please try again later.'
 export const RATE_LIMIT_FALLBACK_KEY = 'global'
+export const RATE_LIMIT_UNAVAILABLE_KEY = 'api.errors.rateLimitUnavailable'
 export const RATE_LIMIT_UNAVAILABLE_FALLBACK = 'Service temporarily unavailable. Please try again later.'
 
 export const rateLimitErrorSchema = z.object({

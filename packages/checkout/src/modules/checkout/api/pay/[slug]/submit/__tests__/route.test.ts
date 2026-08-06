@@ -407,13 +407,9 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
       )
     })
 
-    it('returns 503 without creating a payment session when the limiter is unavailable', async () => {
-      ;(createRequestContainer as jest.Mock).mockResolvedValue({
-        resolve: (name: string) => {
-          if (name === 'rateLimiterService') throw new Error('rate limiter unavailable')
-          throw new Error(`Unknown dependency: ${name}`)
-        },
-      })
+    it('returns 503 without creating a payment session when the limiter cannot decide', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+      ;(checkRateLimit as jest.Mock).mockRejectedValue(new Error('backing store unreachable'))
 
       const response = await submitRequest()
 
@@ -423,6 +419,59 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
       })
       expect(mockCreatePaymentSession).not.toHaveBeenCalled()
       expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
+
+    it('passes a 503 the limiter itself produced straight through', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+      ;(checkRateLimit as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 }),
+      )
+
+      const response = await submitRequest()
+
+      expect(response.status).toBe(503)
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
+
+    // A rate limiter that is not registered at all is a configuration error, not a
+    // transient outage: the request is served (as it was before rate limiting was made
+    // fail-closed) instead of being rejected as "temporarily unavailable" indefinitely.
+    it('serves the request when no rate limiter is registered', async () => {
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce(createLink())
+        .mockResolvedValueOnce(createTransaction())
+        .mockResolvedValueOnce(createTransaction())
+        .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+      ;(createRequestContainer as jest.Mock).mockResolvedValue({
+        hasRegistration: (name: string) => name !== 'rateLimiterService',
+        resolve: (name: string) => {
+          if (name === 'rateLimiterService') throw new Error('rate limiter is not registered')
+          if (name === 'em') return { findOne: mockEmFindOne }
+          if (name === 'commandBus') return { execute: mockCommandExecute }
+          if (name === 'paymentGatewayService') {
+            return { createPaymentSession: mockCreatePaymentSession }
+          }
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      })
+
+      const response = await POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': 'no-limiter-key-1234',
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(checkRateLimit).not.toHaveBeenCalled()
+      expect(mockCommandExecute).toHaveBeenCalled()
     })
   })
 })

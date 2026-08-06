@@ -77,13 +77,8 @@ describe('POST /api/checkout/pay/[slug]/verify-password', () => {
     )
   })
 
-  it('returns 503 without verifying the password when the limiter is unavailable', async () => {
-    ;(createRequestContainer as jest.Mock).mockResolvedValue({
-      resolve: (name: string) => {
-        if (name === 'rateLimiterService') throw new Error('rate limiter unavailable')
-        throw new Error(`Unknown dependency: ${name}`)
-      },
-    })
+  it('returns 503 without verifying the password when the limiter cannot decide', async () => {
+    ;(checkRateLimit as jest.Mock).mockRejectedValue(new Error('backing store unreachable'))
 
     const response = await verifyRequest()
 
@@ -92,6 +87,25 @@ describe('POST /api/checkout/pay/[slug]/verify-password', () => {
       error: 'Service temporarily unavailable. Please try again later.',
     })
     expect(verifyCheckoutPassword).not.toHaveBeenCalled()
+  })
+
+  // "Not registered" is a configuration error rather than a transient outage, so the
+  // request is served instead of being rejected as temporarily unavailable forever.
+  it('verifies the password when no rate limiter is registered', async () => {
+    ;(createRequestContainer as jest.Mock).mockResolvedValue({
+      hasRegistration: (name: string) => name !== 'rateLimiterService',
+      resolve: (name: string) => {
+        if (name === 'rateLimiterService') throw new Error('rate limiter is not registered')
+        if (name === 'em') return {}
+        throw new Error(`Unknown dependency: ${name}`)
+      },
+    })
+
+    const response = await verifyRequest()
+
+    expect(response.status).toBe(200)
+    expect(checkRateLimit).not.toHaveBeenCalled()
+    expect(verifyCheckoutPassword).toHaveBeenCalled()
   })
 
   it('passes a 503 from the limiter straight through', async () => {
