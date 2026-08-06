@@ -1201,6 +1201,12 @@ async function resolveTenantAllowlistSnapshot(
  * is appended to `agent.systemPrompt`. Throwing callbacks are caught and
  * logged without failing the request — the spec allows hydration to be
  * best-effort until Step 5.2 wires a stricter contract.
+ *
+ * `userId` identifies the authenticated caller and is forwarded to the callback
+ * so it can authorize user-scoped hydration. It MUST come from the server-side
+ * auth context — `pageContext` is browser-supplied and is never read for it.
+ * The parameter is trailing and optional so existing five-argument callers keep
+ * working; they simply hand the resolver no verified identity.
  */
 export async function composeSystemPrompt(
   agent: AiAgentDefinition,
@@ -1208,6 +1214,7 @@ export async function composeSystemPrompt(
   container: AwilixContainer | undefined,
   tenantId: string | null,
   organizationId: string | null,
+  userId?: string | null,
 ): Promise<string> {
   const baseFromOverride = await resolveBaseSystemPromptWithOverride(
     agent,
@@ -1231,6 +1238,7 @@ export async function composeSystemPrompt(
     container,
     tenantId,
     organizationId,
+    userId: userId ?? null,
   }
   try {
     const hydrated = await resolve(hydrationInput)
@@ -1674,6 +1682,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
+    input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
@@ -2171,6 +2180,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
+    input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),

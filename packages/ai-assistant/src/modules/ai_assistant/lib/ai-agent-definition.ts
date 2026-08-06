@@ -256,6 +256,25 @@ export interface AiAgentPageContextInput {
   container: AwilixContainer
   tenantId: string | null
   organizationId: string | null
+  /**
+   * Id of the authenticated user whose chat turn triggered the hydration. The
+   * runtime takes it from the server-side auth context, never from the request
+   * payload — unlike `recordId`, which the browser supplies and a resolver must
+   * therefore treat as untrusted.
+   *
+   * Resolvers hydrating user-scoped records (a mail thread, a personal task
+   * list, anything filtered by an owner column) MUST check ownership against
+   * this value; without it, any member of the organization could read a
+   * colleague's records through the agent.
+   *
+   * Fail closed: `undefined` means the caller of `composeSystemPrompt` did not
+   * supply an identity (an older or programmatic caller), `null` means there is
+   * no authenticated user. Neither value authorizes user-scoped hydration.
+   *
+   * Optional so existing resolvers and callers keep compiling; the runtime
+   * always populates it.
+   */
+  userId?: string | null
 }
 
 export interface AiAgentStructuredOutput<TSchema = ZodTypeAny> {
