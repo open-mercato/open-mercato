@@ -1,10 +1,11 @@
 import { buildApnsNotification, getApnsChannelAdapter, setApnsSenderFactory, type ApnsSender } from '../adapter'
 import type { SendMessageInput } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import type { PushEnvelope } from '@open-mercato/core/modules/communication_channels/lib/push-envelope'
+import { APNS_TEST_P8_KEY } from './apnsTestKey'
 
 const credentials = {
-  p8Key: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n',
-  keyId: 'ABC123KEYID',
+  p8Key: APNS_TEST_P8_KEY,
+  keyId: 'ABC123KEYI',
   teamId: 'TEAM123456',
   bundleId: 'com.example.app',
   production: false,

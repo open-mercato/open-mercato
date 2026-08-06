@@ -15,6 +15,7 @@ import type {
   VerifyWebhookInput,
 } from './adapter'
 import { pushChannelCapabilities } from './push-capabilities'
+import { resolvePushCredentialIssue } from './push-credential-errors'
 
 /**
  * Uniform sentinel a push adapter returns for a permanently-invalid device token.
@@ -123,10 +124,16 @@ export abstract class BasePushChannelAdapter implements ChannelAdapter {
     const parsed = this.credentialsSchema.safeParse(input.credentials)
     if (parsed.success) return { ok: true }
     const errors: Record<string, string> = {}
+    const errorCodes: Record<string, string> = {}
     for (const issue of parsed.error.issues) {
       const key = issue.path[0]
-      if (typeof key === 'string' && !errors[key]) errors[key] = issue.message
+      if (typeof key !== 'string' || errors[key]) continue
+      // Schemas emit a stable code as the issue message; keep the English prose
+      // for API consumers and hand the code to the UI so it can localize.
+      const resolved = resolvePushCredentialIssue(issue.message)
+      errors[key] = resolved.message
+      errorCodes[key] = resolved.code
     }
-    return { ok: false, errors }
+    return { ok: false, errors, errorCodes }
   }
 }

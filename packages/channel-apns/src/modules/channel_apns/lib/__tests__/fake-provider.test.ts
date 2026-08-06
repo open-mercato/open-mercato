@@ -8,6 +8,7 @@ import {
 } from '@open-mercato/core/modules/push_notifications/lib/fake-provider-recorder'
 import { getApnsChannelAdapter, setApnsSenderFactory } from '../adapter'
 import { ensureApnsFakeProviderInstalled } from '../fake-provider'
+import { APNS_TEST_P8_KEY } from './apnsTestKey'
 
 /**
  * Drives the REAL APNs adapter against the fake sender, the same way `di.ts` installs it. The APNs seam
@@ -15,7 +16,7 @@ import { ensureApnsFakeProviderInstalled } from '../fake-provider'
  * records the notification production would have sent.
  */
 const credentials = {
-  p8Key: '-----BEGIN PRIVATE KEY-----\nom-fake-p8\n-----END PRIVATE KEY-----\n',
+  p8Key: APNS_TEST_P8_KEY,
   keyId: 'FAKEKEYID1',
   teamId: 'FAKETEAMID',
   bundleId: 'com.openmercato.fake',

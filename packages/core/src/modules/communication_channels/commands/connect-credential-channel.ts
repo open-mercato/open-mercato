@@ -31,7 +31,7 @@ export type ConnectCredentialChannelInput = z.infer<typeof connectCredentialChan
 
 export type ConnectCredentialChannelResult =
   | { status: 'connected'; channelId: string; externalIdentifier: string | null }
-  | { status: 'validation_failed'; errors: Record<string, string> }
+  | { status: 'validation_failed'; errors: Record<string, string>; errorCodes?: Record<string, string> }
   | { status: 'no_adapter'; reason: string }
   | { status: 'duplicate_mailbox'; externalIdentifier: string; existingProviderKey: string }
   | { status: 'wrong_scope_for_route'; providerKey: string }
@@ -117,6 +117,7 @@ const connectCredentialChannelCommand: CommandHandler<
         return {
           status: 'validation_failed',
           errors: validation.errors ?? { _form: 'Credential validation failed' },
+          errorCodes: validation.errorCodes,
         }
       }
     }

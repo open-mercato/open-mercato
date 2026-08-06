@@ -486,6 +486,14 @@ export interface ValidateCredentialsResult {
   ok: boolean
   /** Field-level error messages keyed by credential field name; for `createCrudFormError`. */
   errors?: Record<string, string>
+  /**
+   * Stable machine-readable code per failing field, keyed the same way as
+   * `errors`. Lets a UI render a localized message instead of the English
+   * prose in `errors` (which stays reserved for logs and API consumers), the
+   * same split the route-level `code` field already uses. Optional: adapters
+   * that don't emit codes keep working and callers fall back to `errors`.
+   */
+  errorCodes?: Record<string, string>
 }
 
 // ── The adapter contract ─────────────────────────────────────

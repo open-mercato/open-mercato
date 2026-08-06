@@ -6,7 +6,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { resolvePushConnectErrorMessage } from '@open-mercato/core/modules/communication_channels/lib/push-connect-error'
+import {
+  resolvePushConnectErrorMessage,
+  resolvePushConnectFieldErrors,
+} from '@open-mercato/core/modules/communication_channels/lib/push-connect-error'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -28,6 +31,7 @@ type ConnectResponse = {
   error?: string
   code?: string
   fieldErrors?: Record<string, string>
+  fieldErrorCodes?: Record<string, string>
 }
 
 type FormState = {
@@ -98,7 +102,7 @@ export default function ConnectFcmWidget({
       })
       const body = response.result as ConnectResponse | undefined
       if (!response.ok) {
-        setFieldErrors(body?.fieldErrors ?? {})
+        setFieldErrors(resolvePushConnectFieldErrors(t, body))
         flash(resolvePushConnectErrorMessage(t, body), 'error')
         return
       }

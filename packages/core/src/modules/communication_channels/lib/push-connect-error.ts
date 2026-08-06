@@ -1,5 +1,7 @@
 export type PushConnectErrorBody = {
   code?: string | null
+  fieldErrors?: Record<string, string> | null
+  fieldErrorCodes?: Record<string, string> | null
 }
 
 export type PushConnectTranslate = (key: string, fallback: string) => string
@@ -21,4 +23,30 @@ export function resolvePushConnectErrorMessage(
   const fallback = translate('communication_channels.push.connect.failed', 'Could not connect push provider.')
   if (!body?.code) return fallback
   return translate(`communication_channels.push.connect.errors.${body.code}`, fallback)
+}
+
+/**
+ * Localize the per-field credential-validation errors a 422 connect response
+ * carries. Each field's `fieldErrorCodes` entry maps to
+ * `communication_channels.push.connect.errors.fields.<code>`; when a field has
+ * no code (an adapter that predates the code contract) or the locale ships no
+ * matching key, the raw English `fieldErrors` string is used so the operator
+ * still sees something actionable rather than a blank field.
+ *
+ * Returns a map ready for a widget's `setFieldErrors`.
+ */
+export function resolvePushConnectFieldErrors(
+  translate: PushConnectTranslate,
+  body: PushConnectErrorBody | undefined,
+): Record<string, string> {
+  const fieldErrors = body?.fieldErrors ?? {}
+  const fieldErrorCodes = body?.fieldErrorCodes ?? {}
+  const resolved: Record<string, string> = {}
+  for (const [field, message] of Object.entries(fieldErrors)) {
+    const code = fieldErrorCodes[field]
+    resolved[field] = code
+      ? translate(`communication_channels.push.connect.errors.fields.${code}`, message)
+      : message
+  }
+  return resolved
 }

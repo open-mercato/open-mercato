@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto'
 import path from 'node:path'
 import { expect, type APIRequestContext } from '@playwright/test'
 import {
@@ -67,7 +68,23 @@ export type PushDeliveryRow = {
   provider_response: Record<string, unknown> | null
 }
 
-/** Valid-*shaped* fake credentials. `validateCredentials` is schema-only; real parsing lives in the faked SDK client. */
+/**
+ * A throwaway ES256 (P-256) key in PKCS#8 PEM — the curve Apple's `.p8` signing
+ * keys use. `apnsCredentialsSchema` structurally parses `p8Key`, so the fixture
+ * must be a genuinely parseable key; generating it per process keeps a private
+ * key out of the repository.
+ */
+const FAKE_APNS_P8_KEY = generateKeyPairSync('ec', {
+  namedCurve: 'P-256',
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+}).privateKey
+
+/**
+ * Valid-*shaped* fake credentials. `validateCredentials` is schema-only — it checks
+ * structure (APNs additionally parses the `.p8` and pins Apple's identifier formats),
+ * never that the provider accepts them; real parsing lives in the faked SDK client.
+ */
 export const FAKE_PUSH_CREDENTIALS: Record<FakePushProvider, Record<string, unknown>> = {
   fcm: {
     serviceAccountJson: JSON.stringify({
@@ -77,7 +94,7 @@ export const FAKE_PUSH_CREDENTIALS: Record<FakePushProvider, Record<string, unkn
     }),
   },
   apns: {
-    p8Key: '-----BEGIN PRIVATE KEY-----\nom-fake-p8\n-----END PRIVATE KEY-----\n',
+    p8Key: FAKE_APNS_P8_KEY,
     keyId: 'FAKEKEYID1',
     teamId: 'FAKETEAMID',
     bundleId: 'com.openmercato.fake',

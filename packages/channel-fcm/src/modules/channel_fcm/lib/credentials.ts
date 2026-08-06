@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  PUSH_CREDENTIAL_ERROR_INVALID_JSON,
+  PUSH_CREDENTIAL_ERROR_MISSING_FIELDS,
+  PUSH_CREDENTIAL_ERROR_REQUIRED,
+} from '@open-mercato/core/modules/communication_channels/lib/push-credential-errors'
 
 /**
  * Firebase service account shape (camelCase) used to mint FCM credentials.
@@ -31,22 +36,36 @@ function normalizeServiceAccount(raw: Record<string, unknown>): FcmServiceAccoun
  */
 export const fcmCredentialsSchema = z
   .object({
-    serviceAccountJson: z.string().min(1, 'FCM service account JSON required'),
+    serviceAccountJson: z.string().min(1, PUSH_CREDENTIAL_ERROR_REQUIRED),
     appName: z.string().optional(),
   })
   .passthrough()
   .superRefine((value, ctx) => {
+    // Two distinct failures, two distinct codes. Never interpolate the caught
+    // error: a `normalizeServiceAccount` rejection is a ZodError whose
+    // `.message` is a JSON dump of the issue array, which used to reach the
+    // operator verbatim through `fieldErrors`.
+    let parsed: Record<string, unknown>
     try {
-      const parsed = JSON.parse(value.serviceAccountJson) as Record<string, unknown>
-      normalizeServiceAccount(parsed)
-    } catch (err) {
+      parsed = JSON.parse(value.serviceAccountJson) as Record<string, unknown>
+    } catch {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['serviceAccountJson'],
-        message:
-          err instanceof Error && err.message.length > 0
-            ? `Invalid FCM service account JSON: ${err.message}`
-            : 'Invalid FCM service account JSON',
+        message: PUSH_CREDENTIAL_ERROR_INVALID_JSON,
+      })
+      return
+    }
+    const account = fcmServiceAccountSchema.safeParse({
+      projectId: parsed.projectId ?? parsed.project_id,
+      clientEmail: parsed.clientEmail ?? parsed.client_email,
+      privateKey: parsed.privateKey ?? parsed.private_key,
+    })
+    if (!account.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['serviceAccountJson'],
+        message: PUSH_CREDENTIAL_ERROR_MISSING_FIELDS,
       })
     }
   })

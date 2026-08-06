@@ -126,7 +126,16 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
   if (result.status === 'validation_failed') {
-    return NextResponse.json({ error: 'Credential validation failed', fieldErrors: result.errors }, { status: 422 })
+    // `fieldErrors` stays English for API consumers and logs; `fieldErrorCodes`
+    // lets the connect widget render a localized message per field.
+    return NextResponse.json(
+      {
+        error: 'Credential validation failed',
+        fieldErrors: result.errors,
+        ...(result.errorCodes ? { fieldErrorCodes: result.errorCodes } : {}),
+      },
+      { status: 422 },
+    )
   }
   if (result.status === 'duplicate_mailbox') {
     return NextResponse.json(
