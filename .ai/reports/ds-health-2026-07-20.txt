@@ -1,0 +1,80 @@
+=== DESIGN SYSTEM HEALTH CHECK ===
+Date: 2026-07-20
+
+--- Hardcoded Status Colors ---
+  Count: 380 (target: 0)
+
+--- Arbitrary Text Sizes ---
+  Count: 66 (target: 1)
+
+--- Deprecated Notice Usage ---
+  Notice imports: 1 (target: 0)
+  ErrorNotice imports: 2 (target: 0)
+
+--- Legacy Alert variant API ---
+  Legacy Alert variant usages: 0 (target: 0)
+
+--- Arbitrary Z-Index ---
+  Arbitrary z-index usages: 5 (target: 0)
+
+--- Inline SVG ---
+  Files with inline SVG: 27 (target: 0)
+
+--- Raw fetch() in Backend ---
+  Raw fetch files: 3 (target: 0)
+
+--- Empty State Coverage ---
+  Pages with empty state: 44 / 181 (24%)
+
+--- Loading State Coverage ---
+  Pages with loading state: 112 / 181 (61%)
+
+--- Semantic Token Adoption ---
+  Semantic token usages: 893
+
+--- DS Lint Opt-Outs ---
+  DS lint opt-out directives: 0 (target: 0)
+
+=== END REPORT ===
+
+=== PER-MODULE BREAKDOWN (top offenders first) ===
+| module | colors | text | svg-files | pages-no-empty | alert-variant | lint:empty | lint:page | lint:table | lint:loading | lint:badge | lint:colors | lint:alert | total |
+|--------|--------|------|-----------|----------------|---------------|------------|-----------|------------|--------------|------------|-------------|------------|-------|
+| workflows | 71 | 0 | 2 | 9 | 0 | 3 | 1 | 13 | 0 | 2 | 11 | 0 | 82 |
+| ui/backend | 41 | 0 | 7 | 0 | 0 | 0 | 0 | 9 | 14 | 0 | 22 | 0 | 48 |
+| staff | 11 | 18 | 0 | 14 | 0 | 0 | 0 | 17 | 2 | 1 | 3 | 0 | 43 |
+| customers | 0 | 21 | 3 | 9 | 0 | 0 | 0 | 0 | 4 | 2 | 0 | 0 | 33 |
+| auth | 21 | 0 | 1 | 9 | 0 | 0 | 4 | 0 | 2 | 0 | 0 | 0 | 31 |
+| ent:security | 21 | 0 | 0 | 9 | 0 | 1 | 2 | 0 | 1 | 0 | 1 | 0 | 30 |
+| catalog | 18 | 2 | 0 | 9 | 0 | 0 | 0 | 36 | 3 | 0 | 9 | 0 | 29 |
+| business_rules | 18 | 0 | 0 | 6 | 0 | 1 | 0 | 0 | 0 | 0 | 4 | 0 | 24 |
+| inbox_ops | 19 | 0 | 0 | 3 | 0 | 1 | 0 | 0 | 0 | 2 | 2 | 0 | 22 |
+| entities | 0 | 0 | 0 | 9 | 0 | 1 | 2 | 0 | 1 | 0 | 0 | 0 | 9 |
+| messages | 6 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 9 |
+| sales | 0 | 0 | 0 | 9 | 0 | 0 | 4 | 0 | 1 | 0 | 0 | 0 | 9 |
+| integrations | 3 | 0 | 3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 8 |
+| ent:record_locks | 5 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 6 |
+| ent:sso | 3 | 0 | 0 | 3 | 0 | 1 | 0 | 15 | 1 | 0 | 0 | 0 | 6 |
+| payment_gateways | 5 | 0 | 0 | 1 | 0 | 1 | 0 | 13 | 0 | 0 | 0 | 0 | 6 |
+| planner | 4 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 6 |
+| attachments | 2 | 0 | 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |
+| currencies | 0 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |
+| directory | 0 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 5 |
+| feature_toggles | 0 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 5 |
+| customer_accounts | 0 | 0 | 0 | 4 | 0 | 0 | 0 | 11 | 0 | 0 | 0 | 0 | 4 |
+| configs | 0 | 0 | 0 | 3 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 3 |
+| resources | 0 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 3 |
+| data_sync | 0 | 0 | 0 | 2 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| dictionaries | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| portal | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| shipping_carriers | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| api_docs | 0 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| api_keys | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 1 |
+| audit_logs | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| communication_channels | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| ent:system_status_overlays | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| notifications | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| query_index | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+| translations | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
+
+Suggested next module: highest total above.
