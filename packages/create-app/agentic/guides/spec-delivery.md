@@ -15,6 +15,20 @@ Use this guide for a new application, multi-module feature, or other non-trivial
 
 After `spec-first` or `reuse-spec`, implementation routing is a one-way handoff: module work loads `om-module-scaffold`, which starts at `src/modules/example/README.md` and its `references/surface-inventory.json`, and adapts only the capability-linked source files. UI-bearing work additionally loads `om-backend-ui-design`. Never propose a second teaching module, copy the example tree wholesale, or treat `ratelimit_probe` as a blueprint. Every newly added or materially changed extension surface names its own self-contained integration test in the plan.
 
+## Extension-surface traceability
+
+Every added or materially changed runtime or discovery extension surface gets its own row in the spec's requirement traceability table. Putting a new surface inside an existing capability row does not waive the row. Each row names:
+
+- the requirement it satisfies (`REQ-001`, …);
+- the reference capability ID and the exact `src/modules/example/**` source file it adapts — an exact file, never a directory or wildcard, and never a path `references/surface-inventory.json` does not map;
+- the implementation phase that lands it;
+- its own self-contained integration test; and
+- exactly one mechanism classification: `emitted-example` when the reference module already emits that mechanism, `framework-only` for an app-level setting that never becomes a module contribution, `catalog-only` when the framework describes the surface but the reference contributes nothing for it, `currently-unbound` when the value is reserved by the public set but no code path emits it, and `negative-fixture` when only a deliberately broken fixture produces it.
+
+Only the reference module's own coverage ledger justifies the last four, and `negative-fixture` is never a valid classification for a surface you are proposing to ship.
+
+The reference module is source-present and unregistered. Its activations, targets, routes, and grants apply only after an explicit opt-in, so a plan says so rather than describing them as behavior the app already has.
+
 ## Delivery skills
 
 - Pinned delivery skills install with `yarn install-skills` (refresh: `--update`). When a skill is absent, run `yarn install-skills` once; never substitute a similarly named skill or improvise its workflow.

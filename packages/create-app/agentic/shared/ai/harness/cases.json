@@ -14613,12 +14613,13 @@
     "mode": "spec",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "Branch managers want warehouse stock transfers in this app: a manager raises a transfer request for named stock, the sending warehouse packs and dispatches it, the receiving warehouse confirms what actually arrived, stock levels move only on that confirmation, and both warehouses are told when a transfer is short or refused. Nobody has said to skip the specification. Produce the covering specification for this capability and nothing else: one new correctly named file under .ai/specs, carrying the problem, the contracts, the self-contained integration coverage, and the dependency-ordered implementation phases. Do not create the module, the entities, the migrations, the routes, the registry entry, or any other source file — writing the specification is the whole deliverable and the only thing this task authorizes.",
+    "prompt": "Branch managers want warehouse stock transfers in this app: a manager raises a transfer request for named stock, the sending warehouse packs and dispatches it, the receiving warehouse confirms what actually arrived, stock levels move only on that confirmation, and both warehouses are told when a transfer is short or refused. Nobody has said to skip the specification. Produce the covering specification for this capability and nothing else: one new correctly named file under .ai/specs, carrying the problem, the contracts, the self-contained integration coverage, and the dependency-ordered implementation phases. Ground the implementation section in the reference module this app already ships in source: route module work to the scaffold skill, begin at the reference module's entry document and its surface index, and name the exact capability IDs and exact reference source files you will adapt, stating the reference module's real runtime status rather than describing it as already live. Give every extension surface you propose its own requirement traceability row naming the requirement, the phase, its self-contained integration test, and the one mechanism classification the routed guide defines. Do not create the module, the entities, the migrations, the routes, the registry entry, or any other source file \u2014 writing the specification is the whole deliverable and the only thing this task authorizes. Do not write anything inside the reference module, and do not list or glob its directories.",
     "tags": [
       "spec-gate",
       "planning-proof",
       "spec-first",
       "stock-transfer",
+      "canonical-example",
       "writable"
     ],
     "owner": {
@@ -14637,13 +14638,15 @@
       ]
     },
     "requiredSkills": [
-      "om-spec-writing"
+      "om-spec-writing",
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/spec-delivery.md",
-        ".ai/specs/README.md"
+        ".ai/specs/README.md",
+        ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "allowedExtra": [
         ".ai/specs/SPEC-000-template.md",
@@ -14653,6 +14656,24 @@
         ".env*",
         ".git/**",
         ".mercato/generated/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "api.crud-factory",
+            "commands.write",
+            "data.entities",
+            "data.validators",
+            "events.typed-definitions"
+          ],
+          "maxFiles": 8,
+          "maxBytes": 180224
+        }
       ]
     },
     "decisionVocabulary": [
@@ -14661,15 +14682,21 @@
       "phased-implementation-plan",
       "named-integration-coverage",
       "no-source-write-while-planning",
+      "canonical-example-grounded-plan",
+      "mechanism-classified-traceability",
       "implementation-before-spec",
-      "placeholder-spec-accepted"
+      "placeholder-spec-accepted",
+      "shadow-teaching-module",
+      "whole-example-tree-copy"
     ],
     "requiredDecisions": [
       "spec-first-before-implementation",
       "single-covering-spec",
       "phased-implementation-plan",
       "named-integration-coverage",
-      "no-source-write-while-planning"
+      "no-source-write-while-planning",
+      "canonical-example-grounded-plan",
+      "mechanism-classified-traceability"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -14708,16 +14735,17 @@
       ".ai/specs/**"
     ],
     "timeoutMs": 600000,
-    "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 98304,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 262144,
     "relatedCases": [
       "OMH-204",
       "OMH-214"
     ],
     "source": {
       "paths": [
-        ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md"
+        ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md",
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
       ]
     }
   },

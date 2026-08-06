@@ -1023,7 +1023,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212', 'OMH-215', 'OMH-216']
+const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212', 'OMH-213', 'OMH-215', 'OMH-216']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1045,6 +1045,16 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   ],
   'OMH-211': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
   'OMH-212': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
+  // The one writable declaring case: its plan must name exact reference sources, so it reads the
+  // module-shaped capability set a stock-transfer module would adapt. Its write allowlist is
+  // `.ai/specs/**`, and root immutability rejects a write here regardless.
+  'OMH-213': [
+    'api.crud-factory',
+    'commands.write',
+    'data.entities',
+    'data.validators',
+    'events.typed-definitions',
+  ],
   'OMH-215': ['runtime.bulk-operation-progress'],
   'OMH-216': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
 }
@@ -1123,11 +1133,16 @@ test('reachability: no shipped case declares the reason-gated fallback while the
 
 test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
   const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
-  const stated = /(\w+) read-only cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
+  const stated = /(\w+) cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Six')
-  assert.equal(DECLARING_CASE_IDS.length, 6)
+  assert.equal(stated[1], 'Seven')
+  assert.equal(DECLARING_CASE_IDS.length, 7)
   assert.deepEqual([stated[2], stated[3]], [DECLARING_CASE_IDS[0], DECLARING_CASE_IDS.at(-1)])
+  // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
+  // exactly what immutability precedence has to defend against, so the doc names it by ID.
+  const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))
+  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-213'])
+  assert.match(doc, /`OMH-213`, the module-shaped planning proof, is the one writable/)
 })
 
 /**
@@ -2356,8 +2371,8 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 11: each newest capability resolves to exactly its shipped sources for the case that declares it',
       'family 11: the inventory maps each newest capability to exactly its shipped files, and every one of them exists',
     ],
-    blockedBy: ['a WRITABLE shipped case declaring context.exampleRoots'],
-    note: 'Updated on 2026-08-04: the two independent capability assertions the family opens with now exist — OMH-210 selects `umes.injection.datatable-bulk-action` and OMH-215 selects `runtime.bulk-operation-progress`, two inventory rows over disjoint files, checked against paths typed from the shipped example tree rather than derived from the inventory. The family stays partial because its second clause is still blocked: every shipped case that declares `context.exampleRoots` is read-only, so no behavioral writable/oracle lane proves the connected `progressJobId` lifecycle.',
+    blockedBy: ['a writable lane whose contract names the connected progressJobId lifecycle'],
+    note: 'Updated on 2026-08-06. The two independent capability assertions the family opens with exist since 2026-08-04 — OMH-210 selects `umes.injection.datatable-bulk-action` and OMH-215 selects `runtime.bulk-operation-progress`, two inventory rows over disjoint files, checked against paths typed from the shipped example tree rather than derived from the inventory. The blocker was also RESTATED here: it used to read `a WRITABLE shipped case declaring context.exampleRoots`, and OMH-213 became exactly that when it grew its module-shaped planning contract — without asserting anything about progress. Family 9 asks for a lane that proves the connected `progressJobId` lifecycle, so the probe now asks for that lane instead of for a writable declarer of any kind, and the family stays honestly partial.',
   },
   {
     specFamily: 10,
@@ -2392,8 +2407,14 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
   'a preset-narrowed or tier-narrowed inventory record': () => projectedInventory().records
     .every((record) => (record as unknown as Record<string, unknown>).presets === undefined
       && (record as unknown as Record<string, unknown>).tiers === undefined),
-  'a WRITABLE shipped case declaring context.exampleRoots': () => shippedCases()
-    .every((entry) => entry.context.exampleRoots === undefined || entry.allowedWrites === undefined),
+  // Corrected on 2026-08-06. The previous probe here asked whether ANY writable case declares
+  // `context.exampleRoots`, which is not what family 9's second clause needs: OMH-213 became such
+  // a case while grading a planning document, and the probe would have declared the clause closed
+  // without a single assertion about progress. What is genuinely still missing is a writable lane
+  // whose own contract names the connected lifecycle.
+  'a writable lane whose contract names the connected progressJobId lifecycle': () => shippedCases()
+    .filter((entry) => (entry as unknown as { allowedWrites?: unknown }).allowedWrites !== undefined)
+    .every((entry) => !JSON.stringify(entry).toLowerCase().includes('progressjobid')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
   'a shipped case routing the generated local example reference sheet': () => shippedCases().every((entry) => {

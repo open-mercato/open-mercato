@@ -4135,7 +4135,10 @@ function stageSpecTarget(fixtureId: string): string {
   for (const name of fs.readdirSync(emittedSpecRoot).filter((entry) => entry.endsWith('.md'))) {
     fs.copyFileSync(path.join(emittedSpecRoot, name), path.join(root, '.ai', 'specs', name))
   }
-  fs.mkdirSync(path.join(root, 'src', 'modules', 'example'), { recursive: true })
+  // The module-shaped half of the new-feature oracle reads the reference module's own inventory
+  // and resolves every source path the plan names against it, so the stand-in stages the real
+  // emitted tree rather than an empty directory.
+  fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = ['example']\n")
   for (const [relative, content] of Object.entries(seededFixtureFiles(fixtureId))) {
     fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true })
@@ -4206,11 +4209,14 @@ Each test creates its own tenant, organization, warehouses, users, and stock row
 
 Phases are dependency ordered; each one leaves the application working and closes with its own evidence.
 
+Module work routes to om-module-scaffold, which starts at the reference module's entry document and its surface index. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
+
 ### Phase 1 — Transfer record and scoped read path
 
 - **Depends on:** none
 - **Outcome:** a manager can raise a transfer request and see its state.
 - **Deliverables:** the transfer and transfer-line entities with their scope columns and version column, the migration, the zod validators, the list and create routes on the CRUD route factory, the access-control features, and the module registration.
+- **Adapted from:** data.entities at src/modules/example/data/entities.ts, data.validators at src/modules/example/data/validators.ts, and api.crud-factory at src/modules/example/api/customer-priorities/route.ts.
 - **Tests:** TEST-003
 - **Validation:** yarn generate, focused typecheck, and the named security test.
 - **Exit gate:** a request raised in one organization is invisible to another organization on every route.
@@ -4220,9 +4226,20 @@ Phases are dependency ordered; each one leaves the application working and close
 - **Depends on:** Phase 1 exit gate
 - **Outcome:** stock levels move only when the receiving warehouse confirms what arrived.
 - **Deliverables:** the guarded dispatch and receive commands, the transactional stock adjustment, the shortfall line, the optimistic-lock conflict path, the typed events, and the notification to both warehouses.
+- **Adapted from:** commands.write at src/modules/example/commands/todos.ts and events.typed-definitions at src/modules/example/events.ts.
 - **Tests:** TEST-001, TEST-002, TEST-004
 - **Validation:** focused command tests plus the three named integration tests.
 - **Exit gate:** a full receipt, a short receipt, and two concurrent receipts each leave the two stock counts correct exactly once.
+
+## Requirement Traceability
+
+One row per extension surface this specification adds. Each names the source it is adapted from, the phase that lands it, its own self-contained integration test, and the one mechanism classification it uses.
+
+| Requirement | Extension surface | Adapted from | Phase | Test | Mechanism |
+|---|---|---|---|---|---|
+| REQ-001 | scoped transfer entities and their migration | data.entities at src/modules/example/data/entities.ts | Phase 1 | TEST-003 in __integration__ | emitted-example |
+| REQ-002 | guarded dispatch and receive commands | commands.write at src/modules/example/commands/todos.ts | Phase 2 | TEST-001 in __integration__ | emitted-example |
+| REQ-003 | typed lifecycle events for the three transitions | events.typed-definitions at src/modules/example/events.ts | Phase 2 | TEST-002 in __integration__ | emitted-example |
 
 ## Risks and Tradeoffs
 
@@ -4312,6 +4329,15 @@ test('the new-feature planning proof fails on its seeded scaffold and passes on 
   }
 })
 
+function rewriteNewFeatureSpec(root: string, edit: (spec: string) => string): void {
+  const file = path.join(root, newFeatureSpecPath)
+  const before = fs.readFileSync(file, 'utf8')
+  const after = edit(before)
+  // A negative control that silently edited nothing would assert against the passing answer.
+  assert.notEqual(after, before, 'the negative control must actually change the delivered spec')
+  fs.writeFileSync(file, after)
+}
+
 // Each row breaks exactly one graded property of the passing answer and names the check that
 // must go red. Without these, a grader that silently stopped asserting would still look green.
 const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
@@ -4341,6 +4367,68 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
   ['the emitted README repurposed as the specification', (root) => {
     fs.writeFileSync(path.join(root, '.ai/specs/README.md'), deliveredTransferSpec)
   }, 'reserved.README.md'],
+  // Module-shaped clauses. One row per graded property, same discipline as above.
+  ['a plan that never routes module work to the scaffold skill', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('routes to om-module-scaffold', 'proceeds directly'))
+  }, 'plan.module-scaffold-route'],
+  ['a plan that names no reference capability IDs', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec
+      .replaceAll('data.entities', 'the entity file')
+      .replaceAll('data.validators', 'the validator file')
+      .replaceAll('api.crud-factory', 'the CRUD route')
+      .replaceAll('commands.write', 'the write command')
+      .replaceAll('events.typed-definitions', 'the event definitions'))
+  }, 'plan.example-capability-ids'],
+  ['a plan whose reference sources are directory hints rather than files', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(/src\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+/g, 'src/modules/example/data/'))
+  }, 'plan.example-no-directory-hint'],
+  ['a plan that names a reference source the inventory does not map', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('src/modules/example/events.ts', 'src/modules/example/invented/transfers.ts'))
+  }, 'plan.example-paths-resolve'],
+  ['a plan that describes the reference module as already live', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it;',
+      'The reference module is already running in this app, so its routes and grants are live today;',
+    ))
+  }, 'plan.example-after-opt-in'],
+  ['a plan that proposes a second teaching module', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'adapted into the new stock_transfers module',
+      'used to build another example module beside it',
+    ))
+  }, 'plan.rejects.shadow-teaching-module'],
+  ['a plan that copies the whole reference tree', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'never edited and never copied wholesale',
+      'delivered by copying the entire example module tree and renaming it',
+    ))
+  }, 'plan.rejects.whole-example-copy'],
+  ['a plan that treats the rate-limit probe as a blueprint', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'and adapted into the new stock_transfers module',
+      'and modelled on ratelimit_probe',
+    ))
+  }, 'plan.rejects.ratelimit-probe-blueprint'],
+  ['a traceability table with fewer rows than added surfaces', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec
+      .replace(/\| REQ-002 \|[^\n]*\n/, '')
+      .replace(/\| REQ-003 \|[^\n]*\n/, ''))
+  }, 'plan.traceability.rows'],
+  ['a traceability row with no integration test', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('| TEST-001 in __integration__ |', '| covered by unit tests |'))
+  }, 'plan.traceability.complete'],
+  ['a traceability row with no mechanism classification', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      '| TEST-002 in __integration__ | emitted-example |',
+      '| TEST-002 in __integration__ | the usual way |',
+    ))
+  }, 'plan.traceability.classification'],
+  ['a proposed surface classified as a negative fixture', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      '| TEST-003 in __integration__ | emitted-example |',
+      '| TEST-003 in __integration__ | negative-fixture |',
+    ))
+  }, 'plan.traceability.no-negative-fixture'],
 ]
 
 for (const [label, breakIt, expectedCheck] of newFeatureNegatives) {
