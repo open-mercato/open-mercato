@@ -97,7 +97,9 @@ const [dirty, setDirty] = React.useState<DataTableViewDirtyState | null>(null)
 
 “Dirty” is measured against the settings the view was last applied or saved from, so restoring a view on page load never flags changes the user did not make. `pageSize` is not compared: the live settings never carry one.
 
-`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'name-required' | 'failed' }`. Conflicts (HTTP 409) are surfaced by the shared conflict bar exactly as in the sidebar flow. Note that a custom `toolbar` prop replaces the built-in toolbar entirely, so `showSaveViewButton` has no effect there — use `viewApiRef` instead.
+`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed' }`. `not-ready` means the perspectives permission check has not resolved yet — nothing was saved and nothing is wrong, so retry rather than telling the user views are disabled. Conflicts (HTTP 409) are surfaced by the shared conflict bar exactly as in the sidebar flow. Note that a custom `toolbar` prop replaces the built-in toolbar entirely, so `showSaveViewButton` has no effect there — use `viewApiRef` instead.
+
+`openViewsSidebar()` is a no-op for a user without the `perspectives.use` feature (the sidebar closes again on the next render), so gate a host-rendered “Manage views” action on the same permission instead of expecting an error. The dirty state and the imperative handle are only computed for tables that pass at least one of these three props — a table that opts out pays nothing.
 
 ## API surface
 

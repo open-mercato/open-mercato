@@ -242,7 +242,17 @@ export type DataTableSaveViewInput = {
  */
 export type DataTableSaveViewResult =
   | { ok: true; perspectiveId: string | null }
-  | { ok: false; reason: 'perspectives-disabled' | 'name-required' | 'failed'; error?: unknown }
+  | {
+      ok: false
+      /**
+       * `not-ready` — the perspectives permission check has not resolved yet.
+       * Nothing was saved and nothing is wrong: retry once the table has
+       * settled. Distinct from `perspectives-disabled`, which is a definitive
+       * "this user may not use views" and should be surfaced as such.
+       */
+      reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed'
+      error?: unknown
+    }
 
 /**
  * Imperative handle exposed through `DataTableProps.viewApiRef`, so a host app
@@ -255,7 +265,12 @@ export type DataTableViewApi = {
   getDirtyState: () => DataTableViewDirtyState
   /** Persists the live settings into a saved view. */
   saveCurrentView: (input?: DataTableSaveViewInput) => Promise<DataTableSaveViewResult>
-  /** Opens the built-in views sidebar (where a new view can be named and saved). */
+  /**
+   * Opens the built-in views sidebar (where a new view can be named and saved).
+   * No-op for a user without the `perspectives.use` feature — the sidebar closes
+   * again on the next render — so a host offering this action should gate it on
+   * the same permission rather than expecting an error.
+   */
   openViewsSidebar: () => void
 }
 
@@ -435,6 +450,8 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
 }
 const EMPTY_FILTER_DEFS: FilterDef[] = []
 const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
+/** Stand-in for the live view settings on tables that never opt into the view API. */
+const EMPTY_VIEW_SETTINGS: PerspectiveSettings = Object.freeze({}) as PerspectiveSettings
 
 // Directional shadow utilities for sticky table cells. `border-collapse: collapse`
 // blocks `box-shadow` on `<td>`/`<th>`, so we paint the shadow as a pseudo-element
@@ -1305,11 +1322,16 @@ export function DataTable<T>({
   // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const snapshotHydratedTableRef = React.useRef<string | null>(null)
-  // Mirror of the live settings, kept so callbacks defined before the memo can
-  // read them without taking `getCurrentSettings` as a dependency.
-  const currentViewSettingsRef = React.useRef<PerspectiveSettings | null>(null)
-  const initialSettingsFromConfig = sanitizePerspectiveSettings(perspectiveConfig?.initialState?.initialSettings ?? null)
-  const mergedInitialSettings = initialSettingsFromConfig
+  const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
+  // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
+  // fresh result on every call, so without this every effect keyed on the
+  // sanitized settings would re-run after every render — including the one that
+  // seeds the view baseline, which would then keep resetting an applied view's
+  // baseline back to the server-supplied initial settings.
+  const mergedInitialSettings = React.useMemo(
+    () => sanitizePerspectiveSettings(initialSettingsSource),
+    [initialSettingsSource],
+  )
   const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? null
   const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
   const [isAdvancedFilterOpen, setAdvancedFilterOpen] = React.useState(false)
@@ -1389,9 +1411,16 @@ export function DataTable<T>({
     }
   }, [canUsePerspectives, isPerspectiveOpen])
 
+  // Seeded once per table, like the localStorage hydration above. The server's
+  // initial settings describe the state the table mounts in, not a state to
+  // return to: re-running this after the user activates a view would overwrite
+  // that view's baseline and report changes nobody made.
+  const initialSettingsSeededTableRef = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (!perspectiveTableId) return
     if (!mergedInitialSettings) return
+    if (initialSettingsSeededTableRef.current === perspectiveTableId) return
+    initialSettingsSeededTableRef.current = perspectiveTableId
     const snapshot: PerspectiveSnapshot = {
       perspectiveId: initialActiveId,
       settings: mergedInitialSettings,
@@ -1400,7 +1429,7 @@ export function DataTable<T>({
     writePerspectiveSnapshot(perspectiveTableId, snapshot)
     initialSnapshotRef.current = snapshot
     setViewBaseline(mergedInitialSettings)
-  }, [perspectiveTableId, mergedInitialSettings, initialActiveId])
+  }, [perspectiveTableId, mergedInitialSettings, initialActiveId, setViewBaseline])
 
   const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
     queryKey: ['table-perspectives', perspectiveTableId],
@@ -1869,7 +1898,7 @@ export function DataTable<T>({
     // filter change the user never made.
     setViewBaseline(
       options?.preserveAdvancedFilter
-        ? { ...normalized, filters: currentViewSettingsRef.current?.filters }
+        ? { ...normalized, filters: getCurrentSettings().filters }
         : normalized,
     )
     if (normalized.columnOrder && normalized.columnOrder.length) {
@@ -1950,7 +1979,7 @@ export function DataTable<T>({
         initialSnapshotRef.current = null
       }
     }
-  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter])
+  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter, getCurrentSettings, setViewBaseline])
 
   // Persist the current column widths into the local snapshot so they survive a
   // refresh even without saving a perspective (#1835). Widths are merged into the
@@ -2289,18 +2318,27 @@ export function DataTable<T>({
     () => table.getAllLeafColumns().map((column) => column.id),
     [table, mergedColumns],
   )
-  const currentViewSettings = React.useMemo(() => getCurrentSettings(), [getCurrentSettings])
-  currentViewSettingsRef.current = currentViewSettings
+  // Nothing consumes the dirty state unless the host asked for it, and computing
+  // it is not free: `getCurrentSettings` serializes the advanced-filter tree and
+  // the diff runs six `stableStringify` passes. Tables that never opt in — every
+  // existing call site — must keep paying exactly what they paid before.
+  const viewApiRequested = Boolean(onColumnsDirtyChange || viewApiRef || showSaveViewButton)
+  const currentViewSettings = React.useMemo(
+    () => (viewApiRequested ? getCurrentSettings() : EMPTY_VIEW_SETTINGS),
+    [viewApiRequested, getCurrentSettings],
+  )
 
   const viewDirtyState = React.useMemo<DataTableViewDirtyState>(() => {
     // Before the baseline is established there is nothing to compare against, so
-    // the view is reported clean rather than flashing a spurious change.
-    if (!perspectiveEnabled || !viewBaselineInitializedRef.current) {
+    // the view is reported clean rather than flashing a spurious change. The
+    // active view id is still reported — a host rendering "Viewing: {name}" from
+    // this state should not see a null while only the baseline is pending.
+    if (!viewApiRequested || !perspectiveEnabled || !viewBaselineInitializedRef.current) {
       return {
         isDirty: false,
         changedKeys: [],
         changedCount: 0,
-        activePerspectiveId: null,
+        activePerspectiveId,
         canSaveToActiveView: false,
       }
     }
@@ -2315,6 +2353,7 @@ export function DataTable<T>({
       canSaveToActiveView: Boolean(activePersonalPerspectiveId),
     }
   }, [
+    viewApiRequested,
     perspectiveEnabled,
     viewBaseline,
     currentViewSettings,
@@ -2329,14 +2368,20 @@ export function DataTable<T>({
   // restore in `applyPerspectiveSettings` runs in a layout effect and claims the
   // baseline first when it has one, so this never overwrites a restored view.
   React.useEffect(() => {
-    if (!perspectiveEnabled || viewBaselineInitializedRef.current) return
+    if (!viewApiRequested || !perspectiveEnabled || viewBaselineInitializedRef.current) return
     setViewBaseline(currentViewSettings)
-  }, [perspectiveEnabled, currentViewSettings, setViewBaseline])
+  }, [viewApiRequested, perspectiveEnabled, currentViewSettings, setViewBaseline])
 
+  // Mirrored in a layout effect rather than during render: a render React throws
+  // away must not leave these mirrors holding values that were never committed.
+  // Layout timing keeps them current for the imperative handle below, which is
+  // itself established in a layout effect declared after this one.
   const viewDirtyStateRef = React.useRef(viewDirtyState)
-  viewDirtyStateRef.current = viewDirtyState
   const onColumnsDirtyChangeRef = React.useRef(onColumnsDirtyChange)
-  onColumnsDirtyChangeRef.current = onColumnsDirtyChange
+  React.useLayoutEffect(() => {
+    viewDirtyStateRef.current = viewDirtyState
+    onColumnsDirtyChangeRef.current = onColumnsDirtyChange
+  }, [viewDirtyState, onColumnsDirtyChange])
   const lastDirtySignatureRef = React.useRef<string | null>(null)
   React.useEffect(() => {
     const notify = onColumnsDirtyChangeRef.current
@@ -2358,7 +2403,12 @@ export function DataTable<T>({
   const saveCurrentView = React.useCallback(async (
     input?: DataTableSaveViewInput,
   ): Promise<DataTableSaveViewResult> => {
-    if (!canUsePerspectives || !perspectiveTableId) return { ok: false, reason: 'perspectives-disabled' }
+    if (!perspectiveTableId) return { ok: false, reason: 'perspectives-disabled' }
+    // The permission check is a query: until it resolves, "may this user save a
+    // view" is unknown rather than false. Reporting `perspectives-disabled` here
+    // would have a host tell the user views are off when they are merely slow.
+    if (perspectivePermissions === undefined) return { ok: false, reason: 'not-ready' }
+    if (!canUsePerspectives) return { ok: false, reason: 'perspectives-disabled' }
     const targetId = input?.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId
     const existing = targetId
       ? perspectiveData?.perspectives.find((item) => item.id === targetId) ?? null
@@ -2381,6 +2431,7 @@ export function DataTable<T>({
     }
   }, [
     canUsePerspectives,
+    perspectivePermissions,
     perspectiveTableId,
     activePersonalPerspectiveId,
     perspectiveData,

@@ -45,3 +45,24 @@ Existing call sites must behave byte-identically: no new default UI, no changed 
 - [x] Full validation gate (`.ai/agentic.config.json` → `validation.commands`)
 - [x] Screenshots / UI evidence for the `needs-qa` gate
 - [x] PR against `develop` + label set + rationale comment
+
+## Review round 2 — `adeptofvoltron`, 2026-08-06 19:07 (`om-auto-fix-pr`)
+
+- [x] Merge the latest `develop` into the PR branch (36 commits, no conflicts)
+- [x] **Major** — `mergedInitialSettings` memoized on the host's own object, and the
+      baseline seed guarded once per `perspectiveTableId`, so activating a view no
+      longer has the next render reset the baseline to the SSR initial settings
+- [x] **Minor** — dirty computation gated on `onColumnsDirtyChange || viewApiRef ||
+      showSaveViewButton`, so tables that never opt in stop paying for the filter-tree
+      serialization and the six-pass diff on every render
+- [x] **Minor** — `saveCurrentView` returns the new `not-ready` reason while the
+      perspectives permission check is still in flight, instead of `perspectives-disabled`
+- [x] **Minor** — `viewDirtyStateRef` / `onColumnsDirtyChangeRef` mirrored in a layout
+      effect; `currentViewSettingsRef` dropped entirely in favour of calling
+      `getCurrentSettings()` — no ref is written during render any more
+- [x] **Nit** — the pre-baseline dirty state reports the real `activePerspectiveId`
+- [x] **Nit** — `openViewsSidebar` JSDoc + docs document the permission no-op
+- [x] Regression tests: view activation with server initial settings (fails without the
+      fix with exactly the reviewer's `["columnSizing","searchValue"]` signature),
+      "No view" clear, role perspective, `not-ready` and `perspectives-disabled`
+- [x] Follow-up issue for the locale-dependent `Intl` unit tests (repo hygiene)

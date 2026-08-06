@@ -26,9 +26,15 @@ const mockFlash = jest.fn()
 jest.mock('../FlashMessages', () => ({ flash: (...args: unknown[]) => mockFlash(...args) }))
 
 const savedPayloads: Array<Record<string, unknown>> = []
+// Flipped by the one case that needs the perspectives permission check to stay
+// in flight; every other case answers it from seeded query data.
+let holdFeatureCheck = false
 const mockApiCall = jest.fn(async (input: unknown, init?: { method?: string; body?: string }) => {
   const url = String(input)
   const method = (init?.method ?? 'GET').toUpperCase()
+  if (holdFeatureCheck && url.includes('/api/auth/feature-check')) {
+    await new Promise(() => {})
+  }
   if (url.includes('/api/perspectives/') && method === 'POST') {
     const payload = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
     savedPayloads.push(payload)
@@ -59,11 +65,34 @@ jest.mock('../utils/apiCall', () => ({
   withScopedApiRequestHeaders: async (_headers: Record<string, string>, run: () => Promise<unknown>) => run(),
 }))
 
-// The sidebar itself is not under test; the stub only reports whether the
-// component asked for it to be opened.
+// The sidebar itself is not under test; the stub reports whether the component
+// asked for it to be opened, and exposes one activation button per view so a
+// test can drive `onActivatePerspective` without going through Radix.
 jest.mock('../PerspectiveSidebar', () => ({
-  PerspectiveSidebar: (props: { open: boolean }) => (
-    <div data-testid="perspective-sidebar" data-open={String(props.open)} />
+  PerspectiveSidebar: (props: {
+    open: boolean
+    perspectives?: Array<{ id: string }>
+    rolePerspectives?: Array<{ id: string }>
+    onActivatePerspective?: (item: unknown, source: 'personal' | 'role') => void
+  }) => (
+    <div data-testid="perspective-sidebar" data-open={String(props.open)}>
+      {(props.perspectives ?? []).map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          data-testid={`activate-view-${item.id}`}
+          onClick={() => props.onActivatePerspective?.(item, 'personal')}
+        />
+      ))}
+      {(props.rolePerspectives ?? []).map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          data-testid={`activate-role-view-${item.id}`}
+          onClick={() => props.onActivatePerspective?.(item, 'role')}
+        />
+      ))}
+    </div>
   ),
 }))
 
@@ -79,13 +108,28 @@ const SAVED_VIEW = {
   updatedAt: '2026-08-06T00:00:00.000Z',
 }
 
+const ROLE_VIEW = {
+  id: 'role-1',
+  name: 'Team view',
+  tableId: 'test-table',
+  settings: { searchValue: 'acme' },
+  isDefault: false,
+  roleId: 'role-sales',
+  roleName: 'Sales',
+  createdAt: 'now',
+  updatedAt: '2026-08-06T00:00:00.000Z',
+} as unknown as PerspectivesIndexResponse['rolePerspectives'][number]
+
 // DataTable auto-activates the first saved view on load, so tests that assert on
 // a pristine "No view" table must start from an empty list.
-const buildIndexResponse = (perspectives: PerspectivesIndexResponse['perspectives']): PerspectivesIndexResponse => ({
+const buildIndexResponse = (
+  perspectives: PerspectivesIndexResponse['perspectives'],
+  rolePerspectives: PerspectivesIndexResponse['rolePerspectives'] = [],
+): PerspectivesIndexResponse => ({
   tableId: 'test-table',
   perspectives,
   defaultPerspectiveId: null,
-  rolePerspectives: [],
+  rolePerspectives,
   manageableRolePerspectives: [],
   roles: [],
   canApplyToRoles: false,
@@ -103,18 +147,36 @@ type HarnessProps = {
   withPerspective?: boolean
   initialSearchValue?: string
   savedViews?: PerspectivesIndexResponse['perspectives']
+  roleViews?: PerspectivesIndexResponse['rolePerspectives']
   initialSettings?: PerspectiveSettings
+  /** `'granted'` seeds the permission check, `'denied'` seeds a refusal, `'pending'` leaves it in flight. */
+  perspectivesFeature?: 'granted' | 'denied' | 'pending'
 }
 
-function renderTable({ apiRef, onDirty, showSaveViewButton, withPerspective = true, initialSearchValue = '', savedViews = [], initialSettings }: HarnessProps) {
+function renderTable({
+  apiRef,
+  onDirty,
+  showSaveViewButton,
+  withPerspective = true,
+  initialSearchValue = '',
+  savedViews = [],
+  roleViews = [],
+  initialSettings,
+  perspectivesFeature = 'granted',
+}: HarnessProps) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, gcTime: Infinity, retry: false },
       mutations: { retry: false },
     },
   })
-  queryClient.setQueryData(['feature-check', 'perspectives'], { use: true, roleDefaults: true })
-  queryClient.setQueryData(['table-perspectives', 'test-table'], buildIndexResponse(savedViews))
+  holdFeatureCheck = perspectivesFeature === 'pending'
+  if (perspectivesFeature === 'granted') {
+    queryClient.setQueryData(['feature-check', 'perspectives'], { use: true, roleDefaults: true })
+  } else if (perspectivesFeature === 'denied') {
+    queryClient.setQueryData(['feature-check', 'perspectives'], { use: false, roleDefaults: false })
+  }
+  queryClient.setQueryData(['table-perspectives', 'test-table'], buildIndexResponse(savedViews, roleViews))
 
   function Harness({ searchValue }: { searchValue: string }) {
     return (
@@ -153,6 +215,7 @@ function renderTable({ apiRef, onDirty, showSaveViewButton, withPerspective = tr
 describe('DataTable public save-view API', () => {
   beforeEach(() => {
     savedPayloads.length = 0
+    holdFeatureCheck = false
     mockFlash.mockClear()
     mockApiCall.mockClear()
     // DataTable persists the applied view to localStorage + a cookie, and jsdom
@@ -217,6 +280,94 @@ describe('DataTable public save-view API', () => {
     const settledCount = states.length
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
     expect(states.length).toBe(settledCount)
+  })
+
+  it('stays clean after activating a saved view when the server also supplied initial settings', async () => {
+    // The SSR "eliminating flicker" path: the host forwards `initialState` from
+    // `fetchInitialPerspectiveState`. Those settings describe the mount state,
+    // so re-seeding the baseline from them after a view is applied would report
+    // changes the user never made — permanently, on every later render.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({
+      apiRef,
+      savedViews: [SAVED_VIEW],
+      initialSearchValue: 'acme',
+      initialSettings: { columnSizing: { name: 320 } },
+    })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    act(() => { apiRef.current!.openViewsSidebar() })
+    const activate = await screen.findByTestId('activate-view-persp-1')
+    await act(async () => { fireEvent.click(activate) })
+
+    await waitFor(() => expect(apiRef.current?.getDirtyState().activePerspectiveId).toBe('persp-1'))
+    expect(apiRef.current?.getDirtyState().changedKeys).toEqual([])
+    // The regression re-appeared one render later, so let the tree settle first.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
+    expect(apiRef.current?.getDirtyState().changedKeys).toEqual([])
+    expect(apiRef.current?.getDirtyState().isDirty).toBe(false)
+  })
+
+  it('reports a role perspective as active but not saveable in place', async () => {
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const { setSearchValue } = renderTable({ apiRef, roleViews: [ROLE_VIEW], initialSearchValue: 'acme' })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    act(() => { apiRef.current!.openViewsSidebar() })
+    const activate = await screen.findByTestId('activate-role-view-role-1')
+    await act(async () => { fireEvent.click(activate) })
+
+    await waitFor(() => expect(apiRef.current?.getDirtyState().activePerspectiveId).toBe('role-1'))
+    // A role perspective is not the user's to overwrite: saving needs a name,
+    // which creates a personal view instead.
+    expect(apiRef.current?.getDirtyState().canSaveToActiveView).toBe(false)
+
+    setSearchValue('other')
+    await waitFor(() => expect(apiRef.current?.getDirtyState().isDirty).toBe(true))
+    expect(apiRef.current?.getDirtyState().canSaveToActiveView).toBe(false)
+    const result = await act(async () => apiRef.current!.saveCurrentView())
+    expect(result).toEqual({ ok: false, reason: 'name-required' })
+  })
+
+  it('goes clean again after clearing back to "No view"', async () => {
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    // A view carrying only table-owned state, so clearing it actually returns
+    // the live settings to empty — the harness owns `searchValue` and would
+    // otherwise keep a search term the clear cannot reach.
+    renderTable({ apiRef, savedViews: [{ ...SAVED_VIEW, settings: { columnSizing: { name: 320 } } }] })
+    await waitFor(() => expect(apiRef.current?.getDirtyState().canSaveToActiveView).toBe(true))
+
+    // "No view" lives in the views switcher popover, not in the sidebar.
+    const trigger = screen.getByTestId('data-table-open-views-sidebar').parentElement!.querySelector('button:last-of-type')!
+    await act(async () => { fireEvent.click(trigger) })
+    const clear = await screen.findByText('— No view —')
+    await act(async () => { fireEvent.click(clear) })
+
+    await waitFor(() => expect(apiRef.current?.getDirtyState().activePerspectiveId).toBeNull())
+    expect(apiRef.current?.getDirtyState().isDirty).toBe(false)
+    expect(apiRef.current?.getDirtyState().canSaveToActiveView).toBe(false)
+  })
+
+  it('reports not-ready while the permission check is still in flight', async () => {
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({ apiRef, perspectivesFeature: 'pending' })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    // "Not yet known" must not be reported as "views are disabled" — a host
+    // button would otherwise tell the user a permission they hold is missing.
+    const result = await act(async () => apiRef.current!.saveCurrentView({ name: 'Wide view' }))
+    expect(result).toEqual({ ok: false, reason: 'not-ready' })
+    expect(savedPayloads).toHaveLength(0)
+  })
+
+  it('reports perspectives-disabled once the permission check refuses', async () => {
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({ apiRef, perspectivesFeature: 'denied' })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    const result = await act(async () => apiRef.current!.saveCurrentView({ name: 'Wide view' }))
+    expect(result).toEqual({ ok: false, reason: 'perspectives-disabled' })
+    expect(savedPayloads).toHaveLength(0)
   })
 
   it('does not notify tables that do not wire perspectives', async () => {
