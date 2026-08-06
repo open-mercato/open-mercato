@@ -1,0 +1,161 @@
+name: Release Prepare
+
+# Stage 1 of a release: bump versions on a branch and open a PR.
+# `main` is a protected branch, so the version commit must land through review —
+# the Release workflow then publishes whatever version main already holds.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type for the release PR'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      resume:
+        description: 'Recover a release that already published to npm (skips the "not on npm yet" and tag guards)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  prepare:
+    name: Prepare release PR
+    runs-on: ubuntu-latest
+    # Only allow release preparation from main branch
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump ${{ inputs.bump }} version
+        id: bump
+        run: |
+          VERSION=$(./scripts/bump-version.sh "${{ inputs.bump }}")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Both guards are skipped in resume mode: recovering a release that already
+      # published means npm is deliberately ahead of git, and the bump PR is how
+      # git catches up
+      - name: Verify the target version is not published yet
+        if: ${{ !inputs.resume }}
+        run: ./scripts/check-version-unpublished.sh "${{ steps.bump.outputs.version }}"
+
+      - name: Verify the release tag does not exist
+        if: ${{ !inputs.resume }}
+        run: |
+          TAG="v${{ steps.bump.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists on origin"
+            exit 1
+          fi
+
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          git switch -c "$BRANCH"
+          # Only tracked manifests change here; nothing is built, so -u cannot pick up artifacts
+          git add -u
+          if git diff --cached --quiet; then
+            echo "::error::No version changes to release"
+            exit 1
+          fi
+
+          git commit -m "chore: release v$VERSION"
+          git push origin "$BRANCH"
+
+          if [ "${{ inputs.resume }}" = "true" ]; then
+            BODY="**Recovery** release preparation for **v$VERSION**."
+            BODY="$BODY"$'\n\n'"\`$VERSION\` is already published on npm — this PR brings the repository back in sync."
+            BODY="$BODY"$'\n\n'"- Bumps every public package and the root manifest to \`$VERSION\`"
+            BODY="$BODY"$'\n'"- No build or publish happens here"
+          else
+            BODY="Automated release preparation for **v$VERSION**."
+            BODY="$BODY"$'\n\n'"- Bumps every public package and the root manifest to \`$VERSION\`"
+            BODY="$BODY"$'\n'"- No build or publish happens here"
+          fi
+
+          if ./scripts/changelog-section.sh "$VERSION" > /dev/null 2>&1; then
+            BODY="$BODY"$'\n'"- \`CHANGELOG.md\` already has a \`$VERSION\` entry ✅"
+          else
+            BODY="$BODY"$'\n'"- ⚠️ \`CHANGELOG.md\` has **no \`$VERSION\` entry yet** — add one before releasing, or the Release workflow will stop at its changelog gate"
+            echo "::warning::CHANGELOG.md has no entry for $VERSION; the Release workflow will fail until one is added"
+          fi
+
+          if [ "${{ inputs.resume }}" = "true" ]; then
+            BODY="$BODY"$'\n\n'"After this PR is merged, run the **Release** workflow on \`main\` **with \`resume: true\`**. It will tag \`v$VERSION\`, skip the packages already on npm, and create the GitHub Release from the \`$VERSION\` \`CHANGELOG.md\` section."
+          else
+            BODY="$BODY"$'\n\n'"After this PR is merged, run the **Release** workflow on \`main\` to build, tag \`v$VERSION\`, publish to npm and create the GitHub Release. The release notes are built from the \`$VERSION\` \`CHANGELOG.md\` section."
+          fi
+
+          COMPARE_URL="${{ github.server_url }}/${{ github.repository }}/compare/main...$BRANCH?expand=1"
+
+          # `gh pr create` needs "Allow GitHub Actions to create and approve pull requests"
+          # (Settings → Actions → General). The branch is already pushed either way, so a
+          # blocked token degrades to a one-click compare link instead of failing the run.
+          if PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: release v$VERSION" \
+            --body "$BODY" 2>"$RUNNER_TEMP/pr-error.txt"); then
+            echo "Opened $PR_URL"
+
+            gh pr edit "$PR_URL" --add-label skip-qa --add-label priority-high --add-label risk-medium || \
+              echo "::warning::Could not apply labels to $PR_URL"
+
+            {
+              echo "### Release v$VERSION prepared"
+              echo ""
+              echo "Pull request: $PR_URL"
+              echo ""
+              echo "Merge it, then run the **Release** workflow on \`main\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat "$RUNNER_TEMP/pr-error.txt"
+            echo "::warning::Could not open the pull request automatically; branch $BRANCH is pushed and ready"
+
+            {
+              echo "### Release v$VERSION prepared — PR needs a manual click"
+              echo ""
+              echo "Branch \`$BRANCH\` is pushed. Open the pull request against \`main\`:"
+              echo ""
+              echo "**[Create the release PR]($COMPARE_URL)**"
+              echo ""
+              echo "To let this workflow open it automatically, enable"
+              echo "_Settings → Actions → General → Workflow permissions →"
+              echo "\"Allow GitHub Actions to create and approve pull requests\"_."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

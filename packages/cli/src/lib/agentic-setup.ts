@@ -135,10 +135,27 @@ function selectModuleFactSheets(targetDir: string, modulesSubdir: string): strin
 const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
 const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
 
-export function renderModuleGuidesBlock(selected: string[]): string {
+// The generated standalone root must stay well under Codex's 32 KiB
+// project_doc_max_bytes so a routed chain (root + guide + skill) still fits.
+export const STANDALONE_ROOT_TARGET_BYTES = 12 * 1024
+
+export type ModuleGuidesRenderOptions = {
+  // Emit the O(1) pointer form instead of enumerating every id. The inline index
+  // is the better prompt, so callers only ask for this when the enumerated one
+  // would push the root past its byte target.
+  compact?: boolean
+}
+
+export function renderModuleGuidesBlock(
+  selected: string[],
+  options: ModuleGuidesRenderOptions = {},
+): string {
   if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const index = options.compact
+    ? `Enabled module facts: ${selected.length} sheets bundled, too many to index inline — list the module facts directory to see which modules have one.`
+    : `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`
   return [
-    `Enabled module facts: ${selected.map((moduleId) => `\`${moduleId}\``).join(',')}.`,
+    index,
     '',
     'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
   ].join('\n')
@@ -150,6 +167,7 @@ export function renderModuleGuidesBlock(selected: string[]): string {
 function injectModuleGuides(
   agentsMdPath: string,
   selected: string[],
+  options: ModuleGuidesRenderOptions = {},
 ): void {
   if (!existsSync(agentsMdPath)) return
   const content = readFileSync(agentsMdPath, 'utf-8')
@@ -163,8 +181,23 @@ function injectModuleGuides(
   }
   const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
   const after = content.slice(endIndex)
-  const next = `${before}\n${renderModuleGuidesBlock(selected)}\n${after}`
+  const next = `${before}\n${renderModuleGuidesBlock(selected, options)}\n${after}`
   if (next !== content) writeFileSync(agentsMdPath, next)
+}
+
+// Last step of harness generation: every tool generator has finished patching
+// AGENTS.md, so this is the only point where the final root size is known. The
+// enumerated module index is the one block that grows with the app, so it is
+// also the one that sheds bytes when the root would otherwise blow its target.
+export function enforceRootInstructionBudget(
+  agentsMdPath: string,
+  selected: string[],
+  maxBytes: number = STANDALONE_ROOT_TARGET_BYTES,
+): boolean {
+  if (!existsSync(agentsMdPath)) return false
+  if (Buffer.byteLength(readFileSync(agentsMdPath)) <= maxBytes) return false
+  injectModuleGuides(agentsMdPath, selected, { compact: true })
+  return true
 }
 
 const TEXT_EXTENSIONS = new Set(['.cjs', '.json', '.md', '.mdc', '.mjs', '.sh', '.ts', '.txt'])
@@ -842,8 +875,20 @@ function generateHarness(config: AgenticConfig, selectedIds: string[]): void {
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  enforceGeneratedRootBudget(config)
+
   persistAgentSelection(config.targetDir, selectedIds)
   finalizeHarnessManifest(config, selectedIds)
+}
+
+/** Run after every tool generator has patched AGENTS.md, before the manifest is hashed. */
+function enforceGeneratedRootBudget(
+  config: AgenticConfig,
+  maxBytes: number = STANDALONE_ROOT_TARGET_BYTES,
+): boolean {
+  const { targetDir } = config
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  return enforceRootInstructionBudget(join(targetDir, 'AGENTS.md'), selectedModules, maxBytes)
 }
 
 /**
