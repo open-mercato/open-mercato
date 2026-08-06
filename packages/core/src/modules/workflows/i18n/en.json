@@ -936,6 +936,7 @@
   "workflows.orderApproval.decisionLabel": "Decision",
   "workflows.orderApproval.groupDescription": "Review and approve or reject this order.",
   "workflows.orderApproval.groupLabel": "Order Approval",
+  "workflows.orderApproval.missingOrderId": "Cannot start the approval workflow before the order has loaded.",
   "workflows.orderApproval.missingStatuses": "Missing order status entries. Please ensure pending_approval, approved, and rejected statuses exist.",
   "workflows.orderApproval.noWorkflowActive": "No approval workflow is active for this order.",
   "workflows.orderApproval.pendingDescription": "This order requires approval before processing.",

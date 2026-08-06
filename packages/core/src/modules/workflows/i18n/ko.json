@@ -936,6 +936,7 @@
   "workflows.orderApproval.decisionLabel": "결정",
   "workflows.orderApproval.groupDescription": "이 주문을 검토하여 승인하거나 반려하세요.",
   "workflows.orderApproval.groupLabel": "주문 승인",
+  "workflows.orderApproval.missingOrderId": "주문이 로드되기 전에는 승인 워크플로를 시작할 수 없습니다.",
   "workflows.orderApproval.missingStatuses": "주문 상태 항목이 누락되었습니다. pending_approval, approved, rejected 상태가 존재하는지 확인하세요.",
   "workflows.orderApproval.noWorkflowActive": "이 주문에 대해 활성화된 승인 워크플로우가 없습니다.",
   "workflows.orderApproval.pendingDescription": "이 주문은 처리 전에 승인이 필요합니다.",

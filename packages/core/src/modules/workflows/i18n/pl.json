@@ -936,6 +936,7 @@
   "workflows.orderApproval.decisionLabel": "Decyzja",
   "workflows.orderApproval.groupDescription": "Przejrzyj i zatwierdź lub odrzuć to zamówienie.",
   "workflows.orderApproval.groupLabel": "Zatwierdzanie zamówienia",
+  "workflows.orderApproval.missingOrderId": "Nie można rozpocząć procesu zatwierdzania, zanim zamówienie się nie wczyta.",
   "workflows.orderApproval.missingStatuses": "Brakuje wpisów statusów zamówienia. Upewnij się, że istnieją statusy pending_approval, approved i rejected.",
   "workflows.orderApproval.noWorkflowActive": "Brak aktywnego przepływu zatwierdzania dla tego zamówienia.",
   "workflows.orderApproval.pendingDescription": "To zamówienie wymaga zatwierdzenia przed realizacją.",

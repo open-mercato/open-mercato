@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { finalizeHarnessManifest, generateShared } from './tools/shared.js'
+import { enforceGeneratedRootBudget, finalizeHarnessManifest, generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
 import { generateCodex } from './tools/codex.js'
 import { generateCursor } from './tools/cursor.js'
@@ -164,6 +164,8 @@ export async function runAgenticSetup(
   if (selectedIds.includes('claude-code')) generateClaudeCode(config)
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
+
+  enforceGeneratedRootBudget(config)
 
   persistAgentSelection(targetDir, selectedIds)
   finalizeHarnessManifest(config, selectedIds)

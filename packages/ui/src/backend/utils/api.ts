@@ -47,6 +47,18 @@ export async function withScopedApiHeaders<T>(headers: Record<string, string>, r
   return scopedHeaders.withScopedHeaders(headers, run)
 }
 
+function readPathname(): string {
+  return typeof window !== 'undefined' ? window.location?.pathname ?? '' : ''
+}
+
+function isLoginPathname(pathname: string): boolean {
+  return pathname.startsWith('/login')
+}
+
+function isPortalPathname(pathname: string): boolean {
+  return /\/[^/]+\/portal(\/|$)/.test(pathname)
+}
+
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
@@ -166,10 +178,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const requestHeaders = new Headers(mergedInit?.headers)
   const disableUnauthorizedRedirect = readRedirectOverride(requestHeaders, 'x-om-unauthorized-redirect')
   const disableForbiddenRedirect = readRedirectOverride(requestHeaders, 'x-om-forbidden-redirect')
+  // Snapshot the pathname BEFORE the request is sent. A 401 for a request that
+  // started on the login page must stay silent even when the response lands after
+  // the post-login client-side navigation to /backend — otherwise the stale
+  // pre-auth 401 raises a bogus "Session expired" banner right after signing in.
+  const requestPathname = readPathname()
   const res = await baseFetch(input, mergedInit)
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
-  const onLoginPage = pathname.startsWith('/login')
-  const onPortalRoute = /\/[^/]+\/portal(\/|$)/.test(pathname)
+  const responsePathname = readPathname()
+  const onLoginPage = isLoginPathname(requestPathname) || isLoginPathname(responsePathname)
+  const onPortalRoute = isPortalPathname(requestPathname) || isPortalPathname(responsePathname)
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
     // Skip for staff login page and all portal routes (portal has its own auth)
