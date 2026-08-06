@@ -342,8 +342,8 @@ bash .ai/scripts/ds-health-check.sh
 ```
 
 The script automatically:
-- Saves report to `.ai/reports/ds-health-YYYY-MM-DD.txt`
-- Compares with the most recent previous report
+- Saves the report to `.ai/reports/ds-health-latest.txt`, overwriting the previous run — the trend is kept in git history (`git log -p .ai/reports/ds-health-latest.txt`), so there is nothing to prune
+- Compares with the previous run, snapshotted before the overwrite
 - Shows delta per metric
 - Appends a **per-module breakdown** ranked by total violations (colors, arbitrary text, SVG files, pages without empty state) — the "suggested next module" comes from this table, never from guessing
 
