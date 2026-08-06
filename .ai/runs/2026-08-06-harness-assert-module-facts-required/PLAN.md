@@ -9,13 +9,13 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |---|---|---|---|---|---|
-| 1 | 1.1 | Run folder: plan, baseline measurement, eleven-way decision table | inline | todo | — |
-| 1 | 1.2 | Measure the per-case context footprint of the ten candidate cases | inline | todo | — |
-| 2 | 2.1 | Add ten facts-owner routing cases and re-pin the catalog to 213 | inline | todo | — |
-| 2 | 2.2 | Tighten the `module-facts-build` guard to "required by some case" with an explicit exemption list | inline | todo | — |
-| 3 | 3.1 | Record the closure in the #4602 audit doc (§1.3) and harness prose | inline | todo | — |
-| 3 | 3.2 | Live-verify each new case on one runner and record the evidence | inline | todo | — |
-| 3 | 3.3 | File the two out-of-scope follow-up issues and link them from #4603 | inline | todo | — |
+| 1 | 1.1 | Run folder: plan, baseline measurement, twelve-way decision table | inline | done | `24938c9b5` |
+| 1 | 1.2 | Measure the per-case context footprint of the ten candidate cases | inline | done | `24938c9b5` |
+| 2 | 2.1 | Add ten facts-owner routing cases and re-pin the catalog to 213 | inline | done | `46fc1a9ab` |
+| 2 | 2.2 | Tighten the `module-facts-build` guard to "required by some case" with an explicit exemption list | inline | done | `50ba13cfd` |
+| 3 | 3.1 | Record the closure in the #4602 audit doc (§1.4) and harness prose | inline | done | `f56d4841f` |
+| 3 | 3.2 | Live-verify each new case on one runner and record the evidence | inline | done | `f56d4841f` |
+| 3 | 3.3 | File the two out-of-scope follow-up issues and link them from #4603 | inline | done | #5057, #5058 |
 
 ## Goal
 
@@ -66,7 +66,7 @@ BEZ required PRZED: api_docs, audit_logs, business_rules, dashboards, design_sys
 BEZ required PO:    api_docs, design_system                                            (2)
 ```
 
-## Step 1.1 — the eleven-way decision
+## Step 1.1 — the twelve-way decision
 
 The test applied to each module, all four conditions required for a case to be warranted:
 
