@@ -6,6 +6,12 @@
 // `'Promise resolution is still pending but the event loop has already resolved'`, while the summary
 // says `fail 0`. Contributors read that as "26 create-app tests failed on my diff" and go looking in
 // the wrong place (#5052). This reporter prints what actually happened, and what to do about it.
+//
+// The banner needs node:test's run-level `test:summary` event, which the documented CI truncation
+// does emit (`Interrupted while running:` … `ℹ cancelled 27`). A process killed hard enough to die
+// before that event — a SIGTERM/SIGKILL mid-run, or an abort while the runner has not started yet —
+// prints node's own `Interrupted while running:` notice and nothing from here. That is the expected
+// behaviour, not a reporter that failed to fire.
 export default async function* reportTruncation(source) {
   for await (const event of source) {
     if (event.type !== 'test:summary') continue
