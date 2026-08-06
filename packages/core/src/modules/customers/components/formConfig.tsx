@@ -1263,6 +1263,7 @@ export const createCompanyFormFields = (t: Translator, options?: { defaultCountr
       id: 'primaryPhone',
       label: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
       type: 'custom',
+      rendersOwnError: true,
       layout: 'half',
       component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
         <PhoneNumberField
