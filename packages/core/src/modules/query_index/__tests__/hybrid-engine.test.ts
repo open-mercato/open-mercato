@@ -1285,3 +1285,89 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
     })
   })
 })
+
+describe('HybridQueryEngine custom-field leaves inside an $or group (#5039)', () => {
+  // The fake builder stores `.where()` arguments verbatim, so an expression-callback
+  // stays opaque. Replaying it against a recording ExpressionBuilder is what makes the
+  // OR structure assertable — the same trick the shared engine's tests use.
+  const replayWhereCallbacks = (db: any, table: string): any[] => {
+    const eb: any = (column: any, op: any, value: any) => ({ kind: 'cmp', column, op, value })
+    eb.and = (parts: any[]) => ({ kind: 'and', parts })
+    eb.or = (parts: any[]) => ({ kind: 'or', parts })
+    eb.not = (part: any) => ({ kind: 'not', part })
+    eb.exists = (sub: any) => ({ kind: 'exists', sub })
+    eb.val = (value: any) => ({ kind: 'val', value })
+    eb.ref = (name: string) => ({ kind: 'ref', name })
+    return (db._chains as ChainLog[])
+      .filter((chain) => chain.table === table)
+      .flatMap((chain) => chain.wheres as any[])
+      .filter((entry: any) => Array.isArray(entry) && entry.length === 1 && typeof entry[0] === 'function')
+      .map((entry: any) => entry[0](eb))
+  }
+
+  const serialize = (node: unknown): string =>
+    JSON.stringify(node, (_key, inner) =>
+      inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+    )
+
+  const runQuery = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'status' },
+      ],
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+    return db
+  }
+
+  test('two cf values joined by $or compile to a single OR of two disjuncts', async () => {
+    const db = await runQuery({
+      $or: [{ 'cf:priority': 'high' }, { 'cf:priority': 'low' }],
+    })
+
+    // Before the fix both leaves were applied as separate `.where()` calls, so the SQL
+    // asked for priority = 'high' AND priority = 'low' and matched nothing.
+    const orNodes = replayWhereCallbacks(db, 'todos').filter((node) => node?.kind === 'or')
+    const grouped = orNodes.find((node) => node.parts.length === 2 && serialize(node).includes('high') && serialize(node).includes('low'))
+    expect(grouped).toBeTruthy()
+  })
+
+  test('a base column OR a cf value unites both legs in one disjunction', async () => {
+    const db = await runQuery({
+      $or: [{ status: 'open' }, { 'cf:priority': 'high' }],
+    })
+
+    const orNodes = replayWhereCallbacks(db, 'todos').filter((node) => node?.kind === 'or')
+    const grouped = orNodes.find((node) => node.parts.length === 2)
+    expect(grouped).toBeTruthy()
+    const serialized = serialize(grouped)
+    expect(serialized).toContain('open')
+    expect(serialized).toContain('high')
+  })
+
+  test('an ungrouped cf filter is still applied on its own, outside any OR', async () => {
+    const db = await runQuery({ 'cf:priority': 'high' })
+
+    const nodes = replayWhereCallbacks(db, 'todos')
+    // The eq branch itself is an OR (text match OR array containment); what must not
+    // appear is a two-disjunct group, because there is only one condition.
+    const groupedDisjunction = nodes.find((node) => node?.kind === 'or' && node.parts.length === 2 && node.parts.every((part: any) => part?.kind === 'or'))
+    expect(groupedDisjunction).toBeFalsy()
+    expect(nodes.some((node) => serialize(node).includes('high'))).toBe(true)
+  })
+})
