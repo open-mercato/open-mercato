@@ -1,4 +1,8 @@
-import { CommandInterceptorError, isCommandInterceptorError } from '../errors'
+import {
+  CommandInterceptorError,
+  getCommandInterceptorHttpRejection,
+  isCommandInterceptorError,
+} from '../errors'
 
 describe('CommandInterceptorError', () => {
   it('has the correct name', () => {
@@ -59,5 +63,46 @@ describe('CommandInterceptorError', () => {
     expect(isCommandInterceptorError(new Error('plain'))).toBe(false)
     expect(isCommandInterceptorError(null)).toBe(false)
     expect(isCommandInterceptorError('CommandInterceptorError')).toBe(false)
+  })
+})
+
+describe('getCommandInterceptorHttpRejection', () => {
+  it('returns the status and body of a status-carrying rejection', () => {
+    const error = new CommandInterceptorError('Missing required fields: VAT id', { status: 422 })
+    expect(getCommandInterceptorHttpRejection(error)).toEqual({
+      status: 422,
+      body: { error: 'Missing required fields: VAT id' },
+    })
+  })
+
+  it('returns the explicit body when the interceptor supplied one', () => {
+    const body = { error: 'Blocked', missingFields: ['vatId'] }
+    const error = new CommandInterceptorError('Blocked', { status: 409, body })
+    expect(getCommandInterceptorHttpRejection(error)).toEqual({ status: 409, body })
+  })
+
+  it('returns null for a rejection that carries no status', () => {
+    expect(getCommandInterceptorHttpRejection(new CommandInterceptorError('Blocked'))).toBeNull()
+  })
+
+  it('returns null for errors that are not interceptor rejections', () => {
+    expect(getCommandInterceptorHttpRejection(new Error('plain'))).toBeNull()
+    expect(getCommandInterceptorHttpRejection(null)).toBeNull()
+  })
+
+  it('rejects a status outside 4xx/5xx so the transport layer keeps its generic handling', () => {
+    // Statuses arrive as third-party interceptor data: outside 200-599 the Response constructor
+    // throws RangeError, and a 2xx would report a deliberate block as a success.
+    for (const status of [200, 302, 399, 600, 999, 0, -1]) {
+      const error = Object.assign(new CommandInterceptorError('Blocked'), { status })
+      expect(getCommandInterceptorHttpRejection(error)).toBeNull()
+    }
+  })
+
+  it('rejects a non-integer status', () => {
+    for (const status of [Number.NaN, 422.5, Number.POSITIVE_INFINITY]) {
+      const error = Object.assign(new CommandInterceptorError('Blocked'), { status })
+      expect(getCommandInterceptorHttpRejection(error)).toBeNull()
+    }
   })
 })

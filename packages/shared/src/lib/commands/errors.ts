@@ -46,3 +46,26 @@ export function isCommandInterceptorError(err: unknown): err is CommandIntercept
   return !!err && typeof err === 'object'
     && (err as Record<symbol, unknown>)[COMMAND_INTERCEPTOR_ERROR_MARKER] === true
 }
+
+export type CommandInterceptorHttpRejection = {
+  status: number
+  body: Record<string, unknown>
+}
+
+const MIN_REJECTION_STATUS = 400
+const MAX_REJECTION_STATUS = 599
+
+/**
+ * Transport data for a deliberate interceptor rejection, or `null` when the error is not one or
+ * carries no usable status. The status is restricted to 4xx/5xx on purpose: interceptor data is
+ * third-party input travelling through the runner and the bus, `new Response(body, { status })`
+ * throws `RangeError` outside 200-599, and a rejection answered with a 2xx would report a block as
+ * a success. Anything else falls through to the caller's generic handling.
+ */
+export function getCommandInterceptorHttpRejection(err: unknown): CommandInterceptorHttpRejection | null {
+  if (!isCommandInterceptorError(err)) return null
+  const status = err.status
+  if (typeof status !== 'number' || !Number.isInteger(status)) return null
+  if (status < MIN_REJECTION_STATUS || status > MAX_REJECTION_STATUS) return null
+  return { status, body: err.body ?? { error: err.message } }
+}

@@ -1040,6 +1040,22 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({ error: 'Blocked', missingFields: ['vatId'] })
   })
 
+  it('POST command route keeps the generic 500 when the interceptor status is outside 4xx/5xx', async () => {
+    // A status the Response constructor would reject (or that would report a block as success)
+    // must not escape handleError as a RangeError — it falls back to the generic 500 instead.
+    commandBus.execute.mockRejectedValue(
+      Object.assign(new CommandInterceptorError('Blocked'), { status: 600, body: { error: 'Blocked' } }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Internal server error',
+      message: 'Something went wrong. Please try again later.',
+    })
+  })
+
   it('POST command route falls back to the response payload id for guard afterSuccess', async () => {
     commandBus.execute.mockResolvedValue({ result: { lineId: 'line-42' }, logEntry: { id: 'log-1' } })
     const guardAfterSuccess = jest.fn(async () => {})

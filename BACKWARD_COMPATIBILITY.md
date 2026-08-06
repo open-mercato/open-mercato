@@ -314,3 +314,20 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | Polling cadence | `pollIntervalSeconds` flips 60 → 1800 only when `pushStatus='active'` is persisted. Non-push channels unchanged. | ✓ Behavior-preserving for existing channels |
 
 **Migration path for existing tenants**: no action required. Push is opt-in per channel — until an operator explicitly registers (via connect flow or `POST /push/register`), Gmail channels keep polling on the Spec B baseline. The new ACL feature `communication_channels.channel.push.manage` must be granted via `yarn mercato auth sync-role-acls` post-deploy for the "Re-register push" button to appear.
+
+---
+
+## Command Interceptor HTTP Status (2026-08-06)
+
+`.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type interface (`CommandInterceptorBeforeResult`) | Two new **optional** fields: `status?: number`, `body?: Record<string, unknown>` | ✓ ADDITIVE (Type interface, optional fields) |
+| Function signature (`CommandInterceptorError` constructor) | New **optional** second parameter `options?: { status?, body?, cause? }` | ✓ ADDITIVE (optional parameter appended; every `new CommandInterceptorError(message)` call site compiles and behaves identically) |
+| Function return types (`runCommandInterceptorsBefore`, `runCommandInterceptorsBeforeUndo`) | Returned `error` widens from `{ message: string }` to `{ message: string; status?: number; body?: Record<string, unknown> }` | ✓ ADDITIVE (a widened return type is safe for readers; callers reading `.message` are unaffected) |
+| Import path / exports (`@open-mercato/shared/lib/commands`) | New exports: `isCommandInterceptorError`, `getCommandInterceptorHttpRejection`, `CommandInterceptorErrorOptions`, `CommandInterceptorHttpRejection`. `CommandInterceptorError` keeps its existing export | ✓ ADDITIVE (new exports, nothing removed or renamed) |
+| HTTP response shapes (`makeCrudRoute` handlers, `POST /api/audit_logs/audit-logs/actions/undo`) | A rejection **that sets a status** answers with it; a rejection that sets none keeps the byte-identical generic `500` (CRUD) / `400 Undo failed` (undo) | ✓ Behaviour-preserving for existing interceptors (regression-tested in `crud-factory.test.ts` and `undo.route.test.ts`) |
+| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. Third-party transports that call `commandBus.execute` inside their own `try/catch` can honour the same contract in two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.

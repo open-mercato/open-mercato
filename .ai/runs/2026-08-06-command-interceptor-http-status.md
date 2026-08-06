@@ -88,6 +88,15 @@ No deprecation bridge is required because nothing is deprecated.
 - [x] PR opened with labels and summary comment — #5067
 - [x] Self-review pass; one minor finding (status/body could drift apart) fixed in `8e74cdd77`
 - [x] Gate re-run on the final head `8e74cdd77` — 8/8 green, `yarn test` 25/25 first try, no generated drift
+- [x] Latest `develop` merged into the branch (clean, no conflicts) before the review-fix pass
+- [x] Review by @adeptofvoltron (changes requested) addressed — see the four items below
+- [x] Major — spec `.ai/specs/2026-08-06-command-interceptor-http-status.md`, a `BACKWARD_COMPATIBILITY.md`
+      entry, and the three stale blocks in `SPEC-041m4-command-interceptors.md` refreshed
+- [x] Minor 1 — the `beforeUndo` half now has an HTTP consumer: the action-log undo route maps the
+      rejection instead of flattening everything into `400 Undo failed`
+- [x] Minor 2 — `handleError` can no longer throw: `getCommandInterceptorHttpRejection` validates the
+      status is an integer in 400-599 before it reaches `new Response(…)`
+- [x] Minor 3 — `CommandBus` forwarding covered directly in `command-bus.test.ts` (3 cases)
 - [ ] Maintainer approving review (self-approval not possible) and remote `test` / `ephemeral-integration` green
 
 ## Validation

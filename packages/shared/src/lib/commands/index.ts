@@ -7,7 +7,9 @@ export * from './redo'
 export {
   CommandInterceptorError,
   isCommandInterceptorError,
+  getCommandInterceptorHttpRejection,
   type CommandInterceptorErrorOptions,
+  type CommandInterceptorHttpRejection,
 } from './errors'
 export {
   runCrudCommandWrite,
