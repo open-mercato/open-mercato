@@ -32,7 +32,7 @@ html[data-theme='dark'] {
   --ifm-navbar-background-color: rgba(14, 19, 14, 0.94);
   --ifm-navbar-link-color: #f4f8ee;
   --ifm-card-background-color: rgba(21, 28, 21, 0.86);
-  --docs-hero-accent: linear-gradient(120deg, #385328 0%, #6ea93e 28%, #b4f372 58%, #8d69d0 100%);
+  --docs-hero-accent: linear-gradient(120deg, #2a3d1f 0%, #385328 28%, #457628 58%, #5c3f8f 100%);
   --docs-navbar-border-color: rgba(180, 243, 114, 0.24);
   --docs-card-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
   --docs-card-shadow-hover: 0 24px 50px rgba(180, 243, 114, 0.18);
@@ -101,7 +101,16 @@ body {
 
 .hero .button--outline {
   color: #1f2937;
-  border-color: rgba(31, 41, 55, 0.5);
+  border-color: rgba(31, 41, 55, 0.75);
+}
+
+html[data-theme='dark'] .hero.hero--primary {
+  color: #f4f8ee;
+}
+
+html[data-theme='dark'] .hero .button--outline {
+  color: #f4f8ee;
+  border-color: rgba(244, 248, 238, 0.65);
 }
 
 .feature-grid {
