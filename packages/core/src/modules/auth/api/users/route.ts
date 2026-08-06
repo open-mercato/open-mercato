@@ -104,7 +104,8 @@ type UserListFilter = Record<string, unknown>
 
 // UserRole carries no tenant/organization columns of its own, so the caller's scope has to be
 // expressed as a predicate on the `user` relation — MikroORM compiles that into a database-side
-// subquery, keeping the link lookup bounded to the scope instead of every tenant holding the role.
+// join against `users` with the scope predicates in the WHERE clause, keeping the link lookup
+// bounded to the scope instead of every tenant holding the role.
 function buildRoleLinkFilter(
   roleIdList: string[],
   userScope: UserListFilter[],
@@ -292,15 +293,18 @@ export async function GET(req: Request) {
       const uid = String((link as any).user?.id || (link as any).user || '')
       if (uid) roleUserIds.add(uid)
     }
-    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     if (idFilter) {
+      // buildRoleLinkFilter already constrains the lookup to `user.id IN idFilter`, so this
+      // intersection is enforced database-side; the loop stays as an application-level backstop
+      // so the `?id=` + `?roleId=` contract does not depend on that predicate alone.
       for (const uid of Array.from(idFilter)) {
         if (!roleUserIds.has(uid)) idFilter.delete(uid)
       }
     } else {
       idFilter = roleUserIds
     }
-    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
   }
   const trimmedSearch = typeof search === 'string' ? search.trim() : ''
   if (trimmedSearch) {
@@ -383,7 +387,7 @@ export async function GET(req: Request) {
     ? await findWithDecryption(
         em,
         UserRole,
-        { user: { $in: userIds as any } } as any,
+        { user: { $in: userIds as any }, deletedAt: null } as any,
         { populate: ['role'] },
         {
           tenantId: effectiveTenantId ?? auth.tenantId ?? null,
