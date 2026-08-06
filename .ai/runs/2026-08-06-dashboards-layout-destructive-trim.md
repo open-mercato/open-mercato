@@ -52,6 +52,7 @@ the write path stayed exposed. It is in scope as of Phase 3.
 ## Progress
 
 PR: #5054
+Follow-up: #5103
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -68,9 +69,9 @@ PR: #5054
 
 ### Phase 3: Review follow-up (#5054 changes-requested)
 
-- [ ] 3.1 Refuse the layout PUT with 503 while the widget registry is empty, and document the 503 in the OpenAPI doc
-- [ ] 3.2 Unit tests: PUT persists nothing on an empty registry, still saves and still filters on a healthy one
-- [ ] 3.3 Drop a rejected widget-module loader from `widgetCache` instead of memoizing it, with a regression test
-- [ ] 3.4 Rename `registryLoaded` to `hasRegisteredWidgets`, matching the client-side name for the same idea
-- [ ] 3.5 Pin the boundary the new flag sits on: a healthy registry with an empty allowlist must still trim and still seed
-- [ ] 3.6 Re-run the full validation gate
+- [x] 3.1 Refuse the layout PUT with 503 while the widget registry is empty, and document the 503 in the OpenAPI doc — 4c966c123
+- [x] 3.2 Unit tests: PUT persists nothing on an empty registry, still saves and still filters on a healthy one — 4c966c123
+- [x] 3.3 Drop a rejected widget-module loader from `widgetCache` instead of memoizing it, with a regression test — 4c966c123
+- [x] 3.4 Rename `registryLoaded` to `hasRegisteredWidgets`, matching the client-side name for the same idea — 4c966c123
+- [x] 3.5 Pin the boundary the new flag sits on: a healthy registry with an empty allowlist must still trim and still seed — 4c966c123
+- [x] 3.6 Re-run the full validation gate — 4c966c123
