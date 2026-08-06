@@ -543,6 +543,7 @@ test('deterministic evaluation keeps timeoutMs a writable-only budget (#5057)', 
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.match(result.stderr, new RegExp(`FAIL ${routing.id}:.*timeoutMs must be a writable-case duration`))
     assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${writable.id}:.*timeoutMs`))
+    assert.match(result.stdout, new RegExp(`PASS ${writable.id} `))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

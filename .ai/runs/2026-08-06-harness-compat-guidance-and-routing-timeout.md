@@ -142,3 +142,23 @@ both are `dist/` contention from concurrent turbo runs on this machine.
 
 - [x] 4.1 Re-run the affected live cases and record the result
 - [x] 4.2 Run the full validation gate — green through `yarn test`; `yarn build:app` fails on `develop` itself (see below)
+
+### Phase 5: Review response (#5068 code review by @adeptofvoltron)
+
+- [x] 5.1 Merge the latest `develop` into the branch so review and CI judge the real merge result
+- [x] 5.2 Major — restate the `RELEASE.md` paragraph in release-gate terms: the flag is `--case-timeout`
+  (default 120000 ms, `run-agent-harness-release.mjs:53,79`), the routing step passes it to the evaluator
+  explicitly (`:1619`), which sets `timeoutExplicit` (`evaluate-agent-harness.mjs:178`) and makes the
+  runner-aware floors unreachable under `yarn harness:release`. All three claims verified in source before
+  rewriting; the reviewer was right on each.
+- [x] 5.3 Minor — replace "an explicit `--timeout` is always authoritative" with the actual `Math.max`
+  rule, so the sentence no longer contradicts `resolveLiveCaseTimeout` (`:2713`) or the paragraph above it
+- [x] 5.4 Minor — carry the counter-evidence: OMH-139 exhausted the 300000 ms evaluator default outright
+  (audit §2.5), which the passing 71–231 s band alone read more comfortably than the measurements support
+- [x] 5.5 Nit — assert `PASS <writable id>` on stdout so the accepting branch of the catalog guard is
+  verified positively rather than by absence
+- [x] 5.6 Pin the two facts the corrected paragraph asserts: `--case-timeout` exists with a documented
+  120000 ms default and `--timeout` is rejected as an unknown argument
+  (`agent-harness-release.test.ts`) — the drift this review caught, now caught by a test
+- [x] 5.7 Targeted validation: `agent-harness-release.test.ts` 47 passed / 5 skipped,
+  `agent-harness-evaluator.test.ts` 89 passed, plus the surface/context/budget contract files 46 passed
