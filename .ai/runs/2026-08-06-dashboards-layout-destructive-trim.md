@@ -45,15 +45,17 @@ Two compounding problems:
 
 ## Progress
 
+PR: #5054
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Registry cache
 
-- [ ] 1.1 Do not memoize an empty or rejected widget-registry resolution
-- [ ] 1.2 Unit test: an empty first resolution is retried on the next call
+- [x] 1.1 Do not memoize an empty or rejected widget-registry resolution — 21b527666
+- [x] 1.2 Unit test: an empty first resolution is retried on the next call — 21b527666
 
 ### Phase 2: Non-destructive GET
 
-- [ ] 2.1 Skip every layout write when the widget registry is empty
-- [ ] 2.2 Unit tests: no flush and no layout mutation on an empty registry
-- [ ] 2.3 Run the full validation gate
+- [x] 2.1 Skip every layout write when the widget registry is empty — 21b527666
+- [x] 2.2 Unit tests: no flush and no layout mutation on an empty registry — 21b527666
+- [x] 2.3 Run the full validation gate
