@@ -55,7 +55,7 @@ export async function loadSidebarPreference(
   // callers layer role defaults beneath the user layout and must skip the user pass entirely,
   // because applying empty settings overwrites the role state instead of merging with it.
   if (!existing) return null
-  return normalizeSidebarSettings(existing.settingsJson as SidebarPreferencesSettings | undefined)
+  return normalizeSidebarSettings(existing.settingsJson as SidebarPreferencesSettings | null | undefined)
 }
 
 export async function loadSidebarPreferenceUpdatedAt(
