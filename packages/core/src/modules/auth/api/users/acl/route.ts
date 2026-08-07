@@ -7,7 +7,7 @@ import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import {
   assertActorCanAccessUserTarget,
   assertActorCanGrantAcl,
@@ -127,15 +127,24 @@ export async function PUT(req: Request) {
   const body = await req.json().catch(() => ({}))
   const parsed = putSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
-  // A user ACL row is tenant-scoped. Without a resolved tenant the lookup below
-  // degenerates to an unscoped match, which could overwrite or delete an
-  // override belonging to another tenant. Mirrors the role ACL route's
-  // `Tenant required` guard so both ACL routes fail closed the same way.
-  const tenantId = auth.tenantId ?? null
-  if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
   const rbacService = container.resolve('rbacService') as any
+
+  // A user ACL row is tenant-scoped (`user_acls.tenant_id` is NOT NULL), but the
+  // actor's tenant can legitimately be null — `users.tenant_id` is nullable, so a
+  // global account logs in without one. Resolve the actor's tenant first and fall
+  // back to the target user's, mirroring how the role ACL route derives its scope
+  // (`parsed.tenantId ?? roleTenantId ?? authTenantId`) before refusing.
+  //
+  // Without this the lookup ran with an undefined tenant predicate, which
+  // MikroORM drops: the update and clear paths then matched whichever row
+  // happened to exist, in any tenant, and the create path hit a NOT NULL
+  // violation.
+  const targetUser = await em.findOne(User, { id: parsed.data.userId as any })
+  const tenantId: string | null =
+    auth.tenantId ?? (targetUser?.tenantId ? String(targetUser.tenantId) : null)
+  if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
 
   const actorAcl = auth.sub
     ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
