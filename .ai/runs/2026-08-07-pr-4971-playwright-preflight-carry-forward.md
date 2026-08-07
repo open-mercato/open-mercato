@@ -42,10 +42,17 @@ replacement PR supersedes #4971 while crediting @mikoajp.
       `yarn test:scripts`)
 - [x] `yarn test:scripts` — 464 pass
 - [x] `yarn i18n:check-sync` — green on the current base, confirming the stale-base diagnosis
-- [ ] Full `validation.commands` gate
-- [ ] Open the replacement PR (`Supersedes #4971` + credit), reassign to @mikoajp
-- [ ] Close #4971 in favor of the replacement
-- [ ] Labels + summary comment
+- [x] Branch the guard on the raw override, matching the config's truthiness test — trimming
+      let a whitespace-only setting fall through to the managed registry and report success,
+      while the config would still hand that value to `launchOptions.executablePath`
+- [x] Full `validation.commands` gate — green (`@open-mercato/cli` had two jest workers killed
+      by SIGSEGV at the local fan-out memory cap; 1466 tests passed with 0 failures and both
+      suites pass in isolation, so it is local infra, not a regression)
+- [x] Open the replacement PR #5130 (`Supersedes #4971` + credit), assigned to @mikoajp
+- [x] Close #4971 in favor of the replacement
+- [x] Labels + summary comment
+- [ ] CI green on #5130 (watched, capped at 40 minutes)
+- [ ] Independent review — this run authored the fix commits, so it cannot supply the approval
 
 ## Notes
 
