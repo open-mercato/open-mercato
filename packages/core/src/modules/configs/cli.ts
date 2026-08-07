@@ -158,12 +158,12 @@ function printCacheHelp() {
   console.log('  yarn mercato configs cache purge --key <key1,key2> [--tenant <id> | --global | --all-tenants] [--dry-run] [--json]')
   console.log('  yarn mercato configs cache purge --id <token1,token2> [--tenant <id> | --global | --all-tenants] [--dry-run] [--json]')
   console.log('  yarn mercato configs cache purge --pattern <glob> [--tenant <id> | --global | --all-tenants] [--dry-run] [--json]')
-  console.log('  yarn mercato configs cache structural [--tenant <id> | --global | --all-tenants] [--dry-run] [--json]')
+  console.log('  yarn mercato configs cache structural [--tenant <id> | --global | --all-tenants] [--touch-generated] [--dry-run] [--json]')
   console.log('')
   console.log('ℹ️ Notes:')
   console.log('  `stats` mirrors the cache admin page segment overview for CRUD/widget caches.')
   console.log('  `purge --id` removes every key whose name contains the provided token (for example a user id or entity id).')
-  console.log('  `structural` targets navigation/sidebar caches and is the recommended post-step after module/sidebar structure changes.')
+  console.log('  `structural` targets navigation/sidebar caches. Add `--touch-generated` only for explicit stale-compiler recovery.')
   console.log('  When no scope flag is supplied, this command uses the global cache scope only.')
 }
 
@@ -278,14 +278,16 @@ async function runStructuralCachePurge(args: ParsedArgs) {
   if (json) {
     console.log(JSON.stringify(structuralResults, null, 2))
   }
-  const quiet = flagEnabled(args, 'quiet')
-  try {
-    touchGeneratedBarrels({ quiet: quiet || json })
-  } catch (err) {
-    if (!quiet && !json) {
-      console.warn(
-        `[structural] failed to touch generated barrels: ${(err as Error).message ?? err}`,
-      )
+  if (flagEnabled(args, 'touch-generated', 'touchGenerated')) {
+    const quiet = flagEnabled(args, 'quiet')
+    try {
+      touchGeneratedBarrels({ quiet: quiet || json })
+    } catch (err) {
+      if (!quiet && !json) {
+        console.warn(
+          `[structural] failed to touch generated barrels: ${(err as Error).message ?? err}`,
+        )
+      }
     }
   }
 }

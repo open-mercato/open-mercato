@@ -47,14 +47,6 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
     // Second data-column resize handle — avoids the (potentially sticky) first column.
     const handleAt = () => page.locator('thead [role="separator"][aria-orientation="vertical"]').nth(1);
 
-    // Same gesture hardening TC-CRM-086 already carries. The header keeps
-    // reflowing after the first row paints — remaining rows land, the query
-    // refetches, the local perspective snapshot hydrates — and a re-render
-    // during the drag unmounts the handle, which cancels the drag by design
-    // (`dragCleanupRef` in DataTable). So wait for the width to hold steady
-    // across two samples, and re-drag from a fresh baseline when a gesture is
-    // swallowed. Without this the test fails on a loaded CI shard whenever the
-    // table happens to refetch inside the drag.
     const waitForSettledColumnWidth = async () => {
       let previous = -1;
       let settled = -1;
@@ -121,9 +113,7 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       }
     };
 
-    // Returns the baseline the successful gesture started from, so the caller
-    // asserts against the width the drag actually built on.
-    const widenTargetColumn = async (deltaX: number) => {
+    const widenColumn = async (deltaX: number) => {
       let baseline = await waitForSettledColumnWidth();
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         await dragHandleRight(deltaX);
@@ -153,10 +143,10 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       await waitForTableReady();
 
       await expect(handleAt()).toBeAttached();
+      const defaultWidth = await widenColumn(130);
 
-      const defaultWidth = await widenTargetColumn(130);
       await expect
-        .poll(() => handleColumnWidth(handleAt()), { timeout: 5_000, message: 'dragging the handle should widen the column' })
+        .poll(() => handleColumnWidth(handleAt()), { message: 'dragging the handle should widen the column' })
         .toBeGreaterThan(defaultWidth + 80);
       const resizedInlineWidth = await handleColumnInlineWidth(handleAt());
       expect(resizedInlineWidth).toMatch(/^\d+px$/);
@@ -174,9 +164,10 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       // The login helper uses an API fast-path that bypasses the form; the fix
       // fires in the login form's submit handler, so the account switch must go
       // through the actual form to exercise it.
-      await page.request.post('/api/auth/logout').catch(() => {});
-      await page.goto('/login', { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 10_000 }).catch(() => {});
+      await page.getByRole('button', { name: /admin@acme.com/i }).click();
+      await page.getByRole('menuitem', { name: /logout/i }).click();
+      await page.waitForURL(/\/login(?:\?.*)?$/, { timeout: 10_000 });
+      await expect(page.locator('form[data-auth-ready="1"]')).toBeVisible({ timeout: 10_000 });
 
       const employee = DEFAULT_CREDENTIALS.employee;
       await page.getByLabel('Email').fill(employee.email);
@@ -184,6 +175,7 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       await passwordInput.fill(employee.password);
       await passwordInput.press('Enter');
       await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout: 15_000 });
+      await expect(page.getByRole('button', { name: employee.email })).toBeVisible();
       await expect
         .poll(perspectiveStorageKeys, {
           message: 'successful login must purge the previous account\'s browser-local perspective snapshots',
