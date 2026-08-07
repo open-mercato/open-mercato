@@ -112,6 +112,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live packages/core/src/modules sources — module-facts local-reference resolution',
+      },
+      {
         path: 'src/lib/generators/__tests__/example-public-route-safety.test.ts',
         scans: 'apps/mercato and packages/create-app/template — example route safety (#3864)',
       },
@@ -133,6 +137,17 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/db/__tests__/escapeLikePattern.test.ts',
         scans: 'packages/ and apps/ — unescaped LIKE patterns in query builders',
+      },
+    ],
+  },
+  {
+    workspace: '@open-mercato/cache',
+    workspaceDir: 'packages/cache',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/cache-di-contract-docs.test.ts',
+        scans: 'packages/core/src/bootstrap.ts, packages/cache/AGENTS.md and .ai/review-checklist.md — cache DI token and CacheStrategy method names quoted by the docs',
       },
     ],
   },
@@ -218,6 +233,14 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-example-module-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
     path: 'packages/create-app/src/lib/standalone-portal-email-env-guard.test.ts',

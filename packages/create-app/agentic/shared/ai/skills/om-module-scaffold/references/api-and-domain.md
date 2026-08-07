@@ -17,3 +17,16 @@ Load this reference for CRUD, commands, and action routes.
 7. Test allowed/denied/wildcard users, two scopes, malformed input, stale version, and action retry/undo.
 
 Command IDs in `actions` are stable strings; a route does not import command implementations merely to declare them. Use exact installed `customers` route/command patterns when a remaining signature is uncertain; do not use the obsolete flat CRUD action options or HTTP-method directory routes.
+
+## Canonical example source
+
+| Capability | Exact file |
+|---|---|
+| Smallest complete `makeCrudRoute` (per-method ACL, ORM/scope/soft-delete, list schema + sort map, `mapToEntity`/`applyToEntity`) | [`api/customer-priorities/route.ts`](../../../../src/modules/example/api/customer-priorities/route.ts) |
+| Query-engine list fields, `cf:*` projection, command-backed `actions`, CSV export | [`api/todos/route.ts`](../../../../src/modules/example/api/todos/route.ts) |
+| Module OpenAPI factory | [`api/openapi.ts`](../../../../src/modules/example/api/openapi.ts) |
+| Hand-written route with its own request container and cookie auth | [`api/organizations/route.ts`](../../../../src/modules/example/api/organizations/route.ts) |
+| `optionsUrl` option-source routes | [`api/tags/route.ts`](../../../../src/modules/example/api/tags/route.ts), [`api/assignees/route.ts`](../../../../src/modules/example/api/assignees/route.ts) |
+| Registered command handlers, `ensureScope`, `prepare` snapshots, undo/redo | [`commands/todos.ts`](../../../../src/modules/example/commands/todos.ts) |
+
+Adapt one row at a time and rename every `example` identifier; see [`README.md`](../../../../src/modules/example/README.md).

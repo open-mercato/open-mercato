@@ -15,7 +15,7 @@ Use the next contiguous `OMH-NNN` ID. Take the shape of an adjacent case from `.
   "owner": { "kind": "root|guide|skill|facts|hook", "path": "app/relative/path", "ruleIds": ["BC-NN"] },
   "expectedRouter": { "required": ["route-id"], "allowedExtra": [] },
   "requiredSkills": ["om-skill-name"],
-  "context": { "required": ["AGENTS.md", "owner/path"], "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"] },
+  "context": { "required": ["AGENTS.md", "owner/path"], "forbidden": [".env*", ".git/**"] },
   "requiredDecisions": ["semantic-decision-id"],
   "forbiddenPatterns": ["unsafe-regex"],
   "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
@@ -95,6 +95,6 @@ yarn install-skills
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 46-case read-only portability lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
+Require the schema-valid sanitized `*-release-suite.json` report under `.ai/harness/results/` and every requested lane to pass. The explicit primary runner owns all blocking routing, writable, test, and review work. A different `--portability-runner` is optional; when omitted the report must say `portabilityRunner: null`, and when requested its 48-case read-only portability lane is blocking. macOS needs `/usr/bin/sandbox-exec`; Linux needs Bubblewrap with user namespaces. Unavailable containment or required model capacity is a blocker, not a pass.
 
 If live capacity is unavailable, record the tool/version/model and sanitized provider error. Do not convert availability failure into a passing routing result.

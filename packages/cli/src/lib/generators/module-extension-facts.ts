@@ -266,6 +266,26 @@ function staticTemplate(expression: ts.TemplateExpression, context: StaticContex
   return value
 }
 
+/**
+ * A function-valued property carries no statically readable value, but its
+ * PRESENCE is the discriminant several conventions are keyed on (a
+ * `ComponentOverride` is a wrapper/props-transform/replacement depending on
+ * which callable it declares; an enricher declares `enrichOne`/`enrichMany`).
+ * Method shorthand (`enrichOne() {}`) is already recorded as `true`, so an
+ * arrow/function-expression property — or an identifier bound to one — records
+ * the same marker instead of vanishing from the object.
+ */
+function isFunctionLikeInitializer(expression: ts.Expression, context: StaticContext): boolean {
+  const current = unwrap(expression)
+  if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) return true
+  if (!ts.isIdentifier(current)) return false
+  const initializer = context.initializers.get(current.text)
+  if (!initializer) return false
+  if (ts.isFunctionDeclaration(initializer)) return true
+  const resolved = unwrap(initializer)
+  return ts.isArrowFunction(resolved) || ts.isFunctionExpression(resolved)
+}
+
 function staticObject(expression: ts.ObjectLiteralExpression, context: StaticContext): StaticObject {
   const result: StaticObject = {}
   for (const property of expression.properties) {
@@ -274,6 +294,7 @@ function staticObject(expression: ts.ObjectLiteralExpression, context: StaticCon
       if (!name) continue
       const value = staticValue(property.initializer, context)
       if (value !== undefined) result[name] = value
+      else if (isFunctionLikeInitializer(property.initializer, context)) result[name] = true
       continue
     }
     if (ts.isShorthandPropertyAssignment(property)) {
@@ -326,6 +347,8 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     return value
   }
   if (ts.isCallExpression(current)) {
+    const handle = componentReplacementHandle(current, context)
+    if (handle) return handle.resolved
     if (ts.isIdentifier(current.expression)) {
       const callable = context.initializers.get(current.expression.text)
       if (callable && (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable) || ts.isFunctionDeclaration(callable))) {
@@ -345,10 +368,14 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
         if (returnStatement?.expression) return staticValue(returnStatement.expression, childContext)
       }
     }
+    // Factory-style `defineThing({ … })` calls forward their configuration object,
+    // but a member call (`Handles.section('a', 'b')`) computes a value from its
+    // arguments — forwarding the first one there invents a wrong id, so it stays
+    // unresolved unless a formula above knows the builder.
     const firstArgument = current.arguments[0]
-    if (firstArgument) {
+    if (firstArgument && ts.isIdentifier(current.expression)) {
       const value = staticValue(firstArgument, context)
-      if (!isStaticObject(value) || !ts.isIdentifier(current.expression)) return value
+      if (!isStaticObject(value)) return value
       if (current.expression.text === 'dataTableExtensionHost') return { family: 'data-table', ...value }
       if (current.expression.text === 'crudFormExtensionHost') return { family: 'crud-form', ...value }
       if (current.expression.text === 'componentExtensionHost') return { family: 'component-handle', ...value }
@@ -361,6 +388,33 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     return left !== undefined && JSON.stringify(left) === JSON.stringify(right) ? left : undefined
   }
   return undefined
+}
+
+/**
+ * `ComponentReplacementHandles` (packages/shared/src/modules/widgets/component-registry.ts)
+ * is the framework-owned builder every `widgets/components.ts` uses to name a
+ * replacement handle. Without these formulas the generic call fallback would read
+ * `ComponentReplacementHandles.section('ui.detail', 'NotesSection')` as its first
+ * argument and publish `ui.detail` as the handle — a target id that exists nowhere.
+ */
+const COMPONENT_REPLACEMENT_HANDLE_BUILDERS: Record<string, (args: Array<string | undefined>) => string | undefined> = {
+  page: ([routePath]) => routePath ? `page:${routePath}` : undefined,
+  dataTable: ([tableId]) => tableId ? `data-table:${tableId}` : undefined,
+  crudForm: ([entityId]) => entityId ? `crud-form:${entityId}` : undefined,
+  section: ([scope, sectionId]) => scope && sectionId ? `section:${scope}.${sectionId}` : undefined,
+}
+
+function componentReplacementHandle(
+  expression: ts.CallExpression,
+  context: StaticContext,
+): { resolved: string | undefined } | null {
+  if (!ts.isPropertyAccessExpression(expression.expression)) return null
+  const callee = expression.expression
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'ComponentReplacementHandles') return null
+  const builder = COMPONENT_REPLACEMENT_HANDLE_BUILDERS[callee.name.text]
+  if (!builder) return { resolved: undefined }
+  const args = expression.arguments.map((argument) => stringValue(staticValue(argument, context)))
+  return { resolved: builder(args) }
 }
 
 function isStaticObject(value: StaticValue | undefined): value is StaticObject {
@@ -1019,6 +1073,18 @@ function contributionBase(
   }
 }
 
+/**
+ * `ModuleInjectionTable` maps a spot to `ModuleInjectionSlot | ModuleInjectionSlot[]`,
+ * and a slot is either a bare widget-id string or a placement object. The runtime
+ * loader normalizes all three shapes (`injection-loader.ts` → `loadInjectionTable`);
+ * reading only the array form here silently dropped every string and single-object
+ * slot from the generated contribution facts.
+ */
+function injectionTableSlots(value: StaticValue | undefined): StaticValue[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
 function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
   const filePath = conventionPath(options.moduleRoot, 'widgets/injection-table.ts')
   if (!filePath) return []
@@ -1027,12 +1093,12 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
   const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
   const facts: ModuleExtensionContributionFact[] = []
   for (const targetId of Object.keys(table).sort((left, right) => left.localeCompare(right))) {
-    const entries = table[targetId]
-    if (!Array.isArray(entries)) continue
-    for (const entry of entries) {
-      if (!isStaticObject(entry)) continue
-      const widgetId = stringValue(entry.widgetId)
+    for (const entry of injectionTableSlots(table[targetId])) {
+      const slot = isStaticObject(entry) ? entry : null
+      const widgetId = typeof entry === 'string' ? entry : slot ? stringValue(slot.widgetId) : undefined
       if (!widgetId) continue
+      const features = slot ? strings(slot.features) : []
+      const priority = slot ? numberValue(slot.priority) : undefined
       const payload = targetId.endsWith(':columns') ? 'column'
         : targetId.endsWith(':row-actions') ? 'row-action'
           : targetId.endsWith(':bulk-actions') ? 'bulk-action'
@@ -1043,8 +1109,8 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
       const shared = {
         ...base,
         targets: [target(targetId)],
-        features: strings(entry.features),
-        placement: numberValue(entry.priority) !== undefined ? { priority: numberValue(entry.priority) } : undefined,
+        features,
+        placement: priority !== undefined ? { priority } : undefined,
       }
       if (targetId.startsWith('data-table:')) {
         facts.push({
@@ -1053,7 +1119,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: payload === 'field' ? 'render' : payload,
             tableId: targetId.replace(/^data-table:/, '').replace(/:(?:columns|row-actions|bulk-actions|filters|toolbar|header|footer|search-trailing)$/, ''),
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       } else if (targetId.startsWith('crud-form:')) {
@@ -1073,7 +1139,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: 'render',
             registryKey: widgetId,
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       }
@@ -1353,7 +1419,9 @@ function extractComponentOverrides(options: ExtractModuleExtensionFactsOptions):
       const targetDefinition = isStaticObject(entry.target) ? entry.target : null
       const handle = targetDefinition ? stringValue(targetDefinition.componentId) : undefined
       if (!handle) return null
-      const mode = entry.wrapper !== undefined ? 'wrapper' : entry.props !== undefined ? 'props' : 'replace'
+      // `ComponentOverride` discriminates on `wrapper` / `propsTransform` /
+      // `replacement` — never on a `props` property, which the union has no member for.
+      const mode = entry.wrapper !== undefined ? 'wrapper' : entry.propsTransform !== undefined ? 'props' : 'replace'
       const id = `${options.moduleId}.component-override.${index}:${handle}`
       const contribution = contributionBase(id, sourcePath, 'componentOverrides')
       return {

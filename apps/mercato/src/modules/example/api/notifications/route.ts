@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { resolveNotificationContext } from '@open-mercato/core/modules/notifications/lib/routeHelpers'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 const emitNotificationSchema = z.object({
   linkHref: z.string().optional(),
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = await request.json().catch(() => ({}))
+  const body = await readJsonSafe<unknown>(request, {})
   const input = emitNotificationSchema.parse(body)
   const targetHref =
     typeof input.linkHref === 'string' && input.linkHref.startsWith('/backend/')

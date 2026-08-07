@@ -72,6 +72,16 @@ const pluralizeBaseName = (name: string): string => {
   return `${name}s`
 }
 
+/**
+ * Accepts a module-declared `EntityExtension.table` only when it is a bare SQL
+ * identifier. The value is interpolated into a join clause, so anything else is
+ * ignored in favour of the derived table name.
+ */
+const PLAIN_TABLE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+const isPlainTableIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && PLAIN_TABLE_IDENTIFIER_PATTERN.test(value)
+
 const toPascalCase = (value: string): string => {
   return value
     .split(/[_\s]+/)
@@ -923,7 +933,15 @@ export class BasicQueryEngine implements QueryEngine {
           : exts
         for (const e of chosen) {
           const [, extName] = (e.extension as string).split(':')
-          const extTable = extName.endsWith('s') ? extName : `${extName}s`
+          // Uses the SAME derivation as every other table-name fallback in this file
+          // (`pluralizeBaseName`, also called at the resolveEntityTableName sites above)
+          // rather than a separate inline one. The inline version handled only `+s`, so
+          // `example_customer_priority` derived `example_customer_prioritys` against the
+          // real `example_customer_priorities`. Behaviour is unchanged for every name that
+          // does not end in `y`; `table` below remains the escape hatch for irregular
+          // plurals no guesser can win (`person` → `people`).
+          const derivedTable = pluralizeBaseName(extName)
+          const extTable = isPlainTableIdentifier(e.table) ? e.table : derivedTable
           const alias = `ext_${sanitize(extName)}`
           q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
             jb.onRef(`${alias}.${e.join.extensionKey}`, '=', `${table}.${e.join.baseKey}`)

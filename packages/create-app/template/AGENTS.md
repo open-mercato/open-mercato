@@ -38,7 +38,7 @@ Routes are additive: ownership says WHO; other axes say WHAT. Select every match
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
-`debugging` = reported bug/security/drift, not designed failure UI. Specs use `spec-pr`; implementation owns domain guides. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
@@ -90,23 +90,21 @@ Match every work-unit row; OPEN its skill before selection.
 
 ### Axis 3 — SDLC and Delivery
 
-Pinned delivery skills: `yarn install-skills` (refresh: `--update`). Read BOTH `.agents/skills/<id>/SKILL.md` and a matching `.ai/skills/<id>/SKILL.md` override. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
+Spec gate before code: new capability/architecture/schema/API contract/cross-module/multi-phase -> spec first (`spec-first`); covering `.ai/specs` match -> reuse and update it (`reuse-spec`); bug fix/minor fix/docs/dependency/isolated refactor -> proceed (`direct`); only the request's explicit words waive a feature spec; workflow-changing ambiguity -> ask once (`ask`). Then `om-module-scaffold` starts at `src/modules/example/README.md`.
+
+Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
 
 | Route ID | Delivery need | Skill |
 |---|---|---|
-| `spec-pr` | Write/revise spec | MUST invoke `om-spec-writing` (OMH-005) + `.ai/guides/spec-delivery.md` + config specs path |
-| `spec-pr` | Implement approved phases locally | `om-implement-spec` (OMH-006) |
-| `spec-pr` | Whole-spec / commit+ready PR / issue / review | `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
-| `testing` | Integration/E2E/UI QA | `om-integration-tests` / `om-auto-qa-pr` |
-| — | No PR/spec workflow requested | Do not load delivery skills |
-
-Absent skill: run `yarn install-skills` once; never substitute.
+| `spec-pr` | Write/revise spec | MUST invoke `om-spec-writing` (OMH-005) + `.ai/guides/spec-delivery.md` |
+| `spec-pr` | Local phases / whole-spec / PR / issue / review | `om-implement-spec` (OMH-006) / `om-auto-implement-spec` / `om-auto-create-pr` / `om-auto-fix-issue` / `om-auto-review-pr` |
+| — | No PR/spec workflow | Do not load delivery skills |
 
 ### Token-Efficient Assembly Policy
 
 - Load matched guides once, then only needed references/facts.
 - Hard budgets: guide > skill > references; open a reference only for its named subject.
-- Specs: open one match; `spec-pr` reads template via spec-delivery.
+- `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
 - Never bulk-read guide, skill, fact, or source trees.
@@ -120,9 +118,7 @@ Load facts for every named/targeted module, not incidental use. Mechanisms: even
 
 ## Working Sequence
 
-1. `spec-pr`: list `.ai/specs` once; open one match; plan-only skips specs.
-2. Route; load only matched guides/skills/facts.
-3. Implement the smallest complete slice through real call sites.
-4. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
+1. Route, then implement the smallest complete slice through real call sites.
+2. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
 
 Precedence: root → BC → installed `AGENTS.md` → facts; stop on skew/conflict; never guess.

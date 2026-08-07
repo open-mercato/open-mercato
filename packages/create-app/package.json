@@ -13,6 +13,10 @@
   ],
   "scripts": {
     "build": "node build.mjs",
+    "harness:validate-knowledge-change": "node ./agentic/shared/scripts/validate-knowledge-change.mjs",
+    "harness:validate-source-links": "node ./scripts/validate-source-links.mjs",
+    "harness:generate-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs",
+    "harness:check-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs --check",
     "test": "node --import tsx --test --test-timeout=120000 src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

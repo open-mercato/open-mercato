@@ -43,6 +43,74 @@ most of the patterns listed below in a user's codebase.
 **Action for authors of stored workflow definitions:** an activity that previously "succeeded" while silently shipping an unresolved template now fails. That is almost always the bug becoming visible rather than a new one, but there is a genuine regression case: a definition that deliberately passes brace-delimited text through to a field the target command accepts verbatim — a message body, a note, or a template meant to be rendered later downstream. The guard cannot tell that apart from a missing context key, so such a definition now fails the activity.
 
 If you hit this, the fix is to stop routing literal `{{...}}` text through `UPDATE_ENTITY` input or `EMIT_EVENT` payload fields — escape it, or move the templating to the consumer that is supposed to render it. Search stored definitions for `{{` in activity `config.input` and `config.payload` before upgrading if you want to find these ahead of time.
+### `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` is removed
+
+The `example` module's `widgets/injection-table.ts` used to export a value chosen by a
+ternary — `(NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED || NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED)
+? { …always, …crossModule } : always` — and `widgets/components.ts` exported a
+conditionally spread array keyed on `NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED`.
+Both exports are now single, unconditional literals.
+
+The reason is not cosmetic. The module fact extractor
+(`packages/cli/src/lib/generators/module-extension-facts.ts` → `readRootObject` /
+`extractObjectConvention` → `staticValue`) folds only statically known values, and it folds a
+ternary solely when both branches are deeply equal. Neither export qualified, so the
+framework's own reader published **zero** contributions for both files: every scaffolded app
+and every agent fact-sheet saw the canonical reference module as contributing no widget
+injection and no component override at all. Running the real extractor over the module now
+reads 26 injection-table contributions and 3 component-override contributions where it
+previously read 0 and 0.
+
+**What replaces the flag.** Nothing, by design. The cross-module entries (customers, catalog,
+sales) ship unconditionally, and they are inert without their host module: each of them is
+keyed on a spot id that only `customers`, `catalog`, or `sales` renders, and a module that is
+not installed renders no spot. The change also adds nothing to the widget registry — the
+loader reads widget entries (`loadWidgetEntries`) and injection tables (`loadInjectionTable`)
+from two independent sources, so every `example` widget was already enumerated regardless of
+what the table said. On top of that, `injection-loader.ts` skips any widget whose
+`metadata.requiredModules` names a module that is not in the enabled set; the `example`
+widgets do not declare `requiredModules` today, which is the mechanism to reach for if you
+copy one of these entries into a widget that calls another module's API directly. The two
+checkout demo overrides also register unconditionally, but their `wrapper`
+returns the original component **by identity** while
+`NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED` is off. Because
+`resolveRegisteredComponent` does `resolved = override.wrapper(resolved)`, an identity return
+is indistinguishable from no override, so the rendered DOM is unchanged and that flag keeps
+its existing meaning and default.
+
+**Which behavior this settles on.** The documented default was misleading. `apps/mercato/.env.example`
+ships `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=true`, and that flag was OR-ed into the
+same condition, so any app started from the monorepo `.env.example` already had every
+cross-module example injection **enabled** — directly contradicting the
+`NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false` line and its `(default: false)` comment
+sitting a few lines below it. This change settles on the behavior those apps were actually
+getting: cross-module example injections are always on. It also decouples them from
+`NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED`, which is a `CrudForm` event-emission switch
+and never should have gated an injection table.
+
+**This is a real default change for scaffolded standalone apps.** An app created by
+`create-mercato-app` sets neither flag, so before this change it registered only the
+example-owned demo surfaces; now it also registers the cross-module entries targeting
+`customers`, `catalog` and `sales`. They stay inert unless the host module is enabled — a
+cross-module entry is keyed on a spot id only its host renders — but the registrations are
+present, and the UMES DevTool will list them. If you want a scaffolded app to carry the
+example's source without its cross-module injections, remove the entries from
+`src/modules/example/widgets/injection-table.ts` in your app, or disable the `example`
+module entirely (it ships unregistered in every built-in preset).
+
+**Action for downstream apps:** delete `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` from
+your `.env` files and from any CI/deployment environment that exports it; it is now dead
+configuration and setting it has no effect. It has been removed from
+`apps/mercato/.env.example` (`packages/create-app/template/.env.example` never documented it).
+If you copied `example/widgets/injection-table.ts` into your own module and kept the
+`false` branch to hide the cross-module entries, delete the entries you do not want instead of
+gating them — an env-gated export is unreadable to the fact extractor and will make your
+module look empty to the agent harness.
+
+**Action for module authors generally:** export `injectionTable` and `componentOverrides` as
+plain literals. Gate behavior *inside* a widget or wrapper, or declare
+`metadata.requiredModules` on the widget; do not branch the exported registry value itself.
+
 
 ### Settings sections are identified by their untranslated group id (#4843)
 

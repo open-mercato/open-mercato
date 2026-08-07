@@ -20,6 +20,20 @@ export type EntityExtension = {
     baseKey: string // column name on base (e.g., 'id')
     extensionKey: string // column name on extension (e.g., 'user_id')
   }
+  /**
+   * Physical table backing the extension entity.
+   *
+   * Optional. When omitted the query engine derives the table by appending an
+   * `s` to the entity segment of `extension`, which is wrong for any name whose
+   * plural is not formed that way — `example:example_customer_priority` derives
+   * `example_customer_prioritys` while the real table is
+   * `example_customer_priorities`. Declare this whenever the derived name does
+   * not match the `@Entity({ tableName })` of the extension entity.
+   *
+   * MUST be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`); the engine ignores
+   * any other value and falls back to the derived name.
+   */
+  table?: string
   cardinality?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'
   required?: boolean
   description?: string

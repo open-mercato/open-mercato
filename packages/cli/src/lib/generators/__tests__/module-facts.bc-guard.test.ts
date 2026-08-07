@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts, renderModuleFactsJson } from '../module-facts'
+import { extractAllModuleFacts, isExactSourceFilePath, renderModuleFactsJson } from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
 
@@ -15,6 +15,12 @@ function findRepoRoot(): string {
 
 function isUnique(values: string[]): boolean {
   return values.length === new Set(values).size
+}
+
+const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
+
+function collectLinkTargets(markdown: string): string[] {
+  return [...markdown.matchAll(MARKDOWN_LINK_TARGET)].map((match) => match[1])
 }
 
 describe('module-facts BC resolve guard (T2)', () => {
@@ -83,13 +89,58 @@ describe('module-facts BC resolve guard (T2)', () => {
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    // JSON cap raised a fourth time by the injection-table slot normalization:
+    // `extractInjectionTable` previously did `if (!Array.isArray(entries)) continue`,
+    // silently dropping every string and single-object slot form that
+    // `ModuleInjectionTable` allows. Twelve real contributions across catalog, sales,
+    // wms, staff, integrations and checkout were therefore invisible to every fact
+    // consumer — `integrations` published no contributions at all. Reading them costs
+    // ~28KB, which is the fix working, not drift.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_560_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section.
     expect(markdownBytes).toBeLessThan(1_550_000)
+  })
+
+  it('links every generated fact to an exact resolvable file, never a directory', () => {
+    const packageLinkRoot = path.join(repoRoot, 'node_modules', '@open-mercato')
+    const canCheckDisk = fs.existsSync(packageLinkRoot)
+    const nonExactTargets = new Set<string>()
+    const unresolvedTargets = new Set<string>()
+    let checkedTargets = 0
+
+    for (const markdown of Object.values(markdownByModule)) {
+      for (const target of collectLinkTargets(markdown)) {
+        checkedTargets += 1
+        if (!isExactSourceFilePath(target)) {
+          nonExactTargets.add(target)
+          continue
+        }
+        if (!canCheckDisk) continue
+        const absolute = path.join(repoRoot, target)
+        if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) unresolvedTargets.add(target)
+      }
+    }
+
+    expect(checkedTargets).toBeGreaterThan(1_000)
+    expect([...nonExactTargets]).toEqual([])
+    expect([...unresolvedTargets]).toEqual([])
+  })
+
+  it('keeps directory-valued provenance readable as plain text', () => {
+    const frameworkHostMarkdowns = Object.values(markdownByModule)
+      .filter((markdown) => markdown.includes('packages/ui/src'))
+    expect(frameworkHostMarkdowns.length).toBeGreaterThan(0)
+    for (const markdown of frameworkHostMarkdowns) {
+      expect(markdown).not.toContain('(../../../packages/ui/src)')
+    }
+    for (const [moduleId, facts] of Object.entries(factsByModule)) {
+      expect(markdownByModule[moduleId]).toContain(`Source root: ${facts.sourceRoot}\n`)
+      expect(markdownByModule[moduleId]).not.toContain(`(../../../${facts.sourceRoot})`)
+    }
   })
 
   it('discovers a superset of the historical core modules', () => {

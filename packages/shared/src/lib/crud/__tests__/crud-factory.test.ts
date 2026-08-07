@@ -584,6 +584,45 @@ describe('CRUD Factory', () => {
     expect(ids).toContain(otherTenant.id)
   })
 
+  it('GET resolves function-form CSV headers and rows per request', async () => {
+    // Regression coverage for the additive `(query, ctx)` form of `ListConfig.csv`.
+    // A route whose export columns depend on per-request discovery (custom-field keys,
+    // for example) must resolve them from the request context, never from module-level
+    // state that the previous request left behind.
+    const perRequestColumns = new WeakMap<object, string>()
+    const dynamicCsvRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        buildFilters: () => ({} as any),
+        transformItem: (item: any) => ({ id: item.id, title: item.title }),
+        allowCsv: true,
+        csv: {
+          headers: (_query, ctx) => ['id', perRequestColumns.get(ctx) ?? 'fallback'],
+          row: (item: any, ctx) => [item.id, `${perRequestColumns.get(ctx) ?? 'fallback'}:${item.title}`],
+          filename: 'dynamic.csv',
+        },
+      },
+      hooks: {
+        beforeList: (_query, ctx) => {
+          const column = new URL(ctx.request!.url).searchParams.get('column')
+          perRequestColumns.set(ctx, column ?? 'fallback')
+        },
+      },
+    })
+
+    const first = await dynamicCsvRoute.GET(new Request('http://x/api/example/todos?format=csv&column=alpha'))
+    const second = await dynamicCsvRoute.GET(new Request('http://x/api/example/todos?format=csv&column=beta'))
+
+    expect((await first.text()).split('\n')[0]).toBe('id,alpha')
+    expect((await second.text()).split('\n')[0]).toBe('id,beta')
+  })
+
   it('GET returns CSV when format=csv', async () => {
     const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&format=csv'))
     expect(res.headers.get('content-type')).toContain('text/csv')

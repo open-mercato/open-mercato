@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '../types'
+import extensionPoints from '../extension-points'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -10,7 +11,9 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon, EnumBadge, useSeverityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -289,7 +292,7 @@ export default function TodosTable() {
         sortable
         sorting={sorting}
         onSortingChange={handleSortingChange}
-        perspective={{ tableId: 'example.todos.list' }}
+        perspective={{ tableId: extensionPoints.hosts.todosTable.tableId }}
         rowActions={(row) => (
           <RowActions
             items={[
@@ -304,10 +307,20 @@ export default function TodosTable() {
                   })
                   if (!confirmed) return
                   try {
-                    await deleteCrud('example/todos', row.id)
+                    // Row deletes carry the row's own optimistic-lock version, so a
+                    // list rendered before someone else edited the record fails with
+                    // a 409 instead of deleting a row the user never saw.
+                    await withScopedApiRequestHeaders(
+                      buildOptimisticLockHeader(row.updatedAt),
+                      () => deleteCrud('example/todos', row.id),
+                    )
                     flash(t('example.todos.form.flash.deleted'), 'success')
                     queryClient.invalidateQueries({ queryKey: ['todos'] })
                   } catch (err) {
+                    if (surfaceRecordConflict(err, t)) {
+                      queryClient.invalidateQueries({ queryKey: ['todos'] })
+                      return
+                    }
                     const message =
                       err instanceof Error && err.message
                         ? err.message

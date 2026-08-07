@@ -12,11 +12,15 @@ import {
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { assertOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { z } from 'zod'
 import { Todo } from '../data/entities'
+import { todoNotesSchema } from '../data/validators'
 
 const ENTITY_ID = 'example:todo' as const
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -30,21 +34,93 @@ export const todoCreateSchema = z.object({
   id: z.string().uuid().optional(),
   title: z.string().min(1).max(200),
   is_done: z.boolean().optional(),
+  notes: todoNotesSchema.optional(),
 })
 
 export const todoUpdateSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1).max(200).optional(),
   is_done: z.boolean().optional(),
+  notes: todoNotesSchema.optional(),
+  /**
+   * Optional expected `updated_at` for command-level optimistic locking.
+   *
+   * Strictly additive: `assertOptimisticLock` is a documented no-op when the
+   * expected token is absent, so every existing caller — the CRUD route, the AI
+   * tools, the sync bridge — keeps its current behavior. The bulk-complete worker
+   * supplies it so a queued job never silently overwrites an edit made after the
+   * operation was queued.
+   */
+  expected_updated_at: z.string().min(1).optional(),
 })
 
 type SerializedTodo = {
   id: string
   title: string
   is_done: boolean
+  // Plaintext in the snapshot on purpose: undo has to restore what the user typed,
+  // and `audit_logs` encrypts `snapshot_before` / `snapshot_after` / `changes_json`
+  // at rest through its own encryption map.
+  notes?: string | null
   tenantId: string | null
   organizationId: string | null
   custom?: Record<string, unknown>
+}
+
+/**
+ * Minimal slice of `TenantDataEncryptionService` this module needs.
+ *
+ * Declared structurally so `buildTodoUpdatePatch` stays a pure function that a
+ * unit test can drive with a stub instead of a live KMS.
+ */
+export type TodoEncryptionService = {
+  encryptEntityPayload: (
+    entityId: string,
+    payload: Record<string, unknown>,
+    tenantId: string | null | undefined,
+    organizationId?: string | null,
+  ) => Promise<Record<string, unknown>>
+}
+
+/**
+ * Builds the column patch handed to `nativeUpdate`.
+ *
+ * `notes` is covered by this module's encryption map, and MikroORM documents
+ * `nativeUpdate` as having no side effects on the context — which includes the
+ * ORM lifecycle events the tenant-encryption subscriber listens on. A raw
+ * `patch.notes = 'text'` would therefore land in the column as plaintext while
+ * every read path decrypts it, so the value is encrypted here, explicitly,
+ * through the shared service. `title` and `is_done` are not encrypted and pass
+ * through untouched.
+ *
+ * `encryptEntityPayload` is a no-op when encryption is disabled, when the tenant
+ * has no DEK, or when no map covers the entity, so the plaintext fallback below
+ * is the intended behavior in those cases rather than a silent failure.
+ */
+export async function buildTodoUpdatePatch(
+  input: { title?: string; isDone?: boolean; notes?: string | null },
+  scope: { tenantId: string; organizationId: string },
+  encryption: TodoEncryptionService | null,
+): Promise<EntityData<Todo>> {
+  const patch: EntityData<Todo> = {}
+  if (input.title !== undefined) patch.title = input.title
+  if (input.isDone !== undefined) patch.isDone = input.isDone
+  if (input.notes !== undefined) {
+    const plaintext = input.notes
+    if (plaintext === null || !encryption) {
+      patch.notes = plaintext
+    } else {
+      const encrypted = await encryption.encryptEntityPayload(
+        ENTITY_ID,
+        { notes: plaintext },
+        scope.tenantId,
+        scope.organizationId,
+      )
+      const stored = encrypted?.notes
+      patch.notes = typeof stored === 'string' ? stored : plaintext
+    }
+  }
+  return patch
 }
 
 export const todoCrudEvents: CrudEventsConfig<Todo> = {
@@ -90,6 +166,11 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       data: {
         ...(parsed.id ? { id: parsed.id } : {}),
         title: parsed.title,
+        // Assigned as plaintext on purpose: `createOrmEntity` persists through the
+        // request `EntityManager`, whose `beforeCreate` hook runs the tenant
+        // encryption subscriber. The update path cannot rely on that — see
+        // `buildTodoUpdatePatch`.
+        notes: parsed.notes ?? null,
         isDone: parsed.is_done ?? false,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
@@ -216,13 +297,24 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const { parsed } = parseWithCustomFields(todoUpdateSchema, rawInput)
     const scope = ensureScope(ctx)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Todo, {
+    // `notes` is encrypted at rest, so the undo snapshot has to be built from the
+    // decrypted entity — a raw `em.findOne` would snapshot ciphertext and undo
+    // would write it back as if it were the user's text.
+    const existing = await findOneWithDecryption(em, Todo, {
       id: parsed.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
-    } as FilterQuery<Todo>)
+    } as FilterQuery<Todo>, undefined, { tenantId: scope.tenantId, organizationId: scope.organizationId })
     if (!existing) throw new CrudHttpError(404, { error: 'Todo not found' })
+    // Runs in `prepare`, which the command bus always awaits before `execute`, so a
+    // stale version aborts the write instead of racing it.
+    assertOptimisticLock({
+      resourceKind: ENTITY_ID,
+      resourceId: parsed.id,
+      expected: parsed.expected_updated_at,
+      current: existing.updatedAt,
+    })
     const custom = await loadTodoCustomSnapshot(
       em,
       String(existing.id),
@@ -236,12 +328,17 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const em = (ctx.container.resolve('em') as EntityManager)
+    const encryption = parsed.notes !== undefined ? resolveTenantEncryptionService(em) : null
+    const patch = await buildTodoUpdatePatch(
+      { title: parsed.title, isDone: parsed.is_done, notes: parsed.notes },
+      scope,
+      encryption,
+    )
     const todo = await updateTodoWithoutFlushingRequestScope(em, {
       id: parsed.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      title: parsed.title,
-      isDone: parsed.is_done,
+      patch,
     })
     if (!todo) throw new CrudHttpError(404, { error: 'Todo not found' })
 
@@ -291,7 +388,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       result.organizationId ? String(result.organizationId) : null
     )
     const after = serializeTodo(result, afterCustom)
-    const changes = buildChanges(before ?? null, after as unknown as Record<string, unknown>, ['title', 'is_done'])
+    const changes = buildChanges(before ?? null, after as unknown as Record<string, unknown>, ['title', 'is_done', 'notes'])
     const customDiff = diffCustomFieldChanges(before?.custom, afterCustom)
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`cf_${key}`] = diff
@@ -322,9 +419,12 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         organizationId: scope.organizationId,
         deletedAt: null,
       } as FilterQuery<Todo>,
+      // `updateOrmEntity` persists through the request `EntityManager`, so the
+      // `beforeUpdate` encryption hook re-encrypts `notes` on the way back down.
       apply: (entity) => {
         entity.title = before.title
         entity.isDone = before.is_done
+        entity.notes = before.notes ?? null
         entity.tenantId = before.tenantId ?? scope.tenantId
         entity.organizationId = before.organizationId ?? scope.organizationId
       },
@@ -364,12 +464,14 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'Todo id required')
     const scope = ensureScope(ctx)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Todo, {
+    // Same reason as the update `prepare`: the delete-undo snapshot must hold the
+    // plaintext `notes`, not the stored ciphertext.
+    const existing = await findOneWithDecryption(em, Todo, {
       id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
-    } as FilterQuery<Todo>)
+    } as FilterQuery<Todo>, undefined, { tenantId: scope.tenantId, organizationId: scope.organizationId })
     if (!existing) return {}
     const custom = await loadTodoCustomSnapshot(
       em,
@@ -440,6 +542,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       restored.deletedAt = null
       restored.title = before.title
       restored.isDone = before.is_done
+      restored.notes = before.notes ?? null
       restored.tenantId = before.tenantId ?? scope.tenantId
       restored.organizationId = before.organizationId ?? scope.organizationId
       await em.persist(restored).flush()
@@ -450,6 +553,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           id: before.id,
           title: before.title,
           isDone: before.is_done,
+          notes: before.notes ?? null,
           tenantId: before.tenantId ?? scope.tenantId,
           organizationId: before.organizationId ?? scope.organizationId,
         },
@@ -511,6 +615,7 @@ function todoSeedFromSnapshot(snapshot: SerializedTodo): Record<string, unknown>
     id: snapshot.id,
     title: snapshot.title,
     isDone: snapshot.is_done,
+    notes: snapshot.notes ?? null,
     tenantId: snapshot.tenantId,
     organizationId: snapshot.organizationId,
   }
@@ -521,6 +626,7 @@ function serializeTodo(todo: Todo, custom?: Record<string, unknown> | null): Ser
     id: String(todo.id),
     title: String(todo.title),
     is_done: !!todo.isDone,
+    notes: todo.notes ?? null,
     tenantId: todo.tenantId ? String(todo.tenantId) : null,
     organizationId: todo.organizationId ? String(todo.organizationId) : null,
   }
@@ -546,8 +652,7 @@ async function updateTodoWithoutFlushingRequestScope(
     id: string
     tenantId: string
     organizationId: string
-    title?: string
-    isDone?: boolean
+    patch: EntityData<Todo>
   },
 ): Promise<Todo | null> {
   const isolatedEm = em.fork({ clear: true, freshEventManager: true })
@@ -557,10 +662,7 @@ async function updateTodoWithoutFlushingRequestScope(
     organizationId: input.organizationId,
     deletedAt: null,
   } as FilterQuery<Todo>
-  const patch: EntityData<Todo> = {}
-
-  if (input.title !== undefined) patch.title = input.title
-  if (input.isDone !== undefined) patch.isDone = input.isDone
+  const patch: EntityData<Todo> = { ...input.patch }
 
   if (Object.keys(patch).length > 0) {
     patch.updatedAt = new Date()
@@ -568,7 +670,14 @@ async function updateTodoWithoutFlushingRequestScope(
     if (updatedRows === 0) return null
   }
 
-  return await isolatedEm.findOne(Todo, where)
+  // `freshEventManager: true` means this fork carries none of the runtime-registered
+  // ORM subscribers, so the `onLoad` decryption hook never fires here. The explicit
+  // helper is what turns the stored `notes` ciphertext back into plaintext for the
+  // audit snapshot the caller builds from this entity.
+  return await findOneWithDecryption(isolatedEm, Todo, where, undefined, {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+  })
 }
 
 async function loadTodoCustomSnapshot(

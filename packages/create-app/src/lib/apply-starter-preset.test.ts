@@ -37,8 +37,10 @@ test('resolvePreset: empty returns 10-module list', () => {
   ])
   assert.equal(result.modules.find((m) => m.id === 'events')?.from, '@open-mercato/events')
   assert.ok(result.modules.filter((m) => m.id !== 'events').every((m) => m.from === '@open-mercato/core'))
-  assert.ok(result.filesToRemove.includes('src/modules/example'))
-  assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
+  // Example source stays present in every preset; it is disabled through modules.ts only.
+  assert.ok(!result.filesToRemove.includes('src/modules/example'))
+  assert.ok(!result.filesToRemove.includes('src/modules/example_customers_sync'))
+  assert.deepEqual(result.filesToRemove, [])
 })
 
 test('resolvePreset: crm returns 16-module list extending empty (includes currencies + communication_channels + ai_assistant)', () => {
@@ -68,9 +70,10 @@ test('resolvePreset: crm returns 16-module list extending empty (includes curren
   assert.ok(ids.includes('ai_assistant'))
   const aiAssistantEntry = result.modules.find((m) => m.id === 'ai_assistant')
   assert.equal(aiAssistantEntry?.from, '@open-mercato/ai-assistant')
-  // Inherits filesToRemove from empty
-  assert.ok(result.filesToRemove.includes('src/modules/example'))
-  assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
+  // Inherits filesToRemove from empty, which no longer removes the example source
+  assert.ok(!result.filesToRemove.includes('src/modules/example'))
+  assert.ok(!result.filesToRemove.includes('src/modules/example_customers_sync'))
+  assert.deepEqual(result.filesToRemove, [])
   // No duplicates
   const unique = new Set(ids)
   assert.equal(unique.size, ids.length)
@@ -154,7 +157,7 @@ test('applyStarterPreset: classic is a no-op', () => {
   }
 })
 
-test('applyStarterPreset: empty writes 10-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: empty writes 10-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('empty', dir)
@@ -167,8 +170,8 @@ test('applyStarterPreset: empty writes 10-module modules.ts and removes example 
     assert.ok(content.includes("id: 'events'"))
     assert.ok(!content.includes("id: 'customers'"))
     assert.ok(!content.includes('example_customers_sync'))
-    assert.ok(!existsSync(join(dir, 'src', 'modules', 'example')))
-    assert.ok(!existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))
+    assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
+    assert.ok(existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))
     const marker = JSON.parse(readFileSync(join(dir, '.mercato', 'starter-preset.json'), 'utf-8'))
     assert.equal(marker.preset, 'empty')
     assert.ok(typeof marker.generatedAt === 'string')
@@ -177,7 +180,7 @@ test('applyStarterPreset: empty writes 10-module modules.ts and removes example 
   }
 })
 
-test('applyStarterPreset: crm writes 16-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: crm writes 16-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -196,8 +199,8 @@ test('applyStarterPreset: crm writes 16-module modules.ts and removes example di
     assert.ok(content.includes("id: 'ai_assistant'"))
     assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
     assert.ok(!content.includes('example_customers_sync'))
-    assert.ok(!existsSync(join(dir, 'src', 'modules', 'example')))
-    assert.ok(!existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))
+    assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
+    assert.ok(existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))
     const marker = JSON.parse(readFileSync(join(dir, '.mercato', 'starter-preset.json'), 'utf-8'))
     assert.equal(marker.preset, 'crm')
   } finally {
@@ -205,27 +208,23 @@ test('applyStarterPreset: crm writes 16-module modules.ts and removes example di
   }
 })
 
-test('template baseline modules keep example enabled for classic', () => {
+test('template baseline modules keep example and design_system unregistered for classic', () => {
   const content = readFileSync(join(__dirname, '..', '..', 'template', 'src', 'modules.ts'), 'utf-8')
 
-  assert.ok(content.includes("id: 'example'"))
+  assert.ok(!content.includes("id: 'example',"))
+  assert.ok(!content.includes("id: 'design_system'"))
+  // example_customers_sync stays behind the example guard, so it is inert too.
   assert.ok(content.includes("enabledModules.some((entry) => entry.id === 'example')"))
   assert.ok(content.includes("enabledModules.push({ id: 'example_customers_sync', from: '@app' })"))
 })
 
-test('template and monorepo keep the applied Example nav override integration-only', () => {
-  const templateContent = readFileSync(join(__dirname, '..', '..', 'template', 'src', 'modules.ts'), 'utf-8')
+test('monorepo keeps the applied Example nav override integration-only', () => {
   const monorepoContent = readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'mercato', 'src', 'modules.ts'), 'utf-8')
-  const templateEntry = extractExampleModuleEntry(templateContent)
   const monorepoEntry = extractExampleModuleEntry(monorepoContent)
 
-  assert.equal(templateEntry, monorepoEntry)
-
-  for (const entry of [templateEntry, monorepoEntry]) {
-    assert.match(
-      entry,
-      /nav:\s*parseBooleanWithDefault\(process\.env\.OM_INTEGRATION_TEST, false\)\s*\?\s*\{ groupOrder: \['example\.nav\.group'\] \}\s*:\s*undefined/,
-    )
-    assert.doesNotMatch(entry, /nav:\s*\{\s*groupOrder:/)
-  }
+  assert.match(
+    monorepoEntry,
+    /nav:\s*parseBooleanWithDefault\(process\.env\.OM_INTEGRATION_TEST, false\)\s*\?\s*\{ groupOrder: \['example\.nav\.group'\] \}\s*:\s*undefined/,
+  )
+  assert.doesNotMatch(monorepoEntry, /nav:\s*\{\s*groupOrder:/)
 })

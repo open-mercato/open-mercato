@@ -25,6 +25,39 @@
     "status": { "enum": ["pass", "fail", "error"] },
     "sanitizedError": { "type": "string", "maxLength": 4096 },
     "refusedContextReads": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "exampleReadPolicy": {
+      "type": "object",
+      "description": "Sanitized accounting of the case's canonical-example and reason-gated installed-source reads. Present only when the case declared context.exampleRoots. Carries no file content.",
+      "additionalProperties": false,
+      "required": ["roots", "fallback"],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["root", "entrypoints", "capabilities", "files", "bytes"],
+            "properties": {
+              "root": { "type": "string" },
+              "entrypoints": { "type": "array", "items": { "type": "string" } },
+              "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+              "files": { "type": "integer", "minimum": 0 },
+              "bytes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "files", "bytes"],
+          "properties": {
+            "reason": { "type": ["string", "null"], "enum": ["SPECIALIST_ROUTE_NOT_DECLARED", "INSTALLED_VERSION_CONTRACT_MISMATCH", null] },
+            "files": { "type": "integer", "minimum": 0 },
+            "bytes": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
     "actualContext": {
       "type": "object",
       "additionalProperties": false,

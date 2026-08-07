@@ -1,4 +1,7 @@
 import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('example').child({ interceptor: 'audit-logging' })
 
 /**
  * Example command interceptor: audit logging for customer commands.
@@ -21,11 +24,10 @@ const auditLoggingInterceptor: CommandInterceptor = {
   async afterExecute(_input, _result, context) {
     const startedAt = context.metadata?.auditStartedAt as number | undefined
     if (startedAt) {
-      const duration = Date.now() - startedAt
-      // eslint-disable-next-line no-console
-      console.log(
-        `[example:audit] Command ${context.commandId} completed in ${duration}ms`,
-      )
+      logger.info('Command completed', {
+        commandId: context.commandId,
+        durationMs: Date.now() - startedAt,
+      })
     }
   },
 }

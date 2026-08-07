@@ -20,7 +20,7 @@ Two entry points cooperate:
 
 A *code-generation case* is any catalog case whose `evaluationKind` is
 `implementation` or `regression` (`WRITABLE_KINDS`, `evaluate-agent-harness.mjs:37`).
-There are 46 such cases (`ai/harness/validators.json`; asserted in the test suite).
+There are 48 such cases (`ai/harness/validators.json`; asserted in the test suite).
 Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
 `OMH-163/164/165/192` (test authoring).
 
@@ -67,8 +67,24 @@ The release gate wraps this in a larger ordered sequence.
    `framework-context.mjs` against the target, rewrites its manifest and search
    evidence to app-relative paths, and admits only that materialized output root to
    the read allowlist. The model receives the exact manifest, search result, and
-   source root. Exact fact-linked `node_modules/@open-mercato/*/src/**` reads are
-   warning-level examples; broad dependency discovery and all dependency writes remain forbidden.
+   source root. Exact fact-linked installed source reads
+   (`node_modules/@open-mercato/<package>/src/<exact/path>`) are warning-level examples and
+   only when the case declares them; no case carries a glob-shaped installed-source
+   allowance. Broad dependency discovery and all dependency writes remain forbidden.
+6b. A case may also declare `context.exampleRoots`: the canonical read-only
+   `src/modules/example` root, its visible entrypoints, and the exact
+   `references/surface-inventory.json` capability IDs it may follow, under its own
+   file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
+   files — entrypoints, the inventory, and each declared capability's mapped sources —
+   and the root is resolved as immutable *before* any writable pattern, so a
+   `src/modules/**` grant can never reach inside it. Six read-only cases,
+   `OMH-209`…`OMH-216`, declare it today; every other case is byte-identical to before.
+   `OMH-215` selects the operation-progress sources and `OMH-216` the AI tool-pack and
+   agent sources, both separately from the DataTable injection seams `OMH-210` selects.
+   The optional `context.installedVersionFallback` sibling is schema- and
+   evaluator-complete but no shipped case declares it, because `buildPrompt()` still
+   emits no instruction telling a runner to supply the `reason` argument the
+   fallback requires.
 
 ### Phase C — Pre-edit verification & "before" oracle
 7. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink
@@ -136,6 +152,15 @@ The release gate wraps this in a larger ordered sequence.
       plus contrastive distractors. Selecting a distractor is recorded as an
       `unmandated decision`; cases without that field retain the prior exact
       `requiredDecisions` behavior.
+    - A read-only case may also declare `expectedSpecRouting` and register the
+      `routing.spec-decision` validator, which asks for the emitted spec gate's
+      planning branch. `evaluateSpecRoutingDecision` grades the branch and its
+      reason codes separately — so a right branch justified by a wrong reason is
+      distinguishable from a wrong branch — and rejects any filesystem change
+      observed during the case, since planning never writes. Five cases,
+      `OMH-204`…`OMH-208`, declare it today; a case that declares no contract
+      keeps a byte-identical prompt, and an answer that volunteers `specRouting`
+      anyway fails exactly like an unmandated decision label.
 
 ### Phase E — Trace / observation validation (fail-closed)
 13. `observedContext()` reconstructs exactly which files the model read from the
@@ -171,6 +196,14 @@ The release gate wraps this in a larger ordered sequence.
     integration/workflow/regression/business families — it **compiles the exported
     seam and executes it inside a `vm` sandbox** against mocked `effects` (3 s
     worker timeout, 256 KiB source cap) to prove runtime invariants an AST cannot.
+    **Spec oracle** `ai/harness/writable-spec-oracles.mjs` runs for the two SPEC-P2
+    planning proofs (`OMH-213`, `OMH-214`), whose only permitted artifact is Markdown
+    under `.ai/specs/`: it grades section structure, ordered phases, named test
+    coverage, template-placeholder residue, reserved-scaffolding integrity, the fixed
+    amendment terms of the seeded covering spec, and the absence of any module that
+    would mean implementation had started. Which fixed runner a semantic oracle must
+    declare is decided by `FIXED_ORACLE_RUNNER_OVERRIDES` in the evaluator, not by
+    `validators.json`, so a case can still never bring its own grading rules.
 18. **Post-oracle mutation guard:** a third snapshot detects whether the oracle run
     itself changed the target → `oracle execution modified target` (`:2279-2281`).
 19. The `writable` result records `changedPaths`, `beforeOraclePassed` (must be
@@ -264,6 +297,7 @@ tying the reviewed artifact to the exact validated bytes.
 | Tool-call / step ceiling | — (only `--timeout`) | Not present; timeout is global |
 | AST count thresholds (≥3 tests/expects, ≥4 `toBe`, ≥2 `persist`) | `writable-ast-oracles.mjs:914,925,1012` | Fixed literals |
 | Behavioral exact counts/orderings | `writable-behavior-oracles.mjs` probes | Fixed compiled probes |
+| Spec section minimums (80/80/40/80 words, ≥2 ordered phases) | `writable-spec-oracles.mjs` `REQUIRED_SECTIONS` | Fixed literals |
 | Review verdict rule (any major → request changes) | `evaluate…:650-652` | Fixed |
 | Security fail-closed set | Phase E/F above | Fixed (correctly) |
 
@@ -429,10 +463,10 @@ corrected rate stay distinguishable.
 
 ### 3.6 One catalog inconsistency, recorded rather than papered over
 
-`.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` is `required` in 9 cases and, by a
+`.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` is `required` in 20 cases and, by a
 deterministic validator, may never be `allowedExtra` — access is binary. But OMH-057
 requires it for a "preserve the seeded … export seam" prompt while OMH-045, OMH-054,
-OMH-060, OMH-061, and OMH-070 forbid it on identical wording. No router rule can
-satisfy both. The harness-side mitigation is that a refused path is treated as
+OMH-060, OMH-061, and OMH-070 route it nowhere on identical wording, so their tool
+server refuses the same read. No router rule can satisfy both. The harness-side mitigation is that a refused path is treated as
 inapplicable to that case rather than as an unresolved blocker; resolving the
 inconsistency itself is a catalog decision for the owner.
