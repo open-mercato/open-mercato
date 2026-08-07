@@ -3,11 +3,12 @@
  *
  * Guard: the switcher must never leave a blank `om_selected_tenant` cookie behind.
  *
- * A blank value is not "no selection". `resolveTenantOverride` reads it as a deliberate "no tenant"
- * override and `applySuperAdminScope` then nulls the tenant for the whole session on super-admin
- * accounts — which is why ordinary accounts never saw it. Routes that feed the tenant into a uuid
- * filter fail in the driver from there. Expiring the cookie leaves the session on the tenant
- * carried in the token.
+ * A blank value is meaningless for this cookie — there is no all-tenants sentinel to express and no
+ * UI produces one. `resolveTenantOverride` used to read it as a deliberate "no tenant" override, so
+ * `applySuperAdminScope` nulled the tenant for the whole session on super-admin accounts (which is
+ * why ordinary accounts never saw it) and routes feeding that tenant into a uuid filter failed in
+ * the driver. The server now ignores a blank value; these cases keep the writer from producing one
+ * in the first place, so neither side depends on the other for the fix to hold.
  */
 import '@testing-library/jest-dom'
 import { act, render, waitFor } from '@testing-library/react'
@@ -122,6 +123,27 @@ describe('OrganizationSwitcher tenant cookie', () => {
 
     await waitFor(() => expect(apiCallMock).toHaveBeenCalled())
     await waitFor(() => expect(readTenantCookie()).toBeNull())
+  })
+
+  // The path a real poisoned browser takes. Now that the server ignores a blank cookie, the switcher
+  // API answers with the actor's own tenant rather than `null`, so the blank cookie is overwritten
+  // with that concrete id instead of being expired — the other direction of the same remediation.
+  it('overwrites a legacy blank cookie with the tenant the switcher resolves', async () => {
+    document.cookie = `om_selected_tenant=; path=/; max-age=${60 * 60 * 24 * 30}`
+    expect(readTenantCookie()).toBe('')
+
+    mockSwitcherPayload({
+      items: [{ id: organizationId, name: 'Org', depth: 0, children: [] }],
+      selectedId: organizationId,
+      canManage: true,
+      tenantId,
+      tenants: [{ id: tenantId, name: 'Tenant', isActive: true }],
+      isSuperAdmin: true,
+    })
+
+    render(<OrganizationSwitcher />)
+
+    await waitFor(() => expect(readTenantCookie()).toBe(tenantId))
   })
 
   it('persists a resolved tenant', async () => {
