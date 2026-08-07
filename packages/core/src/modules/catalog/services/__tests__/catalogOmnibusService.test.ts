@@ -853,3 +853,75 @@ describe('DefaultCatalogOmnibusService — offer anchor ignores backfilled rows'
     expect(block?.windowEnd).toBe('2026-08-01T00:00:00.000Z')
   })
 })
+
+// Compliance case C9. Two channels selling the same product keep separate
+// histories, so a reduction announced on one must never borrow the other's
+// reference — that would let a shop prove a discount with a price it never
+// offered in that market.
+describe('DefaultCatalogOmnibusService — per-channel isolation (C9)', () => {
+  const twoChannelConfig: OmnibusConfig = {
+    enabled: true,
+    enabledCountryCodes: ['PL', 'DE'],
+    lookbackDays: 30,
+    minimizationAxis: 'gross',
+    channels: {
+      'ch-pl': { countryCode: 'PL' },
+      'ch-de': { countryCode: 'DE' },
+    },
+  }
+
+  it('scopes every history query to the requested channel', async () => {
+    const { service } = makeService(twoChannelConfig)
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, { ...baseCtx, channelId: 'ch-de' }, null, false)
+
+    for (const call of findMock.mock.calls) {
+      expect(call[2]).toMatchObject({ channelId: { $eq: 'ch-de' } })
+    }
+  })
+
+  it('resolves a different reference for each channel', async () => {
+    const { service } = makeService(twoChannelConfig)
+    const byChannel: Record<string, string> = { 'ch-pl': '100', 'ch-de': '80' }
+
+    findMock.mockImplementation(async (_em, _entity, where) => {
+      const channelId = (where as { channelId?: { $eq?: string } }).channelId?.$eq ?? ''
+      const gross = byChannel[channelId]
+      // Only the baseline probe returns a row; the in-window scan stays empty.
+      const isBaseline = Boolean((where as { recordedAt?: { $lte?: Date } }).recordedAt?.$lte)
+      return isBaseline && gross
+        ? [row({ id: `base-${channelId}`, recordedAt: '2026-05-01T00:00:00.000Z', gross })]
+        : []
+    })
+
+    const pl = await service.resolveOmnibusBlock(em, { ...baseCtx, channelId: 'ch-pl' }, null, false)
+    const de = await service.resolveOmnibusBlock(em, { ...baseCtx, channelId: 'ch-de' }, null, false)
+
+    expect(pl?.lowestPriceGross).toBe('100')
+    expect(de?.lowestPriceGross).toBe('80')
+  })
+
+  it('gives the two channels distinct cache keys', async () => {
+    const { service, cache } = makeService(twoChannelConfig)
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, { ...baseCtx, channelId: 'ch-pl' }, null, false)
+    await service.resolveOmnibusBlock(em, { ...baseCtx, channelId: 'ch-de' }, null, false)
+
+    const keys = cache.set.mock.calls.map((call) => call[0] as string)
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('blends channels only when none is supplied and the mode allows it', async () => {
+    const { service } = makeService({ ...twoChannelConfig, noChannelMode: 'best_effort' })
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, { ...baseCtx, channelId: null }, null, false)
+
+    for (const call of findMock.mock.calls) {
+      expect(call[2]).not.toHaveProperty('channelId')
+    }
+  })
+})

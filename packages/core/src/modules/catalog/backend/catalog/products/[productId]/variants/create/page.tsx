@@ -372,6 +372,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
               gtinType: values.gtinType ?? null,
+              omnibusExempt: values.omnibusExempt ?? null,
               hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,

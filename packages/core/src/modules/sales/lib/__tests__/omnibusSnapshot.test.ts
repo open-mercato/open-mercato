@@ -370,3 +370,86 @@ describe('applyOmnibusSnapshotToLine', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+// Compliance case C14, second half. The snapshot is the shop's evidence of what
+// the buyer was shown at purchase time, so a later catalog price change — or any
+// later edit of the same line — must not move it.
+describe('snapshot immutability after the catalog price moves', () => {
+  // This helper deliberately has NO internal guard: it overwrites whatever it is
+  // given. Immutability therefore lives entirely in the caller condition
+  // `!existing && omnibusService && sourceLine.productId` in the document
+  // commands. Pinning the overwrite here is what makes that guard load-bearing —
+  // if someone ever drops it, an edit to an existing order line would silently
+  // re-stamp the legal reference with today's numbers.
+  it('overwrites an existing snapshot when invoked, which is why the caller guards on !existing', async () => {
+    const alreadyCaptured: OmnibusSnapshotTarget = {
+      omnibusReferenceGross: '100.0000',
+      omnibusApplicabilityReason: 'announced_promotion',
+    }
+    const service = makeService({
+      resolveOmnibusBlock: jest.fn(async () => ({
+        ...block,
+        lowestPriceGross: '55.0000',
+        applicabilityReason: 'insufficient_history' as const,
+      })),
+    })
+    const { em } = makeEm(priceRow)
+
+    await applyOmnibusSnapshotToLine({
+      em,
+      service,
+      line: alreadyCaptured,
+      sourceLine: { productId: 'product-1', priceId },
+      document,
+      documentKind: 'order',
+    })
+
+    expect(alreadyCaptured.omnibusReferenceGross).toBe('55.0000')
+    expect(alreadyCaptured.omnibusApplicabilityReason).toBe('insufficient_history')
+  })
+
+  it('captures the reference in effect at line creation, not the current catalog price', async () => {
+    // The resolver is asked once, at creation. Whatever the catalog does afterwards
+    // is irrelevant to the row already written.
+    const atPurchaseTime = jest.fn(async () => ({ ...block, lowestPriceGross: '100.0000' }))
+    const service = makeService({ resolveOmnibusBlock: atPurchaseTime })
+    const { em } = makeEm(priceRow)
+    const line = makeLine()
+
+    await applyOmnibusSnapshotToLine({
+      em,
+      service,
+      line,
+      sourceLine: { productId: 'product-1', priceId },
+      document,
+      documentKind: 'order',
+    })
+
+    expect(line.omnibusReferenceGross).toBe('100.0000')
+    expect(atPurchaseTime).toHaveBeenCalledTimes(1)
+
+    // The resolver is consulted exactly once, at creation. Nothing in this module
+    // re-reads it, so a later catalog move cannot reach the stored row.
+    expect(atPurchaseTime).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps both document kinds on the same immutable contract', async () => {
+    for (const documentKind of ['order', 'quote'] as const) {
+      const service = makeService()
+      const { em } = makeEm(priceRow)
+      const line = makeLine()
+
+      await applyOmnibusSnapshotToLine({
+        em,
+        service,
+        line,
+        sourceLine: { productId: 'product-1', priceId },
+        document,
+        documentKind,
+      })
+
+      expect(line.omnibusReferenceGross).toBe('100.0000')
+      expect(line.omnibusApplicabilityReason).toBe('announced_promotion')
+    }
+  })
+})

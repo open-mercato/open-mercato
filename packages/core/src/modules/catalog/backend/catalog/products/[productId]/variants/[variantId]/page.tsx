@@ -357,6 +357,13 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                 : typeof record.gtinType === 'string'
                   ? record.gtinType
                   : null,
+            // Tri-state: only an explicit boolean overrides the product-level flag.
+            omnibusExempt:
+              typeof record.omnibus_exempt === 'boolean'
+                ? record.omnibus_exempt
+                : typeof record.omnibusExempt === 'boolean'
+                  ? record.omnibusExempt
+                  : null,
             hsCode:
               typeof record.hs_code === 'string'
                 ? record.hs_code
@@ -634,6 +641,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
               gtinType: values.gtinType ?? null,
+              omnibusExempt: values.omnibusExempt ?? null,
               hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,
