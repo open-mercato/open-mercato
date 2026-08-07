@@ -15,6 +15,13 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   }),
 }))
 
+// The dispatcher bootstraps through the API-only entry point; mocking `@/bootstrap`
+// alone would let the real module graph (and `@open-mercato/ui`'s ESM deps) load here.
+jest.mock('@/bootstrap-api', () => ({
+  bootstrap: jest.fn(),
+  isBootstrapped: jest.fn(() => true),
+}))
+
 jest.mock('@/bootstrap', () => ({
   bootstrap: jest.fn(),
   isBootstrapped: jest.fn(() => true),
@@ -44,6 +51,9 @@ function getMockedApiRoutes(): ApiRouteManifestEntry[] {
   ]
 }
 
+// Runtime registration goes through the request-prefix shard facades; the legacy
+// manifests stay mocked because they remain the public compatibility surface.
+jest.mock('@/.mercato/generated/api-route-shards.generated', () => ({ apiRouteFacades: getMockedApiRoutes() }))
 jest.mock('@/.mercato/generated/api-routes.generated', () => ({ apiRoutes: getMockedApiRoutes() }))
 jest.mock('@/.mercato/generated/backend-routes.generated', () => ({ backendRoutes: [] }))
 
