@@ -51,6 +51,13 @@ is not.
   and `apps/mercato/package.json`.
 - 1.3 Run `yarn install` and review the resulting `yarn.lock` delta for unrelated churn.
 
+  Note from execution: the resolutions bump alone was not enough. `@eslint/eslintrc` declares
+  `js-yaml@^4.3.0`, a descriptor none of the five pinned keys covers, and `4.3.0` still satisfies it —
+  so `yarn install` happily kept the vulnerable resolution and the audit still failed. Rather than add a
+  sixth descriptor-keyed pin (more of exactly the debt issue #5098 is about), the stale
+  `"js-yaml@npm:^4.3.0"` lockfile entry was dropped so `yarn install` re-resolved it; it now shares the
+  `4.3.1` entry.
+
 ### Phase 2: Verify
 
 - 2.1 Confirm `node scripts/audit-ci.mjs --severity high` reports zero advisories at high or above.
@@ -74,11 +81,11 @@ is not.
 
 ### Phase 1: Bump the vulnerable dependencies
 
-- [ ] 1.1 Bump the `js-yaml` resolutions pins to 3.15.1 / 4.3.1
-- [ ] 1.2 Bump `pdfjs-dist` to `^6.2.108` in the three manifests
-- [ ] 1.3 Refresh `yarn.lock` with `yarn install`
+- [x] 1.1 Bump the `js-yaml` resolutions pins to 3.15.1 / 4.3.1 — cafcc7aa7
+- [x] 1.2 Bump `pdfjs-dist` to `^6.2.108` in the three manifests — cafcc7aa7
+- [x] 1.3 Refresh `yarn.lock` with `yarn install` — cafcc7aa7
 
 ### Phase 2: Verify
 
-- [ ] 2.1 Confirm the high-severity audit passes
+- [x] 2.1 Confirm the high-severity audit passes — cafcc7aa7
 - [ ] 2.2 Run the validation gate, including the attachments tests
