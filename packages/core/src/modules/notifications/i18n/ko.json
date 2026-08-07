@@ -77,6 +77,7 @@
   "notifications.settings.saving": "저장 중...",
   "notifications.settings.types.description": "알림 유형별 전송 채널입니다. 채널을 끄면 해당 유형에 대해 테넌트 전체에서 완전히 비활성화되어 전송되지 않으며, 사용자도 환경설정에서 켤 수 없습니다. 채널을 켜면 사용자가 유형별로 수신 여부를 선택할 수 있고, 필수(수신 거부 불가) 유형은 활성화된 채널로 항상 전송됩니다. 이 설정은 모듈 기본값보다 우선합니다.",
   "notifications.settings.types.empty": "아직 등록된 알림 유형이 없습니다.",
+  "notifications.settings.types.lastChannelRestored": "알림 유형에는 채널이 하나 이상 있어야 하므로 모듈 기본값이 복원되었습니다.",
   "notifications.settings.types.loadError": "알림 유형을 불러오지 못했습니다",
   "notifications.settings.types.requiredColumn": "필수",
   "notifications.settings.types.requiredHint": "켜져 있으면 사용자가 수신을 거부할 수 없습니다.",
@@ -91,7 +92,7 @@
   "notifications.toast.new": "새 알림",
   "notifications.types.invalidChannels": "잘못된 채널 데이터입니다",
   "notifications.types.overrideConflict": "다른 담당자가 방금 이 알림 유형을 저장했습니다. 새로고침한 뒤 다시 시도하세요.",
+  "notifications.types.unknownChannel": "알 수 없는 알림 채널입니다",
   "notifications.types.unknownType": "알 수 없는 알림 유형입니다",
-  "notifications.unreadSummary": "읽지 않음 {count}개",
-  "notifications.types.unknownChannel": "알 수 없는 알림 채널입니다"
+  "notifications.unreadSummary": "읽지 않음 {count}개"
 }

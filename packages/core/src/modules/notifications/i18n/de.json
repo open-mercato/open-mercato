@@ -77,6 +77,7 @@
   "notifications.settings.saving": "Speichern...",
   "notifications.settings.types.description": "Zustellkanäle pro Benachrichtigungstyp. Das Ausschalten eines Kanals deaktiviert ihn vollständig für diesen Typ in Ihrem Tenant — er wird nie zugestellt und Nutzer können ihn nicht in ihren Einstellungen aktivieren. Ein eingeschalteter Kanal lässt Nutzer pro Typ entscheiden; erforderliche (Non-Opt-out-)Typen werden auf aktivierten Kanälen immer zugestellt. Ihre Einstellung überschreibt den Modul-Standard.",
   "notifications.settings.types.empty": "Es sind noch keine Benachrichtigungstypen registriert.",
+  "notifications.settings.types.lastChannelRestored": "Ein Benachrichtigungstyp muss mindestens einen Kanal behalten, daher wurde die Standardeinstellung des Moduls wiederhergestellt.",
   "notifications.settings.types.loadError": "Benachrichtigungstypen konnten nicht geladen werden",
   "notifications.settings.types.requiredColumn": "Erforderlich",
   "notifications.settings.types.requiredHint": "Nutzer können sich nicht abmelden, wenn aktiviert.",
@@ -91,7 +92,7 @@
   "notifications.toast.new": "Neue Benachrichtigung",
   "notifications.types.invalidChannels": "Ungültige Kanal-Daten",
   "notifications.types.overrideConflict": "Ein anderer Operator hat diesen Benachrichtigungstyp gerade gespeichert. Bitte neu laden und erneut versuchen.",
+  "notifications.types.unknownChannel": "Unbekannter Benachrichtigungskanal",
   "notifications.types.unknownType": "Unbekannter Benachrichtigungstyp",
-  "notifications.unreadSummary": "{count} ungelesen",
-  "notifications.types.unknownChannel": "Unbekannter Benachrichtigungskanal"
+  "notifications.unreadSummary": "{count} ungelesen"
 }

@@ -77,6 +77,7 @@
   "notifications.settings.saving": "Zapisywanie...",
   "notifications.settings.types.description": "Kanały dostarczania per typ powiadomienia. Wyłączenie kanału całkowicie dezaktywuje go dla tego typu w Twoim tenancie — nigdy nie jest dostarczany, a użytkownicy nie mogą go włączyć w swoich preferencjach. Włączony kanał pozwala użytkownikom decydować per typ; typy wymagane (bez rezygnacji) zawsze dostarczają na włączonych kanałach. Twoje ustawienie nadpisuje domyślne z modułu.",
   "notifications.settings.types.empty": "Nie zarejestrowano jeszcze żadnych typów powiadomień.",
+  "notifications.settings.types.lastChannelRestored": "Typ powiadomienia musi mieć co najmniej jeden kanał, więc przywrócono domyślne ustawienie modułu.",
   "notifications.settings.types.loadError": "Nie udało się wczytać typów powiadomień",
   "notifications.settings.types.requiredColumn": "Wymagane",
   "notifications.settings.types.requiredHint": "Użytkownicy nie mogą zrezygnować, gdy włączone.",
@@ -91,7 +92,7 @@
   "notifications.toast.new": "Nowe powiadomienie",
   "notifications.types.invalidChannels": "Nieprawidłowe dane kanałów",
   "notifications.types.overrideConflict": "Inny operator właśnie zapisał ten typ powiadomienia. Odśwież i spróbuj ponownie.",
+  "notifications.types.unknownChannel": "Nieznany kanał powiadomień",
   "notifications.types.unknownType": "Nieznany typ powiadomienia",
-  "notifications.unreadSummary": "{count} nieprzeczytanych",
-  "notifications.types.unknownChannel": "Nieznany kanał powiadomień"
+  "notifications.unreadSummary": "{count} nieprzeczytanych"
 }

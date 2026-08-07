@@ -6,7 +6,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flash, type FlashKind } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -110,6 +110,7 @@ export function NotificationSettingsPageClient() {
     cellKey: string,
     mutationPayload: Record<string, unknown>,
     operation: () => Promise<Awaited<ReturnType<typeof apiCall<PatchTypeResponse>>>>,
+    resolveSavedFlash?: (saved: NotificationTypeCatalogueItem) => { message: string; kind: FlashKind } | null,
   ) => {
     setSavingTypeCell(cellKey)
     try {
@@ -146,7 +147,11 @@ export function NotificationSettingsPageClient() {
             : item,
         ),
       )
-      flash(t('notifications.settings.types.saveSuccess', 'Notification type settings saved'), 'success')
+      const savedFlash = saved ? resolveSavedFlash?.(saved) ?? null : null
+      flash(
+        savedFlash?.message ?? t('notifications.settings.types.saveSuccess', 'Notification type settings saved'),
+        savedFlash?.kind ?? 'success',
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : t('notifications.settings.types.saveError', 'Failed to save notification type settings')
       flash(message, 'error')
@@ -189,11 +194,29 @@ export function NotificationSettingsPageClient() {
     channel: string,
     enabled: boolean,
   ) =>
-    saveTypeCell(type, cellKey, { id: type.id, channel, enabled }, () =>
-      apiCall<PatchTypeResponse>(
-        `/api/notifications/types/${encodeURIComponent(type.id)}/channels/${encodeURIComponent(channel)}`,
-        { method: enabled ? 'PUT' : 'DELETE' },
-      ),
+    saveTypeCell(
+      type,
+      cellKey,
+      { id: type.id, channel, enabled },
+      () =>
+        apiCall<PatchTypeResponse>(
+          `/api/notifications/types/${encodeURIComponent(type.id)}/channels/${encodeURIComponent(channel)}`,
+          { method: enabled ? 'PUT' : 'DELETE' },
+        ),
+      // Unchecking the last channel clears the override instead of storing an empty set (which would
+      // black-hole the type), so the code-declared default reapplies and the box the operator just
+      // unticked can come back ticked. The write succeeded, so say what happened rather than letting a
+      // green "saved" sit next to a checkbox that visibly ignored the click.
+      (saved) =>
+        !enabled && saved.storedChannels === null && (saved.channels === null || saved.channels.includes(channel))
+          ? {
+              message: t(
+                'notifications.settings.types.lastChannelRestored',
+                'A notification type must keep at least one channel, so the module default was restored.',
+              ),
+              kind: 'warning' as FlashKind,
+            }
+          : null,
     )
 
   const handleTypeChannelToggle = async (

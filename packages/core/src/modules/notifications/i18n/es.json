@@ -77,6 +77,7 @@
   "notifications.settings.saving": "Guardando...",
   "notifications.settings.types.description": "Canales de entrega por tipo de notificación. Apagar un canal lo desactiva por completo para ese tipo en tu tenant: nunca se entrega y los usuarios no pueden activarlo en sus preferencias. Un canal encendido permite a los usuarios decidir por tipo; los tipos obligatorios (sin exclusión) siempre se entregan en los canales activos. Tu configuración anula el valor predeterminado del módulo.",
   "notifications.settings.types.empty": "Aún no hay tipos de notificación registrados.",
+  "notifications.settings.types.lastChannelRestored": "Un tipo de notificación debe conservar al menos un canal, por lo que se restauró el valor predeterminado del módulo.",
   "notifications.settings.types.loadError": "No se pudieron cargar los tipos de notificación",
   "notifications.settings.types.requiredColumn": "Obligatoria",
   "notifications.settings.types.requiredHint": "Los usuarios no pueden desactivarla cuando está activada.",
@@ -91,7 +92,7 @@
   "notifications.toast.new": "Nueva notificación",
   "notifications.types.invalidChannels": "Payload de canales no válido",
   "notifications.types.overrideConflict": "Otro operador acaba de guardar este tipo de notificación. Vuelve a cargar e inténtalo de nuevo.",
+  "notifications.types.unknownChannel": "Canal de notificación desconocido",
   "notifications.types.unknownType": "Tipo de notificación desconocido",
-  "notifications.unreadSummary": "{count} sin leer",
-  "notifications.types.unknownChannel": "Canal de notificación desconocido"
+  "notifications.unreadSummary": "{count} sin leer"
 }
