@@ -229,12 +229,22 @@ export async function PUT(req: Request) {
   // the action log. The command owns the transactional write and the RBAC cache
   // invalidation that used to live here.
   const commandBus = container.resolve('commandBus') as CommandBus
+  // A super admin may edit a role in another tenant. The actor's organization
+  // belongs to *their* tenant, and the command bus resolves the log row's
+  // organization as `metadata.organizationId ?? ctx.selectedOrganizationId ??
+  // ctx.auth.orgId` — a `??` chain, so a handler cannot express "explicitly no
+  // organization" on its own. Strip the organization from the context instead,
+  // otherwise the entry is stamped (target tenant, actor's foreign organization)
+  // and `ActionLogService` — which filters organization with strict equality —
+  // can never surface it for anyone.
+  const isForeignTenant = targetTenantId !== (auth.tenantId ?? null)
+  const actorOrgId = isForeignTenant ? null : auth.orgId ?? null
   const commandCtx: CommandRuntimeContext = {
     container,
-    auth,
+    auth: isForeignTenant ? { ...auth, orgId: null } : auth,
     organizationScope: null,
-    selectedOrganizationId: auth.orgId ?? null,
-    organizationIds: auth.orgId ? [auth.orgId] : null,
+    selectedOrganizationId: actorOrgId,
+    organizationIds: actorOrgId ? [actorOrgId] : null,
     request: req,
   }
   await commandBus.execute<RoleAclUpdateInput, AclUpdateResult>(AUTH_ROLE_ACL_UPDATE_COMMAND_ID, {
