@@ -720,5 +720,5 @@
   "customers~catalog.errors.organization_required": "El contexto de organización es obligatorio.",
   "customers~catalog.errors.tenant_required": "El contexto de tenant es obligatorio.",
   "customers~catalog.nav.group": "Catálogo",
-  "notifications.categories.catalog": "Cat\u00e1logo"
+  "notifications.categories.catalog": "Catálogo"
 }

@@ -157,8 +157,13 @@ export async function syncNotificationTypes(
 
   // Prune system-wide rows no longer in the catalogue (a removed/renamed module's type stops showing
   // in the preferences matrix). Guarded by a non-empty catalogue so a mis-bootstrapped process with an
-  // empty registry can never wipe the table. Caveat: multiple apps with different module sets sharing
-  // one DB would prune each other's types — out of scope for the standard one-app-per-DB deployment.
+  // empty registry can never wipe the table. Known limitation, deliberately not addressed here: the
+  // guard is a count, not a completeness check, so a process holding a PARTIAL catalogue still prunes
+  // the missing modules' rows — same for multiple apps with different module sets sharing one DB.
+  // Both are bounded: `synced` limits it to one sync per process, the rows come back on the next
+  // full-catalogue sync, and nothing cascades (overrides and preferences reference the type by plain
+  // string id with no FK, so they survive and re-attach). Closing it properly means gating on the
+  // enabled-module set that fed the registry, or moving the prune off this lazy read path entirely.
   if (definitions.length > 0) {
     const validIds = new Set(visibleDefinitions.map((def) => def.type))
     const staleIds = existing.filter((row) => !validIds.has(row.id)).map((row) => row.id)
