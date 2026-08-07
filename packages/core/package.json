@@ -244,7 +244,7 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "mammoth": "^1.9.0",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "^6.2.108",
     "resend": "^6.17.2",
     "sanitize-html": "^2.17.5",
     "semver": "^7.8.5",
