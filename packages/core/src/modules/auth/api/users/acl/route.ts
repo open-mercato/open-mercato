@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import {
   assertActorCanAccessUserTarget,
@@ -17,6 +17,11 @@ import {
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  AUTH_USER_ACL_UPDATE_COMMAND_ID,
+  type AclUpdateResult,
+  type UserAclUpdateInput,
+} from '@open-mercato/core/modules/auth/commands/acl'
 
 const getSchema = z.object({ userId: z.string().uuid() })
 const putSchema = z.object({
@@ -166,7 +171,7 @@ export async function PUT(req: Request) {
   const requestedFeatures = normalizeGrantFeatureList(parsed.data.features)
   const organizations = normalizeOrganizations(parsed.data.organizations)
 
-  let acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
+  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
   // the client sends no expected-version header; skipped when no ACL row exists.
@@ -223,38 +228,29 @@ export async function PUT(req: Request) {
 
   const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
-  // Persist the ACL mutation inside a transaction so the per-user permission
-  // write (or removal) commits atomically (proper ACL-edit transaction handling).
-  if (!hasCustomAcl) {
-    if (acl) {
-      const aclToRemove = acl
-      await withAtomicFlush(em, [() => em.remove(aclToRemove)], { transaction: true })
-    }
-  } else {
-    if (!acl) {
-      acl = em.create(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
-    }
-    const aclRecord = acl as any
-    await withAtomicFlush(
-      em,
-      [
-        () => {
-          aclRecord.isSuperAdmin = effectiveIsSuperAdmin
-          aclRecord.featuresJson = effectiveFeatures
-          aclRecord.organizationsJson = organizations
-          em.persist(aclRecord)
-        },
-      ],
-      { transaction: true },
-    )
+  // Route the write through the command bus so the permission change lands in
+  // the action log. The command owns the transactional write (or removal) and
+  // the RBAC cache invalidation that used to live here.
+  const commandBus = container.resolve('commandBus') as CommandBus
+  const commandCtx: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: null,
+    selectedOrganizationId: auth.orgId ?? null,
+    organizationIds: auth.orgId ? [auth.orgId] : null,
+    request: req,
   }
-
-  // Invalidate cache for this user
-  await rbacService.invalidateUserCache(parsed.data.userId)
-  try {
-    const cache = container.resolve('cache') as any
-    if (cache) await cache.deleteByTags([`rbac:user:${parsed.data.userId}`])
-  } catch {}
+  await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
+    input: {
+      userId: parsed.data.userId,
+      tenantId: auth.tenantId as string,
+      isSuperAdmin: effectiveIsSuperAdmin,
+      features: effectiveFeatures,
+      organizations,
+      clear: !hasCustomAcl,
+    },
+    ctx: commandCtx,
+  })
 
   return NextResponse.json({
     ok: true,

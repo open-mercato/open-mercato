@@ -18,6 +18,8 @@
   "auth.actions.contactSupport": "Skontaktuj się z pomocą",
   "auth.actions.viewPermissions": "Zobacz uprawnienia",
   "auth.actions.viewSessions": "Zobacz sesje",
+  "auth.audit.acl.role_update": "Zmień uprawnienia roli",
+  "auth.audit.acl.user_update": "Zmień uprawnienia użytkownika",
   "auth.audit.roles.create": "Utwórz rolę",
   "auth.audit.roles.delete": "Usuń rolę",
   "auth.audit.roles.update": "Aktualizuj rolę",
