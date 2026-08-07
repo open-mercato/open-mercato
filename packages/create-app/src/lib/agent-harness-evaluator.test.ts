@@ -576,12 +576,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-204', () => {
+test('deterministic evaluation enforces the case schema through OMH-214', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-204')
+    assert.equal(cases.at(-1)?.id, 'OMH-214')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 

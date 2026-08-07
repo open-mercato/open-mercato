@@ -13,33 +13,21 @@ const outputPrefix = '__OM_MODULE_RESOURCE_USAGE_DIR__'
 
 function runMonorepoDevWrapper({ envFiles = {}, shellOverride } = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-module-resource-usage-dir-'))
-  const binDir = path.join(tempDir, 'bin')
   const appDir = path.join(tempDir, 'apps', 'mercato')
-  const yarnPath = path.join(binDir, process.platform === 'win32' ? 'yarn.cmd' : 'yarn')
-  fs.mkdirSync(binDir, { recursive: true })
-  fs.mkdirSync(appDir, { recursive: true })
+  const appScriptPath = path.join(appDir, 'scripts', 'dev.mjs')
+  fs.mkdirSync(path.dirname(appScriptPath), { recursive: true })
   fs.mkdirSync(path.join(tempDir, 'packages'), { recursive: true })
   fs.writeFileSync(path.join(appDir, 'package.json'), '{}\n')
+  fs.writeFileSync(
+    appScriptPath,
+    `console.log('${outputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))\n`,
+  )
   for (const [fileName, contents] of Object.entries(envFiles)) {
     fs.writeFileSync(path.join(appDir, fileName), contents)
-  }
-  if (process.platform === 'win32') {
-    fs.writeFileSync(yarnPath, [
-      '@echo off',
-      `node -e "console.log('${outputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))"`,
-      'exit /b 0',
-    ].join('\r\n'))
-  } else {
-    fs.writeFileSync(yarnPath, [
-      '#!/usr/bin/env node',
-      `console.log('${outputPrefix}' + JSON.stringify(process.env.OM_MODULE_RESOURCE_USAGE_DIR ?? null))`,
-    ].join('\n'))
-    fs.chmodSync(yarnPath, 0o755)
   }
 
   const env = {
     ...process.env,
-    PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
     OM_DEV_AUTO_MIGRATE: '0',
     OM_DEV_AUTO_OPEN: '0',
     OM_DEV_LOG_TEE: '0',
