@@ -18,13 +18,7 @@ export function resolvePresentedPriceKindId(config: OmnibusConfig, ctx: OmnibusR
   )
 }
 
-/**
- * Per-request memo for the presented price kind.
- *
- * A products list resolves the same one or two price kinds for every row, so without this the
- * kind lookup is a pure N+1: one query per item for a value that barely varies. Pass a map that
- * lives for the duration of one request; omit it for a single-scope call such as the preview.
- */
+/** Per-request memo: without it the kind lookup is one query per list row. */
 export type PriceKindPromotionCache = Map<string, Promise<boolean>>
 
 async function readPriceKindIsPromotion(
@@ -53,11 +47,8 @@ async function readPriceKindIsPromotion(
   return promise
 }
 
-// The presented entry is what the customer is being shown right now. Every resolution path
-// (products list, admin preview, and any future storefront) MUST derive it the same way and
-// pass it in: it supplies the promotion anchor, drives the `applicable` decision, and — most
-// importantly — is the row the EC-7 rule excludes from its own reference window. Passing null
-// silently degrades the reference to whatever the promotion itself costs.
+// Every resolution path MUST derive the presented entry the same way and pass it in: it is
+// the anchor, the `applicable` signal, and the row EC-7 excludes from its own window.
 export async function resolvePresentedPrice(
   em: EntityManager,
   ctx: OmnibusResolutionContext,

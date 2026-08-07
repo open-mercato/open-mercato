@@ -221,11 +221,8 @@ async function GET(req: Request) {
       nextCursor,
     }
     if (query.includeTotal) {
-      // Deliberate exception to the "reads go through findWithDecryption" rule: there is no
-      // decryption-aware count helper, and a COUNT returns a scalar rather than column values,
-      // so there is nothing to decrypt. `findWithDecryption` passes `where` through untouched,
-      // so the SQL predicate is identical. `baseWhere` — not the cursor-narrowed filter — is
-      // correct here: the total describes the whole result set, not the current page.
+      // No decryption-aware count helper exists and a COUNT reads no column values.
+      // `baseWhere`, not the cursor filter: the total describes the whole set.
       body.total = await scope.em.count(CatalogPriceHistoryEntry, baseWhere)
     }
     return NextResponse.json(body)

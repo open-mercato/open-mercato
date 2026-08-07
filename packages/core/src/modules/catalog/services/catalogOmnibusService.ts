@@ -70,10 +70,8 @@ export interface CatalogOmnibusService {
 }
 
 export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
-  // The service is registered `.scoped()`, so this map lives exactly as long as one request.
-  // A products list resolves the same tenant config once per row; without memoisation that is
-  // one config round-trip per item, and because the rows resolve concurrently they all miss
-  // together. Storing the promise (not the value) collapses that burst into a single read.
+  // Request-scoped: a products list would otherwise read the config once per row,
+  // and concurrent rows all miss together. Storing the promise collapses the burst.
   private readonly configPromises = new Map<string, Promise<OmnibusConfig>>()
 
   constructor(
@@ -123,7 +121,6 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     if (!config.enabled) return earlyExitResult('no_history', configuredLookback, configuredAxis)
 
-    // EU gating happens before any DB work: a non-EU channel must cost nothing to reject.
     const enabledCountryCodes = config.enabledCountryCodes ?? []
     if (enabledCountryCodes.length === 0) {
       return earlyExitResult('not_in_eu_market', configuredLookback, configuredAxis)
@@ -146,7 +143,6 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const lookbackDays = channelConfig?.lookbackDays ?? configuredLookback
     const axis: OmnibusMinimizationAxis = channelConfig?.minimizationAxis ?? configuredAxis
 
-    // The campaign key may come from the request scope or from the presented price itself.
     const resolvedOfferId = ctx.offerId ?? presentedPriceEntry?.offerId ?? null
     const firstOfferEntry = resolvedOfferId ? await this.fetchFirstOfferEntry(em, ctx, resolvedOfferId) : null
 
@@ -176,8 +172,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const newArrival = this.resolveNewArrivalAdjustment(channelConfig, ctx, lookbackDays)
     const effectiveLookbackDays = newArrival?.lookbackDays ?? lookbackDays
 
-    // Anchoring the window to the promotion start freezes the reference for the campaign's
-    // life; a sliding window would silently shift it on day 31 of a 45-day promotion.
+    // Anchored so the reference cannot drift on day 31 of a 45-day promotion.
     const anchor = presentedPriceEntry?.startsAt
       ? new Date(presentedPriceEntry.startsAt)
       : firstOfferEntry
@@ -195,10 +190,8 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const baseline = await this.fetchBaseline(em, ctx, windowStart)
     const inWindow = await this.fetchInWindow(em, ctx, windowStart, windowEnd)
 
-    // EC-7: the announced reduction must not become its own reference price. Two independent
-    // filters, because either alone leaves a hole: identity catches a non-anchored promotion
-    // (anchor === null, window ends at `now`), while the anchor bound catches every other row
-    // recorded at or after the campaign start — those are not "prior" prices.
+    // EC-7: the announced reduction must not become its own reference. Both filters are
+    // needed — identity catches a non-anchored promotion, the anchor bound catches the rest.
     const candidates = [...(baseline ? [baseline] : []), ...inWindow].filter(
       (row) => !isPresentedReduction(row, presentedPriceEntry) && (anchor === null || new Date(row.recordedAt) < anchor),
     )
@@ -316,8 +309,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       windowStart: result.windowStart,
       windowEnd: result.windowEnd,
       coverageStartAt: result.coverageStartAt,
-      // Net and gross always come from the SAME row: independent MIN(net)/MIN(gross) across
-      // mixed tax rates would produce a price pair that never existed.
+      // Same row for both: independent minima across mixed tax rates invent a price pair.
       lowestPriceNet: result.lowestRow.unitPriceNet,
       lowestPriceGross: result.lowestRow.unitPriceGross,
       previousPriceNet: result.previousRow?.unitPriceNet ?? null,
@@ -328,10 +320,8 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     }
   }
 
-  // Consumers that already know the exact price row being presented (a sales line captured at
-  // checkout, for instance) resolve the presented entry through this rather than re-deriving it
-  // from the pricing scope. Passing null instead would let the announced reduction land inside
-  // its own reference window — the EC-7 defect — on the record that is legal evidence.
+  // For callers holding the exact price row (a sales line at checkout). Passing null here
+  // instead lands the reduction inside its own window — EC-7, on legal evidence.
   async resolvePresentedEntryForPrice(
     em: EntityManager,
     scope: { tenantId: string; organizationId: string },
@@ -390,8 +380,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     windowEnd: Date,
   ): Promise<OmnibusHistoryRow[]> {
     const filters = buildScopeFilters(ctx)
-    // Inclusive upper bound; rows at or after the anchor are dropped by the EC-7 filter, which
-    // keeps the "what is in the window" and "what may be a reference" decisions separate.
+    // Inclusive upper bound; the EC-7 filter drops rows at or after the anchor.
     filters.recordedAt = { $gt: windowStart, $lte: windowEnd }
     const rows = await findWithDecryption(
       em,
@@ -409,12 +398,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     offerId: string,
   ): Promise<OmnibusHistoryRow | null> {
     const filters = buildScopeFilters({ ...ctx, offerId })
-    // A backfilled row is a synthetic "price as it stood when the window opened",
-    // not the start of a campaign — and `omnibus:backfill` copies the offer id
-    // from the price it seeds. Accepting one as the anchor freezes the window at
-    // the moment of the backfill, so every later real reduction falls outside it
-    // and the reference collapses (to nothing, or to the promotion itself).
-    // Only a genuine recorded price change can mark a campaign start.
+    // A backfilled row is a synthetic baseline, not a campaign start, and the backfill copies
+    // the offer id onto it. Anchoring to one freezes the window at backfill time and every
+    // later real reduction falls outside it.
     filters.source = { $ne: 'system' }
     const rows = await findWithDecryption(
       em,
@@ -467,8 +453,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const baselineRow = baselineRows[0] ? mapRow(baselineRows[0]) : null
-    // Without a pre-campaign baseline there is nothing to freeze to; fall through to the
-    // standard path rather than inventing a reference.
+    // Nothing to freeze to; fall through rather than invent a reference.
     if (!baselineRow) return null
 
     const now = new Date()
@@ -500,9 +485,8 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     if (rule === 'exempt') return earlyExitResult('perishable_exempt', lookbackDays, axis)
 
-    // Art. 6a(3) reads "the price immediately preceding the reduction", so the bound is the
-    // presented entry, not `now`. The price on display is normally the newest row in the log:
-    // without this bound the reduction becomes its own reference — EC-7 on the perishable path.
+    // "Immediately preceding the reduction" bounds this by the presented entry, not `now`:
+    // that entry is normally the newest row, so without the bound it becomes its own reference.
     const filters = buildScopeFilters(ctx)
     if (presentedPriceEntry) {
       filters.recordedAt = { $lt: new Date(presentedPriceEntry.recordedAt) }
@@ -511,8 +495,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       em,
       CatalogPriceHistoryEntry,
       filters,
-      // Two rows so an entry sharing the presented timestamp can be skipped by identity; the
-      // `$lt` bound already excludes it, this only covers a same-instant tie.
+      // Two rows so a same-instant tie can still be skipped by identity.
       { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: 2 },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
@@ -562,12 +545,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   ): Promise<BackfillChannelResult> {
     const { organizationId, tenantId, channelId, lookbackDays, batchSize = 500 } = params
     const scope = { tenantId, organizationId }
-    // Own the EntityManager: a full-catalog backfill would otherwise leave every seeded row in
-    // the caller's identity map for the whole run, and clearing a shared EM between batches
-    // would detach entities the caller still holds.
+    // Owned fork: a full-catalog run would otherwise hold every seeded row in the caller
+    // identity map, and clearing a shared EM would detach entities the caller still holds.
     const scopedEm = em.fork()
-    // One millisecond before the window opens, so the seeded row reads as the price already in
-    // effect at window start rather than a change inside the window.
+    // One ms before the window opens, so the row reads as the price already in effect.
     const recordedAt = new Date(Date.now() - lookbackDays * MS_PER_DAY - 1)
 
     const priceFilters: Record<string, unknown> = { organizationId, tenantId }
@@ -635,7 +616,6 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       }
 
       await scopedEm.flush()
-      // Release the batch before loading the next one; the run is otherwise linear in memory.
       scopedEm.clear()
       offset += prices.length
     }
@@ -705,8 +685,7 @@ function buildScopeFilters(ctx: OmnibusResolutionContext): Record<string, unknow
     currencyCode: { $eq: ctx.currencyCode },
   }
   if (ctx.offerId) filters.offerId = { $eq: ctx.offerId }
-  // Narrow to the variant or product even when an offer is present: an offer can span several
-  // products, and blending them would compare unrelated price lines.
+  // Narrow even with an offer present: an offer can span products.
   if (ctx.variantId) filters.variantId = { $eq: ctx.variantId }
   else if (ctx.productId) filters.productId = { $eq: ctx.productId }
   if (ctx.channelId) filters.channelId = { $eq: ctx.channelId }
@@ -740,9 +719,8 @@ function buildCacheKey(
   anchor: Date | null,
   presentedPriceEntry: OmnibusHistoryRow | null,
 ): string {
-  // The anchor day keeps anchored and sliding windows from colliding; the presented-entry
-  // identity keeps two different presented reductions from sharing a result, which matters
-  // because each excludes a different row from its own candidate set.
+  // Anchor day separates anchored from sliding windows; presented identity separates two
+  // reductions, which exclude different rows from their candidate sets.
   const anchorDay = anchor ? floorToDay(anchor) : 'none'
   const presented = presentedPriceEntry
     ? `${presentedPriceEntry.priceId}:${presentedPriceEntry.changeType}:${presentedPriceEntry.recordedAt}`
@@ -772,10 +750,7 @@ function buildEmptyBlock(
     presentedPriceKindId,
     lookbackDays: result.lookbackDays,
     minimizationAxis: result.minimizationAxis,
-    // Report the anchor that actually shaped the window. Hard-coding null here
-    // made the response contradict itself: an anchored windowEnd alongside
-    // "no anchor", which is unreadable for anyone auditing why a reference is
-    // missing.
+    // The anchor that actually shaped the window; null here contradicts windowEnd.
     promotionAnchorAt: result.promotionAnchorAt,
     windowStart: result.windowStart,
     windowEnd: result.windowEnd,

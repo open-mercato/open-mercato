@@ -33,11 +33,7 @@ export type OmnibusDocumentScope = {
   currencyCode: string
 }
 
-/**
- * The catalog price the line was created from. The line-upsert path does not
- * carry `priceId` as a column — it records it on the line metadata — so both
- * shapes are accepted.
- */
+/** The upsert path records the price id on the line metadata rather than a column. */
 export function readOmnibusSourcePriceId(sourceLine: OmnibusSourceLine): string | null {
   if (typeof sourceLine.priceId === 'string' && sourceLine.priceId.length) {
     return sourceLine.priceId
@@ -46,13 +42,7 @@ export function readOmnibusSourcePriceId(sourceLine: OmnibusSourceLine): string 
   return typeof metadataPriceId === 'string' && metadataPriceId.length ? metadataPriceId : null
 }
 
-/**
- * Resolve the optional catalog omnibus service.
- *
- * Returns null when the catalog module is absent (EC-25) and when the command
- * runs under bulk import (rule M-9) — per-line resolution forks an EM and runs a
- * price lookup plus a full history resolve, an N+1 at import scale.
- */
+/** Null when catalog is absent (EC-25) or under bulk import, where this is an N+1 (M-9). */
 export function resolveOmnibusService(ctx: CommandRuntimeContext): CatalogOmnibusService | null {
   if (ctx.bulkImport) return null
   try {
@@ -75,12 +65,9 @@ export function readOmnibusPersonalization(block: unknown): OmnibusPersonalizati
 }
 
 /**
- * Capture the omnibus reference block on a newly created sales line.
- *
- * The snapshot is written once, at line creation, and is never recomputed on a
- * later edit: the line is the legal record of what the buyer was shown at
- * purchase time. Capture is best-effort — every failure is logged and swallowed
- * so order/quote creation can never be blocked by it.
+ * Written once at line creation and never recomputed: the line is the legal record of what
+ * the buyer was shown. Best-effort — a failure here must never block order creation.
+ * Immutability comes from the caller guarding on `!existing`, not from this function.
  */
 export async function applyOmnibusSnapshotToLine(params: {
   em: EntityManager
@@ -91,8 +78,7 @@ export async function applyOmnibusSnapshotToLine(params: {
   documentKind: 'order' | 'quote'
 }): Promise<void> {
   const { em, service, line, sourceLine, document, documentKind } = params
-  // `em` must be a forked EntityManager (caller's responsibility) so a failed
-  // lookup cannot abort the parent transaction.
+  // `em` must be a fork so a failed lookup cannot abort the parent transaction.
   try {
     const priceId = readOmnibusSourcePriceId(sourceLine)
     if (!priceId) return
@@ -108,9 +94,7 @@ export async function applyOmnibusSnapshotToLine(params: {
       { tenantId: document.tenantId, organizationId: document.organizationId },
     )
     if (!price) return
-    // Resolve the entry for the price actually being sold, so the reduction is excluded from
-    // its own reference window (EC-7). Passing null here would let the promo price become the
-    // reference stored on the line — the value the shop must be able to prove afterwards.
+    // EC-7: the entry actually being sold, so the reduction is excluded from its own window.
     const presentedEntry = await service.resolvePresentedEntryForPrice(
       em,
       { tenantId: document.tenantId, organizationId: document.organizationId },

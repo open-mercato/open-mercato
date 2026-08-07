@@ -424,11 +424,8 @@ async function decorateProductsWithOmnibus(
       })
       .filter((target): target is NonNullable<typeof target> => target !== null);
 
-    // Request-level facts, resolved once instead of once per row.
-    // Personalization is written before the early return: it is derived from the
-    // request, not from a resolved price, so an item without a pricing block must
-    // still carry the Art. 6(1)(ea) disclosure flags. Otherwise the field appears
-    // or vanishes depending on whether anything in the page happened to price.
+    // Request-level facts, resolved once. Personalization is written before the early
+    // return so the Art. 6(1)(ea) flags never depend on whether the page happened to price.
     const personalization = detectOmnibusPersonalization(ctx);
     for (const item of items) {
       item.isPersonalized = personalization.isPersonalized;

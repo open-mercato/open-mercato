@@ -266,8 +266,7 @@ const productBaseSchema = scoped.extend({
   requiresShipping: z.boolean().optional(),
   isQuoteOnly: z.boolean().optional(),
   omnibusExempt: z.boolean().optional(),
-  // Nullable: the form clears the date by sending null, and the column is nullable
-  // because EC-19 requires an unset value to mean "not a new arrival".
+  // Nullable: the form clears it with null, and EC-19 needs unset to mean "not new".
   firstListedAt: z.coerce.date().nullable().optional(),
   seoTitle: z.string().trim().min(1).max(255).nullable().optional(),
   seoDescription: z.string().trim().min(1).max(1000).nullable().optional(),
@@ -359,8 +358,7 @@ const variantBaseSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
-  // Tri-state, so it must accept null explicitly: null is not "absent", it is the
-  // stored value that makes the variant inherit the product exemption (EC-17).
+  // Tri-state: null is a stored value meaning "inherit the product exemption" (EC-17).
   omnibusExempt: z.boolean().nullable().optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
