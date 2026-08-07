@@ -22,6 +22,9 @@ const events = [
   { id: 'auth.logout', label: 'User Logged Out', category: 'lifecycle' },
   { id: 'auth.password.changed', label: 'Password Changed', category: 'lifecycle' },
   { id: 'auth.password.reset.requested', label: 'Password Reset Requested', category: 'lifecycle' },
+  // Also emitted when an invited user sets their initial password: invitation
+  // emails link to /reset/<token> and post to the same confirm endpoint, so
+  // those completions arrive with no preceding `auth.password.reset.requested`.
   { id: 'auth.password.reset.completed', label: 'Password Reset Completed', category: 'lifecycle' },
 ] as const
 

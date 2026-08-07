@@ -13,13 +13,13 @@ type AuthTokenClaims = {
   organizationId: string | null
 }
 
-const emptyAuthTokenClaims: AuthTokenClaims = {
+const emptyAuthTokenClaims: AuthTokenClaims = Object.freeze({
   userId: null,
   sessionId: null,
   email: null,
   tenantId: null,
   organizationId: null,
-}
+})
 
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
@@ -53,17 +53,18 @@ export async function POST(req: Request) {
   const sessToken = parseCookie(req, 'session_token')
   const authToken = parseCookie(req, 'auth_token')
   const claims = extractAuthTokenClaims(authToken)
-  const sessionId = claims.sessionId
-  if (sessToken || sessionId) {
+  let sessionRevoked = false
+  if (sessToken || claims.sessionId) {
     try {
       const c = await createRequestContainer()
       const auth = c.resolve<AuthService>('authService')
-      if (sessionId) {
-        await auth.deleteSessionById(sessionId)
+      if (claims.sessionId) {
+        await auth.deleteSessionById(claims.sessionId)
       }
       if (sessToken) {
         await auth.deleteSessionByToken(sessToken)
       }
+      sessionRevoked = true
     } catch {}
   }
   if (claims.userId) {
@@ -72,7 +73,8 @@ export async function POST(req: Request) {
       email: claims.email,
       tenantId: claims.tenantId,
       organizationId: claims.organizationId,
-      sessionId,
+      sessionId: claims.sessionId,
+      sessionRevoked,
     }).catch(() => undefined)
   }
   const res = buildSafeRedirectResponse(req, '/login')

@@ -159,7 +159,23 @@ describe('POST /api/auth/logout — auth.logout event', () => {
       tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
       organizationId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
       sessionId,
+      sessionRevoked: true,
     })
+  })
+
+  it('reports sessionRevoked false when server-side revocation failed', async () => {
+    deleteSessionById.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.logout',
+      expect.objectContaining({ id: userId, sessionRevoked: false }),
+    )
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
   })
 
   it('reports a null session id when the token predates the sid claim', async () => {

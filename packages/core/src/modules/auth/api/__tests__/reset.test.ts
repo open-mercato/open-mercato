@@ -216,6 +216,7 @@ describe('POST /api/auth/reset', () => {
   test('never carries the reset token in the emitted payload', async () => {
     await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
 
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
     const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
     expect(JSON.stringify(payload)).not.toContain('reset-token-1')
   })
