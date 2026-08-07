@@ -174,6 +174,14 @@ const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
 
 `ParsedRedisConnection` gained an optional `protocol?: RedisProtocolVersion` field — additive, so existing consumers are unaffected.
 
+### `loadSidebarPreference` returns `null` when the user has no saved sidebar layout
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` used to return a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, making "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render. The return type is now `Promise<SidebarPreferencesSettings | null>`.
+
+**Action for module authors:** if you import this function, handle `null`. The empty settings object it used to return in that case was fabricated, never persisted — code that read `settings.hiddenItems` straight off the result was reading a value no user had chosen. Use `?? normalizeSidebarSettings(null)` if you genuinely want the old defaults, or branch on `null` to skip applying anything. A saved row still returns normalized settings exactly as before, so a user who has customised their sidebar is unaffected.
+
+There is no compatibility bridge for this one: preserving the old return value would preserve the bug.
+
 ### Sales line list endpoints now default to `line_number` order
 
 `GET /api/sales/order-lines` and `GET /api/sales/quote-lines` previously inherited the CRUD factory's `sortField = 'id'` fallback. Line ids are `gen_random_uuid()` v4 UUIDs, so a document's lines came back in an arbitrary order — and any integration that rewrites lines by delete-and-reinsert got a different order after every sync. Both endpoints now default to `line_number ASC, id ASC`.

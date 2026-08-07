@@ -40,7 +40,7 @@ export type SidebarGroupLike<T = Record<string, unknown>> = {
 export async function loadSidebarPreference(
   em: EntityManager,
   scope: SidebarPreferenceScope,
-): Promise<SidebarPreferencesSettings> {
+): Promise<SidebarPreferencesSettings | null> {
   // Cross-locale: variants & preferences are scoped per (user, tenant, org) only.
   // The `locale` field on the row is kept for audit / when the row was created.
   const { userId, tenantId, organizationId } = normalizeScope(scope)
@@ -51,7 +51,11 @@ export async function loadSidebarPreference(
     undefined,
     { tenantId, organizationId },
   )
-  return normalizeSidebarSettings(existing?.settingsJson as SidebarPreferencesSettings | undefined)
+  // `null` means "no saved preference" and is distinct from "a preference exists but is empty":
+  // callers layer role defaults beneath the user layout and must skip the user pass entirely,
+  // because applying empty settings overwrites the role state instead of merging with it.
+  if (!existing) return null
+  return normalizeSidebarSettings(existing.settingsJson as SidebarPreferencesSettings | undefined)
 }
 
 export async function loadSidebarPreferenceUpdatedAt(

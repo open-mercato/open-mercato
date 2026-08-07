@@ -480,3 +480,27 @@ When picked up, the follow-up will live at `.ai/specs/{date}-ds-sidebar-icon-cus
   scale (`mt-6`) per `.ai/ds-rules.md`; the value predated this change but the row was modified here.
   Added `TC-AUTH-SIDEBAR-GROUP-001` for real-page coverage of the toggle, its persistence, and the
   resulting sidebar change, since unit tests over the reducer helpers cannot observe any of that.
+
+- **2026-08-07 (fix — role layout wiped for users with no saved layout)** — `loadSidebarPreference`
+  returned `normalizeSidebarSettings(existing?.settingsJson)`, so a user with no
+  `UserSidebarPreference` row got a fully-populated *default* settings object rather than `null`.
+  `backendChrome` builds the sidebar as a two-layer merge (role preference → `adoptSidebarDefaults`
+  → user preference) and guards the second pass with `userPreference ? … : baseForUser`, so that
+  else-branch was dead code. Because `applySidebarPreference` **overwrites** `hidden`
+  (`next.hidden = hidden`) instead of OR-ing it, and falls back to weight/name ordering when
+  `groupOrder` is empty, the empty user pass erased the whole role layer on every render:
+  role-level hidden items reappeared and role group ordering was lost for every user who had never
+  personally customised their sidebar. The loader now returns `null` when no row exists (return type
+  widened to `SidebarPreferencesSettings | null`), which makes the existing guard work. `null` now
+  means "no saved preference", distinct from "a preference exists and is empty" — the latter still
+  applies over the role layer. Both call sites were already null-safe: `backendChrome.tsx` guards,
+  and `api/sidebar/preferences/route.ts` reads every field as `settings?.x ?? default`, so the JSON
+  response is unchanged. Users with a saved row see no behavioural change. Covered by
+  `sidebarPreferencesService.load-preference.test.ts` (absent → `null`, present → settings,
+  present-but-empty → non-null empty) and `backendChrome.role-preference.test.ts` (role hide and
+  role group order survive a `null` user preference; a saved-but-empty one still overrides).
+  **Known gap, deliberately out of scope:** once a user saves *any* personal preference, role hides
+  are wiped again — `applySidebarPreference` overwrites rather than merges, and
+  `SidebarCustomizationEditor` seeds its draft solely from the user's own saved `hiddenItems`, never
+  from the role-applied `hidden` flags in the base snapshot. Whether role hides are policy
+  (un-overridable) or merely a default is a product decision that needs its own spec entry.
