@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { requirePackageBuild } from './package-build-artifacts.js'
 import { selectModuleFactSheets } from '../setup/tools/shared.js'
 
 const D5_MODULES = [
@@ -22,16 +22,10 @@ const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
 const templateRoot = join(pkgRoot, 'template')
 const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
-let buildComplete = false
 
-function ensureBuilt() {
-  if (buildComplete) return
-  execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
-  buildComplete = true
-}
+requirePackageBuild(pkgRoot)
 
 test('build emits customers facts and the framework extension catalog (T5)', () => {
-  ensureBuilt()
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
   assert.ok(
@@ -78,7 +72,6 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
-  ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
       fs.existsSync(join(guidesDir, 'modules', `${moduleId}.md`)),
@@ -88,7 +81,6 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
 })
 
 test('every default-controller module fact is exercised by the evaluation catalog', () => {
-  ensureBuilt()
   const moduleGuidesDir = join(guidesDir, 'modules')
   const selectedModuleIds = selectModuleFactSheets(templateRoot, moduleGuidesDir)
   const cases = JSON.parse(fs.readFileSync(
@@ -112,7 +104,6 @@ test('every default-controller module fact is exercised by the evaluation catalo
 })
 
 test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () => {
-  ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
       !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
@@ -121,8 +112,19 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
   }
 })
 
+// dist/ is published (package.json `files`), so a staging tree the build forgot to swap in or clean
+// up would ship with the package — and a surviving `agentic.previous` would mean the swap never
+// completed (#5059).
+test('build leaves no staging artifacts behind in dist', () => {
+  for (const leftover of ['agentic.staging', 'agentic.previous']) {
+    assert.ok(
+      !fs.existsSync(join(pkgRoot, 'dist', leftover)),
+      `dist/${leftover} must not survive the build`,
+    )
+  }
+})
+
 test('build does not emit unreachable package-level standalone guides', () => {
-  ensureBuilt()
   for (const guide of LEGACY_PACKAGE_GUIDES) {
     assert.ok(
       !fs.existsSync(join(guidesDir, `${guide}.md`)),
@@ -137,7 +139,6 @@ test('build does not emit unreachable package-level standalone guides', () => {
 // tightening this to "required by some case"). Selection uses the same production intersection
 // the scaffold applies, so enabling a module in the template without a case fails here (#4565).
 test('every module fact-sheet a scaffold ships is routed by at least one catalog case', () => {
-  ensureBuilt()
   const shipped = selectModuleFactSheets(join(pkgRoot, 'template'), join(guidesDir, 'modules'))
   assert.ok(shipped.length > 0, 'the scaffold must ship at least one module fact-sheet')
 
