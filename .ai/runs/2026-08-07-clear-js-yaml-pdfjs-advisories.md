@@ -30,7 +30,9 @@ is not.
 ## Scope
 
 - Bump the `js-yaml` pins inside the root `resolutions` block, reusing the existing descriptor keys.
-- Bump the `pdfjs-dist` range in `package.json`, `packages/core/package.json` and `apps/mercato/package.json`.
+- Bump the `pdfjs-dist` range in `package.json`, `packages/core/package.json`, `apps/mercato/package.json`
+  and the create-app template (`packages/create-app/template/package.json.template`), which mirrors the
+  app's pins and is guarded by `template-dependency-drift.test.ts`.
 - Refresh `yarn.lock` via `yarn install`.
 
 ## Non-goals
@@ -82,10 +84,11 @@ is not.
 ### Phase 1: Bump the vulnerable dependencies
 
 - [x] 1.1 Bump the `js-yaml` resolutions pins to 3.15.1 / 4.3.1 — cafcc7aa7
-- [x] 1.2 Bump `pdfjs-dist` to `^6.2.108` in the three manifests — cafcc7aa7
+- [x] 1.2 Bump `pdfjs-dist` to `^6.2.108` in the three manifests — cafcc7aa7 (create-app template mirror: see Phase 2)
 - [x] 1.3 Refresh `yarn.lock` with `yarn install` — cafcc7aa7
 
 ### Phase 2: Verify
 
 - [x] 2.1 Confirm the high-severity audit passes — cafcc7aa7
-- [ ] 2.2 Run the validation gate, including the attachments tests
+- [x] 2.2 Run the validation gate, including the attachments tests — 18b464330 (the gate's
+  `template-dependency-drift` test caught the un-mirrored create-app template pin; mirrored in this commit)
