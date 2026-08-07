@@ -11,6 +11,7 @@ import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 
 const logger = createLogger('auth').child({ component: 'reset-confirm' })
 
@@ -33,6 +34,12 @@ export async function POST(req: Request) {
   const auth = c.resolve<AuthService>('authService')
   const user = await auth.confirmPasswordReset(parsed.data.token, parsed.data.password)
   if (!user) return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
+  void emitAuthEvent('auth.password.reset.completed', {
+    id: String(user.id),
+    email: user.email,
+    tenantId: user.tenantId ? String(user.tenantId) : null,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+  }).catch(() => undefined)
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
     if (tenantId) {

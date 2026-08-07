@@ -13,6 +13,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 
 const logger = createLogger('auth').child({ component: 'profile' })
 
@@ -180,6 +181,15 @@ export async function PUT(req: Request) {
         ctx,
       },
     )
+    if (parsed.data.password) {
+      void emitAuthEvent('auth.password.changed', {
+        id: String(result.id),
+        email: result.email,
+        tenantId: result.tenantId ? String(result.tenantId) : null,
+        organizationId: result.organizationId ? String(result.organizationId) : null,
+        changedBy: 'self',
+      }).catch(() => undefined)
+    }
     const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
     const jwt = signJwt({
       sub: String(result.id),

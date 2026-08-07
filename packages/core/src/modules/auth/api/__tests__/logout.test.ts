@@ -10,9 +10,14 @@ const containerResolve = jest.fn((name: string) => {
   return null
 })
 const createRequestContainer = jest.fn(async () => ({ resolve: containerResolve }))
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>) => undefined)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/auth/events', () => ({
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>) => mockEmitAuthEvent(eventId, payload),
 }))
 
 jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => {
@@ -132,6 +137,70 @@ describe('POST /api/auth/logout — session revocation', () => {
     await POST(req)
 
     expect(deleteSessionById).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/auth/logout — auth.logout event', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('emits auth.logout with the identity carried by the auth_token', async () => {
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    })
+
+    await POST(req)
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', {
+      id: userId,
+      email: 'user@example.test',
+      tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+      organizationId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+      sessionId,
+    })
+  })
+
+  it('reports a null session id when the token predates the sid claim', async () => {
+    const legacyToken = signJwt({
+      sub: userId,
+      tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+      orgId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+      email: 'user@example.test',
+      roles: ['admin'],
+    })
+
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: legacyToken }) },
+    }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.logout',
+      expect.objectContaining({ id: userId, sessionId: null }),
+    )
+  })
+
+  it('does not emit when no verifiable auth_token identifies the caller', async () => {
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: 'not-a-valid-jwt', session_token: 'remember-me-token' }) },
+    }))
+
+    expect(mockEmitAuthEvent).not.toHaveBeenCalled()
+  })
+
+  it('still clears cookies when the event bus rejects', async () => {
+    mockEmitAuthEvent.mockRejectedValueOnce(new Error('event bus down'))
+
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken() }) },
+    }))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
   })
 })
 
