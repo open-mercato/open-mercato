@@ -215,13 +215,13 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
 
 /**
  * Generates a unique checkout link slug.
- * 
+ *
  * NOTE: The slug uniqueness check runs GLOBALLY against all checkout links, and the
  * `scope` parameter is intentionally ignored. This is required because the public-facing
  * checkout routes (e.g., `/pay/[slug]`) do not have any tenant/organization discriminator
  * in their URL path, resolving links solely by the slug. Consequently, duplicate slugs
  * cannot exist across different tenants.
- * 
+ *
  * @param em MikroORM EntityManager
  * @param _scope Tenant and organization scope (ignored in database query)
  * @param requestedSlug The slug requested by the user

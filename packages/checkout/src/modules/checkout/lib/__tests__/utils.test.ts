@@ -85,10 +85,10 @@ describe('checkout utils', () => {
     })
   })
 
-  it('ensures slug uniqueness is scoped to organizationId and tenantId', async () => {
+  it('ensures slug uniqueness globally even when another tenant already uses the requested slug', async () => {
     const findOne = jest
       .fn()
-      .mockResolvedValueOnce({ id: 'tenant-link-1', slug: 'shared-slug' })
+      .mockResolvedValueOnce({ id: 'other-tenant-link', slug: 'shared-slug' })
       .mockResolvedValueOnce(null)
 
     const slug = await ensureUniqueSlug(
@@ -101,36 +101,12 @@ describe('checkout utils', () => {
     expect(slug).toBe('shared-slug-2')
     expect(findOne).toHaveBeenNthCalledWith(1, CheckoutLink, {
       slug: 'shared-slug',
-      organizationId: 'org_2',
-      tenantId: 'tenant_2',
       deletedAt: null,
     })
     expect(findOne).toHaveBeenNthCalledWith(2, CheckoutLink, {
       slug: 'shared-slug-2',
-      organizationId: 'org_2',
-      tenantId: 'tenant_2',
       deletedAt: null,
     })
-  })
-
-  it('throws an error if scope is missing organizationId or tenantId', async () => {
-    await expect(
-      ensureUniqueSlug(
-        {} as unknown as EntityManager,
-        { tenantId: '', organizationId: 'org_1' },
-        'slug',
-        'fallback',
-      )
-    ).rejects.toThrow('Organization ID and Tenant ID are required in CheckoutScope')
-
-    await expect(
-      ensureUniqueSlug(
-        {} as unknown as EntityManager,
-        null as any,
-        'slug',
-        'fallback',
-      )
-    ).rejects.toThrow('Organization ID and Tenant ID are required in CheckoutScope')
   })
 
   it('rejects fixed pricing when the submitted amount does not match', () => {

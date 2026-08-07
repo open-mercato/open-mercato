@@ -208,10 +208,7 @@ export class CheckoutLinkTemplate {
 
 @Entity({ tableName: 'checkout_links' })
 @Index({ properties: ['organizationId', 'tenantId', 'status', 'deletedAt'] })
-@Index({
-  name: 'checkout_links_slug_unique',
-  expression: `create unique index "checkout_links_slug_unique" on "checkout_links" ("organization_id", "tenant_id", "slug") where deleted_at is null`,
-})
+@Index({ properties: ['slug'], options: { unique: true, where: 'deleted_at is null' } })
 export class CheckoutLink extends CheckoutLinkTemplate {
   @Property({ name: 'template_id', type: 'uuid', nullable: true })
   templateId?: string | null
