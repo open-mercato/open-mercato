@@ -157,9 +157,9 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         // ignore failures
       }
     } else {
-      // A blank `om_selected_tenant` is not "no selection": the server reads it as a deliberate
-      // "no tenant" override and nulls the tenant for the whole session on super-admin accounts.
-      // Expire the cookie instead so the session falls back to the tenant carried in the token.
+      // A blank `om_selected_tenant` has no meaning: there is no all-tenants sentinel for this
+      // cookie, and the server treats blank as "no selection". Expire it rather than writing one,
+      // so the session falls back to the tenant carried in the token.
       setTenantCookieState({ value: '', hasCookie: false, raw: null })
       try {
         document.cookie = 'om_selected_tenant=; path=/; max-age=0; samesite=lax'
