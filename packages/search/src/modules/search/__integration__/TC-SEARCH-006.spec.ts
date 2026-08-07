@@ -16,6 +16,7 @@ type SearchResultItem = {
   url?: string | null
 }
 type GlobalSearchResponse = { strategiesEnabled?: string[]; results?: SearchResultItem[] }
+type SearchQueryResult = { ok: boolean; status: number; results: SearchResultItem[] }
 
 const DEFAULT_STRATEGIES = ['fulltext', 'vector', 'tokens']
 const CUSTOMER_ENTITY = 'customers:customer_entity'
@@ -31,19 +32,23 @@ async function searchResults(
   request: APIRequestContext,
   token: string,
   path: string,
-): Promise<SearchResultItem[]> {
+): Promise<SearchQueryResult> {
   const response = await apiRequest(request, 'GET', path, { token })
-  if (!response.ok()) return []
+  if (!response.ok()) return { ok: false, status: response.status(), results: [] }
   const body = (await readJsonSafe<GlobalSearchResponse>(response)) ?? {}
-  return Array.isArray(body.results) ? body.results : []
+  return {
+    ok: true,
+    status: response.status(),
+    results: Array.isArray(body.results) ? body.results : [],
+  }
 }
 
-function customerSearchPath(query: string, profileEntity: string): string {
+function customerSearchPath(query: string, entityType: string): string {
   const params = new URLSearchParams({
     q: query,
     limit: '20',
     strategies: 'tokens',
-    entityTypes: `${CUSTOMER_ENTITY},${profileEntity}`,
+    entityTypes: entityType,
   })
   return `/api/search/search?${params.toString()}`
 }
@@ -123,6 +128,9 @@ test.describe('TC-SEARCH-006: global search honors saved strategy config over UR
   })
 
   test('deduplicates real person and company profile hits into canonical global results', async ({ request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     const stamp = Date.now()
     const personName = `QASRCH006P${stamp}`
     const companyName = `QASRCH006C${stamp}`
@@ -160,36 +168,62 @@ test.describe('TC-SEARCH-006: global search honors saved strategy config over UR
       await expect
         .poll(
           async () => {
-            const [personRaw, companyRaw, personGlobal, companyGlobal] = await Promise.all([
-              searchResults(request, token!, customerSearchPath(personName, PERSON_PROFILE)),
-              searchResults(request, token!, customerSearchPath(companyName, COMPANY_PROFILE)),
-              searchResults(request, token!, globalSearchPath(personName)),
-              searchResults(request, token!, globalSearchPath(companyName)),
-            ])
+            const [personEntity, personProfile, companyEntity, companyProfile, personGlobal, companyGlobal] =
+              await Promise.all([
+                searchResults(request, token!, customerSearchPath(personName, CUSTOMER_ENTITY)),
+                searchResults(request, token!, customerSearchPath(personName, PERSON_PROFILE)),
+                searchResults(request, token!, customerSearchPath(companyName, CUSTOMER_ENTITY)),
+                searchResults(request, token!, customerSearchPath(companyName, COMPANY_PROFILE)),
+                searchResults(request, token!, globalSearchPath(personName)),
+                searchResults(request, token!, globalSearchPath(companyName)),
+              ])
 
-            const personRawTypes = new Set(
-              personRaw.filter((result) => presenterTitle(result) === personName).map((result) => result.entityId),
-            )
-            const companyRawTypes = new Set(
-              companyRaw.filter((result) => presenterTitle(result) === companyName).map((result) => result.entityId),
-            )
-            personGlobalResults = personGlobal.filter((result) => presenterTitle(result) === personName)
-            companyGlobalResults = companyGlobal.filter((result) => presenterTitle(result) === companyName)
+            const queries = [
+              ['person-entity', personEntity],
+              ['person-profile', personProfile],
+              ['company-entity', companyEntity],
+              ['company-profile', companyProfile],
+              ['person-global', personGlobal],
+              ['company-global', companyGlobal],
+            ] as const
+            const failedQuery = queries.find(([, result]) => !result.ok)
+            if (failedQuery) return `${failedQuery[0]}:status:${failedQuery[1].status}`
 
-            return (
-              personRawTypes.has(CUSTOMER_ENTITY) &&
-              personRawTypes.has(PERSON_PROFILE) &&
-              companyRawTypes.has(CUSTOMER_ENTITY) &&
-              companyRawTypes.has(COMPANY_PROFILE) &&
-              personGlobalResults.length === 1 &&
-              companyGlobalResults.length === 1 &&
-              hasCanonicalNavigation(personGlobalResults[0] ?? {}, '/backend/customers/people-v2') &&
-              hasCanonicalNavigation(companyGlobalResults[0] ?? {}, '/backend/customers/companies-v2')
-            )
+            const indexedQueries = [
+              ['person-entity', personEntity.results, personName, CUSTOMER_ENTITY],
+              ['person-profile', personProfile.results, personName, PERSON_PROFILE],
+              ['company-entity', companyEntity.results, companyName, CUSTOMER_ENTITY],
+              ['company-profile', companyProfile.results, companyName, COMPANY_PROFILE],
+            ] as const
+            for (const [label, results, expectedTitle, expectedEntityId] of indexedQueries) {
+              const matches = results.filter(
+                (result) => presenterTitle(result) === expectedTitle && result.entityId === expectedEntityId,
+              )
+              if (matches.length === 0) return `${label}:matches:0`
+            }
+
+            personGlobalResults = personGlobal.results.filter((result) => presenterTitle(result) === personName)
+            companyGlobalResults = companyGlobal.results.filter((result) => presenterTitle(result) === companyName)
+            if (personGlobalResults.length !== 1) return `person-global:matches:${personGlobalResults.length}`
+            if (companyGlobalResults.length !== 1) return `company-global:matches:${companyGlobalResults.length}`
+            if (personGlobalResults[0]?.entityId !== CUSTOMER_ENTITY) {
+              return `person-global:entity:${personGlobalResults[0]?.entityId ?? 'missing'}`
+            }
+            if (companyGlobalResults[0]?.entityId !== CUSTOMER_ENTITY) {
+              return `company-global:entity:${companyGlobalResults[0]?.entityId ?? 'missing'}`
+            }
+            if (!hasCanonicalNavigation(personGlobalResults[0], '/backend/customers/people-v2')) {
+              return `person-global:navigation:${personGlobalResults[0]?.url ?? 'missing'}`
+            }
+            if (!hasCanonicalNavigation(companyGlobalResults[0], '/backend/customers/companies-v2')) {
+              return `company-global:navigation:${companyGlobalResults[0]?.url ?? 'missing'}`
+            }
+
+            return 'ready'
           },
           { timeout: 10_000 },
         )
-        .toBe(true)
+        .toBe('ready')
 
       expect(personGlobalResults).toHaveLength(1)
       expect(personGlobalResults[0]?.entityId).toBe(CUSTOMER_ENTITY)
