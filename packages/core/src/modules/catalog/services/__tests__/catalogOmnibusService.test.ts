@@ -925,3 +925,61 @@ describe('DefaultCatalogOmnibusService — per-channel isolation (C9)', () => {
     }
   })
 })
+
+// Compliance case C2, resolution half. A tax-only change carries no announcement
+// signal — no validity start, no offer, is_announced false, non-promotional kind —
+// so the block must come back not applicable. Rendering a "was X" next to a price
+// that moved only because VAT moved would be an invented reduction.
+describe('DefaultCatalogOmnibusService — tax-only change (C2)', () => {
+  const taxOnlyChange: OmnibusHistoryRow = {
+    id: 'vat-change',
+    priceId: 'price-1',
+    changeType: 'update',
+    unitPriceNet: '81.3008',
+    unitPriceGross: '87.8049',
+    recordedAt: '2026-06-10T00:00:00.000Z',
+    startsAt: null,
+    offerId: null,
+    isAnnounced: false,
+  }
+
+  it('reports not_announced and applicable=false', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([row({ id: 'base', recordedAt: '2026-05-01T00:00:00.000Z', gross: '100' })])
+      .mockResolvedValueOnce([])
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, taxOnlyChange, false)
+
+    expect(block?.applicable).toBe(false)
+    expect(block?.applicabilityReason).toBe('not_announced')
+  })
+
+  it('does not anchor the window to a change nobody announced', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([row({ id: 'base', recordedAt: '2026-05-01T00:00:00.000Z', gross: '100' })])
+      .mockResolvedValueOnce([])
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, taxOnlyChange, false)
+
+    // No startsAt and no offer means no campaign, so the window keeps sliding.
+    expect(block?.promotionAnchorAt).toBeNull()
+  })
+
+  it('flips to announced once the same price is given a validity start', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([row({ id: 'base', recordedAt: '2026-05-01T00:00:00.000Z', gross: '100' })])
+      .mockResolvedValueOnce([])
+
+    const announced = { ...taxOnlyChange, startsAt: '2026-06-10T00:00:00.000Z', isAnnounced: true }
+    const block = await service.resolveOmnibusBlock(em, baseCtx, announced, false)
+
+    // Same row, same price — only the announcement signal differs. This is the
+    // control that proves the previous two assertions are about the signal and
+    // not about some unrelated gating.
+    expect(block?.applicable).toBe(true)
+    expect(block?.applicabilityReason).toBe('announced_promotion')
+  })
+})

@@ -140,6 +140,26 @@ describe('PriceEditorOmnibusRow', () => {
     expect(await screen.findByText(/perishable goods rule/i)).toBeInTheDocument()
   })
 
+  // Compliance case C2, display half. A tax-only change resolves to not_announced;
+  // the reference must be explained, never printed as a "was X" the shop cannot
+  // legally claim.
+  it('never prints the reference price for an unannounced change', async () => {
+    resolveWith({
+      ...block,
+      applicable: false,
+      applicabilityReason: 'not_announced',
+      // The service still computes the numbers — the display is what must withhold them.
+      lowestPriceGross: '100.0000',
+      previousPriceGross: '100.0000',
+    })
+
+    render(<PriceEditorOmnibusRow priceKindId="kind-1" currencyCode="PLN" productId="product-1" />)
+
+    expect(await screen.findByText(/No announced price reduction/i)).toBeInTheDocument()
+    expect(screen.queryByText(/100\.0000/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Lowest price/i)).not.toBeInTheDocument()
+  })
+
   it('renders nothing when omnibus is disabled for the tenant', async () => {
     resolveWith(null)
 

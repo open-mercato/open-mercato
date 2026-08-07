@@ -203,3 +203,34 @@ describe('invalidateOmnibusCache', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+// Compliance case C2, capture half. A VAT reclassification moves the gross the
+// customer sees without any reduction being announced, so the entry it produces
+// must not look like a promotion to the resolver.
+describe('buildHistoryEntry — tax-only change (C2)', () => {
+  it('records a VAT reclassification as not announced', () => {
+    const entry = buildHistoryEntry({
+      snapshot: snapshot({
+        // Same net, new rate: gross moves because the tax band changed, not
+        // because anyone cut the price.
+        unitPriceNet: '81.3008',
+        taxRate: '8.0000',
+        taxAmount: '6.5041',
+        unitPriceGross: '87.8049',
+        startsAt: null,
+        offerId: null,
+      }),
+      changeType: 'update',
+      source: 'api',
+      recordedAt: new Date('2026-06-01T08:30:00.123Z'),
+    })
+
+    expect(entry.isAnnounced).toBe(false)
+    expect(entry.startsAt).toBeNull()
+    expect(entry.offerId).toBeNull()
+    // The rate still has to be captured — it is what proves the gross moved for
+    // tax reasons rather than commercial ones.
+    expect(entry.taxRate).toBe('8.0000')
+    expect(entry.unitPriceGross).toBe('87.8049')
+  })
+})
