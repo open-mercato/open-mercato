@@ -403,6 +403,50 @@ describe('<AiChat>', () => {
     })
   })
 
+  it('keeps a stored model picker value when the models response is degraded', async () => {
+    const apiCallMock = apiCall as unknown as jest.Mock
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: {
+        agentId: 'customers.account_assistant',
+        allowRuntimeModelOverride: true,
+        defaultProviderId: 'openai',
+        defaultModelId: 'gpt-5-mini',
+        degraded: true,
+        degradedReason: 'tenant_allowlist_unavailable',
+        providers: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            isDefault: true,
+            models: [
+              {
+                id: 'gpt-5-mini',
+                name: 'GPT-5 Mini',
+                isDefault: true,
+              },
+            ],
+          },
+        ],
+      },
+    })
+    const storedValue = JSON.stringify({ providerId: 'openai', modelId: 'gpt-4o' })
+    window.localStorage.setItem('om-ai-model-picker:customers.account_assistant', storedValue)
+
+    renderWithProviders(<AiChat agent="customers.account_assistant" />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select AI model' })).toHaveAttribute(
+        'title',
+        'Default: openai / gpt-5-mini',
+      )
+    })
+    expect(window.localStorage.getItem('om-ai-model-picker:customers.account_assistant')).toBe(
+      storedValue,
+    )
+  })
+
   it('does not send provider or model overrides while the model picker is on Default', async () => {
     const apiCallMock = apiCall as unknown as jest.Mock
     apiCallMock.mockResolvedValueOnce({
