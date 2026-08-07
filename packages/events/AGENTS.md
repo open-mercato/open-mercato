@@ -180,3 +180,7 @@ useAppEvent('mymod.entity.created', (event) => {
 - Client deduplicates events within a 500ms window
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
 - The `useEventBridge()` hook must be mounted once in the app shell to start receiving events
+
+### Private cross-process coordination
+
+Use `crossProcessBroadcast: true` for server-to-server invalidation or coordination that must cross process boundaries but must not be exposed through browser SSE. The event bus publishes both `clientBroadcast` and `crossProcessBroadcast` events to the cross-process bridge, while the DOM Event Bridge delivers only `clientBroadcast` events. Do not use `clientBroadcast` merely to reach another server process when the payload contains record-scoped identifiers or activity that the organization-level SSE audience cannot authorize.

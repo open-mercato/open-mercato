@@ -74,8 +74,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // copied provenance payloads. The cap also covers the newly reachable
     // framework-host activations (dashboard/menu/notification contributions now
     // resolve as bound instead of silently falling back to capability-only).
-    // This is a blow-up detector, not a performance target. It measures CPU time
-    // for a whole-repo extraction, and CPU time for fixed work varies with the
+    //
+    // JSON cap raised a fourth time by the collaborative documents module
+    // (2026-07-08-documents-collaborative-editor): `@open-mercato/documents` is a
+    // whole new first-class module, so it contributes an ordinary module's worth of
+    // facts — measured at ~95KB of the render (3,495,921 bytes without it). Nothing
+    // about its facts is unusual; the cap simply had ~4KB of headroom left before it.
+    //
+    // The CPU guard is a blow-up detector, not a performance target. It measures CPU
+    // time for a whole-repo extraction, and CPU time for fixed work varies with the
     // machine: the same extraction measures ~7.3s on a developer workstation and
     // ~30.0s on a CI runner. At the previous 30s cap CI sat exactly on the line
     // (an observed failure at 30,052.8ms), so the guard could not tell a genuine
@@ -83,13 +90,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_700_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
-    // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_550_000)
+    // resolutions render as their own source-linked section. Raised again for the
+    // collaborative documents module's own fact-sheet (~20KB), for the same reason
+    // as the JSON cap above.
+    expect(markdownBytes).toBeLessThan(1_650_000)
   })
 
   it('discovers a superset of the historical core modules', () => {

@@ -450,6 +450,52 @@ describe('AppShell', () => {
     })
   })
 
+  it('keeps the new page breadcrumb after client-side navigation', async () => {
+    mockPathname = '/backend/documents'
+
+    const { rerender } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb title="Documents" breadcrumb={[{ label: 'Documents' }]} />
+        <div>Documents list</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Documents')).toBeInTheDocument()
+    })
+
+    mockPathname = '/backend/documents/document-id'
+    rerender(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb
+          title="Document"
+          breadcrumb={[
+            { label: 'Documents', href: '/backend/documents' },
+            { label: 'Document' },
+          ]}
+        />
+        <div>Document detail</div>
+      </AppShell>,
+    )
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/backend/documents')
+      expect(within(breadcrumb).getByText('Document')).toHaveAttribute('aria-current', 'page')
+    })
+  })
+
   it('keeps settings parent item active on descendant routes outside explicit child list', async () => {
     mockPathname = '/backend/entities/user/example%3Acalendar_entity'
 

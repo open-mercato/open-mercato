@@ -21,18 +21,35 @@ type GlobalEventTap = (
 
 let mockGlobalEventTap: GlobalEventTap | undefined
 
+const registerGlobalEventTapMock = jest.fn((handler: GlobalEventTap) => {
+  mockGlobalEventTap = handler
+})
+const registerCrossProcessEventListenerMock = jest.fn()
+
 jest.mock('../../../../../bus', () => ({
-  registerGlobalEventTap: jest.fn((handler: GlobalEventTap) => {
-    mockGlobalEventTap = handler
-  }),
-  registerCrossProcessEventListener: jest.fn(),
+  registerGlobalEventTap: (handler: GlobalEventTap) => registerGlobalEventTapMock(handler),
+  registerCrossProcessEventListener: (...args: unknown[]) => registerCrossProcessEventListenerMock(...args),
+  CROSS_PROCESS_EVENT_INSTANCE_ID: 'web-instance',
 }))
 
-jest.mock('@open-mercato/shared/modules/events', () => ({
-  isBroadcastEvent: jest.fn(() => true),
-}))
-
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
 import { GET } from '@open-mercato/events/modules/events/api/stream/route'
+
+createModuleEvents({
+  moduleId: 'stream_privacy_test',
+  events: [
+    {
+      id: 'stream_privacy_test.browser',
+      label: 'Browser event',
+      clientBroadcast: true,
+    },
+    {
+      id: 'stream_privacy_test.private',
+      label: 'Private cross-process invalidation',
+      crossProcessBroadcast: true,
+    },
+  ] as const,
+})
 
 // req.signal is a linked/derived signal in Node, so we spy AFTER the
 // Request is constructed to intercept the handler's real calls.
@@ -114,12 +131,12 @@ describe('SSE event stream — abort listener hygiene', () => {
 
     expect(mockGlobalEventTap).toBeDefined()
     await mockGlobalEventTap?.(
-      'progress.job.updated',
+      'stream_privacy_test.browser',
       { tenantId: 't1', marker: 'must-not-arrive' },
       { tenantId: 't1', organizationId: 'o2' },
     )
     await mockGlobalEventTap?.(
-      'progress.job.updated',
+      'stream_privacy_test.browser',
       { tenantId: 't1', marker: 'expected' },
       { tenantId: 't1', organizationId: 'o1' },
     )
@@ -127,6 +144,206 @@ describe('SSE event stream — abort listener hygiene', () => {
     const { value, done } = await reader.read()
     expect(done).toBe(false)
     expect(new TextDecoder().decode(value)).toContain('"marker":"expected"')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('does not deliver a private cross-process event to a same-organization browser', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+    expect(listener).toBeDefined()
+
+    await listener?.({
+      event: 'stream_privacy_test.private',
+      payload: {
+        id: 'private-record',
+        tenantId: 't1',
+        organizationId: 'o1',
+      },
+      originPid: process.pid + 1,
+      originInstanceId: 'other-instance',
+    })
+
+    const pendingRead = reader.read().then(() => 'delivered')
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'not-delivered'>((resolve) => setTimeout(() => resolve('not-delivered'), 10)),
+    ])
+    expect(result).toBe('not-delivered')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('does not let a forged global-tap payload override trusted tenant and organization scope', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const tap = registerGlobalEventTapMock.mock.calls[0]?.[0] as
+      | ((
+          event: string,
+          payload: Record<string, unknown>,
+          options?: { tenantId?: string | null; organizationId?: string | null },
+        ) => Promise<void>)
+      | undefined
+    expect(tap).toBeDefined()
+
+    await tap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'forged-payload' },
+      { tenantId: 'attacker-tenant', organizationId: 'attacker-org' },
+    )
+
+    const pendingRead = reader.read().then(() => 'delivered')
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'not-delivered'>((resolve) => setTimeout(() => resolve('not-delivered'), 10)),
+    ])
+    expect(result).toBe('not-delivered')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('delivers a global-tap event when trusted scope matches despite forged payload scope', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const tap = registerGlobalEventTapMock.mock.calls[0]?.[0] as
+      | ((
+          event: string,
+          payload: Record<string, unknown>,
+          options?: { tenantId?: string | null; organizationId?: string | null },
+        ) => Promise<void>)
+      | undefined
+
+    await tap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 'forged-tenant', organizationId: 'forged-org', marker: 'trusted-delivery' },
+      { tenantId: 't1', organizationId: 'o1' },
+    )
+
+    const delivered = await reader.read()
+    expect(new TextDecoder().decode(delivered.value)).toContain('trusted-delivery')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('does not let a forged cross-process payload override trusted envelope scope', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+    expect(listener).toBeDefined()
+
+    await listener?.({
+      event: 'stream_privacy_test.browser',
+      payload: { tenantId: 't1', organizationId: 'o1', marker: 'forged-payload' },
+      options: { tenantId: 'attacker-tenant', organizationId: 'attacker-org' },
+      originPid: process.pid + 1,
+      originInstanceId: 'other-instance',
+    })
+
+    const pendingRead = reader.read().then(() => 'delivered')
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'not-delivered'>((resolve) => setTimeout(() => resolve('not-delivered'), 10)),
+    ])
+    expect(result).toBe('not-delivered')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('delivers a cross-process event when trusted envelope scope matches despite forged payload scope', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+
+    await listener?.({
+      event: 'stream_privacy_test.browser',
+      payload: { tenantId: 'forged-tenant', organizationId: 'forged-org', marker: 'trusted-envelope' },
+      options: { tenantId: 't1', organizationId: 'o1' },
+      originPid: process.pid + 1,
+      originInstanceId: 'other-instance',
+    })
+
+    const delivered = await reader.read()
+    expect(new TextDecoder().decode(delivered.value)).toContain('trusted-envelope')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('delivers a rolling-deploy envelope that omits the instance id and shares this pid', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+    expect(listener).toBeDefined()
+
+    // Containers commonly run as pid 1, so an older replica publishing without
+    // an instance id must not be mistaken for this process.
+    await listener?.({
+      event: 'stream_privacy_test.browser',
+      payload: { marker: 'legacy-replica' },
+      options: { tenantId: 't1', organizationId: 'o1' },
+      originPid: process.pid,
+    })
+
+    const pendingRead = reader.read().then((chunk) => new TextDecoder().decode(chunk.value))
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'dropped'>((resolve) => setTimeout(() => resolve('dropped'), 50)),
+    ])
+    expect(result).toContain('legacy-replica')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('suppresses an envelope published by this instance even when the pid differs', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+
+    await listener?.({
+      event: 'stream_privacy_test.browser',
+      payload: { marker: 'self-echo' },
+      options: { tenantId: 't1', organizationId: 'o1' },
+      originPid: process.pid + 1,
+      originInstanceId: 'web-instance',
+    })
+
+    const pendingRead = reader.read().then(() => 'delivered')
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'not-delivered'>((resolve) => setTimeout(() => resolve('not-delivered'), 10)),
+    ])
+    expect(result).toBe('not-delivered')
 
     try { await reader.cancel() } catch {}
   })

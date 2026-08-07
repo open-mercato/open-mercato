@@ -12,7 +12,7 @@ Route first; never probe unmatched context.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
-- Run `yarn generate` after discovery files, `src/modules.ts`, routes, pages, events, widgets, agents, tools, or workflows change.
+- Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
 - Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
 - Localize strings; use shared UI/tokens and cover loading/empty/error/conflict/keyboard/a11y.
 
@@ -23,8 +23,8 @@ Route first; never probe unmatched context.
 ## Never
 
 - Never leak tenants, trust payload scope, or treat missing scope as unrestricted.
-- Never edit `node_modules`, `.mercato/generated/**`, generated facts, or shipped migrations.
-- Never use cross-module ORM relations; use IDs/snapshots, events, enrichers, extensions, or optional DI.
+- Never edit `node_modules`/`.mercato/generated/**`/generated facts/shipped migrations.
+- Never use cross-module ORM relations; use IDs/snapshots/events/enrichers/extensions/optional DI.
 - Never use raw admin `fetch`/`<form>`, ad hoc crypto/cache/queues, role-name guards, or direct mutations when helpers exist.
 - Never hard-code user strings/status colors; expose secrets/transcripts; or guess answerable contracts.
 

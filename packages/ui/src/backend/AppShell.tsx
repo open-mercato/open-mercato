@@ -771,21 +771,23 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     setOpenGroups((prev) => (prev[key] === false ? { ...prev, [key]: true } : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, navGroups])
-  // Keep header state in sync with props (server-side updates)
-  React.useEffect(() => {
-    setHeaderTitle(currentTitle)
-    setHeaderBreadcrumb(breadcrumb)
-  }, [currentTitle, breadcrumb])
-  // Clear breadcrumb on client-side navigation so stale state doesn't persist;
-  // the new page's ApplyBreadcrumb (if any) will set the correct values
+  // Reset stale header state before applying server props and before the new
+  // page's passive ApplyBreadcrumb effect. The ordering matters for layouts
+  // that persist across client-side navigation.
   const prevPathname = React.useRef(pathname)
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (pathname !== prevPathname.current) {
       prevPathname.current = pathname
       setHeaderTitle(undefined)
       setHeaderBreadcrumb(undefined)
     }
   }, [pathname])
+  // Keep header state in sync with props (server-side updates). A child page's
+  // ApplyBreadcrumb effect runs afterward and may refine this static trail.
+  React.useLayoutEffect(() => {
+    setHeaderTitle(currentTitle)
+    setHeaderBreadcrumb(breadcrumb)
+  }, [currentTitle, breadcrumb])
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {

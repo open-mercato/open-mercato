@@ -11,7 +11,11 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
-import { registerCrossProcessEventListener, registerGlobalEventTap } from '../../../../bus'
+import {
+  CROSS_PROCESS_EVENT_INSTANCE_ID,
+  registerCrossProcessEventListener,
+  registerGlobalEventTap,
+} from '../../../../bus'
 import type { EmitOptions } from '../../../../types'
 
 export const metadata = {
@@ -200,7 +204,12 @@ function ensureGlobalTapSubscription(): void {
   })
 
   registerCrossProcessEventListener(async (envelope) => {
-    if (envelope.originPid === process.pid) return
+    // Every envelope this process publishes carries originInstanceId, so an
+    // envelope without one can only come from an older process during a
+    // rolling deploy and is always foreign. Falling back to originPid would
+    // discard it whenever both containers run under the same pid — commonly
+    // pid 1 — silently dropping browser events across the upgrade window.
+    if (envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID) return
     await broadcastEventToConnections(
       envelope.event,
       (envelope.payload ?? {}) as Record<string, unknown>,

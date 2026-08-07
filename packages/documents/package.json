@@ -1,0 +1,148 @@
+{
+  "name": "@open-mercato/documents",
+  "version": "0.6.7",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "collab": "tsx server/documents-collab-server.ts",
+    "collab:prod": "node dist/server/documents-collab-server.js",
+    "test:multi-instance": "cross-env OM_DOCUMENTS_MULTI_INSTANCE_INTEGRATION=1 jest --config jest.config.cjs --runInBand collabMultiInstance.integration.test.ts",
+    "watch": "node build.mjs --watch",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./collab-server": {
+      "types": "./server/documents-collab-server.ts",
+      "default": "./dist/server/documents-collab-server.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@floating-ui/dom": "^1.7.5",
+    "@hocuspocus/extension-redis": "^4.3.0",
+    "@hocuspocus/provider": "^4.3.0",
+    "@hocuspocus/server": "^4.4.0",
+    "@hocuspocus/transformer": "^4.3.0",
+    "@mikro-orm/core": "^7.1.8",
+    "@open-mercato/events": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "@tiptap/core": "^3",
+    "@tiptap/extension-bubble-menu": "^3",
+    "@tiptap/extension-collaboration": "^3.27.3",
+    "@tiptap/extension-collaboration-caret": "^3.27.3",
+    "@tiptap/extension-highlight": "^3",
+    "@tiptap/extension-image": "^3",
+    "@tiptap/extension-link": "^3",
+    "@tiptap/extension-list": "^3.27.3",
+    "@tiptap/extension-placeholder": "^3",
+    "@tiptap/extension-table": "^3",
+    "@tiptap/extension-table-cell": "^3",
+    "@tiptap/extension-table-header": "^3",
+    "@tiptap/extension-table-row": "^3",
+    "@tiptap/extension-task-item": "^3",
+    "@tiptap/extension-task-list": "^3",
+    "@tiptap/extension-text-align": "^3",
+    "@tiptap/extension-text-style": "^3",
+    "@tiptap/extensions": "^3",
+    "@tiptap/html": "^3.27.3",
+    "@tiptap/pm": "^3",
+    "@tiptap/react": "^3",
+    "@tiptap/starter-kit": "^3",
+    "@tiptap/suggestion": "^3",
+    "@tiptap/y-tiptap": "^3.0.6",
+    "html-to-docx": "^1.8.0",
+    "prosemirror-model": "^1.25.9",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.41.9",
+    "puppeteer-core": "^25.3.0",
+    "y-prosemirror": "^1.3.7",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.31"
+  },
+  "peerDependencies": {
+    "@mikro-orm/postgresql": "^7.0.14",
+    "@open-mercato/shared": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.28.0",
+    "glob": "^13.0.6",
+    "happy-dom": "^20.10.6",
+    "jest": "^30.4.2",
+    "pdfjs-dist": "^6.0.227",
+    "pg": "8.22.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "testcontainers": "^12.0.3",
+    "ts-jest": "^29.4.11",
+    "tsx": "^4.22.4",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/documents"
+  }
+}
