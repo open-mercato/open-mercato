@@ -79,6 +79,9 @@ dispatchQueued?(
   event: string,
   payload: EventPayload,
   options?: EmitOptions,
+  // DI resolver for the dispatched subscribers; defaults to the bus's own.
+  // The events worker passes its per-job `ctx.resolve`.
+  resolve?: <T = unknown>(name: string) => T,
 ): Promise<QueuedDispatchResult[]>
 ```
 
@@ -95,6 +98,16 @@ Handlers run through `withModuleResourceUsage` with the same attribution `delive
 failures are **returned** rather than swallowed (`deliver()` logs and continues, which would break
 queue retry). Moving selection onto the bus - and off the worker's env - makes the documented "bus and
 worker agree" invariant structural rather than dependent on two processes sharing a flag value.
+
+Subscribers run against the caller's `resolve` when one is passed, falling back to the bus's own. The
+worker passes its per-job `ctx.resolve` - the container `createPerJobWorkerHandler` built for that job,
+which is the handle the queue contract already gives it. Defaulting to the bus's resolver instead
+would bind subscribers to whichever container constructed the bus: the same object on the default
+configuration, but not under `OM_BOOTSTRAP_CACHE`, where `eventBus` is replayed into later request
+containers via `asValue` while its captured resolver stays bound to the first
+(`packages/shared/src/lib/di/container.ts:37-45`). Concurrent jobs would then share one `em` - the
+identity-map growth and interleaved flushes of issue #2970 that the per-job container exists to
+prevent, and which the per-job `em.clear()` cannot reach because it clears the fresh, unused one.
 
 ### 2. The worker dispatches through the bus and fails loud
 
@@ -187,6 +200,14 @@ No API route or UI path changes, so no new Playwright specs. Unit coverage:
 ## Changelog
 
 - 2026-08-04: Initial spec.
+- 2026-08-07: `dispatchQueued` takes an optional 4th `resolve` parameter and the worker passes its
+  per-job `ctx.resolve` (review feedback): binding subscribers to the bus's creation container gave up
+  the per-job isolation the queue contract provides, which diverges under `OM_BOOTSTRAP_CACHE`. Same
+  round: the zero-subscriber warning is emitted once per event name (then `debug`) so an install
+  without wildcard persistent subscribers does not get a `warn` per queued event; the aggregate
+  failure throw carries the `[internal]` prefix its two siblings already had; and `UPGRADE_NOTES.md`
+  records that an enqueue-only emit with the flag off no longer runs exact-match *ephemeral*
+  subscribers.
 - 2026-08-06: Stamp is now conditional on inline persistent handlers succeeding (review feedback):
   unconditional stamping removed queue retry for the flag-off path, which the CLI guard can select
   automatically. `dispatchQueued` made optional on `EventBus` to keep the type change ADDITIVE-ONLY.

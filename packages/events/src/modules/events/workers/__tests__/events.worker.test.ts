@@ -17,6 +17,8 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 const workerLoggerError = createLogger('events').error as jest.Mock
+const workerLoggerWarn = createLogger('events').warn as jest.Mock
+const workerLoggerDebug = createLogger('events').debug as jest.Mock
 
 type WorkerJobPayload = {
   event: string
@@ -71,6 +73,8 @@ describe('Events Worker', () => {
 
   beforeEach(() => {
     workerLoggerError.mockClear()
+    workerLoggerWarn.mockClear()
+    workerLoggerDebug.mockClear()
   })
 
   function restoreEnv(name: string, original: string | undefined): void {
@@ -531,6 +535,41 @@ describe('Events Worker', () => {
       await handle(createMockJob('user.created', {}), createMockContext(bus))
 
       expect(calls.sort()).toEqual(['p', 'w'])
+    })
+  })
+
+  describe('zero-subscriber reporting', () => {
+    it('warns once per event name, then drops to debug', async () => {
+      // This line is the last remaining visibility into the silent-loss path the
+      // whole change exists to close, so it has to stay findable - but an install
+      // carrying none of the wildcard persistent subscribers would otherwise get
+      // one `warn` per queued event forever, and a warning that fires in steady
+      // state is one operators learn to skip past.
+      //
+      // The event name is unique to this test on purpose: the suppression set is
+      // module state shared across the whole file, so a name another test already
+      // dispatched would have consumed the first-call `warn`.
+      const bus = createBusWith([
+        { id: 'unrelated', event: 'other.event', persistent: true, handler: () => {} },
+      ])
+
+      await handle(createMockJob('nobody.listens.here', {}), createMockContext(bus))
+
+      expect(workerLoggerWarn).toHaveBeenCalledTimes(1)
+      expect(workerLoggerWarn).toHaveBeenCalledWith('Queued event dispatched to zero subscribers', {
+        event: 'nobody.listens.here',
+        jobId: 'test-job-id',
+      })
+      expect(workerLoggerDebug).not.toHaveBeenCalled()
+
+      await handle(createMockJob('nobody.listens.here', {}), createMockContext(bus))
+
+      expect(workerLoggerWarn).toHaveBeenCalledTimes(1)
+      expect(workerLoggerDebug).toHaveBeenCalledTimes(1)
+      expect(workerLoggerDebug).toHaveBeenCalledWith('Queued event dispatched to zero subscribers', {
+        event: 'nobody.listens.here',
+        jobId: 'test-job-id',
+      })
     })
   })
 })
