@@ -79,6 +79,8 @@ is not.
 
 ## Progress
 
+PR: #5110
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Bump the vulnerable dependencies
