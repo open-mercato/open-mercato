@@ -190,6 +190,7 @@ function mergeLinkedDuplicateResults(results: SearchResult[]): SearchResult[] {
   return results
     .map((result, index) => replacements.get(index) ?? result)
     .filter((_, index) => !removedIndexes.has(index))
+    .sort((left, right) => right.score - left.score)
 }
 
 /**

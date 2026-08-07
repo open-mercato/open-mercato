@@ -277,6 +277,111 @@ describe('createPresenterEnricher', () => {
     ])
   })
 
+  it('re-sorts merged results when linked profiles outrank their customer entities', async () => {
+    mockedDecryptIndexDocForSearch.mockImplementation(async (_entityId, doc) => doc)
+
+    const rows: IndexRow[] = [
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: 'person-entity',
+        doc: { id: 'person-entity', display_name: 'Ada Lovelace', kind: 'person' },
+      },
+      {
+        entity_type: 'customers:customer_person_profile',
+        entity_id: 'person-profile',
+        doc: { id: 'person-profile', entity_id: 'person-entity', display_name: 'Ada Lovelace' },
+      },
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: 'company-entity',
+        doc: { id: 'company-entity', display_name: 'Analytical Engines', kind: 'company' },
+      },
+      {
+        entity_type: 'customers:customer_company_profile',
+        entity_id: 'company-profile',
+        doc: { id: 'company-profile', entity_id: 'company-entity', display_name: 'Analytical Engines' },
+      },
+    ]
+    const personConfig = createConfig({
+      entityId: 'customers:customer_person_profile' as EntityId,
+      formatResult: async (context) => ({ title: String(context.record.display_name) }),
+      resolveUrl: async (context) => `/backend/customers/people-v2/${String(context.record.entity_id)}`,
+    })
+    const companyConfig = createConfig({
+      entityId: 'customers:customer_company_profile' as EntityId,
+      formatResult: async (context) => ({ title: String(context.record.display_name) }),
+      resolveUrl: async (context) => `/backend/customers/companies-v2/${String(context.record.entity_id)}`,
+    })
+    const enrich = createPresenterEnricher(
+      createKyselyMock(rows),
+      new Map([
+        [personConfig.entityId, personConfig],
+        [companyConfig.entityId, companyConfig],
+      ]),
+    )
+
+    const enriched = await enrich([
+      createResult({
+        entityId: 'customers:customer_person_profile' as EntityId,
+        recordId: 'person-profile',
+        organizationId: 'org-1',
+        presenter: undefined,
+        score: 0.95,
+        source: 'fulltext',
+      }),
+      createResult({
+        entityId: 'customers:customer_company_profile' as EntityId,
+        recordId: 'company-profile',
+        organizationId: 'org-1',
+        presenter: undefined,
+        score: 0.85,
+        source: 'fulltext',
+      }),
+      createResult({
+        entityId: 'orders:order' as EntityId,
+        recordId: 'order-1',
+        organizationId: 'org-1',
+        presenter: { title: 'Order 1' },
+        url: '/backend/sales/orders/order-1',
+        score: 0.5,
+      }),
+      createResult({
+        entityId: 'customers:customer_entity' as EntityId,
+        recordId: 'person-entity',
+        organizationId: 'org-1',
+        presenter: undefined,
+        score: 0.2,
+      }),
+      createResult({
+        entityId: 'customers:customer_entity' as EntityId,
+        recordId: 'company-entity',
+        organizationId: 'org-1',
+        presenter: undefined,
+        score: 0.1,
+      }),
+    ], 'tenant-1', 'org-1')
+
+    expect(enriched).toEqual([
+      expect.objectContaining({
+        entityId: 'customers:customer_entity',
+        recordId: 'person-entity',
+        score: 0.95,
+        url: '/backend/customers/people-v2/person-entity',
+      }),
+      expect.objectContaining({
+        entityId: 'customers:customer_entity',
+        recordId: 'company-entity',
+        score: 0.85,
+        url: '/backend/customers/companies-v2/company-entity',
+      }),
+      expect.objectContaining({
+        entityId: 'orders:order',
+        recordId: 'order-1',
+        score: 0.5,
+      }),
+    ])
+  })
+
   it('keeps linked content hits when their navigation includes a page anchor', async () => {
     mockedDecryptIndexDocForSearch.mockImplementation(async (_entityId, doc) => doc)
 

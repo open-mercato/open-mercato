@@ -187,6 +187,11 @@ describe('GET /api/search/search/global presenter localization', () => {
         entity_id: 'company-profile',
         doc: { id: 'company-profile', entity_id: 'company-entity', display_name: 'Analytical Engines' },
       },
+      {
+        entity_type: 'orders:order',
+        entity_id: 'order-1',
+        doc: { id: 'order-1', title: 'Order 1' },
+      },
     ]
     const personEntityId = 'customers:customer_person_profile' as EntityId
     const companyEntityId = 'customers:customer_company_profile' as EntityId
@@ -202,13 +207,22 @@ describe('GET /api/search/search/global presenter localization', () => {
         resolveUrl: async (context) => `/backend/customers/companies-v2/${String(context.record.entity_id)}`,
       }],
     ])
-    const results: SearchResult[] = rows.map((row, index) => ({
-      entityId: row.entity_type as EntityId,
-      recordId: row.entity_id,
-      organizationId: 'org-1',
-      score: 1 - (index * 0.1),
-      source: 'tokens',
-    }))
+    const scoresByRecordId: Record<string, number> = {
+      'person-profile': 0.95,
+      'company-profile': 0.85,
+      'order-1': 0.5,
+      'person-entity': 0.2,
+      'company-entity': 0.1,
+    }
+    const results: SearchResult[] = rows
+      .map((row) => ({
+        entityId: row.entity_type as EntityId,
+        recordId: row.entity_id,
+        organizationId: 'org-1',
+        score: scoresByRecordId[row.entity_id] ?? 0,
+        source: 'tokens' as const,
+      }))
+      .sort((left, right) => right.score - left.score)
     const strategy: SearchStrategy = {
       id: 'tokens',
       name: 'tokens',
@@ -247,6 +261,12 @@ describe('GET /api/search/search/global presenter localization', () => {
         presenter: expect.objectContaining({ title: 'Analytical Engines' }),
         url: '/backend/customers/companies-v2/company-entity',
       }),
+      expect.objectContaining({
+        entityId: 'orders:order',
+        recordId: 'order-1',
+      }),
     ])
+    expect(body.results[0]?.score).toBeGreaterThan(body.results[1]?.score ?? 0)
+    expect(body.results[1]?.score).toBeGreaterThan(body.results[2]?.score ?? 0)
   })
 })

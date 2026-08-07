@@ -32,6 +32,7 @@ After presenter and navigation enrichment:
 3. When a linked result's URL ends with exactly one other navigation-less result's record ID, require the presenter titles to match.
 4. Keep the base result's `entityId` and `recordId`, copy the linked result's presenter, URL, and links, and retain the higher score.
 5. Remove only the linked duplicate.
+6. Sort the reduced result list by score descending so the merged score and rendered position remain consistent.
 
 This is deliberately stricter than title-based deduplication. Two different customers with the same display name remain separate because their record IDs and URLs differ.
 
@@ -53,12 +54,16 @@ The `/api/search/search/global` response shape remains unchanged. A customer ent
 - display and navigation: the linked profile presenter's values;
 - score: the higher of the two pre-merge scores.
 
+The response remains ordered by score descending after linked results are merged.
+
 Other search endpoints using `SearchService` receive the same presentation-level behavior.
 
 ## Testing
 
 - Presenter-enricher regression coverage for both person and company entity/profile pairs.
+- Reverse-order regression coverage proving a higher-scoring profile moves the merged entity to the correct position.
 - Route-level coverage proving the global search API returns one navigable result per customer.
+- Integration coverage using created person and company records to verify real presenter titles collapse to one canonical result.
 - Negative coverage proving anchored content results such as customer notes are not merged into the base entity.
 
 Manual QA should search for a known person and company through Cmd+K and confirm each appears once and opens the expected v2 detail page.
@@ -86,7 +91,7 @@ Manual QA should search for a known person and company through Cmd+K and confirm
 ### Ranking changes
 
 - Severity: low.
-- Mitigation: the merged result keeps the higher existing score instead of summing both scores, avoiding an artificial relevance boost.
+- Mitigation: the merged result keeps the higher existing score instead of summing both scores, avoiding an artificial relevance boost, and the reduced list is re-sorted so each result's position continues to reflect its score.
 - Residual risk: low.
 
 ## Final Compliance Report
@@ -98,6 +103,11 @@ Manual QA should search for a known person and company through Cmd+K and confirm
 - Manual UI QA remains required because the visible global-search result list changes.
 
 ## Changelog
+
+### 2026-08-07
+
+- Preserved score-descending order after merging linked results.
+- Added reverse-order and real customer integration coverage for the ranking and title-equality invariants.
 
 ### 2026-08-06
 
