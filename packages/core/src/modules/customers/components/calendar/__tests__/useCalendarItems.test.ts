@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { renderHook, waitFor } from '@testing-library/react'
-import { mergeInteractionPayloads, useCalendarItems } from '../useCalendarItems'
+import { MAX_WINDOW_ITEMS, mergeInteractionPayloads, useCalendarItems } from '../useCalendarItems'
 import type { CalendarInteractionPayload } from '../types'
 
 const apiCallMock = jest.fn()
@@ -64,5 +64,20 @@ describe('useCalendarItems recurring masters (#4735)', () => {
 
     expect(result.truncated).toBe(false)
     expect(result.payloads).toEqual([inWindow, olderMaster])
+  })
+
+  test('reserves capped result space for recurring masters while keeping the regular copy of duplicates', () => {
+    const windowPayloads = Array.from({ length: MAX_WINDOW_ITEMS }, (_, index) =>
+      interaction(`window-${index}`, '2026-08-03T10:00:00.000Z'),
+    )
+    const recurringOnly = interaction('master-only', '2026-07-27T12:00:00.000Z')
+    const duplicate = { ...windowPayloads[0]!, title: 'Duplicate copy' }
+
+    const result = mergeInteractionPayloads(windowPayloads, [duplicate, recurringOnly])
+
+    expect(result.truncated).toBe(true)
+    expect(result.payloads).toHaveLength(MAX_WINDOW_ITEMS)
+    expect(result.payloads[0]).toBe(windowPayloads[0])
+    expect(result.payloads).toContain(recurringOnly)
   })
 })

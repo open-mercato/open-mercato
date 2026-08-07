@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 116 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 117 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -111,6 +111,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Out-of-band bumps in browser optimistic-lock tests must not change the row's visible name](lessons/out-of-band-bumps-in-browser-optimistic-lock-tests-must.md) — area:backend-ui,integration,testing; module:ui,webhooks,cli; topic:concurrency,data-scoping,optimistic-locking
 - [Portaled confirmations must stay inside their parent dialog's React tree](lessons/portaled-confirmations-must-stay-inside-their-parent.md) — area:backend-ui,module-data; module:ui; topic:events,ui-components
 - [Route-aware backend chrome should use route manifests, not the full module registry](lessons/route-aware-backend-chrome-should-use-route-manifests.md) — area:backend-ui,architecture; module:ui,events; topic:events,generated-files,regeneration
+- [Shared candidate sets must stay identical across display and validation consumers](lessons/shared-candidate-sets-must-stay-identical-across-display.md) — area:backend-ui,testing; module:customers; topic:filters,testing,ui-components
 - [Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout](lessons/sidebar-hydration-must-preserve-the-exact-rbac.md) — area:backend-ui,debugging; module:ui; topic:access-control,data-scoping,generated-files
 - [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging; module:ui,auth,customers; topic:error-states,ui-components
 

@@ -63,15 +63,33 @@ export function mergeInteractionPayloads(
   windowPayloads: CalendarInteractionPayload[],
   recurringPayloads: CalendarInteractionPayload[],
 ): { payloads: CalendarInteractionPayload[]; truncated: boolean } {
+  const windowById = new Map(windowPayloads.map((payload) => [payload.id, payload]))
   const byId = new Map<string, CalendarInteractionPayload>()
-  for (const payload of windowPayloads) byId.set(payload.id, payload)
   for (const payload of recurringPayloads) {
+    byId.set(payload.id, windowById.get(payload.id) ?? payload)
+  }
+  for (const payload of windowPayloads) {
     if (!byId.has(payload.id)) byId.set(payload.id, payload)
   }
   const payloads = Array.from(byId.values())
   return {
     payloads: payloads.slice(0, MAX_WINDOW_ITEMS),
     truncated: payloads.length > MAX_WINDOW_ITEMS,
+  }
+}
+
+export async function fetchCalendarCandidates(
+  window: CalendarRange,
+  signal?: AbortSignal,
+): Promise<{ payloads: CalendarInteractionPayload[]; truncated: boolean }> {
+  const [windowResult, recurringResult] = await Promise.all([
+    fetchInteractionWindow(window, signal),
+    fetchInteractionWindow(window, signal, { recurrenceMasters: true }),
+  ])
+  const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads)
+  return {
+    payloads: merged.payloads,
+    truncated: windowResult.truncated || recurringResult.truncated || merged.truncated,
   }
 }
 
@@ -149,14 +167,10 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       setError(null)
       try {
         const fetchWindow = getFetchWindow({ from: new Date(fromTime), to: new Date(toTime) })
-        const [windowResult, recurringResult] = await Promise.all([
-          fetchInteractionWindow(fetchWindow, controller.signal),
-          fetchInteractionWindow(fetchWindow, controller.signal, { recurrenceMasters: true }),
-        ])
+        const result = await fetchCalendarCandidates(fetchWindow, controller.signal)
         if (cancelled) return
-        const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads)
-        setPayloads(merged.payloads)
-        setTruncated(windowResult.truncated || recurringResult.truncated || merged.truncated)
+        setPayloads(result.payloads)
+        setTruncated(result.truncated)
       } catch (err) {
         if (cancelled || controller.signal.aborted) return
         setPayloads([])

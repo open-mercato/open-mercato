@@ -120,7 +120,7 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(dateParams.length).toBeGreaterThanOrEqual(2)
   })
 
-  test('recurring-master reads select series capable of overlapping the requested window', async () => {
+  test('recurring-master reads use the effective date when scheduledAt is nullable', async () => {
     const from = new Date('2026-02-01T00:00:00.000Z')
     const to = new Date('2026-02-08T23:59:59.999Z')
     const res = await GET(
@@ -134,7 +134,8 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     const normalizedSql = compiled!.sql.toLowerCase()
     expect(normalizedSql).toContain('"recurrence_rule" is not null')
     expect(normalizedSql).toContain('recurrence_end is null or recurrence_end >=')
-    expect(normalizedSql).toContain('"scheduled_at" <=')
+    expect(normalizedSql).toContain('coalesce(occurred_at, scheduled_at, created_at) <=')
+    expect(normalizedSql).not.toContain('"scheduled_at" <=')
     expect(normalizedSql).not.toContain('coalesce(occurred_at, scheduled_at, created_at) >=')
     expect(compiled!.parameters).toEqual(expect.arrayContaining([from, to]))
   })

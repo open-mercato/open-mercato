@@ -367,7 +367,7 @@ function applyInteractionListFilters(
       q = q.where(sql<boolean>`recurrence_end is null or recurrence_end >= ${query.from}`)
     }
     if (query.to) {
-      q = q.where('scheduled_at', '<=', query.to)
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
     }
   } else {
     if (query.from) {
