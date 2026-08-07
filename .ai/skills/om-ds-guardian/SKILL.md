@@ -376,6 +376,8 @@ Compare with baseline at `.ai/reports/ds-health-baseline-2026-04-11.txt`. It pre
 
 `ds-health-latest.txt` is tracked, so a run refreshes a committed file: commit the refreshed report only in a DS-pass PR, and `git checkout -- .ai/reports/ds-health-latest.txt` otherwise so a `git add -A` on unrelated work cannot sweep it in.
 
+Do commit it on every DS pass, though — the `warn`→`error` escalation criterion reads two consecutive *committed* revisions of this file (`.ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md`, "Escalation unit and criterion"). A pass that discards its report leaves a gap in the history, and a gap is not a zero: the module simply does not qualify yet.
+
 ---
 
 ## Workflow Orchestration
