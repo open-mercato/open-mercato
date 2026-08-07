@@ -360,7 +360,14 @@ if [ -n "$PREV_FILE" ] && [ -f "$PREV_FILE" ]; then
   PREV_DATE=$(grep -m1 '^Date: ' "$PREV_FILE" | cut -d' ' -f2 || true)
   echo ""
   echo "=== DELTA vs previous run (${PREV_DATE:-date unknown}) ==="
-  diff --unified=0 "$PREV_FILE" "$REPORT_FILE" | grep '^[+-]  ' | head -30 || echo "  (no changes)"
+  # Capture first: under `set -o pipefail` a diff that finds differences exits 1,
+  # so a trailing `|| echo "(no changes)"` fires even when there ARE changes.
+  DELTA=$(diff --unified=0 "$PREV_FILE" "$REPORT_FILE" | grep '^[+-]  ' | head -30 || true)
+  if [ -n "$DELTA" ]; then
+    echo "$DELTA"
+  else
+    echo "  (no changes)"
+  fi
 else
   echo ""
   echo "=== First report — no previous data to compare ==="
