@@ -75,7 +75,8 @@ export async function POST(req: Request) {
       organizationId: claims.organizationId,
       sessionId: claims.sessionId,
       sessionRevoked,
-    }).catch(() => undefined)
+      at: new Date().toISOString(),
+    }, { persistent: true }).catch(() => undefined)
   }
   const res = buildSafeRedirectResponse(req, '/login')
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })

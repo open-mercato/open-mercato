@@ -1,7 +1,7 @@
 /** @jest-environment node */
 const mockConfirmPasswordReset = jest.fn()
 const mockCheckAuthRateLimit = jest.fn()
-const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>) => undefined)
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 const mockNotificationCreate = jest.fn(async () => undefined)
 
 const mockContainer = {
@@ -43,7 +43,8 @@ jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
-  emitAuthEvent: (eventId: string, payload: Record<string, unknown>) => mockEmitAuthEvent(eventId, payload),
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>, options?: Record<string, unknown>) =>
+    mockEmitAuthEvent(eventId, payload, options),
 }))
 
 import { POST } from '@open-mercato/core/modules/auth/api/reset/confirm'
@@ -80,7 +81,8 @@ describe('POST /api/auth/reset/confirm — auth.password.reset.completed event',
       email: 'staff@example.com',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-    })
+      at: expect.any(String),
+    }, { persistent: true })
   })
 
   test('does not emit when the token is invalid or expired', async () => {

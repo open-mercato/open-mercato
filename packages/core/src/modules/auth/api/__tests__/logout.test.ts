@@ -10,14 +10,15 @@ const containerResolve = jest.fn((name: string) => {
   return null
 })
 const createRequestContainer = jest.fn(async () => ({ resolve: containerResolve }))
-const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>) => undefined)
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
-  emitAuthEvent: (eventId: string, payload: Record<string, unknown>) => mockEmitAuthEvent(eventId, payload),
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>, options?: Record<string, unknown>) =>
+    mockEmitAuthEvent(eventId, payload, options),
 }))
 
 jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => {
@@ -160,7 +161,8 @@ describe('POST /api/auth/logout — auth.logout event', () => {
       organizationId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
       sessionId,
       sessionRevoked: true,
-    })
+      at: expect.any(String),
+    }, { persistent: true })
   })
 
   it('reports sessionRevoked false when server-side revocation failed', async () => {
@@ -174,6 +176,7 @@ describe('POST /api/auth/logout — auth.logout event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.logout',
       expect.objectContaining({ id: userId, sessionRevoked: false }),
+      { persistent: true },
     )
     expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
   })
@@ -195,6 +198,7 @@ describe('POST /api/auth/logout — auth.logout event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.logout',
       expect.objectContaining({ id: userId, sessionId: null }),
+      { persistent: true },
     )
   })
 

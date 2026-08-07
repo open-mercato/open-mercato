@@ -1,7 +1,8 @@
-const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>) => undefined)
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
-  emitAuthEvent: (eventId: string, payload: Record<string, unknown>) => mockEmitAuthEvent(eventId, payload),
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>, options?: Record<string, unknown>) =>
+    mockEmitAuthEvent(eventId, payload, options),
 }))
 
 import '@open-mercato/core/modules/auth/commands/users'
@@ -113,7 +114,8 @@ describe('auth.users.update — auth.password.changed event', () => {
       organizationId: 'org-1',
       changedBy: 'self',
       changedById: USER_ID,
-    })
+      at: expect.any(String),
+    }, { persistent: true })
   })
 
   it('reports changedBy admin when another user sets the password', async () => {
@@ -122,6 +124,7 @@ describe('auth.users.update — auth.password.changed event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.password.changed',
       expect.objectContaining({ id: USER_ID, changedBy: 'admin', changedById: ADMIN_ID }),
+      { persistent: true },
     )
   })
 

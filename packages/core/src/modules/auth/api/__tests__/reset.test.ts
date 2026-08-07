@@ -4,7 +4,7 @@ const mockRequestPasswordReset = jest.fn()
 const mockSendEmail = jest.fn()
 const mockCheckAuthRateLimit = jest.fn()
 const mockResetPasswordEmail = jest.fn((props: { resetUrl: string }) => props)
-const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>) => undefined)
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 const mockContainer = {
   resolve: jest.fn((name: string) => {
@@ -64,7 +64,8 @@ jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
-  emitAuthEvent: (eventId: string, payload: Record<string, unknown>) => mockEmitAuthEvent(eventId, payload),
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>, options?: Record<string, unknown>) =>
+    mockEmitAuthEvent(eventId, payload, options),
 }))
 
 const originalEnv = process.env
@@ -201,7 +202,8 @@ describe('POST /api/auth/reset', () => {
       email: 'staff@example.com',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-    })
+      at: expect.any(String),
+    }, { persistent: true })
   })
 
   test('does not emit auth.password.reset.requested for an unknown account', async () => {

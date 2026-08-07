@@ -63,7 +63,8 @@ export async function POST(req: Request) {
     email: user.email,
     tenantId: user.tenantId ? String(user.tenantId) : null,
     organizationId: user.organizationId ? String(user.organizationId) : null,
-  }).catch(() => undefined)
+    at: new Date().toISOString(),
+  }, { persistent: true }).catch(() => undefined)
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
