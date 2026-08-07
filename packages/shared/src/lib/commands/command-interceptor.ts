@@ -69,7 +69,15 @@ export interface CommandInterceptorBeforeResult {
   message?: string
   /** Modified input — shallow-merged into command input if ok:true */
   modifiedInput?: Record<string, unknown>
-  /** Metadata passed to the corresponding after hook */
+  /**
+   * Metadata passed to the corresponding after hook.
+   *
+   * Reserved key — `logContext`: a record here (e.g. `{ logContext: { ip: '...' } }`) is
+   * shallow-merged into the persisted `ActionLog.context_json`. Every other key stays
+   * private to the after hook. Contributed keys take precedence over
+   * `options.metadata.context` but yield to `buildLog().context` on conflicts; when two
+   * interceptors contribute the same key, the higher `priority` (later-running) one wins.
+   */
   metadata?: Record<string, unknown>
 }
 
