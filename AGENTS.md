@@ -19,7 +19,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
 - Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
 - Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
-- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Enforced by `optimistic-lock-editable-entities.test.ts` and `optimistic-lock-ui-coverage.test.ts`. Details: the Task Router row.
+- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Details: the Task Router row.
 
 ## Ask First
 
@@ -27,7 +27,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Ask before changing branch/PR automation, pipeline labels, QA flow, release behavior, or external official-module submodule pointers.
 - Ask before applying database migrations locally with `yarn db:migrate`; normal PRs should include migration files and snapshots.
 - Ask before introducing provider-specific preconfiguration outside the provider package.
-- Ask before an automated PR touches design-system governance files (the CODEOWNERS design-system section): file an issue for the design owner instead. UI code and modules stay open.
+- Ask before an automated PR touches design-system governance files (see [pr-workflow](.ai/docs/pr-workflow.md)).
 
 ## Never
 
