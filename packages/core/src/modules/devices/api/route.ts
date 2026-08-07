@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -60,19 +61,22 @@ const crud = makeCrudRoute({
     sortFieldMap: deviceListSortFieldMap,
     // Self-serve: always scoped to the acting user. Cross-user listing lives in api/admin/devices.
     buildFilters: async (query, ctx) => {
+      // Consume the client-supplied advanced filter here (this deletes every `filter[...]` key from
+      // `query`) so the CRUD factory's own merge step becomes a no-op. That step is
+      // `{ ...existingFilters, ...advancedWhere }` (advanced-filter-integration.ts), and condition
+      // field names are never validated — `filter[conditions][0][field]=user_id` or `=$and` would
+      // otherwise overwrite whatever key this route uses for its scope and widen the listing to other
+      // users. `mergeAdvancedFilterTree` instead AND-combines under `$and: [routeFilters, treeWhere]`,
+      // where the scope sits in its own array element and no client key can reach it. Same pattern as
+      // customers/people, companies and deals.
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = {}
       const actorUserId = resolveDeviceActorUserId(ctx.auth)
-      // Self-serve visibility is strictly the acting user's own devices. Emit the scope as an `$and`
-      // branch, NOT a top-level `user_id` key: the CRUD factory merges client-supplied advanced
-      // filters (`filter[...]`, which survive the `.passthrough()` list schema) OVER this output via
-      // object spread (advanced-filter-integration.ts: `{ ...existing, ...advancedWhere }`), so a bare
-      // `user_id` key would be clobbered by a crafted `filter[conditions][0][field]=user_id` param and
-      // widen the scope to another user. `$and` stays AND-combined with (and un-clobberable by) any
-      // merged advanced filter, so cross-user requests fail closed to an empty result.
-      // Fail closed when there is no resolvable acting user (e.g. API keys).
-      filters.$and = [{ user_id: { $eq: actorUserId ?? NO_MATCH_USER_ID } }]
+      // Self-serve visibility is strictly the acting user's own devices; cross-user listing lives in
+      // api/admin/devices. Fail closed when there is no resolvable acting user (e.g. API keys).
+      filters.user_id = { $eq: actorUserId ?? NO_MATCH_USER_ID }
       if (query.platform) filters.platform = { $eq: query.platform }
-      return filters
+      return mergeAdvancedFilterTree(filters, advancedFilterTree)
     },
   },
 })

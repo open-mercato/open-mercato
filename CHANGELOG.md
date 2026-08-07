@@ -1,6 +1,9 @@
 
 # Unreleased
 
+## 🔒 Security
+- 🔒 Advanced filters ignore a condition whose field names a Where combinator (`$and`/`$or`/`$not`) instead of a column, in both the flat and tree query formats. Field names are never validated against a route's allowlist, so such a condition previously compiled to a combinator key in the same namespace the route's own filters use — reaching the query engine as a filter on a non-existent column, or colliding with a key the route emitted (including a scope predicate merged over by `mergeAdvancedFilters`).
+
 ## ✨ Features
 - ✨ Devices & Push Notifications: `devices`, `notifications`, `push_notifications`, and `communication_channels` modules plus the `channel-fcm` / `channel-apns` / `channel-expo` provider packages deliver end-to-end mobile push. See the [Devices & Push Notifications getting-started guide](apps/docs/docs/tutorials/devices-and-push-getting-started.mdx).
 - ✨ Localized notification type catalogue for mobile settings screens: `GET /api/notifications/types` returns ready-to-display `label`, `description` and `categoryLabel` resolved server-side from the request locale (`?locale=`, `x-locale`, cookie, or `Accept-Language`), so a mobile client needs no i18n bundle. Types are grouped by `category`, which now defaults to the prefix of the type id (`sales.order.created` → `sales`); each module ships its own `notifications.categories.<key>` label, and an untranslated category falls back to the raw key. Group on `category`, display `categoryLabel`.

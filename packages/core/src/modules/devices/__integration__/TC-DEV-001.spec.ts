@@ -279,14 +279,45 @@ test.describe('TC-DEV-001: Devices module registry APIs', () => {
       employeeDevId = (await registerDevice(request, employeeToken, { deviceId: employeeDeviceId, platform: 'ios' })).json?.id ?? null
 
       // The self list schema is `.passthrough()`, so advanced-filter params (`filter[...]`) survive zod
-      // and the CRUD factory merges them OVER buildFilters via object spread. A crafted single-condition
-      // filter on `user_id` must NOT override the server-enforced actor scope and leak another user's
-      // devices — the scope is emitted as an un-clobberable `$and` branch, so this fails closed.
+      // and the CRUD factory would merge them OVER buildFilters via object spread. A crafted
+      // single-condition filter on `user_id` must NOT override the server-enforced actor scope and leak
+      // another user's devices — the route consumes the filter itself and AND-combines it, so this
+      // fails closed.
       await waitForDevices(request, adminToken, (its) => its.some((d) => d.id === adminDevId))
       const filterQuery =
         '?filter[conditions][0][field]=user_id' +
         '&filter[conditions][0][op]=is' +
         `&filter[conditions][0][value]=${encodeURIComponent(employeeScope.userId)}`
+      const selfView = await listDevices(request, adminToken, filterQuery)
+      expect(selfView.items.every((d) => d.user_id !== employeeScope.userId)).toBe(true)
+      expect(selfView.items.find((d) => d.id === employeeDevId)).toBeFalsy()
+    } finally {
+      await deleteDeviceIfExists(request, adminToken, adminDevId)
+      await deleteDeviceIfExists(request, employeeToken, employeeDevId)
+    }
+  })
+
+  test('self list ignores an advanced-filter condition whose field is a logical operator', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const employeeToken = await getAuthToken(request, 'employee')
+    const employeeScope = getTokenScope(employeeToken)
+    const adminDeviceId = uniqueDeviceId()
+    const employeeDeviceId = uniqueDeviceId()
+    let adminDevId: string | null = null
+    let employeeDevId: string | null = null
+    try {
+      adminDevId = (await registerDevice(request, adminToken, { deviceId: adminDeviceId, platform: 'ios' })).json?.id ?? null
+      employeeDevId = (await registerDevice(request, employeeToken, { deviceId: employeeDeviceId, platform: 'ios' })).json?.id ?? null
+
+      // Condition field names are not validated against the route's field allowlist, so a condition can
+      // name a logical operator key (`$and`, `$or`, `$not`) instead of a column. Under the factory's
+      // spread merge that key lands in the same namespace as the route's own filters, and a filter on a
+      // non-existent column matches every indexed row — so the scope must not live in a key the client
+      // can name. Both spellings have to fail closed, not just `field=user_id`.
+      await waitForDevices(request, adminToken, (its) => its.some((d) => d.id === adminDevId))
+      const filterQuery =
+        '?filter[conditions][0][field]=' + encodeURIComponent('$and') +
+        '&filter[conditions][0][op]=is_empty'
       const selfView = await listDevices(request, adminToken, filterQuery)
       expect(selfView.items.every((d) => d.user_id !== employeeScope.userId)).toBe(true)
       expect(selfView.items.find((d) => d.id === employeeDevId)).toBeFalsy()
