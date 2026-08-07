@@ -93,9 +93,17 @@ function reportFailures(event: string, results: QueuedDispatchResult[]): void {
 
   const failedIds = failures.map((failure) => failure.subscriberId).join(', ')
   throw new Error(
-    `${failures.length}/${results.length} subscriber(s) failed for event "${event}": ${failedIds}`,
+    `[internal] ${failures.length}/${results.length} subscriber(s) failed for event "${event}": ${failedIds}`,
   )
 }
+
+// Event names already reported as having no subscriber. The empty-result case is
+// worth surfacing once - it is the residual silent-loss path - but an install
+// carrying none of the wildcard persistent subscribers (webhooks outbound,
+// workflow triggers, business-rule triggers) would otherwise log one `warn` per
+// queued event forever, and a warning that fires in steady state is one operators
+// learn to skip past.
+const eventsReportedWithoutSubscribers = new Set<string>()
 
 /**
  * Events worker handler.
@@ -112,18 +120,33 @@ export default async function handle(
   }
 
   const bus = resolveEventBus(ctx, event)
-  const results = await bus.dispatchQueued(event, payload, {
-    tenantId: options?.tenantId ?? null,
-    organizationId: options?.organizationId ?? null,
-  })
+  // `ctx.resolve` is the per-job request container `createPerJobWorkerHandler`
+  // built for this job. Handing it to the bus keeps subscribers on that job's
+  // `em` instead of whichever container happened to construct the bus.
+  const results = await bus.dispatchQueued(
+    event,
+    payload,
+    {
+      tenantId: options?.tenantId ?? null,
+      organizationId: options?.organizationId ?? null,
+    },
+    ctx.resolve,
+  )
 
   // A resolvable bus with an empty registry is the residual silent-loss path:
   // `core/bootstrap.ts` logs and continues when `getModules()` fails, leaving a
   // valid bus with no subscribers, and this job would then complete green.
   // Zero subscribers is legitimate for an event nobody listens to, so this
   // cannot throw - but at job-dispatch time it is more often a bug than a no-op,
-  // so make it visible rather than silent.
+  // so make it visible rather than silent. Once per event name: see the note on
+  // `eventsReportedWithoutSubscribers`.
   if (results.length === 0) {
+    const alreadyReported = eventsReportedWithoutSubscribers.has(event)
+    eventsReportedWithoutSubscribers.add(event)
+    if (alreadyReported) {
+      logger.debug('Queued event dispatched to zero subscribers', { event, jobId: ctx.jobId })
+      return
+    }
     logger.warn('Queued event dispatched to zero subscribers', { event, jobId: ctx.jobId })
     return
   }

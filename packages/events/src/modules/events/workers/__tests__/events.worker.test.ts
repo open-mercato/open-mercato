@@ -251,6 +251,50 @@ describe('Events Worker', () => {
       expect((capturedContext as { resolve: unknown }).resolve).toBeDefined()
     })
 
+    it('should hand subscribers the JOB container resolver, not the bus creation one', async () => {
+      // `toBeDefined()` above passes whichever resolver is threaded, so it cannot
+      // catch the two being swapped. Pin the identity with sentinels that differ:
+      // the worker must pass its own ctx.resolve, which is the container
+      // createPerJobWorkerHandler built for this job. Under OM_BOOTSTRAP_CACHE the
+      // bus is replayed across jobs while its captured resolver stays bound to the
+      // first container, so resolving `em` from it would share one EntityManager
+      // across concurrent jobs - the interleaving of issue #2970.
+      const busEm = { id: 'em-from-the-container-that-built-the-bus' }
+      const perJobEm = { id: 'em-for-this-job' }
+      let resolvedEm: unknown = null
+
+      const bus = createEventBus({
+        resolve: (<T = unknown>(name: string): T => {
+          if (name === 'em') {
+            return busEm as unknown as T
+          }
+          throw new Error(`No mock for ${name}`)
+        }),
+      })
+      bus.registerModuleSubscribers([
+        { id: 'test:subscriber', event: 'test.event', persistent: true, handler: (_p, ctx) => { resolvedEm = ctx.resolve('em') } },
+      ])
+
+      const ctx: WorkerContext = {
+        jobId: 'test-job-id',
+        attemptNumber: 1,
+        queueName: 'events',
+        resolve: <T = unknown>(name: string): T => {
+          if (name === 'eventBus') {
+            return bus as unknown as T
+          }
+          if (name === 'em') {
+            return perJobEm as unknown as T
+          }
+          throw new Error(`No mock for ${name}`)
+        },
+      }
+
+      await handle(createMockJob('test.event', {}), ctx)
+
+      expect(resolvedEm).toBe(perJobEm)
+    })
+
     it('should pass trusted tenant and organization scope to subscriber context', async () => {
       let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
       const bus = createBusWith([
@@ -326,7 +370,7 @@ describe('Events Worker', () => {
       ])
 
       await expect(handle(createMockJob('test.event', { data: 'test' }), createMockContext(bus))).rejects.toThrow(
-        '1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
+        '[internal] 1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
       )
 
       expect(subscriber1Calls.length).toBe(1)
@@ -387,7 +431,7 @@ describe('Events Worker', () => {
       ])
 
       await expect(handle(createMockJob('test.event', { data: 'test' }), createMockContext(bus))).rejects.toThrow(
-        '2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
+        '[internal] 2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
       )
 
       expect(workerLoggerError).toHaveBeenCalledTimes(2)

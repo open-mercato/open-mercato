@@ -153,7 +153,7 @@ describe('queued persistent delivery round trip (no CLI module registry)', () =>
     const [job] = readQueuedJobs()
 
     await expect(handle(job as never, workerContext(bus) as never)).rejects.toThrow(
-      '1/1 subscriber(s) failed for event "customers.deal.won": silent',
+      '[internal] 1/1 subscriber(s) failed for event "customers.deal.won": silent',
     )
   })
 
@@ -172,7 +172,7 @@ describe('queued persistent delivery round trip (no CLI module registry)', () =>
     const [job] = readQueuedJobs()
 
     await expect(handle(job as never, workerContext(bus) as never)).rejects.toThrow(
-      '1/1 subscriber(s) failed for event "customers.deal.won": flaky',
+      '[internal] 1/1 subscriber(s) failed for event "customers.deal.won": flaky',
     )
   })
 })

@@ -311,27 +311,27 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    * `deliver()` does them: the worker needs them to propagate so the queue retries
    * the job and eventually dead-letters it.
    *
-   * Subscribers run against `opts.resolve`, the bus's own resolver, exactly as
-   * inline `deliver()` does. On the default configuration that is the calling
-   * job's container: the worker builds a fresh request container per job
-   * (`createPerJobWorkerHandler`) and each one bootstraps its own bus. It is NOT
-   * the calling job's container under `OM_BOOTSTRAP_CACHE`, where the cached bus
-   * is replayed into later containers while its captured resolver stays bound to
-   * the first one. That flag is opt-in precisely because this class of staleness
-   * is unresolved for every cached service - `lib/di/container.ts` names the
-   * event-bus resolver among them and reports 500s from CRUD list endpoints - so
-   * queued dispatch is not made an exception to a cache that is not yet usable.
-   * Whoever verifies that flag must thread a per-call resolver through here.
+   * Subscribers run against the caller's `resolve` when one is given, falling back
+   * to the bus's own. The events worker passes its per-job `ctx.resolve`, which is
+   * the container `createPerJobWorkerHandler` built for that job - the handle the
+   * queue contract already hands it. Defaulting to `opts.resolve` instead would
+   * bind subscribers to whichever container built the bus; that is the same object
+   * on the default configuration, but not under `OM_BOOTSTRAP_CACHE`, where the
+   * cached bus is replayed into later containers while its captured resolver stays
+   * bound to the first.
    */
   async function dispatchQueued(
     event: string,
     payload: EventPayload,
     options?: EmitOptions,
+    resolve?: <T = unknown>(name: string) => T,
   ): Promise<QueuedDispatchResult[]> {
     const subscribers = selectQueuedSubscribers(event)
     if (subscribers.length === 0) {
       return []
     }
+
+    const resolver = resolve ?? opts.resolve
 
     const settled = await Promise.allSettled(
       subscribers.map((subscriber) =>
@@ -343,7 +343,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             resourceId: subscriber.id ?? subscriber.event,
           },
           () => subscriber.handler(payload, {
-            resolve: opts.resolve,
+            resolve: resolver,
             eventName: event,
             tenantId: options?.tenantId ?? null,
             organizationId: options?.organizationId ?? null,

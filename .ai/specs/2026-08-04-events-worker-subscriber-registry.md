@@ -159,14 +159,26 @@ effects silently from the queue's point of view.
 
 No API route or UI path changes, so no new Playwright specs. Unit coverage:
 
+- `packages/events/src/__tests__/queued-delivery-roundtrip.test.ts` - the regression, end to end:
+  persistent emit -> local file queue -> worker -> subscriber, in a process where
+  `registerCliModules()` never ran. Pins the bug by its failure mode rather than by an
+  implementation detail.
 - `packages/events/src/modules/events/workers/__tests__/events.worker.test.ts` - dispatch through a
-  bus with no CLI registry (the regression), wildcards under single-delivery, legacy exact-match,
-  late registration, unresolvable bus -> throw, partial failure -> aggregate throw, stamp suppression.
-- `packages/events/src/__tests__/single-delivery.test.ts` - availability-signal matrix and the stamp.
+  bus with no CLI registry, wildcards, late registration, unresolvable bus and a bus predating
+  `dispatchQueued` -> throw, partial failure -> aggregate throw, stamp suppression, and that the
+  subscriber context carries the worker's per-job resolver rather than the bus's own.
+- `packages/events/src/__tests__/dispatch-queued.test.ts` - selection parity, scope forwarding to
+  wildcard subscribers, the subscriber-id fallback, `ok` scoring a `throw undefined` rejection as a
+  failure, and the resolver parameter in both directions (caller override honored; omitted falls
+  back to the bus's).
+- `packages/events/src/__tests__/single-delivery.test.ts` - the stamp in all four combinations,
+  including a failed inline persistent handler leaving the job unstamped so the queue keeps its
+  retry, while a failed *ephemeral* handler does not.
 - `packages/events/src/__tests__/single-delivery-reconcile.test.ts` - unchanged; the reconcile
   helper keeps its existing contract for the CLI bootstrap.
-- `packages/cli/src/lib/__tests__/events-single-delivery.test.ts` - the guard writes the explicit
-  `'true'` the bus-side signal accepts.
+- `packages/cli/src/lib/__tests__/events-single-delivery.test.ts` - the server-bootstrap guard: the
+  availability matrix, and that it writes an explicit boolean token into both `process.env` and the
+  env handed to spawned children, so app and worker read the same value.
 - `packages/shared/src/modules/__tests__/cli-registry-boundary.test.ts` - repo-wide boundary guard:
   no runtime file outside `packages/cli/**` or a module's own `cli.ts` may call `getCliModules()` /
   `hasCliModules()` / `registerCliModules()`. This is what stops the class of bug from returning;

@@ -156,6 +156,32 @@ describe('EventBus.dispatchQueued', () => {
     expect(results).toEqual([{ subscriberId: 'user.created', ok: true }])
   })
 
+  test('prefers the caller-supplied resolver over the bus creation one', async () => {
+    // The events worker passes its per-job `ctx.resolve` so subscribers bind to
+    // that job's container. Under `OM_BOOTSTRAP_CACHE` the bus may be a cached
+    // instance whose captured resolver still points at the container that
+    // bootstrapped first, which would share one `em` across concurrent jobs.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    let resolved: unknown = null
+    const bus = createEventBus({ resolve: ((name: string) => `bus:${name}`) as never })
+    bus.on('user.created', (_payload, ctx) => { resolved = ctx.resolve('em') }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {}, undefined, ((name: string) => `job:${name}`) as never)
+
+    expect(resolved).toBe('job:em')
+  })
+
+  test('falls back to the bus resolver when the caller supplies none', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    let resolved: unknown = null
+    const bus = createEventBus({ resolve: ((name: string) => `bus:${name}`) as never })
+    bus.on('user.created', (_payload, ctx) => { resolved = ctx.resolve('em') }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {})
+
+    expect(resolved).toBe('bus:em')
+  })
+
   test('returns an empty result set when nothing matches', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
     const bus = makeBus([makeSub('other', 'user.deleted', true, [])])

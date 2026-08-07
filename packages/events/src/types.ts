@@ -176,12 +176,21 @@ export interface EventBus {
    * @param event - Event name from the queued job
    * @param payload - Event payload data
    * @param options - Trusted scope recorded on the queued job
+   * @param resolve - DI resolver handed to the dispatched subscribers, defaulting
+   *   to the one the bus was created with. The events worker passes its per-job
+   *   `ctx.resolve`, so subscribers bind to the container that job runs in rather
+   *   than the one that happened to build the bus. That distinction only bites
+   *   under `OM_BOOTSTRAP_CACHE`, where the cached bus is replayed into later
+   *   request containers while its captured resolver stays bound to the first —
+   *   but the worker already holds the correct handle, so there is no reason to
+   *   depend on the two coinciding.
    * @returns One entry per dispatched subscriber, `error` set on failure
    */
   dispatchQueued?(
     event: string,
     payload: EventPayload,
     options?: EmitOptions,
+    resolve?: <T = unknown>(name: string) => T,
   ): Promise<QueuedDispatchResult[]>
 
   /**
