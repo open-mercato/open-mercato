@@ -83,3 +83,17 @@ previous head `f961fd0` and on `develop@4dca3f1a`.
 - [x] Fix: `login.tsx` imports `clearAllPerspectiveState` from the leaf module — 7a6c717
 - [x] Regression guard: public auth screens may not import `DataTable` / `CrudForm` — 7a6c717
 - [x] Full validation gate (8/8 green, local runner) + push; CI shard 8/15 is the acceptance oracle
+
+### CI round 3 — second pass, after `7aa543e`
+
+The bundle fix removed the two login-side failure signatures (`ERR_ABORTED` on the
+post-login `goto`, the password field detaching mid-`fill`); shard 8/15 then failed
+purely on the resize drag, identically in attempt and retry. The CI trace of run
+31165875661 shows the companies table refetching at 6.92 s while the drag starts at
+7.0 s — a re-render mid-drag unmounts the handle and `DataTable` cancels the gesture
+by design. `TC-CRM-086` already solves this with a settle-wait plus up to three drag
+attempts; `TC-CRM-087` had neither.
+
+- [x] Port TC-CRM-086's gesture hardening into TC-CRM-087 — 20fa4e0
+- [x] Verify on a fresh ephemeral env (086 + 087 green; the earlier local red was a
+      drained database from the full-shard run, not the change)
