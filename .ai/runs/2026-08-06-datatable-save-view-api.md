@@ -66,3 +66,20 @@ Existing call sites must behave byte-identically: no new default UI, no changed 
       fix with exactly the reviewer's `["columnSizing","searchValue"]` signature),
       "No view" clear, role perspective, `not-ready` and `perspectives-disabled`
 - [x] Follow-up issue for the locale-dependent `Intl` unit tests (repo hygiene)
+
+## CI round 3 — red `ephemeral-integration (8/15)`, 2026-08-07 (`om-auto-continue-pr`)
+
+`TC-CRM-087` (unsaved column widths cleared on login) failed on all three attempts of
+run 31152780003, in three different places: the resize drag never widening the column,
+`page.goto` returning `net::ERR_ABORTED` after the account switch, and the login form
+detaching mid-`fill`. It is **not** a shard flake — the same test, in the same shard
+8/15, at the same position (#33) of the same 133-test set, passed on the branch's
+previous head `f961fd0` and on `develop@4dca3f1a`.
+
+- [x] Reproduce locally: the spec alone, with `TC-CRM-086`, and the whole `--shard 8/15`
+      — all green locally (11.3 min vs 35 min on CI); the race needs a slow runner
+- [x] Root cause: the login page's client bundle carries the whole backoffice grid stack
+      (200 360 B → 56 252 B measured with esbuild, minified, react/next external)
+- [x] Fix: `login.tsx` imports `clearAllPerspectiveState` from the leaf module — 7a6c717
+- [x] Regression guard: public auth screens may not import `DataTable` / `CrudForm` — 7a6c717
+- [x] Full validation gate (8/8 green, local runner) + push; CI shard 8/15 is the acceptance oracle
