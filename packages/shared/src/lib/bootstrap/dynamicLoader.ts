@@ -16,10 +16,12 @@ import { pathToFileURL } from 'node:url'
 
 let activeBootstrapLoads = 0
 let esbuildRuntime: typeof import('esbuild') | null = null
+let esbuildStopPromise: Promise<void> | null = null
 
 const logger = createLogger('shared').child({ component: 'bootstrap' })
 
 async function getEsbuildRuntime(): Promise<typeof import('esbuild')> {
+  if (esbuildStopPromise) await esbuildStopPromise
   if (esbuildRuntime) return esbuildRuntime
 
   const loadedRuntime = await import('esbuild')
@@ -38,8 +40,17 @@ async function withEsbuildLifecycle<T>(load: () => Promise<T>): Promise<T> {
       // esbuild keeps a helper process alive after build(). Bootstrap compilation
       // is a bounded phase, so release it once every concurrent loader is done.
       // A later build() call transparently starts a fresh helper process.
-      esbuildRuntime.stop()
+      const runtimeToStop = esbuildRuntime
       esbuildRuntime = null
+      const stopPromise = runtimeToStop.stop().catch((err) => {
+        logger.warn('Failed to stop the bootstrap compiler service', { err })
+      })
+      esbuildStopPromise = stopPromise
+      try {
+        await stopPromise
+      } finally {
+        if (esbuildStopPromise === stopPromise) esbuildStopPromise = null
+      }
     }
   }
 }

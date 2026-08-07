@@ -1651,12 +1651,16 @@ function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
   const locales = new Set<string>()
   if (fs.existsSync(i18nCore)) {
     for (const entry of fs.readdirSync(i18nCore, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+      if (entry.isFile() && /^[a-zA-Z0-9][a-zA-Z0-9_-]*\.json$/.test(entry.name)) {
+        locales.add(entry.name.replace(/\.json$/, ''))
+      }
     }
   }
   if (fs.existsSync(i18nApp)) {
     for (const entry of fs.readdirSync(i18nApp, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+      if (entry.isFile() && /^[a-zA-Z0-9][a-zA-Z0-9_-]*\.json$/.test(entry.name)) {
+        locales.add(entry.name.replace(/\.json$/, ''))
+      }
     }
   }
   return Array.from(locales, (locale) => ({

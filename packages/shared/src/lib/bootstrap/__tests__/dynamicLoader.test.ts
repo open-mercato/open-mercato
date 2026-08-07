@@ -60,7 +60,8 @@ describe('loadBootstrapData esbuild lifecycle', () => {
   beforeEach(() => {
     appRoot = createGeneratedApp('open-mercato-dynamic-loader-')
     mockBuild.mockClear()
-    mockStop.mockClear()
+    mockStop.mockReset()
+    mockStop.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -98,5 +99,28 @@ describe('loadBootstrapData esbuild lifecycle', () => {
     } finally {
       fs.rmSync(secondAppRoot, { recursive: true, force: true })
     }
+  })
+
+  it('waits for an asynchronous service stop before starting a later build', async () => {
+    let releaseStop: () => void = () => undefined
+    const stopPending = new Promise<void>((resolve) => {
+      releaseStop = resolve
+    })
+    mockStop.mockImplementationOnce(() => stopPending)
+
+    const firstLoad = loadBootstrapData(appRoot)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(mockStop).toHaveBeenCalledTimes(1)
+
+    const entityIdsPath = path.join(appRoot, '.mercato', 'generated', 'entities.ids.generated.ts')
+    fs.writeFileSync(entityIdsPath, '// generated test input (changed during stop)\n')
+    const secondLoad = loadBootstrapData(appRoot)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(mockBuild).toHaveBeenCalledTimes(generatedNames.length)
+
+    releaseStop()
+    await Promise.all([firstLoad, secondLoad])
+    expect(mockBuild).toHaveBeenCalledTimes(generatedNames.length + 1)
   })
 })

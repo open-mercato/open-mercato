@@ -143,7 +143,9 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
   // browser-facing UI registries. API-only bootstraps avoid loading @open-mercato/ui.
   try {
     const coreInjection = await import('@open-mercato/core/modules/widgets/lib/injection')
-    coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
+    if (!options.skipCoreInjectionWidgets) {
+      coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
+    }
     coreInjection.registerCoreInjectionTables(data.injectionTables)
     coreInjection.registerEnabledModuleIds(
       data.modules.map((module) => module.id).filter((id): id is string => typeof id === 'string' && id.length > 0),

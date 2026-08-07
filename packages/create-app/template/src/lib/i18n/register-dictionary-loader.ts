@@ -4,41 +4,11 @@ import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { loadI18nModules } from '@/.mercato/generated/modules.i18n.loaders.generated'
 
-const GLOBAL_LOCALE_MODULES_KEY = '__openMercatoLoadedI18nModules__'
-
-function getLoadedLocaleModules(): Map<string, Module[]> {
-  const globalScope = globalThis as typeof globalThis & {
-    [GLOBAL_LOCALE_MODULES_KEY]?: Map<string, Module[]>
-  }
-  if (!globalScope[GLOBAL_LOCALE_MODULES_KEY]) {
-    globalScope[GLOBAL_LOCALE_MODULES_KEY] = new Map<string, Module[]>()
-  }
-  return globalScope[GLOBAL_LOCALE_MODULES_KEY]
-}
-
 function registerLoadedLocaleModules(
-  locale: Locale,
   localeModules: Module[],
   registrar: typeof registerModules = registerModules,
 ): void {
-  const loadedByLocale = getLoadedLocaleModules()
-  loadedByLocale.set(locale, localeModules)
-
-  const mergedById = new Map<string, Module>()
-  for (const modules of loadedByLocale.values()) {
-    for (const moduleEntry of modules) {
-      const existing = mergedById.get(moduleEntry.id)
-      mergedById.set(moduleEntry.id, {
-        id: moduleEntry.id,
-        translations: {
-          ...(existing?.translations ?? {}),
-          ...(moduleEntry.translations ?? {}),
-        },
-      })
-    }
-  }
-  const mergedModules = [...mergedById.values()]
-  if (mergedModules.length > 0) registrar(mergedModules)
+  if (localeModules.length > 0) registrar(localeModules)
 }
 
 async function loadAppDictionary(locale: Locale): Promise<Record<string, unknown>> {
@@ -74,7 +44,7 @@ export function createAppDictionaryLoader({
       loadLocaleModules(locale),
       loadBaseDictionary(locale),
     ])
-    registerLoadedLocaleModules(locale, localeModules, registerLocaleModules)
+    registerLoadedLocaleModules(localeModules, registerLocaleModules)
     return appDictionary
   }
 }

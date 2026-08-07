@@ -1639,6 +1639,10 @@ describe('generateModuleRegistryApp with module subsets', () => {
       path.join(tmpDir, 'app', 'src', 'modules', 'localized', 'i18n', 'en.json'),
       JSON.stringify({ localized: { title: 'App title' } }),
     )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'localized', 'i18n', '.hardcoded-allowlist.json'),
+      JSON.stringify({ allow: ['framework chrome'] }),
+    )
 
     const resolver = createMockResolver(tmpDir, [
       { id: 'localized', from: '@open-mercato/core' },
@@ -1662,6 +1666,7 @@ describe('generateModuleRegistryApp with module subsets', () => {
     expect(loadersOutput).toContain('case "en":')
     expect(loadersOutput).toContain('import("./modules.i18n.en.generated")')
     expect(loadersOutput).toContain('case "pl":')
+    expect(loadersOutput).not.toContain('hardcoded-allowlist')
     expect(loadersOutput.indexOf('case "en":')).toBeLessThan(loadersOutput.indexOf('case "pl":'))
 
     const enShard = readGenerated(tmpDir, 'modules.i18n.en.generated.ts')!
@@ -1675,6 +1680,7 @@ describe('generateModuleRegistryApp with module subsets', () => {
     expect(plShard).toContain('@open-mercato/core/modules/localized/i18n/pl.json')
     expect(plShard).not.toContain('/i18n/en.json')
     expect(plShard).not.toContain('@/modules/localized/i18n/pl.json')
+    expect(readGenerated(tmpDir, 'modules.i18n._hardcoded-allowlist.generated.ts')).toBeNull()
 
     const secondResult = await generateModuleRegistryApp({ resolver, quiet: true })
     expect(secondResult.filesWritten).toEqual([])

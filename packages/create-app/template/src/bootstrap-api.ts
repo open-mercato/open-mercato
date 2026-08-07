@@ -11,6 +11,7 @@ export const bootstrap = createBootstrap({
   appDiRegistrar: registerAppDi,
   registrationKey: 'api',
   skipUiRegistries: true,
+  skipCoreInjectionWidgets: true,
 })
 
 export { isBootstrapped }

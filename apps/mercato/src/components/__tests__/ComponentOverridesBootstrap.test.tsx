@@ -55,4 +55,37 @@ describe('ComponentOverridesBootstrap', () => {
     await waitFor(() => expect(screen.getByText('Override active')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
   })
+
+  it('preserves registered component state across disabled-profile rerenders', () => {
+    function StatefulLabel() {
+      const [count, setCount] = React.useState(0)
+      return (
+        <button type="button" onClick={() => setCount((value) => value + 1)}>
+          Local {count}
+        </button>
+      )
+    }
+
+    function Consumer() {
+      const ResolvedLabel = useRegisteredComponent('stateful-test', StatefulLabel)
+      return <ResolvedLabel />
+    }
+
+    const { rerender } = render(
+      <ComponentOverridesBootstrap profile="public">
+        <Consumer />
+      </ComponentOverridesBootstrap>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Local 0' }))
+    expect(screen.getByRole('button', { name: 'Local 1' })).toBeEnabled()
+
+    rerender(
+      <ComponentOverridesBootstrap profile="public">
+        <Consumer />
+      </ComponentOverridesBootstrap>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Local 1' })).toBeEnabled()
+  })
 })

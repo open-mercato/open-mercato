@@ -8,6 +8,7 @@ import type { ClientBootstrapProfile } from '@/components/ClientBootstrap'
 import { profileUsesComponentOverrides } from '@/components/ClientBootstrap'
 
 const logger = createLogger('app').child({ component: 'ComponentOverridesBootstrap' })
+const EMPTY_OVERRIDES: ComponentOverride[] = []
 
 type LoadedOverrides = {
   overrides: ComponentOverride[]
@@ -57,7 +58,7 @@ export function ComponentOverridesBootstrap({
     }
   }, [enabled, pending])
 
-  const overrides = enabled ? loaded?.overrides ?? [] : []
+  const overrides = enabled ? loaded?.overrides ?? EMPTY_OVERRIDES : EMPTY_OVERRIDES
   return <ComponentOverrideProvider overrides={overrides}>{children}</ComponentOverrideProvider>
 }
 
