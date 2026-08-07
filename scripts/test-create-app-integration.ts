@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
+import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -194,23 +195,18 @@ async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams 
   ])
 }
 
-export function ensurePlaywrightBrowsersInstalled(): void {
-  let hasChromium = false
+function ensurePlaywrightBrowsersInstalled(): void {
+  const failure = findChromiumPreflightFailure({
+    resolveManagedExecutablePath: () => chromium.executablePath(),
+  })
+  if (!failure) return
 
-  try {
-    const executablePath = chromium.executablePath()
-    hasChromium = fs.existsSync(executablePath)
-  } catch {
-    hasChromium = false
+  console.error(red(failure.message))
+  for (const remedy of failure.remedies) {
+    console.error(yellow(`  ${remedy}`))
   }
-
-  if (!hasChromium) {
-    console.error(red('Playwright browsers are not installed. Run the following before retrying:'))
-    console.error(yellow('  yarn playwright install'))
-    console.error(yellow('  yarn playwright install-deps   (Linux only, may require sudo)'))
-    console.error(cyan('See: https://playwright.dev/docs/browsers'))
-    process.exit(1)
-  }
+  console.error(cyan(`See: ${PLAYWRIGHT_BROWSERS_DOCS_URL}`))
+  process.exit(1)
 }
 
 async function main(): Promise<void> {
