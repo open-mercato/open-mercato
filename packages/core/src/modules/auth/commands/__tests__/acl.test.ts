@@ -63,7 +63,10 @@ describe('auth ACL audit commands', () => {
     findOneFilters: unknown[]
   }
 
-  function makeHarness(existing: AclRow | null, options: { failWrite?: boolean } = {}): Harness {
+  function makeHarness(
+    existing: AclRow | null,
+    options: { failWrite?: boolean; failInvalidate?: boolean } = {},
+  ): Harness {
     const rows: AclRow[] = existing ? [existing] : []
     const removed: AclRow[] = []
     const calls = { begin: 0, commit: 0, rollback: 0, flush: 0 }
@@ -109,10 +112,12 @@ describe('auth ACL audit commands', () => {
 
     const rbacService = {
       invalidateTenantCache: async (id: string) => {
+        if (options.failInvalidate) throw new Error('cache adapter unavailable')
         invalidatedTenants.push(id)
         order.push('invalidateTenant')
       },
       invalidateUserCache: async (id: string) => {
+        if (options.failInvalidate) throw new Error('cache adapter unavailable')
         invalidatedUsers.push(id)
         order.push('invalidateUser')
       },
@@ -247,6 +252,19 @@ describe('auth ACL audit commands', () => {
       expect(harness.deletedTags).toEqual([`rbac:tenant:${tenantId}`])
       // Cache invalidation must follow the commit, never run inside the flush.
       expect(harness.order).toEqual(['commit', 'invalidateTenant', 'deleteByTags'])
+    })
+
+    it('still returns a loggable result when cache invalidation fails', async () => {
+      // The bus persists the action log only after `execute` resolves, so a
+      // throw from cache invalidation would commit the permission change and
+      // then suppress its audit entry — the exact hole these commands close.
+      const harness = makeHarness(null, { failInvalidate: true })
+
+      const result = await roleHandler().execute(roleInput, harness.ctx)
+
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(harness.calls.commit).toBe(1)
+      expect(harness.invalidatedTenants).toEqual([])
     })
 
     it('rolls back and leaves caches untouched when the write fails', async () => {

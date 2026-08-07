@@ -189,8 +189,29 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
       const existing = await config.loadAcl(em, input)
       await config.persist({ em, input, existing })
       // Cache invalidation runs only after the write commits, never inside the
-      // atomic flush.
-      await config.invalidate({ ctx, input })
+      // atomic flush — and must never propagate. The command bus persists the
+      // action log *after* `execute` returns, so a throw here would commit the
+      // permission change and then suppress its audit entry: precisely the
+      // "committed but unaudited" hole these commands exist to close, and it
+      // would open exactly when infrastructure is already degraded.
+      // `RbacService.deleteCacheByTags` awaits the cache adapter without a
+      // guard of its own, so an outage does reach us here.
+      //
+      // The resulting staleness (a revoked grant served from cache until its
+      // TTL) is not introduced by swallowing — it happens either way once the
+      // adapter is down. Logging at error level keeps it alarmable instead of
+      // trading a recorded change for an HTTP 500 that misreports a write which
+      // did commit.
+      try {
+        await config.invalidate({ ctx, input })
+      } catch (err) {
+        logger.error('ACL cache invalidation failed after a committed permission change', {
+          err,
+          commandId: config.id,
+          resourceId: config.resourceId(input),
+          tenantId: input.tenantId,
+        })
+      }
       return {
         resourceId: config.resourceId(input),
         tenantId: input.tenantId,
