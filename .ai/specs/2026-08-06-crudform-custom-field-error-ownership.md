@@ -31,6 +31,7 @@ Material UI follows the same explicit-composition principle: a complete `TextFie
 - Add optional `rendersOwnError?: boolean` metadata to `CrudCustomField`.
 - Keep `rendersOwnError` absent/false as the compatibility default.
 - In the field row, render the wrapper error unless the field is custom and `rendersOwnError === true`.
+- Apply the same ownership rule in `DealCustomFieldControl`, the second host that renders `CrudCustomField` definitions.
 - Include the flag in the memoized field-row equality check so runtime configuration changes re-render correctly.
 - Extend the internal field registry entry metadata so registered inputs can declare error ownership. The phone registration opts in, and custom-field form builders copy that metadata onto the generated `CrudCustomField`.
 - Mark the customer form's directly declared `PrimaryPhoneField` as self-rendering because it forwards `error` to `PhoneNumberField.externalError` without passing through the registry.
@@ -92,6 +93,8 @@ This is an additive optional field on a stable exported type. Existing custom-fi
 | `packages/ui/src/backend/**/__tests__/*` | Modify | Cover both rendering paths and phone propagation |
 | `packages/core/src/modules/customers/components/formConfig.tsx` | Modify | Opt the concrete `PrimaryPhoneField` into component-owned error rendering |
 | `packages/core/src/modules/customers/components/__tests__/formConfig.test.ts` | Modify | Cover the concrete customer phone-field declaration |
+| `packages/core/src/modules/customers/components/detail/create/dealCustomFieldControl.tsx` | Modify | Honor custom-field error ownership in deal quick-create |
+| `packages/core/src/modules/customers/components/detail/create/__tests__/dealCustomFieldControl.test.tsx` | Modify | Cover component-owned errors in the second custom-field host |
 
 ## Testing Strategy
 
@@ -99,6 +102,7 @@ This is an additive optional field on a stable exported type. Existing custom-fi
 - Submit a required custom field with `rendersOwnError: true` and assert the message appears only in the component-owned location.
 - Assert the registered phone field produces a custom-field definition with `rendersOwnError: true`.
 - Assert the customer form's direct `PrimaryPhoneField` declaration sets `rendersOwnError: true`.
+- Assert deal quick-create suppresses its wrapper message when the custom component owns the error.
 - Run the focused Jest files, the `@open-mercato/ui` package validation, and manual browser QA on a form containing the phone custom field.
 
 ## Risks & Impact Review
@@ -172,3 +176,4 @@ Fully compliant: approved for implementation.
 - Added the initial specification for backward-compatible custom-field error ownership in `CrudForm`.
 - Fresh-context scope review passed: the `CrudForm` flag, registry propagation, phone opt-in, and tests form one cohesive capability and do not require splitting into separate specs.
 - Implementation completed with focused regression coverage for wrapper-owned and component-owned validation messages, including the concrete customer `PrimaryPhoneField`.
+- Extended the ownership rule and regression coverage to the deal quick-create custom-field host.
