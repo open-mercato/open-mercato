@@ -2,18 +2,20 @@
 // Auth ACL Commands — Undo Policy
 // =============================================================================
 //
-// Both commands in this file are deliberately registered with
-// `isUndoable: false` and therefore opt out of the generic command-bus undo
-// flow, even though an ACL grant is trivially reversible.
+// Neither command in this file defines `undo` or `redo`, so the command bus
+// never mints an undo token for them: `CommandBus.isUndoable()` requires a
+// handler-provided `undo`. The explicit `isUndoable: false` below is executable
+// documentation of that intent, not the mechanism — the guarantee comes from
+// the absence of the handlers, and the unit tests pin both.
 //
-// The undo/redo endpoints are gated on `audit_logs.undo_self` /
+// The policy is deliberate even though an ACL grant is trivially reversible.
+// The undo and redo endpoints are gated on `audit_logs.undo_self` /
 // `audit_logs.undo_tenant` (and their redo counterparts), not on
 // `auth.acl.manage`. `audit_logs.undo_self` is a default `employee` grant and
 // `audit_logs.undo_tenant` reaches every `admin` through `audit_logs.*`, so an
 // undoable ACL command would let a caller revert or replay someone else's
 // permission change without ever holding the feature that authorizes editing
-// permissions. Keeping these commands log-only preserves that separation of
-// duties.
+// permissions.
 //
 // Reversal stays available to the callers who are actually authorized for it:
 // re-submitting the ACL form, gated on `auth.acl.manage` and guarded by
@@ -24,11 +26,21 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
+const logger = createLogger('auth').child({ component: 'acl-commands' })
+
 type TaggableCache = { deleteByTags?: (tags: string[]) => Promise<void> | void }
+
+/** Structural view of the fields both `RoleAcl` and `UserAcl` expose. */
+type AclRecord = {
+  isSuperAdmin: boolean
+  featuresJson?: string[] | null
+  organizationsJson?: string[] | null
+}
 
 /**
  * Audit snapshot of a single ACL row.
@@ -71,7 +83,7 @@ function toSortedList(values: unknown): string[] {
   return [...values].filter((value): value is string => typeof value === 'string').sort(compareIdentifiers)
 }
 
-function captureAclSnapshot(acl: RoleAcl | UserAcl | null | undefined): AclSnapshot {
+function captureAclSnapshot(acl: AclRecord | null | undefined): AclSnapshot {
   if (!acl) return { ...EMPTY_ACL_SNAPSHOT }
   return {
     isSuperAdmin: Boolean(acl.isSuperAdmin),
@@ -80,19 +92,24 @@ function captureAclSnapshot(acl: RoleAcl | UserAcl | null | undefined): AclSnaps
   }
 }
 
-function snapshotFromInput(input: AclCommandValues): AclSnapshot {
-  return {
-    isSuperAdmin: input.isSuperAdmin,
-    features: toSortedList(input.features),
-    organizations: Array.isArray(input.organizations) ? toSortedList(input.organizations) : null,
-  }
-}
-
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
   return ctx.container.resolve('em') as EntityManager
 }
 
-function resolveOrganizationId(ctx: CommandRuntimeContext): string | null {
+/**
+ * The log row's organization must belong to the same tenant as the row itself.
+ *
+ * A super admin may edit a role in a tenant other than their own, and
+ * `ActionLogService.buildListQuery` filters with strict equality
+ * (`organization_id = ?`, applied only when the reader supplies one). Stamping
+ * the actor's organization onto a row scoped to a different tenant produces a
+ * (tenant B, organization from tenant A) pair that no reader can ever match, so
+ * the cross-tenant permission change — exactly the record worth keeping —
+ * becomes invisible. `null` is the honest value there: it still reaches
+ * tenant-scoped readers whose organization filter is unset.
+ */
+function resolveOrganizationId(ctx: CommandRuntimeContext, tenantId: string): string | null {
+  if ((ctx.auth?.tenantId ?? null) !== tenantId) return null
   return ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
 }
 
@@ -100,7 +117,11 @@ async function deleteCacheTags(ctx: CommandRuntimeContext, tags: string[]): Prom
   try {
     const cache = ctx.container.resolve('cache') as TaggableCache | undefined
     if (cache?.deleteByTags) await cache.deleteByTags(tags)
-  } catch {}
+  } catch (err) {
+    // Best-effort: a stale nav cache must never fail a committed ACL write, but
+    // a misconfigured adapter should not look identical to "no cache wired".
+    logger.debug('ACL cache tag invalidation failed', { err, tags })
+  }
 }
 
 type AclCommandValues = {
@@ -109,14 +130,14 @@ type AclCommandValues = {
   organizations: string[] | null
 }
 
-export type RoleAclUpdateInput = AclCommandValues & {
+type AclCommandInput = AclCommandValues & { tenantId: string }
+
+export type RoleAclUpdateInput = AclCommandInput & {
   roleId: string
-  tenantId: string
 }
 
-export type UserAclUpdateInput = AclCommandValues & {
+export type UserAclUpdateInput = AclCommandInput & {
   userId: string
-  tenantId: string
   /** Mirrors the route's `!hasCustomAcl`: drop the override row instead of upserting it. */
   clear: boolean
 }
@@ -130,29 +151,91 @@ export type AclUpdateResult = {
 export const AUTH_ROLE_ACL_UPDATE_COMMAND_ID = 'auth.role-acl.update'
 export const AUTH_USER_ACL_UPDATE_COMMAND_ID = 'auth.user-acl.update'
 
-const updateRoleAclCommand: CommandHandler<RoleAclUpdateInput, AclUpdateResult> = {
+type AclCommandConfig<TInput extends AclCommandInput> = {
+  id: string
+  resourceKind: string
+  labelKey: string
+  labelFallback: string
+  resourceId: (input: TInput) => string
+  loadAcl: (em: EntityManager, input: TInput) => Promise<AclRecord | null>
+  persist: (params: { em: EntityManager; input: TInput; existing: AclRecord | null }) => Promise<void>
+  invalidate: (params: { ctx: CommandRuntimeContext; input: TInput }) => Promise<void>
+  /**
+   * Post-state when the row is absent after the write. Only the user command's
+   * clear path legitimately removes the row; anywhere else a missing row means
+   * the re-read failed, which must be logged as "unknown" rather than guessed.
+   */
+  snapshotWhenAbsent: (input: TInput) => AclSnapshot | null
+}
+
+/**
+ * Both ACL commands differ only in entity, lookup key, cache invalidation and
+ * labels — `prepare`, `captureAfter` and `buildLog` are otherwise identical.
+ * Sharing them here keeps the two audit-entry shapes from drifting apart.
+ */
+function createAclUpdateCommand<TInput extends AclCommandInput>(
+  config: AclCommandConfig<TInput>,
+): CommandHandler<TInput, AclUpdateResult> {
+  return {
+    id: config.id,
+    // See "Auth ACL Commands — Undo Policy" at top of file.
+    isUndoable: false,
+    async prepare(input, ctx) {
+      const existing = await config.loadAcl(resolveEm(ctx).fork(), input)
+      return { before: captureAclSnapshot(existing) }
+    },
+    async execute(input, ctx) {
+      const em = resolveEm(ctx)
+      const existing = await config.loadAcl(em, input)
+      await config.persist({ em, input, existing })
+      // Cache invalidation runs only after the write commits, never inside the
+      // atomic flush.
+      await config.invalidate({ ctx, input })
+      return {
+        resourceId: config.resourceId(input),
+        tenantId: input.tenantId,
+        organizationId: resolveOrganizationId(ctx, input.tenantId),
+      }
+    },
+    captureAfter: async (input, _result, ctx) => {
+      // Read the committed row back rather than echoing the request, so a grant
+      // the route sanitized away can never be logged as if it had been applied.
+      const persisted = await config.loadAcl(resolveEm(ctx).fork(), input)
+      if (persisted) return captureAclSnapshot(persisted)
+      return config.snapshotWhenAbsent(input)
+    },
+    buildLog: async ({ result, snapshots }) => {
+      const { translate } = await resolveTranslations()
+      return {
+        actionLabel: translate(config.labelKey, config.labelFallback),
+        resourceKind: config.resourceKind,
+        resourceId: result.resourceId,
+        tenantId: result.tenantId,
+        organizationId: result.organizationId,
+        snapshotBefore: (snapshots.before as AclSnapshot | undefined) ?? null,
+        snapshotAfter: (snapshots.after as AclSnapshot | undefined) ?? null,
+      }
+    },
+  }
+}
+
+const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
   id: AUTH_ROLE_ACL_UPDATE_COMMAND_ID,
-  // See "Auth ACL Commands — Undo Policy" at top of file.
-  isUndoable: false,
-  async prepare(input, ctx) {
-    const em = resolveEm(ctx).fork()
-    const existing = await em.findOne(RoleAcl, {
-      role: input.roleId as unknown as Role,
-      tenantId: input.tenantId,
-    })
-    return { before: captureAclSnapshot(existing) }
-  },
-  async execute(input, ctx) {
-    const em = resolveEm(ctx)
+  resourceKind: 'auth.role_acl',
+  labelKey: 'auth.audit.acl.role_update',
+  labelFallback: 'Change role permissions',
+  resourceId: (input) => input.roleId,
+  loadAcl: (em, input) =>
+    em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId }),
+  persist: async ({ em, input, existing }) => {
     const acl =
-      (await em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId })) ??
+      (existing as RoleAcl | null) ??
       em.create(RoleAcl, {
         role: em.getReference(Role, input.roleId),
         tenantId: input.tenantId,
         createdAt: new Date(),
         isSuperAdmin: false,
       })
-
     await withAtomicFlush(
       em,
       [
@@ -165,133 +248,70 @@ const updateRoleAclCommand: CommandHandler<RoleAclUpdateInput, AclUpdateResult> 
       ],
       { transaction: true, label: AUTH_ROLE_ACL_UPDATE_COMMAND_ID },
     )
-
+  },
+  invalidate: async ({ ctx, input }) => {
     // Every user in the tenant inherits this role's grants, so the whole tenant
-    // scope is invalidated — after the write commits, never inside the flush.
+    // scope is invalidated.
     const rbacService = ctx.container.resolve('rbacService') as RbacService
     await rbacService.invalidateTenantCache(input.tenantId)
     // Sidebar nav caches depend on RBAC; invalidate tenant scope nav caches
     await deleteCacheTags(ctx, [`rbac:tenant:${input.tenantId}`])
+  },
+  snapshotWhenAbsent: () => null,
+})
 
-    return {
-      resourceId: input.roleId,
-      tenantId: input.tenantId,
-      organizationId: resolveOrganizationId(ctx),
-    }
-  },
-  captureAfter: async (input, _result, ctx) => {
-    const em = resolveEm(ctx).fork()
-    const persisted = await em.findOne(RoleAcl, {
-      role: input.roleId as unknown as Role,
-      tenantId: input.tenantId,
-    })
-    // Fall back to the requested values only if the re-read misses; the
-    // persisted row is authoritative so the log can never echo a request that
-    // was sanitized on the way in.
-    return persisted ? captureAclSnapshot(persisted) : snapshotFromInput(input)
-  },
-  buildLog: async ({ result, snapshots }) => {
-    const { translate } = await resolveTranslations()
-    return {
-      actionLabel: translate('auth.audit.acl.role_update', 'Change role permissions'),
-      resourceKind: 'auth.role_acl',
-      resourceId: result.resourceId,
-      tenantId: result.tenantId,
-      organizationId: result.organizationId,
-      snapshotBefore: (snapshots.before as AclSnapshot | undefined) ?? null,
-      snapshotAfter: (snapshots.after as AclSnapshot | undefined) ?? null,
-    }
-  },
-}
-
-const updateUserAclCommand: CommandHandler<UserAclUpdateInput, AclUpdateResult> = {
+const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
   id: AUTH_USER_ACL_UPDATE_COMMAND_ID,
-  // See "Auth ACL Commands — Undo Policy" at top of file.
-  isUndoable: false,
-  async prepare(input, ctx) {
-    const em = resolveEm(ctx).fork()
-    const existing = await em.findOne(UserAcl, {
-      user: input.userId as unknown as User,
-      tenantId: input.tenantId,
-    })
-    return { before: captureAclSnapshot(existing) }
-  },
-  async execute(input, ctx) {
-    const em = resolveEm(ctx)
-    const existing = await em.findOne(UserAcl, {
-      user: input.userId as unknown as User,
-      tenantId: input.tenantId,
-    })
-
+  resourceKind: 'auth.user_acl',
+  labelKey: 'auth.audit.acl.user_update',
+  labelFallback: 'Change user permissions',
+  resourceId: (input) => input.userId,
+  loadAcl: (em, input) =>
+    em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId }),
+  persist: async ({ em, input, existing }) => {
     if (input.clear) {
-      if (existing) {
-        await withAtomicFlush(
-          em,
-          [
-            () => {
-              em.remove(existing)
-            },
-          ],
-          { transaction: true, label: AUTH_USER_ACL_UPDATE_COMMAND_ID },
-        )
-      }
-    } else {
-      const acl =
-        existing ??
-        em.create(UserAcl, {
-          user: em.getReference(User, input.userId),
-          tenantId: input.tenantId,
-          createdAt: new Date(),
-          isSuperAdmin: false,
-        })
+      if (!existing) return
+      const aclToRemove = existing as UserAcl
       await withAtomicFlush(
         em,
         [
           () => {
-            acl.isSuperAdmin = input.isSuperAdmin
-            acl.featuresJson = input.features
-            acl.organizationsJson = input.organizations
-            em.persist(acl)
+            em.remove(aclToRemove)
           },
         ],
         { transaction: true, label: AUTH_USER_ACL_UPDATE_COMMAND_ID },
       )
+      return
     }
-
+    const acl =
+      (existing as UserAcl | null) ??
+      em.create(UserAcl, {
+        user: em.getReference(User, input.userId),
+        tenantId: input.tenantId,
+        createdAt: new Date(),
+        isSuperAdmin: false,
+      })
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          acl.isSuperAdmin = input.isSuperAdmin
+          acl.featuresJson = input.features
+          acl.organizationsJson = input.organizations
+          em.persist(acl)
+        },
+      ],
+      { transaction: true, label: AUTH_USER_ACL_UPDATE_COMMAND_ID },
+    )
+  },
+  invalidate: async ({ ctx, input }) => {
     const rbacService = ctx.container.resolve('rbacService') as RbacService
     await rbacService.invalidateUserCache(input.userId)
     await deleteCacheTags(ctx, [`rbac:user:${input.userId}`])
-
-    return {
-      resourceId: input.userId,
-      tenantId: input.tenantId,
-      organizationId: resolveOrganizationId(ctx),
-    }
   },
-  captureAfter: async (input, _result, ctx) => {
-    // The clear path removes the row, so an absent row is the correct
-    // post-state here rather than a failed lookup.
-    const em = resolveEm(ctx).fork()
-    const persisted = await em.findOne(UserAcl, {
-      user: input.userId as unknown as User,
-      tenantId: input.tenantId,
-    })
-    if (persisted) return captureAclSnapshot(persisted)
-    return input.clear ? { ...EMPTY_ACL_SNAPSHOT } : snapshotFromInput(input)
-  },
-  buildLog: async ({ result, snapshots }) => {
-    const { translate } = await resolveTranslations()
-    return {
-      actionLabel: translate('auth.audit.acl.user_update', 'Change user permissions'),
-      resourceKind: 'auth.user_acl',
-      resourceId: result.resourceId,
-      tenantId: result.tenantId,
-      organizationId: result.organizationId,
-      snapshotBefore: (snapshots.before as AclSnapshot | undefined) ?? null,
-      snapshotAfter: (snapshots.after as AclSnapshot | undefined) ?? null,
-    }
-  },
-}
+  // Clearing removes the row, so an absent row is the real post-state here.
+  snapshotWhenAbsent: (input) => (input.clear ? { ...EMPTY_ACL_SNAPSHOT } : null),
+})
 
 registerCommand(updateRoleAclCommand)
 registerCommand(updateUserAclCommand)

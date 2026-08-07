@@ -36,6 +36,10 @@ async function findAuditEntries(
   request: APIRequestContext,
   token: string,
   params: { resourceKind: string; resourceId: string },
+  // Poll for the entry the caller is actually waiting for. Defaulting to "any
+  // entry" would return the *previous* action's row immediately on a second
+  // lookup, so a follow-up assertion would silently inspect the wrong entry.
+  isReady: (items: AuditEntry[]) => boolean = (items) => items.length > 0,
 ): Promise<AuditEntry[]> {
   const query = new URLSearchParams({
     resourceKind: params.resourceKind,
@@ -46,16 +50,17 @@ async function findAuditEntries(
   });
   // The log row is persisted inside commandBus.execute, but poll briefly so the
   // assertion does not race the read replica / request container teardown.
+  let items: AuditEntry[] = [];
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const response = await apiRequest(request, 'GET', `/api/audit_logs/audit-logs/actions?${query.toString()}`, {
       token,
     });
     const body = await readJsonSafe<{ items?: AuditEntry[] }>(response);
-    const items = body?.items ?? [];
-    if (items.length > 0) return items;
+    items = body?.items ?? [];
+    if (isReady(items)) return items;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  return [];
+  return items;
 }
 
 test.describe('TC-AUTH-058: ACL changes are audited', () => {
@@ -136,11 +141,13 @@ test.describe('TC-AUTH-058: ACL changes are audited', () => {
       });
       expect(clear.status(), 'clearing the user ACL should succeed').toBe(200);
 
-      const afterClear = await findAuditEntries(request, superadminToken, {
-        resourceKind: 'auth.user_acl',
-        resourceId: targetUserId,
-      });
-      expect(afterClear.length, 'clearing should add a second entry').toBeGreaterThan(afterGrant.length - 1);
+      const afterClear = await findAuditEntries(
+        request,
+        superadminToken,
+        { resourceKind: 'auth.user_acl', resourceId: targetUserId },
+        (items) => items.length > afterGrant.length,
+      );
+      expect(afterClear.length, 'clearing should add a second entry').toBeGreaterThan(afterGrant.length);
 
       const clearEntry = afterClear[0];
       expect(clearEntry.snapshotBefore?.features ?? [], 'before-snapshot should still hold the grant').toContain(

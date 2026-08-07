@@ -115,9 +115,17 @@ The after-snapshot is re-read from the committed row rather than echoed from the
 
 `changes` is left to the bus to derive from the two snapshots — the handler returns no `changes` of its own.
 
+When the post-write re-read finds no row and the command did not intend a removal, `captureAfter` returns `null` rather than falling back to the request. The bus tolerates a null after-snapshot, so the entry records "unknown" instead of a post-state that was never verified as persisted.
+
+### Log scope
+
+The entry's `tenantId` is the tenant that was edited; its `organizationId` is the actor's organization **only when the actor belongs to that same tenant**, and `null` otherwise. A super admin may edit a role in another tenant, and `ActionLogService.buildListQuery` filters `organization_id` with strict equality on top of the tenant predicate — so pairing tenant B with an organization from tenant A yields a row that no reader can ever match, silently hiding exactly the cross-tenant permission change worth recording. `null` still reaches tenant-scoped readers whose organization filter is unset.
+
 ## API Contracts
 
-**No wire-format change.** Request schemas, response bodies (`{ ok, sanitized }`), and every status code are byte-identical. `openApi` on both routes is unchanged.
+Request schemas and success response bodies (`{ ok, sanitized }`) are unchanged.
+
+**One new failure response.** `PUT /api/auth/users/acl` now answers `400 { error: 'Tenant required' }` when the caller has no resolved tenant, mirroring the guard the role ACL route already applies. Previously the handler proceeded with an undefined tenant predicate, which MikroORM drops — so the lookup could match, and then overwrite or delete, an override row belonging to another tenant. The path is only reachable by a tenant-less principal (an unscoped API key or a global account) that also holds `auth.acl.manage`; for every normal caller the response is unchanged. `openApi` documents the new status.
 
 The observable differences:
 
@@ -165,3 +173,4 @@ Non-goals, deliberately left out:
 ## Changelog
 
 - **2026-08-07** — Initial spec and implementation. Added `packages/core/src/modules/auth/commands/acl.ts` with the log-only `auth.role-acl.update` and `auth.user-acl.update` commands; dispatched both ACL routes through the command bus; added `auth.audit.acl.*` keys to five locales; added command unit tests, route dispatch assertions, and `TC-AUTH-058-acl-audit-log.spec.ts`.
+- **2026-08-07** — Review follow-ups. Stopped stamping the actor's organization onto a foreign-tenant log entry (the pair was unmatchable by any reader); `captureAfter` now records `null` instead of echoing the request when the post-write re-read misses; added the `Tenant required` guard to `PUT /api/auth/users/acl` so its typed `tenantId` is honest and an unscoped lookup cannot cross tenants; routed the best-effort cache-tag failure through the logging facade; extracted the shared handler shape into one factory so the two audit-entry shapes cannot drift; extended tests to assert lookup scoping, the foreign-tenant organization rule, and the unknown-post-state path.

@@ -60,6 +60,7 @@ describe('auth ACL audit commands', () => {
     invalidatedUsers: string[]
     deletedTags: string[]
     order: string[]
+    findOneFilters: unknown[]
   }
 
   function makeHarness(existing: AclRow | null, options: { failWrite?: boolean } = {}): Harness {
@@ -70,10 +71,14 @@ describe('auth ACL audit commands', () => {
     const invalidatedUsers: string[] = []
     const deletedTags: string[] = []
     const order: string[] = []
+    const findOneFilters: unknown[] = []
 
     const em = {
       fork: () => em,
-      findOne: async () => rows[0] ?? null,
+      findOne: async (_entity: unknown, where: unknown) => {
+        findOneFilters.push(where)
+        return rows[0] ?? null
+      },
       create: (_entity: unknown, data: AclRow) => {
         const row: AclRow = { id: 'created-acl', isSuperAdmin: false, ...data }
         rows.push(row)
@@ -145,6 +150,7 @@ describe('auth ACL audit commands', () => {
       invalidatedUsers,
       deletedTags,
       order,
+      findOneFilters,
     }
   }
 
@@ -188,6 +194,20 @@ describe('auth ACL audit commands', () => {
       expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
     })
 
+    it('scopes every ACL lookup by role and tenant', async () => {
+      const harness = makeHarness(null)
+      await roleHandler().prepare!(roleInput, harness.ctx)
+      const result = await roleHandler().execute(roleInput, harness.ctx)
+      await roleHandler().captureAfter!(roleInput, result, harness.ctx)
+
+      // prepare + execute + captureAfter each look the row up; a handler that
+      // dropped the tenant predicate could cross tenants unnoticed.
+      expect(harness.findOneFilters).toHaveLength(3)
+      for (const filter of harness.findOneFilters) {
+        expect(filter).toEqual({ role: roleId, tenantId })
+      }
+    })
+
     it('updates an existing role ACL row in place', async () => {
       const existing: AclRow = { id: 'acl-1', isSuperAdmin: true, featuresJson: ['stale.feature'], tenantId }
       const harness = makeHarness(existing)
@@ -197,6 +217,23 @@ describe('auth ACL audit commands', () => {
       expect(harness.rows).toHaveLength(1)
       expect(existing.isSuperAdmin).toBe(false)
       expect(existing.featuresJson).toEqual(['auth.acl.manage', 'audit_logs.view_self'])
+    })
+
+    it('does not stamp the actor organization onto a foreign-tenant entry', async () => {
+      // A super admin may edit a role in another tenant. `ActionLogService`
+      // filters `organization_id` with strict equality on top of the tenant
+      // predicate, so pairing tenant B with the actor's tenant-A organization
+      // would produce a row no reader can match.
+      const foreignTenantId = '44444444-4444-4444-8444-444444444444'
+      const harness = makeHarness(null)
+
+      const result = await roleHandler().execute(
+        { ...roleInput, tenantId: foreignTenantId },
+        harness.ctx,
+      )
+
+      expect(result.tenantId).toBe(foreignTenantId)
+      expect(result.organizationId).toBeNull()
     })
 
     it('commits the write in a transaction and invalidates caches only afterwards', async () => {
@@ -287,6 +324,28 @@ describe('auth ACL audit commands', () => {
         organizationsJson: ['org-1'],
       })
       expect(result).toEqual({ resourceId: userId, tenantId, organizationId: 'org-1' })
+    })
+
+    it('scopes every ACL lookup by user and tenant', async () => {
+      const harness = makeHarness(null)
+      await userHandler().prepare!(userInput, harness.ctx)
+      const result = await userHandler().execute(userInput, harness.ctx)
+      await userHandler().captureAfter!(userInput, result, harness.ctx)
+
+      expect(harness.findOneFilters).toHaveLength(3)
+      for (const filter of harness.findOneFilters) {
+        expect(filter).toEqual({ user: userId, tenantId })
+      }
+    })
+
+    it('records an unknown post-state rather than echoing the request when the re-read misses', async () => {
+      const harness = makeHarness(null)
+      const result = await userHandler().execute(userInput, harness.ctx)
+      // Drop the row behind the command's back: the write committed, so a
+      // missing row means the re-read is wrong, not that the state is empty.
+      harness.rows.length = 0
+
+      expect(await userHandler().captureAfter!(userInput, result, harness.ctx)).toBeNull()
     })
 
     it('removes the override row on the clear path', async () => {

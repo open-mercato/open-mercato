@@ -127,6 +127,12 @@ export async function PUT(req: Request) {
   const body = await req.json().catch(() => ({}))
   const parsed = putSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
+  // A user ACL row is tenant-scoped. Without a resolved tenant the lookup below
+  // degenerates to an unscoped match, which could overwrite or delete an
+  // override belonging to another tenant. Mirrors the role ACL route's
+  // `Tenant required` guard so both ACL routes fail closed the same way.
+  const tenantId = auth.tenantId ?? null
+  if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
   const rbacService = container.resolve('rbacService') as any
@@ -171,7 +177,7 @@ export async function PUT(req: Request) {
   const requestedFeatures = normalizeGrantFeatureList(parsed.data.features)
   const organizations = normalizeOrganizations(parsed.data.organizations)
 
-  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
+  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
   // the client sends no expected-version header; skipped when no ACL row exists.
@@ -243,7 +249,7 @@ export async function PUT(req: Request) {
   await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
     input: {
       userId: parsed.data.userId,
-      tenantId: auth.tenantId as string,
+      tenantId,
       isSuperAdmin: effectiveIsSuperAdmin,
       features: effectiveFeatures,
       organizations,
@@ -314,7 +320,7 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'User ACL updated', schema: userAclUpdateResponseSchema },
-        { status: 400, description: 'Invalid payload', schema: userAclErrorSchema },
+        { status: 400, description: 'Invalid payload or unresolved tenant scope', schema: userAclErrorSchema },
         { status: 401, description: 'Unauthorized', schema: userAclErrorSchema },
         { status: 403, description: 'Insufficient privileges to modify ACL', schema: userAclErrorSchema },
       ],
