@@ -27,6 +27,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Ask before changing branch/PR automation, pipeline labels, QA flow, release behavior, or external official-module submodule pointers.
 - Ask before applying database migrations locally with `yarn db:migrate`; normal PRs should include migration files and snapshots.
 - Ask before introducing provider-specific preconfiguration outside the provider package.
+- Ask before an automated PR touches design-system governance files (the CODEOWNERS design-system section): file an issue for the design owner instead. UI code and modules stay open.
 
 ## Never
 
