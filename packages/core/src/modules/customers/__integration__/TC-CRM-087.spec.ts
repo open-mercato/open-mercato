@@ -47,6 +47,92 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
     // Second data-column resize handle — avoids the (potentially sticky) first column.
     const handleAt = () => page.locator('thead [role="separator"][aria-orientation="vertical"]').nth(1);
 
+    // Same gesture hardening TC-CRM-086 already carries. The header keeps
+    // reflowing after the first row paints — remaining rows land, the query
+    // refetches, the local perspective snapshot hydrates — and a re-render
+    // during the drag unmounts the handle, which cancels the drag by design
+    // (`dragCleanupRef` in DataTable). So wait for the width to hold steady
+    // across two samples, and re-drag from a fresh baseline when a gesture is
+    // swallowed. Without this the test fails on a loaded CI shard whenever the
+    // table happens to refetch inside the drag.
+    const waitForSettledColumnWidth = async () => {
+      let previous = -1;
+      let settled = -1;
+      await expect
+        .poll(async () => {
+          const current = await handleColumnWidth(handleAt());
+          const isStable = current === previous;
+          previous = current;
+          if (isStable) settled = current;
+          return isStable;
+        }, { timeout: 15_000, intervals: [200, 200, 300, 500] })
+        .toBe(true);
+      return settled;
+    };
+
+    const dragHandleRight = async (deltaX: number) => {
+      const handle = handleAt();
+      const origin = await handle.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      await handle.dispatchEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: origin.x,
+        clientY: origin.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      await page.evaluate(({ x, y, dx }) => {
+        document.dispatchEvent(new PointerEvent('pointermove', {
+          bubbles: true,
+          button: 0,
+          buttons: 1,
+          clientX: x + dx,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+        document.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          clientX: x + dx,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+      }, { x: origin.x, y: origin.y, dx: deltaX });
+    };
+
+    const widenedBy = async (baseline: number) => {
+      try {
+        await expect
+          .poll(() => handleColumnWidth(handleAt()), { timeout: 3_000, intervals: [100, 100, 200, 300] })
+          .toBeGreaterThan(baseline + 80);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Returns the baseline the successful gesture started from, so the caller
+    // asserts against the width the drag actually built on.
+    const widenTargetColumn = async (deltaX: number) => {
+      let baseline = await waitForSettledColumnWidth();
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await dragHandleRight(deltaX);
+        if (await widenedBy(baseline)) return baseline;
+        if (attempt < 3) baseline = await waitForSettledColumnWidth();
+      }
+      return baseline;
+    };
+
     try {
       token = await getAuthToken(request);
       for (let i = 0; i < 2; i++) {
@@ -66,51 +152,13 @@ test.describe('TC-CRM-087: unsaved column widths cleared on login', () => {
       await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
       await waitForTableReady();
 
-      const handle = handleAt();
-      await expect(handle).toBeAttached();
-      const defaultWidth = await handleColumnWidth(handle);
+      await expect(handleAt()).toBeAttached();
 
-      const origin = await handle.evaluate((element) => {
-        const box = element.getBoundingClientRect();
-        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-      });
-      await handle.dispatchEvent('pointerdown', {
-        bubbles: true,
-        button: 0,
-        buttons: 1,
-        clientX: origin.x,
-        clientY: origin.y,
-        isPrimary: true,
-        pointerId: 1,
-        pointerType: 'mouse',
-      });
-      await page.evaluate(({ x, y }) => {
-        document.dispatchEvent(new PointerEvent('pointermove', {
-          bubbles: true,
-          button: 0,
-          buttons: 1,
-          clientX: x + 130,
-          clientY: y,
-          isPrimary: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-        }));
-        document.dispatchEvent(new PointerEvent('pointerup', {
-          bubbles: true,
-          button: 0,
-          buttons: 0,
-          clientX: x + 130,
-          clientY: y,
-          isPrimary: true,
-          pointerId: 1,
-          pointerType: 'mouse',
-        }));
-      }, origin);
-
+      const defaultWidth = await widenTargetColumn(130);
       await expect
-        .poll(() => handleColumnWidth(handle), { message: 'dragging the handle should widen the column' })
+        .poll(() => handleColumnWidth(handleAt()), { timeout: 5_000, message: 'dragging the handle should widen the column' })
         .toBeGreaterThan(defaultWidth + 80);
-      const resizedInlineWidth = await handleColumnInlineWidth(handle);
+      const resizedInlineWidth = await handleColumnInlineWidth(handleAt());
       expect(resizedInlineWidth).toMatch(/^\d+px$/);
 
       await page.reload({ waitUntil: 'domcontentloaded' });
