@@ -14497,5 +14497,91 @@
       "OMH-002",
       "OMH-194"
     ]
+  },
+  {
+    "id": "OMH-214",
+    "title": "Use the installed EUDR compliance workflow instead of building a duplicate module",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, compliance staff need to map catalog products to EUDR commodities, collect supplier evidence and geolocated plots, assess and mitigate risk, and prepare due-diligence statements and annual reports. Decide the smallest safe design against what the installed modules already provide, say how that capability is activated for this application, keep tenant and organization boundaries intact, state the access-control posture for viewing versus managing compliance records, and identify the smallest relevant validation. Do not build a duplicate compliance module before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "eudr-compliance"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/eudr.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "backend-ui",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/eudr.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "app-module-activation",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194",
+      "OMH-202"
+    ]
   }
 ]
