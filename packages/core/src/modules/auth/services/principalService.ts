@@ -17,6 +17,21 @@ import { resolveRoleOrganizationScope, roleAclGrantsPrincipalOrganization } from
 const MAX_ROLE_PAGE_SIZE = 100
 const MAX_ROLE_RESULTS = 1_000
 
+type AuthPrincipalDatabase = {
+  roles: {
+    id: string
+    tenant_id: string
+    name: string
+    deleted_at: Date | null
+  }
+  role_acls: {
+    role_id: string
+    tenant_id: string
+    organizations_json: string[] | null
+    deleted_at: Date | null
+  }
+}
+
 function normalizeIds(ids: string[]): string[] {
   return Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)))
 }
@@ -173,7 +188,7 @@ export class DefaultAuthPrincipalService implements AuthPrincipalService {
       input.scope.tenantId,
       input.scope.organizationId,
     )
-    const db = this.em.getKysely<any>()
+    const db = this.em.getKysely<AuthPrincipalDatabase>()
     let eligibleRoles = db
       .selectFrom('roles as r')
       .where('r.tenant_id', '=', input.scope.tenantId)
@@ -183,7 +198,6 @@ export class DefaultAuthPrincipalService implements AuthPrincipalService {
       const allowedOrganizations = Array.from(roleOrganizationScope)
       const organizationPredicates = [
         sql<boolean>`ra.organizations_json is null`,
-        sql<boolean>`jsonb_array_length(ra.organizations_json) = 0`,
         sql<boolean>`ra.organizations_json::jsonb @> ${JSON.stringify(['__all__'])}::jsonb`,
         ...allowedOrganizations.map((organizationId) => (
           sql<boolean>`ra.organizations_json::jsonb @> ${JSON.stringify([organizationId])}::jsonb`

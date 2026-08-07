@@ -23423,26 +23423,26 @@ __metadata:
   languageName: node
   linkType: hard
 
-"js-yaml@npm:3.15.0":
-  version: 3.15.0
-  resolution: "js-yaml@npm:3.15.0"
+"js-yaml@npm:3.15.1":
+  version: 3.15.1
+  resolution: "js-yaml@npm:3.15.1"
   dependencies:
     argparse: "npm:^1.0.7"
     esprima: "npm:^4.0.0"
   bin:
     js-yaml: bin/js-yaml.js
-  checksum: 10/2fdf3a1453ed93a8e06d6ca8054c0bec145cf40ab51f305d1071736a03668b95e40f47cfd0239d7d50019b4780a18cdaca3c935def935594c9876964c49f1185
+  checksum: 10/905842ce08c18b154ff2c187ff81bb41294cc5dda214331b5d9b8bcf395894e48b00fa37b9d4dd4c3ffec672b7496a94558e3876d3a8ad4d12b06248112e6d92
   languageName: node
   linkType: hard
 
-"js-yaml@npm:4.3.0, js-yaml@npm:^4.3.0":
-  version: 4.3.0
-  resolution: "js-yaml@npm:4.3.0"
+"js-yaml@npm:4.3.1":
+  version: 4.3.1
+  resolution: "js-yaml@npm:4.3.1"
   dependencies:
     argparse: "npm:^2.0.1"
   bin:
     js-yaml: bin/js-yaml.js
-  checksum: 10/2bcec3a8118d7f744badeb04e14366578d234a736f353d41fe35d2305e4ce2409a8e041d277f07cd6bbc8aaa12128d650a68ce43247072519bede20962d2126f
+  checksum: 10/2ce71b5d632abbd77da80447bf860e8a0264e54bffe94840984887d58b023761495b523727547904517a6107a1ef189854b361e0fc44995ee13a84f222d7bd42
   languageName: node
   linkType: hard
 
@@ -27044,7 +27044,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pdfjs-dist@npm:^6.0.227":
+"pdfjs-dist@npm:6.2.108":
   version: 6.2.108
   resolution: "pdfjs-dist@npm:6.2.108"
   dependencies:
@@ -27053,18 +27053,6 @@ __metadata:
     "@napi-rs/canvas":
       optional: true
   checksum: 10/b8ae9547ba2d8558f34349626ace174cd80fcefec84bb9e8ef628da8f018aaa7ed20898e1ec2d60b0c90d6858af14e2de0309494a0b4456af03572f08a7798af
-  languageName: node
-  linkType: hard
-
-"pdfjs-dist@npm:^6.1.200":
-  version: 6.1.200
-  resolution: "pdfjs-dist@npm:6.1.200"
-  dependencies:
-    "@napi-rs/canvas": "npm:^1.0.0"
-  dependenciesMeta:
-    "@napi-rs/canvas":
-      optional: true
-  checksum: 10/b7fb4a1fd0240a2f6d44e0b7dd9f21fa62059dca4dc1b315dcbf4b4d3818eac90705763a386b956978ea6119d13c11f28a03ccf01dfb7f6c5188840e87ba0e8a
   languageName: node
   linkType: hard
 

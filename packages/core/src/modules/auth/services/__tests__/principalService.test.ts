@@ -205,7 +205,7 @@ describe('DefaultAuthPrincipalService organization-scoped roles', () => {
     expect(pageQuery?.sql).toContain('not exists')
     expect(pageQuery?.sql).toContain('from role_acls as ra_any')
     expect(pageQuery?.sql).toContain('from role_acls as ra')
-    expect(pageQuery?.sql).toContain('jsonb_array_length(ra.organizations_json) = 0')
+    expect(pageQuery?.sql).not.toContain('jsonb_array_length(ra.organizations_json) = 0')
     expect(pageQuery?.sql).toContain('order by "r"."id" asc')
     expect(pageQuery?.parameters).toEqual(expect.arrayContaining([
       scope.tenantId,
