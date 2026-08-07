@@ -48,9 +48,22 @@ test('reports the override itself when it points at a missing binary', () => {
   assert.match(failure.message, new RegExp(override))
 })
 
-test('an override set to whitespace falls back to the managed download', () => {
+// The Playwright config branches on the raw variable, so a whitespace-only setting is an
+// override there too — one that reaches the browser as an executable path. The guard has to
+// reject it rather than quietly fall back to a managed download the run will not use.
+test('an override set to whitespace is reported, not normalized away', () => {
   const failure = findChromiumPreflightFailure({
     env: { PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: '   ' },
+    resolveManagedExecutablePath: resolveManagedTo(managedPath),
+    exists: (candidate) => candidate === managedPath,
+  })
+
+  assert.equal(failure?.reason, 'override-missing')
+})
+
+test('an empty override is ignored, matching the config treating it as unset', () => {
+  const failure = findChromiumPreflightFailure({
+    env: { PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: '' },
     resolveManagedExecutablePath: resolveManagedTo(managedPath),
     exists: (candidate) => candidate === managedPath,
   })

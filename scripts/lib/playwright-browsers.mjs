@@ -11,7 +11,10 @@ export function findChromiumPreflightFailure({
   resolveManagedExecutablePath,
   exists = fs.existsSync,
 } = {}) {
-  const override = env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim()
+  // Truthiness, not a trimmed value: the config branches on the raw variable, so a
+  // whitespace-only setting reaches Playwright as an executable path and fails at launch.
+  // Normalizing it here would let exactly that case slip past the guard.
+  const override = env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
 
   if (override) {
     if (exists(override)) return null
