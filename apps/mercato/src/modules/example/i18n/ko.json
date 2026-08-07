@@ -72,6 +72,10 @@
   "example.mutationLifecycle.m4.title": "Phase m4 — 명령 인터셉터",
   "example.mutationLifecycle.title": "UMES Phase M — 뮤테이션 라이프사이클",
   "example.nav.group": "예제",
+  "example.notifications.demoPushPlayground.body": "푸시 전송을 간단히 확인해 볼 수 있는 데모 푸시 알림입니다.",
+  "example.notifications.demoPushPlayground.title": "푸시 플레이그라운드",
+  "example.notifications.demoSilentPing.body": "표시되는 알림 없이 앱을 깨우는 데이터 전용 무음 푸시입니다.",
+  "example.notifications.demoSilentPing.title": "무음 핑",
   "example.notifications.umesActionable.body": "UMES 다음 단계 페이지를 열어 반응형 알림 핸들러를 확인하세요.",
   "example.notifications.umesActionable.title": "UMES 다음 단계에서 조치가 필요합니다",
   "example.payments.action.cancel": "취소",
@@ -477,5 +481,7 @@
   "example.widgets.todo.state.allCaughtUp": "모두 처리했습니다!",
   "example.widgets.todo.state.empty": "할 일이 없습니다.",
   "example.workPlan.nav.group": "작업 계획",
-  "integrations.marketplace.filters.category": "카테고리"
+  "integrations.marketplace.filters.category": "카테고리",
+  "notifications.categories.demo": "데모",
+  "notifications.categories.example": "예제"
 }

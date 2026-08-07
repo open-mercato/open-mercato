@@ -2851,5 +2851,6 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "작업 목록을 새로고침했습니다",
   "customers.workPlan.customerTodos.table.state.empty": "고객 관련 작업이 아직 없습니다.",
   "customers.workPlan.customerTodos.table.state.noMatches": "필터와 일치하는 작업이 없습니다.",
-  "customers.workPlan.customerTodos.table.title": "고객 관련 작업"
+  "customers.workPlan.customerTodos.table.title": "고객 관련 작업",
+  "notifications.categories.customers": "고객"
 }

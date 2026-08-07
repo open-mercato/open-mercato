@@ -1559,7 +1559,9 @@
       ],
       "allowedExtra": [
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/push_notifications.md",
+        ".ai/guides/modules/devices.md"
       ],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",
@@ -3086,7 +3088,10 @@
         ".ai/guides/modules/channel_imap.md"
       ],
       "allowedExtra": [
-        ".ai/guides/modules/integrations.md"
+        ".ai/guides/modules/integrations.md",
+        ".ai/guides/modules/channel_fcm.md",
+        ".ai/guides/modules/channel_apns.md",
+        ".ai/guides/modules/channel_expo.md"
       ],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [
         ".env*",

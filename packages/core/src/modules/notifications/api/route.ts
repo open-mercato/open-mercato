@@ -11,6 +11,7 @@ import {
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
+import { inAppVisibleFilter } from '../lib/notificationVisibility'
 import {
   buildNotificationReadScopeWhere,
   getNotificationReadScopeTagOrganizationIds,
@@ -130,7 +131,13 @@ export async function GET(req: Request) {
   const filters: Record<string, unknown> = {
     recipientUserId: userId,
     tenantId: scope.tenantId,
-    ...buildNotificationReadScopeWhere(scope),
+    // Read scope AND in-app visibility: both fragments carry their own `$or`, so they must be
+    // AND-composed instead of spread (a spread would silently drop one of them).
+    // Hidden rows are those not delivered to the in-app channel (push-only / opted-out); they remain as records.
+    $and: [
+      buildNotificationReadScopeWhere(scope),
+      inAppVisibleFilter(),
+    ],
   }
 
   if (input.status) {

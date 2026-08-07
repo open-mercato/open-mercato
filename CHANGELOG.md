@@ -1,3 +1,14 @@
+
+# Unreleased
+
+## 🔒 Security
+- 🔒 Advanced filters ignore a condition whose field names a Where combinator (`$and`/`$or`/`$not`) instead of a column, in both the flat and tree query formats. Field names are never validated against a route's allowlist, so such a condition previously compiled to a combinator key in the same namespace the route's own filters use — reaching the query engine as a filter on a non-existent column, or colliding with a key the route emitted (including a scope predicate merged over by `mergeAdvancedFilters`).
+
+## ✨ Features
+- ✨ Devices & Push Notifications: `devices`, `notifications`, `push_notifications`, and `communication_channels` modules plus the `channel-fcm` / `channel-apns` / `channel-expo` provider packages deliver end-to-end mobile push. See the [Devices & Push Notifications getting-started guide](apps/docs/docs/tutorials/devices-and-push-getting-started.mdx).
+- ✨ Localized notification type catalogue for mobile settings screens: `GET /api/notifications/types` returns ready-to-display `label`, `description` and `categoryLabel` resolved server-side from the request locale (`?locale=`, `x-locale`, cookie, or `Accept-Language`), so a mobile client needs no i18n bundle. Types are grouped by `category`, which now defaults to the prefix of the type id (`sales.order.created` → `sales`); each module ships its own `notifications.categories.<key>` label, and an untranslated category falls back to the raw key. Group on `category`, display `categoryLabel`.
+- ✨ Operator-editable notification channel eligibility: each type's delivery channels can be switched on/off per tenant from the Notification Delivery settings page or `PATCH /api/notifications/types` (a channel switched off never delivers in that tenant and users cannot enable it); built-in types ship without push, so connecting a push provider doesn't blast the whole catalogue to devices. The per-type required (non-opt-out) flag is editable from the same admin table and is protected by the standard optimistic-lock 409. Individual channels are switched through `PUT`/`DELETE /api/notifications/types/{id}/channels/{channel}`, which derives the next eligibility set server-side under a row lock, so two operators toggling different channels of the same type can no longer overwrite each other.
+
 # 0.6.7 (2026-08-05)
 
 ## Highlights

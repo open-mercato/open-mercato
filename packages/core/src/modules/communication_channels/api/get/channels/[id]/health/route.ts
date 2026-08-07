@@ -6,7 +6,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel, ExternalConversation, MessageChannelLink } from '../../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../lib/access-control'
+import {
+  ChannelAccessDeniedError,
+  assertCanAccessChannel,
+  channelOrgScopeWhere,
+} from '../../../../../lib/access-control'
 
 type RbacServiceLike = {
   loadAcl: (
@@ -61,7 +65,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const channel = await findOneWithDecryption(
     em,
     CommunicationChannel,
-    { id, tenantId: auth.tenantId, organizationId: dscope.organizationId, deletedAt: null },
+    { id, tenantId: auth.tenantId, ...channelOrgScopeWhere(dscope.organizationId), deletedAt: null },
     undefined,
     dscope,
   )
