@@ -15,7 +15,8 @@ import {
   normalizeGrantFeatureList,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
   AUTH_USER_ACL_UPDATE_COMMAND_ID,
@@ -141,7 +142,15 @@ export async function PUT(req: Request) {
   // MikroORM drops: the update and clear paths then matched whichever row
   // happened to exist, in any tenant, and the create path hit a NOT NULL
   // violation.
-  const targetUser = await em.findOne(User, { id: parsed.data.userId as any })
+  // `auth:user` carries encrypted columns, so the module reads it through the
+  // decryption helper even when — as here — only the plaintext tenant is needed.
+  const targetUser = await findOneWithDecryption(
+    em as EntityManager,
+    User,
+    { id: parsed.data.userId } as FilterQuery<User>,
+    {},
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+  )
   const tenantId: string | null =
     auth.tenantId ?? (targetUser?.tenantId ? String(targetUser.tenantId) : null)
   if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
