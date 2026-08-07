@@ -5,6 +5,12 @@ import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import {
+  DEV_SUPERVISOR_MANIFEST_FILE,
+  DEV_SUPERVISOR_MANIFEST_VERSION,
+  type DevSupervisorSchedulerStartStatus,
+  type DevSupervisorWorkerDescriptor,
+} from '../dev-supervisor-manifest'
+import {
   calculateStructureChecksum,
   toVar,
   moduleHasExport,
@@ -67,6 +73,12 @@ import {
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
+import {
+  renderRouteManifestShardOutputs,
+  renderRouteMetadataOutput,
+  routeManifestShardFilePattern,
+  type RouteManifestShardEntry,
+} from './route-manifest-shards'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
@@ -128,6 +140,10 @@ type CommandLoaderGenerationEntry = {
   ids: string[]
 }
 
+type WorkerGenerationEntry = DevSupervisorWorkerDescriptor & {
+  importPath: string
+}
+
 type RuntimeApiMethodMetadata = {
   requireAuth?: boolean
   requireRoles?: string[]
@@ -144,6 +160,8 @@ type PageRouteGenerationResult = {
   eagerRoutes: string[]
   runtimeRoutes: string[]
   manifestRoutes: string[]
+  manifestShardRoutes: RouteManifestShardEntry[]
+  metadataRoutes: RouteManifestShardEntry[]
   routePatterns: string[]
 }
 
@@ -173,6 +191,8 @@ type ApiRouteGenerationResult = {
   eagerApis: string[]
   runtimeApis: string[]
   manifestApis: string[]
+  manifestShardApis: RouteManifestShardEntry[]
+  metadataApis: RouteManifestShardEntry[]
 }
 
 type SerializablePageMetadata = {
@@ -224,6 +244,8 @@ type SerializableWorkerMetadata = {
   id?: string
   queue?: string
   concurrency?: number
+  lockDuration?: number
+  maxStalledCount?: number
 }
 
 type PageMetadataManifestLoadResult = {
@@ -1155,7 +1177,7 @@ function collectStringArrayElements(expr: ts.Expression, stringConstants: Map<st
   return values
 }
 
-function extractCommandIdsFromSource(sourcePath: string): string[] {
+export function extractCommandIdsFromSource(sourcePath: string): string[] {
   const sourceText = fs.readFileSync(sourcePath, 'utf8')
   const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const ids = new Set<string>()
@@ -1553,6 +1575,8 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
   if (typeof source.id === 'string' && source.id.length > 0) normalized.id = source.id
   if (typeof source.queue === 'string' && source.queue.length > 0) normalized.queue = source.queue
   if (typeof source.concurrency === 'number') normalized.concurrency = source.concurrency
+  if (typeof source.lockDuration === 'number') normalized.lockDuration = source.lockDuration
+  if (typeof source.maxStalledCount === 'number') normalized.maxStalledCount = source.maxStalledCount
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -1627,12 +1651,16 @@ function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
   const locales = new Set<string>()
   if (fs.existsSync(i18nCore)) {
     for (const entry of fs.readdirSync(i18nCore, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+      if (entry.isFile() && /^[a-zA-Z0-9][a-zA-Z0-9_-]*\.json$/.test(entry.name)) {
+        locales.add(entry.name.replace(/\.json$/, ''))
+      }
     }
   }
   if (fs.existsSync(i18nApp)) {
     for (const entry of fs.readdirSync(i18nApp, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+      if (entry.isFile() && /^[a-zA-Z0-9][a-zA-Z0-9_-]*\.json$/.test(entry.name)) {
+        locales.add(entry.name.replace(/\.json$/, ''))
+      }
     }
   }
   return Array.from(locales, (locale) => ({
@@ -1744,6 +1772,8 @@ async function processPageFiles(options: {
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
   const manifestRoutes: string[] = []
+  const manifestShardRoutes: RouteManifestShardEntry[] = []
+  const metadataRoutes: RouteManifestShardEntry[] = []
   const routePatterns: string[] = []
 
   // Next-style page.* files
@@ -1815,7 +1845,19 @@ async function processPageFiles(options: {
     const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
-    manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
+    const metadataDeclaration = `{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps} }`
+    const manifestDeclaration = `{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`
+    manifestRoutes.push(manifestDeclaration)
+    manifestShardRoutes.push({
+      path: routePath,
+      declaration: manifestDeclaration,
+      imports: manifestImportStatement ? [manifestImportStatement] : [],
+    })
+    metadataRoutes.push({
+      path: routePath,
+      declaration: metadataDeclaration,
+      imports: manifestImportStatement ? [manifestImportStatement] : [],
+    })
     routePatterns.push(routePath)
   }
 
@@ -1894,7 +1936,19 @@ async function processPageFiles(options: {
     const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
-    manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
+    const metadataDeclaration = `{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps} }`
+    const manifestDeclaration = `{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`
+    manifestRoutes.push(manifestDeclaration)
+    manifestShardRoutes.push({
+      path: routePath,
+      declaration: manifestDeclaration,
+      imports: manifestImportStatement ? [manifestImportStatement] : [],
+    })
+    metadataRoutes.push({
+      path: routePath,
+      declaration: metadataDeclaration,
+      imports: manifestImportStatement ? [manifestImportStatement] : [],
+    })
     routePatterns.push(routePath)
   }
 
@@ -1902,6 +1956,8 @@ async function processPageFiles(options: {
     eagerRoutes,
     runtimeRoutes,
     manifestRoutes,
+    manifestShardRoutes,
+    metadataRoutes,
     routePatterns,
   }
 }
@@ -1918,12 +1974,14 @@ async function processApiRoutes(options: {
   const apiApp = path.join(roots.appBase, 'api')
   const apiPkg = path.join(roots.pkgBase, 'api')
   if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) {
-    return { eagerApis: [], runtimeApis: [], manifestApis: [] }
+    return { eagerApis: [], runtimeApis: [], manifestApis: [], manifestShardApis: [], metadataApis: [] }
   }
 
   const eagerApis: string[] = []
   const runtimeApis: string[] = []
   const manifestApis: string[] = []
+  const manifestShardApis: RouteManifestShardEntry[] = []
+  const metadataApis: RouteManifestShardEntry[] = []
 
   // route.* aggregations
   const routeFiles = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
@@ -1954,7 +2012,11 @@ async function processApiRoutes(options: {
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((method) => `${method}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${method}(req, ctx) }`).join(', ')} } }`)
-    manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((method) => toLiteral(method)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+    const metadataDeclaration = `{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((method) => toLiteral(method)).join(', ')}] }`
+    const manifestDeclaration = `{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((method) => toLiteral(method)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`
+    manifestApis.push(manifestDeclaration)
+    manifestShardApis.push({ path: resolvedPath, declaration: manifestDeclaration })
+    metadataApis.push({ path: resolvedPath, declaration: metadataDeclaration })
   }
 
   // Single files (plain scripts, not route.*, not tests, skip method dirs)
@@ -1986,7 +2048,11 @@ async function processApiRoutes(options: {
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((entryMethod) => `${entryMethod}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${entryMethod}(req, ctx) }`).join(', ')} } }`)
-    manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((entryMethod) => toLiteral(entryMethod)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+    const metadataDeclaration = `{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((entryMethod) => toLiteral(entryMethod)).join(', ')}] }`
+    const manifestDeclaration = `{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((entryMethod) => toLiteral(entryMethod)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`
+    manifestApis.push(manifestDeclaration)
+    manifestShardApis.push({ path: resolvedPath, declaration: manifestDeclaration })
+    metadataApis.push({ path: resolvedPath, declaration: metadataDeclaration })
   }
 
   // Legacy per-method
@@ -2028,7 +2094,11 @@ async function processApiRoutes(options: {
       eagerImports.push(buildImportStatement(`${importName}, * as ${metaName}`, importPath))
       eagerApis.push(`{ method: ${toLiteral(method)}, path: (${metaName}.metadata?.path ?? ${toLiteral(routePath)}), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
       runtimeApis.push(`{ method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, handler: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const handler = ((mod as any).default ?? (mod as any).${method} ?? (mod as any).handler) as any; return handler(req, ctx) }, metadata: ${metadataLiteral} }`)
-      manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('legacy')}, method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, methods: [${toLiteral(method)}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+      const metadataDeclaration = `{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('legacy')}, method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, methods: [${toLiteral(method)}] }`
+      const manifestDeclaration = `{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('legacy')}, method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, methods: [${toLiteral(method)}], load: async () => ${buildDynamicImportExpression(importPath)} }`
+      manifestApis.push(manifestDeclaration)
+      manifestShardApis.push({ path: resolvedPath, declaration: manifestDeclaration })
+      metadataApis.push({ path: resolvedPath, declaration: metadataDeclaration })
     }
   }
 
@@ -2036,6 +2106,8 @@ async function processApiRoutes(options: {
     eagerApis,
     runtimeApis,
     manifestApis,
+    manifestShardApis,
+    metadataApis,
   }
 }
 
@@ -2055,7 +2127,7 @@ function processWorkers(discovered: DiscoveredWorker[]): string[] {
   for (const { id, importPath, metadata } of discovered) {
     const workerId = metadata.id ?? id
     workers.push(
-      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
+      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}${metadata.lockDuration === undefined ? '' : `, lockDuration: ${toLiteral(metadata.lockDuration)}`}${metadata.maxStalledCount === undefined ? '' : `, maxStalledCount: ${toLiteral(metadata.maxStalledCount)}`}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
     )
   }
   return workers
@@ -2730,6 +2802,8 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         { name: 'id', value: workerId },
         { name: 'queue', value: metadata.queue },
         { name: 'concurrency', value: metadata.concurrency ?? 1 },
+        ...(metadata.lockDuration === undefined ? [] : [{ name: 'lockDuration', value: metadata.lockDuration }]),
+        ...(metadata.maxStalledCount === undefined ? [] : [{ name: 'maxStalledCount', value: metadata.maxStalledCount }]),
         {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleWorker'), [
@@ -2745,6 +2819,24 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
   return workers
 }
 
+function collectWorkerGenerationEntries(
+  discovered: DiscoveredWorker[],
+  moduleId: string,
+): WorkerGenerationEntry[] {
+  const workers: WorkerGenerationEntry[] = []
+  for (const { id, importPath, metadata } of discovered) {
+    if (!metadata.queue) continue
+    workers.push({
+      id: metadata.id ?? id,
+      moduleId,
+      queue: metadata.queue,
+      concurrency: metadata.concurrency ?? 1,
+      importPath,
+    })
+  }
+  return workers
+}
+
 function processTranslationsAst(options: {
   discovered: DiscoveredTranslation[]
   modId: string
@@ -2752,8 +2844,9 @@ function processTranslationsAst(options: {
   pkgImportBase: string
   imports: string[]
   extraImports?: string[]
+  localeOutputs?: Map<string, { imports: string[]; value: WriterFunction }>
 }): GeneratedObjectEntry[] {
-  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports } = options
+  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports, localeOutputs } = options
 
   const translations: GeneratedObjectEntry[] = []
 
@@ -2762,43 +2855,234 @@ function processTranslationsAst(options: {
     if (coreHas && appHas) {
       const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
       const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
+      const localeImports = [
+        buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`),
+        buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`),
+      ]
+      imports.push(...localeImports)
+      extraImports?.push(...localeImports)
+      const value = objectLiteral([
+        { kind: 'spread', value: asExpression(identifier(coreName), 'unknown as Record<string, string>') },
+        { kind: 'spread', value: asExpression(identifier(appName), 'unknown as Record<string, string>') },
+      ])
       translations.push({
         name: JSON.stringify(locale),
-        value: objectLiteral([
-          { kind: 'spread', value: asExpression(identifier(coreName), 'unknown as Record<string, string>') },
-          { kind: 'spread', value: asExpression(identifier(appName), 'unknown as Record<string, string>') },
-        ]),
+        value,
       })
+      localeOutputs?.set(locale, { imports: localeImports, value })
       continue
     }
 
     if (appHas) {
       const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
+      const localeImports = [buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`)]
+      imports.push(...localeImports)
+      extraImports?.push(...localeImports)
+      const value = asExpression(identifier(appName), 'unknown as Record<string, string>')
       translations.push({
         name: JSON.stringify(locale),
-        value: asExpression(identifier(appName), 'unknown as Record<string, string>'),
+        value,
       })
+      localeOutputs?.set(locale, { imports: localeImports, value })
       continue
     }
 
     if (coreHas) {
       const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
+      const localeImports = [buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`)]
+      imports.push(...localeImports)
+      extraImports?.push(...localeImports)
+      const value = asExpression(identifier(coreName), 'unknown as Record<string, string>')
       translations.push({
         name: JSON.stringify(locale),
-        value: asExpression(identifier(coreName), 'unknown as Record<string, string>'),
+        value,
       })
+      localeOutputs?.set(locale, { imports: localeImports, value })
     }
   }
 
   return translations
+}
+
+function sourceDeclaresCliCommand(filePath: string, commandName: string): boolean {
+  let sourceText: string
+  try {
+    sourceText = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return false
+  }
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
+  const declarations = new Map<string, ts.Expression>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        declarations.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+
+  const expressionDeclaresCommand = (expression: ts.Expression, seen = new Set<string>()): boolean => {
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
+      return expressionDeclaresCommand(expression.expression, seen)
+    }
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return false
+      const initializer = declarations.get(expression.text)
+      if (!initializer) return false
+      const nextSeen = new Set(seen)
+      nextSeen.add(expression.text)
+      return expressionDeclaresCommand(initializer, nextSeen)
+    }
+    if (ts.isArrayLiteralExpression(expression)) {
+      return expression.elements.some((element) => (
+        ts.isSpreadElement(element)
+          ? expressionDeclaresCommand(element.expression, seen)
+          : expressionDeclaresCommand(element, seen)
+      ))
+    }
+    if (!ts.isObjectLiteralExpression(expression)) return false
+    return expression.properties.some((property) => {
+      if (!ts.isPropertyAssignment(property)) return false
+      const propertyName = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+        ? property.name.text
+        : null
+      return propertyName === 'command'
+        && (ts.isStringLiteralLike(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer))
+        && property.initializer.text === commandName
+    })
+  }
+
+  return sourceFile.statements.some((statement) => (
+    ts.isExportAssignment(statement)
+    && !statement.isExportEquals
+    && expressionDeclaresCommand(statement.expression)
+  ))
+}
+
+function appDeclaresProgrammaticDevSupervisorOverrides(appDir: string): boolean {
+  const srcDir = path.join(appDir, 'src')
+  const pending = [srcDir]
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__' && entry.name !== 'node_modules') pending.push(entryPath)
+        continue
+      }
+      if (!/\.[cm]?tsx?$/.test(entry.name) || /(?:^|\.)test\.[cm]?tsx?$/.test(entry.name)) continue
+
+      let sourceText: string
+      try {
+        sourceText = fs.readFileSync(entryPath, 'utf8')
+      } catch {
+        continue
+      }
+      const sourceFile = ts.createSourceFile(entryPath, sourceText, ts.ScriptTarget.Latest, true)
+      const directImports = new Set<string>()
+      const namespaceImports = new Set<string>()
+      for (const statement of sourceFile.statements) {
+        if (
+          !ts.isImportDeclaration(statement)
+          || !ts.isStringLiteralLike(statement.moduleSpecifier)
+          || statement.moduleSpecifier.text !== '@open-mercato/shared/modules/overrides'
+        ) continue
+        const bindings = statement.importClause?.namedBindings
+        if (bindings && ts.isNamespaceImport(bindings)) namespaceImports.add(bindings.name.text)
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            const importedName = element.propertyName?.text ?? element.name.text
+            if (importedName === 'applyWorkerOverrides' || importedName === 'applyCliOverrides') {
+              directImports.add(element.name.text)
+            }
+          }
+        }
+      }
+      let found = false
+      const visit = (node: ts.Node): void => {
+        if (found) return
+        if (ts.isCallExpression(node)) {
+          if (ts.isIdentifier(node.expression) && directImports.has(node.expression.text)) {
+            found = true
+            return
+          }
+          if (
+            ts.isPropertyAccessExpression(node.expression)
+            && ts.isIdentifier(node.expression.expression)
+            && namespaceImports.has(node.expression.expression.text)
+            && ['applyWorkerOverrides', 'applyCliOverrides'].includes(node.expression.name.text)
+          ) {
+            found = true
+            return
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(sourceFile)
+      if (found) return true
+    }
+  }
+  return false
+}
+
+function renderAstI18nLocaleRegistryFile(options: {
+  fileName: string
+  imports: string[]
+  moduleEntries: WriterFunction[]
+}): string {
+  const sourceFile = createGeneratedSourceFile(options.fileName)
+  addAutoGeneratedComment(sourceFile, 'registry (locale-specific i18n version)')
+  addImportSpec(sourceFile, {
+    moduleSpecifier: '@open-mercato/shared/modules/registry',
+    namedImports: [{ name: 'Module', isTypeOnly: true }],
+  })
+  addImportStatements(sourceFile, options.imports)
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [{
+      name: 'modules',
+      type: 'Module[]',
+      initializer: arrayLiteral(options.moduleEntries, writeValue),
+    }],
+  })
+  sourceFile.addExportAssignment({
+    isExportEquals: false,
+    expression: 'modules',
+  })
+  return getSourceText(sourceFile)
+}
+
+function buildI18nLocaleShardFileName(locale: string): string {
+  const safeLocale = locale.replace(/[^a-zA-Z0-9_-]/g, '_')
+  return `modules.i18n.${safeLocale}.generated.ts`
+}
+
+function renderI18nLocaleLoadersFile(locales: string[]): string {
+  const cases = locales.map((locale) => {
+    const moduleSpecifier = `./${buildI18nLocaleShardFileName(locale).replace(/\.ts$/, '')}`
+    return `    case ${JSON.stringify(locale)}:\n      return import(${JSON.stringify(moduleSpecifier)}).then((entry) => entry.modules)`
+  }).join('\n')
+
+  return `// AUTO-GENERATED by mercato generate registry (locale-specific i18n loaders)\nimport type { Module } from '@open-mercato/shared/modules/registry'\n\nexport async function loadI18nModules(locale: string): Promise<Module[]> {\n  switch (locale) {\n${cases ? `${cases}\n` : ''}    default:\n      return []\n  }\n}\n`
+}
+
+function removeStaleI18nLocaleShards(outputDir: string, expectedFileNames: Set<string>): void {
+  if (!fs.existsSync(outputDir)) return
+  for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue
+    if (!/^modules\.i18n\..+\.generated\.(?:ts|checksum)$/.test(entry.name)) continue
+    if (entry.name.startsWith('modules.i18n.loaders.generated.')) continue
+    if (expectedFileNames.has(entry.name)) continue
+    fs.unlinkSync(path.join(outputDir, entry.name))
+  }
 }
 
 function resolveConventionFile(
@@ -2881,6 +3165,10 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const frontendRouteManifestDecls: string[] = []
   const backendRouteManifestDecls: string[] = []
   const apiRouteManifestDecls: string[] = []
+  const backendRouteShardEntries: RouteManifestShardEntry[] = []
+  const backendRouteMetadataEntries: RouteManifestShardEntry[] = []
+  const apiRouteShardEntries: RouteManifestShardEntry[] = []
+  const apiRouteMetadataEntries: RouteManifestShardEntry[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
@@ -3059,6 +3347,10 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       if (fields) fieldsImportName = fields.importName
     }
 
+    const integrationExports = integrationImportName
+      ? `(${integrationImportName} as unknown as { integrations?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]; integration?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition; bundles?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]; bundle?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle })`
+      : null
+
     // 13. Pages: backend
     {
       const beApp = path.join(roots.appBase, 'backend')
@@ -3081,6 +3373,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
         runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
         backendRouteManifestDecls.push(...generatedBackendRoutes.manifestRoutes)
+        backendRouteShardEntries.push(...generatedBackendRoutes.manifestShardRoutes)
+        backendRouteMetadataEntries.push(...generatedBackendRoutes.metadataRoutes)
         for (const pattern of generatedBackendRoutes.routePatterns) {
           assertUniqueBackendRoutePattern(seenBackendRoutePatterns, modId, pattern)
         }
@@ -3101,6 +3395,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       apis.push(...generatedApis.eagerApis)
       runtimeApis.push(...generatedApis.runtimeApis)
       apiRouteManifestDecls.push(...generatedApis.manifestApis)
+      apiRouteShardEntries.push(...generatedApis.manifestShardApis)
+      apiRouteMetadataEntries.push(...generatedApis.metadataApis)
     }
 
     // 15. CLI
@@ -3167,8 +3463,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
     runtimeModuleDecls.push(`{
       id: ${toLiteral(modId)},
@@ -3185,8 +3481,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+      ${integrationExports ? `integrations: ((${integrationExports}.integrations ?? (${integrationExports}.integration ? [${integrationExports}.integration] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationExports ? `bundles: ((${integrationExports}.bundles ?? (${integrationExports}.bundle ? [${integrationExports}.bundle] : [])) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 
@@ -3320,6 +3616,12 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     exportName: 'apiRoutes',
     entries: apiRouteManifestDecls,
   })
+  const routeManifestOutputs = [
+    ...renderRouteManifestShardOutputs('backend', backendRouteShardEntries),
+    ...renderRouteManifestShardOutputs('api', apiRouteShardEntries),
+    renderRouteMetadataOutput('backend', backendRouteMetadataEntries),
+    renderRouteMetadataOutput('api', apiRouteMetadataEntries),
+  ]
   const legacySubscribersOutput = renderAstLegacyAliasFile({
     fileName: 'subscribers.generated.ts',
     exportName: 'moduleSubscribers',
@@ -3367,6 +3669,29 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   writeGeneratedFile({ outFile: frontendRoutesOutFile, checksumFile: frontendRoutesChecksumFile, content: frontendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
+  const expectedRouteManifestFiles = new Set(routeManifestOutputs.flatMap(({ fileName }) => [
+    fileName,
+    fileName.replace(/\.ts$/, '.checksum'),
+  ]))
+  if (fs.existsSync(outputDir)) {
+    for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !routeManifestShardFilePattern.test(entry.name)) continue
+      if (expectedRouteManifestFiles.has(entry.name)) continue
+      const stalePath = path.join(outputDir, entry.name)
+      fs.unlinkSync(stalePath)
+      result.filesWritten.push(stalePath)
+    }
+  }
+  for (const routeOutput of routeManifestOutputs) {
+    writeGeneratedFile({
+      outFile: path.join(outputDir, routeOutput.fileName),
+      checksumFile: path.join(outputDir, routeOutput.fileName.replace(/\.ts$/, '.checksum')),
+      content: routeOutput.content,
+      structureChecksum,
+      result,
+      quiet,
+    })
+  }
   writeGeneratedFile({ outFile: legacySubscribersOutFile, checksumFile: legacySubscribersChecksumFile, content: legacySubscribersOutput, structureChecksum, result, quiet })
   const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
   writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
@@ -3403,14 +3728,14 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   {
     const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
     const allEntryImports: string[] = [
-      buildImportStatement(`{ backendRoutes }`, `./backend-routes.generated`),
+      buildImportStatement(`{ backendRouteFacades }`, `./backend-route-shards.generated`),
       buildImportStatement(`{ frontendRoutes }`, `./frontend-routes.generated`),
     ]
     const allRegImports: string[] = [
       `import { registerBackendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'`,
     ]
     const allCalls: string[] = [
-      `registerBackendRouteManifests(backendRoutes)`,
+      `registerBackendRouteManifests(backendRouteFacades)`,
       `registerFrontendRouteManifests(frontendRoutes)`,
     ]
     for (const plugin of bootstrapPlugins) {
@@ -3447,6 +3772,8 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const bootstrapChecksumFile = path.join(outputDir, 'modules.bootstrap.generated.checksum')
   const i18nOutFile = path.join(outputDir, 'modules.i18n.generated.ts')
   const i18nChecksumFile = path.join(outputDir, 'modules.i18n.generated.checksum')
+  const i18nLoadersOutFile = path.join(outputDir, 'modules.i18n.loaders.generated.ts')
+  const i18nLoadersChecksumFile = path.join(outputDir, 'modules.i18n.loaders.generated.checksum')
   const legacyOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
   const legacyChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
   const enabledIdsOutFile = path.join(outputDir, 'enabled-module-ids.generated.ts')
@@ -3461,6 +3788,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const moduleDecls: WriterFunction[] = []
   const bootstrapModuleDecls: WriterFunction[] = []
   const i18nModuleDecls: WriterFunction[] = []
+  const i18nLocaleShards = new Map<string, { imports: string[]; moduleDecls: WriterFunction[] }>()
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
@@ -3474,6 +3802,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     const frontendRoutes: WriterFunction[] = []
     const backendRoutes: WriterFunction[] = []
     const translations: GeneratedObjectEntry[] = []
+    const localeTranslations = new Map<string, { imports: string[]; value: WriterFunction }>()
     const subscribers: WriterFunction[] = []
     const workers: WriterFunction[] = []
     let infoImportName: string | null = null
@@ -3602,9 +3931,24 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       pkgImportBase: imps.pkgBase,
       imports,
       extraImports: translationImports,
+      localeOutputs: localeTranslations,
     }))
-    bootstrapImports.push(...translationImports)
     i18nImports.push(...translationImports)
+    for (const [locale, localeTranslation] of localeTranslations) {
+      const shard = i18nLocaleShards.get(locale) ?? { imports: [], moduleDecls: [] }
+      shard.imports.push(...localeTranslation.imports)
+      shard.moduleDecls.push(objectLiteral([
+        { name: 'id', value: modId },
+        {
+          name: 'translations',
+          value: objectLiteral([{
+            name: JSON.stringify(locale),
+            value: localeTranslation.value,
+          }]),
+        },
+      ]))
+      i18nLocaleShards.set(locale, shard)
+    }
 
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
@@ -3720,7 +4064,9 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     }
 
     moduleDecls.push(objectLiteral(routeAwareModuleEntries))
-    bootstrapModuleDecls.push(objectLiteral(moduleEntries))
+    bootstrapModuleDecls.push(objectLiteral(moduleEntries.filter(
+      (entry) => entry.kind === 'spread' || entry.name !== 'translations',
+    )))
     i18nModuleDecls.push(objectLiteral(i18nModuleEntries))
   }
 
@@ -3777,6 +4123,41 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: bootstrapOutFile, checksumFile: bootstrapChecksumFile, content: bootstrapOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: i18nOutFile, checksumFile: i18nChecksumFile, content: i18nOutput, structureChecksum, result, quiet })
+  const i18nLocales = [...i18nLocaleShards.keys()].sort((a, b) => a.localeCompare(b))
+  const shardFileNames = new Set<string>()
+  const expectedShardArtifacts = new Set<string>()
+  for (const locale of i18nLocales) {
+    const fileName = buildI18nLocaleShardFileName(locale)
+    if (shardFileNames.has(fileName)) {
+      throw new Error(`Locale names produce the same generated i18n shard file: ${locale}`)
+    }
+    shardFileNames.add(fileName)
+    expectedShardArtifacts.add(fileName)
+    expectedShardArtifacts.add(fileName.replace(/\.ts$/, '.checksum'))
+    const shard = i18nLocaleShards.get(locale)!
+    const content = renderAstI18nLocaleRegistryFile({
+      fileName,
+      imports: shard.imports,
+      moduleEntries: shard.moduleDecls,
+    })
+    writeGeneratedFile({
+      outFile: path.join(outputDir, fileName),
+      checksumFile: path.join(outputDir, fileName.replace(/\.ts$/, '.checksum')),
+      content,
+      structureChecksum,
+      result,
+      quiet,
+    })
+  }
+  removeStaleI18nLocaleShards(outputDir, expectedShardArtifacts)
+  writeGeneratedFile({
+    outFile: i18nLoadersOutFile,
+    checksumFile: i18nLoadersChecksumFile,
+    content: renderI18nLocaleLoadersFile(i18nLocales),
+    structureChecksum,
+    result,
+    quiet,
+  })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
 
   const enabledIdsOutput = renderEnabledModuleIdsFile(enabled.map((entry) => entry.id))
@@ -3808,6 +4189,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
   const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
   const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
+  const devSupervisorOutFile = path.join(outputDir, DEV_SUPERVISOR_MANIFEST_FILE)
+  const devSupervisorChecksumFile = path.join(outputDir, 'dev-supervisor.generated.checksum')
 
   const enabled = discovery.enabled
   const imports: string[] = []
@@ -3816,9 +4199,13 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
+  const devSupervisorWorkers: DevSupervisorWorkerDescriptor[] = []
+  let schedulerStartStatus: DevSupervisorSchedulerStartStatus = 'missing-module'
+  let requiresFullBootstrap = enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
+    || appDeclaresProgrammaticDevSupervisorOverrides(resolver.getAppDir())
 
   for (const discovered of discovery.modules) {
-    const { modId, roots, imps, appImportBase } = discovered
+    const { modId, imps, appImportBase } = discovered
     commandLoaderEntries.push(...discovered.commandLoaderEntries)
 
     let cliImportName: string | null = null
@@ -3910,11 +4297,20 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
     // CLI
     {
+      if (modId === 'scheduler') schedulerStartStatus = 'missing-cli'
       const cliResolved = discovered.resolve('cli.ts')
       if (cliResolved) {
         const importName = `CLI_${toVar(modId)}`
         imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
         cliImportName = importName
+        if (modId === 'scheduler') {
+          if (sourceDeclaresCliCommand(cliResolved.absolutePath, 'start')) {
+            schedulerStartStatus = 'ok'
+          } else {
+            schedulerStartStatus = 'missing-command'
+            requiresFullBootstrap = true
+          }
+        }
       }
     }
 
@@ -3931,7 +4327,10 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
     // Workers
-    workers.push(...processWorkersAst(await discovered.getWorkers()))
+    const discoveredWorkers = await discovered.getWorkers()
+    const workerGenerationEntries = collectWorkerGenerationEntries(discoveredWorkers, modId)
+    workers.push(...processWorkersAst(discoveredWorkers))
+    devSupervisorWorkers.push(...workerGenerationEntries.map(({ importPath: _importPath, ...worker }) => worker))
 
     // Dashboard widgets
     {
@@ -4096,6 +4495,20 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const structureChecksum = discovery.getStructureChecksum()
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
+  const devSupervisorOutput = `${JSON.stringify({
+    version: DEV_SUPERVISOR_MANIFEST_VERSION,
+    workers: devSupervisorWorkers,
+    schedulerStartStatus,
+    requiresFullBootstrap,
+  }, null, 2)}\n`
+  writeGeneratedFile({
+    outFile: devSupervisorOutFile,
+    checksumFile: devSupervisorChecksumFile,
+    content: devSupervisorOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
   const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
   writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 

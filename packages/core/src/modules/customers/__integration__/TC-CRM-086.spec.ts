@@ -34,6 +34,8 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
     const resizeHandle = () => targetHeader().getByRole('separator');
     const targetColumnWidth = () =>
       targetHeader().evaluate((el) => Math.round((el as HTMLElement).getBoundingClientRect().width));
+    const targetColumnInlineWidth = () =>
+      targetHeader().evaluate((el) => (el as HTMLElement).style.width);
 
     // The header keeps reflowing after the first row paints (remaining rows land,
     // the local perspective snapshot hydrates). Grabbing the handle mid-reflow
@@ -55,15 +57,47 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
       return settled;
     };
 
+    // Dispatch the pointer sequence at the handle itself rather than driving the
+    // real mouse: the header can reflow between reading the box and moving the
+    // cursor, and a coordinate-based gesture then lands next to the handle.
     const dragHandleRight = async (deltaX: number) => {
-      const box = await resizeHandle().boundingBox();
-      expect(box).not.toBeNull();
-      const originX = box!.x + box!.width / 2;
-      const originY = box!.y + box!.height / 2;
-      await page.mouse.move(originX, originY);
-      await page.mouse.down();
-      await page.mouse.move(originX + deltaX, originY, { steps: 10 });
-      await page.mouse.up();
+      const handle = resizeHandle();
+      const origin = await handle.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      await handle.dispatchEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: origin.x,
+        clientY: origin.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      await page.evaluate(({ x, y, dx }) => {
+        document.dispatchEvent(new PointerEvent('pointermove', {
+          bubbles: true,
+          button: 0,
+          buttons: 1,
+          clientX: x + dx,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+        document.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          clientX: x + dx,
+          clientY: y,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }));
+      }, { x: origin.x, y: origin.y, dx: deltaX });
     };
 
     const widenedBy = async (baseline: number) => {
@@ -114,20 +148,21 @@ test.describe('TC-CRM-086: DataTable column resize + persistence', () => {
       await expect
         .poll(targetColumnWidth, { timeout: 5_000, message: 'dragging the handle should widen the column' })
         .toBeGreaterThan(before + 80);
+      const resizedInlineWidth = await targetColumnInlineWidth();
+      expect(resizedInlineWidth).toMatch(/^\d+px$/);
 
       // -- The width survives a full reload (persisted, not saved as a view) -----
       await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForTableReady();
       await expect
-        .poll(targetColumnWidth, { timeout: 10_000, message: 'the resized width should survive a page reload' })
-        .toBeGreaterThan(before + 80);
-      const afterReload = await waitForSettledColumnWidth();
+        .poll(targetColumnInlineWidth, { timeout: 10_000, message: 'the resized width should survive a page reload' })
+        .toBe(resizedInlineWidth);
 
       // -- Double-click resets the column back to its auto width ------------------
       await resizeHandle().dblclick();
       await expect
-        .poll(targetColumnWidth, { timeout: 5_000 })
-        .toBeLessThan(afterReload - 60);
+        .poll(targetColumnInlineWidth, { timeout: 5_000 })
+        .toBe('');
     } finally {
       for (const id of companyIds) {
         await deleteEntityIfExists(request, token, '/api/customers/companies', id);

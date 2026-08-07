@@ -1,0 +1,147 @@
+---
+title: Input Moderation & Safety Identifiers
+description: Hashed end-user safety identifiers and an opt-in, fail-closed input pre-moderation gate that protect the instance owner's provider organization from abuse by untrusted end users.
+---
+
+# Input Moderation & Safety Identifiers
+
+The AI assistant runtime ships two **provider-aware content guardrails** that protect the
+instance owner's LLM-provider organization from enforcement (warning → suspension →
+termination) triggered by abusive end users on untrusted surfaces (customer portals,
+public widgets):
+
+1. **End-user safety identifiers** — a hashed, non-reversible per-user identifier attached
+   to every model call so the provider can act on a single abuser instead of banning the
+   whole API-key organization.
+2. **Input pre-moderation** — an opt-in, fail-closed gate that screens the current user turn
+   through the provider's moderation endpoint **before** the model call.
+
+Both are additive: existing tenants see no behavior change until an agent declares
+`untrustedInput` or a tenant/env enables moderation.
+
+## Safety identifiers
+
+For every chat turn the runtime computes:
+
+```
+endUserIdentifier = HMAC-SHA256(derivedSecret, `${tenantId}:${userId}`)
+```
+
+- The derived secret is memoized per process and derived from the platform's existing auth
+  secret (`JWT_SECRET`) under the purpose label `ai-safety-identifier` — **no new secret to
+  provision, and no PII or reversible id ever leaves the platform**.
+- Each provider adapter maps the identifier into the per-call `providerOptions`
+  (keys are the AI SDK provider-option names in camelCase; the SDK translates
+  them to each provider's snake_case request-body field):
+  - **OpenAI** → `{ openai: { safetyIdentifier } }` (sent as `safety_identifier`). Only the
+    native `openai` provider maps it — OpenAI-compatible/self-hosted backends (Groq, DeepInfra,
+    Azure, Ollama, …) leave it unset since the param is OpenAI-specific.
+  - **Anthropic** → `{ anthropic: { metadata: { userId } } }` (sent as `metadata.user_id`).
+  - Adapters without a mapping simply ignore it.
+- The same end user in two tenants produces two unrelated hashes (tenant-salted).
+
+Identifiers are advisory provider-side metadata, not an in-platform security control.
+
+:::note Secret rotation
+Rotating `JWT_SECRET` changes every derived identifier, so the provider sees "new" users and
+loses per-user abuse-history continuity. This is accepted — rotation is rare and a
+never-rotating dedicated secret would be worse hygiene.
+:::
+
+## Input pre-moderation
+
+Before the model call, the runtime runs a moderation check for the **current user turn only**
+(prior history was already screened on its own turns):
+
+```
+runAiAgentText
+  ├─ resolve model + provider
+  ├─ [gate] resolve moderation policy
+  │     ├─ skip when the resolved provider has no moderation endpoint
+  │     ├─ flagged ──► persist AiModerationFlag (categories + scores, no content)
+  │     │              emit ai_assistant.moderation_flag.created
+  │     │              throw AiModerationBlockedError → SSE { code: 'moderation_blocked' }
+  │     └─ not flagged ──► continue
+  └─ streamText(...)
+```
+
+Moderation runs **only when the resolved chat provider supports it** (initially the OpenAI
+adapter, via OpenAI's free `/v1/moderations` endpoint). Tenants on Anthropic/Google rely on
+those providers' own server-side filtering.
+
+### Policy precedence
+
+The effective policy for a turn is resolved first-match-wins:
+
+1. `agentDef.untrustedInput === true` → **enforced** (tenant cannot disable).
+2. Per-agent tenant override (`input_moderation` on the agent-scoped settings row) → on / off.
+3. Tenant-wide override (`input_moderation` on the tenant-wide row) → on / off.
+4. Env default `OM_AI_INPUT_MODERATION` → on / off.
+5. Default **off**.
+
+### Fail-closed vs fail-open
+
+- **Enforced** surfaces (`untrustedInput`) **fail closed**: if the moderation endpoint is
+  unavailable, the turn is rejected with `moderation_unavailable` rather than silently
+  bypassing the check.
+- **Opt-in (on)** surfaces **fail open**: a moderation outage prefers availability and lets
+  the turn through (with a warn-level log).
+
+### Audit trail
+
+Each blocked input appends one immutable `ai_moderation_flags` row storing **category flags
+and scores only — never the prompt content or any PII**. Review them at
+`/backend/config/ai-assistant/moderation-flags` (requires `ai_assistant.settings.manage`) to
+quantify false-positive rates and identify repeat abusers before widening enforcement.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_AI_INPUT_MODERATION` | unset (off) | Env default for step 4 of the policy precedence (parsed with `parseBooleanWithDefault`). |
+| `OM_AI_MODERATION_MODEL` | `omni-moderation-latest` | Moderation model id passed to `/v1/moderations`. |
+
+The safety-identifier HMAC secret is derived from `JWT_SECRET` — there is no dedicated env var,
+and it is never logged.
+
+## Marking an agent untrusted
+
+A module developer shipping a portal-facing agent marks it as accepting untrusted input so
+moderation is enforced regardless of tenant settings:
+
+```ts
+import { defineAiAgent } from '@open-mercato/ai-assistant'
+
+export const aiAgents = [
+  defineAiAgent({
+    id: 'support.portal_assistant',
+    moduleId: 'support',
+    label: 'Portal assistant',
+    description: 'Customer-facing support assistant.',
+    systemPrompt: '…',
+    allowedTools: ['search.hybrid_search'],
+    untrustedInput: true, // enforces input moderation where the provider supports it
+  }),
+]
+```
+
+## Operator rejection UX
+
+- A blocked input renders the localized `ai_assistant.errors.moderationBlocked` message inline
+  in the chat (a soft warning that invites the user to rephrase). The raw category list is
+  **never** sent to the client — there is no oracle for probing the filter; categories live
+  only in the audit record.
+- A moderation outage on an enforced surface renders
+  `ai_assistant.errors.moderationUnavailable` ("temporarily unavailable").
+
+## Scope notes
+
+- **Input-only.** Output moderation is intentionally deferred — providers already filter
+  outputs server-side, and doubling latency/cost per turn is not justified.
+- No dedicated moderation provider/key in this release: moderation is gated on the chat
+  provider supporting it.
+- No per-tenant category thresholds or automatic retention pruning yet — revisit once audit
+  data justifies the added surface.
+
+See the spec `.ai/specs/2026-06-04-ai-input-moderation-and-safety-identifiers.md` for the full
+design, risk register, and compliance report.

@@ -1,6 +1,7 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { applyModuleOverridesToModules } from '@open-mercato/shared/modules/overrides'
-import { invalidateDictionaryCache } from '../i18n/dictionary-cache'
+import type { Locale } from '../i18n/config'
+import { invalidateDictionaryCache, invalidateDictionaryCacheLocales } from '../i18n/dictionary-cache'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'modules-registry' })
@@ -38,7 +39,10 @@ function mergeI18nModules(existing: Module[], incoming: Module[]): Module[] {
     if (!i18nModule?.translations) return entry
     return {
       ...entry,
-      translations: i18nModule.translations,
+      translations: {
+        ...(entry.translations ?? {}),
+        ...i18nModule.translations,
+      },
     }
   })
 
@@ -49,17 +53,42 @@ function mergeI18nModules(existing: Module[], incoming: Module[]): Module[] {
   return merged
 }
 
+function getTranslationLocales(modules: Module[]): Locale[] {
+  const locales = new Set<Locale>()
+  for (const entry of modules) {
+    for (const locale of Object.keys(entry.translations ?? {})) {
+      locales.add(locale as Locale)
+    }
+  }
+  return [...locales]
+}
+
+function preserveExistingTranslations(existing: Module[], incoming: Module[]): Module[] {
+  const existingById = new Map(existing.map((entry) => [entry.id, entry]))
+  return incoming.map((entry) => {
+    if (entry.translations) return entry
+    const translations = existingById.get(entry.id)?.translations
+    return translations ? { ...entry, translations } : entry
+  })
+}
+
 export function registerModules(modules: Module[]) {
   const existing = getGlobalModules()
   if (existing !== null && process.env.NODE_ENV === 'development') {
     logger.debug('Modules re-registered (this may occur during HMR)')
   }
   const nextModules = applyModuleOverridesToModules(modules)
-  const shouldMergeI18nOnly = existing !== null
-    && existing.some(hasRuntimeContracts)
-    && isI18nOnlyRegistration(nextModules)
-  setGlobalModules(shouldMergeI18nOnly ? mergeI18nModules(existing, nextModules) : nextModules)
-  invalidateDictionaryCache()
+  const i18nOnlyRegistration = isI18nOnlyRegistration(nextModules)
+  const shouldMergeI18nOnly = existing !== null && i18nOnlyRegistration
+  const registeredModules = shouldMergeI18nOnly
+    ? mergeI18nModules(existing, nextModules)
+    : preserveExistingTranslations(existing ?? [], nextModules)
+  setGlobalModules(registeredModules)
+  if (i18nOnlyRegistration) {
+    invalidateDictionaryCacheLocales(getTranslationLocales(nextModules))
+  } else {
+    invalidateDictionaryCache()
+  }
 }
 
 export function getModules(): Module[] {
@@ -68,4 +97,14 @@ export function getModules(): Module[] {
     throw new Error('[Bootstrap] Modules not registered. Call registerModules() at bootstrap.')
   }
   return modules
+}
+
+/**
+ * Non-throwing counterpart of `getModules()` for call sites that have a
+ * meaningful degraded behavior when bootstrap has not run — route unit tests
+ * exercise a single handler without `registerModules()`, and a hard throw there
+ * turns an unrelated assertion into a bootstrap error.
+ */
+export function tryGetModules(): Module[] | null {
+  return getGlobalModules()
 }

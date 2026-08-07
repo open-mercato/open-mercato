@@ -1,5 +1,6 @@
 "use client"
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -14,6 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { notifyAuthIdentityChange } from '@open-mercato/ui/backend/AuthSessionGuard'
+import { clearAllPerspectiveState } from '@open-mercato/ui/backend/DataTable'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -266,6 +268,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', { method: 'POST', body: form })
       if (res.redirected) {
         clearAllOperations()
+        clearAllPerspectiveState()
         notifyAuthIdentityChange()
         // NextResponse.redirect from API
         router.replace(res.url)
@@ -320,6 +323,7 @@ export default function LoginPage() {
       const data = await res.json().catch(() => null) as LoginResponseEventDetail
       emitLoginResponseEvent(data)
       clearAllOperations()
+      clearAllPerspectiveState()
       notifyAuthIdentityChange()
       if (data && typeof data.redirect === 'string' && data.redirect.length > 0) {
         router.replace(data.redirect)
@@ -359,7 +363,7 @@ export default function LoginPage() {
                 <input type="hidden" name="tenantId" value={tenantId} />
               ) : null}
               {!!translatedRoles.length && (
-                <Alert variant="info" className="text-center">
+                <Alert status="information" className="text-center">
                   <AlertDescription>
                     {translate(
                       translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
@@ -372,7 +376,7 @@ export default function LoginPage() {
                 </Alert>
               )}
               {!!translatedFeatures.length && (
-                <Alert variant="info" className="text-center">
+                <Alert status="information" className="text-center">
                   <AlertDescription>
                     {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
                       feature: translatedFeatures.join(', '),
@@ -429,7 +433,7 @@ export default function LoginPage() {
                 />
               </div>
               <InjectionSpot<LoginFormWidgetContext>
-                spotId="auth.login:form"
+                spotId={extensionPoints.hosts.loginForm.spotId}
                 context={loginFormContext}
               />
               {authOverride?.hidePassword ? null : (

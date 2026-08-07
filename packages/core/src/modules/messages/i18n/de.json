@@ -213,6 +213,8 @@
   "messages.replyBody": "Antwort",
   "messages.saveDraft": "Entwurf speichern",
   "messages.savingDraft": "Entwurf wird gespeichert...",
+  "messages.search.badge.message": "Nachricht",
+  "messages.search.fallback.title": "Nachricht",
   "messages.searchPlaceholder": "Nachrichten suchen",
   "messages.send": "Senden",
   "messages.sendViaEmail": "Auch per E-Mail senden",
