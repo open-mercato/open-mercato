@@ -1,0 +1,135 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
+import {
+  computeEnvFingerprint,
+  readOperatorsBlob,
+  type TillioCredentialsService,
+} from '../../lib/operators-store'
+import {
+  TillioApiError,
+} from '../../lib/errors'
+import {
+  attachOperator,
+  classifyTillioError,
+  isTillioEnvironmentHealthy,
+  resolveEnvironment,
+  TillioEnvironmentNotReadyError,
+  TillioOperatorLimitError,
+} from '../../lib/operators'
+
+const SUPPORTED_PLUGINS = ['Ringostat'] as const
+
+const attachBodySchema = z.object({
+  plugin: z.literal('Ringostat'),
+  config: z.object({ key: z.string().trim().min(1) }),
+  label: z.string().trim().optional(),
+})
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['tillio.manage', 'integrations.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['tillio.manage', 'integrations.manage'] },
+}
+
+export const openApi = {
+  tags: ['Tillio'],
+  summary: 'List and attach Tillio operators',
+}
+
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+  }
+
+  const container = await createRequestContainer()
+  const credentialsService = container.resolve('integrationCredentialsService') as TillioCredentialsService
+  const em = container.resolve('em') as EntityManager
+  const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
+
+  const environment = await resolveEnvironment(credentialsService, scope)
+  const environmentReady = Boolean(environment) && (await isTillioEnvironmentHealthy(em, scope))
+  const blob = await readOperatorsBlob(credentialsService, scope)
+  const currentFingerprint = environment ? computeEnvFingerprint(environment) : null
+
+  const operators = blob.operators.map((operator) => ({
+    id: operator.id,
+    plugin: operator.plugin,
+    tenantDomain: operator.tenantDomain,
+    stale: currentFingerprint ? operator.envFingerprint !== currentFingerprint : true,
+  }))
+
+  return NextResponse.json({
+    ok: true,
+    environmentReady,
+    tenantSystemId: environment?.tenantSystemId ?? null,
+    supportedPlugins: SUPPORTED_PLUGINS,
+    operators,
+    defaultOperatorId: blob.defaultOperatorId,
+    envDrift: operators.some((operator) => operator.stale),
+  })
+}
+
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+  }
+
+  const parsedBody = attachBodySchema.safeParse(await readJsonSafe(req))
+  if (!parsedBody.success) {
+    return NextResponse.json({ ok: false, message: 'Invalid operator payload' }, { status: 400 })
+  }
+
+  const container = await createRequestContainer()
+  const credentialsService = container.resolve('integrationCredentialsService') as TillioCredentialsService
+  const em = container.resolve('em') as EntityManager
+  const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
+
+  const environment = await resolveEnvironment(credentialsService, scope)
+  const environmentReady = Boolean(environment) && (await isTillioEnvironmentHealthy(em, scope))
+  if (!environmentReady) {
+    return NextResponse.json(
+      { ok: false, code: 'environment_not_ready', section: 'environment', message: 'Run the Tillio environment health check before attaching an operator.' },
+      { status: 409 },
+    )
+  }
+
+  const appUrl = process.env.APP_URL ?? ''
+  if (!appUrl.trim()) {
+    return NextResponse.json(
+      { ok: false, code: 'app_url_missing', section: 'environment', message: 'APP_URL is not configured; it is required to derive the operator webhook domain.' },
+      { status: 500 },
+    )
+  }
+
+  try {
+    const operator = await attachOperator(
+      { credentialsService, scope, appUrl },
+      { plugin: parsedBody.data.plugin, config: parsedBody.data.config, label: parsedBody.data.label },
+    )
+    return NextResponse.json({
+      ok: true,
+      operator: { id: operator.id, plugin: operator.plugin, tenantDomain: operator.tenantDomain },
+    })
+  } catch (err) {
+    if (err instanceof TillioOperatorLimitError) {
+      return NextResponse.json({ ok: false, code: 'operator_limit', section: 'operator', message: err.message }, { status: 409 })
+    }
+    if (err instanceof TillioEnvironmentNotReadyError) {
+      return NextResponse.json({ ok: false, code: 'environment_not_ready', section: 'environment', message: err.message }, { status: 409 })
+    }
+    if (err instanceof TillioApiError) {
+      const section = classifyTillioError(err)
+      return NextResponse.json(
+        { ok: false, section, message: err.message },
+        { status: section === 'environment' ? 502 : 422 },
+      )
+    }
+    return NextResponse.json({ ok: false, section: 'operator', message: 'Failed to attach the operator.' }, { status: 500 })
+  }
+}

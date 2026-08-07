@@ -7533,6 +7533,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/sync-akeneo": "workspace:*"
     "@open-mercato/telemetry": "workspace:*"
+    "@open-mercato/tillio": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@open-mercato/webhooks": "workspace:*"
     "@radix-ui/react-checkbox": "npm:^1.3.11"
@@ -8099,6 +8100,31 @@ __metadata:
       optional: true
     "@opentelemetry/semantic-conventions":
       optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/tillio@workspace:*, @open-mercato/tillio@workspace:packages/tillio":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/tillio@workspace:packages/tillio"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/react": "npm:^19.2.17"
+    "@types/react-dom": "npm:^19.2.3"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    react: "npm:19.2.7"
+    react-dom: "npm:19.2.7"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
   languageName: unknown
   linkType: soft
 
@@ -27504,6 +27530,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-dom@npm:19.2.7":
+  version: 19.2.7
+  resolution: "react-dom@npm:19.2.7"
+  dependencies:
+    scheduler: "npm:^0.27.0"
+  peerDependencies:
+    react: ^19.2.7
+  checksum: 10/9564f4b83843ca5518ed5f807c93cb1663706559cde52f3ef814b41e60b63b16e684d849926458f0ba436745d7eabf822cba1c528be370e7b2f35a4c91e35941
+  languageName: node
+  linkType: hard
+
 "react-dom@npm:19.2.8, react-dom@npm:^19.2.8":
   version: 19.2.8
   resolution: "react-dom@npm:19.2.8"
@@ -27835,6 +27872,13 @@ __metadata:
     "@types/react":
       optional: true
   checksum: 10/62498094ff3877a37f351b29e6cad9e38b2eb1ac3c0cb27ebf80aee96554f80b35e17bdb552bcd7ac8b7cb9904fea93ea5668f2057c73d38f90b5d46bb9b27ab
+  languageName: node
+  linkType: hard
+
+"react@npm:19.2.7":
+  version: 19.2.7
+  resolution: "react@npm:19.2.7"
+  checksum: 10/2939997e87d7f0ee0d9d2bb556866b616b999dfb7916283647034eda867a045a39c4f7a736c8ea6beffffcd78397fc30f63a7a3aaf8425b683c3060670859560
   languageName: node
   linkType: hard
 
@@ -30565,7 +30609,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ts-jest@npm:^29.4.12":
+"ts-jest@npm:^29.4.11, ts-jest@npm:^29.4.12":
   version: 29.4.12
   resolution: "ts-jest@npm:29.4.12"
   dependencies:
