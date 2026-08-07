@@ -134,7 +134,7 @@ export function FormFieldArrayEditor({
 
       {/* JSON Schema Format Notice */}
       {isJsonSchemaFormat && (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription className="text-xs">
             {t('workflows.fieldEditors.formFields.jsonSchemaNotice')}
           </AlertDescription>

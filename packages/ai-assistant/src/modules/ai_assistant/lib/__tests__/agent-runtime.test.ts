@@ -255,6 +255,33 @@ describe('runAiAgentText', () => {
     expect(callArg.system).toBe('System prompt base.\n\nHydrated record context.')
   })
 
+  it('hands resolvePageContext the authenticated caller id, not a browser-supplied one', async () => {
+    const resolvePageContext = jest.fn(async (_input: AiAgentPageContextInput) => 'Hydrated record context.')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+        resolvePageContext,
+      }),
+    ])
+
+    await runAiAgentText({
+      agentId: 'customers.assistant',
+      messages: baseMessages as never,
+      authContext: { ...baseAuth, userId: 'authenticated-user' },
+      pageContext: {
+        entityType: 'customers:person',
+        recordId: 'abc',
+        userId: 'spoofed-user',
+      },
+      container: {} as never,
+    })
+
+    expect(resolvePageContext).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'authenticated-user' }),
+    )
+  })
+
   it('skips resolvePageContext silently when entityType or recordId are missing', async () => {
     const resolvePageContext = jest.fn(async () => 'should-not-append')
     seedAgentRegistryForTests([
@@ -342,5 +369,64 @@ describe('composeSystemPrompt', () => {
     }
     const result = await composeSystemPrompt(agent, undefined, undefined, null, null)
     expect(result).toBe('base')
+  })
+
+  it('forwards the caller id to resolvePageContext', async () => {
+    const resolvePageContext = jest.fn(async (_input: AiAgentPageContextInput) => 'hydrated')
+    const agent: AiAgentDefinition = {
+      id: 'x.y',
+      moduleId: 'x',
+      label: 'x',
+      description: 'x',
+      systemPrompt: 'base',
+      allowedTools: [],
+      resolvePageContext,
+    }
+
+    const result = await composeSystemPrompt(
+      agent,
+      { entityType: 'x:record', recordId: 'r-1' },
+      {} as never,
+      'tenant-1',
+      'org-1',
+      'user-1',
+    )
+
+    expect(result).toBe('base\n\nhydrated')
+    expect(resolvePageContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'x:record',
+        recordId: 'r-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+      }),
+    )
+  })
+
+  it('passes a null caller id when an existing five-argument caller omits it', async () => {
+    const resolvePageContext = jest.fn(async (_input: AiAgentPageContextInput) => 'hydrated')
+    const agent: AiAgentDefinition = {
+      id: 'x.y',
+      moduleId: 'x',
+      label: 'x',
+      description: 'x',
+      systemPrompt: 'base',
+      allowedTools: [],
+      resolvePageContext,
+    }
+
+    const result = await composeSystemPrompt(
+      agent,
+      { entityType: 'x:record', recordId: 'r-1' },
+      {} as never,
+      'tenant-1',
+      'org-1',
+    )
+
+    expect(result).toBe('base\n\nhydrated')
+    expect(resolvePageContext).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: null }),
+    )
   })
 })

@@ -19,7 +19,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Use the closest package/module `AGENTS.md` for local architecture, imports, and validation commands.
 - Follow `BACKWARD_COMPATIBILITY.md` before touching any contract surface.
 - Run `yarn generate` after adding or modifying module files that rely on auto-discovery.
-- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Enforced by `optimistic-lock-editable-entities.test.ts` and `optimistic-lock-ui-coverage.test.ts`. Details: the Task Router row.
+- Support optimistic locking on every NEW user-editable entity and edit/delete form (it is **default ON**): give the entity an `updated_at` column, return `updatedAt` in its list/detail API responses, and let `CrudForm` auto-derive the header from `initialValues.updatedAt` (covers update **and** delete) — or, for custom non-`CrudForm` handlers, wrap the mutating call with `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and surface conflicts via `surfaceRecordConflict(err, t)`. When a form's `onSubmit` mutates OTHER entities, override the parent header per child with that child's own version (avoid false 409s). Details: the Task Router row.
 
 ## Ask First
 
@@ -27,6 +27,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 - Ask before changing branch/PR automation, pipeline labels, QA flow, release behavior, or external official-module submodule pointers.
 - Ask before applying database migrations locally with `yarn db:migrate`; normal PRs should include migration files and snapshots.
 - Ask before introducing provider-specific preconfiguration outside the provider package.
+- Ask before an automated PR touches design-system governance files (see [pr-workflow](.ai/docs/pr-workflow.md)).
 
 ## Never
 
@@ -122,6 +123,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | **Spec & PR Automation** | |
 | Spec lifecycle (pre-implement → implement → write/update), code review, DS review | `.agents/skills/{om-spec-writing,om-code-review}/SKILL.md` + `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
 | PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | `.agents/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-auto-qa-pr,om-merge-buddy,om-review-prs,om-close-fixed-issues,om-auto-update-changelog,om-prepare-issue}/SKILL.md` |
+| Cutting a release (version bump PR, tag, npm publish, release notes) | [`CONTRIBUTING.md`](CONTRIBUTING.md) → Releasing |
 | **Agent harness itself** | |
 | Editing this file or a package `AGENTS.md`; the instruction budget and boundary labels | [`.ai/docs/agent-instructions.md`](.ai/docs/agent-instructions.md) + `scripts/check-agents-md-budget.mjs` (`yarn agents:check-budget`) |
 

@@ -33,8 +33,17 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))
 
+type MockQueryOptions = { queryKey: unknown[]; queryFn: () => Promise<unknown> }
+
+const mockQueryData = new Map<string, unknown>()
+const mockQueryCalls: MockQueryOptions[] = []
+
 jest.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: null, isLoading: false }),
+  useQuery: (options: MockQueryOptions) => {
+    mockQueryCalls.push(options)
+    const key = String(options.queryKey[0])
+    return { data: mockQueryData.get(key) ?? null, isLoading: false }
+  },
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }))
 
@@ -45,6 +54,8 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     flashMock.mockClear()
     mockInvalidateQueries.mockClear()
     mockRunMutation.mockClear()
+    mockQueryData.clear()
+    mockQueryCalls.length = 0
     mockApiCall.mockReset()
     mockApiCall.mockImplementation(async (url: string, options?: RequestInit) => {
       if (typeof url === 'string' && url.includes('/api/customers/people/')) {
@@ -76,6 +87,20 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
         && options?.method === 'POST'
       ) {
         return { ok: true, status: 200, result: { ok: true } } as never
+      }
+      if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users-invite')) {
+        return {
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              id: 'invitation-1',
+              email: 'buyer@example.test',
+              expiresAt: '2026-06-18T12:00:00.000Z',
+            }],
+            total: 1,
+          },
+        } as never
       }
       return { ok: false, status: 500, result: { error: 'unexpected call' } } as never
     })
@@ -157,5 +182,49 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     ))
     expect(parentSubmit).not.toHaveBeenCalled()
     expect(flashMock).toHaveBeenCalledWith('Invitation sent successfully', 'success')
+  })
+
+  // #4950: the portal user row only appears once the invite is accepted, so the
+  // widget must read the pending invitation instead of reporting "no account".
+  it('shows the pending invitation instead of the empty state once an invite exists', async () => {
+    mockQueryData.set('customer-account-pending-invitation', {
+      id: 'invitation-1',
+      email: 'buyer@example.test',
+      expiresAt: '2026-06-18T12:00:00.000Z',
+    })
+
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    expect(await screen.findByText('Invitation pending')).toBeInTheDocument()
+    expect(screen.getByText('buyer@example.test')).toBeInTheDocument()
+    expect(screen.queryByText('No portal account linked')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /resend invitation/i })).toBeInTheDocument()
+  })
+
+  it('keeps the empty state when the person has neither an account nor a pending invitation', async () => {
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    expect(await screen.findByText('No portal account linked')).toBeInTheDocument()
+    expect(screen.queryByText('Invitation pending')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /invite to portal/i })).toBeInTheDocument()
+  })
+
+  it('reads the pending invitation from the scoped admin invitations endpoint', async () => {
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    const invitationQuery = mockQueryCalls.find(
+      (call) => call.queryKey[0] === 'customer-account-pending-invitation',
+    )
+    expect(invitationQuery).toBeTruthy()
+
+    await invitationQuery!.queryFn()
+
+    const listCall = mockApiCall.mock.calls.find(
+      ([url]) => typeof url === 'string'
+        && url.includes('/api/customer_accounts/admin/users-invite')
+        && url.includes('personEntityId=person-entity-1'),
+    )
+    expect(listCall).toBeTruthy()
+    expect(listCall?.[1]).toBeUndefined()
   })
 })

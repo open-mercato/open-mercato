@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 113 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 116 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -27,6 +27,8 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 ## Catalog
 
 ### architecture
+
+- [Durable quota reservations need fenced leases, conditional creates, and bounded sizes](lessons/durable-quota-reservations-need-fenced-leases.md) — area:architecture,module-data; module:attachments,storage_s3; topic:data-scoping,command-pattern,database-migrations
 
 - [Feature-gated runtime helpers must use wildcard-aware permission matching](lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md) — area:architecture,backend-ui,module-data; module:customer_accounts,customers,events; topic:access-control,command-pattern,events
 - [Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry](lessons/fresh-standalone-yarn-scaffolds-must-ship-a-runnable.md) — area:architecture,testing,module-data; module:create_app; topic:command-pattern,package-runtime,template-sync
