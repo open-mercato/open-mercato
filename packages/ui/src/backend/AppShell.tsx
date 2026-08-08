@@ -75,6 +75,8 @@ import {
 const SIDEBAR_OPEN_GROUPS_KEY = 'om:sidebarOpenGroups'
 const SIDEBAR_OPEN_GROUPS_VERSION = 1
 
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect
+
 function isBooleanRecord(value: unknown): value is Record<string, boolean> {
   return (
     !!value &&
@@ -777,9 +779,13 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])
   // Clear breadcrumb on client-side navigation so stale state doesn't persist;
-  // the new page's ApplyBreadcrumb (if any) will set the correct values
+  // the new page's ApplyBreadcrumb (if any) will set the correct values.
+  // Must be a layout effect: when a prefetched navigation commits the new
+  // pathname and the new page together, child passive effects (ApplyBreadcrumb)
+  // run before parent ones, so a passive clear here would wipe the value the
+  // incoming page just set.
   const prevPathname = React.useRef(pathname)
-  React.useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (pathname !== prevPathname.current) {
       prevPathname.current = pathname
       setHeaderTitle(undefined)
