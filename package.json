@@ -89,6 +89,7 @@
     "logger:check-console": "node scripts/logger-check-console.mjs",
     "logger:check-console:ci": "node scripts/logger-check-console.mjs --strict",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
+    "check:pinned-deps": "tsx scripts/check-pinned-deps.ts",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
