@@ -25,7 +25,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
-import { parseDuration } from './duration'
+import { parseDuration, toTimeoutMs } from './duration'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -118,11 +118,14 @@ export interface ActivityDefinition {
  * Effective timeout for an activity, in milliseconds.
  *
  * The editor and this executor both speak `timeoutMs`, but the definition
- * schema historically accepted only an ISO 8601 `timeout` string — so stored
- * definitions can carry either. Prefer `timeoutMs`; fall back to parsing
- * `timeout`, ignoring a malformed value rather than throwing mid-execution
- * (an unparseable timeout must not fail an activity that would otherwise
- * succeed). Returns undefined when no usable timeout is configured (#4424).
+ * schema historically accepted only a `timeout` string — so stored definitions
+ * can carry either. Prefer `timeoutMs`; fall back to `toTimeoutMs`, which
+ * reads both a duration string ("PT30S", "5m") and a plain millisecond string
+ * ("30000") — the CrudForm activity editor writes the latter, and its own
+ * placeholder tells the user to. A malformed value is ignored rather than
+ * thrown mid-execution (an unparseable timeout must not fail an activity that
+ * would otherwise succeed). Returns undefined when no usable timeout is
+ * configured (#4424).
  */
 export function resolveActivityTimeoutMs(activity: {
   timeoutMs?: number
@@ -131,15 +134,7 @@ export function resolveActivityTimeoutMs(activity: {
   if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
     return activity.timeoutMs
   }
-  if (typeof activity.timeout === 'string' && activity.timeout.trim().length > 0) {
-    try {
-      const parsed = parseDuration(activity.timeout.trim())
-      if (Number.isFinite(parsed) && parsed > 0) return parsed
-    } catch {
-      return undefined
-    }
-  }
-  return undefined
+  return toTimeoutMs(activity.timeout)
 }
 
 export interface RetryPolicy {
@@ -1494,6 +1489,10 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Execute a promise with timeout
+ *
+ * Only CALL_API and CALL_WEBHOOK honour the abort signal today — they forward
+ * it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and EXECUTE_FUNCTION
+ * still run to completion after the timeout has been recorded.
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,
