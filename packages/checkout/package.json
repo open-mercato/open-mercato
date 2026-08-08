@@ -64,25 +64,25 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "bcryptjs": "^3.0.3"
+    "bcryptjs": "3.0.3"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^7.0.14",
+    "@mikro-orm/postgresql": "7.0.14",
     "@open-mercato/shared": "workspace:*",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
-    "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "esbuild": "^0.28.1",
-    "glob": "^13.0.6",
-    "jest": "^30.4.2",
+    "@types/jest": "30.0.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.28.1",
+    "glob": "13.0.6",
+    "jest": "30.4.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "29.4.11",
     "typescript": "7.0.2"
   },
   "publishConfig": {

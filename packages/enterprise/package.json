@@ -67,28 +67,28 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@simplewebauthn/browser": "^13.3.0",
-    "@simplewebauthn/server": "^13.3.2",
-    "@simplewebauthn/types": "^12.0.0",
-    "@types/qrcode": "^1.5.5",
-    "openid-client": "^6.8.4",
+    "@simplewebauthn/browser": "13.3.0",
+    "@simplewebauthn/server": "13.3.2",
+    "@simplewebauthn/types": "12.0.0",
+    "@types/qrcode": "1.5.5",
+    "openid-client": "6.8.4",
     "otpauth": "9.5.1",
-    "qrcode": "^1.5.4"
+    "qrcode": "1.5.4"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
-    "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "jest": "^30.4.2",
+    "@types/jest": "30.0.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "jest": "30.4.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "29.4.11",
     "typescript": "7.0.2"
   },
   "publishConfig": {
