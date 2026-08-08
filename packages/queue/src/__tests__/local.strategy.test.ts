@@ -22,6 +22,20 @@ const queueLoggerError = createLogger('queue').error as jest.Mock
 
 function readJson(p: string) { return JSON.parse(fs.readFileSync(p, 'utf8')) }
 
+async function within<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`[internal] Timed out after ${timeoutMs}ms`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 describe('Queue - local strategy', () => {
   const origCwd = process.cwd()
   let tmp: string
@@ -473,4 +487,126 @@ describe('Queue - local strategy', () => {
 
     await queue.close()
   })
+
+  test('continuous workers process new jobs without waiting for the polling interval', async () => {
+    const baseDir = path.join(tmp, 'event-wakeup')
+    const producer = createQueue<{ value: number }>('event-wakeup', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('event-wakeup', 'local', { baseDir })
+    let resolveProcessed!: (value: number) => void
+    const processed = new Promise<number>((resolve) => {
+      resolveProcessed = resolve
+    })
+
+    try {
+      await consumer.process((job) => {
+        resolveProcessed(job.payload.value)
+      })
+
+      await producer.enqueue({ value: 42 })
+
+      await expect(within(processed, 800)).resolves.toBe(42)
+    } finally {
+      await consumer.close()
+      await producer.close()
+    }
+  })
+
+  test('continuous workers recover after the queue directory is recreated', async () => {
+    const baseDir = path.join(tmp, 'recreated-queue')
+    const movedDir = path.join(tmp, 'moved-queue')
+    const consumer = createQueue<{ value: number }>('recreated-queue', 'local', {
+      baseDir,
+      pollInterval: 50,
+    })
+    let resolveProcessed!: (value: number) => void
+    const processed = new Promise<number>((resolve) => {
+      resolveProcessed = resolve
+    })
+
+    try {
+      await consumer.process((job) => {
+        resolveProcessed(job.payload.value)
+      })
+      fs.renameSync(baseDir, movedDir)
+      const producer = createQueue<{ value: number }>('recreated-queue', 'local', { baseDir })
+
+      try {
+        await producer.enqueue({ value: 7 })
+        await expect(within(processed, 500)).resolves.toBe(7)
+      } finally {
+        await producer.close()
+      }
+    } finally {
+      await consumer.close()
+    }
+  })
+
+  test('continuous workers keep polling while delayed jobs remain queued', async () => {
+    const baseDir = path.join(tmp, 'delayed-queue')
+    const producer = createQueue<{ value: number }>('delayed-queue', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('delayed-queue', 'local', { baseDir })
+    let resolveProcessed!: (value: number) => void
+    const processed = new Promise<number>((resolve) => {
+      resolveProcessed = resolve
+    })
+
+    try {
+      await producer.enqueue({ value: 9 }, { delayMs: 250 })
+      await consumer.process((job) => {
+        resolveProcessed(job.payload.value)
+      })
+
+      await expect(within(processed, 1800)).resolves.toBe(9)
+    } finally {
+      await consumer.close()
+      await producer.close()
+    }
+  })
+
+  test('continuous workers retain wake-ups received during an active batch', async () => {
+    const baseDir = path.join(tmp, 'active-batch')
+    const producer = createQueue<{ value: number }>('active-batch', 'local', {
+      baseDir,
+      pollInterval: 5000,
+    })
+    const consumer = createQueue<{ value: number }>('active-batch', 'local', {
+      baseDir,
+      pollInterval: 5000,
+    })
+    let resolveFirstStarted!: () => void
+    const firstStarted = new Promise<void>((resolve) => {
+      resolveFirstStarted = resolve
+    })
+    let releaseFirst!: () => void
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let resolveSecondProcessed!: (value: number) => void
+    const secondProcessed = new Promise<number>((resolve) => {
+      resolveSecondProcessed = resolve
+    })
+
+    try {
+      await consumer.process(async (job) => {
+        if (job.payload.value === 1) {
+          resolveFirstStarted()
+          await firstRelease
+          return
+        }
+        resolveSecondProcessed(job.payload.value)
+      })
+
+      await producer.enqueue({ value: 1 })
+      await within(firstStarted, 800)
+      await producer.enqueue({ value: 2 })
+      releaseFirst()
+
+      await expect(within(secondProcessed, 800)).resolves.toBe(2)
+    } finally {
+      releaseFirst()
+      await consumer.close()
+      await producer.close()
+    }
+  })
+
 })
