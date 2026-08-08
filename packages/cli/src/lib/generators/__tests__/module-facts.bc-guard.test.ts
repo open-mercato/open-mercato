@@ -83,13 +83,26 @@ describe('module-facts BC resolve guard (T2)', () => {
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    // JSON and markdown caps raised a fourth time, for a different reason than the
+    // three above: those tracked a schema change, this one tracks ordinary repo
+    // growth. Measured on the 56-module tree that adds `channel_discord`, the
+    // previous caps were all but exhausted before this module existed — 3,488,120
+    // of 3,500,000 JSON bytes (99.66%) and 1,520,711 of 1,550,000 markdown bytes
+    // (98.11%). A whole communication-channel provider costs 15,920 JSON bytes and
+    // 9,239 markdown bytes (`channel_gmail` costs 6,886 / `channel_imap` 6,798;
+    // the difference is a gateway worker, a CLI command, a signed route and a
+    // subscriber, spread proportionally across overrideTargets, extensionSurfaces,
+    // factSources and ownedContracts — no duplicated payloads). So the caps had
+    // stopped detecting blow-ups and started rejecting the next module of any
+    // size, whichever PR happened to add it. Raising them to ~20% headroom above
+    // the current tree keeps the guard doing its job: a real blow-up here is
+    // multiplicative — a duplicated provenance payload or a contribution body
+    // copied per resolution — not one provider's worth of references. Growth that
+    // eats this headroom linearly is tracked separately; the guard is deliberately
+    // not the place to ration per-module budget.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_200_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
-    // Markdown cap raised with the source-link contract: entities, events, ACL
-    // features, DI tokens, search entities, notifications, UMES hosts and UMES
-    // contributions all render a resolved Source cell, and contribution
-    // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_550_000)
+    expect(markdownBytes).toBeLessThan(1_850_000)
   })
 
   it('discovers a superset of the historical core modules', () => {

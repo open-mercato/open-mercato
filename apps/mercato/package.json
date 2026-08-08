@@ -33,6 +33,7 @@
     "@napi-rs/canvas": "^1.0.3",
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
+    "@open-mercato/channel-discord": "workspace:*",
     "@open-mercato/channel-gmail": "workspace:*",
     "@open-mercato/channel-imap": "workspace:*",
     "@open-mercato/checkout": "workspace:*",

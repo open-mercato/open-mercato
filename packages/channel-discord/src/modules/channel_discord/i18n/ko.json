@@ -1,0 +1,17 @@
+{
+  "channel_discord.connect.blocked": "유효성 검사로 인해 연결이 차단되었습니다",
+  "channel_discord.connect.button": "Discord 연결",
+  "channel_discord.connect.cancel": "취소",
+  "channel_discord.connect.connected": "Discord 채널이 연결되었습니다.",
+  "channel_discord.connect.connecting": "연결 중...",
+  "channel_discord.connect.failed": "Discord 봇을 연결하지 못했습니다.",
+  "channel_discord.connect.fields.applicationId": "애플리케이션 ID",
+  "channel_discord.connect.fields.botToken": "봇 토큰",
+  "channel_discord.connect.fields.defaultChannelId": "기본 채널 ID",
+  "channel_discord.connect.fields.displayName": "표시 이름",
+  "channel_discord.connect.fields.guildId": "길드(서버) ID",
+  "channel_discord.connect.fields.publicKey": "공개 키",
+  "channel_discord.connect.save": "연결",
+  "channel_discord.connect.title": "Discord 봇 연결",
+  "channel_discord.provider.label": "Discord"
+}

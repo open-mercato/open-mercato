@@ -18,7 +18,7 @@
 - Add a **Discord channel provider** package `@open-mercato/channel-discord` (module id `channel_discord`, provider key `discord`) under the existing `communication_channels` hub. No new framework primitives — it implements the existing `ChannelAdapter` contract.
 - **Two-way by reusing the hub**: outbound goes through the hub's `deliver-outbound-message` command → Discord REST API; inbound flows into the hub's `ingest-inbound-message` command and emits `communication_channels.message.received`. Because both directions are hub commands/events, **every module** can send and receive Discord messages exactly the way it already sends/receives Gmail/WhatsApp/Slack — no Discord-specific coupling in consumer modules.
 - **Open Mercato as a Discord bot**: a long-running **Gateway worker** (Discord's real-time WebSocket) bridges incoming Discord messages into the hub. A signed **Interactions** HTTP endpoint handles slash commands / button clicks (Discord Ed25519 request signing).
-- **AI agent connected to Discord**: a hub subscriber on `communication_channels.message.received` (provider `discord`) invokes an `ai_assistant` agent through `runAiAgentText` / `runAiAgentObject`, then replies via `deliver-outbound-message`. The agent answers "easy" messages directly and produces a summary + proposed reply for "complex" ones (mutation-policy gated), mirroring SPEC-056.
+- **AI agent connected to Discord** (design target, **de-scoped from the first release** — see § AI bot wiring): a hub subscriber on `communication_channels.message.received` (provider `discord`) invokes an `ai_assistant` agent through `runAiAgentText` / `runAiAgentObject`, then replies via `deliver-outbound-message`. The agent answers "easy" messages directly and produces a summary + proposed reply for "complex" ones (mutation-policy gated), mirroring SPEC-056. The implementation PR ships this subscriber dormant; production agent invocation and the configuration path are tracked in issue #4778.
 - The spec documents **how to configure Discord** (application, bot, intents, token, public key, invite URL/scopes), **how to run it** (gateway worker + interactions route), and **how to test it** (local smoke test + integration test list).
 
 **Concerns**
@@ -443,6 +443,29 @@ yarn mercato channel_discord register-slash-commands --tenant <tenantId>
 The brief's headline: *an `ai_framework`-based agent can be connected to Discord via communication
 channels*. This is done **without** new framework primitives, using the programmatic agent runtime.
 
+> ### ⚠️ De-scoped from the first release (2026-08-01)
+>
+> Everything in this section is the **design target**, not what the implementation PR delivers.
+> The 2026-07-30 re-review established that the subscriber as designed cannot invoke any agent
+> this repository ships: it calls `runAiAgentObject` with `features: []`, the object runtime
+> enforces object mode before applying the caller schema, and every shipped agent is chat-mode
+> and feature-gated — so a real call is denied. Compounding that, no product surface writes the
+> `aiAutoReplyEnabled` / `aiAgentId` channel-state keys that arm it, so there is no configuration
+> path either.
+>
+> Completing it means designing an object-mode (or explicit service-principal) agent identity for
+> channel auto-reply, a tenant-scoped configuration surface, and proposal storage plus an approval
+> UI for the `complex` tier — a feature in its own right, not a review fix, and one that should not
+> ride underneath an already large provider PR as unreviewed AI-invocation design.
+>
+> **What the first release therefore promises: nothing.** The provider does not advertise AI
+> auto-reply in its module or integration description, and the subscriber ships as inert,
+> fail-closed scaffolding (opt-in, default OFF, soft-optional peer, every failure degrading to a
+> no-op). The full production design — real agent invocation with real `features`, the
+> configuration path, the `complex`-tier proposal surface, the optional `@open-mercato/ai-assistant`
+> peer declaration, and an integration test driving the real policy/runtime instead of mocking it —
+> is tracked in issue **#4778** and lands with that issue. TC-CHANNEL-DISCORD-009/010 move with it.
+
 ### Subscriber
 
 `packages/channel-discord/src/modules/channel_discord/subscribers/ai-auto-reply.ts`:
@@ -518,6 +541,33 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 Unit tests (provider package, jest): `convertOutbound`/`normalizeInbound` mapping, Ed25519 verify,
 gateway identify/resume/backoff state machine, bot-self-message filter.
 
+### What ships in the implementation PR, and where the ceiling is
+
+TC-CHANNEL-DISCORD-001..008 ship as executable Playwright specs in
+`packages/channel-discord/src/modules/channel_discord/__integration__/`. TC-009 and TC-010 are
+**deferred with the AI auto-reply feature itself** and tracked in issue #4778 — there is no
+production AI invocation path to assert against until that lands.
+
+Each shipped spec drives the real app; where a sub-assertion would need a live Discord
+application, the spec states the ceiling and names the unit test that owns that half. The honest
+split:
+
+| ID | Runs against the app | Ceiling (stays unit-tested) |
+|----|----------------------|------------------------------|
+| 001 | Adapter registration (unknown provider → 404 vs `discord` → 422) and fail-closed, offline credential validation with per-field errors; a rejected connect leaves no channel | A token Discord actually accepts (`GET /users/@me`) |
+| 002 | test-send refuses unauthenticated callers, malformed ids and channels the caller does not own — before any adapter resolves | The outbound payload conversion + REST post |
+| 003 | A `providerKey: 'discord'` inbound message persists as a delivered inbound link inside the channel's health window | The socket state machine and replay dedup |
+| 004 | Reaction add/remove round-trip on a Discord-provider message through the hub's thread mapping | Gateway reaction frame decoding |
+| 005 | The signed interactions route, fail-closed on every path: unsigned, wrong key, tampered body, stale timestamp (replay guard answers before the candidate fan-out), non-JSON | The PONG success path (needs a channel whose stored key matches the signer) |
+| 006 | An inbound Discord message from a known contact creates **exactly one** CRM interaction, attributed to `discord` — proving the provider adds no contact-resolution logic of its own | — |
+| 007 | Health surface: tenant-scoped guards plus a fixed numeric snapshot that counts Discord traffic | `channelDiscordHealthCheck`'s own Discord probe |
+| 008 | The shared interactions URL is a black box for an unverified caller: identical rejections across applications, no channel/tenant/organization identifier in the body | The positive pinning case (two live bot tokens) |
+
+Specs 003, 004, 006 and 007's snapshot case use the hub's env-gated seeding fixture
+(`OM_ENABLE_TEST_CHANNEL_SEEDING`) and skip with a stated reason when the flag is off — the same
+convention the hub's own `TC-CHANNEL-API-*` and `TC-CRM-EMAIL-*` specs follow. 001, 002, 005, 008
+and 007's guard cases need no fixture and run unconditionally.
+
 ---
 
 ## Risks & impact review
@@ -576,12 +626,35 @@ gateway identify/resume/backoff state machine, bot-self-message filter.
   or status colors). ✅
 - **Generation**: run `yarn generate` after adding module files (DI/setup/acl/integration/worker/
   subscriber). ✅
-- **Tests**: integration TC-CHANNEL-DISCORD-001..010 + provider unit tests, shipped with the
-  implementation PR; no live Discord calls in CI. ✅
+- **Tests**: provider unit tests plus executable integration specs TC-CHANNEL-DISCORD-001..008,
+  shipped with the implementation PR; no live Discord calls in CI. TC-009/TC-010 ship with the AI
+  auto-reply feature they assert on (issue #4778). ✅ (see § What ships in the implementation PR)
 
 ---
 
 ## Changelog
+
+### 2026-08-01 — AI auto-reply de-scoped from the first release
+
+- Recorded the de-scope decision the 2026-07-30 re-review asked for: § AI bot wiring keeps the
+  design but is now marked as the design target rather than shipped behavior, and the TLDR says the
+  same. The provider stops advertising AI auto-reply in its module and integration descriptions
+  (the `ai` tag is gone), and the subscriber's own documentation states that it ships dormant,
+  why arming it by hand would still be denied by the agent policy, and that the `complex` tier
+  drops the message with a log line because its approval surface does not exist yet.
+- Production agent invocation, the configuration path that writes `aiAutoReplyEnabled` / `aiAgentId`,
+  the proposal surface and the optional peer declaration are tracked in issue #4778, together with
+  TC-CHANNEL-DISCORD-009/010. No behavior change — the subscriber was already inert; this removes
+  the claims that it was not.
+
+### 2026-08-01 — Integration coverage shipped (TC-001..008)
+
+- Replaced the compliance report's blanket "TC-001..010 shipped" claim with what the implementation
+  PR actually delivers: eight executable Playwright specs under
+  `packages/channel-discord/src/modules/channel_discord/__integration__/`, each stating the ceiling
+  of what can be asserted without a live Discord application and naming the unit test that owns the
+  remaining half. TC-009/TC-010 assert AI auto-reply behavior and therefore move with that feature
+  to issue #4778. No behavior change — spec accuracy plus new tests.
 
 ### 2026-06-19 — Initial draft
 
