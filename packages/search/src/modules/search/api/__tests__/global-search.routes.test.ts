@@ -164,4 +164,109 @@ describe('GET /api/search/search/global presenter localization', () => {
       expect(result.links?.[0]?.label).toBe('Otwórz osobę')
     }
   })
+
+  it('returns one navigable result for each customer entity and profile pair', async () => {
+    const rows = [
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: 'person-entity',
+        doc: { id: 'person-entity', display_name: 'Ada Lovelace', kind: 'person' },
+      },
+      {
+        entity_type: 'customers:customer_person_profile',
+        entity_id: 'person-profile',
+        doc: { id: 'person-profile', entity_id: 'person-entity', display_name: 'Ada Lovelace' },
+      },
+      {
+        entity_type: 'customers:customer_entity',
+        entity_id: 'company-entity',
+        doc: { id: 'company-entity', display_name: 'Analytical Engines', kind: 'company' },
+      },
+      {
+        entity_type: 'customers:customer_company_profile',
+        entity_id: 'company-profile',
+        doc: { id: 'company-profile', entity_id: 'company-entity', display_name: 'Analytical Engines' },
+      },
+      {
+        entity_type: 'orders:order',
+        entity_id: 'order-1',
+        doc: { id: 'order-1', title: 'Order 1' },
+      },
+    ]
+    const personEntityId = 'customers:customer_person_profile' as EntityId
+    const companyEntityId = 'customers:customer_company_profile' as EntityId
+    const configMap = new Map<EntityId, SearchEntityConfig>([
+      [personEntityId, {
+        entityId: personEntityId,
+        formatResult: async (context) => ({ title: String(context.record.display_name) }),
+        resolveUrl: async (context) => `/backend/customers/people-v2/${String(context.record.entity_id)}`,
+      }],
+      [companyEntityId, {
+        entityId: companyEntityId,
+        formatResult: async (context) => ({ title: String(context.record.display_name) }),
+        resolveUrl: async (context) => `/backend/customers/companies-v2/${String(context.record.entity_id)}`,
+      }],
+    ])
+    const scoresByRecordId: Record<string, number> = {
+      'person-profile': 0.95,
+      'company-profile': 0.85,
+      'order-1': 0.5,
+      'person-entity': 0.2,
+      'company-entity': 0.1,
+    }
+    const results: SearchResult[] = rows
+      .map((row) => ({
+        entityId: row.entity_type as EntityId,
+        recordId: row.entity_id,
+        organizationId: 'org-1',
+        score: scoresByRecordId[row.entity_id] ?? 0,
+        source: 'tokens' as const,
+      }))
+      .sort((left, right) => right.score - left.score)
+    const strategy: SearchStrategy = {
+      id: 'tokens',
+      name: 'tokens',
+      priority: 10,
+      isAvailable: async () => true,
+      ensureReady: async () => undefined,
+      search: async () => results,
+      index: async () => undefined,
+      delete: async () => undefined,
+    }
+    const searchService = new SearchService({
+      strategies: [strategy],
+      defaultStrategies: ['tokens'],
+      presenterEnricher: createPresenterEnricher(createDatabase(rows), configMap),
+    })
+    const container = {
+      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(container)
+
+    const response = await GET(new Request('http://localhost/api/search/search/global?q=customer'))
+    const body = await response.json() as { results: SearchResult[] }
+
+    expect(response.status).toBe(200)
+    expect(body.results).toEqual([
+      expect.objectContaining({
+        entityId: 'customers:customer_entity',
+        recordId: 'person-entity',
+        presenter: expect.objectContaining({ title: 'Ada Lovelace' }),
+        url: '/backend/customers/people-v2/person-entity',
+      }),
+      expect.objectContaining({
+        entityId: 'customers:customer_entity',
+        recordId: 'company-entity',
+        presenter: expect.objectContaining({ title: 'Analytical Engines' }),
+        url: '/backend/customers/companies-v2/company-entity',
+      }),
+      expect.objectContaining({
+        entityId: 'orders:order',
+        recordId: 'order-1',
+      }),
+    ])
+    expect(body.results[0]?.score).toBeGreaterThan(body.results[1]?.score ?? 0)
+    expect(body.results[1]?.score).toBeGreaterThan(body.results[2]?.score ?? 0)
+  })
 })
