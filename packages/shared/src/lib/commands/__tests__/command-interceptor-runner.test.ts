@@ -112,6 +112,56 @@ describe('runCommandInterceptorsBefore', () => {
     expect(i2.beforeExecute).not.toHaveBeenCalled()
   })
 
+  // Issue #5045 — a rejection only carries transport information when the interceptor asks for it.
+  it('omits status and body when the rejection carries no status', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, message: 'Blocked' }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error).toEqual({ message: 'Blocked' })
+  })
+
+  it('propagates the status and derives a body from the message', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, message: 'Missing required fields', status: 422 }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error).toEqual({
+      message: 'Missing required fields',
+      status: 422,
+      body: { error: 'Missing required fields' },
+    })
+  })
+
+  it('propagates an explicit body alongside the status', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({
+        ok: false,
+        message: 'Blocked',
+        status: 422,
+        body: { error: 'Blocked', missingFields: ['vatId'] },
+      }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error?.body).toEqual({ error: 'Blocked', missingFields: ['vatId'] })
+  })
+
+  it('falls back to the generated message when a status-carrying rejection has none', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, status: 422 }),
+    })
+    const result = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, [])
+    expect(result.error).toEqual({
+      message: 'Blocked by command interceptor: i1',
+      status: 422,
+      body: { error: 'Blocked by command interceptor: i1' },
+    })
+  })
+
   it('accumulates modified input', async () => {
     const i1 = makeInterceptor({
       id: 'i1',
@@ -235,6 +285,29 @@ describe('runCommandInterceptorsBeforeUndo', () => {
     const result = await runCommandInterceptorsBeforeUndo([interceptor], 'customers.create-person', undoContext, baseContext, [])
     expect(result.ok).toBe(false)
     expect(result.error?.message).toBe('Cannot undo')
+  })
+
+  // Issue #5045 — the undo path shares the before-result contract, so it carries a status too.
+  it('omits status and body when the undo rejection carries no status', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeUndo: jest.fn().mockResolvedValue({ ok: false, message: 'Cannot undo' }),
+    })
+    const result = await runCommandInterceptorsBeforeUndo([interceptor], 'customers.create-person', undoContext, baseContext, [])
+    expect(result.error).toEqual({ message: 'Cannot undo' })
+  })
+
+  it('propagates the status and body of an undo rejection', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      beforeUndo: jest.fn().mockResolvedValue({ ok: false, message: 'Cannot undo a settled invoice', status: 409 }),
+    })
+    const result = await runCommandInterceptorsBeforeUndo([interceptor], 'customers.create-person', undoContext, baseContext, [])
+    expect(result.error).toEqual({
+      message: 'Cannot undo a settled invoice',
+      status: 409,
+      body: { error: 'Cannot undo a settled invoice' },
+    })
   })
 })
 
