@@ -582,6 +582,13 @@ export type TimePickerProps = {
   onOpenChange?: (open: boolean) => void
   popoverAlign?: 'start' | 'center' | 'end'
   popoverSide?: 'top' | 'right' | 'bottom' | 'left'
+  /**
+   * Render the popover in Radix modal mode. Required for the slot list to be
+   * wheel/touch scrollable when the picker is opened from inside a modal
+   * Dialog — the dialog's scroll lock (react-remove-scroll) blocks scrolling
+   * on portaled content that isn't part of its own lock tree. Defaults to true.
+   */
+  popoverModal?: boolean
 
   className?: string
   disabled?: boolean
@@ -700,6 +707,37 @@ function TimePickerCard({
     },
     [disabled, slotListRef],
   )
+
+  // Bring the selected (or nearest) slot into view when the card mounts —
+  // without this a full-day slot list always opens scrolled to midnight and
+  // the current value sits ~offscreen, reading as "only 12:00–3:30 available".
+  const initialScrollDoneRef = React.useRef(false)
+  React.useEffect(() => {
+    if (initialScrollDoneRef.current) return
+    initialScrollDoneRef.current = true
+    const container = slotListRef.current
+    if (!container) return
+    const parsed = parseTime(value)
+    if (!parsed) return
+    const targetMinutes = parsed.hour * 60 + parsed.minute
+    let nearestIndex = -1
+    let nearestDistance = Number.POSITIVE_INFINITY
+    slotList.forEach((slot, index) => {
+      const slotParsed = parseTime(slot)
+      if (!slotParsed) return
+      const distance = Math.abs(slotParsed.hour * 60 + slotParsed.minute - targetMinutes)
+      if (distance < nearestDistance) {
+        nearestDistance = distance
+        nearestIndex = index
+      }
+    })
+    if (nearestIndex === -1) return
+    const buttons = container.querySelectorAll<HTMLButtonElement>('[data-slot="time-picker-slot"]')
+    const targetButton = buttons[nearestIndex]
+    if (!targetButton) return
+    const offsetWithinList = targetButton.offsetTop - container.offsetTop
+    container.scrollTop = Math.max(0, offsetWithinList - container.clientHeight / 2 + targetButton.clientHeight / 2)
+  }, [slotList, slotListRef, value])
 
   return (
     <div
@@ -929,6 +967,7 @@ export function TimePicker({
   onOpenChange,
   popoverAlign = 'start',
   popoverSide = 'bottom',
+  popoverModal = true,
   className,
   disabled = false,
   'aria-label': ariaLabel,
@@ -1043,7 +1082,7 @@ export function TimePicker({
   if (!trigger) return card
 
   return (
-    <Popover open={open} onOpenChange={setOpenWithSnapshot}>
+    <Popover open={open} onOpenChange={setOpenWithSnapshot} modal={popoverModal}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={popoverAlign}

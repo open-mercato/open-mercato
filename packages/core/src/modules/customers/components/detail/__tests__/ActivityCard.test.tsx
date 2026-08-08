@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
@@ -88,5 +88,23 @@ describe('ActivityCard', () => {
   it.each(['done', 'canceled'])('hides the Mark done affordance for terminal status %s', (status) => {
     renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
     expect(screen.queryByRole('button', { name: /Mark done/i })).not.toBeInTheDocument()
+  })
+
+  it('hides the delete affordance when no onDelete handler is supplied', () => {
+    renderWithProviders(<ActivityCard activity={createActivity()} />)
+    expect(screen.queryByRole('button', { name: /Delete activity/i })).not.toBeInTheDocument()
+  })
+
+  it('renders the delete affordance and forwards the activity without opening the card', async () => {
+    const onDelete = jest.fn()
+    const onOpen = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityCard activity={activity} onOpen={onOpen} onDelete={onDelete} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete activity/i }))
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(activity))
+    // The row itself is clickable; deleting must not also trigger the edit dialog.
+    expect(onOpen).not.toHaveBeenCalled()
   })
 })

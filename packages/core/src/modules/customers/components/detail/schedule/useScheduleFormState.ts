@@ -112,12 +112,15 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         const resolvedType = (editData.interactionType as ActivityType) ?? 'meeting'
         setActivityType(resolvedType)
         setTitle(editData.title ?? '')
-        // For historical activities the canonical timestamp is `occurredAt`; for
-        // planned/future ones it's `scheduledAt`. Without this fallback editing a
-        // past activity prefilled to "today" instead of its actual moment (#1807).
-        // Keep seed values in the user's local timezone, matching the cluster-E
-        // local-day convention.
-        const sourceTimestamp = editData.occurredAt ?? editData.scheduledAt ?? null
+        // Prefer `scheduledAt` — the dialog edits the planned moment and the
+        // timeline row displays `scheduledAt ?? occurredAt`, so seeding from
+        // `occurredAt` first made a saved date/time change appear to revert to
+        // its old value on reopen (the save path only writes `scheduledAt`).
+        // `occurredAt` remains the fallback so historical activities without a
+        // schedule still prefill from their actual moment instead of "today"
+        // (#1807). Keep seed values in the user's local timezone, matching the
+        // cluster-E local-day convention.
+        const sourceTimestamp = editData.scheduledAt ?? editData.occurredAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : new Date()
         const seedDateValid = !Number.isNaN(seedDate.getTime())
         const fallbackNow = new Date()

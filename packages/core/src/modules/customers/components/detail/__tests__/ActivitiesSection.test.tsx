@@ -7,10 +7,24 @@ import { ActivitiesSection as CustomerActivitiesSection } from '../ActivitiesSec
 
 const activityTimelineMock = jest.fn(() => null)
 const readApiResultOrThrowMock = jest.fn()
+const apiCallOrThrowMock = jest.fn()
+const scopedHeadersMock = jest.fn()
+const confirmMock = jest.fn(async () => true)
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCallOrThrow: jest.fn(),
+  apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, operation: () => unknown) => {
+    scopedHeadersMock(headers)
+    return operation()
+  },
+}))
+
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({
+    confirm: (...args: unknown[]) => confirmMock(...args),
+    ConfirmDialogElement: null,
+  }),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -71,6 +85,10 @@ describe('Customer ActivitiesSection wrapper', () => {
   beforeEach(() => {
     activityTimelineMock.mockClear()
     readApiResultOrThrowMock.mockReset()
+    apiCallOrThrowMock.mockReset()
+    scopedHeadersMock.mockClear()
+    confirmMock.mockClear()
+    confirmMock.mockResolvedValue(true)
   })
 
   it('loads canonical interactions without hitting the legacy activities route', async () => {
@@ -372,5 +390,67 @@ describe('Customer ActivitiesSection wrapper', () => {
     })
     // …but the two legacy page fetches must overlap (parallel), not run one-at-a-time.
     expect(legacyMaxInFlight).toBeGreaterThanOrEqual(2)
+  })
+
+  it('deletes an activity after confirmation with the optimistic-lock header', async () => {
+    const activity = sampleActivity({
+      id: 'interaction-9',
+      interactionType: 'call',
+      updatedAt: '2026-07-10T08:30:00.000Z',
+    })
+    readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    await waitFor(() => expect(activityTimelineMock).toHaveBeenCalled())
+    const timelineProps = activityTimelineMock.mock.calls.at(-1)?.[0] as {
+      onDelete?: (item: Record<string, unknown>) => Promise<void>
+    }
+    expect(typeof timelineProps.onDelete).toBe('function')
+
+    readApiResultOrThrowMock.mockClear()
+    await timelineProps.onDelete?.(activity)
+
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(scopedHeadersMock).toHaveBeenCalledWith(
+      expect.objectContaining({ 'x-om-ext-optimistic-lock-expected-updated-at': '2026-07-10T08:30:00.000Z' }),
+    )
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/interactions',
+      expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ id: 'interaction-9' }) }),
+    )
+    // Timeline reloads after the delete succeeds.
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalled())
+  })
+
+  it('does not delete when the confirmation is dismissed', async () => {
+    const activity = sampleActivity({ id: 'interaction-9', interactionType: 'call' })
+    readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
+    confirmMock.mockResolvedValue(false)
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    await waitFor(() => expect(activityTimelineMock).toHaveBeenCalled())
+    const timelineProps = activityTimelineMock.mock.calls.at(-1)?.[0] as {
+      onDelete?: (item: Record<string, unknown>) => Promise<void>
+    }
+    await timelineProps.onDelete?.(activity)
+
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
 })
