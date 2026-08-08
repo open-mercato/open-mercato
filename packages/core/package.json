@@ -257,8 +257,8 @@
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",

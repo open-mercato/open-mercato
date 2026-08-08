@@ -34,7 +34,7 @@
     }
   },
   "peerDependencies": {
-    "bullmq": "5.0.0"
+    "bullmq": "^5.0.0"
   },
   "peerDependenciesMeta": {
     "bullmq": {

@@ -101,8 +101,8 @@
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "zod": ">=3.23.0"
   },
   "devDependencies": {

@@ -68,10 +68,10 @@
     "mailparser": "3.9.14"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "7.0.14",
+    "@mikro-orm/postgresql": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
-    "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",

@@ -2,6 +2,9 @@
  * Ensures all dependency versions in workspace package.json files are pinned
  * to exact versions — no ^ (caret) or ~ (tilde) range prefixes allowed.
  *
+ * peerDependencies are excluded: they express compatibility ranges for
+ * downstream consumers, not installation targets.
+ *
  * Run with: yarn check:pinned-deps
  *
  * Background: version ranges create supply-chain exposure windows. Even with a
@@ -22,7 +25,6 @@ const WORKSPACE_PATTERNS = [
 const DEP_SECTIONS = [
   'dependencies',
   'devDependencies',
-  'peerDependencies',
   'optionalDependencies',
 ] as const
 
@@ -40,7 +42,7 @@ for (const pattern of WORKSPACE_PATTERNS) {
       if (!deps) continue
 
       for (const [pkg, version] of Object.entries(deps)) {
-        if (version.startsWith('workspace:')) continue
+        if (version.startsWith('workspace:') || version.startsWith('npm:')) continue
         if (RANGE_PREFIX.test(version)) {
           console.error(`  ✖ ${file} → ${section}.${pkg}: "${version}" (range prefix not allowed)`)
           violations++

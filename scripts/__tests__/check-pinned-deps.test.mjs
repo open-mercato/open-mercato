@@ -9,7 +9,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 const WORKSPACE_PATTERNS_GLOBS = ['package.json', 'packages/*/package.json', 'apps/*/package.json']
 
-const DEP_SECTIONS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+// peerDependencies are excluded — they express compatibility ranges for consumers
+const DEP_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
 // ── Live repo assertions ────────────────────────────────────────────────────
 
