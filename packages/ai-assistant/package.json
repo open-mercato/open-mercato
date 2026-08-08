@@ -86,9 +86,9 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.1",
-    "@ai-sdk/google": "4.0.2",
-    "@ai-sdk/openai": "4.0.2",
+    "@ai-sdk/anthropic": "4.0.8",
+    "@ai-sdk/google": "4.0.8",
+    "@ai-sdk/openai": "4.0.7",
     "@modelcontextprotocol/sdk": "1.29.0",
     "ai": "7.0.4",
     "cmdk": "1.0.0",
