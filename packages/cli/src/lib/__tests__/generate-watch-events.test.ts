@@ -26,6 +26,7 @@ function createWatchHarness(initialTargets: GenerateWatchTarget[]) {
   const signal = createGenerateWatchChangeSignal({
     getWatchTargets: () => targets,
     watchDirectory,
+    directoryExists: () => true,
   })
 
   return {
@@ -37,6 +38,33 @@ function createWatchHarness(initialTargets: GenerateWatchTarget[]) {
 }
 
 describe('createGenerateWatchChangeSignal', () => {
+  it('skips missing directories without falling back and retries them on refresh', async () => {
+    const present = path.resolve('./modules-present')
+    const delayed = path.resolve('./modules-delayed')
+    const existing = new Set([present])
+    const registered: GenerateWatchTarget[] = []
+    const signal = createGenerateWatchChangeSignal({
+      getWatchTargets: () => [
+        { directory: present, recursive: true },
+        { directory: delayed, recursive: true },
+      ],
+      directoryExists: (directory) => existing.has(directory),
+      watchDirectory: (target) => {
+        registered.push(target)
+        return { close: jest.fn() }
+      },
+    })
+
+    await signal.refresh()
+    expect(registered.map((target) => target.directory)).toEqual([present])
+    expect(signal.usesPollingFallback()).toBe(false)
+
+    existing.add(delayed)
+    await signal.refresh()
+    expect(registered.map((target) => target.directory)).toEqual([present, delayed])
+    expect(signal.usesPollingFallback()).toBe(false)
+  })
+
   it('deduplicates targets and increments its version on filesystem events', async () => {
     const target = { directory: './modules', recursive: true }
     const { signal, registered, watchDirectory } = createWatchHarness([target, target])
@@ -80,6 +108,7 @@ describe('createGenerateWatchChangeSignal', () => {
         { directory: './modules-b', recursive: true },
       ],
       watchDirectory,
+      directoryExists: () => true,
     })
 
     await signal.refresh()

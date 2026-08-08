@@ -21,6 +21,7 @@ type WatchDirectory = (
 export type GenerateWatchChangeSignalOptions = {
   getWatchTargets: () => Promise<GenerateWatchTarget[]> | GenerateWatchTarget[]
   watchDirectory?: WatchDirectory
+  directoryExists?: (directory: string) => boolean
 }
 
 function targetKey(target: GenerateWatchTarget): string {
@@ -49,6 +50,7 @@ export function createGenerateWatchChangeSignal(
   options: GenerateWatchChangeSignalOptions,
 ): GenerateWatcherChangeSignal {
   const watchDirectory = options.watchDirectory ?? defaultWatchDirectory
+  const directoryExists = options.directoryExists ?? fs.existsSync
   const watchers = new Map<string, WatchHandle>()
   let version = 0
   let pollingFallback = false
@@ -88,6 +90,7 @@ export function createGenerateWatchChangeSignal(
           ...target,
           directory: path.resolve(target.directory),
         }
+        if (!directoryExists(normalized.directory)) continue
         normalizedTargets.set(targetKey(normalized), normalized)
       }
 
