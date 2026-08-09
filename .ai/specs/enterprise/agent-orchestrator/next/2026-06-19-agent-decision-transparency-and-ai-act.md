@@ -9,26 +9,26 @@
 
 ## TLDR
 
-This is the **affected-person and regulator side** of the agent orchestrator that the internal cockpit (`2026-06-19-agent-operations-ui.md`) does not cover. It provides a claimant-facing **plain-language explanation + contest/appeal** surface (real portal convention), GDPR data-subject rights (DSAR export, audit-preserving erasure, consent flags), periodic bias/fairness monitoring, and the EU AI Act conformity programme (technical documentation, post-market monitoring, serious-incident reporting) for a high-risk system (claims adjudication). **It cannot be retrofitted late** — a high-risk AI domain must ship transparency, oversight, and the conformity programme as part of go-live, not after.
+This is the **affected-person and regulator side** of the agent orchestrator that the internal cockpit (`2026-06-19-agent-operations-ui.md`) does not cover. It provides an affected-party-facing **plain-language explanation + contest/appeal** surface (real portal convention), GDPR data-subject rights (DSAR export, audit-preserving erasure, consent flags), periodic bias/fairness monitoring, and the EU AI Act conformity programme (technical documentation, post-market monitoring, serious-incident reporting) for a high-risk system (automated adjudication). **It cannot be retrofitted late** — a high-risk AI domain must ship transparency, oversight, and the conformity programme as part of go-live, not after.
 
 ## Overview
 
-Every other surface in the orchestrator serves operators and engineers: the cockpit, the trace/eval harness, the dispatch board. None of them speaks to the person a decision is *about*, nor to the regulator who supervises a high-risk system. This spec adds three append-only / editable compliance entities (`AgentDecisionRecord`, `AgentContestCase`, `AgentFairnessMetric`), a claimant portal surface, an admin compliance API, and the conformity-programme machinery — all built on contracts that already exist in OM (`portal`, `customer_accounts`, `audit_logs`, `business_rules`, `dashboards`) plus the trace and context specs.
+Every other surface in the orchestrator serves operators and engineers: the cockpit, the trace/eval harness, the dispatch board. None of them speaks to the person a decision is *about*, nor to the regulator who supervises a high-risk system. This spec adds three append-only / editable compliance entities (`AgentDecisionRecord`, `AgentContestCase`, `AgentFairnessMetric`), a affected-party portal surface, an admin compliance API, and the conformity-programme machinery — all built on contracts that already exist in OM (`portal`, `customer_accounts`, `audit_logs`, `business_rules`, `dashboards`) plus the trace and context specs.
 
 ## Problem Statement
 
-A claimant subject to an automated or AI-assisted decision has enforceable rights:
+An affected party subject to an automated or AI-assisted decision has enforceable rights:
 
 - **GDPR Art. 15 / 22** — access to their data and meaningful information about the logic of solely-automated decisions, plus the right to contest and obtain human intervention.
 - **GDPR Art. 17** — erasure ("right to be forgotten"), which must coexist with the immutable audit record.
 - **EU AI Act Art. 13 / 14 / 86** — transparency, effective human oversight (not rubber-stamping), and a right to an explanation of individual decisions for high-risk systems.
 
-High-risk insurance further requires **bias/fairness monitoring**, **technical documentation** (system card), **post-market monitoring**, and **serious-incident reporting**. None of this exists in the orchestrator today, and none of it can be bolted on credibly after the system is already adjudicating real claims — the evidentiary trail (decision records, lineage, correction history) has to be captured from the first decision.
+A high-risk regulated domain further requires **bias/fairness monitoring**, **technical documentation** (system card), **post-market monitoring**, and **serious-incident reporting**. None of this exists in the orchestrator today, and none of it can be bolted on credibly after the system is already adjudicating real cases — the evidentiary trail (decision records, lineage, correction history) has to be captured from the first decision.
 
 ## Proposed Solution
 
-1. **Decision record (append-only).** For each agent-influenced disposition, derive a claimant-comprehensible `AgentDecisionRecord` from the disposition + `factorsUsed` + the context spec's per-fact lineage. This is **distinct from** the engineer trace (the trace spec's `AgentSpan`/`AgentToolCall` chain): the record is plain-language, the trace is forensic.
-2. **Claimant portal surface.** A `portal` page set under `frontend/[orgSlug]/portal/decisions/` lets a claimant read the explanation and open a contest. Auth is enforced by the real `(frontend)` catch-all via `CustomerRbacService` reading the sibling `page.meta.ts` (`requireCustomerAuth` / `requireCustomerFeatures`); a portal nav block auto-lists the surface in the portal sidebar.
+1. **Decision record (append-only).** For each agent-influenced disposition, derive a affected-party-comprehensible `AgentDecisionRecord` from the disposition + `factorsUsed` + the context spec's per-fact lineage. This is **distinct from** the engineer trace (the trace spec's `AgentSpan`/`AgentToolCall` chain): the record is plain-language, the trace is forensic.
+2. **Affected-party portal surface.** A `portal` page set under `frontend/[orgSlug]/portal/decisions/` lets an affected party read the explanation and open a contest. Auth is enforced by the real `(frontend)` catch-all via `CustomerRbacService` reading the sibling `page.meta.ts` (`requireCustomerAuth` / `requireCustomerFeatures`); a portal nav block auto-lists the surface in the portal sidebar.
 3. **Contest/appeal workflow.** A `business_rules` ACTION rule opens an `AgentContestCase` → a review workflow with a **mandatory human reviewer**. An overturn writes an `AgentCorrection` (owned by the trace spec) that feeds **this module's own eval harness** (the trace spec's harness — there is no separate `eval-runner`).
 4. **GDPR rights.** DSAR export via the `audit_logs` exporters; erasure via **audit-preserving tombstones** (the trace spec's artifact-store erasure pattern — redact PII while the immutable audit record retains a tombstone); consent / lawful-basis flags on the decision record.
 5. **Bias/fairness monitoring.** Periodic `AgentFairnessMetric` rollups by privacy-safe cohort; threshold breaches flag for human review.
@@ -41,14 +41,14 @@ High-risk insurance further requires **bias/fairness monitoring**, **technical d
 - **No cross-module ORM relations.** `processId`, `agentRunId`, `subjectId`, `decisionRecordId`, `correctionId` are FK **ids** only.
 - **Reads** via `makeCrudRoute` + `indexer` + `openApi`. **Writes** (contest open, contest resolve, erasure) go through the **Command pattern** with the mutation guard (`validateCrudMutationGuard` / `runCrudMutationGuardAfterSuccess`); editable writes enforce optimistic locking at the command layer (`enforceCommandOptimisticLock`) and surface 409s with `surfaceRecordConflict`.
 - **Events** (`events.ts`, `as const`): `agent_orchestrator.decision.recorded`, `agent_orchestrator.contest.opened`, `agent_orchestrator.contest.resolved`, `agent_orchestrator.fairness.flagged`, `agent_orchestrator.incident.reported`. The contest surface sets `portalBroadcast: true` on the contest events so the portal reflects status live.
-- **ACL** (`acl.ts` + `setup.ts` `defaultRoleFeatures`): `agent_orchestrator.compliance.view`, `agent_orchestrator.compliance.contest.review`, `agent_orchestrator.compliance.dsar`, `agent_orchestrator.compliance.erasure`, `agent_orchestrator.compliance.fairness`. Portal capability `agent_orchestrator.portal.decisions.view` gates the claimant pages via `requireCustomerFeatures`.
+- **ACL** (`acl.ts` + `setup.ts` `defaultRoleFeatures`): `agent_orchestrator.compliance.view`, `agent_orchestrator.compliance.contest.review`, `agent_orchestrator.compliance.dsar`, `agent_orchestrator.compliance.erasure`, `agent_orchestrator.compliance.fairness`. Portal capability `agent_orchestrator.portal.decisions.view` gates the affected-party pages via `requireCustomerFeatures`.
 - **Encryption.** Subject PII on the decision record and DSAR exports uses the real field-level `TenantDataEncryptionService`; reads go through `findWithDecryption`.
 
 ## Data Models
 
 > MikroORM **v7**, `/legacy` decorators, explicit `@Property` per column, two-column tenancy, append-only logs omit `updated_at`/`deleted_at`. JSON columns are `jsonb` with shape enforced by Zod in `data/validators.ts`. Enums are `varchar` + TS string union. No cross-module ORM relations.
 
-### `AgentDecisionRecord` (append-only, claimant-facing)
+### `AgentDecisionRecord` (append-only, affected-party-facing)
 
 ```typescript
 import { OptionalProps } from '@mikro-orm/core'
@@ -155,7 +155,7 @@ export class AgentContestCase {
   status: ContestStatus = 'open'
 
   @Property({ name: 'grounds', type: 'text' })
-  grounds!: string // claimant-supplied reason for contesting
+  grounds!: string // affected-party-supplied reason for contesting
 
   @Property({ name: 'resolution', type: 'text', nullable: true })
   resolution?: string | null
@@ -201,7 +201,7 @@ export class AgentContestCase {
 
 ## API Contracts
 
-### Portal (claimant — real portal convention)
+### Portal (affected party — real portal convention)
 
 - `GET /[orgSlug]/portal/decisions/:id` — plain-language explanation for one decision. Page: `frontend/[orgSlug]/portal/decisions/[id]/page.tsx` + sibling `page.meta.ts` with `requireCustomerAuth` and `requireCustomerFeatures(['agent_orchestrator.portal.decisions.view'])`; enforced by the `(frontend)` catch-all via `CustomerRbacService`. Returns only the subject's own records (scoped by authenticated `customer_accounts` subject + `organizationId`).
 - `POST /[orgSlug]/portal/decisions/:id/contest` — opens an `AgentContestCase` (Command + mutation guard). Body validated by Zod (`grounds`). Triggers the `business_rules` ACTION rule → review workflow.
@@ -215,15 +215,15 @@ export class AgentContestCase {
 
 ## Phases
 
-1. **`AgentDecisionRecord` + claimant explanation surface** (GDPR Art. 22 / AI Act Art. 86 minimum): entity, explanation service, portal `decisions` pages + `page.meta.ts`, portal nav block, `agent_orchestrator.decision.recorded`.
+1. **`AgentDecisionRecord` + affected-party explanation surface** (GDPR Art. 22 / AI Act Art. 86 minimum): entity, explanation service, portal `decisions` pages + `page.meta.ts`, portal nav block, `agent_orchestrator.decision.recorded`.
 2. **Contest/appeal workflow + human-involvement disclosure**: `AgentContestCase`, `business_rules` ACTION rule, review workflow with mandatory reviewer, overturn → `AgentCorrection`, optimistic-locked resolve command, portal contest endpoint.
 3. **GDPR DSAR / erasure / consent**: DSAR exporter integration, audit-preserving erasure command, lawful-basis/consent flags.
 4. **Bias/fairness + conformity programme + incident reporting**: `AgentFairnessMetric` rollup worker, fairness API, system-card generator, post-market monitoring dashboards (`dashboards` module), serious-incident workflow.
 
 ## Acceptance
 
-- A claimant can authenticate to the portal and view a plain-language reason for their outcome at `/[orgSlug]/portal/decisions/:id`, scoped to their own records only.
-- A claimant can open a contest that routes (via a `business_rules` ACTION rule) to a `workflows` review process that **cannot be resolved without a human reviewer**.
+- An affected party can authenticate to the portal and view a plain-language reason for their outcome at `/[orgSlug]/portal/decisions/:id`, scoped to their own records only.
+- An affected party can open a contest that routes (via a `business_rules` ACTION rule) to a `workflows` review process that **cannot be resolved without a human reviewer**.
 - An `overturned` contest writes an `AgentCorrection` (trace spec) and feeds this module's eval harness.
 - `AgentFairnessMetric` rollups by privacy-safe cohort are computable and set `flagged` on threshold breach.
 - DSAR export returns the subject's decrypted records across all PII-bearing `agent_` tables; erasure crypto-shreds the subject's PII (per-subject DEK destroyed) while preserving the immutable audit rows as tombstones.
@@ -249,7 +249,7 @@ Per the repo QA rule (every feature lists coverage for affected API + key UI pat
 
 | Surface / path | Test | Type |
 |---|---|---|
-| `GET /[orgSlug]/portal/decisions/:id` | Claimant sees a plain-language explanation (no engineer-trace internals); factors trace to lineage | E2E (portal) |
+| `GET /[orgSlug]/portal/decisions/:id` | The affected party sees a plain-language explanation (no engineer-trace internals); factors trace to lineage | E2E (portal) |
 | `POST /[orgSlug]/portal/decisions/:id/contest` | Opens an `AgentContestCase` → review workflow with a **mandatory human reviewer**; overturn writes an `AgentCorrection` (feeds eval harness) | E2E |
 | Contest resolution | `reviewerUserId` mandatory (anti-rubber-stamp); optimistic-lock 409 surfaced on concurrent resolve | API |
 | `GET /api/agent_orchestrator/compliance/dsar/:subjectId` | **DSAR export completeness** — every subject-field-registry entry across all PII-bearing `agent_` tables is exercised | API |
@@ -282,4 +282,4 @@ Per the repo QA rule (every feature lists coverage for affected API + key UI pat
 ## Changelog
 
 - **2026-06-20:** Corrected the GDPR DSAR/erasure capability to match verified code: there is **no per-subject encryption key today** — only the per-tenant `tenant_key_<tenantId>` in `TenantDataEncryptionService` / `KmsService`, with no per-subject DEK and no `deleteDek`. Reframed erasure as the GAP-12 combination — (a) subjectId tagging/index for discovery, (b) a registry-driven DSAR/erasure service walking a per-entity subject-field registry (reusing the `audit_logs` exporters), and (c) per-subject crypto-shredding of subject artifacts (`storage-s3` + sensitive columns) that destroys the per-subject key on erasure while immutable audit rows survive — and flagged the **NET-NEW per-subject DEK extension (with `deleteDek`)** as an effort-L dependency. Updated the GDPR capability, the erasure Risks row, the erasure admin API, the Acceptance line, and the Integration coverage line (DSAR completeness across `agent_` tables + audit-preserving erasure) accordingly.
-- **2026-06-19:** Rewrote the legacy `SPEC-COMPLY-01` draft to real OM conventions and the verified 2026-06-19 architecture. Replaced pseudocode entities with full MikroORM v7 `AgentDecisionRecord` (append-only) and `AgentContestCase` (editable, optimistic-lock) plus abbreviated `AgentFairnessMetric`; added two-column tenancy; moved the claimant surface to the real portal convention (`frontend/[orgSlug]/portal/decisions/` + `page.meta.ts`); corrected post-market monitoring to `dashboards` + this module's metrics (removed the non-existent `telemetry-and-otel` substrate); corrected the eval feedback to the trace spec's own harness (removed `eval-runner`); aligned module id/paths to `agent_orchestrator`; added Architecture, Risks & Impact, Migration & BC, and Final Compliance sections.
+- **2026-06-19:** Rewrote the legacy `SPEC-COMPLY-01` draft to real OM conventions and the verified 2026-06-19 architecture. Replaced pseudocode entities with full MikroORM v7 `AgentDecisionRecord` (append-only) and `AgentContestCase` (editable, optimistic-lock) plus abbreviated `AgentFairnessMetric`; added two-column tenancy; moved the affected-party surface to the real portal convention (`frontend/[orgSlug]/portal/decisions/` + `page.meta.ts`); corrected post-market monitoring to `dashboards` + this module's metrics (removed the non-existent `telemetry-and-otel` substrate); corrected the eval feedback to the trace spec's own harness (removed `eval-runner`); aligned module id/paths to `agent_orchestrator`; added Architecture, Risks & Impact, Migration & BC, and Final Compliance sections.

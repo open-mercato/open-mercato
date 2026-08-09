@@ -215,7 +215,7 @@ Apply the same treatment to all other entity sketches in the specs: `AgentTask`,
 - **Module id / DI / URLs:** `agent_orchestrator` everywhere (the specs mix `agent-orchestration`, `agent-orchestrator`, `agent-trace`, `agent-identity`). Pick one and use it for the module id, table prefix family, DI service keys, event ids, and API paths.
 - **Event ids:** `module.entity.action`, singular entity, past-tense action. Audit the spec event lists against this: `agent_task.created` ✓, `agent_binding.health_changed` ✓, but `agent.proposal.ready` → `agent_orchestrator.proposal.ready` (or `agent_proposal.ready`), `guardrail.tripped` → `agent_orchestrator.guardrail.tripped`. Declare all of them in `events.ts` with `as const`.
 - **ACL features:** `<module>.<action>` — i.e. `agent_orchestrator.invoke`, `agent_orchestrator.proposal.dispose`, etc., OR a documented dispatch/trace sub-namespace (`agent_dispatch.*`, `agent_trace.*`) — but then those become the contract and must be stable. Add every feature to `setup.ts` `defaultRoleFeatures` and run `yarn mercato auth sync-role-acls`.
-- **`clientBroadcast` / `portalBroadcast`:** the cockpit's live updates and the claimant portal's contest surface should set these flags on the relevant `EventDefinition`s rather than inventing a new SSE channel.
+- **`clientBroadcast` / `portalBroadcast`:** the cockpit's live updates and the affected-party portal's contest surface should set these flags on the relevant `EventDefinition`s rather than inventing a new SSE channel.
 
 ---
 

@@ -1060,7 +1060,7 @@
   "workflows.form.invokeAgent.subject": "Rekord biznesowy",
   "workflows.form.invokeAgent.subjectDescription": "Opcjonalnie: czego dotyczy ten proces. Widoczne w kolejce spraw agenta i interpolowane jak reszta konfiguracji kroku.",
   "workflows.form.invokeAgent.subjectId": "Identyfikator rekordu",
-  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.claimId}}",
+  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.orderId}}",
   "workflows.form.invokeAgent.subjectLabel": "Etykieta rekordu",
   "workflows.form.invokeAgent.subjectLabelPlaceholder": "Szkoda #4821",
   "workflows.form.invokeAgent.subjectType": "Typ rekordu",

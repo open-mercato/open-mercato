@@ -84,7 +84,7 @@ on read, custom write, and CRUD list. Cleanup both in teardown.
 **Compliance** (`agent-decision-transparency-and-ai-act.md`) — `AgentDecisionRecord` (append-only), `AgentContestCase` (editable), `AgentFairnessMetric`:
 - **Portal `explanation+contest` E2E**: `GET /[orgSlug]/portal/decisions/:id` (`requireCustomerAuth`/`requireCustomerFeatures`) returns the subject's own plain explanation only → `POST /[orgSlug]/portal/decisions/:id/contest` opens an `AgentContestCase` (Command + guard) → triggers review workflow with **mandatory human** resolution; overturn writes `AgentCorrection`; resolve enforces **optimistic-lock 409**.
 - `GET .../compliance/dsar/:subjectId`, `POST .../compliance/erasure/:subjectId` (audit-preserving tombstone), `GET .../compliance/fairness` — feature-gated; org + subject scoped.
-- **Tenant-isolation (Critical):** no portal/DSAR/erasure/fairness endpoint returns cross-tenant rows; a claimant cannot read another subject's decision.
+- **Tenant-isolation (Critical):** no portal/DSAR/erasure/fairness endpoint returns cross-tenant rows; an affected party cannot read another subject's decision.
 
 **Lifecycle** (`agent-deployment-and-regression-gating.md`) — `AgentRelease`, `AgentBudget` (editable):
 - **Promote-gate E2E**: `POST .../lifecycle/releases/:id/promote` — promotion to `active` runs the eval harness (`EvalGateRunner`) over the trace export; **blocks (409/422) on gate failure / safety-assertion regression**; happy promote on pass; **optimistic-lock 409** on stale; RBAC; Command-path audited.

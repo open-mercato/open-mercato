@@ -683,7 +683,7 @@ tbody tr:last-child td{border-bottom:none}
   <div class="main">
     <header class="topbar">
       <div class="crumb"><b id="crumb">Overview</b></div>
-      <div class="env"><span class="dot"></span> ergo-claims · prod</div>
+      <div class="env"><span class="dot"></span> sample-tenant · prod</div>
       <div class="topbar-right">
         <div class="qdepth">
           <span class="pulse"></span>
@@ -701,7 +701,7 @@ tbody tr:last-child td{border-bottom:none}
       <div class="page-h">
         <div>
           <h1>Fleet overview</h1>
-          <p>Claims adjudication · last 7 days · 4,180 processes handled</p>
+          <p>Case adjudication · last 7 days · 4,180 processes handled</p>
         </div>
         <div class="spacer"></div>
         <button class="btn btn-sm">This week ▾</button>
@@ -741,11 +741,11 @@ tbody tr:last-child td{border-bottom:none}
         <div class="card">
           <div class="card-h"><h3>Stuck &amp; breaching</h3><span class="hint">needs attention</span></div>
           <div class="card-b">
-            <div class="row"><span class="rid mono">CLM-2026-04358</span><span class="rwhat">Bodily injury — disputed liability</span><span class="rtag"><span class="pill red"><span class="pd"></span>SLA 4h12m</span></span></div>
-            <div class="row"><span class="rid mono">CLM-2026-04211</span><span class="rwhat">Property — fraud signal raised</span><span class="rtag"><span class="pill red"><span class="pd"></span>SLA 3h48m</span></span></div>
-            <div class="row"><span class="rid mono">CLM-2026-04417</span><span class="rwhat">Motor collision — payout gate</span><span class="rtag"><span class="pill amber"><span class="pd"></span>waiting 41m</span></span></div>
-            <div class="row"><span class="rid mono">CLM-2026-04390</span><span class="rwhat">Theft — missing documents</span><span class="rtag"><span class="pill amber"><span class="pd"></span>blocked</span></span></div>
-            <div class="row"><span class="rid mono">CLM-2026-04372</span><span class="rwhat">Motor — third-party data timeout</span><span class="rtag"><span class="pill gray"><span class="pd"></span>retrying</span></span></div>
+            <div class="row"><span class="rid mono">CASE-2026-04358</span><span class="rwhat">Escalated case — disputed liability</span><span class="rtag"><span class="pill red"><span class="pd"></span>SLA 4h12m</span></span></div>
+            <div class="row"><span class="rid mono">CASE-2026-04211</span><span class="rwhat">Property — fraud signal raised</span><span class="rtag"><span class="pill red"><span class="pd"></span>SLA 3h48m</span></span></div>
+            <div class="row"><span class="rid mono">CASE-2026-04417</span><span class="rwhat">High-value case — settlement gate</span><span class="rtag"><span class="pill amber"><span class="pd"></span>waiting 41m</span></span></div>
+            <div class="row"><span class="rid mono">CASE-2026-04390</span><span class="rwhat">Theft — missing documents</span><span class="rtag"><span class="pill amber"><span class="pd"></span>blocked</span></span></div>
+            <div class="row"><span class="rid mono">CASE-2026-04372</span><span class="rwhat">Motor — third-party data timeout</span><span class="rtag"><span class="pill gray"><span class="pd"></span>retrying</span></span></div>
           </div>
         </div>
       </div>
@@ -806,7 +806,7 @@ tbody tr:last-child td{border-bottom:none}
       <div class="page-h">
         <div>
           <h1>Processes</h1>
-          <p>4,180 active &amp; recent · scoped to ergo-claims</p>
+          <p>4,180 active &amp; recent · scoped to sample-tenant</p>
         </div>
         <div class="spacer"></div>
         <button class="btn btn-sm"><svg class="ic-s" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filters</button>
@@ -883,7 +883,7 @@ tbody tr:last-child td{border-bottom:none}
           <div>
             <div class="th-run mono">RUN-7f3a2c <span class="pill gray"><span class="pd"></span>span 7 of 7</span></div>
             <div class="th-name">Adjudication Agent <small>v2.0 · claude-opus-4.x</small></div>
-            <div class="th-sub mono">CLM-2026-04417 · proposed: approve &amp; pay 18,400 PLN</div>
+            <div class="th-sub mono">CASE-2026-04417 · proposed: approve &amp; pay 18,400 PLN</div>
             <div class="th-metrics">
               <div class="tm"><div class="k">Confidence</div><div class="v">0.86</div></div>
               <div class="tm"><div class="k">Duration</div><div class="v">9.8s</div></div>
@@ -938,7 +938,7 @@ tbody tr:last-child td{border-bottom:none}
             <div class="tsec-b"><div class="code"><pre>{
   <span class="jk">"decision"</span>: <span class="js">"approve"</span>,
   <span class="jk">"payout_pln"</span>: <span class="jn">18400</span>,
-  <span class="jk">"payee"</span>: <span class="js">"policyholder_iban"</span>,
+  <span class="jk">"payee"</span>: <span class="js">"party_iban"</span>,
   <span class="jk">"requires_human"</span>: <span class="jn">true</span>,
   <span class="jk">"gate_reason"</span>: <span class="js">"payout_ceiling"</span>,
   <span class="jk">"rationale"</span>: <span class="js">"coverage confirmed; estimate within limit; fraud 0.12"</span>
@@ -989,10 +989,10 @@ tbody tr:last-child td{border-bottom:none}
       <div class="pd-head">
         <div class="pd-top">
           <div>
-            <div class="pd-claim mono">CLM-2026-04417</div>
-            <div class="pd-name">Motor collision — payout adjudication</div>
+            <div class="pd-claim mono">CASE-2026-04417</div>
+            <div class="pd-name">High-value case — settlement adjudication</div>
             <div class="d-ctx" style="margin-top:13px">
-              <div class="f"><div class="k">Policyholder</div><div class="v">A. Kowalska</div></div>
+              <div class="f"><div class="k">Party</div><div class="v">A. Kowalska</div></div>
               <div class="f"><div class="k">Claimed</div><div class="v mono">18,400 PLN</div></div>
               <div class="f"><div class="k">Opened</div><div class="v mono">2d 4h ago</div></div>
               <div class="f"><div class="k">Owner</div><div class="v">Adjudication Agent</div></div>
@@ -1045,7 +1045,7 @@ tbody tr:last-child td{border-bottom:none}
       </div>
       <div class="audit-note">
         <svg class="ic-s" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/><path d="M9 12l2 2 4-4"/></svg>
-        <p><b>EU AI Act — high-risk system.</b> Claims adjudication requires human oversight at all times (Art. 14) and automatic event logging for post-market monitoring (Art. 12). Every approval gate below is a real decision made <b>before</b> the action fired — not an after-the-fact review. Retention: 6 years. Every override is captured with reasoning and exported to the eval set.</p>
+        <p><b>EU AI Act — high-risk system.</b> Case adjudication requires human oversight at all times (Art. 14) and automatic event logging for post-market monitoring (Art. 12). Every approval gate below is a real decision made <b>before</b> the action fired — not an after-the-fact review. Retention: 6 years. Every override is captured with reasoning and exported to the eval set.</p>
       </div>
       <div class="tbl-wrap" id="logTable"></div>
     </section>
@@ -1093,39 +1093,39 @@ document.getElementById('spark').innerHTML=data.map(d=>
 
 /* ---------- inbox data ---------- */
 const tasks=[
- {id:1,type:'review',claim:'CLM-2026-04417',title:'Approve motor payout of 18,400 PLN',sub:'Adjudication Agent · confidence 0.86',sla:'cool',slatxt:'2h left',
+ {id:1,type:'review',claim:'CASE-2026-04417',title:'Approve motor payout of 18,400 PLN',sub:'Adjudication Agent · confidence 0.86',sla:'cool',slatxt:'2h left',
   agent:'Adjudication Agent',ai:'AD',conf:'0.86',verdict:'Approve & pay',amt:'18,400 PLN',
-  ctx:[['Policyholder','A. Kowalska'],['Policy','MOT-88241-PL'],['Coverage','Confirmed · own damage'],['Estimate','18,400 PLN']],
+  ctx:[['Party','A. Kowalska'],['Policy','ACC-88241'],['Coverage','Confirmed · own damage'],['Estimate','18,400 PLN']],
   reasons:[['ok','Coverage confirmed by Coverage Analyst — own-damage clause active, no exclusions matched.'],
            ['ok','Damage estimate of 18,400 PLN within 4% of independent workshop quote.'],
            ['ok','Fraud Signal Agent score 0.12 — well below the 0.40 review threshold.'],
            ['flag','Amount exceeds the 10,000 PLN auto-pay ceiling, so the payout is gated to you.']],
   gate:'Payout > 10,000 PLN — supervisor approval required before funds release.'},
- {id:2,type:'review',claim:'CLM-2026-04211',title:'Fraud signal over threshold — hold or release?',sub:'Fraud Signal Agent · score 0.61',sla:'hot',slatxt:'SLA 12m',
+ {id:2,type:'review',claim:'CASE-2026-04211',title:'Fraud signal over threshold — hold or release?',sub:'Fraud Signal Agent · score 0.61',sla:'hot',slatxt:'SLA 12m',
   agent:'Fraud Signal Agent',ai:'FR',conf:'0.61',verdict:'Hold for investigation',amt:'9,250 PLN',
-  ctx:[['Policyholder','M. Nowak'],['Policy','PROP-41902-PL'],['Signal','Velocity + device reuse'],['Claimed','9,250 PLN']],
-  reasons:[['flag','Third claim from this device in 30 days across two policyholders.'],
+  ctx:[['Party','M. Nowak'],['Policy','PROP-41902-PL'],['Signal','Velocity + device reuse'],['Claimed','9,250 PLN']],
+  reasons:[['flag','Third claim from this device in 30 days across two partys.'],
            ['flag','Incident photos share EXIF metadata with an unrelated 2025 claim.'],
            ['ok','Policy itself is valid and premiums are current.']],
   gate:'Fraud score 0.61 > 0.40 — cannot auto-decline; needs a human call.'},
- {id:3,type:'question',claim:'CLM-2026-04372',title:'Which damage date applies — reported or inspection?',sub:'Coverage Analyst is blocked',sla:'warm',slatxt:'48m',
+ {id:3,type:'question',claim:'CASE-2026-04372',title:'Which damage date applies — reported or inspection?',sub:'Coverage Analyst is blocked',sla:'warm',slatxt:'48m',
   agent:'Coverage Analyst',ai:'CV',conf:'—',verdict:'Needs your input',amt:'',
-  ctx:[['Policyholder','J. Wiśniewski'],['Policy','MOT-77310-PL'],['Conflict','Two dates on file'],['Claimed','6,100 PLN']],
+  ctx:[['Party','J. Wiśniewski'],['Policy','MOT-77310-PL'],['Conflict','Two dates on file'],['Claimed','6,100 PLN']],
   reasons:[['flag','Claim form lists 14 May; police report lists 12 May.'],
            ['ok','Both dates fall inside the active coverage window, so payout is unaffected.'],
            ['flag','The date drives the no-claims-bonus reset — agent needs the authoritative one.']],
   gate:'Agent paused rather than guess. Pick the date to unblock it.'},
- {id:4,type:'notify',claim:'CLM-2026-04358',title:'Regulatory response deadline in 6 hours',sub:'Bodily injury — disputed liability',sla:'warm',slatxt:'6h',
+ {id:4,type:'notify',claim:'CASE-2026-04358',title:'Regulatory response deadline in 6 hours',sub:'Escalated case — disputed liability',sla:'warm',slatxt:'6h',
   agent:'Adjudication Agent',ai:'AD',conf:'—',verdict:'For your awareness',amt:'',
-  ctx:[['Policyholder','T. Lewandowska'],['Policy','MOT-90021-PL'],['Stage','Awaiting third party'],['Claimed','42,000 PLN']],
+  ctx:[['Party','T. Lewandowska'],['Policy','MOT-90021-PL'],['Stage','Awaiting third party'],['Claimed','42,000 PLN']],
   reasons:[['flag','KNF complaint response is due by 18:00 today.'],
            ['ok','Draft response is ready and queued — no action needed unless you want to review.']],
   gate:'Notify only. The agent is not empowered to file this — you are.'},
- {id:5,type:'review',claim:'CLM-2026-04390',title:'Send shortfall-documents request to customer?',sub:'Comms Drafter · confidence 0.79',sla:'cool',slatxt:'3h',
+ {id:5,type:'review',claim:'CASE-2026-04390',title:'Send shortfall-documents request to customer?',sub:'Comms Drafter · confidence 0.79',sla:'cool',slatxt:'3h',
   agent:'Comms Drafter',ai:'CM',conf:'0.79',verdict:'Send email',amt:'',
-  ctx:[['Policyholder','R. Zając'],['Policy','THEFT-22087-PL'],['Missing','Purchase receipts'],['Claimed','4,800 PLN']],
+  ctx:[['Party','R. Zając'],['Policy','THEFT-22087-PL'],['Missing','Purchase receipts'],['Claimed','4,800 PLN']],
   reasons:[['ok','Two receipts are missing for items over 1,000 PLN — request is justified.'],
-           ['ok','Draft uses approved template and correct policyholder details.'],
+           ['ok','Draft uses approved template and correct party details.'],
            ['flag','Customer-facing send is gated — comms always pass a human before going out.']],
   gate:'Outbound customer message — review before send.'}
 ];
@@ -1219,16 +1219,16 @@ document.querySelectorAll('#inboxSeg button').forEach(b=>b.addEventListener('cli
 
 /* ---------- processes ---------- */
 const procs=[
- ['CLM-2026-04417','Motor','Adjudication',['AD','DM'],'amber','Waiting on you','2d 4h','4.20'],
- ['CLM-2026-04211','Property','Fraud screen',['FR','CV'],'red','Fraud hold','1d 9h','6.85'],
- ['CLM-2026-04358','Bodily injury','Awaiting 3rd party',['AD','IN'],'red','SLA 4h12m','3d 1h','9.10'],
- ['CLM-2026-04372','Motor','Coverage check',['CV'],'amber','Question open','22h','2.40'],
- ['CLM-2026-04390','Theft','Comms',['CM','IN'],'amber','Docs requested','1d 2h','1.95'],
- ['CLM-2026-04401','Motor','Payout & comms',['AD','CM'],'green','Auto-completing','6h','3.05'],
- ['CLM-2026-04405','Property','Damage estimate',['DM'],'green','Running','4h','2.10'],
- ['CLM-2026-04408','Motor','Intake',['IN'],'green','Running','51m','0.62'],
- ['CLM-2026-04412','Glass','Payout & comms',['AD'],'green','Auto-completed','3h','0.88'],
- ['CLM-2026-04415','Property','Fraud screen',['FR','CV','DM'],'green','Running','1h','3.40']
+ ['CASE-2026-04417','Motor','Adjudication',['AD','DM'],'amber','Waiting on you','2d 4h','4.20'],
+ ['CASE-2026-04211','Property','Fraud screen',['FR','CV'],'red','Fraud hold','1d 9h','6.85'],
+ ['CASE-2026-04358','Escalated','Awaiting 3rd party',['AD','IN'],'red','SLA 4h12m','3d 1h','9.10'],
+ ['CASE-2026-04372','Motor','Coverage check',['CV'],'amber','Question open','22h','2.40'],
+ ['CASE-2026-04390','Theft','Comms',['CM','IN'],'amber','Docs requested','1d 2h','1.95'],
+ ['CASE-2026-04401','Motor','Payout & comms',['AD','CM'],'green','Auto-completing','6h','3.05'],
+ ['CASE-2026-04405','Property','Damage estimate',['DM'],'green','Running','4h','2.10'],
+ ['CASE-2026-04408','Motor','Intake',['IN'],'green','Running','51m','0.62'],
+ ['CASE-2026-04412','Glass','Payout & comms',['AD'],'green','Auto-completed','3h','0.88'],
+ ['CASE-2026-04415','Property','Fraud screen',['FR','CV','DM'],'green','Running','1h','3.40']
 ];
 const stPill={amber:'amber',red:'red',green:'green'};
 document.getElementById('procBody').innerHTML=procs.map(p=>`
@@ -1250,15 +1250,15 @@ document.querySelectorAll('#segbar .chip').forEach(c=>c.addEventListener('click'
 
 /* ---------- timeline (signature) ---------- */
 const tl=[
- {k:'system',ic:I.bot,actor:'Intake Agent',time:'D-2 · 09:14',body:'Parsed FNOL submission, extracted policy MOT-88241-PL and incident details. Created claim record.',tag:'tool: ocr · policy-lookup',
+ {k:'system',ic:I.bot,actor:'Intake Agent',time:'D-2 · 09:14',body:'Parsed intake submission, extracted account ACC-88241 and incident details. Created case record.',tag:'tool: ocr · account-lookup',
   io:{meta:[['confidence','0.95'],['latency','3.1s'],['cost','0.41 zł']],
-   input:[['Source','FNOL web form + 1 PDF'],['Raw fields','14 extracted'],['Attachments','police_report.pdf']],
-   output:[['policy_no','MOT-88241-PL'],['incident_date','2026-05-12'],['parties','2'],['claim_type','motor / collision']],
+   input:[['Source','Intake web form + 1 PDF'],['Raw fields','14 extracted'],['Attachments','incident_report.pdf']],
+   output:[['account_no','ACC-88241'],['incident_date','2026-05-12'],['parties','2'],['case_type','standard / damage']],
    tools:[['ocr.extract','14 fields'],['policy.lookup','1 match']],
-   raw:'{\n  "policy_no": "MOT-88241-PL",\n  "incident_date": "2026-05-12",\n  "vehicle_vin": "WVWZZ…0214",\n  "third_party": true\n}'}},
+   raw:'{\n  "account_no": "ACC-88241",\n  "incident_date": "2026-05-12",\n  "vehicle_vin": "WVWZZ…0214",\n  "third_party": true\n}'}},
  {k:'agent',ic:I.bot,actor:'Coverage Analyst',time:'D-2 · 09:15',body:'Proposes: coverage confirmed. Own-damage clause active, no exclusions matched.',tag:'confidence 0.93',
   io:{meta:[['confidence','0.93'],['latency','5.4s'],['cost','0.88 zł']],
-   input:[['claim_record','from Intake Agent'],['policy_terms','MOT-88241-PL · v2024.3'],['incident_report','police_report.pdf']],
+   input:[['case_record','from Intake Agent'],['account_terms','ACC-88241 · v2024.3'],['incident_report','incident_report.pdf']],
    output:[['coverage','confirmed'],['clause','own-damage (§4.2)'],['exclusions','none matched'],['deductible','500 PLN']],
    tools:[['policy.terms.fetch','38 clauses'],['exclusion.match','0 hits']],
    raw:'{\n  "coverage": "confirmed",\n  "clause": "own_damage",\n  "exclusions": [],\n  "deductible_pln": 500\n}'}},
@@ -1271,7 +1271,7 @@ const tl=[
    raw:'{\n  "estimate_pln": 18400,\n  "parts_pln": 11250,\n  "labour_pln": 7150,\n  "workshop_delta_pct": 4.0\n}'}},
  {k:'agent',ic:I.bot,actor:'Fraud Signal Agent',time:'D-1 · 14:03',body:'Proposes: fraud score 0.12 — below 0.40 threshold. No velocity or device-reuse signals.',tag:'score 0.12',
   io:{meta:[['confidence','0.91'],['latency','4.0s'],['cost','1.10 zł']],
-   input:[['claim','CLM-2026-04417'],['device_fingerprint','d3f…91a'],['claim_history','policyholder · 24 mo']],
+   input:[['case','CASE-2026-04417'],['device_fingerprint','d3f…91a'],['case_history','party · 24 mo']],
    output:[['score','0.12'],['threshold','0.40'],['signals','none'],['recommendation','pass']],
    tools:[['fraud.graph.query','0 edges'],['device.reuse.check','clean']],
    raw:'{\n  "score": 0.12,\n  "threshold": 0.40,\n  "signals": [],\n  "decision": "pass"\n}'}},
@@ -1282,10 +1282,10 @@ const tl=[
    tools:[['rules.evaluate','3 policies']],
    raw:'{\n  "disposition": "accepted",\n  "gates_fired": [],\n  "routed_to": "adjudication"\n}'}},
  {k:'handoff',actor:'',body:'→ Adjudication Agent'},
- {k:'agent',ic:I.bot,actor:'Adjudication Agent',time:'today · 08:22',body:'Proposes: approve and pay 18,400 PLN to policyholder account.',tag:'confidence 0.86',
+ {k:'agent',ic:I.bot,actor:'Adjudication Agent',time:'today · 08:22',body:'Proposes: approve and pay 18,400 PLN to party account.',tag:'confidence 0.86',
   io:{meta:[['confidence','0.86'],['latency','9.8s'],['cost','2.05 zł']],
    input:[['coverage','confirmed'],['estimate','18,400 PLN'],['fraud_score','0.12'],['policy_limit','120,000 PLN']],
-   output:[['decision','approve'],['payout','18,400 PLN'],['payee','policyholder IBAN'],['rationale','coverage + estimate + clean fraud']],
+   output:[['decision','approve'],['payout','18,400 PLN'],['payee','party IBAN'],['rationale','coverage + estimate + clean fraud']],
    tools:[['rules.engine','settlement calc'],['limit.check','within limit']],
    raw:'{\n  "decision": "approve",\n  "payout_pln": 18400,\n  "requires_human": true,\n  "reason": "payout_ceiling"\n}'}},
  {k:'system',ic:I.flag,actor:'Open Mercato',time:'today · 08:22',body:'Gate fired: payout 18,400 PLN exceeds 10,000 PLN ceiling. Routed to supervisor inbox. Execution paused.',tag:'policy: payout-ceiling',
@@ -1394,13 +1394,13 @@ document.getElementById('agrid').innerHTML=agents.map(a=>`
 
 /* ---------- audit ---------- */
 const logs=[
- ['today 08:22','Open Mercato','Gate fired — payout-ceiling on','CLM-2026-04417','indigo'],
- ['today 08:05','M. Adamska','Approved fraud release','CLM-2026-04188','green'],
- ['today 07:51','Open Mercato','Auto-completed within policy','CLM-2026-04401','green'],
- ['today 07:40','Patryk L.','Override — rejected estimate','CLM-2026-04372','red'],
- ['today 07:33','Adjudication Agent','Proposed payout 6,100 PLN','CLM-2026-04372','violet'],
- ['today 07:20','M. Adamska','Edited customer comms before send','CLM-2026-04390','amber'],
- ['today 06:58','Open Mercato','Logged correction → eval set','CLM-2026-04301','indigo']
+ ['today 08:22','Open Mercato','Gate fired — payout-ceiling on','CASE-2026-04417','indigo'],
+ ['today 08:05','M. Adamska','Approved fraud release','CASE-2026-04188','green'],
+ ['today 07:51','Open Mercato','Auto-completed within policy','CASE-2026-04401','green'],
+ ['today 07:40','Patryk L.','Override — rejected estimate','CASE-2026-04372','red'],
+ ['today 07:33','Adjudication Agent','Proposed payout 6,100 PLN','CASE-2026-04372','violet'],
+ ['today 07:20','M. Adamska','Edited customer comms before send','CASE-2026-04390','amber'],
+ ['today 06:58','Open Mercato','Logged correction → eval set','CASE-2026-04301','indigo']
 ];
 document.getElementById('logTable').innerHTML=
   '<div class="logrow" style="background:#FBFCFD;font-weight:600;color:var(--ink-3);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase">'+
@@ -1451,19 +1451,19 @@ const verbMeta={
   know:{label:'Know',sub:'for your awareness',ic:I.bell}
 };
 const caseload=[
- {v:'decide',id:'CLM-2026-04417',type:'Motor',stage:'Adjudication',ask:'Approve payout of 18,400 PLN',agents:['AD','DM'],sla:'2h',slc:'cool',f:'need'},
- {v:'decide',id:'CLM-2026-04211',type:'Property',stage:'Fraud screen',ask:'Fraud score 0.61 — hold or release?',agents:['FR','CV'],sla:'12m',slc:'hot',f:'need'},
- {v:'decide',id:'CLM-2026-04390',type:'Theft',stage:'Comms',ask:'Approve shortfall-docs email before send',agents:['CM'],sla:'3h',slc:'cool',f:'need'},
- {v:'decide',id:'CLM-2026-04455',type:'Motor',stage:'Adjudication',ask:'Approve total-loss settlement 31,200 PLN',agents:['AD'],sla:'5h',slc:'cool',f:'need'},
- {v:'answer',id:'CLM-2026-04372',type:'Motor',stage:'Coverage check',ask:'Which damage date applies — reported or inspection?',agents:['CV'],sla:'48m',slc:'warm',f:'need'},
- {v:'answer',id:'CLM-2026-04461',type:'Property',stage:'Coverage check',ask:'Does endorsement E-12 cover basement flooding?',agents:['CV'],sla:'1h',slc:'warm',f:'need'},
- {v:'do',id:'CLM-2026-04358',type:'Bodily injury',stage:'Liability',ask:'Call claimant to confirm liability statement',agents:['AD','IN'],sla:'4h',slc:'cool',f:'need'},
- {v:'do',id:'CLM-2026-04477',type:'Motor',stage:'Intake',ask:'Verify the uploaded police report is legible',agents:['IN'],sla:'2h',slc:'cool',f:'need'},
- {v:'do',id:'CLM-2026-04480',type:'Property',stage:'Damage estimate',ask:'Schedule on-site inspection for high-value claim',agents:['DM'],sla:'today',slc:'warm',f:'need'},
- {v:'know',id:'CLM-2026-04412',type:'Property',stage:'Waiting',ask:'Third-party insurer response overdue by 1 day',agents:['AD'],sla:'—',slc:'cool',f:'waiting'},
- {v:'know',id:'CLM-2026-04390',type:'Theft',stage:'Waiting',ask:'Customer documents requested — awaiting upload',agents:['CM'],sla:'—',slc:'cool',f:'waiting'},
- {v:'know',id:'CLM-2026-04501',type:'Motor',stage:'Damage estimate',ask:'Damage Estimator running — 11 photos in progress',agents:['DM'],sla:'—',slc:'cool',f:'running'},
- {v:'know',id:'CLM-2026-04503',type:'Glass',stage:'Payout & comms',ask:'Auto-completing — within policy, no action',agents:['AD','CM'],sla:'—',slc:'cool',f:'running'}
+ {v:'decide',id:'CASE-2026-04417',type:'Motor',stage:'Adjudication',ask:'Approve payout of 18,400 PLN',agents:['AD','DM'],sla:'2h',slc:'cool',f:'need'},
+ {v:'decide',id:'CASE-2026-04211',type:'Property',stage:'Fraud screen',ask:'Fraud score 0.61 — hold or release?',agents:['FR','CV'],sla:'12m',slc:'hot',f:'need'},
+ {v:'decide',id:'CASE-2026-04390',type:'Theft',stage:'Comms',ask:'Approve shortfall-docs email before send',agents:['CM'],sla:'3h',slc:'cool',f:'need'},
+ {v:'decide',id:'CASE-2026-04455',type:'Motor',stage:'Adjudication',ask:'Approve total-loss settlement 31,200 PLN',agents:['AD'],sla:'5h',slc:'cool',f:'need'},
+ {v:'answer',id:'CASE-2026-04372',type:'Motor',stage:'Coverage check',ask:'Which damage date applies — reported or inspection?',agents:['CV'],sla:'48m',slc:'warm',f:'need'},
+ {v:'answer',id:'CASE-2026-04461',type:'Property',stage:'Coverage check',ask:'Does endorsement E-12 cover basement flooding?',agents:['CV'],sla:'1h',slc:'warm',f:'need'},
+ {v:'do',id:'CASE-2026-04358',type:'Escalated',stage:'Liability',ask:'Call the affected party to confirm the statement',agents:['AD','IN'],sla:'4h',slc:'cool',f:'need'},
+ {v:'do',id:'CASE-2026-04477',type:'Motor',stage:'Intake',ask:'Verify the uploaded police report is legible',agents:['IN'],sla:'2h',slc:'cool',f:'need'},
+ {v:'do',id:'CASE-2026-04480',type:'Property',stage:'Damage estimate',ask:'Schedule on-site inspection for high-value claim',agents:['DM'],sla:'today',slc:'warm',f:'need'},
+ {v:'know',id:'CASE-2026-04412',type:'Property',stage:'Waiting',ask:'Third-party insurer response overdue by 1 day',agents:['AD'],sla:'—',slc:'cool',f:'waiting'},
+ {v:'know',id:'CASE-2026-04390',type:'Theft',stage:'Waiting',ask:'Customer documents requested — awaiting upload',agents:['CM'],sla:'—',slc:'cool',f:'waiting'},
+ {v:'know',id:'CASE-2026-04501',type:'Motor',stage:'Damage estimate',ask:'Damage Estimator running — 11 photos in progress',agents:['DM'],sla:'—',slc:'cool',f:'running'},
+ {v:'know',id:'CASE-2026-04503',type:'Glass',stage:'Payout & comms',ask:'Auto-completing — within policy, no action',agents:['AD','CM'],sla:'—',slc:'cool',f:'running'}
 ];
 const caseFilter={f:'need'};
 function caseRow(c){
@@ -1504,13 +1504,13 @@ document.querySelectorAll('#caseSeg .chip').forEach(c=>c.addEventListener('click
 
 /* ---------- traces (engineer) ---------- */
 const traceRows=[
- ['RUN-7f3a2c','Adjudication Agent','CLM-2026-04417','Approve · 18,400 PLN','0.86','6/6','full','ok','green','2m'],
- ['RUN-7f2e91','Fraud Signal Agent','CLM-2026-04211','Hold · score 0.61','0.61','5/6','part','overridden','amber','18m'],
- ['RUN-7f1907','Damage Estimator','CLM-2026-04372','Estimate · 6,100 PLN','0.71','4/6','part','overridden','amber','40m'],
- ['RUN-7ef0b4','Coverage Analyst','CLM-2026-04461','Blocked · asked human','—','—','none','question','violet','52m'],
- ['RUN-7ee2a0','Adjudication Agent','CLM-2026-04401','Approve · 3,050 PLN','0.94','6/6','full','ok','green','1h'],
- ['RUN-7ed51f','Comms Drafter','CLM-2026-04390','Draft email','0.79','6/6','full','ok','green','1h'],
- ['RUN-7ec1d8','Fraud Signal Agent','CLM-2026-04415','Pass · score 0.08','0.93','6/6','full','ok','green','2h']
+ ['RUN-7f3a2c','Adjudication Agent','CASE-2026-04417','Approve · 18,400 PLN','0.86','6/6','full','ok','green','2m'],
+ ['RUN-7f2e91','Fraud Signal Agent','CASE-2026-04211','Hold · score 0.61','0.61','5/6','part','overridden','amber','18m'],
+ ['RUN-7f1907','Damage Estimator','CASE-2026-04372','Estimate · 6,100 PLN','0.71','4/6','part','overridden','amber','40m'],
+ ['RUN-7ef0b4','Coverage Analyst','CASE-2026-04461','Blocked · asked human','—','—','none','question','violet','52m'],
+ ['RUN-7ee2a0','Adjudication Agent','CASE-2026-04401','Approve · 3,050 PLN','0.94','6/6','full','ok','green','1h'],
+ ['RUN-7ed51f','Comms Drafter','CASE-2026-04390','Draft email','0.79','6/6','full','ok','green','1h'],
+ ['RUN-7ec1d8','Fraud Signal Agent','CASE-2026-04415','Pass · score 0.08','0.93','6/6','full','ok','green','2h']
 ];
 const stLabel={ok:'OK',overridden:'Overridden',question:'Question'};
 document.getElementById('traceBody').innerHTML=traceRows.map(r=>`
@@ -1564,7 +1564,7 @@ document.getElementById('rsteps').innerHTML=reasoning.map((r,i)=>`
   <div class="rstep ${r[1]?'gate':''}"><span class="rnum">${i+1}</span><span class="rtext">${r[0]}</span></div>`).join('');
 
 const traceTools=[
- {name:'policy.terms.fetch',ms:512,req:'{\n  "policy_no": "MOT-88241-PL"\n}',res:'{\n  "clauses": 38,\n  "own_damage": true,\n  "exclusions": []\n}'},
+ {name:'policy.terms.fetch',ms:512,req:'{\n  "account_no": "ACC-88241"\n}',res:'{\n  "clauses": 38,\n  "own_damage": true,\n  "exclusions": []\n}'},
  {name:'rules.engine',ms:1400,req:'{\n  "estimate_pln": 18400,\n  "coverage": "confirmed",\n  "fraud_score": 0.12\n}',res:'{\n  "decision": "approve",\n  "settlement_pln": 18400\n}'},
  {name:'limit.check',ms:300,req:'{\n  "payout_pln": 18400,\n  "policy_limit_pln": 120000\n}',res:'{\n  "within_limit": true\n}'}
 ];

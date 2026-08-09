@@ -45,7 +45,7 @@ describe('run inspector — INVOKE_AGENT step input capture', () => {
               activityName: 'Invoke Klient',
               activityType: 'INVOKE_AGENT',
               config: {
-                agentId: 'lighthouse.klient',
+                agentId: 'sample.assistant',
                 input: { client_identifiers: '{{context.client_identifiers}}' },
                 onResult: { autoApproveThreshold: 1 },
               },

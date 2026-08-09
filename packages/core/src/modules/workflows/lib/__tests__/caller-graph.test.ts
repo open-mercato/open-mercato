@@ -19,13 +19,13 @@ const callerWith = (config: Record<string, any>) => ({
 })
 
 const ports: WorkflowIoContract = {
-  inputs: [{ name: 'claimId', type: 'text', label: 'Claim', required: true }],
+  inputs: [{ name: 'orderId', type: 'text', label: 'Order', required: true }],
   outputs: [{ name: 'decision', type: 'text', label: 'Decision', required: false }],
 }
 
 describe('computeCallerImpacts', () => {
   test('flags input mappings that reference a removed input port', () => {
-    const callers = [callerWith({ inputMapping: { claimId: 'order.id', amount: 'order.total' } })]
+    const callers = [callerWith({ inputMapping: { orderId: 'order.id', amount: 'order.total' } })]
     const impacts = computeCallerImpacts(callers, 'verify_policy', ports)
     expect(impacts).toHaveLength(1)
     expect(impacts[0].brokenMappings).toEqual(['input:amount'])
@@ -39,7 +39,7 @@ describe('computeCallerImpacts', () => {
   })
 
   test('returns no impact when all mappings match declared ports', () => {
-    const callers = [callerWith({ inputMapping: { claimId: 'order.id' }, outputMapping: { result: 'decision' } })]
+    const callers = [callerWith({ inputMapping: { orderId: 'order.id' }, outputMapping: { result: 'decision' } })]
     expect(computeCallerImpacts(callers, 'verify_policy', ports)).toEqual([])
   })
 

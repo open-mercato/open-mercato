@@ -28,7 +28,7 @@ The Agentic Tasks launcher, the process projection, and the trace-inspector real
 | 2 | P0-2 | `backend/processes/page.meta.ts:19` and `backend/processes/[id]/page.meta.ts:6` still gate the interim `agent_orchestrator.trace.view` while `api/processes/route.ts:23` and `api/processes/[id]/route.ts:20` gate `agent_orchestrator.processes.view` — trace-view-only users see the page and 403 on every fetch; processes-view-only users can't see the page at all. |
 | 3 | P0-3 | Processes detail renders Pause / Reassign / Take-over as enabled buttons (Take-over without `variant="outline"`, i.e. primary) whose `onClick` flashes `process.actionPreviewOnly` with tone `'success'` (`backend/processes/[id]/page.tsx:538-561`); the copy still says "design preview" on a live page. |
 | 4 | P0-4 | Three destructive deletes fire on a single click with no confirmation: task delete (RowActions, `backend/tasks/page.tsx:494-509` — also tears down the cron registration via the CRUD hook), event-trigger delete (ghost trash button, `backend/tasks/[id]/page.tsx:459-466`), eval-assertion delete (`backend/eval-assertions/page.tsx:424-440`). |
-| 5 | P0-5 | Overview's "Where humans stepped in" renders hardcoded demo figures (412/188/96/61/53, `backend/overview/page.tsx:239-246`) with no Sample marker, a dangling `Info` icon with no tooltip (`:404`), and a "View all" deep link into the real `/backend/audit` page whose data contradicts them; the header also hardcodes a "Claims adjudication" domain chip for every tenant (`:260`). |
+| 5 | P0-5 | Overview's "Where humans stepped in" renders hardcoded demo figures (412/188/96/61/53, `backend/overview/page.tsx:239-246`) with no Sample marker, a dangling `Info` icon with no tooltip (`:404`), and a "View all" deep link into the real `/backend/audit` page whose data contradicts them; the header also hardcodes a domain-specific adjudication chip for every tenant (`:260`). |
 | 6 | P0-6 | The Caseload inbox (primary decision view) renders only the currently loaded server page (`visibleRows`, default `pageSize` 20 — `backend/caseload/page.tsx:224,671-689`) and, unlike the list view (`:718+`), exposes no pagination affordance; the segment badge advertises the full pending total. |
 
 ## Proposed Solution
@@ -65,7 +65,7 @@ All keys ×4 locales. RowActions' `destructive: true` styling stays.
 
 - Add the trace inspector's sample-chip treatment to the "Where humans stepped in" section header: reuse the same visual (bordered muted chip as rendered for `sampleLabel` at `backend/traces/[id]/page.tsx:132-134`) with the existing key `agent_orchestrator.traces.detail.sample` hoisted to a shared key `agent_orchestrator.common.sample` (update both call sites to the new key — no alias; aliases rot).
 - Wire the dangling `Info` icon: `title` + `aria-label` with new key `overview.interventions.sampleHint` ("Illustrative figures — the per-verb intervention taxonomy is not implemented yet.") ×4 locales. The "View all" audit link stays (acceptable once the section is labeled).
-- Remove the "Claims adjudication" `ContextChip` (`backend/overview/page.tsx:260`) and delete `overview.domain` from all four locales. (The wider claims→neutral sweep belongs to spec 5 — this chip alone is P0 because it asserts a false fact about the tenant.)
+- Remove the hardcoded domain `ContextChip` (`backend/overview/page.tsx:260`) and delete `overview.domain` from all four locales. (The wider domain→neutral sweep belongs to spec 5 — this chip alone is P0 because it asserts a false fact about the tenant.)
 
 ### 6. Caseload inbox pager
 
@@ -140,7 +140,7 @@ Playwright (implement with this change, self-contained fixtures):
 - **TC-AGENT-UX-P0-002** — Processes list + detail load (200s on `api/processes*`) for a `processes.view` role; the menu item is absent for a role without it.
 - **TC-AGENT-UX-P0-003** — Task delete: cancel keeps the row; confirm removes it and flashes; trigger + assertion confirms present (dialog visible before any DELETE fires).
 - **TC-AGENT-UX-P0-004** — Seed 25 pending proposals; inbox shows "1–20 of 25" and page 2 reaches the remaining 5; disabled Pause/Reassign/Take-over buttons asserted on a process detail.
-- **TC-AGENT-UX-P0-005** — Overview renders the sample chip on the interventions section and no "Claims adjudication" chip.
+- **TC-AGENT-UX-P0-005** — Overview renders the sample chip on the interventions section and no hardcoded domain chip.
 
 ## Risks & Impact Review
 

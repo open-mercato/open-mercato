@@ -1060,7 +1060,7 @@
   "workflows.form.invokeAgent.subject": "Registro de negocio",
   "workflows.form.invokeAgent.subjectDescription": "Opcional: de qué trata este proceso. Se muestra en la bandeja de casos del agente y se interpola como el resto de la configuración del paso.",
   "workflows.form.invokeAgent.subjectId": "Id del registro",
-  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.claimId}}",
+  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.orderId}}",
   "workflows.form.invokeAgent.subjectLabel": "Etiqueta del registro",
   "workflows.form.invokeAgent.subjectLabelPlaceholder": "Siniestro #4821",
   "workflows.form.invokeAgent.subjectType": "Tipo de registro",

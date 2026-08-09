@@ -1060,7 +1060,7 @@
   "workflows.form.invokeAgent.subject": "Business record",
   "workflows.form.invokeAgent.subjectDescription": "Optional: what this process is about. Shown in the agent caseload and interpolated like the rest of the step config.",
   "workflows.form.invokeAgent.subjectId": "Record id",
-  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.claimId}}",
+  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.orderId}}",
   "workflows.form.invokeAgent.subjectLabel": "Record label",
   "workflows.form.invokeAgent.subjectLabelPlaceholder": "Claim #4821",
   "workflows.form.invokeAgent.subjectType": "Record type",

@@ -20,7 +20,7 @@ const definition = {
 } as any
 
 const contract: WorkflowIoContract = {
-  inputs: [{ name: 'claimId', type: 'text', label: 'Claim', required: true }],
+  inputs: [{ name: 'orderId', type: 'text', label: 'Order', required: true }],
   outputs: [{ name: 'decision', type: 'select', label: 'Decision', required: false, options: ['approve', 'reject'] }],
 }
 

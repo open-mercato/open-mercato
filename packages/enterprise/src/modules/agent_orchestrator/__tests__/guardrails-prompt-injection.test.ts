@@ -68,7 +68,7 @@ const BENIGN_SPAN: UntrustedSpan = {
   sourceKind: 'document',
   sourceRef: 'attachment-7',
   locator: 'page:1',
-  text: 'Please submit the completed form within 30 days. The policyholder requests review of the damage.',
+  text: 'Please submit the completed form within 30 days. The requesting party asks for a review of the assessment.',
 }
 
 describe('detectSpanInjection (deterministic detector)', () => {

@@ -22,8 +22,8 @@ const PROCESS = '33333333-3333-4333-8333-333333333333'
 
 const SUBJECT = {
   subjectType: 'Motor',
-  subjectLabel: 'CLM-2026-04417',
-  subjectTitle: 'Motor collision — payout adjudication',
+  subjectLabel: 'CASE-2026-04417',
+  subjectTitle: 'High-value case — settlement adjudication',
   valueMinor: 1840000,
   fraud: false,
 }

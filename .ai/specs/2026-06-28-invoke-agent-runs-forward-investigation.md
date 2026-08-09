@@ -16,11 +16,11 @@
   and the **whole sub-workflow was marked COMPLETED**.
 
 Concrete evidence from the screenshots:
-- `claims_value_assessment_v1` (#f230879b): **Failed**, current step `set_reserve`,
+- `case_value_assessment_v1` (#f230879b): **Failed**, current step `set_reserve`,
   start→complete 12:24:54→12:24:56. Its event log is a repeating burst of
   `Step Entered → Awaiting Signal → Transition Executed`, ending `Workflow Failed`.
-- `claims_liability_assessment_v1` (#ed3a167d): **Completed**, all agent nodes green.
-- `claims_resolution_*`: **Failed** at step `value` (the sub-workflow call).
+- `case_liability_assessment_v1` (#ed3a167d): **Completed**, all agent nodes green.
+- `case_resolution_*`: **Failed** at step `value` (the sub-workflow call).
 
 ## How an "Invoke Agent" node actually works (architecture)
 
@@ -109,7 +109,7 @@ guard does not cover — and the `PAUSED` status itself is never inspected.
   last node removed the only failing step, so run-forward reached `END`.
 - **FAILED at a later step.** If any step on the run-forward path throws (or a
   downstream step depends on agent output that was never produced), the instance
-  fails there — e.g. `set_reserve` in `claims_value_assessment_v1`.
+  fails there — e.g. `set_reserve` in `case_value_assessment_v1`.
 
 ## Root cause #2 (COMPOUNDING): SUB_WORKFLOW invocation is synchronous
 
@@ -160,7 +160,7 @@ unconfigured node is **not** a no-op:
 - The instance therefore **fails AT the unconfigured step**, leaving
   `currentStepId` on that step.
 
-This explains `claims_value_assessment_v1` failing with `currentStep = set_reserve`:
+This explains `case_value_assessment_v1` failing with `currentStep = set_reserve`:
 **`set_reserve` was the agent node left without an agent** (or whose agent run
 threw — the worker's `failInvokeAgentStep` path, `lib/activity-worker-handler.ts:292-302`).
 The earlier agent steps in that same run showed `STEP_ENTERED → SIGNAL_AWAITING →

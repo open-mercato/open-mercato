@@ -15,7 +15,7 @@ So we are **not building a platform.** We adopt OM's engine + plumbing and build
 ## 2. Architecture at a glance (four layers)
 
 ```
-UI / CLIENTS        Agent Cockpit (extends workflow monitor + My Tasks) · Claimant portal
+UI / CLIENTS        Agent Cockpit (extends workflow monitor + My Tasks) · Affected-party portal
 AGENT LAYER (build) ONE core module → agent-orchestrator   subdomains: orchestration(keystone) · identity · dispatch · trace · guardrails · context · compliance · lifecycle · cockpit
 OM FOUNDATION(adopt) workflows · business_rules · auth · audit_logs · notifications · queue · storage-s3 · query_index+search · feature_toggles · api_keys · eval-runner
 RUNTIMES (pluggable) OM-internal · A2A runtimes (Foundry · Bedrock · Vertex …) · provider adapters (OpenAI · custom) · pull/BYO workers
@@ -35,7 +35,7 @@ The whole feature ships as **one OM core module — `@open-mercato/agent-orchest
 | `trace` | run trace + eval + correction flywheel | Build | storage-s3, eval-runner | TRACE-01 |
 | `guardrails` | runtime input/output safety (injection, PII, grounding, schema) | Build | ai_assistant | GUARD-01 |
 | `context` | TDCR context assembly + retrieval + doc ingest + lineage | Build | query_index, search, attachments | CONTEXT-01 |
-| `compliance` | claimant explanation/contest, GDPR, bias, AI Act | Build | portal, audit_logs | COMPLY-01 |
+| `compliance` | affected-party explanation/contest, GDPR, bias, AI Act | Build | portal, audit_logs | COMPLY-01 |
 | `lifecycle` | shadow/canary, budgets, regression gating | Build | feature_toggles, eval-runner | LIFECYCLE-01 |
 | `cockpit` | operator/admin/engineer UI | Build (extend) | workflows monitor, dashboards, perspectives | COCKPIT-01 |
 
@@ -53,7 +53,7 @@ Shared `contracts/` (Zod) and `data/` (entities) live at the module root. Everyt
 8. A human disposes in the **cockpit**; edit/reject writes a **`Correction`**.
 9. The approved action executes via a standard `workflows` effector activity (CALL_API / payment / webhook) — under OM's authority, after the gate.
 10. The `Correction` becomes an **`EvalCase`** → `eval-runner` regresses future versions (`lifecycle`).
-11. The claimant sees a plain-language explanation and can contest (`compliance`).
+11. The affected party sees a plain-language explanation and can contest (`compliance`).
 
 Every write in steps 4–9 flows through OM's Command/CRUD path, so it is **attributed and audited identically to a human action**, with the on-behalf-of chain intact.
 

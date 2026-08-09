@@ -72,7 +72,7 @@ export const capabilities = [
     version: 1,                            // capability@v — published key@v is FROZEN
     proposalSchema: ClaimsCoverageCheckProposalSchema, // Zod in data/validators.ts; IS the agent output.schema
     aclFeature: 'agent_orchestrator.capability.claims_coverage_check', // declared in acl.ts + setup.ts
-    contextModules: ['policy_docs', 'claim_record', 'prior_cases'],    // GAP-10 ContextModule keys
+    contextModules: ['reference_docs', 'case_record', 'prior_cases'],    // GAP-10 ContextModule keys
     guardrailSet: 'claims.coverage_check@3',                            // GUARD set name@version
     runtime: 'internal',                   // 'internal' | 'a2a' | 'opencode' | provider
     runtimeRef: 'claims.coverage_agent',   // AiAgentDefinition id (internal) | Agent Card | opencode agent

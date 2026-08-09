@@ -24,8 +24,8 @@ const ROW = {
   processId: PROCESS,
   tenantId: TENANT,
   organizationId: ORG,
-  subjectLabel: 'CLM-2026-04417',
-  subjectTitle: 'Motor collision — payout adjudication',
+  subjectLabel: 'CASE-2026-04417',
+  subjectTitle: 'High-value case — settlement adjudication',
   status: 'waiting_on_you',
 }
 
@@ -69,7 +69,7 @@ describe('GET /api/agent_orchestrator/processes/:id', () => {
     })
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.process).toMatchObject({ processId: PROCESS, subjectLabel: 'CLM-2026-04417' })
+    expect(body.process).toMatchObject({ processId: PROCESS, subjectLabel: 'CASE-2026-04417' })
     expect(findOneWithDecryption.mock.calls[0][2]).toMatchObject({
       processId: PROCESS,
       tenantId: TENANT,

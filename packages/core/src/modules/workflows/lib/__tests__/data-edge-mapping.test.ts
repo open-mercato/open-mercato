@@ -23,8 +23,8 @@ const conn = (overrides: Partial<Connection>): Connection => ({
 
 describe('classifyConnection', () => {
   test('port→IN port is a data mapping; parent path is the OUT port name', () => {
-    const result = classifyConnection(conn({ source: 'score', sourceHandle: 'out:decision', target: 'apply', targetHandle: 'in:claimId' }))
-    expect(result).toEqual({ kind: 'data-mapping', targetNodeId: 'apply', childPortKey: 'claimId', parentPath: 'decision' })
+    const result = classifyConnection(conn({ source: 'score', sourceHandle: 'out:decision', target: 'apply', targetHandle: 'in:orderId' }))
+    expect(result).toEqual({ kind: 'data-mapping', targetNodeId: 'apply', childPortKey: 'orderId', parentPath: 'decision' })
   })
 
   test('generic source → IN port falls back to the source node id', () => {
@@ -49,30 +49,30 @@ describe('applyInputMappingToNodes', () => {
   ]
 
   test('writes config.inputMapping on the target node and leaves others untouched', () => {
-    const updated = applyInputMappingToNodes(nodes, 'apply', 'claimId', 'decision')
-    expect((updated.find((n) => n.id === 'apply')!.data as any).config.inputMapping).toEqual({ claimId: 'decision' })
+    const updated = applyInputMappingToNodes(nodes, 'apply', 'orderId', 'decision')
+    expect((updated.find((n) => n.id === 'apply')!.data as any).config.inputMapping).toEqual({ orderId: 'decision' })
     expect((updated.find((n) => n.id === 'apply')!.data as any).config.subWorkflowId).toBe('apply-discount')
     expect(updated.find((n) => n.id === 'other')!.data).toEqual({})
   })
 
   test('merges with an existing inputMapping', () => {
-    const seeded = applyInputMappingToNodes(nodes, 'apply', 'claimId', 'decision')
+    const seeded = applyInputMappingToNodes(nodes, 'apply', 'orderId', 'decision')
     const merged = applyInputMappingToNodes(seeded, 'apply', 'amount', 'total')
-    expect((merged.find((n) => n.id === 'apply')!.data as any).config.inputMapping).toEqual({ claimId: 'decision', amount: 'total' })
+    expect((merged.find((n) => n.id === 'apply')!.data as any).config.inputMapping).toEqual({ orderId: 'decision', amount: 'total' })
   })
 
   test('round-trip parity: drag output equals the key/value form shape', () => {
     // The form persists config.inputMapping as { childKey: parentPath }.
-    const formShape = { claimId: 'decision' }
-    const updated = applyInputMappingToNodes(nodes, 'apply', 'claimId', 'decision')
+    const formShape = { orderId: 'decision' }
+    const updated = applyInputMappingToNodes(nodes, 'apply', 'orderId', 'decision')
     expect((updated.find((n) => n.id === 'apply')!.data as any).config.inputMapping).toEqual(formShape)
   })
 })
 
 describe('buildDataMappingEdge / isDataMappingEdge', () => {
   test('builds a typed data edge with a stable per-port id', () => {
-    const edge = buildDataMappingEdge(conn({ source: 'score', sourceHandle: 'out:decision', target: 'apply', targetHandle: 'in:claimId' }), 'claimId')
-    expect(edge.id).toBe(dataMappingEdgeId('apply', 'claimId'))
+    const edge = buildDataMappingEdge(conn({ source: 'score', sourceHandle: 'out:decision', target: 'apply', targetHandle: 'in:orderId' }), 'orderId')
+    expect(edge.id).toBe(dataMappingEdgeId('apply', 'orderId'))
     expect(edge.type).toBe(DATA_MAPPING_EDGE_TYPE)
     expect(edge.source).toBe('score')
     expect(edge.target).toBe('apply')

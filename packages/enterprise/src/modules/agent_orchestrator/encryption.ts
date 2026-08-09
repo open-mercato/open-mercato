@@ -76,7 +76,7 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   },
   {
     // The process projection's free-text, person-readable subject title (e.g.
-    // "Motor collision — payout adjudication"). The ONLY encrypted subject
+    // "High-value case — settlement adjudication"). The ONLY encrypted subject
     // field: the filter-driving facets (subject_type/value/fraud) are deliberate
     // plaintext typed columns because they must be SQL-queryable.
     entityId: 'agent_orchestrator:agent_process',

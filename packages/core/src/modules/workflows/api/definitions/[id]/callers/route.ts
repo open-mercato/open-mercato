@@ -86,7 +86,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Callers',
-          example: { callers: [{ workflowId: 'order-flow', version: 1, stepId: 'sub', brokenMappings: ['input:claimId'] }] },
+          example: { callers: [{ workflowId: 'order-flow', version: 1, stepId: 'sub', brokenMappings: ['input:orderId'] }] },
         },
         { status: 404, description: 'Not found', example: { error: 'Workflow definition not found' } },
       ],

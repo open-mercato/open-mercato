@@ -21,7 +21,7 @@ A developer writes ~20 lines to **define an agent** (instructions + tools + skil
 - External runtimes / dispatch / A2A / pull workers → defer (internal in-process only) ([dispatch](2026-06-19-agent-dispatch.md)).
 - Identity OAuth-CC server → defer (internal agents use caller ctx + agent-principal attribution) ([identity](2026-06-19-agent-identity-and-on-behalf-of.md)).
 - Full guardrails (injection/grounding/moderation) → defer; **keep only output-schema validation** (free, it's Zod) ([guardrails](2026-06-19-agent-runtime-guardrails.md)).
-- Compliance / AI-Act / DSAR / fairness, claimant portal → defer (domain overlay) ([compliance](2026-06-19-agent-decision-transparency-and-ai-act.md)).
+- Compliance / AI-Act / DSAR / fairness, affected-party portal → defer (domain overlay) ([compliance](2026-06-19-agent-decision-transparency-and-ai-act.md)).
 - Governed TDCR context plane, doc-ingest/OCR → defer; **MVP context = caller-supplied or a simple `retrieve` tool** ([context](2026-06-19-agent-context-knowledge-plane.md)).
 
 ## Pillar 1 — Agent SDK core
@@ -116,7 +116,7 @@ Because the agent layer never controls flow (it returns a proposal; the workflow
 | **Traces list + Trace inspector** (Engineer) — waterfall/context/eval/compare | **DEFER** | Needs trace+eval overlays; the I/O drawer covers the demo. |
 | **Audit & compliance** (Admin) | **DEFER** | Compliance overlay. |
 
-> The mockup is a **claims-supervisor ops console**. For the *developer* hackathon audience, MVP also adds one screen the mockup lacks: a **dev Agent Playground** (run a `defineAgent` ad-hoc, see result + tools-used) — the instant-gratification "I wrote 20 lines and it runs" beat. Three MVP screens, drawn from the mockup's components:
+> The mockup is a **case-supervisor ops console**. For the *developer* hackathon audience, MVP also adds one screen the mockup lacks: a **dev Agent Playground** (run a `defineAgent` ad-hoc, see result + tools-used) — the instant-gratification "I wrote 20 lines and it runs" beat. Three MVP screens, drawn from the mockup's components:
 
 ```
 ┌─ A. Agent Playground (dev wow) ─────────────────────────────┐

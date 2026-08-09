@@ -78,7 +78,7 @@ function makeInvokeAgentPayload(): WorkflowActivityJobInvokeAgent {
     stepId,
     signalName: INVOKE_AGENT_SIGNAL_NAME,
     agentId: 'claims.liability.policy_check',
-    input: { claimId: 'claim-1' },
+    input: { orderId: 'claim-1' },
     onResult: { autoApproveThreshold: 0 },
     tenantId,
     organizationId,
@@ -116,7 +116,7 @@ describe('executeInvokeAgent queue routing', () => {
     const container = { resolve: jest.fn(() => ({})) } as unknown as AwilixContainer
 
     const result = await executeInvokeAgent(
-      { agentId: 'claims.liability.policy_check', input: { claimId: 'claim-1' }, onResult: { autoApproveThreshold: 0 } },
+      { agentId: 'claims.liability.policy_check', input: { orderId: 'claim-1' }, onResult: { autoApproveThreshold: 0 } },
       makeContext(),
       container,
     )

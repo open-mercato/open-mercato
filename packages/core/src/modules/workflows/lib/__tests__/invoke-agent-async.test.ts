@@ -64,7 +64,7 @@ function makeJob(): WorkflowActivityJobInvokeAgent {
     stepId,
     signalName: INVOKE_AGENT_SIGNAL_NAME,
     agentId: 'claims.liability.policy_check',
-    input: { claimId: 'claim-1' },
+    input: { orderId: 'claim-1' },
     onResult: { autoApproveThreshold: 0 },
     tenantId,
     organizationId,
@@ -83,7 +83,7 @@ describe('executeInvokeAgent (enqueue + park)', () => {
     const container = { resolve: jest.fn(() => ({})) } as unknown as AwilixContainer
 
     const result = await executeInvokeAgent(
-      { agentId: 'claims.liability.policy_check', input: { claimId: 'claim-1' }, onResult: { autoApproveThreshold: 0 } },
+      { agentId: 'claims.liability.policy_check', input: { orderId: 'claim-1' }, onResult: { autoApproveThreshold: 0 } },
       makeContext(),
       container,
     )
@@ -94,7 +94,7 @@ describe('executeInvokeAgent (enqueue + park)', () => {
     expect(job.stepId).toBe(stepId)
     expect(job.stepInstanceId).toBe('step-instance-1')
     expect(job.agentId).toBe('claims.liability.policy_check')
-    expect(job.input).toEqual({ claimId: 'claim-1' })
+    expect(job.input).toEqual({ orderId: 'claim-1' })
     expect(job.signalName).toBe(INVOKE_AGENT_SIGNAL_NAME)
     expect(job.userId).toBe('user-1')
     expect(options?.delayMs).toBeGreaterThan(0)

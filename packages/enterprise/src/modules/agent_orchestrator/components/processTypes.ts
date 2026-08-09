@@ -30,7 +30,7 @@ export type ProcessStateTone = 'neutral' | 'info' | 'success' | 'warning' | 'err
 
 /** Non-filterable display extras (spec: `AgentProcess.subjectFacets` jsonb). */
 export type ProcessSubjectFacets = {
-  policyholder?: string | null
+  subjectParty?: string | null
   ownerLabel?: string | null
 }
 
@@ -171,24 +171,24 @@ function isoAgo(ms: number): string {
 }
 
 /**
- * The Ergo Hestia motor-claim sample from the design (Figma 136:424), shaped as a
- * real `AgentProcess` projection + proposal/run timeline. Rendered when no live
- * process data is available so the screen is fully reviewable.
+ * A neutral sample case, shaped as a real `AgentProcess` projection +
+ * proposal/run timeline. Rendered when no live process data is available so the
+ * screen is fully reviewable.
  */
 export function buildSampleProcess(reference: string): ProcessView {
   return {
     isSample: true,
     process: {
       processId: reference,
-      workflowId: 'claims_motor_adjudication_v1',
+      workflowId: 'case_adjudication_v1',
       workflowVersion: '1',
-      subjectType: 'Motor',
-      subjectId: 'clm-2026-04417',
+      subjectType: 'Case',
+      subjectId: 'case-2026-04417',
       subjectLabel: reference,
-      subjectTitle: 'Motor collision — payout adjudication',
+      subjectTitle: 'High-value case — settlement adjudication',
       subjectValueMinor: 1840000,
       subjectFraud: false,
-      subjectFacets: { policyholder: 'A. Kowalska', ownerLabel: 'Adjudication Agent' },
+      subjectFacets: { subjectParty: 'Sample Party', ownerLabel: 'Adjudication Agent' },
       status: 'waiting_on_you',
       currentStage: 'Adjudication',
       agentIds: ['intake', 'coverage', 'damage', 'fraud'],
@@ -204,11 +204,11 @@ export function buildSampleProcess(reference: string): ProcessView {
     },
     stages: [
       { key: 'intake', label: 'Intake' },
-      { key: 'coverage', label: 'Coverage check' },
-      { key: 'damage', label: 'Damage estimate' },
+      { key: 'coverage', label: 'Eligibility check' },
+      { key: 'damage', label: 'Assessment' },
       { key: 'fraud', label: 'Fraud screen' },
       { key: 'adjudication', label: 'Adjudication' },
-      { key: 'payout', label: 'Payout & comms' },
+      { key: 'payout', label: 'Settlement & comms' },
     ],
     steps: [
       {
@@ -220,7 +220,7 @@ export function buildSampleProcess(reference: string): ProcessView {
         stepId: 'intake',
         actor: 'Intake Agent',
         actorKind: 'agent',
-        summary: 'Parsed FNOL — created claim record',
+        summary: 'Parsed intake form — created case record',
         time: '09:14',
         day: 'today',
         detail: {
@@ -231,29 +231,29 @@ export function buildSampleProcess(reference: string): ProcessView {
             {
               kind: 'input',
               rows: [
-                { label: 'Source', value: 'FNOL web form + 1 PDF' },
+                { label: 'Source', value: 'Intake web form + 1 PDF' },
                 { label: 'Raw fields', value: '14 extracted' },
-                { label: 'Attachments', value: 'police_report.pdf' },
+                { label: 'Attachments', value: 'incident_report.pdf' },
               ],
             },
             {
               kind: 'tools',
               rows: [
                 { label: 'ocr.extract', value: '14 fields' },
-                { label: 'policy.lookup', value: '1 match' },
+                { label: 'account.lookup', value: '1 match' },
               ],
             },
             {
               kind: 'output',
               rows: [
-                { label: 'policy_no', value: 'MOT-88241-PL' },
+                { label: 'account_no', value: 'ACC-88241' },
                 { label: 'incident_date', value: '2026-05-12' },
                 { label: 'parties', value: '2' },
-                { label: 'claim_type', value: 'motor / collision' },
+                { label: 'case_type', value: 'standard / damage' },
               ],
             },
           ],
-          payload: { policy_no: 'MOT-88241-PL', incident_date: '2026-05-12', parties: 2 },
+          payload: { account_no: 'ACC-88241', incident_date: '2026-05-12', parties: 2 },
         },
       },
       {
@@ -276,8 +276,8 @@ export function buildSampleProcess(reference: string): ProcessView {
             {
               kind: 'input',
               rows: [
-                { label: 'Policy', value: 'MOT-88241-PL' },
-                { label: 'Claim type', value: 'motor / collision' },
+                { label: 'Policy', value: 'ACC-88241' },
+                { label: 'Case type', value: 'standard / damage' },
               ],
             },
             {
@@ -359,9 +359,9 @@ export function buildSampleProcess(reference: string): ProcessView {
             {
               kind: 'input',
               rows: [
-                { label: 'Claim', value: 'CLM-2026-04417' },
-                { label: 'Policyholder', value: 'A. Kowalska' },
-                { label: 'History', value: '2 prior claims' },
+                { label: 'Case', value: 'CASE-2026-04417' },
+                { label: 'Party', value: 'Sample Party' },
+                { label: 'History', value: '2 prior cases' },
               ],
             },
             {
@@ -426,18 +426,18 @@ export function buildSampleProcess(reference: string): ProcessView {
 }
 
 /**
- * Sample Processes list (Figma 129:554) — one row per claim-anchored process.
- * The first row matches the detail sample (`CLM-2026-04417`). Until the
+ * Sample Processes list — one row per case-anchored process.
+ * The first row matches the detail sample (`CASE-2026-04417`). Until the
  * `AgentProcess` projection + list route land (Patryk's spec #11), the list is
  * sample-driven; every row deep-links into the (sample) Process detail.
  */
 export function buildSampleProcessList(): ProcessListRow[] {
   return [
     {
-      id: 'CLM-2026-04417',
-      subjectType: 'Motor',
-      subjectLabel: 'CLM-2026-04417',
-      subjectTitle: 'Motor collision — payout adjudication',
+      id: 'CASE-2026-04417',
+      subjectType: 'Case',
+      subjectLabel: 'CASE-2026-04417',
+      subjectTitle: 'High-value case — settlement adjudication',
       currentStage: 'Adjudication',
       status: 'waiting_on_you',
       agentIds: ['Intake', 'Coverage', 'Damage', 'Fraud'],
@@ -448,10 +448,10 @@ export function buildSampleProcessList(): ProcessListRow[] {
       subjectFraud: false,
     },
     {
-      id: 'CLM-2026-04211',
-      subjectType: 'Motor',
-      subjectLabel: 'CLM-2026-04211',
-      subjectTitle: 'Rear-end collision — third-party injury',
+      id: 'CASE-2026-04211',
+      subjectType: 'Case',
+      subjectLabel: 'CASE-2026-04211',
+      subjectTitle: 'Escalated case — third-party impact',
       currentStage: 'Fraud screen',
       status: 'fraud_hold',
       agentIds: ['Intake', 'Coverage', 'Fraud'],
@@ -462,9 +462,9 @@ export function buildSampleProcessList(): ProcessListRow[] {
       subjectFraud: true,
     },
     {
-      id: 'CLM-2026-04188',
+      id: 'CASE-2026-04188',
       subjectType: 'Property',
-      subjectLabel: 'CLM-2026-04188',
+      subjectLabel: 'CASE-2026-04188',
       subjectTitle: 'Water damage — kitchen appliance',
       currentStage: 'Payout & comms',
       status: 'auto_completing',
@@ -476,9 +476,9 @@ export function buildSampleProcessList(): ProcessListRow[] {
       subjectFraud: false,
     },
     {
-      id: 'CLM-2026-04172',
-      subjectType: 'Motor',
-      subjectLabel: 'CLM-2026-04172',
+      id: 'CASE-2026-04172',
+      subjectType: 'Case',
+      subjectLabel: 'CASE-2026-04172',
       subjectTitle: 'Windscreen replacement — glass cover',
       currentStage: 'Coverage check',
       status: 'question_open',
@@ -490,9 +490,9 @@ export function buildSampleProcessList(): ProcessListRow[] {
       subjectFraud: false,
     },
     {
-      id: 'CLM-2026-04155',
+      id: 'CASE-2026-04155',
       subjectType: 'Liability',
-      subjectLabel: 'CLM-2026-04155',
+      subjectLabel: 'CASE-2026-04155',
       subjectTitle: 'Public liability — slip and fall',
       currentStage: 'Damage estimate',
       status: 'running',
@@ -504,9 +504,9 @@ export function buildSampleProcessList(): ProcessListRow[] {
       subjectFraud: false,
     },
     {
-      id: 'CLM-2026-04140',
+      id: 'CASE-2026-04140',
       subjectType: 'Property',
-      subjectLabel: 'CLM-2026-04140',
+      subjectLabel: 'CASE-2026-04140',
       subjectTitle: 'Storm damage — roof tiles',
       currentStage: 'Intake',
       status: 'docs_requested',

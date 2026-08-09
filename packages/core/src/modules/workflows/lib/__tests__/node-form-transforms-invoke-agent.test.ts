@@ -145,7 +145,7 @@ describe('nodeFormTransforms — invokeAgent', () => {
             agentId: 'client_profile',
             input: {},
             onResult: { alwaysAsk: true },
-            subject: { subjectType: 'claim', subjectId: '{{context.claimId}}', valueMinor: 1200 },
+            subject: { subjectType: 'claim', subjectId: '{{context.orderId}}', valueMinor: 1200 },
           },
         },
       ],
@@ -154,7 +154,7 @@ describe('nodeFormTransforms — invokeAgent', () => {
     const values = nodeToFormValues(node)
     expect(values.agentConfig?.subject).toEqual({
       subjectType: 'claim',
-      subjectId: '{{context.claimId}}',
+      subjectId: '{{context.orderId}}',
       subjectLabel: '',
     })
 
@@ -167,7 +167,7 @@ describe('nodeFormTransforms — invokeAgent', () => {
           resultMode: 'alwaysAsk',
           autoApproveThreshold: '0.8',
           outputs: [],
-          subject: { subjectType: 'claim', subjectId: '{{context.claimId}}', subjectLabel: 'Claim #1' },
+          subject: { subjectType: 'claim', subjectId: '{{context.orderId}}', subjectLabel: 'Claim #1' },
         },
       },
       node,
@@ -175,7 +175,7 @@ describe('nodeFormTransforms — invokeAgent', () => {
 
     expect(updates.activities[0].config.subject).toEqual({
       subjectType: 'claim',
-      subjectId: '{{context.claimId}}',
+      subjectId: '{{context.orderId}}',
       subjectLabel: 'Claim #1',
       valueMinor: 1200,
     })

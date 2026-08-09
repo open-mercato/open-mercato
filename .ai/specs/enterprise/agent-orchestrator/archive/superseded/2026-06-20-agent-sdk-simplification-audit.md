@@ -10,7 +10,7 @@
 
 The current design is **over-engineered for the actual need**. It made *workflow orchestration + regulated AI-Act decisioning + multi-runtime A2A dispatch* the **foundation**, so every agent inherited dispatch, identity-OAuth, compliance, lifecycle, eval, metrics, and cockpit machinery before it could run once. That's backwards.
 
-**Root cause:** "workflow is the spine, the agent is a step" made the heaviest consumer the base layer. One hypothetical high-risk use case (insurance claims) drove the whole foundation.
+**Root cause:** "workflow is the spine, the agent is a step" made the heaviest consumer the base layer. One hypothetical high-risk use case drove the whole foundation.
 
 **The fix:** invert it. The **agent is the primitive** — a thing you author once and **call like a function**. Workflow, gating, dispatch, compliance, trace are **optional callers/overlays** that wrap the primitive *when a use case needs them*. Nothing gets deleted; it gets **re-tiered**.
 
@@ -104,7 +104,7 @@ Nothing is deleted — the nine specs become the **optional overlay library**. R
 | **Cockpit UI** | COCKPIT | **DEFER — overlay** | Reuse existing admin surfaces first. |
 | **Dispatch transports + A2A + provider adapters** | DISPATCH / GAP-15 | **CUT from core** | "Run from the app as a function" = internal only. A2A/pull/external is needed **only** for cross-runtime/firewalled agents — a later, opt-in layer. |
 | **Identity OAuth-CC server** | IDENTITY / GAP-16-A | **CUT from core** | Internal agents run under the caller's `ctx` + a lightweight agent-principal attribution. The OAuth server is only for **external** agents (pairs with dispatch/A2A). |
-| **Compliance / AI-Act / DSAR / fairness** | COMPLY / GAP-11/12/13 | **CUT from core → domain overlay** | This is *insurance-claims-decisioning* scope, not general-SDK scope. Package it as a "regulated decisioning" overlay applied only to agents that make decisions about people. |
+| **Compliance / AI-Act / DSAR / fairness** | COMPLY / GAP-11/12/13 | **CUT from core → domain overlay** | This is *regulated-decisioning* scope, not general-SDK scope. Package it as a "regulated decisioning" overlay applied only to agents that make decisions about people. |
 | **Retention/partitioning, seeds** | GAP-18/19 | **DEFER — overlay infra** | Matters at scale + audit tiers, not for the SDK. |
 
 **Net:** core shrinks from ~13 specs + 20 gaps to **one core spec + a few reused primitives**. The rest is a menu you pull from per use case.

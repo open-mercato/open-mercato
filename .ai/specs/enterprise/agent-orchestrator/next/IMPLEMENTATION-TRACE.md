@@ -155,7 +155,7 @@ optional widget-injection migration.
 
 > Source: `2026-06-19-agent-decision-transparency-and-ai-act.md`. New: `AgentDecisionRecord`/`AgentContestCase`/`AgentFairnessMetric`, portal `decisions` pages. **Pull forward when a person-affecting agent goes live.** Crypto-shredding builds on F5 ✅.
 
-- **§Phase 1** (L): `AgentDecisionRecord` + claimant explanation service + portal `decisions` pages + nav + `decision.recorded` (GDPR Art. 22 / AI Act Art. 86 minimum).
+- **§Phase 1** (L): `AgentDecisionRecord` + affected-party explanation service + portal `decisions` pages + nav + `decision.recorded` (GDPR Art. 22 / AI Act Art. 86 minimum).
 - **§Phase 2** (L): contest/appeal — `AgentContestCase`, `business_rules` ACTION, review workflow with mandatory reviewer, overturn → `AgentCorrection`, optimistic-locked resolve, portal contest endpoint.
 - **§Phase 3** (M): GDPR DSAR exporter + audit-preserving erasure command + lawful-basis/consent flags.
 - **§Phase 4** (L): bias/fairness rollup worker + fairness API + system-card generator + post-market monitoring dashboards + serious-incident workflow.

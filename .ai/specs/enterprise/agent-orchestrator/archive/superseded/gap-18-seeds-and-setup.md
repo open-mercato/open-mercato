@@ -76,7 +76,7 @@ Without this inventory there is no source of truth for `setup.ts`, the ACL-sync 
 - `moderation` → `block` on disallowed input (pre-call gate).
 - Body carries `capability`, `version`, ordered `checks[]` with thresholds.
 
-**(c) Starter capability definitions** — minimal registry (in `lib/orchestration/` or a seeded `agent_capabilities` config) keyed by `capability` id, each pointing at its proposal Zod contract + default guardrail set version. Suggested starters (insurance domain): `claim.triage`, `claim.damage_estimate`, `claim.fraud_screen`, `claim.payout_recommendation`, `doc.extract`. Each must have a matching guardrail YAML (b) and a matching Zod proposal schema in `data/validators.ts`.
+**(c) Starter capability definitions** — minimal registry (in `lib/orchestration/` or a seeded `agent_capabilities` config) keyed by `capability` id, each pointing at its proposal Zod contract + default guardrail set version. Suggested starters: `case.triage`, `case.estimate`, `case.risk_screen`, `case.settlement_recommendation`, `doc.extract`. Each must have a matching guardrail YAML (b) and a matching Zod proposal schema in `data/validators.ts`.
 
 **(d) `defaultRoleFeatures`** (in `setup.ts`, mirroring `acl.ts`, synced via `yarn mercato auth sync-role-acls`):
 - `superadmin`: `agent_orchestrator.*` (all, including `.guardrail.manage`, dispatch/identity admin).

@@ -854,7 +854,7 @@
   "agent_orchestrator.process.factClaimed": "Valor",
   "agent_orchestrator.process.factOpened": "Abierto",
   "agent_orchestrator.process.factOwner": "Responsable",
-  "agent_orchestrator.process.factPolicyholder": "Titular",
+  "agent_orchestrator.process.factOwner": "Titular",
   "agent_orchestrator.process.factState": "Estado",
   "agent_orchestrator.process.latency": "Latencia",
   "agent_orchestrator.process.legendDisposes": "Open Mercato resuelve",

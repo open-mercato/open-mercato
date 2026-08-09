@@ -592,13 +592,13 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
 
           <div className="mt-4 flex flex-wrap items-start gap-x-10 gap-y-4">
             {(() => {
-              const facets = (process.subjectFacets ?? null) as { policyholder?: string | null; ownerLabel?: string | null } | null
+              const facets = (process.subjectFacets ?? null) as { subjectParty?: string | null; ownerLabel?: string | null } | null
               return (
                 <>
-                  {facets?.policyholder ? (
+                  {facets?.subjectParty ? (
                     <HeaderFact
-                      label={t('agent_orchestrator.process.factPolicyholder')}
-                      value={facets.policyholder}
+                      label={t('agent_orchestrator.process.factOwner')}
+                      value={facets.subjectParty}
                     />
                   ) : null}
                   {claimedValue ? (

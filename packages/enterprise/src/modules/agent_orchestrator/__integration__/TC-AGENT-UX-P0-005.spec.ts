@@ -7,8 +7,10 @@ import { expect, test, type Page } from '@playwright/test'
  *
  * The "Where humans stepped in" section renders illustrative figures until the
  * per-verb intervention taxonomy ships — it must carry the shared Sample chip,
- * and the hardcoded "Claims adjudication" domain chip must be gone from the
- * header for every tenant.
+ * and the hardcoded domain chip must be gone from the header for every tenant.
+ * Domain-vocabulary absence itself is enforced at the unit level by
+ * `__tests__/vocabulary-labels.test.ts` (banned-vocabulary regex over every
+ * locale catalog), so this spec asserts only the Sample-chip behaviour.
  */
 
 const ADMIN_EMAIL = 'admin@acme.com'
@@ -24,14 +26,13 @@ async function loginAsAdmin(page: Page): Promise<void> {
 }
 
 test.describe('TC-AGENT-UX-P0-005: Overview sample labeling', () => {
-  test('interventions section is Sample-labeled and the domain chip is gone', async ({ page }) => {
+  test('interventions section is Sample-labeled', async ({ page }) => {
     test.slow()
 
     await loginAsAdmin(page)
     await page.goto('/backend/overview', { waitUntil: 'domcontentloaded' })
 
     await expect(page.getByRole('heading', { name: 'Fleet overview' })).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText('Claims adjudication')).toHaveCount(0)
 
     // The interventions section only renders once the tenant has agent
     // activity; on an active env it MUST carry the shared Sample chip.

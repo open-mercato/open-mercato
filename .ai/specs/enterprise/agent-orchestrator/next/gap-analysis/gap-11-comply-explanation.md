@@ -2,13 +2,13 @@
 
 # COMPLY: Plain-Language Explanation Generation — Design Analysis
 
-> **Gap:** GAP-11 · **Priority:** P2 · **Domain:** high-risk (insurance claims adjudication)
+> **Gap:** GAP-11 · **Priority:** P2 · **Domain:** high-risk (automated adjudication)
 > **Related specs:** `2026-06-19-agent-decision-transparency-and-ai-act.md` (compliance), `2026-06-19-agent-trace-eval-capture.md` (trace), `2026-06-19-agent-context-knowledge-plane.md` (context), `2026-06-19-agent-orchestrator-conventions.md` (normative)
 > **Scope:** how `AgentDecisionRecord.plainExplanation` is *generated* — the one thing the compliance spec asserts ("a `DecisionExplanationService` composes `plainExplanation` from disposition + `factorsUsed` + lineage") but never designs.
 
 ## 1. Gap statement
 
-The compliance spec persists a claimant-facing `plainExplanation` on every `AgentDecisionRecord` (append-only, immutable) and promises a `DecisionExplanationService` in `lib/compliance/` that "composes `plainExplanation` from the disposition + `factorsUsed` + the context spec's lineage, never leaking the raw engineer trace." It defines the **storage contract** and the **inputs**, but not the **generation strategy**. In a high-risk regulated domain this is the load-bearing decision: the rendered string is the legal artifact disclosed to a claimant under GDPR Art. 22 and AI Act Art. 86 ("meaningful information about the logic"), and is the text a regulator or court reads. A **hallucinated, unfaithful, or non-localizable** explanation is not a UX defect — it is direct legal liability and a misrepresentation of an adverse insurance decision. GAP-11 designs the generation path: faithful, grounded, auditable, localized, and immutably stored.
+The compliance spec persists a affected-party-facing `plainExplanation` on every `AgentDecisionRecord` (append-only, immutable) and promises a `DecisionExplanationService` in `lib/compliance/` that "composes `plainExplanation` from the disposition + `factorsUsed` + the context spec's lineage, never leaking the raw engineer trace." It defines the **storage contract** and the **inputs**, but not the **generation strategy**. In a high-risk regulated domain this is the load-bearing decision: the rendered string is the legal artifact disclosed to an affected party under GDPR Art. 22 and AI Act Art. 86 ("meaningful information about the logic"), and is the text a regulator or court reads. A **hallucinated, unfaithful, or non-localizable** explanation is not a UX defect — it is direct legal liability and a misrepresentation of an adverse automated decision. GAP-11 designs the generation path: faithful, grounded, auditable, localized, and immutably stored.
 
 This is explicitly **distinct** from the engineer trace (`AgentSpan`/`AgentToolCall`): the trace is forensic and internal; the explanation is plain-language and external. The generator must read only the disposition + `factorsUsed` + lineage refs, never serialize spans.
 
@@ -18,8 +18,8 @@ This is explicitly **distinct** from the engineer trace (`AgentSpan`/`AgentToolC
 |--------|------------------------|
 | **Faithfulness / no-hallucination (PARAMOUNT)** | Every claim in the explanation MUST map to a real entry in `factorsUsed` + context-spec lineage. A reason the model invented (a factor that did not influence the disposition) is a fabricated legal justification for an adverse decision. In this domain, faithfulness outranks fluency, flexibility, and cost combined. |
 | **Legal defensibility / auditability** | The exact rendered string is stored immutably in an append-only record retained ≥6 yrs (AI Act Art. 12). It must be reproducible from inputs and defensible: "this sentence came from factor X with lineage ref Y." Free-form generation that cannot be traced back to a factor is indefensible. |
-| **i18n / localization** | OM mandates no hard-coded user-facing strings; the portal serves the claimant's locale via `useT`/`resolveTranslations`. Explanations MUST render in the claimant's language with equal faithfulness — a per-locale concern that templates handle natively and free LLM output handles poorly (consistency drift across languages). |
-| **Readability** | The audience is a layperson contesting an insurance outcome, not an engineer. Output must be comprehensible without jargon — the one driver that *favours* an LLM and is the reason a pure template can feel robotic. |
+| **i18n / localization** | OM mandates no hard-coded user-facing strings; the portal serves the affected party's locale via `useT`/`resolveTranslations`. Explanations MUST render in the affected party's language with equal faithfulness — a per-locale concern that templates handle natively and free LLM output handles poorly (consistency drift across languages). |
+| **Readability** | The audience is a layperson contesting an automated outcome, not an engineer. Output must be comprehensible without jargon — the one driver that *favours* an LLM and is the reason a pure template can feel robotic. |
 | **Cost / latency** | Generated once per disposition on `agent_orchestrator.decision.recorded`, not per request (immutably stored, re-read cheaply). Volume is moderate and the path is async, so per-decision LLM cost is tolerable if it buys readability — cost is a low-weight driver. |
 | **OM-fit** | Must live in `lib/compliance/`, reuse `ai_assistant` `AiModelFactory` (the only sanctioned LLM seam, already used by the trace spec's `llm_judge`), `i18n/` for localized templates, the context spec's lineage for grounding, and store output via the existing append-only Command path. No new infra. |
 
@@ -52,13 +52,13 @@ Ship **template generation as the mandatory, always-on canonical path** (Phase 1
 
 Layer the LLM rephrase as a **later, per-tenant opt-in** that can *only narrow to grounded facts*: it drafts within the template's asserted facts, every draft passes a **grounding verifier** (each mentioned factor/value must resolve to `factorsUsed` + lineage, else discard and keep the template), and for **adverse outcomes the rephrase requires human sign-off** through the spec's existing mandatory-reviewer machinery before it may replace the template text. This is justified against the legal-risk driver precisely because the LLM is never the floor and never unsupervised on an adverse decision: the worst case degrades to the fully-grounded template, and the regulator-facing artifact is never a free LLM output.
 
-**Explicitly NOT recommended:** approach (b) as a default. Free or lightly-guardrailed LLM generation of the disclosed legal explanation in a high-risk insurance domain is a hallucination/liability risk that no amount of prompt instruction fully removes; it is admissible only as the gated lift inside (c).
+**Explicitly NOT recommended:** approach (b) as a default. Free or lightly-guardrailed LLM generation of the disclosed legal explanation in a high-risk regulated domain is a hallucination/liability risk that no amount of prompt instruction fully removes; it is admissible only as the gated lift inside (c).
 
 **Grounding + immutability invariants (both approaches):**
 - The generator reads ONLY `outcome` + `factorsUsed` + context-spec lineage refs. It MUST NOT receive or serialize `AgentSpan`/`AgentToolCall` (no engineer-trace leakage — spec risk row).
 - Every asserted factor must resolve to a lineage entry (`{ factId, sourceKind, sourceRef, locator? }`); unresolved factor → generation fails closed (no record without a faithful explanation).
 - The **exact rendered string** + the `(templateKey, locale, generatorMode: 'template' | 'llm_reviewed', modelId?, factorsUsed snapshot)` provenance is written immutably to the append-only `AgentDecisionRecord` via the Command path. Re-rendering for a new locale produces a NEW record/field, never mutates the stored one.
-- No PII beyond what the claimant is entitled to see; subject PII pulled via `findWithDecryption`, redaction rules from the context spec respected.
+- No PII beyond what the affected party is entitled to see; subject PII pulled via `findWithDecryption`, redaction rules from the context spec respected.
 
 ## 6. Effort, risks, dependencies
 
@@ -91,11 +91,11 @@ Layer the LLM rephrase as a **later, per-tenant opt-in** that can *only narrow t
 **Acceptance**
 - Every `AgentDecisionRecord` gets a `plainExplanation` whose every asserted factor resolves to a `factorsUsed` + lineage entry; an unresolved factor blocks record creation (fail-closed).
 - The explanation contains **no** engineer-trace internals and **no** other subject's data.
-- The explanation renders faithfully in each supported claimant locale via `i18n`; the same inputs in the template path produce the same string (reproducible/auditable).
+- The explanation renders faithfully in each supported affected-party locale via `i18n`; the same inputs in the template path produce the same string (reproducible/auditable).
 - The stored string is immutable (append-only); re-localization creates a new artifact, never mutates the original.
 - The LLM lift (when enabled) never emits a factor absent from `factorsUsed`; ungrounded drafts fall back to the template; adverse-outcome rephrases are not stored without human sign-off.
 - Default Phase-1 path uses **no LLM** — go-live faithfulness does not depend on a model provider.
 
 ## Changelog
 
-- **2026-06-19:** Initial GAP-11 design analysis. Recommended hybrid, template-first default with an opt-in, grounding-gated, human-reviewed (for adverse outcomes) LLM rephrase; rejected free LLM generation as a default for the disclosed legal explanation in this high-risk insurance domain. Anchored to the compliance spec's `DecisionExplanationService`/`AgentDecisionRecord` contract, the context spec's lineage as the grounding source, `ai_assistant` `AiModelFactory` (lift only), `i18n` localization, and immutable append-only storage of the exact rendered string.
+- **2026-06-19:** Initial GAP-11 design analysis. Recommended hybrid, template-first default with an opt-in, grounding-gated, human-reviewed (for adverse outcomes) LLM rephrase; rejected free LLM generation as a default for the disclosed legal explanation in this high-risk regulated domain. Anchored to the compliance spec's `DecisionExplanationService`/`AgentDecisionRecord` contract, the context spec's lineage as the grounding source, `ai_assistant` `AiModelFactory` (lift only), `i18n` localization, and immutable append-only storage of the exact rendered string.

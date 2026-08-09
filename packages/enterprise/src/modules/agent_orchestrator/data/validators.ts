@@ -1121,7 +1121,7 @@ export const agentProcessSubjectSchema = z
     valueMinor: z.coerce.number().int().nullable().optional(),
     currency: z.string().length(3).nullable().optional(),
     fraud: z.coerce.boolean().nullable().optional(),
-    /** Non-filterable display extras (e.g. policyholder, ownerLabel). */
+    /** Non-filterable display extras (e.g. subjectParty, ownerLabel). */
     facets: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .passthrough()

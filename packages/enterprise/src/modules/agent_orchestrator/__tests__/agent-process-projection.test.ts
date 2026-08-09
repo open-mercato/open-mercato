@@ -185,8 +185,8 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
     const first = await recomputeAgentProcess(em, SCOPE, PROCESS, {
       subject: {
         subjectType: 'Motor',
-        subjectLabel: 'CLM-2026-04417',
-        subjectTitle: 'Motor collision — payout adjudication',
+        subjectLabel: 'CASE-2026-04417',
+        subjectTitle: 'High-value case — settlement adjudication',
         valueMinor: 1840000,
         fraud: false,
       },
@@ -199,7 +199,7 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
       tenantId: TENANT,
       organizationId: ORG,
       subjectType: 'Motor',
-      subjectLabel: 'CLM-2026-04417',
+      subjectLabel: 'CASE-2026-04417',
       subjectValueMinor: 1840000,
       status: 'waiting_on_you',
       runCount: 1,
@@ -230,7 +230,7 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
     expect(rows[0]).toMatchObject({
       runCount: 2,
       costMinor: 65,
-      subjectLabel: 'CLM-2026-04417',
+      subjectLabel: 'CASE-2026-04417',
       agentIds: ['claims.coverage', 'claims.intake'],
       currentStage: 'coverage',
     })

@@ -32,7 +32,7 @@ export const capabilities = [
     key: 'claims.coverage_check', version: 1,
     proposalSchema: ClaimsCoverageCheckProposalSchema, // from data/validators.ts
     aclFeature: 'agent_orchestrator.capability.claims_coverage_check',
-    contextSources: ['policy_docs', 'claim_record', 'prior_cases'],
+    contextSources: ['reference_docs', 'case_record', 'prior_cases'],
     guardrailSet: 'claims.coverage_check@3',
     runtime: 'internal',
     runtimeRef: 'claims.coverage_agent',           // AiAgentDefinition id

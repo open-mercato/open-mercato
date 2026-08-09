@@ -1060,7 +1060,7 @@
   "workflows.form.invokeAgent.subject": "Geschäftsdatensatz",
   "workflows.form.invokeAgent.subjectDescription": "Optional: worum es in diesem Prozess geht. Erscheint in der Agenten-Fallliste und wird wie die übrige Schrittkonfiguration interpoliert.",
   "workflows.form.invokeAgent.subjectId": "Datensatz-ID",
-  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.claimId}}",
+  "workflows.form.invokeAgent.subjectIdPlaceholder": "{{context.orderId}}",
   "workflows.form.invokeAgent.subjectLabel": "Datensatz-Bezeichnung",
   "workflows.form.invokeAgent.subjectLabelPlaceholder": "Schaden #4821",
   "workflows.form.invokeAgent.subjectType": "Datensatztyp",

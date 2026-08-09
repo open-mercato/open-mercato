@@ -61,7 +61,7 @@ workflows (engine) ──▶ INVOKE_AGENT activity ──▶ DISPATCH ──▶ 
 | 14 | Context / retrieval plane | `query_index` + `search` (vector) + `attachments` + `ai-agent-attachment-processing` | Extend | CONTEXT-01 |
 | 15 | Shared process memory | `workflows` context (JSON) | Adopt | — |
 | 16 | Data lineage | `attachments` + TRACE spans | Extend | CONTEXT-01 §lineage |
-| 17 | Claimant-facing explainability / contest | `portal` / `customer_accounts` (self-service surface) | Extend→**Build** | COMPLY-01 |
+| 17 | Affected-party-facing explainability / contest | `portal` / `customer_accounts` (self-service surface) | Extend→**Build** | COMPLY-01 |
 | 18 | Bias / fairness monitoring | — | **Build** | COMPLY-01 |
 | 19 | AI Act conformity programme | `audit_logs` + `telemetry-and-otel` | Extend→**Build** | COMPLY-01 |
 | 20 | GDPR DSAR / erasure / consent | field encryption + `audit_logs` | Extend | COMPLY-01 |
@@ -99,7 +99,7 @@ workflows (engine) ──▶ INVOKE_AGENT activity ──▶ DISPATCH ──▶ 
 - `SPEC-IDENTITY-01` — Agentic-user principal, on-behalf-of audit chain, and standard agent auth (OAuth now / `auth.md` later). Foundational for attribution + authz.
 - `SPEC-GUARD-01` — Runtime AI guardrails (output, prompt-injection, PII, grounding, schema).
 - `SPEC-CONTEXT-01` — Context & knowledge plane (TDCR assembly + retrieval/grounding + document ingest + lineage).
-- `SPEC-COMPLY-01` — Decision transparency (claimant explanation + contest), GDPR rights, bias/fairness, AI Act conformity.
+- `SPEC-COMPLY-01` — Decision transparency (affected-party explanation + contest), GDPR rights, bias/fairness, AI Act conformity.
 - `SPEC-LIFECYCLE-01` — Agent deployment (shadow/canary/gradual autonomy), budgets/routing, regression gating from the eval set.
 - `SPEC-COCKPIT-01` — Operator/Admin/Engineer UI extending the workflow monitor + My Tasks.
 
@@ -127,6 +127,6 @@ ADR-001 (engine adopted)
 | **1 — keystone** | AGENTINT-01 (+ DISPATCH-01 internal, TRACE-01 1a/1b) | One claim runs end-to-end: workflow → agent step → proposal → rule disposes → human task |
 | **2 — safety & context** | GUARD-01, CONTEXT-01, TRACE-01 evals/corrections | Agents are guarded, grounded, and their corrections become eval cases |
 | **3 — external & ops** | DISPATCH-01 A2A, COCKPIT-01 | External/A2A agents + the operator/admin/engineer cockpit |
-| **4 — govern & ship** | COMPLY-01, LIFECYCLE-01 | Claimant transparency, AI Act conformity, shadow/canary + regression-gated rollout |
+| **4 — govern & ship** | COMPLY-01, LIFECYCLE-01 | Affected-party transparency, AI Act conformity, shadow/canary + regression-gated rollout |
 
-**Critical path to a working insurance pilot:** Phase 0 → AGENTINT-01 → GUARD-01 → COMPLY-01 (the claimant/AI-Act surface can't be retrofitted late in a high-risk domain).
+**Critical path to a working high-risk pilot:** Phase 0 → AGENTINT-01 → GUARD-01 → COMPLY-01 (the affected-party/AI-Act surface can't be retrofitted late in a high-risk domain).

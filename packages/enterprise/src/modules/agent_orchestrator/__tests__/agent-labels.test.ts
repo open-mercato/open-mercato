@@ -2,8 +2,8 @@ import { agentLabelFor } from '../components/useAgentLabels'
 
 describe('agentLabelFor', () => {
   it('prefers the registry label over the definition id', () => {
-    const labels = new Map([['lighthouse.klient', 'Agent Klient (Lighthouse)']])
-    expect(agentLabelFor(labels, 'lighthouse.klient')).toBe('Agent Klient (Lighthouse)')
+    const labels = new Map([['sample.assistant', 'Sample Assistant']])
+    expect(agentLabelFor(labels, 'sample.assistant')).toBe('Sample Assistant')
   })
 
   it('keeps the id for an agent the registry does not know', () => {

@@ -94,7 +94,7 @@ export const features = [
   // header. Plural `processes`, matching the `proposals.*`/`agents.*` convention.
   {
     id: 'agent_orchestrator.processes.view',
-    title: 'View agent processes (claim-anchored caseload)',
+    title: 'View agent processes (case-anchored caseload)',
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.proposals.view'],
   },

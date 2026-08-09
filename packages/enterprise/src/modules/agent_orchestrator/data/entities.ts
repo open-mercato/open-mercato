@@ -1495,7 +1495,7 @@ export class AgentProcess {
   @Property({ name: 'subject_id', type: 'varchar', length: 200, nullable: true })
   subjectId?: string | null
 
-  /** e.g. 'CLM-2026-04417' — low-sensitivity ref kept plaintext for `q` search. */
+  /** e.g. 'CASE-2026-04417' — low-sensitivity ref kept plaintext for `q` search. */
   @Property({ name: 'subject_label', type: 'varchar', length: 200, nullable: true })
   subjectLabel?: string | null
 

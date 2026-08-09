@@ -202,7 +202,7 @@ Standalone pages under the "Agents" nav group, all feature-gated, live-updating 
 | **Playground** | Run any agent ad hoc with sample inputs (never auto-executes proposals) |
 | **Eval assertions** | Manage deterministic/LLM-judge assertions |
 | **Audit** + by-instigator | Disposition audit and the "everything agent X did on behalf of human Y" chain |
-| **Processes** | Page exists but is sample-data backed — the claim-anchored process projection is 🔜 roadmap |
+| **Processes** | Page exists but is sample-data backed — the case-anchored process projection is 🔜 roadmap |
 
 ### 🔜 Roadmap
 
@@ -266,7 +266,7 @@ The analysis's central prescription — deterministic propose/dispose boundaries
 - **Tier 1 — operational safety:** a **kill switch** (global + per-agent), amount/rate limits per decision type, anti-retry-loop caps, and multi-signal disposition (the single-confidence gate is the one place the built system contradicts its own security analysis). The gap review recommends one "runtime autonomy and operational controls" spec covering exactly this.
 - **Tier 2 — hardening:** tamper-evident audit (hash chain/WORM — today immutability is convention + tests, not cryptographic), prompt registry + model-snapshot pinning + drift detection, credential rotation, per-node tool allowlists, guardrail parity for the OpenCode path (moot once native replaces it).
 - **Tier 3 — process/compliance:** confidence calibration, sampled re-review, egress controls, OWASP-LLM/DORA control mapping, SIEM correlation.
-- **Compliance (specced, not built):** AI-Act decision transparency (plain-language claimant-facing decision records, contest/appeal flow), DSAR export and audit-preserving erasure via crypto-shredding, fairness cohorts. Already supportive today: append-only record-keeping, instigator attribution, encrypted PII, and the anti-rubber-stamp metric (AI Act Art. 14 human-oversight evidence).
+- **Compliance (specced, not built):** AI-Act decision transparency (plain-language affected-party-facing decision records, contest/appeal flow), DSAR export and audit-preserving erasure via crypto-shredding, fairness cohorts. Already supportive today: append-only record-keeping, instigator attribution, encrypted PII, and the anti-rubber-stamp metric (AI Act Art. 14 human-oversight evidence).
 
 ---
 

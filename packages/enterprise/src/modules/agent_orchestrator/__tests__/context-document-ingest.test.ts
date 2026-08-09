@@ -322,7 +322,7 @@ describe('ContextResolver.assemble — document facts flow into the bundle as ci
       docType: 'claim_form',
       engine: 'ocr_fake',
       facts: [
-        { field: 'claimant', value: 'Jane', sourceRef: ATTACHMENT_ID, locator: { page: 3 }, confidence: 0.95 },
+        { field: 'subjectName', value: 'Jane', sourceRef: ATTACHMENT_ID, locator: { page: 3 }, confidence: 0.95 },
         { field: 'noise', value: '???', sourceRef: ATTACHMENT_ID, locator: { page: 3 }, confidence: 0.1 },
       ],
     })

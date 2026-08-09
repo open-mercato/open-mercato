@@ -10,7 +10,7 @@
 
 ## TLDR
 
-Real-time, **blocking** safety checks on agent **inputs and outputs** — distinct from after-the-fact evals (`agent-trace-eval-capture` spec) and from `business_rules` GUARD rules (deterministic entity-level validation). Guardrails cover prompt-injection / untrusted-content, PII, grounding, output-schema, and tool-scope. They run as a pre-call/post-call hook **inside `agent_orchestrator`'s own `INVOKE_AGENT` implementation** — not as a core `workflows` activity hook (no such pluggable registry exists). Every check appends an `AgentGuardrailCheck` (append-only) and attaches `guardResults` to the `AgentProposal`. Critical for a regulated, document-ingesting domain (insurance) where claim attachments are attacker-controllable.
+Real-time, **blocking** safety checks on agent **inputs and outputs** — distinct from after-the-fact evals (`agent-trace-eval-capture` spec) and from `business_rules` GUARD rules (deterministic entity-level validation). Guardrails cover prompt-injection / untrusted-content, PII, grounding, output-schema, and tool-scope. They run as a pre-call/post-call hook **inside `agent_orchestrator`'s own `INVOKE_AGENT` implementation** — not as a core `workflows` activity hook (no such pluggable registry exists). Every check appends an `AgentGuardrailCheck` (append-only) and attaches `guardResults` to the `AgentProposal`. Critical for a regulated, document-ingesting domain where uploaded attachments are attacker-controllable.
 
 ## Overview
 

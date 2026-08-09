@@ -38,7 +38,7 @@ This spec adds a **file plane** confined to the OpenCode runtime — the only ru
 
 Real agent use cases are file-shaped, and the orchestrator cannot express them:
 
-- **Inputs.** An insurance/claims or document-processing agent must read a PDF or image the customer uploaded. Today the only path is to pre-extract text into the prompt — there is no contract to pass the file (or even its OCR text) to an OpenCode agent, and the OCR capability that exists in `attachments` (`OcrService`) is not wired to agent inputs.
+- **Inputs.** A document-processing agent must read a PDF or image the customer uploaded. Today the only path is to pre-extract text into the prompt — there is no contract to pass the file (or even its OCR text) to an OpenCode agent, and the OCR capability that exists in `attachments` (`OcrService`) is not wired to agent inputs.
 - **Outputs.** A reporting/quoting agent must *produce* a document (PDF/CSV/XLSX). Today every write tool is denied and the runner never inspects the container filesystem, so an agent can only return JSON. The `AgentRun.outputArtifactKey` column (`entities.ts:121-123`) exists but only offloads the *structured* output payload — it is not a file-artifact channel.
 - **Governance gap.** Even if write tools were naively re-enabled, the OpenCode container is a **shared, long-running server** with one working directory: concurrent runs would collide and could read each other's files, and an agent could write outside any sandbox. There is no per-run workspace, no capture pipeline, no tenant-scoped artifact store, and no disposition path to safely land a generated file on a domain record.
 

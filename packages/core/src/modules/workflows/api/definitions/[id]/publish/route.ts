@@ -240,7 +240,7 @@ export const openApi = {
           description: 'Breaking changes not acknowledged',
           example: {
             error: 'Publishing would break existing sub-workflow mappings',
-            breakingChanges: [{ workflowId: 'order-flow', version: 1, stepId: 'sub', brokenMappings: ['input:claimId'] }],
+            breakingChanges: [{ workflowId: 'order-flow', version: 1, stepId: 'sub', brokenMappings: ['input:orderId'] }],
           },
         },
         { status: 404, description: 'Not found', example: { error: 'Workflow definition not found' } },
