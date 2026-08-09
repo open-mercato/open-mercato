@@ -152,7 +152,7 @@ test.describe('TC-WF-058: the Studio paints the last run', () => {
       // only as the edge's inline stroke.
       await expect(workflowEdgePath(page, 'prepare-to-finish')).toHaveAttribute(
         'style',
-        new RegExp(WORKFLOW_TAKEN_ROUTE_STROKE.replace(/[()]/g, '\\$&')),
+        new RegExp(WORKFLOW_TAKEN_ROUTE_STROKE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
         { timeout: 30_000 },
       )
       expect(runRequestCount, 'and enabling it is what triggers the fetch').toBeGreaterThan(0)
