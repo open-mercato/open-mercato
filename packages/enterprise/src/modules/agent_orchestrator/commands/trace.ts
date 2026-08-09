@@ -2,6 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { traceIngestSchema } from '../data/validators'
 import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestionService'
 import { createArtifactOffloader } from '../lib/trace/artifactStore'
@@ -10,6 +11,8 @@ import { resolveJudgeSampleRate, shouldSampleForJudge } from '../lib/eval/sampli
 import { AgentEvalAssertion, AgentRun } from '../data/entities'
 import { AGENT_ORCHESTRATOR_LLM_JUDGE_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
 import { emitAgentOrchestratorEvent } from '../events'
+
+const logger = createLogger('agent_orchestrator').child({ command: 'trace' })
 
 const ingestTraceCommandSchema = z.object({
   tenantId: z.string().uuid(),
@@ -95,7 +98,9 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
         await getAgentOrchestratorQueue(AGENT_ORCHESTRATOR_LLM_JUDGE_QUEUE).enqueue({ runId: result.runId, scope })
       }
     } catch (error) {
-      console.warn('[internal] agent_orchestrator: failed to enqueue llm_judge job', error)
+      logger.warn('failed to enqueue llm_judge job', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     return result

@@ -4,6 +4,7 @@ import {
   defineAdapterModule,
   notReady,
   searchOk,
+  stripTrailingSlashes,
   toOutcomeFailure,
   type RawResult,
   type SearchAdapter,
@@ -50,7 +51,7 @@ function parseJson(body: string): unknown {
 
 export function createTavilyAdapter(options: TavilyOptions): SearchAdapter {
   const apiKey = options.apiKey?.trim() ?? ''
-  const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+  const baseUrl = stripTrailingSlashes(options.baseUrl ?? DEFAULT_BASE_URL)
   const searchDepth = options.searchDepth ?? 'basic'
   const includeContent = options.includeContent ?? false
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS

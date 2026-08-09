@@ -2549,7 +2549,9 @@ export default function VisualEditorPage() {
       }
       setAutosaveState('saved')
     } catch (error) {
-      console.error('[internal] workflow autosave failed', error)
+      logger.error('workflow autosave failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
       lastAutosavedBodyRef.current = null
       setAutosaveState('idle')
     }

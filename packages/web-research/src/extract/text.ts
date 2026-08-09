@@ -59,7 +59,10 @@ export function normalizeWhitespace(text: string): string {
   return text
     .replace(UNICODE_SPACES, ' ')
     .replace(/[ \t\f\r\v]+/g, ' ')
-    .replace(/ *\n */g, '\n')
+    // The collapse above leaves at most one space on either side of a newline,
+    // so ` ?` is equivalent to ` *` here — and, unlike ` *`, does not backtrack
+    // quadratically over long runs of spaces (CodeQL polynomial ReDoS).
+    .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }

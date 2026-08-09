@@ -8,6 +8,9 @@ import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_TASK_RUN_QUEUE } from '../lib/queue'
 import { isAgentCapacityError } from '../lib/runtime/admission'
 import type { AgentRunCtx, AgentRuntimeService } from '../lib/runtime/agentRuntime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ worker: 'task-run-executor' })
 
 /**
  * Agentic Tasks executor: consumes `{ taskRunId }` jobs from the always-async
@@ -100,11 +103,10 @@ async function handleScheduledTick(
       ctx: commandCtx,
     })
   } catch (error) {
-    console.warn(
-      '[internal] agent_orchestrator: scheduled task tick failed to enqueue',
-      { taskDefinitionId: definition.id },
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('scheduled task tick failed to enqueue', {
+      taskDefinitionId: definition.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 
@@ -253,11 +255,11 @@ async function executeWorkflowTarget(
   } catch (error) {
     // The executor persists instance failure itself and (post lifecycle-events
     // spec) emits workflows.instance.failed — the subscriber owns the flip.
-    console.warn(
-      '[internal] agent_orchestrator: workflow-target execution error (instance state is authoritative)',
-      { taskRunId: taskRun.id, instanceId },
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('workflow-target execution error (instance state is authoritative)', {
+      taskRunId: taskRun.id,
+      instanceId,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

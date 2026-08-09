@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { computeCostMinor, resolveModelPrice } from '../lib/runtime/modelPricing'
+import { captureLogs } from './support/captureLogs'
 
 describe('modelPricing — Q8 minimal pricing config', () => {
   const envBackup = { pricing: process.env.OM_AGENT_MODEL_PRICING, currency: process.env.OM_AGENT_COST_CURRENCY }
@@ -54,21 +55,25 @@ describe('modelPricing — Q8 minimal pricing config', () => {
   })
 
   it('falls back to defaults on malformed env JSON (with an internal warning)', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     process.env.OM_AGENT_MODEL_PRICING = '{not json'
     expect(resolveModelPrice('gpt-5-mini')).toMatchObject({ inputPer1M: 0.25, outputPer1M: 2 })
-    expect(warn).toHaveBeenCalled()
+    expect(logs.at('warn').map((record) => record.message)).toContain(
+      'OM_AGENT_MODEL_PRICING is not valid JSON; using default pricing',
+    )
+    logs.restore()
   })
 
   it('skips malformed entries but keeps valid ones', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     process.env.OM_AGENT_MODEL_PRICING = JSON.stringify({
       good: { inputPer1M: 5, outputPer1M: 5 },
       bad: { inputPer1M: 'x' },
     })
     expect(resolveModelPrice('good')).not.toBeNull()
     expect(resolveModelPrice('bad')).toBeNull()
-    expect(warn).toHaveBeenCalled()
+    expect(logs.at('warn').map((record) => record.fields.model)).toContain('bad')
+    logs.restore()
   })
 
   it('OM_AGENT_COST_CURRENCY sets the estimate currency (validated, uppercased)', () => {

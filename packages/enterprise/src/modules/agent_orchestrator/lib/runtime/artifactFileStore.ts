@@ -15,6 +15,10 @@
  * row that points at bytes that were never stored.
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'artifact-file-store' })
+
 /** The `storage_s3` namespace all captured file artifacts are written under. */
 export const AGENT_ARTIFACT_FILE_NAMESPACE = 'agent-run-artifacts'
 
@@ -152,7 +156,9 @@ export async function putArtifactBytes(
     })
     return key || null
   } catch (error) {
-    console.warn('[internal] agent_orchestrator: artifact byte upload failed', error)
+    logger.warn('artifact byte upload failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return null
   }
 }
@@ -175,7 +181,9 @@ export async function getArtifactBytes(
     if (base64 == null) return null
     return Buffer.from(base64, 'base64')
   } catch (error) {
-    console.warn('[internal] agent_orchestrator: artifact byte fetch failed', error)
+    logger.warn('artifact byte fetch failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return null
   }
 }

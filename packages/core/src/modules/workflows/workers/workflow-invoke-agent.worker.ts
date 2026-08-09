@@ -15,6 +15,9 @@ import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { WorkflowActivityJob } from '../lib/activity-queue-types'
 import { handleInvokeAgentJob } from '../lib/activity-worker-handler'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows').child({ worker: 'invoke-agent' })
 
 // Worker metadata for auto-discovery.
 // NOTE: `queue` MUST be a string literal (or locally-declared const) so the
@@ -51,9 +54,11 @@ export default async function handle(
   const { payload } = job
 
   if (payload.kind !== 'invoke_agent') {
-    console.warn(
-      `[workflows:invoke-agent-worker] Skipping job ${ctx.jobId} with unexpected kind '${payload.kind ?? 'activity'}' on the ${WORKFLOW_INVOKE_AGENT_QUEUE} queue`
-    )
+    logger.warn('skipping job with unexpected kind', {
+      jobId: ctx.jobId,
+      kind: payload.kind ?? 'activity',
+      queue: WORKFLOW_INVOKE_AGENT_QUEUE,
+    })
     return
   }
 

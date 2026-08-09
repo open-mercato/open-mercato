@@ -6,6 +6,7 @@ import {
   type NativeStepRecord,
 } from '../lib/runtime/nativeTraceCapture'
 import { ingestTrace } from '../lib/trace/traceIngestionService'
+import { captureLogs } from './support/captureLogs'
 import { AgentRun, AgentSpan, AgentToolCall } from '../data/entities'
 
 /** Same in-memory EM fake as trace-ingestion-service.test.ts — deterministic, no DB. */
@@ -222,7 +223,7 @@ describe('ingest integration (idempotent upsert onto the stamped run)', () => {
 
 describe('captureNativeRunTrace', () => {
   it('never throws when the EM explodes (best-effort)', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const logs = captureLogs()
     try {
       const container = {
         resolve: () => {
@@ -232,9 +233,11 @@ describe('captureNativeRunTrace', () => {
       await expect(
         captureNativeRunTrace(container, { tenantId: 't1', organizationId: 'o1' }, baseInput()),
       ).resolves.toBeUndefined()
-      expect(warn).toHaveBeenCalled()
+      expect(logs.at('warn').map((record) => record.message)).toContain(
+        'native trace capture failed for run',
+      )
     } finally {
-      warn.mockRestore()
+      logs.restore()
     }
   })
 

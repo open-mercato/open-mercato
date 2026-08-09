@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
 import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
 import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'setup' })
 
 /** Mirrors the @open-mercato/scheduler ScheduleRegistration field names. */
 type SchedulerServiceLike = {
@@ -169,10 +172,9 @@ export const setup: ModuleSetupConfig = {
         isEnabled: true,
       })
     } catch (error) {
-      console.warn(
-        '[internal] agent_orchestrator: failed to register metric-rollup schedule',
-        error instanceof Error ? error.message : error,
-      )
+      logger.warn('failed to register metric-rollup schedule', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   },
 

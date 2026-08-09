@@ -3,6 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE, type MetricRollupJobPayload } from '../lib/queue'
 import { writeRollupsForOrg } from '../lib/metrics/metricRollupService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ worker: 'metric-rollup' })
 
 /**
  * F2 metric rollups: precompute per-agent KPI windows into append-only rollup
@@ -28,6 +31,9 @@ export default async function handle(job: QueuedJob<MetricRollupJobPayload>, _ct
   } catch (error) {
     // Best-effort tier: a rollup failure must not fail the job loudly. The
     // metrics endpoint falls back to live compute, so numbers stay correct.
-    console.warn('[internal] agent_orchestrator: metric rollup failed', { scope, error })
+    logger.warn('metric rollup failed', {
+      scope,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }

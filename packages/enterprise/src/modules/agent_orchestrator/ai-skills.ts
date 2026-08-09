@@ -1,8 +1,11 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { defineSkill, type SkillRegistryEntry } from './lib/sdk/defineSkill'
 import { parseSkillMarkdown } from './lib/sdk/skillMarkdown'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'ai-skills' })
 
 // Skills are authored as SKILL.md files under `./skills`. Each file carries
 // frontmatter (id, moduleId, label, description, tools) and a markdown body that
@@ -31,7 +34,7 @@ function resolveSkillsDir(): string | null {
 function loadSkillsFromDisk(): SkillRegistryEntry[] {
   const dir = resolveSkillsDir()
   if (!dir) {
-    console.warn('[agent_orchestrator] skills directory not found; no skills loaded.')
+    logger.warn('skills directory not found; no skills loaded')
     return []
   }
   const files = fs
@@ -43,7 +46,7 @@ function loadSkillsFromDisk(): SkillRegistryEntry[] {
     const raw = fs.readFileSync(path.join(dir, file), 'utf8')
     const parsed = parseSkillMarkdown(raw)
     if (!parsed) {
-      console.warn(`[agent_orchestrator] skill "${file}" is missing required frontmatter (id/moduleId/label); skipping.`)
+      logger.warn('skill is missing required frontmatter (id/moduleId/label); skipping', { file })
       continue
     }
     entries.push(defineSkill(parsed))

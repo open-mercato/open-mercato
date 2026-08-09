@@ -3,6 +3,8 @@
 // the post-run trace capture on success AND failure, a capture failure never
 // fails the run, and the model call runs under the provider budget.
 
+import { captureLogs } from './support/captureLogs'
+
 const runAiAgentObjectMock = jest.fn<Promise<unknown>, [Record<string, unknown>]>()
 jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime', () => ({
   runAiAgentObject: (args: Record<string, unknown>) => runAiAgentObjectMock(args),
@@ -149,7 +151,7 @@ describe('native run stamping', () => {
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatch(/^run-\d+$/)
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const result2 = await service.run('native.hook_agent', {}, {
         ...runCtx,
@@ -158,9 +160,9 @@ describe('native run stamping', () => {
         },
       })
       expect(result2.kind).toBe('informative')
-      expect(warnSpy).toHaveBeenCalled()
+      expect(logs.at('warn').map((record) => record.message)).toContain('onRunPersisted hook failed')
     } finally {
-      warnSpy.mockRestore()
+      logs.restore()
     }
   })
 

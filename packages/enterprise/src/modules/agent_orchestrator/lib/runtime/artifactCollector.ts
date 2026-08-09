@@ -2,8 +2,11 @@ import { createHash } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { putArtifactBytes, type MinimalContainer } from './artifactFileStore'
 import type { CaptureArtifactsInput } from '../../commands/artifacts'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'artifact-collector' })
 
 /** Advisory artifact metadata the agent optionally declared via `submit_outcome`. */
 export type AdvisoryArtifact = { path: string; caption?: string }
@@ -126,7 +129,7 @@ export async function collectArtifacts(args: {
     }
     if (size > maxBytes) {
       skipped.push(rel)
-      console.warn(`[internal] agent artifact "${rel}" (${size}B) exceeds OM_AGENT_ARTIFACT_MAX_BYTES; skipped`)
+      logger.warn('agent artifact exceeds OM_AGENT_ARTIFACT_MAX_BYTES; skipped', { artifact: rel, size })
       continue
     }
     let bytes: Buffer
@@ -158,7 +161,10 @@ export async function collectArtifacts(args: {
   }
 
   if (skipped.length > 0) {
-    console.warn(`[internal] agent artifact capture skipped ${skipped.length} file(s) over caps for run ${args.runId}`)
+    logger.warn('agent artifact capture skipped files over caps', {
+      skippedCount: skipped.length,
+      runId: args.runId,
+    })
   }
 
   let capturedCount = 0

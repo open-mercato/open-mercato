@@ -15,6 +15,13 @@ const MAX_REDIRECTS = 5
 const MAX_RETRIES = 2
 const MAX_BACKOFF_MS = 5_000
 /**
+ * Hard ceiling on a single `sleep()`. Backoff is already clamped to
+ * `MAX_BACKOFF_MS`, but the politeness delay is derived from configuration and
+ * a `Retry-After` header is remote input, so the timer itself is capped too —
+ * no caller can park a request for an unbounded stretch.
+ */
+const MAX_SLEEP_MS = 60_000
+/**
  * Ceiling on one `request()` call, redirects and retries included.
  *
  * `timeoutMs` bounds a single attempt, so without this a call could legitimately
@@ -73,8 +80,9 @@ export function createPinnedLookup(addresses: readonly string[]): LookupFunction
 
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve()
+  const bounded = Math.min(ms, MAX_SLEEP_MS)
   return new Promise((resolve) => {
-    const timer = setTimeout(finish, ms)
+    const timer = setTimeout(finish, bounded)
     function finish(): void {
       clearTimeout(timer)
       signal?.removeEventListener('abort', finish)

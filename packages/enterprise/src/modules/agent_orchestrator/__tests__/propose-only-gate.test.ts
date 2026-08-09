@@ -5,6 +5,8 @@
 // manifest + the AI tool registry to prove a mutation-tool-declaring file agent
 // is skipped while a read-only one registers.
 
+import { captureLogs } from './support/captureLogs'
+
 const getToolMock = jest.fn()
 
 jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader', () => ({
@@ -70,14 +72,12 @@ describe('propose-only generation gate (file agents)', () => {
   })
 
   it('rejects a file agent that declares a mutation tool and registers the read-only one', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     await ensureAgentsLoaded()
 
     expect(getAgentEntry('gate.read_only_agent')).toBeDefined()
     expect(getAgentEntry('gate.mutation_agent')).toBeUndefined()
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('gate.mutation_agent'),
-    )
-    warn.mockRestore()
+    expect(logs.at('warn').map((record) => record.fields.agentId)).toContain('gate.mutation_agent')
+    logs.restore()
   })
 })

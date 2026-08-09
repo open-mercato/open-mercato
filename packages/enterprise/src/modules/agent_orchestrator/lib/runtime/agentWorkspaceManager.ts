@@ -1,5 +1,8 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'agent-workspace' })
 
 /**
  * Per-run sandbox lifecycle for the OpenCode file plane (#12).
@@ -127,7 +130,7 @@ export class AgentWorkspaceManager {
 
     let released = false
     let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      console.warn(`[internal] agent workspace lease timed out; force-reclaiming ${root}`)
+      logger.warn('agent workspace lease timed out; force-reclaiming', { root })
       void doRelease()
     }, this.leaseTimeoutMs)
     if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
@@ -144,7 +147,10 @@ export class AgentWorkspaceManager {
       try {
         await rm(root, { recursive: true, force: true })
       } catch (err) {
-        console.warn(`[internal] failed to wipe agent workspace ${root}:`, err)
+        logger.warn('failed to wipe agent workspace', {
+          root,
+          error: err instanceof Error ? err.message : String(err),
+        })
       } finally {
         this.freeSlot()
       }

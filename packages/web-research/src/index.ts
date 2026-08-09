@@ -4,6 +4,7 @@ export * from './extract'
 export * from './fusion'
 export * from './loader'
 export { createHttpClient, createPinnedLookup, type HttpClientOptions } from './net/client'
+export { stripTrailingSlashes } from './net/url'
 export {
   assertPublicUrl,
   isLoopbackHostname,

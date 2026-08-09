@@ -16,6 +16,10 @@
  * of the module degrades.
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'trace-artifact-store' })
+
 /** The `storage_s3` namespace all trace artifacts are written under. */
 export const AGENT_TRACE_ARTIFACT_NAMESPACE = 'agent-trace-artifacts'
 
@@ -146,7 +150,9 @@ export async function putArtifact(
     })
     return key || null
   } catch (error) {
-    console.warn('[internal] agent_orchestrator: artifact offload failed; keeping inline summary', error)
+    logger.warn('artifact offload failed; keeping inline summary', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return null
   }
 }
@@ -179,7 +185,9 @@ export async function getArtifact(
       return serialized
     }
   } catch (error) {
-    console.warn('[internal] agent_orchestrator: artifact fetch failed', error)
+    logger.warn('artifact fetch failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return null
   }
 }

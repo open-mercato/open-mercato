@@ -6,6 +6,9 @@ import { AgentEvalSuiteRun } from '../data/entities'
 import { replaySuiteRun } from '../lib/eval/evalReplayService'
 import { AGENT_ORCHESTRATOR_EVAL_SUITE_QUEUE, type EvalSuiteRunJobPayload } from '../lib/queue'
 import type { CompleteEvalRunCommandInput, CompleteEvalRunCommandResult } from '../commands/evalRuns'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ worker: 'eval-suite-runner' })
 
 /**
  * Drains one suite run's pending case runs, then completes it.
@@ -67,7 +70,10 @@ export default async function handle(
       failed.finishedAt = new Date()
       await em.flush()
     }
-    console.warn('[internal] agent_orchestrator: eval suite replay failed', { suiteRunId, error })
+    logger.warn('eval suite replay failed', {
+      suiteRunId,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return
   }
 

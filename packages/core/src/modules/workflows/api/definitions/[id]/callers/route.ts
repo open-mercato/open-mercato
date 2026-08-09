@@ -12,10 +12,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { WorkflowDefinition } from '../../../../data/entities'
 import type { WorkflowIoContract } from '../../../../data/validators'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
+
+const logger = createLogger('workflows').child({ component: 'definition-callers-api' })
 
 export const metadata = {
   requireAuth: true,
@@ -65,7 +68,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ callers })
   } catch (error) {
-    console.error('Error resolving workflow definition callers:', error)
+    logger.error('error resolving workflow definition callers', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return NextResponse.json({ error: 'Failed to resolve callers' }, { status: 500 })
   }
 }

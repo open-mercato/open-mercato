@@ -5,6 +5,7 @@ import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { WorkflowDefinitionData } from '@open-mercato/core/modules/workflows/data/entities'
 import { AgentEvalAssertion, AgentEvalCase } from '../data/entities'
@@ -12,6 +13,8 @@ import { canonicalInputKey } from './eval/canonicalInputKey'
 import { getAgentEntry } from './sdk/defineAgent'
 
 const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
+
+const logger = createLogger('agent_orchestrator').child({ component: 'seeds' })
 
 export type AgentOrchestratorSeedScope = { tenantId: string; organizationId: string }
 
@@ -125,9 +128,9 @@ function requireString(value: unknown, label: string): string {
  */
 function verifyDemoAgent(): void {
   if (!getAgentEntry(DEMO_AGENT_ID)) {
-    console.warn(
-      `[agent_orchestrator] demo agent "${DEMO_AGENT_ID}" not found in the registry; ` +
-        'run `yarn generate` so ai-agents.ts is discovered before triggering the demo workflow.',
+    logger.warn(
+      'demo agent not found in the registry; run `yarn generate` so ai-agents.ts is discovered before triggering the demo workflow',
+      { agentId: DEMO_AGENT_ID },
     )
   }
 }

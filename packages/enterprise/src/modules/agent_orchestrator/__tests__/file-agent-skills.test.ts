@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { loadFileAgentDir } from '../lib/sdk/defineFileAgent'
+import { captureLogs } from './support/captureLogs'
 
 // Phase 3: an agent-local skill authored under agents/<id>/skills/<skill_id>/
 // must (1) load its instructions/template/examples content, and (2) union its
@@ -120,7 +121,7 @@ describe('loadFileAgentDir — agent-local skills (Phase 3)', () => {
   })
 
   it('skips an unknown referenced skill without failing the agent', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const dir = makeAgentDir({ skills: '[does_not_exist]' })
     created.push(dir)
     const loaded = loadFileAgentDir(dir)
@@ -128,8 +129,8 @@ describe('loadFileAgentDir — agent-local skills (Phase 3)', () => {
     expect(loaded!.skillsContent).toEqual([])
     // only the agent's own tool remains
     expect(loaded!.entry.tools).toEqual(['customers.get_deal'])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('does_not_exist'))
-    warn.mockRestore()
+    expect(logs.at('warn').map((record) => record.fields.skillId)).toContain('does_not_exist')
+    logs.restore()
   })
 
   it('carries no skill content when the agent declares no skills', () => {

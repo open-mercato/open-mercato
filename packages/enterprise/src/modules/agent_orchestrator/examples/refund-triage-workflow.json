@@ -110,6 +110,7 @@
             "activityType": "SEND_EMAIL",
             "config": {
               "to": "{{context.customerEmail}}",
+              "subject": "Refund request declined - {{context.refundId}}",
               "template": "refund_declined",
               "data": {
                 "refundId": "{{context.refundId}}",

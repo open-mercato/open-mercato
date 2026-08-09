@@ -3,6 +3,9 @@ import type { TraceIngest, TraceSpanIngest } from '../../data/validators'
 import { ingestTrace } from '../trace/traceIngestionService'
 import { createArtifactOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
 /**
  * Always-on per-step trace capture for the native runtime (lightweight-agent-
@@ -200,9 +203,9 @@ export async function captureNativeRunTrace(
     // command path. Best-effort: wrapped by the outer try so it never fails the run.
     await evaluateRun(em, scope, result.runId)
   } catch (err) {
-    console.warn(
-      `[internal] agent_orchestrator: native trace capture failed for run "${input.runId}":`,
-      err instanceof Error ? err.message : err,
-    )
+    logger.warn('native trace capture failed for run', {
+      runId: input.runId,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
 }

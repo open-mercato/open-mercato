@@ -31,6 +31,9 @@ import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
 /**
  * One MCP tool invocation observed on the OpenCode SSE stream during a run.
@@ -184,7 +187,10 @@ export class OpenCodeAgentRunner {
       try {
         ctx.onRunPersisted(runId)
       } catch (err) {
-        console.warn(`[internal] onRunPersisted hook failed for "${agentId}":`, err)
+        logger.warn('onRunPersisted hook failed', {
+          agentId,
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
     }
 
@@ -248,7 +254,10 @@ export class OpenCodeAgentRunner {
         status: transition.status,
         label: deriveProgressLabel(transition.input),
       }).catch((err) => {
-        console.warn(`[internal] run.progress emit failed for "${agentId}":`, err)
+        logger.warn('run.progress emit failed', {
+          agentId,
+          error: err instanceof Error ? err.message : String(err),
+        })
       })
     }
 
@@ -274,7 +283,10 @@ export class OpenCodeAgentRunner {
           const workspaceManager = this.container.resolve<AgentWorkspaceManager>('agentWorkspaceManager')
           workspace = await workspaceManager.acquire(sessionToken)
         } catch (err) {
-          console.warn(`[internal] failed to acquire agent workspace for "${agentId}"; continuing without file plane:`, err)
+          logger.warn('failed to acquire agent workspace; continuing without file plane', {
+            agentId,
+            error: err instanceof Error ? err.message : String(err),
+          })
         }
       }
 
@@ -371,12 +383,16 @@ export class OpenCodeAgentRunner {
             organizationId: ctx.organizationId,
           })
           if (summary.failed.length > 0) {
-            console.warn(
-              `[internal] agent "${agentId}" artifact capture could not store ${summary.failed.length} file(s) (storage-s3 unavailable?)`,
-            )
+            logger.warn('artifact capture could not store files (storage-s3 unavailable?)', {
+              agentId,
+              failedCount: summary.failed.length,
+            })
           }
         } catch (err) {
-          console.warn(`[internal] artifact capture threw for "${agentId}":`, err)
+          logger.warn('artifact capture threw', {
+            agentId,
+            error: err instanceof Error ? err.message : String(err),
+          })
         }
       }
 
@@ -405,18 +421,27 @@ export class OpenCodeAgentRunner {
         try {
           await workspace.release()
         } catch (err) {
-          console.warn(`[internal] failed to release agent workspace for "${agentId}":`, err)
+          logger.warn('failed to release agent workspace', {
+            agentId,
+            error: err instanceof Error ? err.message : String(err),
+          })
         }
       }
       try {
         await store.dispose(sessionToken)
       } catch (err) {
-        console.warn(`[internal] failed to dispose OpenCode run session row for "${agentId}":`, err)
+        logger.warn('failed to dispose OpenCode run session row', {
+          agentId,
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
       try {
         await deleteSessionApiKey(em, sessionToken)
       } catch (err) {
-        console.warn(`[internal] failed to revoke OpenCode run session token for "${agentId}":`, err)
+        logger.warn('failed to revoke OpenCode run session token', {
+          agentId,
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
     }
   }
@@ -481,7 +506,10 @@ export class OpenCodeAgentRunner {
         ),
       )
     } catch (err) {
-      console.warn(`[internal] failed to ingest OpenCode trace for "${args.agentId}":`, err)
+      logger.warn('failed to ingest OpenCode trace', {
+        agentId: args.agentId,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
@@ -546,7 +574,11 @@ export class OpenCodeAgentRunner {
     try {
       this.client
         .sendMessage(args.sessionId, args.message, { agent: args.openCodeAgentName, timeoutMs: sendTimeoutMs })
-        .catch((err) => console.error('[OpenCode runner] send error (store/SSE will resolve):', err))
+        .catch((err) =>
+          logger.error('send error (store/SSE will resolve)', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        )
 
       let nudged = false
       // A single idle waiter, renewed only after it fires (avoids leaking a new
@@ -564,7 +596,7 @@ export class OpenCodeAgentRunner {
         if (signal === 'timeout') {
           const fin = await read()
           if (fin.done) return fin.outcome
-          console.error('[OpenCode runner] run exceeded the wall-clock deadline; failing the run.')
+          logger.error('run exceeded the wall-clock deadline; failing the run')
           return NO_OUTCOME
         }
         if (signal === 'idle') {
@@ -581,7 +613,11 @@ export class OpenCodeAgentRunner {
                 `You did not call the agent_orchestrator submit_outcome tool. Finish now by calling it with a value matching the outcome contract (the \`outcome\` argument).`,
                 { agent: args.openCodeAgentName, timeoutMs: sendTimeoutMs },
               )
-              .catch((err) => console.error('[OpenCode runner] nudge send error:', err))
+              .catch((err) =>
+                logger.error('nudge send error', {
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              )
           } else {
             // Idle a second time after the nudge with no outcome → give up.
             return NO_OUTCOME
@@ -662,7 +698,9 @@ export class OpenCodeAgentRunner {
         }
       },
       (error) => {
-        console.error('[OpenCode runner] SSE error:', error)
+        logger.error('SSE error', {
+          error: error instanceof Error ? error.message : String(error),
+        })
         settleIdle()
       },
     )
@@ -706,7 +744,9 @@ export class OpenCodeAgentRunner {
         .map((link) => (link.role as { id?: string } | undefined)?.id)
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     } catch (err) {
-      console.warn('[internal] failed to resolve user roles for OpenCode run session token:', err)
+      logger.warn('failed to resolve user roles for OpenCode run session token', {
+        error: err instanceof Error ? err.message : String(err),
+      })
       return []
     }
   }

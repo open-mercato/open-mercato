@@ -13,6 +13,10 @@
  * keeping existing definitions byte-for-byte backward compatible.
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows').child({ component: 'agent-result-mapping' })
+
 export type AgentResultEnvelope = {
   kind: 'auto_approved' | 'informative' | 'user_task'
   agentId?: string
@@ -37,10 +41,11 @@ function setNestedValue(obj: Record<string, any>, path: string, value: any): voi
 
 function warnOnTemplateMapping(sourcePath: string): void {
   if (/\{\{.*\}\}/.test(sourcePath)) {
-    console.warn(
-      `[workflows] INVOKE_AGENT outputMapping value "${sourcePath}" looks like a {{ }} template, ` +
-        'but mapping values are plain dot-paths into the agent result envelope ' +
-        '(e.g. "proposalPayload.riskScore"). This entry will not resolve and is being ignored.'
+    logger.warn(
+      'INVOKE_AGENT outputMapping value looks like a {{ }} template, but mapping values are plain ' +
+        'dot-paths into the agent result envelope (e.g. "proposalPayload.riskScore"). This entry ' +
+        'will not resolve and is being ignored.',
+      { sourcePath }
     )
   }
 }

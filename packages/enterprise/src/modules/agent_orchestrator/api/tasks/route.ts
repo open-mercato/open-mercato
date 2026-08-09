@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -21,6 +22,8 @@ import {
   defaultCreateResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'tasks-api' })
 
 const ENTITY_TYPE = 'agent_orchestrator:agent_task_definition'
 
@@ -105,7 +108,9 @@ export async function attachLastRunProjection(
   } catch (err) {
     // The Last-run column is a cosmetic enrichment — it must never take the
     // whole task list down. Fail soft: log and render the list without it.
-    console.warn('[internal] agentic-tasks last-run projection failed:', err)
+    logger.warn('agentic-tasks last-run projection failed', {
+      error: err instanceof Error ? err.message : String(err),
+    })
     rows = []
   }
   const byDefinition = new Map(rows.map((row) => [row.task_definition_id, row]))

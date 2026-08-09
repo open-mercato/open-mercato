@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AgentTaskDefinition } from '../../data/entities'
 import { AGENT_ORCHESTRATOR_TASK_RUN_QUEUE } from '../queue'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'task-schedule' })
 
 /** Mirrors the @open-mercato/scheduler ScheduleRegistration field names (see setup.ts). */
 type SchedulerServiceLike = {
@@ -78,10 +81,10 @@ export async function syncTaskSchedule(container: AwilixContainer, task: AgentTa
       await scheduler.unregister(scheduleId)
     }
   } catch (error) {
-    console.warn(
-      '[internal] agent_orchestrator: task schedule sync failed',
-      { taskDefinitionId: task.id, shouldRun },
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('task schedule sync failed', {
+      taskDefinitionId: task.id,
+      shouldRun,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }

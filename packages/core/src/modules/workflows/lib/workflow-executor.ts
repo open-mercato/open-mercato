@@ -1350,10 +1350,10 @@ async function persistFailedStatusAfterRollback(
       await markFailed(fork)
     }
   } catch (persistError) {
-    console.error(
-      `[WORKFLOW] Failed to durably persist FAILED status for instance ${instanceId} after rollback:`,
-      persistError,
-    )
+    logger.error('failed to durably persist FAILED status after rollback', {
+      instanceId,
+      error: persistError instanceof Error ? persistError.message : String(persistError),
+    })
   }
 }
 
@@ -1583,10 +1583,11 @@ async function enqueueSubWorkflowParentResume(
     }
     await queue.enqueue(job, { delayMs: INVOKE_AGENT_ENQUEUE_DELAY_MS })
   } catch (error) {
-    console.error(
-      `[WORKFLOW] Failed to enqueue parent-resume job for child ${instance.id} → parent ${parentInstanceId}:`,
-      error instanceof Error ? error.message : error
-    )
+    logger.error('failed to enqueue parent-resume job', {
+      childInstanceId: instance.id,
+      parentInstanceId,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 
@@ -2027,10 +2028,11 @@ async function emitInstanceLifecycleEvent(
       { persistent: true }
     )
   } catch (error) {
-    console.error(
-      `[WORKFLOW] Failed to emit ${eventId} for instance ${instance.id}:`,
-      error instanceof Error ? error.message : error
-    )
+    logger.error('failed to emit workflow event', {
+      eventId,
+      instanceId: instance.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

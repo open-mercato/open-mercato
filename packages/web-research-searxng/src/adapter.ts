@@ -4,6 +4,7 @@ import {
   defineAdapterModule,
   notReady,
   searchOk,
+  stripTrailingSlashes,
   toOutcomeFailure,
   type RawResult,
   type SearchAdapter,
@@ -58,7 +59,7 @@ function parseJson(body: string): unknown {
 }
 
 export function createSearxngAdapter(options: SearxngOptions): SearchAdapter {
-  const baseUrl = options.baseUrl?.replace(/\/+$/, '') ?? ''
+  const baseUrl = options.baseUrl ? stripTrailingSlashes(options.baseUrl) : ''
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
   return {

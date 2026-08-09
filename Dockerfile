@@ -69,7 +69,14 @@ COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/ui/package.json ./packages/ui/
-COPY packages/web-search/package.json ./packages/web-search/
+COPY packages/web-research/package.json ./packages/web-research/
+COPY packages/web-research-browser/package.json ./packages/web-research-browser/
+COPY packages/web-research-exa/package.json ./packages/web-research-exa/
+COPY packages/web-research-firecrawl/package.json ./packages/web-research-firecrawl/
+COPY packages/web-research-model/package.json ./packages/web-research-model/
+COPY packages/web-research-searxng/package.json ./packages/web-research-searxng/
+COPY packages/web-research-serp/package.json ./packages/web-research-serp/
+COPY packages/web-research-tavily/package.json ./packages/web-research-tavily/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/

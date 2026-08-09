@@ -4,7 +4,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { OcrService } from '@open-mercato/core/modules/attachments/lib/ocrService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AgentFileInput } from './fileInput'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'attachment-stager' })
 
 /**
  * Attachment-in staging (file plane, #12). Resolves the reserved `__files`
@@ -78,7 +81,10 @@ export async function stageAttachments(args: {
             const result = await ocr.processFile({ filePath: destPath, mimeType: attachment.mimeType })
             text = result?.content ?? null
           } catch (err) {
-            console.warn(`[internal] OCR sidecar failed for attachment ${entry.attachmentId}:`, err)
+            logger.warn('OCR sidecar failed for attachment', {
+              attachmentId: entry.attachmentId,
+              error: err instanceof Error ? err.message : String(err),
+            })
           }
         }
       }

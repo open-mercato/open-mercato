@@ -716,6 +716,7 @@
   "catalog.variants.validation.gtinChecksum": "바코드가 선택한 식별자 유형과 일치하지 않습니다.",
   "catalog.widgets.productSeo.groupDescription": "게시하기 전에 상품 제목과 설명을 최적화합니다.",
   "catalog.widgets.productSeo.groupLabel": "상품 SEO 도우미",
+  "catalog.workflows.commands.products.update": "Update product",
   "customers~catalog.errors.id_required": "레코드 식별자가 필요합니다.",
   "customers~catalog.errors.organization_required": "조직 컨텍스트가 필요합니다.",
   "customers~catalog.errors.tenant_required": "테넌트 컨텍스트가 필요합니다.",

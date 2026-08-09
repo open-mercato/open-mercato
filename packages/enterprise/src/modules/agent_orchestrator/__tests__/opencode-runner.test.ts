@@ -1,6 +1,8 @@
 // Stub the audited session-token + role helpers so the runner never touches a
 // real DB. We capture the createSessionApiKey input to assert scope (caller, not
 // superadmin). findWithDecryption is stubbed to return the caller's roles.
+import { captureLogs } from './support/captureLogs'
+
 const createSessionApiKeyMock = jest.fn()
 const deleteSessionApiKeyMock = jest.fn()
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
@@ -299,7 +301,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(result.kind).toBe('actionable')
     expect(observed).toEqual(['run-123'])
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     try {
       const client2 = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
       const runner2 = new OpenCodeAgentRunner({
@@ -314,9 +316,9 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
         },
       })
       expect(result2.kind).toBe('actionable')
-      expect(warnSpy).toHaveBeenCalled()
+      expect(logs.at('warn').map((record) => record.message)).toContain('onRunPersisted hook failed')
     } finally {
-      warnSpy.mockRestore()
+      logs.restore()
     }
   })
 

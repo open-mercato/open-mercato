@@ -7,6 +7,9 @@ import {
   mapEventToInput,
   matchesEventPattern,
 } from '../lib/tasks/eventTriggerMatch'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ subscriber: 'task-event-trigger' })
 
 /**
  * Wildcard subscriber evaluating `AgentTaskEventTrigger` rows (Agentic Tasks
@@ -61,7 +64,9 @@ export default async function handle(
     em = (ctx.resolve('em') as EntityManager).fork()
     commandBus = ctx.resolve('commandBus') as CommandBus
   } catch (error) {
-    console.warn('[internal] agent_orchestrator: task-trigger dependencies unavailable', error)
+    logger.warn('task-trigger dependencies unavailable', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return
   }
 
@@ -132,11 +137,12 @@ export default async function handle(
         ctx: commandCtx,
       })
     } catch (error) {
-      console.error(
-        '[internal] agent_orchestrator: event-triggered task enqueue failed',
-        { triggerId: trigger.id, taskDefinitionId: definition.id, eventName },
-        error instanceof Error ? error.message : error,
-      )
+      logger.error('event-triggered task enqueue failed', {
+        triggerId: trigger.id,
+        taskDefinitionId: definition.id,
+        eventName,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 }

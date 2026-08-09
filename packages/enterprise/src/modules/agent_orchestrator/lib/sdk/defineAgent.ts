@@ -3,9 +3,12 @@ import {
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import type { ZodTypeAny } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getSkillEntry } from './defineSkill'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'define-agent' })
 
 export type AgentResultKind = 'actionable' | 'informative'
 
@@ -183,7 +186,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     .map((skillId) => {
       const skill = getSkillEntry(skillId)
       if (!skill) {
-        console.warn(`[internal] agent "${input.id}" references unknown skill "${skillId}"; skipping.`)
+        logger.warn('agent references unknown skill; skipping', { agentId: input.id, skillId })
       }
       return skill
     })
@@ -385,10 +388,9 @@ async function loadFileAgents(): Promise<void> {
       .map((toolId) => ({ toolId, verdict: isMutationTool(toolId) }))
       .find(({ verdict }) => verdict === 'mutating' || verdict === 'unknown')
     if (offending) {
-      console.warn(
-        `[internal] file agent "${descriptor.id}" declares ${offending.verdict} tool ` +
-          `"${offending.toolId}"; file agents are propose-only and may only list known ` +
-          'read-only tools — skipping registration.',
+      logger.warn(
+        'file agent declares a non read-only tool; file agents are propose-only and may only list known read-only tools — skipping registration',
+        { agentId: descriptor.id, verdict: offending.verdict, toolId: offending.toolId },
       )
       continue
     }
@@ -423,7 +425,10 @@ async function loadFileAgents(): Promise<void> {
       // descriptor without `skillsContent` registers no skills (cleared).
       registerAgentSkills(descriptor.id, descriptor.skillsContent ?? [])
     } catch (err) {
-      console.warn(`[internal] failed to load file agent "${descriptor.id}":`, err)
+      logger.warn('failed to load file agent', {
+        agentId: descriptor.id,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 }

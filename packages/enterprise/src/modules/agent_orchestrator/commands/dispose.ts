@@ -6,6 +6,7 @@ import type {
 } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -21,6 +22,8 @@ import { AgentProposal, type AgentProposalDisposition } from '../data/entities'
 import { disposeProposalSchema } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 import { resumeWorkflowForProposal } from '../lib/disposition/resume'
+
+const logger = createLogger('agent_orchestrator').child({ command: 'dispose' })
 
 const RESOURCE_KIND = 'agent_orchestrator.proposal'
 const RESOURCE_KIND_GUARD = 'agent_orchestrator:proposal'
@@ -89,7 +92,7 @@ async function closeReviewTask(
     )) as typeof import('@open-mercato/core/modules/workflows/lib/agent-disposition-task')
     await dispositionTask.closeAgentDispositionTask(em, container, options)
   } catch (error) {
-    console.warn('[internal] agent_orchestrator: review task not closed for a disposed proposal', {
+    logger.warn('review task not closed for a disposed proposal', {
       userTaskId: options.userTaskId,
       error: error instanceof Error ? error.message : String(error),
     })
@@ -270,7 +273,9 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
           ctx,
         })
       } catch (error) {
-        console.warn('[internal] agent_orchestrator: failed to record correction for disposed proposal', error)
+        logger.warn('failed to record correction for disposed proposal', {
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
     }
 

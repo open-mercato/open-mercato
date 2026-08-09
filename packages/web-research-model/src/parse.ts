@@ -4,7 +4,14 @@ export type ModelSummary = {
   readonly summary?: string
 }
 
-const FENCE = /```(?:json)?\s*([\s\S]*?)```/
+/**
+ * The leading whitespace stays inside the capture group rather than being eaten
+ * by a `\s*` prefix: `\s*` and `[\s\S]*?` can both match the same whitespace,
+ * which makes an unterminated fence backtrack quadratically (CodeQL polynomial
+ * ReDoS). The matched span is identical either way, and `JSON.parse` ignores
+ * leading whitespace.
+ */
+const FENCE = /```(?:json)?([\s\S]*?)```/
 
 function coerceSummaries(value: unknown): ModelSummary[] {
   if (!Array.isArray(value)) return []

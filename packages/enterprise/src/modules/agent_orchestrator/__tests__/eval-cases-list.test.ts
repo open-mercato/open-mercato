@@ -14,9 +14,18 @@ describe('GET /api/agent_orchestrator/eval-cases — gate', () => {
 })
 
 describe('eval-cases list — metadata-only projection', () => {
-  it('selects exactly the seven metadata columns', () => {
+  it('selects exactly the eight metadata columns', () => {
     expect([...EVAL_CASE_LIST_FIELDS].sort()).toEqual(
-      ['agent_definition_id', 'created_at', 'id', 'source_id', 'source_type', 'status', 'updated_at'].sort(),
+      [
+        'agent_definition_id',
+        'created_at',
+        'id',
+        'name',
+        'source_id',
+        'source_type',
+        'status',
+        'updated_at',
+      ].sort(),
     )
   })
 

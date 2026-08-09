@@ -200,7 +200,9 @@ export class OpenCodeClient {
                 // Malformed SSE payload — surface it instead of dropping the
                 // event silently (a silent drop previously hid the tool-part
                 // capture regression).
-                console.error('[OpenCode SSE] Failed to parse event payload:', (error as Error).message)
+                logger.error('OpenCode SSE: failed to parse event payload', {
+                  error: (error as Error).message,
+                })
               }
             }
           }

@@ -1,11 +1,14 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AgentProposal } from '../../data/entities'
 import type {
   DisposeProposalCommandInput,
   DisposeProposalCommandResult,
 } from '../../commands/dispose'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'disposition-service' })
 
 /**
  * Disposition config carried verbatim from the area-02 Invoke Agent node's
@@ -160,7 +163,7 @@ export class DispositionServiceImpl implements DispositionService {
       await this.recordUserTaskId(proposal, created.userTaskId)
       return created.userTaskId
     } catch (error) {
-      console.warn('[agent_orchestrator] USER_TASK not created (workflows peer absent?)', {
+      logger.warn('USER_TASK not created (workflows peer absent?)', {
         proposalId: proposal.id,
         processId: ctx.processId,
         error: error instanceof Error ? error.message : String(error),
@@ -190,7 +193,7 @@ export class DispositionServiceImpl implements DispositionService {
     } catch (error) {
       // The task exists and the proposal is pending; losing the link costs the
       // automatic close, never the review itself.
-      console.warn('[agent_orchestrator] proposal not linked to its review task', {
+      logger.warn('proposal not linked to its review task', {
         proposalId: proposal.id,
         userTaskId,
         error: error instanceof Error ? error.message : String(error),

@@ -3,6 +3,13 @@ import { fuseResults, type FusionInput } from '../fuse'
 
 const OPTIONS = { limit: 10, minResults: 1, minConfidence: 0, maxPerDomain: 10 }
 
+/**
+ * Matches on the registrable host rather than a URL substring: `includes()`
+ * would also match a host that merely embeds the name (`farm.com.evil.test`),
+ * which is both a weaker assertion and a CodeQL finding.
+ */
+const hostOf = (url: string): string => new URL(url).hostname.replace(/^www\./, '')
+
 describe('canonicalizeUrl', () => {
   it('strips tracking parameters but keeps meaningful ones', () => {
     const canonical = canonicalizeUrl('https://example.com/a?utm_source=x&id=7&fbclid=y')
@@ -93,7 +100,7 @@ describe('fuseResults', () => {
     const { results } = fuseResults(inputs, OPTIONS)
 
     expect(results[0].url).toBe('https://shared.com/y')
-    expect(results.find((hit) => hit.url.includes('noisy.com'))?.sources).toHaveLength(1)
+    expect(results.find((hit) => hostOf(hit.url) === 'noisy.com')?.sources).toHaveLength(1)
   })
 
   it('deduplicates across adapters and merges provenance', () => {
@@ -144,7 +151,7 @@ describe('fuseResults', () => {
       },
     ]
     const { results } = fuseResults(inputs, { ...OPTIONS, maxPerDomain: 2, minResults: 1 })
-    const farmHits = results.filter((result) => result.url.includes('farm.com'))
+    const farmHits = results.filter((result) => hostOf(result.url) === 'farm.com')
     expect(farmHits).toHaveLength(2)
     expect(results.map((result) => result.url)).toContain('https://other.com/1')
   })

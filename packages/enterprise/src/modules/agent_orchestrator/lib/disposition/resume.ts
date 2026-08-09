@@ -1,7 +1,10 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentProposalDisposition } from '../../data/entities'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'disposition-resume' })
 
 export type ResumeWorkflowForProposalInput = {
   proposalId: string
@@ -69,7 +72,7 @@ export async function resumeWorkflowForProposal(
       organizationId: input.organizationId,
     })
   } catch (error) {
-    console.warn('[agent_orchestrator] proposal.ready resume signal not delivered', {
+    logger.warn('proposal.ready resume signal not delivered', {
       processId: input.processId,
       proposalId: input.proposalId,
       error: error instanceof Error ? error.message : String(error),

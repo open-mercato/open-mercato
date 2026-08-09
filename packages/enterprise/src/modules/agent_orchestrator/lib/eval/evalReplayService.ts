@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   AgentEvalAssertion,
   AgentEvalCase,
@@ -19,6 +20,8 @@ import { runScorer } from './registry'
 import { createModelJudge, runLlmJudgeForRun } from './llmJudge'
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
 /**
  * Per-case progress. Deliberately TINY: the cross-process event bridge serializes
@@ -213,7 +216,7 @@ async function runCase(
     // prompt embeds the decrypted agent output and expected value — console
     // serialization would push both past the tenant encryption boundary into the
     // log aggregator, once per failing case.
-    console.warn('[internal] agent_orchestrator: llm_judge scoring failed during replay', {
+    logger.warn('llm_judge scoring failed during replay', {
       caseRunId: caseRun.id,
       errorName: error instanceof Error ? error.name : 'unknown',
     })

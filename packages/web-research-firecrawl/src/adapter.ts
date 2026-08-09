@@ -4,6 +4,7 @@ import {
   defineAdapterModule,
   notReady,
   searchOk,
+  stripTrailingSlashes,
   toOutcomeFailure,
   type AdapterContext,
   type FetchOutcome,
@@ -69,7 +70,7 @@ function parseJson(body: string): unknown {
 
 export function createFirecrawlAdapter(options: FirecrawlOptions): SearchAdapter {
   const apiKey = options.apiKey?.trim() ?? ''
-  const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+  const baseUrl = stripTrailingSlashes(options.baseUrl ?? DEFAULT_BASE_URL)
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const includeContent = options.includeContent ?? true
 

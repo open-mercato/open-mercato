@@ -3,6 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AGENT_ORCHESTRATOR_LLM_JUDGE_QUEUE, type LlmJudgeJobPayload } from '../lib/queue'
 import { createModelJudge, runLlmJudgeForRun } from '../lib/eval/llmJudge'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ worker: 'llm-judge' })
 
 /**
  * Async, sampled, warn-only llm_judge tier (gap-04/08/09). Enqueued from the
@@ -28,6 +31,9 @@ export default async function handle(job: QueuedJob<LlmJudgeJobPayload>, _ctx: J
   } catch (error) {
     // Warn-only tier: a judge/provider failure must not fail the job loudly or
     // affect the run's gate verdict. Log and move on.
-    console.warn('[internal] agent_orchestrator: llm_judge scoring failed', { runId, error })
+    logger.warn('llm_judge scoring failed', {
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }

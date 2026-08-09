@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { defineSkill, getSkillEntry, listSkillEntries } from '../lib/sdk/defineSkill'
 import { defineAgent } from '../lib/sdk/defineAgent'
+import { captureLogs } from './support/captureLogs'
 
 // Skills are a real capability pack, not a prompt marker: declaring a skill on an
 // agent must (1) inject the skill's instructions into the system prompt and
@@ -71,7 +72,7 @@ describe('agent_orchestrator skills', () => {
   })
 
   it('skips an unknown skill id without throwing', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const logs = captureLogs()
     const def = defineAgent({
       id: 'test.missing_skill_agent',
       moduleId: 'agent_orchestrator',
@@ -82,7 +83,12 @@ describe('agent_orchestrator skills', () => {
       result: { kind: 'informative', schema },
     })
     expect(def.allowedTools).toEqual([])
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown skill "test.does_not_exist"'))
-    warn.mockRestore()
+    expect(
+      logs
+        .at('warn')
+        .filter((record) => record.message === 'agent references unknown skill; skipping')
+        .map((record) => record.fields.skillId),
+    ).toContain('test.does_not_exist')
+    logs.restore()
   })
 })

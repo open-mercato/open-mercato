@@ -10,6 +10,13 @@ import type { EngineAdapterEntry, SearchEngineResult } from '../types'
 
 const http = createStubHttpClient(() => ({ body: '<html><body><p>stub</p></body></html>' }))
 
+/**
+ * Matches on the host rather than a URL substring: `includes()` would also
+ * match a host that merely embeds the name, which is both a weaker assertion
+ * and a CodeQL finding.
+ */
+const hostOf = (url: string): string => new URL(url).hostname
+
 const hits = (host: string, count: number): RawResult[] =>
   Array.from({ length: count }, (_, index) => ({
     url: `https://${host}/${index}`,
@@ -52,7 +59,7 @@ describe('search engine scheduling', () => {
 
     const result = await engine.search({ query: 'x' })
 
-    expect(result.results.every((hit) => hit.url.includes('fast.com'))).toBe(true)
+    expect(result.results.every((hit) => hostOf(hit.url) === 'fast.com')).toBe(true)
     expect(statusOf(result, 'slow')).toBe('cancelled')
   })
 

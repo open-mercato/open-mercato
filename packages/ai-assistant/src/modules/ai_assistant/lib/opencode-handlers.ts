@@ -745,7 +745,10 @@ export async function handleOpenCodeMessageStreaming(
                     seenToolCallIds.add(toolUpdate.callId)
                     usageStats.toolCalls++
                     usageStats.toolNames.push(toolUpdate.toolName)
-                    console.error(`[AI Usage] Tool call #${usageStats.toolCalls}: ${toolUpdate.toolName}`)
+                    logger.debug('tool call observed', {
+                      toolCallIndex: usageStats.toolCalls,
+                      toolName: toolUpdate.toolName,
+                    })
                     await onEvent({
                       type: 'tool-call',
                       id: toolUpdate.callId,

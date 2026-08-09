@@ -19,6 +19,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import type { WorkflowIoContract } from '../../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
 import {
@@ -26,6 +27,8 @@ import {
   normalizeGrantedFeatures,
   syncWorkflowDefinitionPrincipal,
 } from '../../../../lib/definition-grant'
+
+const logger = createLogger('workflows').child({ component: 'definition-publish-api' })
 
 export const metadata = {
   requireAuth: true,
@@ -195,7 +198,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
         )
       }
     } catch (eventError) {
-      console.error('Failed to emit workflows.definition.published event:', eventError)
+      logger.error('failed to emit workflows.definition.published event', {
+        error: eventError instanceof Error ? eventError.message : String(eventError),
+      })
     }
 
     return NextResponse.json({
@@ -204,7 +209,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition published successfully',
     })
   } catch (error) {
-    console.error('Error publishing workflow definition:', error)
+    logger.error('error publishing workflow definition', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return NextResponse.json({ error: 'Failed to publish workflow definition' }, { status: 500 })
   }
 }

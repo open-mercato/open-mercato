@@ -2,12 +2,15 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentTaskDefinition, AgentTaskRun } from '../data/entities'
 import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_TASK_RUN_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
 import { jsonSchemaToZod, type JsonSchemaNode } from '../lib/sdk/outcomeSchema'
+
+const logger = createLogger('agent_orchestrator').child({ command: 'tasks' })
 
 const enqueueTaskRunSchema = z.object({
   tenantId: z.string().uuid(),
@@ -36,11 +39,10 @@ function validateAgainstInputSchema(definition: AgentTaskDefinition, input: Reco
   try {
     compiled = jsonSchemaToZod(definition.inputSchema as JsonSchemaNode)
   } catch (error) {
-    console.warn(
-      '[internal] agent_orchestrator: task inputSchema failed to compile — skipping validation',
-      { taskDefinitionId: definition.id },
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('task inputSchema failed to compile — skipping validation', {
+      taskDefinitionId: definition.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return
   }
   const parsed = compiled.safeParse(input)

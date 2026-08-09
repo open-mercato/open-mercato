@@ -39,6 +39,9 @@ import {
   createProposal,
   shapeResult,
 } from './persistence'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
 
 /**
  * Default token budget for a TDCR context assembly when the caller does not pass
@@ -113,7 +116,10 @@ export class NativeAgentRunner {
       try {
         ctx.onRunPersisted(runId)
       } catch (err) {
-        console.warn(`[internal] onRunPersisted hook failed for "${agentId}":`, err)
+        logger.warn('onRunPersisted hook failed', {
+          agentId,
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
     }
 
@@ -143,10 +149,9 @@ export class NativeAgentRunner {
         citableSources = assembled.citableSources
       } catch (contextErr) {
         if (!(contextErr instanceof ContextModuleNotFoundError)) {
-          console.warn(
-            '[internal] agent_orchestrator: context assembly failed',
-            contextErr instanceof Error ? contextErr.message : contextErr,
-          )
+          logger.warn('context assembly failed', {
+            error: contextErr instanceof Error ? contextErr.message : String(contextErr),
+          })
         }
       }
     }
@@ -360,10 +365,10 @@ export class NativeAgentRunner {
           fallbackModel: entry.defaultModel ?? null,
         },
       ).catch((err: unknown) => {
-        console.warn(
-          `[internal] agent_orchestrator: native trace capture rejected for run "${runId}":`,
-          err instanceof Error ? err.message : err,
-        )
+        logger.warn('native trace capture rejected for run', {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        })
       })
     }
     try {
@@ -457,10 +462,9 @@ export class NativeAgentRunner {
         }
       }
     } catch (groundingErr) {
-      console.warn(
-        '[internal] agent_orchestrator: grounding set resolution failed',
-        groundingErr instanceof Error ? groundingErr.message : groundingErr,
-      )
+      logger.warn('grounding set resolution failed', {
+        error: groundingErr instanceof Error ? groundingErr.message : String(groundingErr),
+      })
     }
 
     const guardrailService = new GuardrailService(this.container)

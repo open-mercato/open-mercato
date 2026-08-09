@@ -5,6 +5,9 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseAgentMarkdown } from './agentMarkdown'
 import { parseAgentLocalSkillMarkdown } from './skillMarkdown'
 import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcomeSchema'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'define-file-agent' })
 
 /**
  * Re-export so callers that have a loaded entry can register it. File agents
@@ -159,7 +162,7 @@ function loadSampleInput(dir: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(samplePath, 'utf8'))
   } catch {
-    console.warn(`[internal] malformed SAMPLE.json at ${dir}; ignoring.`)
+    logger.warn('malformed SAMPLE.json; ignoring', { dir })
     return undefined
   }
 }
@@ -200,7 +203,10 @@ function loadFacts(dir: string): AgentFact[] | undefined {
     })
     return facts.length > 0 ? facts : undefined
   } catch (err) {
-    console.warn(`[internal] malformed FACTS.json at ${dir}; ignoring.`, err)
+    logger.warn('malformed FACTS.json; ignoring', {
+      dir,
+      error: err instanceof Error ? err.message : String(err),
+    })
     return undefined
   }
 }
@@ -501,9 +507,7 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
   for (const skillId of skillIds) {
     const skill = bySkillId.get(skillId)
     if (!skill) {
-      console.warn(
-        `[internal] file agent skill "${skillId}" not found under ${skillsBase}; skipping.`,
-      )
+      logger.warn('file agent skill not found; skipping', { skillId, skillsBase })
       continue
     }
     resolved.push(skill)

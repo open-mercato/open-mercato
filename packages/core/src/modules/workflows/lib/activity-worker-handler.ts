@@ -379,9 +379,11 @@ export async function handleInvokeAgentJob(
   }
 
   if (instance.currentStepId !== payload.stepId) {
-    console.log(
-      `[ActivityWorker] invoke_agent job skipped — instance ${payload.workflowInstanceId} current step is ${instance.currentStepId}, not ${payload.stepId} (already resolved)`
-    )
+    logger.info('invoke_agent job skipped — instance is on a different step (already resolved)', {
+      workflowInstanceId: payload.workflowInstanceId,
+      currentStepId: instance.currentStepId,
+      stepId: payload.stepId,
+    })
     return
   }
   if (instance.status !== 'PAUSED') {
@@ -421,10 +423,11 @@ export async function handleInvokeAgentJob(
     // The terminal attempt becomes the declarative `error` outcome when this
     // step opted into outcome routing; legacy steps keep their fail-stop.
     if (isRetryableError(agentError) && attempt.attemptNumber < attempt.maxAttempts) {
-      console.warn(
-        `[ActivityWorker] invoke_agent ${payload.agentId} rejected by capacity for instance ${payload.workflowInstanceId}; rethrowing for queue retry:`,
-        agentError instanceof Error ? agentError.message : String(agentError),
-      )
+      logger.warn('invoke_agent rejected by capacity; rethrowing for queue retry', {
+        agentId: payload.agentId,
+        workflowInstanceId: payload.workflowInstanceId,
+        error: agentError instanceof Error ? agentError.message : String(agentError),
+      })
       throw agentError
     }
     // Guardrail escalation (spec 7.3). A guardrail `block` is a GOVERNANCE
@@ -456,9 +459,11 @@ export async function handleInvokeAgentJob(
   // user_task: leave the step parked — agent_orchestrator's human dispose path
   // fires the same proposal-ready signal to resume it (unchanged behavior).
   if (outcome.kind === 'user_task') {
-    console.log(
-      `[ActivityWorker] invoke_agent ${payload.agentId} routed to human (proposal ${outcome.proposalId}); leaving instance ${payload.workflowInstanceId} parked`
-    )
+    logger.info('invoke_agent routed to human; leaving instance parked', {
+      agentId: payload.agentId,
+      proposalId: outcome.proposalId,
+      workflowInstanceId: payload.workflowInstanceId,
+    })
     return
   }
 
@@ -508,10 +513,11 @@ export async function handleInvokeAgentJob(
     // The agent already ran (and, for auto_approved, its effector already
     // executed). Re-running on retry would double-execute, so do NOT rethrow:
     // log and leave the instance parked (resumable via a manual signal).
-    console.error(
-      `[ActivityWorker] invoke_agent ${payload.agentId} ran but resume failed for instance ${payload.workflowInstanceId}; left parked:`,
-      resumeError instanceof Error ? resumeError.message : String(resumeError),
-    )
+    logger.error('invoke_agent ran but resume failed; left parked', {
+      agentId: payload.agentId,
+      workflowInstanceId: payload.workflowInstanceId,
+      error: resumeError instanceof Error ? resumeError.message : String(resumeError),
+    })
   }
 }
 
@@ -549,8 +555,9 @@ export async function resumeParentAfterSubWorkflow(
   }
 
   if (parent.currentStepId !== parentStepId) {
-    console.log(
-      `[ActivityWorker] resume_subworkflow_parent skipped — parent ${parentInstanceId} current step is ${parent.currentStepId}, not ${parentStepId} (already resolved or synchronous fast path)`
+    logger.info(
+      'resume_subworkflow_parent skipped — parent is on a different step (already resolved or synchronous fast path)',
+      { parentInstanceId, currentStepId: parent.currentStepId, parentStepId },
     )
     return
   }
@@ -661,10 +668,11 @@ export async function resumeParentAfterSubWorkflow(
       organizationId,
     })
   } catch (resumeError: unknown) {
-    console.error(
-      `[ActivityWorker] resume_subworkflow_parent: child ${childInstanceId} completed but resuming parent ${parentInstanceId} failed; left parked:`,
-      resumeError instanceof Error ? resumeError.message : String(resumeError),
-    )
+    logger.error('resume_subworkflow_parent: child completed but resuming parent failed; left parked', {
+      childInstanceId,
+      parentInstanceId,
+      error: resumeError instanceof Error ? resumeError.message : String(resumeError),
+    })
   }
 }
 
@@ -706,10 +714,12 @@ async function resumeInvokeAgentWithOutcome(
     })
     return true
   } catch (resumeError: unknown) {
-    console.error(
-      `[ActivityWorker] invoke_agent ${payload.agentId}: ${outcome} outcome could not be routed for instance ${payload.workflowInstanceId}; falling back to fail-stop:`,
-      resumeError instanceof Error ? resumeError.message : String(resumeError),
-    )
+    logger.error('invoke_agent outcome could not be routed; falling back to fail-stop', {
+      agentId: payload.agentId,
+      outcome,
+      workflowInstanceId: payload.workflowInstanceId,
+      error: resumeError instanceof Error ? resumeError.message : String(resumeError),
+    })
     return false
   }
 }
@@ -751,10 +761,11 @@ async function failInvokeAgentStep(
   agentError: unknown,
 ): Promise<void> {
   const message = agentError instanceof Error ? agentError.message : String(agentError)
-  console.error(
-    `[ActivityWorker] invoke_agent ${payload.agentId} failed for instance ${payload.workflowInstanceId}; failing instance:`,
-    message,
-  )
+  logger.error('invoke_agent failed; failing instance', {
+    agentId: payload.agentId,
+    workflowInstanceId: payload.workflowInstanceId,
+    error: message,
+  })
   try {
     const { StepInstance } = await import('../data/entities')
     const stepInstance = await em.findOne(StepInstance, {
@@ -775,10 +786,11 @@ async function failInvokeAgentStep(
       details: { agentId: payload.agentId, stepId: payload.stepId },
     })
   } catch (failError: any) {
-    console.error(
-      `[ActivityWorker] invoke_agent ${payload.agentId}: could not mark instance ${payload.workflowInstanceId} FAILED:`,
-      failError?.message ?? failError,
-    )
+    logger.error('invoke_agent: could not mark instance FAILED', {
+      agentId: payload.agentId,
+      workflowInstanceId: payload.workflowInstanceId,
+      error: failError?.message ?? String(failError),
+    })
   }
 }
 

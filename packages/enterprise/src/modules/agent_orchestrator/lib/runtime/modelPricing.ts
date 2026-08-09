@@ -16,6 +16,10 @@
  * A tenant-scoped CRUD price table is deliberately future work (Q8: minimal).
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'model-pricing' })
+
 export type ModelPrice = {
   /** Price per 1M input tokens, in major currency units (e.g. USD). */
   inputPer1M: number
@@ -69,17 +73,17 @@ function resolvePricingTable(): Record<string, PriceEntry> {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      console.warn('[internal] OM_AGENT_MODEL_PRICING is not a JSON object; using default pricing')
+      logger.warn('OM_AGENT_MODEL_PRICING is not a JSON object; using default pricing')
       return DEFAULT_PRICING
     }
     const merged: Record<string, PriceEntry> = { ...DEFAULT_PRICING }
     for (const [model, entry] of Object.entries(parsed as Record<string, unknown>)) {
       if (isPriceEntry(entry)) merged[model] = { inputPer1M: entry.inputPer1M, outputPer1M: entry.outputPer1M }
-      else console.warn(`[internal] OM_AGENT_MODEL_PRICING entry for "${model}" is malformed; ignored`)
+      else logger.warn('OM_AGENT_MODEL_PRICING entry is malformed; ignored', { model })
     }
     return merged
   } catch {
-    console.warn('[internal] OM_AGENT_MODEL_PRICING is not valid JSON; using default pricing')
+    logger.warn('OM_AGENT_MODEL_PRICING is not valid JSON; using default pricing')
     return DEFAULT_PRICING
   }
 }
