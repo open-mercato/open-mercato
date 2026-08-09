@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
-import { openWorkflowDetailsDrawer } from '@open-mercato/core/helpers/integration/workflowsUi'
+import {
+  WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL,
+  expectWorkflowHeaderAction,
+  invokeWorkflowHeaderAction,
+  openWorkflowDetailsDrawer,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 /**
@@ -74,8 +79,7 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
-      const resetButton = page.getByRole('button', { name: 'Reset to code version', exact: true })
-      await expect(resetButton).toBeVisible()
+      await expectWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
 
       // Step 4: verify the API agrees the row is now a code_override.
       const detail = await apiRequest(
@@ -89,7 +93,7 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       expect(detailBody?.data?.source).toBe('code_override')
 
       // Step 5: click Reset to code version → confirm dialog → redirect back to code: id.
-      await resetButton.click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
       const confirmDialog = page.getByRole('alertdialog')
       await expect(confirmDialog).toBeVisible()
       await Promise.all([

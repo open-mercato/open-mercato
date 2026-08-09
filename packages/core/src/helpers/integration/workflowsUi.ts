@@ -10,11 +10,12 @@ import { expect, type Locator, type Page } from '@playwright/test'
  *
  * 1. **Definition metadata lives in a modal Drawer that starts CLOSED.**
  *    `workflowId` / `workflowName` / `description` / triggers / `contextSchema`
- *    are inside `DefinitionMetadataDrawer`, reachable only through
- *    `data-testid="workflow-details-trigger"`. They are plain `Input`s with
- *    `id=` — there is no `data-crud-field-id` on definition metadata (that
- *    attribute survives only inside the step/route inspectors, which do use
- *    `CrudForm`).
+ *    are inside `DefinitionMetadataDrawer`, which the header does not expose
+ *    directly: it is the `Settings` entry of the header's `More` menu
+ *    (`ActionsDropdown`, so a `role="button"` named `More` opening
+ *    `role="menuitem"`s). They are plain `Input`s with `id=` — there is no
+ *    `data-crud-field-id` on definition metadata (that attribute survives only
+ *    inside the step/route inspectors, which do use `CrudForm`).
  * 2. **The canvas carries one synthetic node and one synthetic edge.** The
  *    trigger pill (`lib/trigger-node.ts`) is minted at render time whenever the
  *    definition has a START step, so `.react-flow__node` is always
@@ -30,7 +31,12 @@ import { expect, type Locator, type Page } from '@playwright/test'
 export const WORKFLOW_TRIGGER_NODE_ID = '__workflow_trigger__'
 export const WORKFLOW_TRIGGER_EDGE_ID = '__workflow_trigger_edge__'
 
-export const WORKFLOW_DETAILS_TRIGGER_TESTID = 'workflow-details-trigger'
+/** Accessible name of the Studio header's overflow menu (`workflows.visualEditor.more`). */
+export const WORKFLOW_MORE_MENU_LABEL = 'More'
+/** The menu entry that opens the metadata drawer (`workflows.visualEditor.metadata.buttonLabel`). */
+export const WORKFLOW_DETAILS_MENU_ITEM_LABEL = 'Settings'
+/** The menu entry that drops a customized definition back to its code version. */
+export const WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL = 'Reset to code version'
 export const WORKFLOW_DETAILS_DRAWER_TITLE = 'Workflow details'
 export const WORKFLOW_INSPECTOR_SELECTOR = '[data-slot="workflow-inspector"]'
 
@@ -78,6 +84,59 @@ export async function openWorkflowStudio(page: Page, definitionId: string): Prom
   await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 30_000 })
 }
 
+/** The Studio header's overflow-menu trigger. */
+export function workflowHeaderMenuTrigger(page: Page): Locator {
+  return page.getByRole('button', { name: WORKFLOW_MORE_MENU_LABEL, exact: true })
+}
+
+/**
+ * One entry of the header's overflow menu.
+ *
+ * `ActionsDropdown` renders entries as `<Button role="menuitem">`, so the
+ * explicit role wins over the implicit one and `getByRole('button', …)` never
+ * matches them — and nothing is in the DOM at all until the menu is open.
+ */
+export function workflowHeaderMenuItem(page: Page, label: string): Locator {
+  return page.getByRole('menuitem', { name: label, exact: true })
+}
+
+/** Open the header's overflow menu, unless it is already open. */
+export async function openWorkflowHeaderMenu(page: Page): Promise<void> {
+  const trigger = workflowHeaderMenuTrigger(page)
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
+}
+
+/** Close the header's overflow menu, unless it is already closed. */
+export async function closeWorkflowHeaderMenu(page: Page): Promise<void> {
+  const trigger = workflowHeaderMenuTrigger(page)
+  if ((await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click()
+}
+
+/** Open the header's overflow menu and pick `label`. */
+export async function invokeWorkflowHeaderAction(page: Page, label: string): Promise<void> {
+  await openWorkflowHeaderMenu(page)
+  await workflowHeaderMenuItem(page, label).click()
+}
+
+/**
+ * Assert a header action is offered, then put the menu back as it was.
+ *
+ * The pre-Studio header rendered these as always-visible buttons, so specs used
+ * to assert availability with a bare `toBeVisible()`; the equivalent now is
+ * "the menu offers it".
+ */
+export async function expectWorkflowHeaderAction(
+  page: Page,
+  label: string,
+  { available = true }: { available?: boolean } = {},
+): Promise<void> {
+  await openWorkflowHeaderMenu(page)
+  const item = workflowHeaderMenuItem(page, label)
+  if (available) await expect(item).toBeVisible()
+  else await expect(item).toHaveCount(0)
+  await closeWorkflowHeaderMenu(page)
+}
+
 /**
  * Open the definition-metadata drawer and wait for it.
  *
@@ -87,7 +146,7 @@ export async function openWorkflowStudio(page: Page, definitionId: string): Prom
 export async function openWorkflowDetailsDrawer(page: Page): Promise<Locator> {
   const drawer = workflowDetailsDrawer(page)
   if (!(await drawer.isVisible().catch(() => false))) {
-    await page.getByTestId(WORKFLOW_DETAILS_TRIGGER_TESTID).click()
+    await invokeWorkflowHeaderAction(page, WORKFLOW_DETAILS_MENU_ITEM_LABEL)
   }
   await expect(drawer).toBeVisible({ timeout: 15_000 })
   return drawer

@@ -4,6 +4,9 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 import {
+  WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL,
+  expectWorkflowHeaderAction,
+  invokeWorkflowHeaderAction,
   openWorkflowDetailsDrawer,
   workflowInspector,
   workflowStepNodes,
@@ -186,7 +189,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Reset to code version', exact: true })).toBeVisible()
+      await expectWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
     } finally {
       if (overrideId) await deleteWorkflowDefinitionIfExists(request, apiToken, overrideId)
       await ensureCleanState(request, apiToken)
@@ -247,9 +250,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         overrideId,
         'This workflow has been customized from its code-defined version.',
       )
-      const resetButton = page.getByRole('button', { name: 'Reset to code version', exact: true })
-      await expect(resetButton).toBeVisible()
-      await resetButton.click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
 
       const confirmDialog = page.getByRole('alertdialog')
       await expect(confirmDialog).toBeVisible()
@@ -340,7 +341,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Reset to code version', exact: true })).toBeVisible()
+      await expectWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
 
       const detail = await apiRequest(
         request,
