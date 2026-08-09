@@ -26,6 +26,7 @@ import { Plus } from 'lucide-react'
 import { normalizeVendorPolicy, type VendorPolicyRecord } from './vendorPolicyForm'
 import { fetchClaimReasonOptions } from '../../components/claimReasonOptions'
 import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
+import { extensionPoints } from '../../../extension-points'
 import { vendorPolicySegmentQuery, type VendorPolicySegment } from '../../../lib/listSegments'
 
 type VendorPoliciesResponse = {
@@ -458,7 +459,7 @@ export default function WarrantyVendorPoliciesPage() {
             setFilterValues({})
             setPage(1)
           }}
-          perspective={{ tableId: 'warranty_claims.vendor_policies.list' }}
+          perspective={{ tableId: extensionPoints.hosts.vendorPoliciesTable.tableId }}
           onRowClick={(row) => router.push(`/backend/warranty_claims/vendor-policies/${row.id}/edit`)}
           isLoading={loading}
           bulkActions={bulkActions}

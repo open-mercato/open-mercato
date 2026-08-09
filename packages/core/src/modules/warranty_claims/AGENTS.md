@@ -2,6 +2,8 @@
 
 `warranty_claims` is the B2B warranty, RMA, core-return, and vendor-recovery claims desk. It owns the claim aggregate, line-level partials, customer-visible timeline, staff notifications, portal intake, SLA settings, risk signals, and sales-order tab injection while coupling to other modules only through IDs, snapshots, events, QueryEngine lookups, and widgets.
 
+Covers claim lifecycle + line dispositions, receiving & grading, SLA pause/escalation, risk signals & adjudication, registrations & vendor recovery, portal + API-key intake, and resolution-execution bridges into `sales`. Design of record: [`.ai/specs/2026-07-03-warranty-rma-claims-desk.md`](../../../../../.ai/specs/2026-07-03-warranty-rma-claims-desk.md); unimplemented candidates: [`.ai/specs/2026-07-16-warranty-rma-roadmap.md`](../../../../../.ai/specs/2026-07-16-warranty-rma-roadmap.md).
+
 ## Always
 
 1. MUST keep claim lifecycle transitions in `lib/stateMachine.ts` and `data/constants.ts`; the status enum is FROZEN and lifecycle moves MUST go through `warranty_claims.claim.transition`, never generic `PUT`.
@@ -16,6 +18,16 @@
 10. MUST pin portal reads and writes to the server-resolved customer id; portal mutation guards use the customer-user id with an empty feature list.
 11. MUST keep optimistic locking on by default for CRUD and settings; action endpoints use `enforceCommandOptimisticLock`, and UI line mutations send each line's own `updatedAt` header.
 12. MUST keep free-text/correspondence fields in `encryption.ts` encrypted and excluded from search sources in `search.ts`.
+
+## Design System — scoped Figma exemption
+
+The **backend** pages follow the normal DS rules: semantic tokens only, no arbitrary values, no hardcoded hex, no `dark:` overrides on status tokens.
+
+The **portal claim tracker** (`frontend/[orgSlug]/portal/claims/**`) is a deliberate pixel-exact build of the approved Figma frame `79:1013`, so it pins literal values (`text-[14px]`, `rounded-[16px]`, `#0f0f12`, …) and pairs each light literal with an explicit `dark:` token. This is the documented exception the root `AGENTS.md` DS rules allow for Figma-exact work — it is scoped to those files and is not a precedent.
+
+- MUST keep the exemption inside `frontend/[orgSlug]/portal/claims/**`; any new backend surface uses DS tokens.
+- MUST pair every pinned **surface, border, and body-text** literal with a `dark:` counterpart, so the portal still themes correctly. Saturated **accent fills** that carry their own contrast (white on the `#21ad61` / `#6552e3` tracker chips) are deliberately theme-invariant and take no `dark:` override.
+- Ask before restyling these pages away from Figma, or before extending literal-value styling to another directory.
 
 ## Ask First
 

@@ -42,6 +42,7 @@ import { ClaimSlaIndicator } from './components/claimSla'
 import { ClaimsKpiStrip, type WarrantyClaimsStats } from './components/ClaimsKpiStrip'
 import { WarrantyWorkspace } from './components/WarrantyWorkspace'
 import { useUserDisplayNames } from './components/useUserDisplayNames'
+import { extensionPoints } from '../extension-points'
 
 type ClaimType = 'warranty' | 'return' | 'core_return' | 'vendor_recovery'
 type ClaimChannel = 'staff' | 'portal' | 'api'
@@ -1154,7 +1155,7 @@ export default function WarrantyClaimsPage() {
             }}
             onFiltersClear={clearAllFilters}
             perspective={{
-              tableId: 'warranty_claims.claims.list',
+              tableId: extensionPoints.hosts.claimsTable.tableId,
               initialState: {
                 initialSettings: {
                   columnVisibility: { claimType: false, channel: false },

@@ -196,7 +196,7 @@ The default selector is exported as `DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR` fro
 
 ### `ComboboxInput` shows a "no matches" row for a non-empty query
 
-When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in all four bundled locales.
+When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in every bundled locale.
 
 ### `customers/components/detail/assignableStaff` moved to `customers/lib/assignableStaff`
 

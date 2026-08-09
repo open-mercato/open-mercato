@@ -25,6 +25,7 @@ import { Plus } from 'lucide-react'
 import { REGISTRATION_COVERAGE_TYPES, REGISTRATION_SOURCES } from '../../../data/validators'
 import { normalizeRegistration, type RegistrationRecord } from './registrationForm'
 import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
+import { extensionPoints } from '../../../extension-points'
 
 type RegistrationsResponse = {
   items?: unknown[]
@@ -506,7 +507,7 @@ export default function WarrantyClaimRegistrationsPage() {
             setFilterValues({})
             setPage(1)
           }}
-          perspective={{ tableId: 'warranty_claims.registrations.list' }}
+          perspective={{ tableId: extensionPoints.hosts.registrationsTable.tableId }}
           onRowClick={(row) => router.push(`/backend/warranty_claims/registrations/${row.id}/edit`)}
           isLoading={loading}
           bulkActions={bulkActions}

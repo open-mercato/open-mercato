@@ -5879,13 +5879,13 @@
   },
   {
     "id": "OMH-078",
-    "title": "Build returns and RMA management across orders and portal",
+    "title": "Extend the shipped warranty and RMA desk across orders and portal",
     "family": "business",
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Build an RMA app module linked by scalar IDs and snapshots to installed orders, products, customers, and the customer portal. Support return requests, item eligibility, approval, receiving, disposition, guarded refunds, portal status, admin actions, notifications, and durable transitions. Prevent returned quantities from exceeding fulfillment and keep retries and refund actions idempotent.",
-    "tags": ["business", "returns", "rma", "portal", "workflow"],
+    "prompt": "The app already ships a warranty and RMA claims desk. Extend it for returns handled across installed orders, products, customers, and the customer portal instead of building a second claims module. Support return requests, item eligibility, approval, receiving, disposition, guarded refunds, portal status, admin actions, notifications, and durable transitions. Reuse the shipped claim aggregate, lifecycle, and portal surfaces, link everything by scalar IDs and snapshots, prevent returned quantities from exceeding fulfillment, and keep retries and refund actions idempotent.",
+    "tags": ["business", "returns", "rma", "warranty", "portal", "workflow"],
     "owner": {
       "kind": "skill",
       "path": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
@@ -5898,12 +5898,12 @@
         "AGENTS.md", ".ai/guides/contracts.md", ".ai/guides/backend-ui.md", ".ai/guides/extensions.md", ".ai/guides/ai-workflows.md",
         ".ai/skills/om-module-scaffold/SKILL.md", ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-data-model-design/SKILL.md", ".ai/skills/om-backend-ui-design/SKILL.md", ".ai/skills/om-system-extension/SKILL.md", ".ai/skills/om-build-workflow/SKILL.md",
-        ".ai/guides/modules/sales.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
+        ".ai/guides/modules/warranty_claims.md", ".ai/guides/modules/sales.md", ".ai/guides/modules/catalog.md", ".ai/guides/modules/customers.md", ".ai/guides/modules/customer_accounts.md", ".ai/guides/modules/workflows.md", ".ai/guides/modules/notifications.md"
       ],
       "allowedExtra": [".ai/guides/modules/payment_gateways.md"],
       "warn": ["node_modules/@open-mercato/*/src/**"], "forbidden": [".env*", ".git/**"]
     },
-    "requiredDecisions": ["scalar-id-snapshot", "command-state-machine", "quantity-invariant", "optimistic-lock", "idempotent-refund", "portal-scope", "durable-transition"],
+    "requiredDecisions": ["reuse-shipped-module", "scalar-id-snapshot", "command-state-machine", "quantity-invariant", "optimistic-lock", "idempotent-refund", "portal-scope", "durable-transition"],
     "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "direct ORM relationship", "returned quantity.{0,30}(?:unbounded|unchecked)"],
     "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
     "maxContextFiles": 15,

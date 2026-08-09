@@ -34,6 +34,7 @@ import {
   type TroubleshootingGuideRecord,
 } from './troubleshootingGuideForm'
 import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
+import { extensionPoints } from '../../../extension-points'
 
 type TroubleshootingGuidesResponse = {
   items?: unknown[]
@@ -428,7 +429,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
             setFilterValues({})
             setPage(1)
           }}
-          perspective={{ tableId: 'warranty_claims.troubleshooting_guides.list' }}
+          perspective={{ tableId: extensionPoints.hosts.troubleshootingGuidesTable.tableId }}
           onRowClick={(row) => router.push(`/backend/warranty_claims/troubleshooting-guides/${row.id}/edit`)}
           isLoading={loading}
           bulkActions={bulkActions}

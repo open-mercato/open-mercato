@@ -289,7 +289,7 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 - For filters, use `FilterBar`/`FilterOverlay` with async option loaders; keep `pageSize` at or below 100.
 - Support exports using `buildCrudExportUrl` and pass `exportOptions` to `DataTable`.
 - Use `RowActions` for per-row actions; navigate via `onRowClick` or action links.
-- Row clicks are swallowed by interactive cell content (`button`, `a`, `input`, `select`, `textarea`, `[role="combobox"]`, `[role="listbox"]`, `[contenteditable="true"]`) so activating an inline control does not also navigate the row. Override the selector — or disable the guard with `false` to restore click-anywhere navigation — via `rowClickInteractiveSelector`; the default is exported as `DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR`.
+- Interactive cell content (`button`, `a`, `input`, `select`, `textarea`, `[role=combobox|listbox]`, `[contenteditable]`) swallows the row click; override or disable it via `rowClickInteractiveSelector`.
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
 - Keep `extensionTableId` stable and deterministic.
 - Render injected row actions and bulk actions through `RowActions`/bulk handlers so they follow the same guard and i18n behavior as built-ins.

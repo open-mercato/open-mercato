@@ -61,6 +61,33 @@ const ACTIVE_SLA_STATUSES = CLAIM_STATUSES.filter(
   (status): status is WarrantyClaimStatus => !isSlaEscalationTerminalStatus(status),
 )
 
+// The active-SLA backlog grows with the tenant, so the sweep walks it in keyset
+// pages instead of decrypting every claim into memory in one query.
+const SWEEP_PAGE_SIZE = 500
+
+type SweepCursor = { slaDueAt: Date; id: string } | null
+
+function readCursor(claim: WarrantyClaim): SweepCursor {
+  return claim.slaDueAt ? { slaDueAt: claim.slaDueAt, id: claim.id } : null
+}
+
+// Keyset rather than offset: claims are mutated while the sweep runs, and
+// `slaDueAt` is not unique, so `(slaDueAt, id)` is the stable page boundary.
+function pageWhere(base: FilterQuery<WarrantyClaim>, cursor: SweepCursor): FilterQuery<WarrantyClaim> {
+  if (!cursor) return base
+  return {
+    $and: [
+      base,
+      {
+        $or: [
+          { slaDueAt: { $gt: cursor.slaDueAt } },
+          { slaDueAt: cursor.slaDueAt, id: { $gt: cursor.id } },
+        ],
+      },
+    ],
+  } as FilterQuery<WarrantyClaim>
+}
+
 export const metadata: WorkerMeta = {
   queue: 'warranty_claims.sla_sweep',
   id: 'warranty_claims:sla-escalation-sweep',
@@ -220,7 +247,7 @@ export default async function handle(
   const tiers = parseEscalationTiers(settings.escalationTiers)
   const now = new Date()
 
-  const where: FilterQuery<WarrantyClaim> = {
+  const baseWhere: FilterQuery<WarrantyClaim> = {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     deletedAt: null,
@@ -229,47 +256,61 @@ export default async function handle(
     submittedAt: { $ne: null },
     status: { $in: ACTIVE_SLA_STATUSES },
   }
-  const claims = await findWithDecryption(
-    em,
-    WarrantyClaim,
-    where,
-    { orderBy: { slaDueAt: 'ASC' } },
-    scope,
-  )
 
-  for (const claim of claims) {
-    if (!isSlaEscalationCandidate(claim)) continue
-    const submittedAt = claim.submittedAt
-    const slaDueAt = claim.slaDueAt
-    if (!submittedAt || !slaDueAt) continue
-    try {
-      const elapsedBusinessMillis = businessMillisBetween(submittedAt, now, settings.businessHours)
-      // Anchor progress on `slaDueAt` — the pause-shifted deadline the stats
-      // endpoint reads — so pause/resume and escalation share one time base.
-      const progressPct = slaProgressPctFromDue(now, slaDueAt, settings.slaHours, settings.businessHours)
+  let cursor: SweepCursor = null
+  for (;;) {
+    const claims = await findWithDecryption(
+      em,
+      WarrantyClaim,
+      pageWhere(baseWhere, cursor),
+      { orderBy: { slaDueAt: 'ASC', id: 'ASC' }, limit: SWEEP_PAGE_SIZE },
+      scope,
+    )
+    if (!claims.length) break
 
-      if (
-        progressPct >= settings.slaAtRiskThresholdPct &&
-        progressPct < 100 &&
-        !claim.slaAtRiskNotifiedAt
-      ) {
-        await emitSlaSignal('warranty_claims.claim.sla_at_risk', claim, scope, progressPct, elapsedBusinessMillis)
-        await stampSlaSignal(em, claim, scope, { slaAtRiskNotifiedAt: now })
-      }
-      if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
-        await emitSlaSignal('warranty_claims.claim.sla_breached', claim, scope, progressPct, elapsedBusinessMillis)
-        await stampSlaSignal(em, claim, scope, {
-          slaBreachedNotifiedAt: now,
-          slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
-        })
-      }
+    for (const claim of claims) {
+      if (!isSlaEscalationCandidate(claim)) continue
+      const submittedAt = claim.submittedAt
+      const slaDueAt = claim.slaDueAt
+      if (!submittedAt || !slaDueAt) continue
+      try {
+        const elapsedBusinessMillis = businessMillisBetween(submittedAt, now, settings.businessHours)
+        // Anchor progress on `slaDueAt` — the pause-shifted deadline the stats
+        // endpoint reads — so pause/resume and escalation share one time base.
+        const progressPct = slaProgressPctFromDue(now, slaDueAt, settings.slaHours, settings.businessHours)
 
-      const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)
-      for (const entry of fire) {
-        await runEscalationTier(container, scope, claim, entry.tierIndex, entry.tier, progressPct)
+        if (
+          progressPct >= settings.slaAtRiskThresholdPct &&
+          progressPct < 100 &&
+          !claim.slaAtRiskNotifiedAt
+        ) {
+          await emitSlaSignal('warranty_claims.claim.sla_at_risk', claim, scope, progressPct, elapsedBusinessMillis)
+          await stampSlaSignal(em, claim, scope, { slaAtRiskNotifiedAt: now })
+        }
+        if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
+          await emitSlaSignal('warranty_claims.claim.sla_breached', claim, scope, progressPct, elapsedBusinessMillis)
+          await stampSlaSignal(em, claim, scope, {
+            slaBreachedNotifiedAt: now,
+            slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
+          })
+        }
+
+        const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)
+        for (const entry of fire) {
+          await runEscalationTier(container, scope, claim, entry.tierIndex, entry.tier, progressPct)
+        }
+      } catch (error) {
+        logClaimSweepError(claim.id, error)
       }
-    } catch (error) {
-      logClaimSweepError(claim.id, error)
     }
+
+    if (claims.length < SWEEP_PAGE_SIZE) break
+    const nextCursor = readCursor(claims[claims.length - 1])
+    if (!nextCursor) break
+    cursor = nextCursor
+    // Release the decrypted page before fetching the next one; every write in
+    // the loop goes through `nativeUpdate` or its own command fork, so nothing
+    // depends on these entities staying managed.
+    em.clear()
   }
 }
