@@ -393,7 +393,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
 
   if (!option) {
     return (
-      <Alert variant="warning">
+      <Alert status="warning">
         <AlertDescription>
           {t('data_sync.integrationTab.notAvailable', 'This integration is not registered as a data sync provider.')}
         </AlertDescription>
@@ -433,7 +433,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       </div>
 
       {!props.isEnabled ? (
-        <Alert variant="warning">
+        <Alert status="warning">
           <AlertDescription>
             {t('data_sync.integrationTab.integrationDisabledNotice', 'The integration is disabled. You can save schedules now, but runs will stay blocked until the integration is enabled.')}
           </AlertDescription>
@@ -441,7 +441,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       ) : null}
 
       {!props.hasCredentials ? (
-        <Alert variant="warning">
+        <Alert status="warning">
           <AlertDescription>
             {t('data_sync.integrationTab.credentialsMissingNotice', 'Credentials are still missing. Save schedules first if you want, but manual and scheduled runs will fail until credentials are configured.')}
           </AlertDescription>
@@ -449,7 +449,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       ) : null}
 
       {option.canStartRun === false ? (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>
             {t('data_sync.integrationTab.providerManagedNotice', 'This provider needs its own setup flow before a run can start. Use the provider tab on this page instead of generic schedules.')}
           </AlertDescription>
@@ -457,7 +457,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       ) : null}
 
       {rows.length === 0 ? (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>
             {t('data_sync.integrationTab.empty', 'This provider does not expose any schedulable sync entities yet.')}
           </AlertDescription>

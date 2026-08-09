@@ -717,7 +717,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
         <div className="space-y-4">
           {!isEditable ? (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
@@ -725,7 +725,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           ) : isStartNode ? (
             <div className="space-y-4">
               {/* Info Alert for START nodes */}
-              <Alert variant="info">
+              <Alert status="information">
                 <AlertDescription>
                   {t('workflows.nodeEditor.startStepsInfo')}
                 </AlertDescription>
@@ -865,7 +865,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
                     {/* JSON Schema Format Notice */}
                     {isJsonSchemaFormat && (
-                      <Alert variant="info" className="mb-3">
+                      <Alert status="information" className="mb-3">
                         <AlertDescription>
                           {t('workflows.nodeEditor.jsonSchemaFormat')}
                         </AlertDescription>

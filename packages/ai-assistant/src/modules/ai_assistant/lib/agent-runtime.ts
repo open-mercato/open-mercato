@@ -29,6 +29,20 @@ import {
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
+import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
+import {
+  AiModerationBlockedError,
+  AiModerationUnavailableError,
+  type ModerationService,
+} from './moderation'
+import {
+  isModerationActive,
+  resolveModerationPolicy,
+  shouldFailClosed,
+} from './moderation-policy'
+import { recordModerationFlag } from './moderation-flag-recorder'
 import type {
   AiAgentDefinition,
   AiAgentLoopConfig,
@@ -344,6 +358,16 @@ export interface PreparedAiSdkOptions {
    * Phase 5 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   toolLoopAgent?: ToolLoopAgent<never, ToolSet>
+  /**
+   * Provider-specific `providerOptions` fragment carrying the mapped end-user
+   * safety identifier (e.g. OpenAI `safety_identifier`). Present only when an
+   * identifier was derived and the resolved provider supports the mapping.
+   * Callers using the `generateText` escape-hatch MUST forward it to the SDK
+   * call so the identifier reaches the provider.
+   *
+   * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+   */
+  providerOptions?: Record<string, unknown>
 }
 
 /**
@@ -970,6 +994,15 @@ interface ResolvedAgentModel {
   model: LanguageModel
   modelId: string
   providerId: string
+  /**
+   * Provider-specific `providerOptions` fragment carrying the mapped end-user
+   * safety identifier (undefined when no identifier or no provider mapping).
+   */
+  providerOptions?: Record<string, unknown>
+  /** Whether the resolved chat provider supports input moderation. */
+  supportsInputModeration: boolean
+  /** Resolved base URL (if any), reused by the moderation endpoint call. */
+  baseURL?: string
 }
 
 function resolveAgentModel(
@@ -981,6 +1014,7 @@ function resolveAgentModel(
   tenantOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
   requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null } | null,
   tenantAllowlist?: TenantAllowlistSnapshot | null,
+  endUserIdentifier?: string,
 ): ResolvedAgentModel {
   const effectiveContainer = container ?? createContainer()
   const resolution = createModelFactory(effectiveContainer).resolveModel({
@@ -995,11 +1029,145 @@ function resolveAgentModel(
     tenantOverride: tenantOverride ?? undefined,
     requestOverride: requestOverride ?? undefined,
     tenantAllowlist: tenantAllowlist ?? null,
+    endUserIdentifier,
   })
   return {
     model: resolution.model as LanguageModel,
     modelId: resolution.modelId,
     providerId: resolution.providerId,
+    providerOptions: resolution.providerOptions,
+    supportsInputModeration: resolution.supportsInputModeration === true,
+    baseURL: resolution.baseURL,
+  }
+}
+
+/**
+ * Concatenates the text parts of the most recent user message. Only the new
+ * user turn is moderated (prior history was screened on its own turn). Returns
+ * an empty string when there is no user message or no text content.
+ */
+export function extractLatestUserText(messages: UIMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const raw = messages[index] as unknown as {
+      role?: string
+      content?: string
+      parts?: Array<{ type?: string; text?: string }>
+    }
+    if (raw.role !== 'user') continue
+    if (Array.isArray(raw.parts)) {
+      return raw.parts
+        .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text as string)
+        .join('\n')
+    }
+    return typeof raw.content === 'string' ? raw.content : ''
+  }
+  return ''
+}
+
+export interface InputModerationGateParams {
+  untrustedInput?: boolean
+  supportsInputModeration: boolean
+  userText: string
+  service: ModerationService | null
+  /**
+   * Lazy resolver for the moderation provider's API key. Invoked only when the
+   * gate actually proceeds (policy active, provider supports moderation, text
+   * non-empty, service present) — so callers never pay for (or fail on) key
+   * resolution on the common skip paths.
+   */
+  resolveApiKey: () => string | null
+  baseURL?: string
+  moderationModel?: string
+  perAgentOverride?: boolean | null
+  tenantWideOverride?: boolean | null
+  env?: EnvLookup
+  /**
+   * Best-effort side effect invoked with the flagged categories right before
+   * the gate throws {@link AiModerationBlockedError}. Phase 3 wires the audit
+   * insert + event emit here; it MUST NOT throw (failures are swallowed by the
+   * caller) and MUST NOT block the rejection.
+   */
+  onFlagged?: (categories: Record<string, { flagged: boolean; score: number }>) => void | Promise<void>
+}
+
+/**
+ * Pre-loop input moderation gate. Runs the moderation check for the current
+ * user turn before the model call. Decoupled from the registry/container so it
+ * is unit-testable: the caller resolves the {@link ModerationService} and API
+ * key. Throws {@link AiModerationBlockedError} when flagged; honors
+ * fail-closed (enforced) vs fail-open (opt-in) on endpoint unavailability.
+ */
+export async function runInputModerationGate(params: InputModerationGateParams): Promise<void> {
+  const policy = resolveModerationPolicy({
+    untrustedInput: params.untrustedInput,
+    perAgentOverride: params.perAgentOverride,
+    tenantWideOverride: params.tenantWideOverride,
+    env: params.env,
+  })
+  if (!isModerationActive(policy)) return
+  // The resolved chat provider has no moderation endpoint — rely on its own
+  // server-side filtering and skip the gate.
+  if (!params.supportsInputModeration) return
+  const text = params.userText.trim()
+  if (!text) return
+
+  const failClosed = shouldFailClosed(policy)
+  const failOpenOrThrow = (reason: string, error?: unknown): void => {
+    if (failClosed) {
+      if (error instanceof AiModerationUnavailableError) throw error
+      throw new AiModerationUnavailableError(reason, error)
+    }
+    logger.warn('Input moderation unavailable; failing open for opt-in surface', { reason })
+  }
+
+  if (!params.service) {
+    return failOpenOrThrow('moderation service is not available in the container')
+  }
+  const apiKey = params.resolveApiKey()
+  if (!apiKey) {
+    return failOpenOrThrow('no API key available for the moderation provider')
+  }
+
+  let result
+  try {
+    result = await params.service.checkInput({
+      text,
+      apiKey,
+      baseURL: params.baseURL,
+      model: params.moderationModel,
+    })
+  } catch (error) {
+    if (error instanceof AiModerationUnavailableError) {
+      return failOpenOrThrow(error.message, error)
+    }
+    throw error
+  }
+
+  if (result.flagged) {
+    if (params.onFlagged) {
+      try {
+        await params.onFlagged(result.categories)
+      } catch (error) {
+        logger.error('Moderation flag side effect failed (rejection still applies)', { err: error })
+      }
+    }
+    throw new AiModerationBlockedError(result.categories)
+  }
+}
+
+/**
+ * Compute the tenant-salted end-user safety identifier for a chat turn,
+ * best-effort. Returns undefined (never throws) so a derivation failure — e.g.
+ * a missing base secret in a misconfigured environment — degrades to "no
+ * identifier attached" instead of breaking the chat. Failures are logged.
+ */
+function resolveEndUserIdentifier(authContext: AiChatRequestContext): string | undefined {
+  try {
+    return computeEndUserIdentifier(authContext.tenantId, authContext.userId)
+  } catch (error) {
+    logger.warn('Failed to derive end-user safety identifier', { err: error })
+    return undefined
   }
 }
 
@@ -1035,6 +1203,12 @@ async function resolveTenantAllowlistSnapshot(
  * is appended to `agent.systemPrompt`. Throwing callbacks are caught and
  * logged without failing the request — the spec allows hydration to be
  * best-effort until Step 5.2 wires a stricter contract.
+ *
+ * `userId` identifies the authenticated caller and is forwarded to the callback
+ * so it can authorize user-scoped hydration. It MUST come from the server-side
+ * auth context — `pageContext` is browser-supplied and is never read for it.
+ * The parameter is trailing and optional so existing five-argument callers keep
+ * working; they simply hand the resolver no verified identity.
  */
 export async function composeSystemPrompt(
   agent: AiAgentDefinition,
@@ -1042,6 +1216,7 @@ export async function composeSystemPrompt(
   container: AwilixContainer | undefined,
   tenantId: string | null,
   organizationId: string | null,
+  userId?: string | null,
 ): Promise<string> {
   const baseFromOverride = await resolveBaseSystemPromptWithOverride(
     agent,
@@ -1065,6 +1240,7 @@ export async function composeSystemPrompt(
     container,
     tenantId,
     organizationId,
+    userId: userId ?? null,
   }
   try {
     const hydrated = await resolve(hydrationInput)
@@ -1197,6 +1373,44 @@ async function resolveRuntimeModelOverride(
   } catch (error) {
     logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })
     return null
+  }
+}
+
+/**
+ * Resolves the per-agent and tenant-wide `input_moderation` override values for
+ * the moderation policy precedence. Best-effort and fail-open (returns nulls on
+ * any error so the gate falls back to the env default). Returns the two values
+ * separately because the precedence treats per-agent and tenant-wide as
+ * distinct steps.
+ */
+async function resolveModerationOverrideValues(
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+  agentId: string,
+): Promise<{ perAgentOverride: boolean | null; tenantWideOverride: boolean | null }> {
+  const empty = { perAgentOverride: null, tenantWideOverride: null }
+  if (!tenantId || !container) return empty
+  let em: EntityManager | null = null
+  try {
+    em = container.resolve<EntityManager>('em')
+  } catch {
+    em = null
+  }
+  if (!em) return empty
+  try {
+    const repo = new AiAgentRuntimeOverrideRepository(em)
+    const [agentRow, tenantRow] = await Promise.all([
+      repo.getExact({ tenantId, organizationId: organizationId ?? null, agentId }),
+      repo.getDefault({ tenantId, organizationId: organizationId ?? null, agentId: null }),
+    ])
+    return {
+      perAgentOverride: agentRow?.inputModeration ?? null,
+      tenantWideOverride: tenantRow?.inputModeration ?? null,
+    }
+  } catch (error) {
+    logger.warn('Moderation override lookup failed; falling back to env default', { agentId, err: error })
+    return empty
   }
 }
 
@@ -1470,6 +1684,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
+    input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
@@ -1486,9 +1701,59 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     tenantRuntimeOverride,
     input.requestOverride,
     tenantAllowlistSnapshot,
+    resolveEndUserIdentifier(input.authContext),
   )
   const { model } = resolvedModel
+  const modelProviderOptions = resolvedModel.providerOptions
   const normalizedMessages = ensureUiMessageShape(input.messages)
+
+  // Pre-loop input moderation gate (spec 2026-06-04). Runs before the model
+  // call on enabled/enforced surfaces where the provider supports moderation.
+  // Throws AiModerationBlockedError (flagged) or AiModerationUnavailableError
+  // (enforced + outage); both are surfaced by the SSE error path.
+  let moderationService: ModerationService | null = null
+  try {
+    moderationService = input.container?.resolve<ModerationService>('moderationService') ?? null
+  } catch {
+    moderationService = null
+  }
+  // Read tenant overrides only when the provider can moderate and the agent is
+  // not already enforced (untrustedInput short-circuits to enforced) — avoids a
+  // DB round-trip on the common skip paths.
+  const moderationOverrides =
+    resolvedModel.supportsInputModeration && agent.untrustedInput !== true
+      ? await resolveModerationOverrideValues(
+          input.container,
+          input.authContext.tenantId,
+          input.authContext.organizationId,
+          agent.id,
+        )
+      : { perAgentOverride: null, tenantWideOverride: null }
+  await runInputModerationGate({
+    untrustedInput: agent.untrustedInput,
+    supportsInputModeration: resolvedModel.supportsInputModeration,
+    perAgentOverride: moderationOverrides.perAgentOverride,
+    tenantWideOverride: moderationOverrides.tenantWideOverride,
+    userText: extractLatestUserText(normalizedMessages),
+    service: moderationService,
+    resolveApiKey: () => llmProviderRegistry.get(resolvedModel.providerId)?.resolveApiKey() ?? null,
+    baseURL: resolvedModel.baseURL,
+    moderationModel: process.env.OM_AI_MODERATION_MODEL,
+    onFlagged: (categories) =>
+      recordModerationFlag(
+        {
+          tenantId: input.authContext.tenantId,
+          organizationId: input.authContext.organizationId,
+          agentId: agent.id,
+          userId: input.authContext.userId,
+          providerId: resolvedModel.providerId,
+          modelId: resolvedModel.modelId,
+          categories,
+        },
+        input.container,
+      ),
+  })
+
   const hydratedMessages = attachAttachmentsToMessages(normalizedMessages, resolvedAttachments)
   const modelMessages = await convertToModelMessages(hydratedMessages)
 
@@ -1581,6 +1846,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         : {}),
       ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
       ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+      ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
     }
     builtToolLoopAgent = new ToolLoopAgent(agentSettings)
   }
@@ -1602,6 +1868,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     toolChoice: sdkToolChoice,
     abortSignal: abortController.signal,
     finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
+    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
   }
 
@@ -1635,11 +1902,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
   if (builtToolLoopAgent !== undefined) {
     // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
-    // pipeline. prepareStep is already wired at construction (security-critical).
+    // pipeline. prepareStep is already wired at construction (security-critical),
+    // and so is `onStepFinish` — passing it here too makes the SDK merge both
+    // wirings without dedup, so the budget enforcer and the loop trace would count
+    // every step twice and abort the turn before the final answer (#5042).
     const agentStreamResult = await builtToolLoopAgent.stream({
       messages: modelMessages,
       abortSignal: abortController.signal,
-      onStepFinish: wiredOnStepFinish,
     })
     if (wallClockTimer !== undefined) {
       const clearTimer = () => clearTimeout(wallClockTimer!)
@@ -1674,6 +1943,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     experimental_repairToolCall: effectiveLoop.repairToolCall as never,
     ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
     ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
     abortSignal: abortController.signal,
   })
   if (wallClockTimer !== undefined) {
@@ -1936,6 +2206,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
+    input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),

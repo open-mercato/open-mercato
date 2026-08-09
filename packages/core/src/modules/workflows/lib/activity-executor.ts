@@ -184,7 +184,40 @@ export interface ActivityDefinition {
   async?: boolean // Flag to execute activity asynchronously via queue
   retryPolicy?: RetryPolicy
   timeoutMs?: number
+  /**
+   * @deprecated Use `timeoutMs`. Legacy ISO 8601 duration string accepted by
+   * the definition schema before #4424; normalized by `resolveActivityTimeoutMs`.
+   */
+  timeout?: string
   compensate?: boolean // Flag to execute compensation on failure
+}
+
+/**
+ * Effective timeout for an activity, in milliseconds.
+ *
+ * The editor and this executor both speak `timeoutMs`, but the definition
+ * schema historically accepted only an ISO 8601 `timeout` string — so stored
+ * definitions can carry either. Prefer `timeoutMs`; fall back to parsing
+ * `timeout`, ignoring a malformed value rather than throwing mid-execution
+ * (an unparseable timeout must not fail an activity that would otherwise
+ * succeed). Returns undefined when no usable timeout is configured (#4424).
+ */
+export function resolveActivityTimeoutMs(activity: {
+  timeoutMs?: number
+  timeout?: string
+}): number | undefined {
+  if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
+    return activity.timeoutMs
+  }
+  if (typeof activity.timeout === 'string' && activity.timeout.trim().length > 0) {
+    try {
+      const parsed = parseDuration(activity.timeout.trim())
+      if (Number.isFinite(parsed) && parsed > 0) return parsed
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
 }
 
 export interface RetryPolicy {
@@ -211,27 +244,29 @@ export interface ActivityContext {
 }
 
 type RbacFeatureResolver = {
-  getGrantedFeatures: (
+  userHasAllFeatures: (
     userId: string,
+    required: string[],
     opts: { tenantId: string | null; organizationId: string | null }
-  ) => Promise<string[]>
+  ) => Promise<boolean>
 }
 
-async function resolveWorkflowUserFeatures(
+async function workflowUserHasAllFeatures(
   container: AwilixContainer,
   userId: string,
+  required: readonly string[],
   tenantId: string | null,
   organizationId: string | null
-): Promise<string[]> {
+): Promise<boolean> {
   try {
     const rbac = container.resolve('rbacService') as RbacFeatureResolver | undefined
-    if (rbac?.getGrantedFeatures) {
-      return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+    if (rbac?.userHasAllFeatures) {
+      return await rbac.userHasAllFeatures(userId, [...required], { tenantId, organizationId })
     }
   } catch {
     // Fail closed below when the workflow executor cannot prove the actor's grants.
   }
-  return []
+  return false
 }
 
 export interface ActivityExecutionResult {
@@ -578,11 +613,13 @@ export async function executeActivity(
     try {
       const startTime = Date.now()
 
-      // Execute with timeout if specified
-      const result = activity.timeoutMs
+      // Execute with timeout if specified (timeoutMs, or a legacy ISO 8601
+      // `timeout` string normalized to ms — see resolveActivityTimeoutMs).
+      const timeoutMs = resolveActivityTimeoutMs(activity)
+      const result = timeoutMs
         ? await executeWithTimeout(
-            () => executeActivityByType(em, container, activity, context),
-            activity.timeoutMs
+            (signal) => executeActivityByType(em, container, activity, context, signal),
+            timeoutMs
           )
         : await executeActivityByType(em, container, activity, context)
 
@@ -764,7 +801,8 @@ async function executeActivityByType(
   em: EntityManager,
   container: AwilixContainer,
   activity: ActivityDefinition,
-  context: ActivityContext
+  context: ActivityContext,
+  signal?: AbortSignal
 ): Promise<any> {
   // Interpolate config variables from context (including workflow metadata)
   const interpolatedConfig = interpolateActivityConfig(
@@ -892,6 +930,17 @@ export async function executeEmitEvent(
     throw new Error('EMIT_EVENT requires "eventName" field')
   }
 
+  // Emissions are fire-and-forget and no subscriber validates the payload shape,
+  // so an unresolved `{{context.x}}` here is even quieter than on the command
+  // path — it ships the literal template to every consumer. Fail loudly instead.
+  const unresolvedPayloadKeys = findUnresolvedTemplateKeys(payload)
+  if (unresolvedPayloadKeys.length > 0) {
+    throw new Error(
+      `EMIT_EVENT payload contains unresolved template variables for: ${unresolvedPayloadKeys.join(', ')}. ` +
+        `Check that the workflow context provides these keys.`
+    )
+  }
+
   // Get event bus from container
   const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
@@ -918,6 +967,23 @@ export async function executeEmitEvent(
   return { emitted: true, eventName, payload: enrichedPayload }
 }
 
+const UNRESOLVED_TEMPLATE_PATTERN = /\{\{[^}]+\}\}/
+
+function findUnresolvedTemplateKeys(value: unknown, path = ''): string[] {
+  if (typeof value === 'string') {
+    return UNRESOLVED_TEMPLATE_PATTERN.test(value) ? [path] : []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => findUnresolvedTemplateKeys(item, `${path}[${index}]`))
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, nested]) =>
+      findUnresolvedTemplateKeys(nested, path ? `${path}.${key}` : key)
+    )
+  }
+  return []
+}
+
 /**
  * UPDATE_ENTITY activity handler
  *
@@ -940,11 +1006,14 @@ export async function executeEmitEvent(
  *   "commandId": "sales.orders.update",
  *   "statusDictionary": "sales.order_status",
  *   "input": {
- *     "id": "{{context.id}}",
+ *     "id": "{{context.orderId}}",
  *     "statusValue": "pending_approval"
  *   }
  * }
  * ```
+ *
+ * Every `{{...}}` reference in `input` must resolve against the workflow context —
+ * an unresolved reference is rejected rather than forwarded to the command bus.
  */
 export async function executeUpdateEntity(
   em: EntityManager,
@@ -984,13 +1053,14 @@ export async function executeUpdateEntity(
     throw new Error('UPDATE_ENTITY requires an authenticated workflow user')
   }
 
-  const userFeatures = await resolveWorkflowUserFeatures(
+  const authorized = await workflowUserHasAllFeatures(
     container,
     actorUserId,
+    workflowSafeCommand.requiredFeatures,
     context.workflowInstance.tenantId,
     context.workflowInstance.organizationId
   )
-  if (!hasAllFeatures(userFeatures, workflowSafeCommand.requiredFeatures)) {
+  if (!authorized) {
     throw new Error('UPDATE_ENTITY command is not authorized')
   }
 
@@ -999,6 +1069,14 @@ export async function executeUpdateEntity(
 
   if (!commandBus || typeof commandBus.execute !== 'function') {
     throw new Error('CommandBus not available in container')
+  }
+
+  const unresolvedKeys = findUnresolvedTemplateKeys(input)
+  if (unresolvedKeys.length > 0) {
+    throw new Error(
+      `UPDATE_ENTITY input contains unresolved template variables for: ${unresolvedKeys.join(', ')}. ` +
+        `Check that the workflow context provides these keys.`
+    )
   }
 
   // Prepare final input, resolving statusValue if provided
@@ -2054,19 +2132,21 @@ function sleep(ms: number): Promise<void> {
  * Execute a promise with timeout
  */
 async function executeWithTimeout<T>(
-  executor: () => Promise<T>,
+  executor: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout
+  const abortController = new AbortController()
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      abortController.abort()
       reject(new Error(`Activity execution timeout after ${timeoutMs}ms`))
     }, timeoutMs)
   })
 
   try {
-    return await Promise.race([executor(), timeoutPromise])
+    return await Promise.race([executor(abortController.signal), timeoutPromise])
   } finally {
     clearTimeout(timeoutId!)
   }

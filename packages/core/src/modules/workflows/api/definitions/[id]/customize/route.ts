@@ -18,6 +18,7 @@ import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { workflowDefinitionMutationResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -116,6 +117,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await em.flush()
       saved = override
     }
+
+    // Materializing the override moves trigger ownership from the code registry
+    // to the new `workflow_definitions` row, so the cached snapshot the wildcard
+    // subscriber reads is stale until TRIGGER_CACHE_TTL expires (#4425). Scope
+    // the invalidation to the saved row's own organization: reviving an existing
+    // override belonging to a sibling organization changes triggers for THAT
+    // organization, not for the caller's.
+    if (saved.tenantId) invalidateTriggerCache(saved.tenantId, saved.organizationId ?? undefined)
 
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {

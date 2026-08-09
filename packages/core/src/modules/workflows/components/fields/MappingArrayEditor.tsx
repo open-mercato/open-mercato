@@ -119,7 +119,7 @@ export function MappingArrayEditor({
           <p className="text-xs text-muted-foreground mt-0.5">
             {description}
           </p>
-          {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-xs text-status-error-text mt-1">{error}</p>}
         </div>
         <Button
           type="button"

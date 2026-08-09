@@ -84,7 +84,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 ```
 
 **Variants**:
-- `default` (primary CTA) · `destructive` (danger filled)
+- `default` (primary CTA) · `destructive` (danger, quiet: red text + red border on the page surface)
+- `destructive-solid` (danger filled — point-of-no-return confirmations only)
 - `destructive-outline` · `destructive-soft` · `destructive-ghost` (danger family)
 - `outline` · `secondary` · `ghost` · `muted` · `link`
 
@@ -115,7 +116,20 @@ All sizes share `rounded-md`. Same-row buttons MUST share `size`.
 
 **Anti-patterns:** `<Button className="h-9">` (redundant, hides contract from grep), `<Button size="sm">` next to `size="icon"`, raw `<Link>` styled as a button.
 
-> Use the destructive family for danger actions: `destructive` for primary delete CTAs, `destructive-outline` for confirmation dialogs, `destructive-soft` for inline destructive chips, `destructive-ghost` for low-emphasis menu items.
+### Destructive loudness (MUST)
+
+`destructive` is **quiet by default** — red text and a red border on the page surface. A screen full of solid red buttons trains users to ignore red, so the fill is reserved for the one moment it has to be unmissable.
+
+| Control | Variant | Why |
+|---|---|---|
+| Delete / Remove / Discard trigger (row action, toolbar, form header, edit-dialog footer) | `destructive` | Opening a confirmation is reversible — Escape gets you out. |
+| The confirm button inside a confirmation dialog | `destructive-solid` | The single point of no return. `ConfirmDialog` with `variant="destructive"` already resolves to this — do not hand-roll it. |
+| Inline destructive chip | `destructive-soft` | Low-emphasis surface treatment. |
+| Low-emphasis destructive menu item | `destructive-ghost` | No border/fill in a list context. |
+
+MUST NOT put `destructive-solid` on a button that only *opens* a dialog, and MUST NOT leave a final confirmation on the quiet `destructive`. Status and validation copy is not a destructive action — that takes `text-status-error-text`, never `text-destructive` (see [`ds-rules.md`](ds-rules.md)).
+
+`destructive-outline` remains as an alias of the quiet treatment for call sites that predate the policy; new code uses `destructive`.
 
 ---
 

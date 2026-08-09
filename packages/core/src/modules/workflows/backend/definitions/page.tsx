@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -507,7 +508,7 @@ export default function WorkflowDefinitionsListPage() {
           onFiltersClear={handleFiltersClear}
           onRowClick={(row) => router.push(buildVisualEditorHref(row.id))}
           perspective={{
-            tableId: 'workflows.definitions.list',
+            tableId: extensionPoints.hosts.definitionsTable.tableId,
           }}
           emptyState={(
             <ListEmptyState

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { generateShared } from './tools/shared.js'
+import { enforceGeneratedRootBudget, finalizeHarnessManifest, generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
 import { generateCodex } from './tools/codex.js'
 import { generateCursor } from './tools/cursor.js'
@@ -29,6 +29,9 @@ const TOOLS = [
 ] as const
 
 const SELECTABLE_TOOLS = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
+
+/** The selection the prompt advertises as its default (`[1]`), used when no TTY can answer it. */
+const DEFAULT_TOOL_ID = TOOLS[0].id
 
 /** Concrete agent tool ids accepted by the `--agents` CLI flag. */
 export const AGENT_TOOL_IDS: readonly string[] = SELECTABLE_TOOLS.map((t) => t.id)
@@ -80,7 +83,12 @@ export function parseAgentsValue(raw: string): ParsedAgentsArg {
   return { skip: false, tools: [...new Set(toolTokens)] }
 }
 
-async function promptSelection(ask: AskFn): Promise<string[]> {
+/**
+ * Resolve the agent-tool selection interactively. Without a TTY there is nothing
+ * to answer the prompt, so this takes the default the prompt itself advertises
+ * rather than awaiting an answer that can never arrive.
+ */
+export async function promptSelection(ask: AskFn): Promise<string[]> {
   console.log('')
   console.log('🤖  Agentic workflow setup')
   console.log('')
@@ -90,6 +98,13 @@ async function promptSelection(ask: AskFn): Promise<string[]> {
     console.log(`   ${tool.key}. ${tool.label}`)
   }
   console.log('')
+
+  if (!process.stdin.isTTY) {
+    console.log(`   Non-interactive shell; using the default (${DEFAULT_TOOL_ID}).`)
+    console.log('   Pass --agents <list|all|none> to choose explicitly.')
+    console.log('')
+    return [DEFAULT_TOOL_ID]
+  }
 
   const answer = (await ask('   Enter number(s) separated by comma [1]: ')).trim() || '1'
 
@@ -153,7 +168,10 @@ export async function runAgenticSetup(
   if (selectedIds.includes('cursor')) generateCursor(config)
   if (selectedIds.includes('github-copilot')) generateGithubCopilot(config)
 
+  enforceGeneratedRootBudget(config)
+
   persistAgentSelection(targetDir, selectedIds)
+  finalizeHarnessManifest(config, selectedIds)
   installSkills(targetDir)
   printSummary(selectedIds)
   return true
@@ -178,11 +196,11 @@ function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
 }
 
 function installSkills(targetDir: string): void {
-  const installScript = join(targetDir, 'scripts', 'install-skills.sh')
+  const installScript = join(targetDir, 'scripts', 'install-skills.mjs')
   if (!existsSync(installScript)) return
   console.log('')
   console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
-  const result = spawnSync('sh', [installScript], { cwd: targetDir, stdio: 'inherit' })
+  const result = spawnSync(process.execPath, [installScript], { cwd: targetDir, stdio: 'inherit' })
   if (result.error || result.status !== 0) {
     console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
   }
@@ -218,7 +236,9 @@ function printSummary(selectedIds: string[]): void {
     console.log('      The external open-mercato/skills subset installs automatically')
     console.log('      (including chain steps like om-prepare-test-env and the autofix')
     console.log('      chain om-verify-in-repo → om-root-cause → om-fix → om-open-pr);')
-    console.log('      re-run anytime with `yarn install-skills`. The local override')
+    console.log('      setup pins the current shared commit; refresh later with')
+    console.log('      `yarn install-skills --update` or reinstall the pin with')
+    console.log('      `yarn install-skills`. The local override')
     console.log('      SKILL.md files adjust them for your app (base-branch discovery,')
     console.log('      opt-in pipeline labels, script probing).')
   }

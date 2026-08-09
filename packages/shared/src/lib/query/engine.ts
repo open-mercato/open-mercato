@@ -12,6 +12,13 @@ import {
   type ResolvedJoin,
 } from './join-utils'
 import { resolveSearchConfig } from '../search/config'
+import {
+  createSearchTokenAvailability,
+  isSearchFilterOp,
+  type SearchTokenAvailability,
+  type SearchTokenProbeDb,
+  type SearchTokenProbeQueryBuilder,
+} from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
@@ -20,6 +27,7 @@ import {
   type CustomFieldDefinitionRow,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
+import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { mapWithConcurrency } from './bounded-decrypt'
 import { createLogger } from '../logger'
@@ -206,8 +214,8 @@ function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, ent
  */
 export class BasicQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
-  private tableCache = new Map<string, boolean>()
   private searchAliasSeq = 0
+  private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
   constructor(
     private em: EntityManager,
@@ -228,6 +236,22 @@ export class BasicQueryEngine implements QueryEngine {
     const emAny = this.em as any
     if (typeof emAny?.getKysely === 'function') return emAny.getKysely() as AnyDb
     throw new Error('BasicQueryEngine requires an EntityManager exposing getKysely() (MikroORM v7)')
+  }
+
+  private searchAvailability(): SearchTokenAvailability {
+    if (!this.searchAvailabilityInstance) {
+      this.searchAvailabilityInstance = createSearchTokenAvailability({
+        getDb: () => this.getDb() as unknown as SearchTokenProbeDb,
+        getConfig: resolveSearchConfig,
+        applyOrganizationScope: (query, column, scope) => this.applyOrganizationScope(
+          query as unknown as AnyBuilder,
+          column,
+          scope,
+        ) as unknown as SearchTokenProbeQueryBuilder,
+        logDebug: (event, payload) => this.logSearchDebug(event, payload),
+      })
+    }
+    return this.searchAvailabilityInstance
   }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -293,13 +317,20 @@ export class BasicQueryEngine implements QueryEngine {
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     const searchConfig = resolveSearchConfig()
-    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
-    const hasSearchTokens = searchEnabled
-      ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
+    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => isSearchFilterOp(filter.op))
+    // Callers that opt out of automatic tenant/org scoping own the full
+    // visibility predicate. Search-token filtering has its own tenant/org
+    // guards, so it must be disabled on this direct-query path as documented
+    // by QueryOptions.omitAutomaticTenantOrgScope.
+    const searchEnabled = !skipAutoScope && await this.searchAvailability().staticEnabled()
+    // Probe `search_tokens` only when this query actually searches (#4723): every consumer of
+    // `searchActive` sits behind a like/ilike guard, so on a plain list load the answer is never
+    // read — and the probe is a `LIMIT 1` the planner can resolve as a seq scan over a large
+    // `search_tokens`. The join path below already probes lazily for the same reason.
+    const hasSearchTokens = searchEnabled && searchFilters.length
+      ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    const joinSearchAvailability = new Map<string, boolean>()
-    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => filter.op === 'like' || filter.op === 'ilike')
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -329,6 +360,45 @@ export class BasicQueryEngine implements QueryEngine {
           organizationScope: orgScope,
         })
       }
+      const fallbackFields = searchFilters
+        .filter((filter) => !searchActive || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => String(filter.field))
+      if (fallbackFields.length) {
+        await warnOnCiphertextLikeFallback({
+          entity: String(entity),
+          fields: fallbackFields,
+          tenantId: opts.tenantId ?? null,
+          // `searchEnabled` also folds in the missing-table and
+          // omitAutomaticTenantOrgScope cases, which are "no usable tokens"
+          // rather than "the operator switched search off".
+          reason: searchActive
+            ? 'no-indexable-tokens'
+            : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+          service: this.getEncryptionService(),
+        })
+      }
+    }
+    for (const [alias, joinedFilters] of joinFilters) {
+      const filters = joinedFilters.filter((entry) => entry.op === 'like' || entry.op === 'ilike')
+      if (!filters.length) continue
+      const join = joinMap.get(alias)
+      if (!join?.entityId) continue
+      const hasJoinedTokens = searchEnabled
+        ? await this.searchAvailability().hasTokens(join.entityId, opts.tenantId ?? null, orgScope)
+        : false
+      const fallbackFields = filters
+        .filter((filter) => !hasJoinedTokens || typeof filter.value !== 'string' || tokenizeText(filter.value, searchConfig).hashes.length === 0)
+        .map((filter) => filter.column)
+      if (!fallbackFields.length) continue
+      await warnOnCiphertextLikeFallback({
+        entity: join.entityId,
+        fields: fallbackFields,
+        tenantId: opts.tenantId ?? null,
+        reason: hasJoinedTokens
+          ? 'no-indexable-tokens'
+          : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
+        service: this.getEncryptionService(),
+      })
     }
     const recordIdColumn = qualify('id')
 
@@ -392,11 +462,7 @@ export class BasicQueryEngine implements QueryEngine {
       if (!['like', 'ilike'].includes(filter.op)) return { applied: false, builder }
       if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return { applied: false, builder }
 
-      let searchAvailable = joinSearchAvailability.get(join.entityId)
-      if (searchAvailable === undefined) {
-        searchAvailable = await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
-        joinSearchAvailability.set(join.entityId, searchAvailable)
-      }
+      const searchAvailable = await this.searchAvailability().hasTokens(join.entityId, opts.tenantId ?? null, orgScope)
       if (!searchAvailable) return { applied: false, builder }
 
       const tokens = tokenizeText(String(filter.value), searchConfig)
@@ -467,8 +533,8 @@ export class BasicQueryEngine implements QueryEngine {
     // today's complete selection (base fields + CF projections + extension joins).
     // `projection: 'sortKeys'` selects only `id` + the sort columns — the slim phase-1
     // candidate scan used when `requiresPlaintextSort`. Re-running the WHERE/JOIN logic
-    // twice is cheap: every `columnExists`/`tableExists` check is memoized on
-    // `this.columnCache`/`this.tableCache`, so the second pass hits no extra DB calls.
+    // twice is cheap: every `columnExists` check is memoized on `this.columnCache`,
+    // so the second pass hits no extra DB calls.
     const buildQuery = async (projection: 'full' | 'sortKeys'): Promise<BuiltQuery> => {
       const isSortKeysProjection = projection === 'sortKeys'
       let q: AnyBuilder = db.selectFrom(table as any)
@@ -1132,51 +1198,6 @@ export class BasicQueryEngine implements QueryEngine {
     return present
   }
 
-  private async tableExists(table: string): Promise<boolean> {
-    if (this.tableCache.has(table)) return this.tableCache.get(table) ?? false
-    const db = this.getDb()
-    const exists = await db
-      .selectFrom('information_schema.tables' as any)
-      .select(sql<number>`1`.as('one'))
-      .where('table_name' as any, '=', table)
-      .limit(1)
-      .executeTakeFirst()
-    const present = !!exists
-    this.tableCache.set(table, present)
-    return present
-  }
-
-  private async hasSearchTokens(
-    entity: string,
-    tenantId: string | null,
-    orgScope?: { ids: string[]; includeNull: boolean } | null
-  ): Promise<boolean> {
-    try {
-      const db = this.getDb()
-      let query: AnyBuilder = db
-        .selectFrom('search_tokens' as any)
-        .select(sql<number>`1`.as('one'))
-        .where('entity_type' as any, '=', entity)
-        .limit(1)
-      if (tenantId !== undefined) {
-        query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
-      }
-      if (orgScope) {
-        query = this.applyOrganizationScope(query, 'search_tokens.organization_id', orgScope)
-      }
-      const row = await query.executeTakeFirst()
-      return !!row
-    } catch (err) {
-      this.logSearchDebug('search:has-tokens-error', {
-        entity,
-        tenantId,
-        organizationScope: orgScope,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return false
-    }
-  }
-
   private applySearchTokens(
     q: AnyBuilder,
     opts: {
@@ -1330,9 +1351,15 @@ export class BasicQueryEngine implements QueryEngine {
       const textExpr = sql<string | null>`(${sql.ref(`${alias}.doc`)} ->> ${opts.field})`
       switch (opts.op) {
         case 'eq':
-          sub = sub.where(sql<boolean>`${textExpr} = ${opts.value}`); break
+          sub = opts.value === null
+            ? sub.where(sql<boolean>`${textExpr} is null`)
+            : sub.where(sql<boolean>`${textExpr} = ${opts.value}`)
+          break
         case 'ne':
-          sub = sub.where(sql<boolean>`${textExpr} <> ${opts.value}`); break
+          sub = opts.value === null
+            ? sub.where(sql<boolean>`${textExpr} is not null`)
+            : sub.where(sql<boolean>`${textExpr} <> ${opts.value}`)
+          break
         case 'gt':
         case 'gte':
         case 'lt':

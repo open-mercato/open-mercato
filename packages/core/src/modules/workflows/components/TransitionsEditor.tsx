@@ -28,7 +28,11 @@ interface Activity {
     backoffCoefficient?: number
     maxIntervalMs?: number
   }
-  timeout?: number
+  // Milliseconds, matching the executor and the definition schema. This field
+  // used to be written as `timeout` (a number) while the schema typed `timeout`
+  // as an ISO 8601 string, so saving a timeout from this editor failed
+  // validation outright (#4424).
+  timeoutMs?: number
   compensation?: Record<string, any>
 }
 
@@ -227,7 +231,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.transitions')}
           </p>
-          {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
@@ -300,7 +304,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                     onClick={() => removeTransition(index)}
                     title={t('common.delete')}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </div>
@@ -419,9 +423,11 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                 )}
 
                 <div className="space-y-2">
-                  {(transition.activities || []).map((activity, activityIndex) => (
-                    <div key={activityIndex} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
-                      <div className="space-y-2">
+                  {(transition.activities || []).map((activity, activityIndex) => {
+                    const activityKey = `${transition.transitionId ?? index}:${activity.activityId || activityIndex}`
+                    return (
+                      <div key={activityKey} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
+                        <div className="space-y-2">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
@@ -477,7 +483,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                               onClick={() => removeActivity(index, activityIndex)}
                               title={t('common.delete')}
                             >
-                              <Trash2 className="h-3 w-3 text-red-600" />
+                              <Trash2 className="h-3 w-3 text-destructive" />
                             </Button>
                           </div>
                         </div>
@@ -510,8 +516,8 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                             <Input
                               id={`activity-${index}-${activityIndex}-timeout`}
                               type="number"
-                              value={activity.timeout || ''}
-                              onChange={(e) => updateActivity(index, activityIndex, 'timeout', e.target.value ? parseInt(e.target.value) : undefined)}
+                              value={activity.timeoutMs || ''}
+                              onChange={(e) => updateActivity(index, activityIndex, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
                               placeholder="30000"
                               className="mt-1 text-xs h-8"
                             />
@@ -603,9 +609,10 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                             className="mt-1 font-mono text-xs"
                           />
                         </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>

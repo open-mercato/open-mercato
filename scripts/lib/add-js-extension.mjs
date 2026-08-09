@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 // Windows: AV scanners, indexers, and watchers briefly hold freshly written
@@ -35,10 +35,17 @@ export function renameReplaceSync(tmpPath, filePath, { renameImpl = renameSync, 
 // so concurrent readers never observe a truncated file — they see either the old
 // or the new contents in full.
 export function atomicWriteFileSync(filePath, data) {
+  const next = Buffer.isBuffer(data) ? data : Buffer.from(data)
+  try {
+    if (readFileSync(filePath).equals(next)) return false
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+
   mkdirSync(dirname(filePath), { recursive: true })
   const tmpPath = `${filePath}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
   try {
-    writeFileSync(tmpPath, data)
+    writeFileSync(tmpPath, next)
     renameReplaceSync(tmpPath, filePath)
   } catch (error) {
     try {
@@ -46,6 +53,7 @@ export function atomicWriteFileSync(filePath, data) {
     } catch {}
     throw error
   }
+  return true
 }
 
 // Decide whether `import './foo'` should be rewritten to `./foo.js` (a sibling
@@ -121,7 +129,8 @@ export function rewriteRelativeImports(content, fileDir, options = {}) {
 //   1) Forces `write: false` so esbuild does not touch the filesystem itself.
 //   2) Rewrites relative imports in every emitted .js file to add .js extensions
 //      (required for native Node ESM resolution).
-//   3) Writes every output file atomically via temp+rename.
+//   3) Writes changed output files atomically via temp+rename while preserving
+//      the mtimes of byte-identical outputs.
 //
 // Together this eliminates the read-modify-write race that the previous
 // glob-based implementation had: it no longer re-reads files that may be in
@@ -129,6 +138,7 @@ export function rewriteRelativeImports(content, fileDir, options = {}) {
 // watcher, cache restore), and atomic rename guarantees readers see only
 // complete contents.
 export function createAtomicWritePlugin(rewriteOptions = {}) {
+  const { onWrite, ...contentRewriteOptions } = rewriteOptions
   return {
     name: 'atomic-write-with-js-extensions',
     setup(build) {
@@ -143,7 +153,7 @@ export function createAtomicWritePlugin(rewriteOptions = {}) {
         // can resolve `./foo` → `./foo/index.js` for directory-with-barrel imports
         // without querying the filesystem (nothing is on disk yet with write: false).
         const knownOutputPaths = new Set(outputs.map((file) => file.path))
-        const effectiveOptions = { ...rewriteOptions, knownOutputPaths }
+        const effectiveOptions = { ...contentRewriteOptions, knownOutputPaths }
 
         for (const file of outputs) {
           let data = file.contents
@@ -154,7 +164,8 @@ export function createAtomicWritePlugin(rewriteOptions = {}) {
               data = Buffer.from(rewritten, 'utf-8')
             }
           }
-          atomicWriteFileSync(file.path, data)
+          const changed = atomicWriteFileSync(file.path, data)
+          onWrite?.(file.path, changed)
         }
       })
     },

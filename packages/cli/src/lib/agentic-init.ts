@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline'
 interface AgenticInitOptions {
   tool?: string
   force?: boolean
+  updateHarness?: boolean
 }
 
 const TOOL_EXISTING_FILES: Record<string, string[]> = {
@@ -31,6 +32,8 @@ function parseArgs(args: string[]): AgenticInitOptions {
     const arg = args[i]
     if (arg === '--force' || arg === '-f') {
       options.force = true
+    } else if (arg === '--update-harness') {
+      options.updateHarness = true
     } else if (arg.startsWith('--tool=')) {
       options.tool = arg.slice('--tool='.length)
     } else if (arg === '--tool') {
@@ -63,6 +66,11 @@ export async function runAgenticInit(args: string[]): Promise<number> {
   const targetDir = resolve('.')
   const options = parseArgs(args)
 
+  if (options.force && options.updateHarness) {
+    console.error('❌  --force and --update-harness are mutually exclusive')
+    return 1
+  }
+
   // Validate this is an Open Mercato app directory
   if (!existsSync(join(targetDir, 'src', 'modules.ts'))) {
     console.error('❌  Not an Open Mercato app directory (src/modules.ts not found)')
@@ -70,7 +78,7 @@ export async function runAgenticInit(args: string[]): Promise<number> {
   }
 
   // Check if agentic files already exist and warn unless --force
-  if (!options.force) {
+  if (!options.force && !options.updateHarness) {
     const existingFiles = resolveRelevantAgenticFiles(options.tool)
       .filter((relativePath) => existsSync(join(targetDir, relativePath)))
 
@@ -81,7 +89,7 @@ export async function runAgenticInit(args: string[]): Promise<number> {
         console.log(`   • ${f}`)
       }
       console.log('')
-      console.log('Run with --force to regenerate from current templates.')
+      console.log('Run with --update-harness to preserve local edits, or --force to replace generated files.')
       console.log('')
       return 0
     }
@@ -96,7 +104,11 @@ export async function runAgenticInit(args: string[]): Promise<number> {
   const ask = (q: string) => new Promise<string>((res) => rl.question(q, (a) => res(a.trim())))
 
   try {
-    await runAgenticSetup(targetDir, ask, { tool: options.tool, force: options.force })
+    await runAgenticSetup(targetDir, ask, {
+      tool: options.tool,
+      force: options.force,
+      updateHarness: options.updateHarness,
+    })
   } finally {
     rl.close()
   }

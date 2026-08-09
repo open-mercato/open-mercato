@@ -28,7 +28,11 @@ interface Activity {
     backoffCoefficient?: number
     maxIntervalMs?: number
   }
-  timeout?: number
+  // Milliseconds, matching the executor and the definition schema. This field
+  // used to be written as `timeout` (a number) while the schema typed `timeout`
+  // as an ISO 8601 string, so saving a timeout from this editor failed
+  // validation outright (#4424).
+  timeoutMs?: number
   compensation?: Record<string, any>
 }
 
@@ -129,6 +133,7 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
     onChange(updated)
   }
 
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -136,7 +141,7 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.activities')}
           </p>
-          {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addActivity} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
@@ -209,7 +214,7 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
                     onClick={() => removeActivity(index)}
                     title={t('common.delete')}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </div>
@@ -242,8 +247,8 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
                   <Input
                     id={`activity-${index}-timeout`}
                     type="number"
-                    value={activity.timeout || ''}
-                    onChange={(e) => updateActivity(index, 'timeout', e.target.value ? parseInt(e.target.value) : undefined)}
+                    value={activity.timeoutMs || ''}
+                    onChange={(e) => updateActivity(index, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
                     placeholder="30000"
                     className="mt-1"
                   />

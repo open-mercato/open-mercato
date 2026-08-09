@@ -146,6 +146,11 @@ const DEFAULT_ROLES = [
   },
 ]
 
+const DEFAULT_CUSTOMER_ROLE_FEATURES = Object.fromEntries(
+  DEFAULT_ROLES.map((role) => [role.slug, [...role.acl.features]]),
+)
+
+
 async function seedDefaultRoles(em: EntityManager, scope: SeedScope): Promise<void> {
   for (const roleDef of DEFAULT_ROLES) {
     const existing = await em.findOne(CustomerRole, {
@@ -185,6 +190,9 @@ export const setup: ModuleSetupConfig = {
     superadmin: ['customer_accounts.*'],
     admin: ['customer_accounts.*'],
   },
+  // Keep the portal feature catalog declarative so the shared feature policy
+  // can project portal.* into concrete capabilities without importing core.
+  defaultCustomerRoleFeatures: DEFAULT_CUSTOMER_ROLE_FEATURES,
 
   async onTenantCreated({ em, tenantId, organizationId }) {
     await seedDefaultRoles(em, { tenantId, organizationId })

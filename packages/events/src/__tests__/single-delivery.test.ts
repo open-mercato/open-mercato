@@ -108,6 +108,26 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     expect(Array.isArray(list)).toBe(true)
     expect(list.length).toBeGreaterThanOrEqual(1)
   })
+
+  test('flag ON: the queued job keeps the trusted scope from the emit options', async () => {
+    // The worker is the sole dispatcher for persistent subscribers here, and it
+    // builds the subscriber context from the job's `options` alone. If enqueue
+    // dropped them, every wildcard persistent subscriber would receive a
+    // null-scoped context and bail out before matching.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const queuePath = path.join(path.resolve('.mercato/queue', 'events'), 'queue.json')
+    const calls: string[] = []
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([makeSub('persistent-sub', 'demo', true, calls)])
+
+    await bus.emit('demo', { a: 1 }, { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    const list = JSON.parse(fs.readFileSync(queuePath, 'utf8'))
+    expect(list[0].payload).toMatchObject({
+      event: 'demo',
+      options: { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' },
+    })
+  })
 })
 
 /**

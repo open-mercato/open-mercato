@@ -276,6 +276,7 @@ type DealSnapshot = {
     lossNotes: string | null
   }
   people: string[]
+  primaryPersonEntityId?: string | null
   companies: string[]
   transitions: DealStageTransitionSnapshot[]
   custom?: Record<string, unknown>
@@ -327,6 +328,7 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
     tenantId: deal.tenantId,
     organizationId: deal.organizationId,
   })
+  const primaryPerson = peopleLinks.find((link) => link.isPrimary)?.person
   return {
     deal: {
       id: deal.id,
@@ -351,6 +353,8 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
     people: peopleLinks.map((link) =>
       typeof link.person === 'string' ? link.person : link.person.id
     ),
+    primaryPersonEntityId:
+      typeof primaryPerson === 'string' ? primaryPerson : primaryPerson?.id ?? null,
     companies: companyLinks.map((link) =>
       typeof link.company === 'string' ? link.company : link.company.id
     ),
@@ -375,18 +379,55 @@ function toNumericString(value: number | null | undefined): string | null {
 async function syncDealPeople(
   em: EntityManager,
   deal: CustomerDeal,
-  personIds: string[] | undefined | null
+  personIds: string[] | undefined | null,
+  primaryPersonEntityId?: string | null
 ): Promise<void> {
-  if (personIds === undefined) return
+  if (personIds === undefined) {
+    if (primaryPersonEntityId === undefined) return
+    const links = await em.find(CustomerDealPersonLink, { deal })
+    if (primaryPersonEntityId !== null && !links.some((link) => link.person.id === primaryPersonEntityId)) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(400, {
+        error: translate(
+          'customers.errors.primaryPersonMustBeLinked',
+          'Primary person must be linked to the deal',
+        ),
+      })
+    }
+    for (const link of links) {
+      link.isPrimary = false
+    }
+    await em.flush()
+    if (primaryPersonEntityId !== null) {
+      const primaryLink = links.find((link) => link.person.id === primaryPersonEntityId)
+      if (primaryLink) primaryLink.isPrimary = true
+    }
+    return
+  }
+  const unique = Array.from(new Set(personIds ?? []))
+  if (primaryPersonEntityId !== undefined && primaryPersonEntityId !== null && !unique.includes(primaryPersonEntityId)) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, {
+      error: translate(
+        'customers.errors.primaryPersonMustBeLinked',
+        'Primary person must be linked to the deal',
+      ),
+    })
+  }
+  let effectivePrimaryId = primaryPersonEntityId
+  if (effectivePrimaryId === undefined) {
+    const existingPrimary = await em.findOne(CustomerDealPersonLink, { deal, isPrimary: true })
+    effectivePrimaryId = existingPrimary?.person?.id ?? null
+  }
   await em.nativeDelete(CustomerDealPersonLink, { deal })
-  if (!personIds || !personIds.length) return
-  const unique = Array.from(new Set(personIds))
+  if (!unique.length) return
   for (const personId of unique) {
     const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)
     const link = em.create(CustomerDealPersonLink, {
       deal,
       person,
+      isPrimary: personId === effectivePrimaryId,
     })
     em.persist(link)
   }
@@ -483,7 +524,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, parsed.personIds ?? []),
+      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? []),
     ], { transaction: true })
 
@@ -579,7 +620,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     }
     const restoredDeal = deal
     await withAtomicFlush(em, [
-      () => syncDealPeople(em, restoredDeal, after.people),
+      () => syncDealPeople(em, restoredDeal, after.people, after.primaryPersonEntityId),
       () => syncDealCompanies(em, restoredDeal, after.companies),
       () => deleteDealStageTransitions(em, restoredDeal),
       () => restoreDealStageTransitions(em, restoredDeal, after.transitions),
@@ -751,13 +792,17 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             transitionedByUserId: normalizedTransitionAuthorUserId,
           })
         },
-        () => syncDealPeople(em, record, parsed.personIds),
+        () => syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId),
         () => syncDealCompanies(em, record, parsed.companyIds),
       ],
     })
 
     // Emit a lifecycle event for deal won/lost status changes; the notifications
-    // subscriber translates these into recipient notifications.
+    // subscriber translates these into recipient notifications. Tenant/organization
+    // scope MUST travel in the emit options, not only in the payload: both delivery
+    // paths build the subscriber context from `options` alone, so wildcard
+    // subscribers (workflow event triggers, business-rules triggers) drop a
+    // null-scoped event before trigger matching.
     const newStatus = record.status
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
     if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
@@ -776,7 +821,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               valueAmount: record.valueAmount ?? null,
               valueCurrency: record.valueCurrency ?? null,
             },
-            { persistent: true },
+            {
+              persistent: true,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+            },
           )
         }
       } catch (err) {
@@ -894,7 +943,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, before.people),
+      () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
       () => syncDealCompanies(em, deal, before.companies),
     ], { transaction: true })
 
@@ -1013,7 +1062,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         em.persist(deal)
       }
       await withAtomicFlush(em, [
-        () => syncDealPeople(em, deal, before.people),
+        () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
         () => syncDealCompanies(em, deal, before.companies),
         () => deleteDealStageTransitions(em, deal),
         () => restoreDealStageTransitions(em, deal, before.transitions),

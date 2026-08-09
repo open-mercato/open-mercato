@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/data_sync/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -949,21 +950,21 @@ export default function SyncRunsDashboardPage() {
             </div>
 
             {selectedIntegration && !selectedIntegration.isEnabled ? (
-              <Alert variant="warning">
+              <Alert status="warning">
                 <AlertDescription>
                   {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
-              <Alert variant="warning">
+              <Alert status="warning">
                 <AlertDescription>
                   {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && selectedIntegration.canStartRun === false ? (
-              <Alert variant="info">
+              <Alert status="information">
                 <AlertDescription>
                   {t('data_sync.dashboard.start.providerManaged', 'This integration starts sync runs from its own setup flow. Open the integration settings page to continue.')}
                 </AlertDescription>
@@ -984,7 +985,7 @@ export default function SyncRunsDashboardPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('data_sync.dashboard.searchPlaceholder')}
-          perspective={{ tableId: 'data_sync.runs' }}
+          perspective={{ tableId: extensionPoints.hosts.runsTable.tableId }}
           onRowClick={(row) => {
             router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`)
           }}

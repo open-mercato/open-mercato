@@ -3422,12 +3422,12 @@ export default function VisualEditorPage() {
       {(isCodeOnly || isCodeOverride) && (
         <div className="shrink-0 border-b border-border bg-background px-3 py-2 md:px-6 md:py-3">
           {isCodeOnly && (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertTitle>{t('workflows.source.code.readonlyBanner')}</AlertTitle>
             </Alert>
           )}
           {isCodeOverride && (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertTitle>{t('workflows.source.code_override.banner')}</AlertTitle>
             </Alert>
           )}

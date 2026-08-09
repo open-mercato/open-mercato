@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/sales/extension-points";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
@@ -27,6 +28,9 @@ import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import type { SalesLineUomSnapshot } from "../../lib/types";
+import { useInjectionDataWidgets } from "@open-mercato/ui/backend/injection/useInjectionDataWidgets";
+import type { InjectionColumnDefinition } from "@open-mercato/shared/modules/widgets/injection";
+import { OrderItemsInjectionContext } from "../../widgets/injection/order-items-context";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -110,6 +114,19 @@ function getUomFields(item: Record<string, unknown>) {
   };
 }
 
+function resolveInjectedColumnValue(
+  row: Record<string, unknown>,
+  accessorKey: string,
+): unknown {
+  const segments = accessorKey.split(".").filter(Boolean);
+  let current: unknown = row;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
 type SalesDocumentItemsSectionProps = {
   documentId: string;
   kind: "order" | "quote";
@@ -147,6 +164,22 @@ export function SalesDocumentItemsSection({
   const [shippedTotals, setShippedTotals] = React.useState<Map<string, number>>(
     new Map(),
   );
+
+  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+    extensionPoints.hosts.orderItemColumns.spotId,
+  );
+  const columnWidgets = kind === "order" ? allColumnWidgets : [];
+  const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {
+    const cols: InjectionColumnDefinition[] = [];
+    for (const widget of columnWidgets) {
+      if (!("columns" in widget)) continue;
+      for (const def of (widget as { columns?: InjectionColumnDefinition[] })
+        .columns ?? []) {
+        cols.push(def);
+      }
+    }
+    return cols;
+  }, [columnWidgets]);
 
   const resourcePath = React.useMemo(
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
@@ -206,6 +239,10 @@ export function SalesDocumentItemsSection({
                     typeof (item.catalog_snapshot as Record<string, unknown>).name === "string"
                   ? (item.catalog_snapshot as Record<string, unknown>).name as string
                   : null;
+            const description =
+              typeof item.description === "string" && item.description.trim()
+                ? item.description
+                : null;
             const quantity = normalizeNumber(item.quantity, 0);
             const uomFields = getUomFields(item);
             const quantityUnit = canonicalizeUnitCode(uomFields.quantityUnit);
@@ -270,6 +307,7 @@ export function SalesDocumentItemsSection({
             const record: SalesLineRecord = {
               id,
               name,
+              description,
               productId:
                 typeof item.product_id === "string" ? item.product_id : null,
               productVariantId:
@@ -575,6 +613,7 @@ export function SalesDocumentItemsSection({
   };
 
   return (
+    <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
       {loading ? (
         <LoadingMessage
@@ -615,6 +654,14 @@ export function SalesDocumentItemsSection({
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.total", "Total")}
                 </th>
+                {injectedColumns.map((col) => (
+                  <th
+                    key={col.id}
+                    className="px-3 py-2 font-medium whitespace-nowrap"
+                  >
+                    {col.headerKey ? t(col.headerKey, col.header) : col.header}
+                  </th>
+                ))}
                 <th className="px-3 py-2 font-medium sr-only">
                   {t("sales.documents.items.table.actions", "Actions")}
                 </th>
@@ -681,6 +728,14 @@ export function SalesDocumentItemsSection({
                           {showProductSku ? (
                             <div className="text-xs text-muted-foreground truncate">
                               {showProductSku}
+                            </div>
+                          ) : null}
+                          {item.description ? (
+                            <div
+                              className="text-xs text-muted-foreground line-clamp-2"
+                              title={item.description}
+                            >
+                              {item.description}
                             </div>
                           ) : null}
                         </div>
@@ -770,12 +825,29 @@ export function SalesDocumentItemsSection({
                         </span>
                       </div>
                     </td>
+                    {injectedColumns.map((col) => {
+                      const colValue = resolveInjectedColumnValue(
+                        item as unknown as Record<string, unknown>,
+                        col.accessorKey,
+                      );
+                      const Cell = col.cell;
+                      return (
+                        <td
+                          key={col.id}
+                          className="px-3 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {Cell ? <Cell getValue={() => colValue} /> : null}
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
+                          aria-label={t('ui.actions.edit', 'Edit')}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -783,17 +855,25 @@ export function SalesDocumentItemsSection({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDelete(item);
-                          }}
+                        <span
+                          title={kind === 'order' && items.length === 1
+                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                            : undefined}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.delete', 'Delete')}
+                            disabled={kind === 'order' && items.length === 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDelete(item);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -829,5 +909,6 @@ export function SalesDocumentItemsSection({
       />
       {ConfirmDialogElement}
     </div>
+    </OrderItemsInjectionContext.Provider>
   );
 }

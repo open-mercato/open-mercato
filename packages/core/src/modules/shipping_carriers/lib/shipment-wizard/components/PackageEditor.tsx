@@ -47,7 +47,7 @@ export const PackageEditor = (props: PackageEditorProps) => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-auto px-2 py-0.5 text-xs text-red-600 hover:text-red-700"
+                className="h-auto px-2 py-0.5 text-xs text-destructive hover:text-destructive/80"
                 onClick={() => removePackage(index)}
                 disabled={disabled}
               >

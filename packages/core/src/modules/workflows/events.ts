@@ -64,6 +64,7 @@ const events = [
   { id: 'workflows.activity.started', label: 'Activity Started', category: 'lifecycle' },
   { id: 'workflows.activity.completed', label: 'Activity Completed', category: 'lifecycle' },
   { id: 'workflows.activity.failed', label: 'Activity Failed', category: 'lifecycle' },
+  { id: 'workflows.task.assigned', label: 'Task Assigned', entity: 'task', category: 'lifecycle' },
 
   /**
    * Live agent-action telemetry for an INVOKE_AGENT step (spec §Phase 2). Emitted

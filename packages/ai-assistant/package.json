@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -86,14 +86,14 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/anthropic": "^4.0.23",
     "@ai-sdk/azure": "^4.0.0",
     "@ai-sdk/google": "^4.0.2",
     "@ai-sdk/openai": "^4.0.2",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "ai": "^7.0.4",
     "cmdk": "^1.0.0",
-    "framer-motion": "^12.42.2",
+    "framer-motion": "^12.43.0",
     "isolated-vm": "^7.0.0",
     "react-json-view-lite": "^2.5.0",
     "react-markdown": "^10.1.0",
@@ -112,8 +112,8 @@
     "@open-mercato/ui": "workspace:*",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "tsx": "^4.23.1",
     "zod": "^4.4.3"
   },

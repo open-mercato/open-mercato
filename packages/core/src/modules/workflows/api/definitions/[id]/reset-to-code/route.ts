@@ -17,6 +17,7 @@ import { WorkflowDefinition, WorkflowInstance } from '../../../../data/entities'
 import { serializeCodeWorkflowDefinition } from '../../serialize'
 import { workflowDefinitionResetResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -140,6 +141,12 @@ export async function POST(
     // Hard-delete the DB override row
     em.remove(definition)
     await em.flush()
+
+    // Trigger ownership falls back to the code registry, so the cached snapshot
+    // still holds the embedded triggers of a row that no longer exists (#4425).
+    if (removedSnapshot.tenantId) {
+      invalidateTriggerCache(removedSnapshot.tenantId, removedSnapshot.organizationId ?? undefined)
+    }
 
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {

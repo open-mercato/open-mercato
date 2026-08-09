@@ -11,6 +11,7 @@ import { getShippingAdapter } from '../../../lib/adapter-registry'
 import { getShippingCarrierQueue } from '../../../lib/queue'
 import { shippingCarriersTag } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 
 const logger = createLogger('shipping_carriers').child({ component: 'webhook' })
 
@@ -51,7 +52,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const rateLimitResponse = await checkProviderWebhookRateLimit(container, req, providerKey)
   if (rateLimitResponse) return rateLimitResponse
 
-  const rawBody = await req.text()
+  let rawBody: string
+  try {
+    rawBody = await readBoundedRequestBody(req)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 })
+    }
+    throw error
+  }
   const headers: Record<string, string> = {}
   req.headers.forEach((value, key) => {
     headers[key] = value
@@ -156,6 +165,7 @@ export const openApi = {
       responses: [
         { status: 202, description: 'Webhook accepted for async processing' },
         { status: 401, description: 'Signature verification failed' },
+        { status: 413, description: 'Webhook payload too large' },
         { status: 404, description: 'Unknown provider' },
       ],
     },

@@ -312,7 +312,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           column: 1,
           bare: true,
           component: () => (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
@@ -330,7 +330,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           column: 1,
           bare: true,
           component: () => (
-            <Alert variant="info" className="mb-4">
+            <Alert status="information" className="mb-4">
               <AlertDescription>
                 {t('workflows.nodeEditor.startStepsInfo')}
               </AlertDescription>

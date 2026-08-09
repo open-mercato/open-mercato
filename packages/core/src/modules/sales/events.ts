@@ -28,11 +28,14 @@ const events = [
   { id: 'sales.order.created', label: 'Sales Order Created', entity: 'order', category: 'crud' },
   { id: 'sales.order.updated', label: 'Sales Order Updated', entity: 'order', category: 'crud' },
   { id: 'sales.order.deleted', label: 'Sales Order Deleted', entity: 'order', category: 'crud' },
+  { id: 'sales.order.confirmed', label: 'Sales Order Confirmed', entity: 'order', category: 'lifecycle' },
+  { id: 'sales.order.cancelled', label: 'Sales Order Cancelled', entity: 'order', category: 'lifecycle' },
 
   // Quotes
   { id: 'sales.quote.created', label: 'Quote Created', entity: 'quote', category: 'crud' },
   { id: 'sales.quote.updated', label: 'Quote Updated', entity: 'quote', category: 'crud' },
   { id: 'sales.quote.deleted', label: 'Quote Deleted', entity: 'quote', category: 'crud' },
+  { id: 'sales.quote.expiring', label: 'Quote Expiring', entity: 'quote', category: 'lifecycle' },
 
   // Invoices
   { id: 'sales.invoice.created', label: 'Invoice Created', entity: 'invoice', category: 'crud' },

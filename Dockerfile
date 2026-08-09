@@ -67,6 +67,7 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
@@ -80,6 +81,7 @@ RUN yarn install --immutable
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/
+COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./
 
 # Copy other necessary files
 COPY newrelic.js ./
@@ -162,6 +164,7 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
@@ -173,6 +176,7 @@ RUN yarn install --immutable
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/
+COPY AGENTS.md BACKWARD_COMPATIBILITY.md ./
 COPY newrelic.js ./
 COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
 COPY eslint.config.mjs ./
@@ -318,6 +322,7 @@ COPY --from=builder /app/packages/scheduler/package.json ./packages/scheduler/
 COPY --from=builder /app/packages/search/package.json ./packages/search/
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/starter/package.json ./packages/starter/
+COPY --from=builder /app/packages/telemetry/package.json ./packages/telemetry/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/

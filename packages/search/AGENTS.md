@@ -42,6 +42,8 @@ Choose strategies based on what users need:
 
 Strategies automatically become unavailable if their backend is not configured (e.g., no `MEILISEARCH_HOST` means fulltext is unavailable).
 
+Availability covers the **store**, not just its credentials. `VectorDriver` exposes optional `isHealthy()` / `getStatus()`; the pgvector driver reports `false` when the `vector` extension is neither installed nor installable, and `VectorSearchStrategy.isAvailable()` consumes it. Writes (`index`/`delete`/`purge`) stay fail-loud for available strategies — a driver that cannot serve its backend MUST report itself unhealthy rather than throwing per record. Settings > Search shows the reason when the store is unavailable.
+
 ## Configure Global Search (Cmd+K)
 
 Search settings (Cmd+K strategies, embedding provider/model, auto-index flag) are
@@ -541,7 +543,11 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `OM_SEARCH_ENABLE_PARTIAL` | When trading `search_tokens` size for prefix matching | Default: `true`. Prefix/partial expansion for tokens (Meilisearch unaffected); increases `search_tokens` size ~5–6×. **Token strategy only** |
 | `OM_SEARCH_HASH_ALGO` | When choosing the token hash algorithm | Default: `sha256` (accepts `sha1`, `md5`). **Token strategy only** |
 | `OM_SEARCH_STORE_RAW_TOKENS` | Almost never — debugging tokenization only | Default: `false`. Stores plaintext token alongside the hash — **security-sensitive**, retains plaintext of otherwise-hashed values. **Token strategy only** |
-| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field names, merged with built-in `password,token,secret,hash`. **Token strategy only** |
+| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field-name substrings, merged with built-in `password,token,secret,hash`; prefix an entry with `entityType@` to scope it to one entity. Applies to per-field tokens and aggregate `search_text`; reindex affected entities after changes. **Token strategy only** |
+| `OM_SEARCH_MAX_FIELD_CHARS` | When bounding large searchable values | Default: `20000`. Maximum input characters considered per field value before splitting or prefix expansion; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_MAX_TOKENS_PER_FIELD` | When bounding token fan-out for one field | Default: `5000`. Maximum distinct token rows across all values of one field; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | When bounding token fan-out for one record | Default: `20000`. Maximum token rows across all fields in one indexed record; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_TOKEN_PRESENCE_CACHE_MS` | When tuning the query engines' "does this entity have search tokens?" probe | Default: `30000` (ms); `0` disables. Process-level TTL cache in `@open-mercato/shared/lib/search/availability` — bounds how long a token purge or first-index is invisible to like/ilike routing. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
 | `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 

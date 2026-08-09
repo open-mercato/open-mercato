@@ -325,7 +325,7 @@ export function DefinitionTriggersEditor({
       <div className="rounded-lg border bg-card p-3 md:p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-status-warning-text" aria-hidden="true" />
+            <Zap className="w-5 h-5 text-status-warning-icon" />
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">
               {t('workflows.triggers.title', 'Event Triggers')}
             </h3>
@@ -341,7 +341,7 @@ export function DefinitionTriggersEditor({
         </p>
 
         {value.length === 0 ? (
-          <Alert variant="info">
+          <Alert status="information">
             <AlertTitle>{t('workflows.triggers.empty.title', 'No triggers configured')}</AlertTitle>
             <AlertDescription>
               {t('workflows.triggers.empty.description', 'Click "Add Trigger" to create an event trigger that automatically starts this workflow.')}

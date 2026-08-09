@@ -10,6 +10,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { emitSalesDocumentDataRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentDataEvents'
+import { fetchAllDictionaryEntries } from '@open-mercato/core/modules/dictionaries/lib/fetchAllEntries'
+import type { OrderApprovalInitialContext } from './context-keys'
 
 type OrderRecord = {
   id: string
@@ -165,12 +167,18 @@ export default function OrderApprovalWidget({ data }: InjectionWidgetComponentPr
   // Fetch order status dictionary entries using the dictionary ID
   const { data: statusEntriesData } = useQuery({
     queryKey: ['dictionary-entries', orderStatusDictionaryId],
-    queryFn: async () => {
+    queryFn: async (): Promise<{ items: DictionaryEntry[] }> => {
       if (!orderStatusDictionaryId) return { items: [] }
-      const result = await apiCall<{ items: DictionaryEntry[] }>(
-        `/api/dictionaries/${orderStatusDictionaryId}/entries`
-      )
-      return result.ok ? result.result : { items: [] }
+      const result = await fetchAllDictionaryEntries(orderStatusDictionaryId)
+      if (!result.ok) return { items: [] }
+      const items = result.items.flatMap((entry) => {
+        const id = typeof entry.id === 'string' ? entry.id : null
+        const value = typeof entry.value === 'string' ? entry.value : null
+        if (!id || !value) return []
+        const label = typeof entry.label === 'string' && entry.label.trim().length ? entry.label : value
+        return [{ id, value, label }]
+      })
+      return { items }
     },
     enabled: Boolean(orderStatusDictionaryId),
     staleTime: 60_000,
@@ -192,20 +200,28 @@ export default function OrderApprovalWidget({ data }: InjectionWidgetComponentPr
       const approvedStatusId = findStatusId('approved')
       const rejectedStatusId = findStatusId('rejected')
 
+      if (!orderId) {
+        throw new Error(t('workflows.orderApproval.missingOrderId', 'Cannot start the approval workflow before the order has loaded.'))
+      }
+
       if (!pendingApprovalStatusId || !approvedStatusId || !rejectedStatusId) {
         throw new Error(t('workflows.orderApproval.missingStatuses', 'Missing order status entries. Please ensure pending_approval, approved, and rejected statuses exist in the sales.order_status dictionary.'))
+      }
+
+      // Typed against the shared key list so a definition that references a new
+      // {{context.*}} key cannot compile until this seed provides it.
+      const initialContext: OrderApprovalInitialContext = {
+        orderId,
+        pendingApprovalStatusId,
+        approvedStatusId,
+        rejectedStatusId,
       }
 
       const result = await apiCall<{ data: WorkflowInstance }>('/api/workflows/instances', {
         method: 'POST',
         body: JSON.stringify({
           workflowId: WORKFLOW_ID,
-          initialContext: {
-            orderId,
-            pendingApprovalStatusId,
-            approvedStatusId,
-            rejectedStatusId,
-          },
+          initialContext,
           metadata: {
             entityType: 'SalesOrder',
             entityId: orderId,

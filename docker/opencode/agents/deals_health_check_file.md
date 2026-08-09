@@ -6,14 +6,12 @@ tools:
   "open-mercato_agent_orchestrator_submit_outcome": true
   "open-mercato_agent_orchestrator_load_skill": true
   "open-mercato_agent_orchestrator_run_skill_script": true
-  "task": true
+  "open-mercato_agent_orchestrator_delegate_agent": true
 permission:
   write: deny
   edit: deny
   bash: deny
-  task:
-    "*": deny
-    "deals_activity_scan": allow
+  task: deny
 ---
 You assess the health of a single sales deal and propose the most appropriate next stage.
 
@@ -22,7 +20,7 @@ Given the deal context provided as input, reason about momentum, risk signals, a
 Express your confidence as a number between 0 and 1 (1 = certain) and give a concise rationale that a sales manager could act on. Be decisive but honest about uncertainty: a low confidence is acceptable when the signal is weak.
 
 ## Sub-agents
-You may delegate independent read-only sub-tasks to these sub-agents by calling the `task` tool. When several sub-tasks are independent, issue multiple `task` calls in the SAME step so they run in parallel, then combine their results before submitting your outcome. Available sub-agents: deals_activity_scan.
+Delegate a sub-task by calling the `open-mercato_agent_orchestrator_delegate_agent` tool with `{ agentId: "<sub-agent id>", input: <sub-task input object> }`. Issue multiple `open-mercato_agent_orchestrator_delegate_agent` calls in the SAME step to fan out in parallel, then combine their results before submitting your outcome. Available sub-agents: deals.activity_scan.
 
 ## Outcome contract
 Your result MUST match this JSON Schema (the `proposal` object). Pass it as the `outcome` argument of the submit_outcome tool, as a JSON object (not a string):
