@@ -22,6 +22,7 @@ export type GenerateWatchChangeSignalOptions = {
   getWatchTargets: () => Promise<GenerateWatchTarget[]> | GenerateWatchTarget[]
   watchDirectory?: WatchDirectory
   directoryExists?: (directory: string) => boolean
+  onSkippedDirectory?: (directory: string) => void
 }
 
 function targetKey(target: GenerateWatchTarget): string {
@@ -52,6 +53,7 @@ export function createGenerateWatchChangeSignal(
   const watchDirectory = options.watchDirectory ?? defaultWatchDirectory
   const directoryExists = options.directoryExists ?? fs.existsSync
   const watchers = new Map<string, WatchHandle>()
+  let skippedDirectories = new Set<string>()
   let version = 0
   let pollingFallback = false
   let closed = false
@@ -72,6 +74,7 @@ export function createGenerateWatchChangeSignal(
 
   return {
     currentVersion: () => version,
+    hasSkippedTargets: () => skippedDirectories.size > 0,
     usesPollingFallback: () => pollingFallback,
     refresh: async () => {
       if (closed || pollingFallback) return
@@ -85,14 +88,22 @@ export function createGenerateWatchChangeSignal(
       }
 
       const normalizedTargets = new Map<string, GenerateWatchTarget>()
+      const nextSkippedDirectories = new Set<string>()
       for (const target of targets) {
         const normalized: GenerateWatchTarget = {
           ...target,
           directory: path.resolve(target.directory),
         }
-        if (!directoryExists(normalized.directory)) continue
+        if (!directoryExists(normalized.directory)) {
+          nextSkippedDirectories.add(normalized.directory)
+          if (!skippedDirectories.has(normalized.directory)) {
+            try { options.onSkippedDirectory?.(normalized.directory) } catch {}
+          }
+          continue
+        }
         normalizedTargets.set(targetKey(normalized), normalized)
       }
+      skippedDirectories = nextSkippedDirectories
 
       for (const [key, watcher] of watchers) {
         if (normalizedTargets.has(key)) continue
