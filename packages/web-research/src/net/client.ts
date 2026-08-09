@@ -79,8 +79,11 @@ export function createPinnedLookup(addresses: readonly string[]): LookupFunction
 }
 
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0) return Promise.resolve()
-  const bounded = Math.min(ms, MAX_SLEEP_MS)
+  // Explicit finite check + relational clamp rather than `Math.min`: a NaN
+  // duration must not reach `setTimeout`, and the upper bound has to be
+  // provable at the call site.
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve()
+  const bounded = ms > MAX_SLEEP_MS ? MAX_SLEEP_MS : ms
   return new Promise((resolve) => {
     const timer = setTimeout(finish, bounded)
     function finish(): void {

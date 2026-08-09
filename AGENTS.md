@@ -93,11 +93,10 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, `entry.overrides`) | `ai-assistant` → Loop controls + How to Override; in `.ai/specs/implemented/`: `2026-04-28-ai-agents-agentic-loop-controls`, `2026-04-30-ai-overrides-and-module-disable`, `2026-05-04-modules-ts-unified-overrides` |
 | **Specific Modules** | |
 | Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
-| Agent orchestration (enterprise): propose-only AI agents, runs/proposals/disposition (auto-approve vs human `USER_TASK`), traces, evals, guardrails, context (TDCR), agent identity/principals, operations cockpit, file-defined OpenCode agents (`agents/<id>/`), the `INVOKE_AGENT` workflow bridge | `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` + `.ai/skills/om-create-opencode-agent/SKILL.md` |
+| Agent orchestration: propose-only agents, runs/proposals/disposition, traces, evals, guardrails, TDCR, principals, cockpit, file-defined OpenCode agents, `INVOKE_AGENT` | `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` + `.ai/skills/om-create-opencode-agent/SKILL.md` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
-| Adding a web search source (Brave, Exa, Serper, Kagi, SearXNG, a scraping vendor) as a `@open-mercato/web-research-*` adapter package | `.ai/skills/om-create-web-research-adapter/SKILL.md` + `web-research` |
-| Agent web search/fetch behaviour — adapter racing, fusion, browser escalation, SSRF/DNS pinning, per-tenant policy, live status | `apps/docs/docs/framework/ai-assistant/web-research.mdx` + `web-research` + `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` → Web Egress |
+| Agent web search/fetch — a new `@open-mercato/web-research-*` adapter, or racing/fusion/browser/SSRF/policy behaviour | `.ai/skills/om-create-web-research-adapter/SKILL.md` + `apps/docs/docs/framework/ai-assistant/web-research.mdx` + `web-research` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
 | Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |
@@ -130,7 +129,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | **Agent harness itself** | |
 | Editing this file or a package `AGENTS.md`; the instruction budget and boundary labels | [`.ai/docs/agent-instructions.md`](.ai/docs/agent-instructions.md) + `scripts/check-agents-md-budget.mjs` (`yarn agents:check-budget`) |
 
-Most `om-*` automation skills come from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection; `yarn install-skills` installs and updates them. Repo-specific settings live in `.ai/agentic.config.json` (+ the tracker descriptor `.ai/trackers/github.md`); a folder under `.ai/skills/` matching an external skill name is a repo-local override those skills follow on top of their built-in workflow, and the remaining `.ai/skills/` folders are repo-local skills installed by tier (`.ai/skills/tiers.json`). Both sources install into **one canonical directory**, `.agents/skills/` (Claude Code cannot read it, so it also gets a symlink layer under `.claude/skills/`). Installer flags: [`.ai/skills/README.md`](.ai/skills/README.md).
+Most `om-*` skills come from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection (`yarn install-skills`); settings live in `.ai/agentic.config.json` + `.ai/trackers/github.md`. Sources, repo-local overrides, tiers, installer flags: [`.ai/skills/README.md`](.ai/skills/README.md).
 
 ## Core Principles
 

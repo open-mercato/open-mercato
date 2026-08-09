@@ -385,13 +385,7 @@ Per-module overrides (Phase 1 of the same spec — agent-default provider + per-
 | `OM_AI_<MODULE>_MODEL` | Optional. Per-module model override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_MODEL=claude-opus-4-20250514`, `OM_AI_INBOX_OPS_MODEL=gpt-4o`. The legacy `<MODULE>_AI_MODEL` form (e.g. `INBOX_OPS_AI_MODEL`) is read as a backward-compatibility fallback. Accepts a slash-qualified `<provider>/<model>` shorthand. |
 | `OM_AI_<MODULE>_PROVIDER` | Optional. Per-module provider override, uppercased from the agent's `moduleId`. Examples: `OM_AI_CATALOG_PROVIDER=openai`, `OM_AI_INBOX_OPS_PROVIDER=anthropic`. The legacy `<MODULE>_AI_PROVIDER` form (e.g. `INBOX_OPS_AI_PROVIDER`) is read as a backward-compatibility fallback. Provider-only preferences can fall through when unconfigured; paired provider/model overrides fail closed. |
 
-Azure is a **native adapter**, not an OpenAI-compatible preset. It calls the Responses
-API, which is what carries provider-executed built-ins such as `web_search` — the
-Chat Completions surface the preset used cannot express them, so `model-native`
-reported "provider azure has no native web search" regardless of the deployment.
-Its native search is Grounding with Bing: billed separately, and Microsoft states
-the Data Protection Addendum does not cover it, so queries leave the tenant's geo
-boundary. The `model-native` health row says so.
+Azure is a **native** Responses-API adapter, not an OpenAI-compatible preset: [`.ai/docs/opencode-runtime.md`](../../.ai/docs/opencode-runtime.md).
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
@@ -781,7 +775,7 @@ interface CommandPaletteContextValue {
 
 ## Running the Stack
 
-The default dev mode is **hybrid**: `yarn infra:up` starts OpenCode plus postgres/redis/meilisearch in containers (`starters/docker/compose.infra.yml`), then `yarn dev` runs the app **and the MCP server** natively on the host — `yarn dev` also provisions the MCP API key into `.mercato/mcp-shared/mcp-api-key`, so no manual MCP startup or key wiring is needed. The sections below cover running the MCP server standalone and the fully containerized (enterprise) stacks.
+Dev modes (**hybrid** default): [`.ai/docs/opencode-runtime.md`](../../.ai/docs/opencode-runtime.md).
 
 ### Choose an MCP Server Mode
 
@@ -972,65 +966,9 @@ The module deliberately **does not** call `searchService.bulkIndex(...)` on boot
 
 ## Docker Configuration
 
-### Rules for the OpenCode Container
+MUST keep port 4096 for OpenCode, MUST mount `opencode.json` at `/root/.opencode/opencode.json`, and MUST use `host.docker.internal` (not `localhost`) for Docker→host calls. File-defined agents generate into `docker/opencode/{agents,skills}/`; after editing any `agents/<id>/` file run `yarn generate` and **restart** OpenCode.
 
-When modifying the Docker setup, follow this structure:
-
-```yaml
-# starters/docker/compose.infra.yml
-services:
-  opencode:
-    build: ./docker/opencode
-    container_name: opencode-mvp
-    ports:
-      - "4096:4096"
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    volumes:
-      - ./docker/opencode/opencode.json:/root/.opencode/opencode.json
-```
-
-MUST keep port 4096 for OpenCode. MUST mount `opencode.json` to `/root/.opencode/opencode.json`.
-
-### OpenCode Config
-
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "mcp": {
-    "open-mercato": {
-      "type": "sse",
-      "url": "http://host.docker.internal:3001/mcp",
-      "headers": {
-        "x-api-key": "omk_..."
-      }
-    }
-  }
-}
-```
-
-MUST use `host.docker.internal` (not `localhost`) for Docker-to-host communication.
-
-### File-defined agents (OpenCode runtime)
-
-The orchestrator's file-defined agents (`packages/<pkg>/src/modules/<module>/agents/<id>/`)
-generate OpenCode agent + skill files into `docker/opencode/{agents,skills}/` (committed).
-The container loads them from `~/.config/opencode/{agents,skills}/` — in our image the
-OpenCode user is `opencode`, so the real path is `/home/opencode/.config/opencode/...`
-(the `/root/.opencode/...` path shown above for `opencode.json` is stale; the running image
-is non-root). The dev compose files under `starters/docker/` bind-mount those dirs (`:ro`); CI bakes them via
-Dockerfile `COPY`. The `OPENCODE_VERSION` build ARG pins the image (verify the installer's
-pin env var + the agent-file/`task`/skills contracts against the pinned tag — ASSUMPTION
-flagged in the phase-0 findings).
-
-Workflow after editing any `agents/<id>/` file: `yarn generate` → **restart** OpenCode
-(`docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode`); hot-reload is not guaranteed. The orchestrator adds three
-read-only MCP tools (`agent_orchestrator.submit_outcome` / `load_skill` / `run_skill_script`,
-all `agent_orchestrator.agents.run`) that file agents call; propose-only rests on the
-generated read-only `tools` allowlist + the per-run session-token ACL — the MCP HTTP server
-does NOT strip `isMutation` tools, so a file agent that declares one is rejected at load.
-See `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md`.
+Compose structure, the `opencode.json` MCP block, container paths, propose-only: [`.ai/docs/opencode-runtime.md`](../../.ai/docs/opencode-runtime.md).
 
 ## Rules for the Debug Panel
 
