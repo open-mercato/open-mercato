@@ -476,7 +476,7 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
     {},
     { tenantId: claim.tenantId, organizationId: claim.organizationId },
   )
-  const totals = computeHeaderRollups(lines)
+  const totals = computeHeaderRollups(lines, { claimType: claim.claimType })
   claim.totalClaimedAmount = String(totals.totalClaimedAmount)
   claim.totalApprovedAmount = String(totals.totalApprovedAmount)
   claim.updatedAt = new Date()

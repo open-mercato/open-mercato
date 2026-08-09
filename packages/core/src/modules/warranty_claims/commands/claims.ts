@@ -9,6 +9,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readSafeDecryptedString } from '../lib/decryptionSafety'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
@@ -52,6 +53,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { WarrantyClaimNumberGenerator } from '../services/claimNumberGenerator'
 import { emitWarrantyClaimsEvent } from '../events'
 import { assertTransition, canResolveWithLineStatuses, computeHeaderRollups } from '../lib/stateMachine'
+import { assertOrderBelongsToCustomer } from '../lib/orderOwnership'
 import { addBusinessMillis, businessMillisBetween } from '../lib/businessHours'
 import { resolveEffectiveWarrantyClaimSettings, type WarrantyClaimEffectiveSettings } from '../lib/settings'
 import { evaluateClaimRisk } from '../lib/risk'
@@ -996,10 +998,10 @@ async function resolveCustomerName(
     try {
       customer = await encryption.decryptEntityPayload('customers:customer_entity', customer, scope.tenantId, scope.organizationId)
     } catch {
-      // keep the raw row — decryptEntityPayload already no-ops when encryption is disabled
+      return fallback ?? null
     }
   }
-  return readCustomerName(customer) ?? fallback ?? null
+  return readSafeDecryptedString(readCustomerName(customer)) ?? fallback ?? null
 }
 
 async function resolveOrderNumber(
@@ -1278,7 +1280,7 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
     {},
     { tenantId: claim.tenantId, organizationId: claim.organizationId },
   )
-  const totals = computeHeaderRollups(lines)
+  const totals = computeHeaderRollups(lines, { claimType: claim.claimType })
   claim.totalClaimedAmount = String(totals.totalClaimedAmount)
   claim.totalApprovedAmount = String(totals.totalApprovedAmount)
 }
@@ -1344,6 +1346,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
         .filter((line): line is ClaimInitialLineCreateInput & { orderLineId: string } => typeof line.orderLineId === 'string')
         .map((line) => ({ orderLineId: line.orderLineId, orderId: input.orderId ?? null })),
     })
+    await assertOrderBelongsToCustomer(em, scope, input.orderId ?? null, input.customerId ?? null)
     const pendingLines = (input.lines ?? []).map((line) => ({
       orderLineId: line.orderLineId ?? null,
       qtyClaimed: amountString(line.qtyClaimed, '1') ?? '1',
@@ -1366,7 +1369,12 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
       organizationId: scope.organizationId,
     })
     const customerName = await resolveCustomerName(ctx, input.customerId, scope, input.customerName, { strict: true })
-    const orderNumber = await resolveOrderNumber(ctx, input.orderId, scope, null)
+    // A linked order derives its number from the order itself (falling back to any supplied
+    // reference); without a linked order, persist the free-text reference as the display number
+    // so the portal "my order isn't listed" path is captured (WQA-002).
+    const orderNumber = input.orderId
+      ? await resolveOrderNumber(ctx, input.orderId, scope, input.orderNumber ?? null)
+      : (input.orderNumber ?? null)
     const claimId = randomUUID()
     let claim!: WarrantyClaim
     let createdLines: WarrantyClaimLine[] = []
@@ -1414,7 +1422,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
           em.persist(line)
           return line
         })
-        const totals = computeHeaderRollups(createdLines)
+        const totals = computeHeaderRollups(createdLines, { claimType: claim.claimType })
         claim.totalClaimedAmount = String(totals.totalClaimedAmount)
         claim.totalApprovedAmount = String(totals.totalApprovedAmount)
         appendClaimEvent(em, claim, 'system', {
@@ -1489,6 +1497,9 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
       replacementOrderId: hasOwn(input, 'replacementOrderId') && (input.replacementOrderId ?? null) !== (claim.replacementOrderId ?? null) ? input.replacementOrderId ?? null : null,
       creditMemoId: hasOwn(input, 'creditMemoId') && (input.creditMemoId ?? null) !== (claim.creditMemoId ?? null) ? input.creditMemoId ?? null : null,
     })
+    const effectiveOrderId = hasOwn(input, 'orderId') ? (input.orderId ?? null) : (claim.orderId ?? null)
+    const effectiveCustomerId = hasOwn(input, 'customerId') ? (input.customerId ?? null) : (claim.customerId ?? null)
+    await assertOrderBelongsToCustomer(em, scope, effectiveOrderId, effectiveCustomerId)
     const customerChanged = hasOwn(input, 'customerId') && (input.customerId ?? null) !== (claim.customerId ?? null)
     const shouldRefreshCustomerName = hasOwn(input, 'customerId') || hasOwn(input, 'customerName')
     const customerName = shouldRefreshCustomerName

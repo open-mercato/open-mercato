@@ -4,20 +4,20 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Copy, Hash, Info, MessageSquare, RefreshCw, UserRound } from 'lucide-react'
+import { Copy, Hash, Info, MessageSquare, Pencil, RefreshCw, Trash2, UserRound } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { ActionsDropdown } from '@open-mercato/ui/backend/forms/ActionsDropdown'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -33,7 +33,6 @@ const LazyAiChat = React.lazy(async () => {
   return { default: mod.AiChat }
 })
 import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
-import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -50,7 +49,6 @@ import {
 } from '@open-mercato/core/modules/customers/lib/assignableStaff'
 import { CLAIM_STATUS_TRANSITIONS } from '../../../data/constants'
 import {
-  ClaimPriorityBadge,
   ClaimStatusBadge,
   type ClaimLineStatus,
   type ClaimStatus,
@@ -63,12 +61,13 @@ import {
   type ClaimProductPick,
 } from '../../components/productLookup'
 import { AiAssessButtons } from '../../components/AiAssessButtons'
-import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
 import { useUserDisplayNames } from '../../components/useUserDisplayNames'
 import { ReceivingPanel } from '../../components/ReceivingPanel'
 import { ReturnLabelPanel } from '../../components/ReturnLabelPanel'
 import { VendorRecoverySuggestionsPanel } from '../../components/VendorRecoverySuggestionsPanel'
-import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
+import { ClaimStageProgress } from '../../components/ClaimStageProgress'
+import { claimTypeAllowsLineFinancialAdjustments, resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
+import { isTerminal } from '../../../lib/stateMachine'
 import { formatQuantity, parseQuantity, quantityInputValue } from '../../../lib/quantity'
 import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../lib/dictionaryLabels'
 import {
@@ -148,6 +147,8 @@ type ClaimRecord = {
   slaPausedAt: string | null
   submittedAt: string | null
   assigneeUserId: string | null
+  assigneeName: string | null
+  createdAt: string | null
   updatedAt: string | null
   currencyCode: string | null
   notes: string | null
@@ -284,12 +285,14 @@ const LINE_EDITABLE_CLAIM_STATUSES = new Set<string>([
   'received',
   'inspecting',
 ])
+// Must match the server-side receiving gate (`assertReceivingStatus` accepts only received /
+// inspecting). Showing the controls at approved / awaiting_return guided agents into an
+// operation the API rejects with a wrong-state error (WQA-006 / FLOW-02).
 const RECEIVING_CAPABLE_CLAIM_STATUSES = new Set<string>([
   'received',
   'inspecting',
-  'awaiting_return',
-  'approved',
 ])
+const DELETABLE_CLAIM_STATUSES = new Set<string>(['draft', 'cancelled'])
 const LINE_STATUS_TRANSITIONS: Record<ClaimLineStatus, ClaimLineStatus[]> = {
   pending: ['approved', 'rejected'],
   approved: ['received', 'resolved'],
@@ -464,10 +467,6 @@ function riskSignalVariant(signal: ClaimRiskSignal): 'warning' | 'error' {
   return signal.level === 'high' ? 'error' : 'warning'
 }
 
-function normalizeClaimChannel(value: string | null | undefined): ClaimChannel | null {
-  return value === 'staff' || value === 'portal' || value === 'api' ? value : null
-}
-
 function normalizeClaim(value: unknown): ClaimRecord | null {
   if (!isRecord(value)) return null
   const id = toStringOrNull(value.id)
@@ -496,6 +495,8 @@ function normalizeClaim(value: unknown): ClaimRecord | null {
     slaPausedAt: toStringOrNull(value.slaPausedAt),
     submittedAt: toStringOrNull(value.submittedAt),
     assigneeUserId: toStringOrNull(value.assigneeUserId),
+    assigneeName: toStringOrNull(value.assigneeName),
+    createdAt: toStringOrNull(value.createdAt),
     updatedAt: toStringOrNull(value.updatedAt),
     currencyCode: toStringOrNull(value.currencyCode),
     notes: toStringOrNull(value.notes),
@@ -746,6 +747,7 @@ function InlineLineSelectCell({
 
 export default function WarrantyClaimDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const id = typeof params?.id === 'string' ? params.id : ''
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -753,6 +755,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [claim, setClaim] = React.useState<ClaimRecord | null>(null)
   const [lines, setLines] = React.useState<ClaimLine[]>([])
   const [events, setEvents] = React.useState<ClaimEvent[]>([])
+  const [attachmentCount, setAttachmentCount] = React.useState(0)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
@@ -763,6 +766,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [defaultWarrantyMonths, setDefaultWarrantyMonths] = React.useState<number | null>(null)
   const [featureAccess, setFeatureAccess] = React.useState({
     claimManage: false,
+    claimDelete: false,
     receivingManage: false,
     salesReturnsCreate: false,
     salesOrdersManage: false,
@@ -793,6 +797,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         body: JSON.stringify({
           features: [
             'warranty_claims.claim.manage',
+            'warranty_claims.claim.delete',
             'warranty_claims.receiving.manage',
             'sales.returns.create',
             'sales.orders.manage',
@@ -808,6 +813,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         const allGranted = call.result?.ok === true
         setFeatureAccess({
           claimManage: allGranted || hasFeature(granted, 'warranty_claims.claim.manage'),
+          claimDelete: allGranted || hasFeature(granted, 'warranty_claims.claim.delete'),
           receivingManage: allGranted || hasFeature(granted, 'warranty_claims.receiving.manage'),
           salesReturnsCreate: allGranted || hasFeature(granted, 'sales.returns.create'),
           salesOrdersManage: allGranted || hasFeature(granted, 'sales.orders.manage'),
@@ -818,6 +824,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         if (!cancelled) {
           setFeatureAccess({
             claimManage: false,
+            claimDelete: false,
             receivingManage: false,
             salesReturnsCreate: false,
             salesOrdersManage: false,
@@ -845,13 +852,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [assignOptions, setAssignOptions] = React.useState<AssignableStaffMember[]>([])
   const [assignLoading, setAssignLoading] = React.useState(false)
   const [selectedAssigneeUserId, setSelectedAssigneeUserId] = React.useState<string>(UNASSIGNED_SELECT_VALUE)
-  const sessions = useAiChatSessions()
-  const chatSession = sessions.getActiveSession(AGENT_ID)
-
-  React.useEffect(() => {
-    if (!chatSession) sessions.ensureSession(AGENT_ID)
-  }, [chatSession, sessions])
-
   const mutationContextId = React.useMemo(() => `warranty-claim:${id || 'pending'}`, [id])
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -907,7 +907,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     setError(null)
     setNotFound(false)
     try {
-      const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload] = await Promise.all([
+      const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload, attachmentsPayload] = await Promise.all([
         readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims?ids=${encodeURIComponent(id)}&page=1&pageSize=1`,
           undefined,
@@ -936,12 +936,18 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           undefined,
           { fallback: { ok: true, result: {} } },
         ),
+        readApiResultOrThrow<{ items?: unknown[] }>(
+          `/api/attachments?entityId=${encodeURIComponent('warranty_claims:warranty_claim')}&recordId=${encodeURIComponent(id)}`,
+          undefined,
+          { fallback: { items: [] } },
+        ),
       ])
       const nextClaim = (claimPayload.items ?? []).map(normalizeClaim).find((item): item is ClaimRecord => item !== null) ?? null
       if (!nextClaim) {
         setClaim(null)
         setLines([])
         setEvents([])
+        setAttachmentCount(0)
         setRiskAssessment(EMPTY_RISK_ASSESSMENT)
         setNotFound(true)
         return
@@ -949,6 +955,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       setClaim(nextClaim)
       setLines((linesPayload.items ?? []).map(normalizeLine).filter((item): item is ClaimLine => item !== null))
       setEvents((eventsPayload.items ?? []).map(normalizeEvent).filter((item): item is ClaimEvent => item !== null))
+      setAttachmentCount(Array.isArray(attachmentsPayload.items) ? attachmentsPayload.items.length : 0)
       setRiskAssessment(normalizeRiskResponse(riskPayload))
       const nextThreshold = statsPayload?.result?.slaAtRiskThresholdPct
       setSlaAtRiskThresholdPct(typeof nextThreshold === 'number' ? nextThreshold : undefined)
@@ -1036,10 +1043,24 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     if (!claim || !(currentStatus in CLAIM_STATUS_TRANSITIONS)) return []
     return CLAIM_STATUS_TRANSITIONS[currentStatus as ClaimStatus] ?? []
   }, [claim, currentStatus])
+  const primaryNextStatus = React.useMemo(
+    () => nextStatuses.find((status) => status !== 'cancelled' && status !== 'rejected' && status !== 'info_requested') ?? nextStatuses[0] ?? null,
+    [nextStatuses],
+  )
+  const resolutionStatuses = React.useMemo(
+    () => nextStatuses.filter((status) => status !== primaryNextStatus),
+    [nextStatuses, primaryNextStatus],
+  )
 
   const noValue = t('warranty_claims.common.noValue')
   const linesEditable = LINE_EDITABLE_CLAIM_STATUSES.has(currentStatus)
   const linesInlineEditable = linesEditable && featureAccess.claimManage
+  // FLOW-04 gating. `claimActive` = not fully terminal (closed/cancelled): reassignment and
+  // vendor-recovery (which requires resolved lines) stay available. `claimMutable` is stricter —
+  // it also excludes resolved/rejected, where header fields and lines are server-locked — so the
+  // header "Edit" and AI mutating controls are hidden there instead of leading to a dead form.
+  const claimActive = !isTerminal(currentStatus)
+  const claimMutable = claimActive && currentStatus !== 'resolved' && currentStatus !== 'rejected'
   const allowedDispositions = React.useMemo(
     () => resolveClaimTypeUiConfig(claim?.claimType).allowedDispositions,
     [claim?.claimType],
@@ -1047,7 +1068,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const currentLineDisposition = lineDialog?.mode === 'edit' ? lineDialog.line.disposition : null
   const riskSignals = riskAssessment.signals
   const assigneeDisplayName = claim?.assigneeUserId
-    ? userNames[claim.assigneeUserId] ?? '—'
+    ? claim.assigneeName ?? userNames[claim.assigneeUserId] ?? t('warranty_claims.detail.unknownUser')
     : t('warranty_claims.detail.unassigned')
   const eligibleVendorLines = React.useMemo(
     () => lines.filter((line) => line.lineStatus === 'resolved' && !line.vendorClaimLineId),
@@ -1359,6 +1380,97 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     await handleTransition(toStatus)
   }, [claim, confirm, handleTransition, t])
 
+  const deleteClaim = React.useCallback(async () => {
+    if (!claim || !featureAccess.claimDelete || !DELETABLE_CLAIM_STATUSES.has(currentStatus)) return
+    const confirmed = await confirm({
+      title: t('warranty_claims.audit.claim.delete'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(claim.updatedAt),
+          () => deleteCrud('warranty_claims', claim.id, {
+            errorMessage: t('warranty_claims.edit.error.delete'),
+          }),
+        ),
+        context: mutationContext,
+        mutationPayload: { id: claim.id },
+      })
+      flash(t('warranty_claims.edit.deleted'), 'success')
+      router.push('/backend/warranty_claims')
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      flash(translateErrorMessage(err, t, 'warranty_claims.edit.error.delete'), 'error')
+    }
+  }, [claim, confirm, currentStatus, featureAccess.claimDelete, loadData, mutationContext, router, runMutation, t])
+
+  const headerMoreActions = React.useMemo(() => {
+    if (!claim) return []
+    const items = [
+      ...(claimMutable ? [{
+        id: 'edit',
+        label: t('warranty_claims.detail.actions.edit'),
+        icon: Pencil,
+        onSelect: () => router.push(`/backend/warranty_claims/${claim.id}/edit`),
+      }] : []),
+      {
+        id: 'copy-link',
+        label: t('warranty_claims.detail.copyLink'),
+        icon: Copy,
+        onSelect: () => {
+          void navigator.clipboard.writeText(window.location.href)
+          flash(t('warranty_claims.detail.linkCopied'), 'success')
+        },
+      },
+    ]
+    if (claim.claimNumber) {
+      items.push({
+        id: 'copy-number',
+        label: t('warranty_claims.detail.copyClaimNumber', 'Copy claim number'),
+        icon: Hash,
+        onSelect: () => {
+          void navigator.clipboard.writeText(claim.claimNumber ?? '')
+          flash(t('warranty_claims.detail.claimNumberCopied', 'Claim number copied.'), 'success')
+        },
+      })
+    }
+    if (claim.orderId) {
+      items.push({
+        id: 'view-order',
+        label: claim.orderNumber ?? t('warranty_claims.detail.viewOrder'),
+        icon: Copy,
+        onSelect: () => router.push(`/backend/sales/documents/${claim.orderId}`),
+      })
+    }
+    if (featureAccess.claimManage && claimActive) {
+      items.push({
+        id: 'assign',
+        label: t('warranty_claims.detail.reassign'),
+        icon: UserRound,
+        onSelect: openAssignDialog,
+      })
+      if (currentUserId && claim.assigneeUserId !== currentUserId) {
+        items.push({
+          id: 'assign-to-me',
+          label: t('warranty_claims.detail.assignToMe'),
+          icon: UserRound,
+          onSelect: () => { void assignToMe() },
+        })
+      }
+      if (claim.claimType !== 'vendor_recovery' && eligibleVendorLines.length > 0) {
+        items.push({
+          id: 'vendor-recovery',
+          label: t('warranty_claims.detail.actions.vendorRecovery'),
+          icon: RefreshCw,
+          onSelect: () => setVendorDialogOpen(true),
+        })
+      }
+    }
+    return items
+  }, [assignToMe, claim, claimActive, claimMutable, currentUserId, eligibleVendorLines.length, featureAccess.claimManage, openAssignDialog, router, t])
+
   const submitComment = React.useCallback(async () => {
     if (!claim || !commentBody.trim()) return
     try {
@@ -1557,7 +1669,11 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     {
       id: 'line-money',
       title: t('warranty_claims.detail.lines.amounts'),
-      fields: ['creditAmount', 'restockingFee', 'coreChargeAmount', 'coreCreditAmount'],
+      // Restock / core fields belong only to return-family claims; warranty & vendor-recovery
+      // settle on the credit amount alone (LINE-05).
+      fields: claimTypeAllowsLineFinancialAdjustments(claim?.claimType)
+        ? ['creditAmount', 'restockingFee', 'coreChargeAmount', 'coreCreditAmount']
+        : ['creditAmount'],
     },
     {
       id: 'line-inspection',
@@ -1569,12 +1685,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const lineColumns = React.useMemo<ColumnDef<ClaimLine>[]>(() => [
     {
       accessorKey: 'lineNo',
-      header: t('warranty_claims.form.lineNo'),
+      header: t('warranty_claims.detail.lines.column.number'),
       cell: ({ row }) => <span className="font-mono text-xs">{row.original.lineNo ?? noValue}</span>,
     },
     {
       accessorKey: 'lineStatus',
-      header: t('warranty_claims.form.lineStatus'),
+      header: t('warranty_claims.detail.lines.column.status'),
       cell: ({ row }) => (
         <InlineLineSelectCell
           line={row.original}
@@ -1589,24 +1705,28 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     },
     {
       accessorKey: 'productName',
-      header: t('warranty_claims.form.productName'),
+      header: t('warranty_claims.detail.lines.column.product'),
       cell: ({ row }) => (
-        <div className="max-w-56 space-y-1">
+        <div className="max-w-80 space-y-0.5">
           <div className="truncate font-medium" title={row.original.productName ?? undefined}>{row.original.productName ?? noValue}</div>
-          <div className="truncate text-xs text-muted-foreground">{row.original.sku ?? noValue}</div>
-          <AiAssessButtons
-            claimId={claim?.id ?? ''}
-            line={row.original}
-            canManage={featureAccess.claimManage}
-            onRefresh={loadData}
-          />
+          <div className="truncate text-xs text-muted-foreground">
+            {[row.original.sku, row.original.serialNumber].filter(Boolean).join(' / ') || noValue}
+          </div>
         </div>
       ),
     },
     {
-      accessorKey: 'serialNumber',
-      header: t('warranty_claims.form.serialNumber'),
-      cell: ({ row }) => row.original.serialNumber ?? noValue,
+      id: 'entitlement',
+      header: t('warranty_claims.detail.lines.column.entitlement'),
+      cell: ({ row }) => {
+        const purchaseDate = row.original.purchaseDate ? new Date(row.original.purchaseDate) : null
+        return (
+          <EntitlementChip
+            status={computeEntitlementPreview(purchaseDate, row.original.warrantyMonths)}
+            t={t}
+          />
+        )
+      },
     },
     {
       accessorKey: 'qtyClaimed',
@@ -1626,11 +1746,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       ),
     },
     {
-      accessorKey: 'qtyReceived',
-      header: t('warranty_claims.lines.header.qtyReceived'),
-      cell: ({ row }) => formatQuantity(row.original.qtyReceived, noValue),
-    },
-    {
       accessorKey: 'disposition',
       header: t('warranty_claims.form.disposition'),
       cell: ({ row }) => (
@@ -1648,10 +1763,10 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     },
     {
       accessorKey: 'creditAmount',
-      header: t('warranty_claims.form.creditAmount'),
+      header: t('warranty_claims.detail.lines.column.credit'),
       cell: ({ row }) => formatAmount(row.original.creditAmount, claim?.currencyCode ?? null, noValue),
     },
-  ], [allowedDispositions, claim?.currencyCode, claim?.id, featureAccess.claimManage, linesInlineEditable, loadData, noValue, saveLineInlineField, t])
+  ], [allowedDispositions, claim?.currencyCode, linesInlineEditable, noValue, saveLineInlineField, t])
 
   const transitionFields = React.useMemo<CrudField[]>(() => [
     {
@@ -1730,79 +1845,87 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     )
   }
 
-  const tabs: Array<{ id: TabId; label: string }> = [
-    { id: 'lines', label: t('warranty_claims.detail.tabs.lines') },
-    { id: 'timeline', label: t('warranty_claims.detail.tabs.timeline') },
-    { id: 'attachments', label: t('warranty_claims.detail.tabs.attachments') },
+  const tabs: Array<{ id: TabId; label: string; count?: number }> = [
+    { id: 'lines', label: t('warranty_claims.detail.tabs.lines'), count: lines.length },
+    { id: 'timeline', label: t('warranty_claims.detail.tabs.timeline'), count: events.length },
+    { id: 'attachments', label: t('warranty_claims.detail.tabs.attachments'), count: attachmentCount },
     { id: 'ai', label: t('warranty_claims.detail.tabs.ai') },
   ]
-  const claimChannel = normalizeClaimChannel(claim.channel)
-
+  const approvedLineCount = lines.filter((line) => line.lineStatus === 'approved').length
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <FormHeader
-              mode="detail"
-              title={claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
-              entityTypeLabel={t(`warranty_claims.claimType.${claim.claimType ?? 'warranty'}`)}
-              statusBadge={
-                <div className="flex flex-wrap items-center gap-2">
-                  {claimChannel ? <StatusBadge variant="neutral">{t(`warranty_claims.channel.${claimChannel}`)}</StatusBadge> : null}
-                  <ClaimStatusBadge status={claim.status} />
-                  <ClaimPriorityBadge priority={claim.priority} />
-                  {claim.awaitingStaffReply ? (
-                    <StatusBadge variant="warning">{t('warranty_claims.detail.badge.customerReplied')}</StatusBadge>
-                  ) : null}
+          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            <div className="px-8 pb-5 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                  {t(`warranty_claims.claimType.${claim.claimType ?? 'warranty'}`)}
+                  <span className="ml-1 font-semibold text-foreground">
+                    {claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
+                  </span>
                 </div>
-              }
-              actionsContent={
                 <div className="flex flex-wrap items-center gap-2">
-                  {claim.claimNumber ? (
+                  {featureAccess.claimDelete ? (
                     <IconButton
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={t('warranty_claims.detail.copyClaimNumber', 'Copy claim number')}
-                      title={t('warranty_claims.detail.copyClaimNumber', 'Copy claim number')}
-                      onClick={() => {
-                        void navigator.clipboard.writeText(claim.claimNumber ?? '')
-                        flash(t('warranty_claims.detail.claimNumberCopied', 'Claim number copied.'), 'success')
-                      }}
+                      variant="outline"
+                      size="default"
+                      className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      disabled={!DELETABLE_CLAIM_STATUSES.has(currentStatus)}
+                      aria-label={t('warranty_claims.audit.claim.delete')}
+                      title={DELETABLE_CLAIM_STATUSES.has(currentStatus)
+                        ? t('warranty_claims.audit.claim.delete')
+                        : t('warranty_claims.errors.deleteNotAllowed')}
+                      onClick={() => { void deleteClaim() }}
                     >
-                      <Hash className="size-4" aria-hidden />
+                      <Trash2 className="size-4" aria-hidden />
                     </IconButton>
                   ) : null}
-                  <IconButton
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    aria-label={t('warranty_claims.detail.copyLink')}
-                    title={t('warranty_claims.detail.copyLink')}
-                    onClick={() => {
-                      void navigator.clipboard.writeText(window.location.href)
-                      flash(t('warranty_claims.detail.linkCopied'), 'success')
-                    }}
+                  <ActionsDropdown
+                    items={headerMoreActions}
+                    triggerMode="icon"
+                    ariaLabel={t('ui.actions.actions', 'Actions')}
+                  />
+                  <Select
+                    value=""
+                    disabled={!featureAccess.claimManage || resolutionStatuses.length === 0}
+                    onValueChange={(status) => { void confirmAndTransition(status as ClaimStatus) }}
                   >
-                    <Copy className="size-4" aria-hidden />
-                  </IconButton>
-                  <Button asChild variant="outline">
-                    <Link href={`/backend/warranty_claims/${claim.id}/edit`}>
-                      {t('warranty_claims.detail.actions.edit')}
-                    </Link>
-                  </Button>
-                  {claim.claimType !== 'vendor_recovery' && eligibleVendorLines.length > 0 ? (
-                    <Button type="button" variant="outline" onClick={() => setVendorDialogOpen(true)}>
-                      {t('warranty_claims.detail.actions.vendorRecovery')}
+                    <SelectTrigger className="h-8 w-28" aria-label={t('warranty_claims.edit.fulfillment.resolution')}>
+                      <SelectValue placeholder={t('warranty_claims.edit.fulfillment.resolution')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {resolutionStatuses.map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {t(`warranty_claims.status.${status}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {featureAccess.claimManage && primaryNextStatus ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => { void confirmAndTransition(primaryNextStatus) }}
+                    >
+                      {primaryNextStatus === 'submitted' && currentStatus === 'draft'
+                        ? t('warranty_claims.detail.actions.submit')
+                        : primaryNextStatus === 'in_review' && currentStatus === 'submitted'
+                          ? t('warranty_claims.list.actions.startReview')
+                          : t(`warranty_claims.status.${primaryNextStatus}`)}
                     </Button>
                   ) : null}
                 </div>
-              }
-            />
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              </div>
+              <h1 className="mt-3 max-w-3xl text-2xl font-bold tracking-tight text-foreground">
+                {claim.notes || claim.reasonCode || claim.claimNumber || t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
+              </h1>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:max-w-4xl xl:grid-cols-6">
+              <div>
+                <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.customer')}</p>
+                <div className="mt-1 text-sm font-medium text-foreground">
                   <span>
-                    {t('warranty_claims.detail.customer')}:{' '}
                     {claim.customerName ? (
                       customerLink && customerLink.customerId === claim.customerId ? (
                         <Link
@@ -1818,145 +1941,48 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                       noValue
                     )}
                   </span>
-                  <span>
-                    {t('warranty_claims.list.column.order')}:{' '}
-                    {claim.orderId ? (
-                      <Link
-                        href={`/backend/sales/documents/${claim.orderId}`}
-                        className="text-foreground underline-offset-4 hover:underline"
-                      >
-                        {claim.orderNumber ?? t('warranty_claims.detail.viewOrder')}
-                      </Link>
-                    ) : noValue}
-                  </span>
-                  <span className="inline-flex items-center gap-2">
-                    <UserRound className="size-4" aria-hidden />
-                    <span>{t('warranty_claims.detail.assignee')}: {assigneeDisplayName}</span>
-                    {featureAccess.claimManage ? (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-auto px-2 py-1 text-xs"
-                          onClick={openAssignDialog}
-                        >
-                          {t('warranty_claims.detail.reassign')}
-                        </Button>
-                        {currentUserId && claim.assigneeUserId !== currentUserId ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto px-2 py-1 text-xs"
-                            onClick={() => { void assignToMe() }}
-                          >
-                            {t('warranty_claims.detail.assignToMe')}
-                          </Button>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </span>
-                  <span className="inline-flex flex-wrap items-center gap-2">
-                    <span>{t('warranty_claims.list.column.slaDueAt')}:</span>
-                    <ClaimSlaIndicator
-                      slaDueAt={claim.slaDueAt}
-                      slaPausedAt={claim.slaPausedAt}
-                      submittedAt={claim.submittedAt}
-                      status={claim.status}
-                      atRiskThresholdPct={slaAtRiskThresholdPct}
-                    />
-                    <RiskSignalChips signals={riskSignals} t={t} />
-                  </span>
-                  <EntitlementLookupBadge claim={claim} lines={lines} />
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-md border border-border p-3">
-                <div className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalClaimed')}</div>
-                <div className="text-lg font-semibold">{formatAmount(claim.totalClaimedAmount, claim.currencyCode, noValue)}</div>
+                </div>
               </div>
-              <div className="rounded-md border border-border p-3">
-                <div className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalApproved')}</div>
-                <div className="text-lg font-semibold">{formatAmount(claim.totalApprovedAmount, claim.currencyCode, noValue)}</div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.priority', 'Priority')}</p>
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  {t(`warranty_claims.priority.${claim.priority ?? 'normal'}`)}
+                </p>
               </div>
-              <div className="rounded-md border border-border p-3">
-                <div className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalRecovered')}</div>
-                <div className="text-lg font-semibold">{formatAmount(claim.totalRecoveredAmount, claim.currencyCode, noValue)}</div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.opened')}</p>
+                <p className="mt-1 text-sm font-medium text-foreground" title={formatDateTime(claim.createdAt) ?? undefined}>
+                  {formatRelativeTime(claim.createdAt, { locale, translate: t }) ?? noValue}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('warranty_claims.list.column.slaDueAt')}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                  <ClaimSlaIndicator
+                    slaDueAt={claim.slaDueAt}
+                    slaPausedAt={claim.slaPausedAt}
+                    submittedAt={claim.submittedAt}
+                    status={claim.status}
+                    atRiskThresholdPct={slaAtRiskThresholdPct}
+                  />
+                  <RiskSignalChips signals={riskSignals} t={t} />
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.owner')}</p>
+                <p className="mt-1 truncate text-sm font-medium text-foreground" title={assigneeDisplayName}>{assigneeDisplayName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.state')}</p>
+                <div className="mt-1">
+                  <ClaimStatusBadge status={claim.status} />
+                </div>
               </div>
             </div>
-          </div>
-
-          <ReturnLabelPanel claim={claim} canManage={featureAccess.claimManage} onRefresh={loadData} />
-
-          {(() => {
-            const showSalesReturn = featureAccess.claimManage
-              && featureAccess.salesReturnsCreate
-              && claim.orderId
-              && !claim.salesReturnId
-              && ['approved', 'awaiting_return', 'received', 'inspecting'].includes(currentStatus ?? '')
-            const showReplacementOrder = featureAccess.claimManage
-              && featureAccess.salesOrdersManage
-              && claim.orderId
-              && !claim.replacementOrderId
-              && ['approved', 'awaiting_return', 'received', 'inspecting', 'resolved'].includes(currentStatus ?? '')
-            const showCreditMemo = featureAccess.claimManage
-              && featureAccess.salesCreditMemosManage
-              && claim.orderId
-              && !claim.creditMemoId
-              && ['received', 'inspecting', 'resolved'].includes(currentStatus ?? '')
-            if (!showSalesReturn && !showReplacementOrder && !showCreditMemo) return null
-            return (
-              <div className="flex flex-wrap items-center gap-2">
-                {showSalesReturn ? (
-                  <Button type="button" variant="outline" onClick={() => { void createSalesReturn() }}>
-                    {t('warranty_claims.detail.createSalesReturn')}
-                  </Button>
-                ) : null}
-                {showReplacementOrder ? (
-                  <Button type="button" variant="outline" onClick={() => { void createReplacementOrder() }}>
-                    {t('warranty_claims.detail.createReplacementOrder')}
-                  </Button>
-                ) : null}
-                {showCreditMemo ? (
-                  <Button type="button" variant="outline" onClick={() => { void createCreditMemo() }}>
-                    {t('warranty_claims.detail.createCreditMemo')}
-                  </Button>
-                ) : null}
-              </div>
-            )
-          })()}
-
-          {featureAccess.claimManage ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {nextStatuses.length ? (
-                nextStatuses.map((status) => (
-                  <Button
-                    key={status}
-                    type="button"
-                    variant={status === 'rejected' || status === 'cancelled' ? 'destructive' : 'outline'}
-                    onClick={() => { void confirmAndTransition(status) }}
-                  >
-                    {status === 'submitted' && currentStatus === 'draft'
-                      ? t('warranty_claims.detail.actions.submit')
-                      : t('warranty_claims.detail.actions.transitionTo', undefined, {
-                        status: t(`warranty_claims.status.${status}`),
-                      })}
-                  </Button>
-                ))
-              ) : (
-                <span className="text-sm text-muted-foreground">{t('warranty_claims.detail.actions.noTransitions')}</span>
-              )}
             </div>
-          ) : null}
-
-          <VendorRecoverySuggestionsPanel
-            claim={claim}
-            canManage={featureAccess.claimManage}
-            onGenerateSupplierRecovery={generateSupplierRecovery}
-          />
-
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 border-b border-border">
+            <ClaimStageProgress status={claim.status} />
+          <div>
+            <div className="flex flex-wrap items-center gap-1 border-b border-border px-7">
               {tabs.map((tab) => (
                 <Button
                   key={tab.id}
@@ -1966,64 +1992,101 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   data-tab-id={tab.id}
                   data-active={activeTab === tab.id ? 'true' : 'false'}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`h-auto rounded-none border-b-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-transparent ${
+                  className={`h-auto gap-2 rounded-none border-b-2 px-3.5 pb-2.5 pt-3 text-sm font-medium transition-colors hover:bg-transparent ${
                     activeTab === tab.id
                       ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {tab.label}
+                  {tab.count !== undefined ? (
+                    <span className="inline-flex min-w-0 items-center justify-center rounded-md bg-muted px-1.5 py-0.5 text-overline font-medium text-muted-foreground">
+                      {tab.count}
+                    </span>
+                  ) : null}
                 </Button>
               ))}
             </div>
 
             {activeTab === 'lines' ? (
-              <div className="space-y-4">
-                <ReceivingPanel
-                  claimId={claim.id}
-                  lines={lines}
-                  canManage={featureAccess.receivingManage}
-                  receivingCapable={RECEIVING_CAPABLE_CLAIM_STATUSES.has(currentStatus)}
-                  onRefresh={loadData}
-                />
-                <DataTable<ClaimLine>
-                  embedded
-                  title={t('warranty_claims.detail.tabs.lines')}
-                  actions={featureAccess.claimManage ? (
-                    <Button type="button" onClick={() => setLineDialog({ mode: 'create' })}>
+              <div>
+                <div className="grid items-center gap-4 border-b border-border px-8 py-5 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+                  <div>
+                    <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalClaimed')}</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">
+                      {formatAmount(claim.totalClaimedAmount, claim.currencyCode, noValue)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t('warranty_claims.detail.lines.count', { count: lines.length })}
+                    </p>
+                  </div>
+                  <div className="xl:border-l xl:border-border xl:pl-5">
+                    <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalApproved')}</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">
+                      {formatAmount(claim.totalApprovedAmount, claim.currencyCode, noValue)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t('warranty_claims.detail.lines.approvedCount', { count: approvedLineCount })}
+                    </p>
+                  </div>
+                  <div className="xl:border-l xl:border-border xl:pl-5">
+                    <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalRecovered')}</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">
+                      {formatAmount(claim.totalRecoveredAmount, claim.currencyCode, noValue)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {claim.vendorName ?? t('warranty_claims.detail.lines.noVendorClaims')}
+                    </p>
+                  </div>
+                  {linesInlineEditable ? (
+                    <Button type="button" variant="outline" size="sm" className="justify-self-start xl:justify-self-end" onClick={() => setLineDialog({ mode: 'create' })}>
                       {t('warranty_claims.detail.lines.add')}
                     </Button>
-                  ) : undefined}
-                  columns={lineColumns}
-                  data={lines}
-                  stickyActionsColumn
-                  emptyState={(
-                    <EmptyState
-                      title={t('warranty_claims.detail.lines.empty.title')}
-                      description={t('warranty_claims.detail.lines.empty.description')}
-                      variant="subtle"
-                    />
-                  )}
-                  rowActions={featureAccess.claimManage ? (line) => (
-                    <RowActions
-                      items={[
-                        {
-                          id: 'edit',
-                          label: t('warranty_claims.detail.lines.edit'),
-                          onSelect: () => setLineDialog({ mode: 'edit', line }),
-                        },
-                      ]}
-                    />
-                  ) : undefined}
-                />
+                  ) : null}
+                </div>
+                <div className="pb-3">
+                  <DataTable<ClaimLine>
+                    embedded
+                    columns={lineColumns}
+                    data={lines}
+                    stickyActionsColumn
+                    emptyState={(
+                      <EmptyState
+                        title={t('warranty_claims.detail.lines.empty.title')}
+                        description={t('warranty_claims.detail.lines.empty.description')}
+                        variant="subtle"
+                      />
+                    )}
+                    rowActions={linesInlineEditable ? (line) => (
+                      <RowActions
+                        items={[
+                          {
+                            id: 'edit',
+                            label: t('warranty_claims.detail.lines.edit'),
+                            onSelect: () => setLineDialog({ mode: 'edit', line }),
+                          },
+                        ]}
+                      />
+                    ) : undefined}
+                  />
+                </div>
+                <div className="px-8 pb-8">
+                  <ReceivingPanel
+                    claimId={claim.id}
+                    lines={lines}
+                    canManage={featureAccess.receivingManage}
+                    receivingCapable={RECEIVING_CAPABLE_CLAIM_STATUSES.has(currentStatus)}
+                    onRefresh={loadData}
+                  />
+                </div>
               </div>
             ) : null}
 
             {activeTab === 'timeline' ? (
-              <div className="space-y-4">
+              <div className="mx-8 max-w-3xl space-y-5 pb-8 pt-6">
                 {featureAccess.claimManage ? (
-                  <div className="rounded-lg border border-border bg-card p-4">
-                    <div className="space-y-3">
+                  <div>
+                    <div className="space-y-4">
                       <Textarea
                         value={commentBody}
                         onChange={(event) => setCommentBody(event.target.value)}
@@ -2034,12 +2097,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                           }
                         }}
                         placeholder={t('warranty_claims.detail.timeline.commentPlaceholder')}
-                        rows={4}
+                        rows={6}
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Select value={commentVisibility} onValueChange={(next) => setCommentVisibility(next === 'customer' ? 'customer' : 'internal')}>
-                            <SelectTrigger className="w-48" aria-label={t('warranty_claims.detail.visibility.label')}>
+                            <SelectTrigger className="w-40" aria-label={t('warranty_claims.detail.visibility.label')}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2047,7 +2110,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                               <SelectItem value="customer">{t('warranty_claims.detail.visibility.customer')}</SelectItem>
                             </SelectContent>
                           </Select>
-                          {!draftReplyHidden && featureAccess.claimManage ? (
+                          {!draftReplyHidden && featureAccess.claimManage && claimMutable ? (
                             <Button
                               type="button"
                               variant="outline"
@@ -2088,8 +2151,8 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                     const body = formatTimelineBody(event, t, userNames)
                     const actor = resolveTimelineActor(event, claim, userNames, t)
                     return (
-                      <div key={event.id} className="flex gap-3 rounded-lg border border-border bg-card p-4">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      <div key={event.id} className="flex gap-3 py-2">
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                           <Icon className="h-4 w-4" aria-hidden />
                         </div>
                         <div className="min-w-0 flex-1 space-y-1">
@@ -2125,13 +2188,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             ) : null}
 
             {activeTab === 'attachments' ? (
-              <div className="rounded-lg border border-border bg-card p-4">
-                <AttachmentInput entityId="warranty_claims:warranty_claim" recordId={claim.id} />
+              <div className="px-8 pb-8 pt-6">
+                <AttachmentInput entityId="warranty_claims:warranty_claim" recordId={claim.id} onCountChange={setAttachmentCount} />
               </div>
             ) : null}
 
             {activeTab === 'ai' ? (
-              <div className="grid gap-4 xl:grid-cols-2">
+              <div className="grid gap-4 px-8 pb-8 pt-6 xl:grid-cols-2">
                 <div className="rounded-lg border border-border bg-card p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -2210,23 +2273,91 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   )}
                 </div>
                 <div className="h-96 overflow-hidden rounded-lg border border-border bg-card">
-                  {chatSession ? (
-                    <React.Suspense fallback={<LoadingMessage label={t('warranty_claims.detail.loading')} />}>
-                      <LazyAiChat
-                        key={chatSession.id}
-                        agent={AGENT_ID}
-                        conversationId={chatSession.conversationId}
-                        pageContext={{ entityType: 'warranty_claims.claim', recordId: claim.id }}
-                        className="h-full"
-                        placeholder={t('warranty_claims.ai.chatPlaceholder')}
-                        welcomeTitle={t('warranty_claims.ai.chatWelcomeTitle')}
-                      />
-                    </React.Suspense>
-                  ) : null}
+                  <React.Suspense fallback={<LoadingMessage label={t('warranty_claims.detail.loading')} />}>
+                    {/* Scope the conversation to this claim and remount on claim change so a
+                        claim can never inherit another claim's transcript (WQA-007 / AI-01). */}
+                    <LazyAiChat
+                      key={`${AGENT_ID}:${claim.id}`}
+                      agent={AGENT_ID}
+                      pageContext={{ entityType: 'warranty_claims.claim', recordId: claim.id }}
+                      className="h-full"
+                      placeholder={t('warranty_claims.ai.chatPlaceholder')}
+                      welcomeTitle={t('warranty_claims.ai.chatWelcomeTitle')}
+                    />
+                  </React.Suspense>
                 </div>
+                {lines.length ? (
+                  <div className="space-y-3 xl:col-span-2">
+                    {lines.map((line) => (
+                      <div key={line.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {line.productName ?? line.sku ?? t('warranty_claims.detail.lines.unnamed', 'Unnamed line')}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {[line.sku, line.serialNumber].filter(Boolean).join(' / ') || noValue}
+                          </p>
+                        </div>
+                        <AiAssessButtons
+                          claimId={claim.id}
+                          line={line}
+                          canManage={featureAccess.claimManage && claimMutable}
+                          onRefresh={loadData}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
+          </div>
+
+          <ReturnLabelPanel claim={claim} canManage={featureAccess.claimManage} onRefresh={loadData} />
+
+          {(() => {
+            const showSalesReturn = featureAccess.claimManage
+              && featureAccess.salesReturnsCreate
+              && claim.orderId
+              && !claim.salesReturnId
+              && ['approved', 'awaiting_return', 'received', 'inspecting'].includes(currentStatus ?? '')
+            const showReplacementOrder = featureAccess.claimManage
+              && featureAccess.salesOrdersManage
+              && claim.orderId
+              && !claim.replacementOrderId
+              && ['approved', 'awaiting_return', 'received', 'inspecting', 'resolved'].includes(currentStatus ?? '')
+            const showCreditMemo = featureAccess.claimManage
+              && featureAccess.salesCreditMemosManage
+              && claim.orderId
+              && !claim.creditMemoId
+              && ['received', 'inspecting', 'resolved'].includes(currentStatus ?? '')
+            if (!showSalesReturn && !showReplacementOrder && !showCreditMemo) return null
+            return (
+              <div className="flex flex-wrap items-center gap-2">
+                {showSalesReturn ? (
+                  <Button type="button" variant="outline" onClick={() => { void createSalesReturn() }}>
+                    {t('warranty_claims.detail.createSalesReturn')}
+                  </Button>
+                ) : null}
+                {showReplacementOrder ? (
+                  <Button type="button" variant="outline" onClick={() => { void createReplacementOrder() }}>
+                    {t('warranty_claims.detail.createReplacementOrder')}
+                  </Button>
+                ) : null}
+                {showCreditMemo ? (
+                  <Button type="button" variant="outline" onClick={() => { void createCreditMemo() }}>
+                    {t('warranty_claims.detail.createCreditMemo')}
+                  </Button>
+                ) : null}
+              </div>
+            )
+          })()}
+
+          <VendorRecoverySuggestionsPanel
+            claim={claim}
+            canManage={featureAccess.claimManage}
+            onGenerateSupplierRecovery={generateSupplierRecovery}
+          />
         </div>
       </PageBody>
 

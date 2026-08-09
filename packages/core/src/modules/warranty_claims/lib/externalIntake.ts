@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isPotentialEncryptedPayload } from './decryptionSafety'
 import type { ClaimCreateInput, ExternalClaimIntakeInput } from '../data/validators'
 
 type Translate = (key: string, fallback?: string) => string
@@ -60,12 +61,17 @@ export function createExternalIntakeDeps(
   scope: { tenantId: string; organizationId: string },
   encryption?: TenantDataEncryptionService | null,
 ): ExternalIntakeDeps {
+  const scrubEncryptedCustomerName = (row: Record<string, unknown>): Record<string, unknown> => {
+    if (!isPotentialEncryptedPayload(row.display_name) && !isPotentialEncryptedPayload(row.displayName)) return row
+    return { ...row, display_name: null, displayName: null }
+  }
   const decryptCustomerRow = async (row: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    if (!encryption) return row
+    if (!encryption) return scrubEncryptedCustomerName(row)
     try {
-      return await encryption.decryptEntityPayload('customers:customer_entity', row, scope.tenantId, scope.organizationId)
+      const decrypted = await encryption.decryptEntityPayload('customers:customer_entity', row, scope.tenantId, scope.organizationId)
+      return scrubEncryptedCustomerName(decrypted)
     } catch {
-      return row
+      return { ...row, display_name: null, displayName: null }
     }
   }
   const lookupRows: ExternalLookupRows = async (table, where, select, limit) => {

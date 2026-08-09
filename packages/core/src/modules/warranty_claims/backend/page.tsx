@@ -25,7 +25,8 @@ import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserI
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { Plus } from 'lucide-react'
 import {
   fetchAssignableStaffMembersPage,
   type AssignableStaffMember,
@@ -39,6 +40,7 @@ import {
 } from './components/ClaimStatusBadge'
 import { ClaimSlaIndicator } from './components/claimSla'
 import { ClaimsKpiStrip, type WarrantyClaimsStats } from './components/ClaimsKpiStrip'
+import { WarrantyWorkspace } from './components/WarrantyWorkspace'
 import { useUserDisplayNames } from './components/useUserDisplayNames'
 
 type ClaimType = 'warranty' | 'return' | 'core_return' | 'vendor_recovery'
@@ -83,6 +85,8 @@ type ClaimsStatsResponse = {
   error?: string
 }
 
+type ClaimsTabCounts = Partial<Record<'all' | 'mine' | 'attention' | 'review' | 'goods' | 'resolved', number>>
+
 type SearchParamsLike = {
   toString: () => string
 }
@@ -114,17 +118,8 @@ const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
 const DEFAULT_SORTING: SortingState = [{ id: 'slaDueAt', desc: false }]
 const SORTABLE_FIELDS = new Set(['slaDueAt', 'createdAt', 'updatedAt'])
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-const STATUS_GROUPS: Array<{ id: string; labelKey: string; fallback: string; statuses: ClaimStatus[] }> = [
-  { id: 'submitted', labelKey: 'warranty_claims.list.quickFilters.submitted', fallback: 'Submitted', statuses: ['submitted'] },
-  { id: 'in_review', labelKey: 'warranty_claims.list.quickFilters.inReview', fallback: 'In review', statuses: ['in_review'] },
-  { id: 'info_requested', labelKey: 'warranty_claims.list.quickFilters.infoRequested', fallback: 'Info requested', statuses: ['info_requested'] },
-  {
-    id: 'approved_goods_flow',
-    labelKey: 'warranty_claims.list.quickFilters.approvedGoodsFlow',
-    fallback: 'Approved + goods flow',
-    statuses: ['approved', 'awaiting_return', 'received', 'inspecting'],
-  },
-]
+const GOODS_FLOW_STATUSES: ClaimStatus[] = ['approved', 'awaiting_return', 'received', 'inspecting']
+const RESOLVED_STATUSES: ClaimStatus[] = ['resolved', 'closed']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -218,6 +213,7 @@ function parseClaimListUrlState(searchParams: SearchParamsLike): RestoredClaimLi
   if (params.get('overdueOnly') === 'true') filterValues.overdueOnly = true
   if (params.get('slaAtRiskOnly') === 'true') filterValues.slaAtRiskOnly = true
   if (params.get('needsAttention') === 'true') filterValues.needsAttention = true
+  if (params.get('attentionOnly') === 'true') filterValues.attentionOnly = true
   const sortField = params.get('sortField')
   const sorting = sortField && SORTABLE_FIELDS.has(sortField)
     ? [{ id: sortField, desc: params.get('sortDir') === 'desc' }]
@@ -251,6 +247,7 @@ function appendClaimListFilterParams(params: URLSearchParams, filterValues: Filt
   if (filterValues.overdueOnly === true) params.set('overdueOnly', 'true')
   if (filterValues.slaAtRiskOnly === true) params.set('slaAtRiskOnly', 'true')
   if (filterValues.needsAttention === true) params.set('needsAttention', 'true')
+  if (filterValues.attentionOnly === true) params.set('attentionOnly', 'true')
 }
 
 function appendClaimListSortParams(params: URLSearchParams, sorting: SortingState): void {
@@ -420,6 +417,7 @@ export default function WarrantyClaimsPage() {
   const [page, setPage] = React.useState(initialUrlState.page)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [tabCounts, setTabCounts] = React.useState<ClaimsTabCounts>({})
   const [search, setSearch] = React.useState(initialUrlState.search)
   const [filterValues, setFilterValues] = React.useState<FilterValues>(initialUrlState.filterValues)
   const [sorting, setSorting] = React.useState<SortingState>(initialUrlState.sorting)
@@ -427,7 +425,6 @@ export default function WarrantyClaimsPage() {
   const [stats, setStats] = React.useState<ClaimsStats | null>(null)
   const [statsLoading, setStatsLoading] = React.useState(true)
   const [statsError, setStatsError] = React.useState(false)
-  const [needsAttentionCount, setNeedsAttentionCount] = React.useState(0)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [assignDialog, setAssignDialog] = React.useState<AssignDialogState>(null)
   const urlQueryRef = React.useRef(searchParams.toString())
@@ -532,23 +529,6 @@ export default function WarrantyClaimsPage() {
 
   React.useEffect(() => {
     const controller = new AbortController()
-    readApiResultOrThrow<ClaimsResponse>(
-      '/api/warranty_claims?needsAttention=true&pageSize=1',
-      { signal: controller.signal },
-      { fallback: { items: [], total: 0 }, errorMessage: '[internal] Failed to load customer-replied count' },
-    )
-      .then((payload) => {
-        if (controller.signal.aborted) return
-        setNeedsAttentionCount(typeof payload?.total === 'number' ? payload.total : 0)
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setNeedsAttentionCount(0)
-      })
-    return () => controller.abort()
-  }, [reloadToken, scopeVersion])
-
-  React.useEffect(() => {
-    const controller = new AbortController()
     setStatsLoading(true)
     setStatsError(false)
     readApiResultOrThrow<ClaimsStatsResponse>(
@@ -577,6 +557,40 @@ export default function WarrantyClaimsPage() {
       })
     return () => controller.abort()
   }, [reloadToken, scopeVersion, t])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadCount(query: Record<string, string>): Promise<number> {
+      const params = new URLSearchParams({ page: '1', pageSize: '1', ...query })
+      const fallback: ClaimsResponse = { items: [], total: 0, totalPages: 1 }
+      const call = await apiCall<ClaimsResponse>(
+        `/api/warranty_claims?${params.toString()}`,
+        { signal: controller.signal },
+        { fallback },
+      )
+      if (!call.ok) throw new Error('[internal] Failed to load claim counts')
+      return typeof call.result?.total === 'number' ? call.result.total : 0
+    }
+
+    const mineQuery = currentUserId ? { assigneeUserId: currentUserId } : null
+    Promise.all([
+      loadCount({}),
+      mineQuery ? loadCount(mineQuery) : Promise.resolve(0),
+      loadCount({ attentionOnly: 'true' }),
+      loadCount({ status: 'in_review' }),
+      loadCount({ status: GOODS_FLOW_STATUSES.join(',') }),
+      loadCount({ status: RESOLVED_STATUSES.join(',') }),
+    ])
+      .then(([all, mine, attention, review, goods, resolved]) => {
+        if (!controller.signal.aborted) setTabCounts({ all, mine, attention, review, goods, resolved })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setTabCounts({})
+      })
+
+    return () => controller.abort()
+  }, [currentUserId, reloadToken, scopeVersion])
 
   const statusOptions = React.useMemo(
     () => CLAIM_STATUSES.map((status) => ({ value: status, label: t(`warranty_claims.status.${status}`) })),
@@ -901,17 +915,6 @@ export default function WarrantyClaimsPage() {
     },
   ], [confirm, runBulkCancel, runBulkStartReview, t])
 
-  const applyMyClaimsFilter = React.useCallback(() => {
-    if (!currentUserId) return
-    setFilterValues((current) => {
-      const next: FilterValues = { ...current }
-      if (toStringOrNull(current.assigneeUserId) === currentUserId) delete next.assigneeUserId
-      else next.assigneeUserId = currentUserId
-      return next
-    })
-    setPage(1)
-  }, [currentUserId])
-
   const applyOverdueFilter = React.useCallback(() => {
     setFilterValues((current) => {
       const next: FilterValues = { ...current }
@@ -922,38 +925,8 @@ export default function WarrantyClaimsPage() {
     setPage(1)
   }, [])
 
-  const applySlaAtRiskFilter = React.useCallback(() => {
-    setFilterValues((current) => {
-      const next: FilterValues = { ...current }
-      if (current.slaAtRiskOnly === true) delete next.slaAtRiskOnly
-      else next.slaAtRiskOnly = true
-      return next
-    })
-    setPage(1)
-  }, [])
-
-  const applyNeedsAttentionFilter = React.useCallback(() => {
-    setFilterValues((current) => {
-      const next: FilterValues = { ...current }
-      if (current.needsAttention === true) delete next.needsAttention
-      else next.needsAttention = true
-      return next
-    })
-    setPage(1)
-  }, [])
-
   const clearAllFilters = React.useCallback(() => {
     setFilterValues({})
-    setPage(1)
-  }, [])
-
-  const applyStatusGroupFilter = React.useCallback((statuses: ClaimStatus[]) => {
-    setFilterValues((current) => {
-      const next: FilterValues = { ...current }
-      if (sameStringSet(valueAsStringArray(current.status), statuses)) delete next.status
-      else next.status = statuses
-      return next
-    })
     setPage(1)
   }, [])
 
@@ -967,7 +940,35 @@ export default function WarrantyClaimsPage() {
   const overdueActive = filterValues.overdueOnly === true
   const slaAtRiskActive = filterValues.slaAtRiskOnly === true
   const needsAttentionActive = filterValues.needsAttention === true
-  const openByStatus = stats?.openByStatus ?? {}
+  const attentionOnlyActive = filterValues.attentionOnly === true
+  const activeWorkspaceTab = myClaimsActive
+    ? 'mine'
+    : overdueActive || slaAtRiskActive || needsAttentionActive || attentionOnlyActive
+      ? 'attention'
+      : sameStringSet(currentStatusFilter, ['in_review'])
+        ? 'review'
+        : sameStringSet(currentStatusFilter, GOODS_FLOW_STATUSES)
+          ? 'goods'
+          : sameStringSet(currentStatusFilter, RESOLVED_STATUSES)
+            ? 'resolved'
+            : 'all'
+
+  const handleWorkspaceTabChange = React.useCallback((value: string) => {
+    if (value === 'mine' && currentUserId) {
+      setFilterValues({ assigneeUserId: currentUserId })
+    } else if (value === 'attention') {
+      setFilterValues({ attentionOnly: true })
+    } else if (value === 'review') {
+      setFilterValues({ status: ['in_review'] })
+    } else if (value === 'goods') {
+      setFilterValues({ status: GOODS_FLOW_STATUSES })
+    } else if (value === 'resolved') {
+      setFilterValues({ status: RESOLVED_STATUSES })
+    } else {
+      setFilterValues({})
+    }
+    setPage(1)
+  }, [currentUserId])
 
   const columns = React.useMemo<ColumnDef<ClaimRow>[]>(() => {
     const noValue = <span className="text-sm text-muted-foreground">{t('warranty_claims.common.noValue')}</span>
@@ -975,7 +976,7 @@ export default function WarrantyClaimsPage() {
       {
         accessorKey: 'claimNumber',
         header: t('warranty_claims.list.column.claimNumber'),
-        meta: { alwaysVisible: true, maxWidth: '180px' },
+        meta: { alwaysVisible: true, maxWidth: '140px' },
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
             <Link href={`/backend/warranty_claims/${row.original.id}`} className="font-medium hover:underline">
@@ -1010,21 +1011,25 @@ export default function WarrantyClaimsPage() {
       {
         accessorKey: 'status',
         header: t('warranty_claims.list.column.status'),
+        meta: { maxWidth: '116px' },
         cell: ({ row }) => <ClaimStatusBadge status={row.original.status} />,
       },
       {
         accessorKey: 'priority',
         header: t('warranty_claims.list.column.priority'),
+        meta: { maxWidth: '92px' },
         cell: ({ row }) => <ClaimPriorityBadge priority={row.original.priority} />,
       },
       {
         accessorKey: 'customerName',
         header: t('warranty_claims.list.column.customer'),
+        meta: { truncate: true, maxWidth: '160px' },
         cell: ({ row }) => row.original.customerName ? <span>{row.original.customerName}</span> : noValue,
       },
       {
         accessorKey: 'orderId',
         header: t('warranty_claims.list.column.order'),
+        meta: { truncate: true, maxWidth: '110px' },
         cell: ({ row }) => {
           const orderId = row.original.orderId
           if (!orderId) return noValue
@@ -1039,6 +1044,7 @@ export default function WarrantyClaimsPage() {
       {
         accessorKey: 'slaDueAt',
         header: t('warranty_claims.list.column.slaDueAt'),
+        meta: { maxWidth: '136px' },
         cell: ({ row }) => (
           <ClaimSlaIndicator
             slaDueAt={row.original.slaDueAt}
@@ -1052,6 +1058,7 @@ export default function WarrantyClaimsPage() {
       {
         accessorKey: 'assigneeUserId',
         header: t('warranty_claims.list.column.assignee'),
+        meta: { truncate: true, maxWidth: '120px' },
         cell: ({ row }) => {
           const assigneeUserId = row.original.assigneeUserId
           if (!assigneeUserId) return noValue
@@ -1062,7 +1069,12 @@ export default function WarrantyClaimsPage() {
       {
         accessorKey: 'updatedAt',
         header: t('warranty_claims.list.column.updatedAt'),
-        cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDateTime(row.original.updatedAt) ?? t('warranty_claims.common.noValue')}</span>,
+        meta: { maxWidth: '96px' },
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground" title={formatDateTime(row.original.updatedAt) ?? undefined}>
+            {formatRelativeTime(row.original.updatedAt, { translate: t }) ?? t('warranty_claims.common.noValue')}
+          </span>
+        ),
       },
     ]
   }, [assigneeDisplayNames, stats?.slaAtRiskThresholdPct, t])
@@ -1078,84 +1090,34 @@ export default function WarrantyClaimsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="space-y-4">
-          <ClaimsKpiStrip
-            stats={stats}
-            isLoading={statsLoading}
-            hasError={statsError}
-            onOverdueClick={applyOverdueFilter}
-            onAssignedToMeClick={applyMyClaimsFilter}
-            onOpenClaimsClick={clearAllFilters}
-          />
-
-          <div
-            role="group"
-            className="flex flex-wrap items-center gap-2"
-            aria-label={t('warranty_claims.list.quickFilters.label', 'Claim queue filters')}
-          >
-            <Button
-              type="button"
-              size="sm"
-              variant={myClaimsActive ? 'default' : 'outline'}
-              disabled={!currentUserId}
-              onClick={applyMyClaimsFilter}
-            >
-              {t('warranty_claims.list.quickFilters.myClaims', 'My claims')}
-              <span className="font-mono text-xs tabular-nums">{stats?.assignedToMe ?? 0}</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
-              variant={overdueActive ? 'default' : 'outline'}
-              onClick={applyOverdueFilter}
-            >
-              {t('warranty_claims.list.quickFilters.overdue', 'Overdue')}
-              <span className="font-mono text-xs tabular-nums">{stats?.overdue ?? 0}</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
-              variant={slaAtRiskActive ? 'default' : 'outline'}
-              onClick={applySlaAtRiskFilter}
-            >
-              {t('warranty_claims.list.quickFilters.slaAtRisk', 'SLA at risk')}
-              <span className="font-mono text-xs tabular-nums">{stats?.slaAtRisk ?? 0}</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
-              variant={needsAttentionActive ? 'default' : 'outline'}
-              onClick={applyNeedsAttentionFilter}
-            >
-              {t('warranty_claims.list.quickFilters.customerReplied', 'Customer replied')}
-              <span className="font-mono text-xs tabular-nums">{needsAttentionCount}</span>
-            </Button>
-
-            {STATUS_GROUPS.map((group) => {
-              const active = sameStringSet(currentStatusFilter, group.statuses)
-              const count = group.statuses.reduce((sum, status) => sum + (openByStatus[status] ?? 0), 0)
-              return (
-                <Button
-                  key={group.id}
-                  type="button"
-                  size="sm"
-                  variant={active ? 'default' : 'outline'}
-                  onClick={() => applyStatusGroupFilter(group.statuses)}
-                >
-                  {t(group.labelKey, group.fallback)}
-                  <span className="font-mono text-xs tabular-nums">{count}</span>
-                </Button>
-              )
-            })}
-          </div>
-
+        <WarrantyWorkspace
+          title={t('warranty_claims.list.title')}
+          contentClassName="[&>[data-component-handle]>div:first-child]:px-8 [&>[data-component-handle]>div:first-child]:py-4 [&_:has(>[data-slot=search-input-wrapper])]:lg:w-56"
+          summary={(
+            <ClaimsKpiStrip
+              stats={stats}
+              isLoading={statsLoading}
+              hasError={statsError}
+              attentionCount={tabCounts.attention}
+              onOverdueClick={applyOverdueFilter}
+              onOpenClaimsClick={clearAllFilters}
+            />
+          )}
+          activeTab={activeWorkspaceTab}
+          onTabChange={handleWorkspaceTabChange}
+          tabs={[
+            { id: 'all', label: t('warranty_claims.list.tabs.all', 'All'), count: tabCounts.all },
+            { id: 'mine', label: t('warranty_claims.list.quickFilters.myClaims', 'My claims'), count: tabCounts.mine, disabled: !currentUserId },
+            { id: 'attention', label: t('warranty_claims.list.tabs.needsAttention', 'Needs attention'), count: tabCounts.attention },
+            { id: 'review', label: t('warranty_claims.list.quickFilters.inReview', 'In review'), count: tabCounts.review },
+            { id: 'goods', label: t('warranty_claims.list.tabs.goodsFlow', 'Goods flow'), count: tabCounts.goods },
+            { id: 'resolved', label: t('warranty_claims.list.tabs.resolved', 'Resolved'), count: tabCounts.resolved },
+          ]}
+        >
           <DataTable<ClaimRow>
+            embedded
             stickyFirstColumn
             stickyActionsColumn
-            title={t('warranty_claims.list.title')}
             refreshButton={{
               label: t('warranty_claims.list.actions.refresh'),
               onRefresh: reload,
@@ -1164,6 +1126,7 @@ export default function WarrantyClaimsPage() {
             actions={(
               <Button asChild>
                 <Link href="/backend/warranty_claims/create">
+                  <Plus className="size-4" aria-hidden />
                   {t('warranty_claims.list.actions.new')}
                 </Link>
               </Button>
@@ -1184,12 +1147,30 @@ export default function WarrantyClaimsPage() {
               setFilterValues((current) => {
                 const next: FilterValues = { ...values }
                 if (current.needsAttention === true) next.needsAttention = true
+                if (current.attentionOnly === true) next.attentionOnly = true
                 return next
               })
               setPage(1)
             }}
             onFiltersClear={clearAllFilters}
-            perspective={{ tableId: 'warranty_claims.claims.list' }}
+            perspective={{
+              tableId: 'warranty_claims.claims.list',
+              initialState: {
+                initialSettings: {
+                  columnVisibility: { claimType: false, channel: false },
+                  columnSizing: {
+                    claimNumber: 112,
+                    status: 112,
+                    priority: 88,
+                    customerName: 144,
+                    orderId: 96,
+                    slaDueAt: 136,
+                    assigneeUserId: 104,
+                    updatedAt: 88,
+                  },
+                },
+              },
+            }}
             onRowClick={(row) => router.push(`/backend/warranty_claims/${row.id}`)}
             sortable
             manualSorting
@@ -1275,7 +1256,7 @@ export default function WarrantyClaimsPage() {
               onPageChange: setPage,
             }}
           />
-        </div>
+        </WarrantyWorkspace>
       </PageBody>
       <Dialog open={assignDialog !== null} onOpenChange={(open) => { if (!open) closeAssignDialog(false) }}>
         <DialogContent className="max-w-lg">

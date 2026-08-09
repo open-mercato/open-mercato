@@ -1,6 +1,7 @@
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
+import { readSafeDecryptedString } from './decryptionSafety'
 
 export const ASSIGNEE_NAME_LOOKUP_LIMIT = 100
 
@@ -20,11 +21,7 @@ function resolveAuthUserEntityId(): EntityId | null {
 }
 
 function toDisplayName(record: Record<string, unknown>): string | null {
-  const name = record.name
-  if (typeof name === 'string' && name.trim().length) return name
-  const email = record.email
-  if (typeof email === 'string' && email.trim().length) return email
-  return null
+  return readSafeDecryptedString(record.name) ?? readSafeDecryptedString(record.email)
 }
 
 export function collectAssigneeUserIds(items: readonly unknown[]): string[] {

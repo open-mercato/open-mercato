@@ -8,6 +8,7 @@ export type VendorRecoveryClaimInput = {
   claimType?: string | null
   status?: string | null
   reasonCode?: string | null
+  vendorName?: string | null
 }
 
 export type VendorRecoveryLineInput = {
@@ -107,8 +108,12 @@ function selectMatchingPolicy(
   policies: readonly VendorPolicyRecoveryInput[],
   reasonCode: string | null,
   autoOnly: boolean,
+  claimVendorName: string | null,
 ): VendorPolicyRecoveryInput | null {
-  const vendorKey = normalizeVendorKey(line.vendorName)
+  // Fall back to the claim-level vendor name: the standard line editors do not expose a
+  // per-line vendor field, so without this fallback automatic matching was unreachable from
+  // normal intake (VENDOR-05).
+  const vendorKey = normalizeVendorKey(line.vendorName) ?? normalizeVendorKey(claimVendorName)
   if (!vendorKey) return null
   const candidates = policies
     .filter((policy) => policy.isActive !== false)
@@ -134,11 +139,12 @@ export function findVendorRecoveryMatches(input: {
     return []
   }
   const reasonCode = normalizeText(input.claim.reasonCode)
+  const claimVendorName = normalizeText(input.claim.vendorName)
   const matches: VendorRecoveryMatch[] = []
   for (const line of input.lines) {
     if (line.lineStatus !== 'resolved') continue
     if (normalizeText(line.vendorClaimLineId)) continue
-    const policy = selectMatchingPolicy(line, input.policies, reasonCode, input.autoOnly === true)
+    const policy = selectMatchingPolicy(line, input.policies, reasonCode, input.autoOnly === true, claimVendorName)
     if (!policy) continue
     matches.push({
       line,

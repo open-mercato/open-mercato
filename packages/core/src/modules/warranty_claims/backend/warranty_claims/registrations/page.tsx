@@ -21,9 +21,10 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { Plus } from 'lucide-react'
 import { REGISTRATION_COVERAGE_TYPES, REGISTRATION_SOURCES } from '../../../data/validators'
 import { normalizeRegistration, type RegistrationRecord } from './registrationForm'
+import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
 
 type RegistrationsResponse = {
   items?: unknown[]
@@ -33,6 +34,7 @@ type RegistrationsResponse = {
 }
 
 const PAGE_SIZE = 20
+type RegistrationSegment = 'all' | 'standard' | 'extended' | 'expiring' | 'none'
 
 function toStringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length ? value.trim() : null
@@ -110,6 +112,24 @@ function sourceLabel(value: string | null, t: TranslateFn): string {
   return t('warranty_claims.common.noValue', 'Not set')
 }
 
+function registrationSegmentQuery(segment: RegistrationSegment): Record<string, string> {
+  if (segment === 'standard' || segment === 'extended' || segment === 'none') return { coverageType: segment }
+  if (segment === 'expiring') return { expiry: 'expiring_30d' }
+  return {}
+}
+
+function formatDate(value: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString()
+}
+
+function hasExpired(value: string | null): boolean {
+  if (!value) return false
+  const date = new Date(value)
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now()
+}
+
 export default function WarrantyClaimRegistrationsPage() {
   const t = useT()
   const router = useRouter()
@@ -119,6 +139,7 @@ export default function WarrantyClaimRegistrationsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [tabCounts, setTabCounts] = React.useState<Partial<Record<RegistrationSegment, number>>>({})
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
@@ -211,6 +232,29 @@ export default function WarrantyClaimRegistrationsPage() {
       cancelled = true
     }
   }, [listQueryString, reloadToken, scopeVersion, t])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    const segments: RegistrationSegment[] = ['all', 'standard', 'extended', 'expiring', 'none']
+    Promise.all(segments.map(async (segment) => {
+      const params = new URLSearchParams({ page: '1', pageSize: '1', ...registrationSegmentQuery(segment) })
+      const fallback: RegistrationsResponse = { items: [], total: 0, totalPages: 1 }
+      const call = await apiCall<RegistrationsResponse>(
+        `/api/warranty_claims/registrations?${params.toString()}`,
+        { signal: controller.signal },
+        { fallback },
+      )
+      if (!call.ok) throw new Error('[internal] Failed to load registration counts')
+      return [segment, typeof call.result?.total === 'number' ? call.result.total : 0] as const
+    }))
+      .then((entries) => {
+        if (!controller.signal.aborted) setTabCounts(Object.fromEntries(entries))
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setTabCounts({})
+      })
+    return () => controller.abort()
+  }, [reloadToken, scopeVersion])
 
   const executeDelete = React.useCallback(async (registration: RegistrationRecord): Promise<unknown> => {
     try {
@@ -334,7 +378,7 @@ export default function WarrantyClaimRegistrationsPage() {
       {
         accessorKey: 'serialNumber',
         header: t('warranty_claims.registrations.list.column.serial', 'Serial'),
-        meta: { alwaysVisible: true, maxWidth: '180px' },
+        meta: { alwaysVisible: true, maxWidth: '150px' },
         cell: ({ row }) => (
           <Link
             href={`/backend/warranty_claims/registrations/${row.original.id}/edit`}
@@ -353,6 +397,7 @@ export default function WarrantyClaimRegistrationsPage() {
       {
         accessorKey: 'customerId',
         header: t('warranty_claims.registrations.list.column.customer', 'Customer'),
+        meta: { maxWidth: '190px' },
         cell: ({ row }) => {
           const customerId = row.original.customerId
           const displayName = customerId ? customerNames[customerId] : undefined
@@ -364,6 +409,7 @@ export default function WarrantyClaimRegistrationsPage() {
       {
         accessorKey: 'coverageType',
         header: t('warranty_claims.registrations.list.column.coverage', 'Coverage'),
+        meta: { maxWidth: '140px' },
         cell: ({ row }) => (
           <StatusBadge variant={coverageVariant(row.original.coverageType)}>
             {coverageLabel(row.original.coverageType, t)}
@@ -374,47 +420,72 @@ export default function WarrantyClaimRegistrationsPage() {
         accessorKey: 'warrantyExpiresAt',
         header: t('warranty_claims.registrations.list.column.warrantyExpiry', 'Warranty expiry'),
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
-            {formatDateTime(row.original.warrantyExpiresAt) ?? t('warranty_claims.common.noValue', 'Not set')}
+          <span className={hasExpired(row.original.warrantyExpiresAt) ? 'text-sm text-status-error-text' : 'text-sm text-muted-foreground'}>
+            {formatDate(row.original.warrantyExpiresAt) ?? t('warranty_claims.common.noValue', 'Not set')}
           </span>
         ),
       },
       {
         accessorKey: 'source',
         header: t('warranty_claims.registrations.list.column.source', 'Source'),
-        cell: ({ row }) => <StatusBadge variant="neutral">{sourceLabel(row.original.source, t)}</StatusBadge>,
-      },
-      {
-        accessorKey: 'updatedAt',
-        header: t('warranty_claims.registrations.list.column.updated', 'Updated'),
-        cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
-            {formatDateTime(row.original.updatedAt) ?? t('warranty_claims.common.noValue', 'Not set')}
-          </span>
-        ),
+        meta: { maxWidth: '110px' },
+        cell: ({ row }) => <span className="text-sm text-muted-foreground">{sourceLabel(row.original.source, t)}</span>,
       },
     ]
   }, [customerNames, t])
 
+  const activeTab = toStringOrNull(filterValues.coverageType) === 'standard'
+    ? 'standard'
+    : toStringOrNull(filterValues.coverageType) === 'extended'
+      ? 'extended'
+      : toStringOrNull(filterValues.coverageType) === 'none'
+        ? 'none'
+        : toStringOrNull(filterValues.expiry) === 'expiring_30d'
+          ? 'expiring'
+          : 'all'
+
+  const handleTabChange = React.useCallback((value: string) => {
+    if (value === 'standard') setFilterValues({ coverageType: 'standard' })
+    else if (value === 'extended') setFilterValues({ coverageType: 'extended' })
+    else if (value === 'none') setFilterValues({ coverageType: 'none' })
+    else if (value === 'expiring') setFilterValues({ expiry: 'expiring_30d' })
+    else setFilterValues({})
+    setPage(1)
+  }, [])
+
   return (
     <Page>
       <PageBody>
-        <DataTable<RegistrationRecord>
+        <WarrantyWorkspace
+          title={t('warranty_claims.registrations.list.title', 'Warranty registrations')}
+          action={(
+            <Button asChild>
+              <Link href="/backend/warranty_claims/registrations/create">
+                <Plus className="size-4" aria-hidden />
+                {t('warranty_claims.registrations.list.actions.add', 'Add registration')}
+              </Link>
+            </Button>
+          )}
+          contentClassName="[&>[data-component-handle]>div:first-child]:px-8 [&>[data-component-handle]>div:first-child]:py-4 [&_:has(>[data-slot=search-input-wrapper])]:lg:w-56"
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          tabs={[
+            { id: 'all', label: t('warranty_claims.registrations.list.tabs.all', 'All'), count: tabCounts.all },
+            { id: 'standard', label: t('warranty_claims.registrations.list.tabs.standard', 'Standard'), count: tabCounts.standard },
+            { id: 'extended', label: t('warranty_claims.registrations.list.tabs.extended', 'Extended'), count: tabCounts.extended },
+            { id: 'expiring', label: t('warranty_claims.registrations.list.tabs.expiring', 'Expiring in 30 days'), count: tabCounts.expiring },
+            { id: 'none', label: t('warranty_claims.registrations.list.tabs.none', 'No coverage'), count: tabCounts.none },
+          ]}
+        >
+          <DataTable<RegistrationRecord>
+          embedded
           stickyFirstColumn
           stickyActionsColumn
-          title={t('warranty_claims.registrations.list.title', 'Warranty registrations')}
           refreshButton={{
             label: t('warranty_claims.registrations.list.actions.refresh', 'Refresh'),
             onRefresh: reload,
             isRefreshing: loading,
           }}
-          actions={(
-            <Button asChild>
-              <Link href="/backend/warranty_claims/registrations/create">
-                {t('warranty_claims.registrations.list.actions.new', 'New registration')}
-              </Link>
-            </Button>
-          )}
           columns={columns}
           columnChooser={{ auto: true }}
           data={rows}
@@ -424,7 +495,7 @@ export default function WarrantyClaimRegistrationsPage() {
             setSearch(value)
             setPage(1)
           }}
-          searchPlaceholder={t('warranty_claims.registrations.list.searchPlaceholder', 'Search serial, SKU, or product')}
+          searchPlaceholder={t('warranty_claims.registrations.list.searchPlaceholder', 'Search serial, product or customer…')}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={(values) => {
@@ -473,7 +544,8 @@ export default function WarrantyClaimRegistrationsPage() {
             totalPages,
             onPageChange: setPage,
           }}
-        />
+          />
+        </WarrantyWorkspace>
         {ConfirmDialogElement}
       </PageBody>
     </Page>

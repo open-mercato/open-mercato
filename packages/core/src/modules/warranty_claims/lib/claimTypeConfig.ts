@@ -29,6 +29,15 @@ export function resolveClaimTypeUiConfig(claimType: string | null | undefined): 
   return (CLAIM_TYPE_UI_CONFIG as Record<string, ClaimTypeUiConfig>)[claimType ?? 'warranty'] ?? CLAIM_TYPE_UI_CONFIG.warranty
 }
 
+// Restocking fees and core charge/credit only apply to return and core-return claims. Warranty
+// and vendor-recovery claims settle on the credit amount alone, so these adjustment fields must
+// neither be edited nor rolled into the header totals for those types (LINE-05).
+const FINANCIAL_ADJUSTMENT_CLAIM_TYPES = new Set<WarrantyClaimType>(['return', 'core_return'])
+
+export function claimTypeAllowsLineFinancialAdjustments(claimType: string | null | undefined): boolean {
+  return FINANCIAL_ADJUSTMENT_CLAIM_TYPES.has((claimType ?? 'warranty') as WarrantyClaimType)
+}
+
 export function assertDispositionAllowedForType(
   claimType: string | null | undefined,
   disposition: string | null | undefined,

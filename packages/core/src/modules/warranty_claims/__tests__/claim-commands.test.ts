@@ -763,9 +763,10 @@ describe('warranty claim commands', () => {
     }
   })
 
-  test('line update recomputes header rollups', async () => {
+  test('line update recomputes header rollups (return claim applies restock/core)', async () => {
     const { ctx } = makeContext()
-    const claim = makeClaim('approved')
+    // Return-family claims apply the restocking-fee and core-credit adjustments.
+    const claim = makeClaim('approved', { claimType: 'return' })
     const line = makeLine(claim, { lineStatus: 'pending', creditAmount: '10' })
     const secondLine = makeLine(claim, {
       id: LINE_TWO_ID,
@@ -787,7 +788,37 @@ describe('warranty claim commands', () => {
     }, ctx)
 
     expect(claim.totalClaimedAmount).toBe('50')
+    // (30 - 5 + 2) + (20 - 3 + 1) = 45
     expect(claim.totalApprovedAmount).toBe('45')
+  })
+
+  test('warranty claim rollups ignore restocking fee and core credit', async () => {
+    const { ctx } = makeContext()
+    // Warranty claims settle on the credit amount alone — restock/core must not move the total.
+    const claim = makeClaim('approved', { claimType: 'warranty' })
+    const line = makeLine(claim, { lineStatus: 'pending', creditAmount: '10' })
+    const secondLine = makeLine(claim, {
+      id: LINE_TWO_ID,
+      lineNo: 2,
+      lineStatus: 'resolved',
+      creditAmount: '20',
+      restockingFee: '3',
+      coreCreditAmount: '1',
+    })
+    mockClaims.push(claim)
+    mockLines.push(line, secondLine)
+
+    await updateClaimLineCommand.execute({
+      id: LINE_ID,
+      lineStatus: 'approved',
+      creditAmount: 30,
+      restockingFee: 5,
+      coreCreditAmount: 2,
+    }, ctx)
+
+    expect(claim.totalClaimedAmount).toBe('50')
+    // Credit only: 30 + 20 = 50 (restock/core ignored for warranty claims).
+    expect(claim.totalApprovedAmount).toBe('50')
   })
 
   test('line update enforces merged quantity bounds', async () => {

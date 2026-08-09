@@ -14,6 +14,7 @@ import {
   SLA_AT_RISK_EXCLUDED_STATUSES,
   SLA_AT_RISK_MATCH_LIMIT,
   applySlaAtRiskConditions,
+  buildAttentionFilter,
   buildDateRangeFilter,
   findSlaAtRiskClaimIds,
   narrowFiltersToClaimIds,
@@ -25,6 +26,24 @@ const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
 const UUID_A = '11111111-1111-4111-8111-111111111111'
 const UUID_B = '22222222-2222-4222-8222-222222222222'
 const UUID_C = '33333333-3333-4333-8333-333333333333'
+
+describe('buildAttentionFilter', () => {
+  it('combines customer replies, overdue claims, and SLA-risk ids as alternatives', () => {
+    const now = new Date('2026-08-07T12:00:00.000Z')
+    expect(buildAttentionFilter([UUID_A, UUID_B], now)).toEqual({
+      $or: [
+        { awaiting_staff_reply: { $eq: true } },
+        {
+          sla_due_at: { $lt: now },
+          sla_paused_at: { $exists: false },
+          submitted_at: { $exists: true },
+          status: { $nin: [...SLA_AT_RISK_EXCLUDED_STATUSES] },
+        },
+        { id: { $in: [UUID_A, UUID_B] } },
+      ],
+    })
+  })
+})
 
 function createRecordingDb(rows: unknown[] = []): { db: Kysely<WarrantyClaimsSlaDb>; queries: CompiledQuery[] } {
   const queries: CompiledQuery[] = []

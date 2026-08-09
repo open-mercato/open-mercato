@@ -126,8 +126,13 @@ function evaluateLightEligibility(args: {
   const currencyCode = args.claim.currencyCode ?? null
   const hasLimit = args.settings.autoApproveMaxAmount !== null && args.settings.autoApproveCurrencyCode !== null
   const currencyMatches = currencyCode === args.settings.autoApproveCurrencyCode
+  // A zero/indeterminate claimed amount must NOT satisfy the cap — a valuable claim whose
+  // value has not been entered yet would otherwise auto-approve as though it were worth 0
+  // (WQA-009). Require a positive claimed amount so undetermined value routes to manual review.
+  const claimedAmount = numericAmount(args.claim.totalClaimedAmount)
   const amountWithinLimit = args.settings.autoApproveMaxAmount !== null
-    && numericAmount(args.claim.totalClaimedAmount) <= args.settings.autoApproveMaxAmount
+    && claimedAmount > 0
+    && claimedAmount <= args.settings.autoApproveMaxAmount
   const warrantyRequirementSatisfied = !args.settings.autoApproveRequireInWarranty
     || args.lines.every((line) => line.warrantyStatus === 'in_warranty')
   const eligible = args.settings.autoApproveEnabled

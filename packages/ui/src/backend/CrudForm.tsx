@@ -2949,7 +2949,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!displayMessage) {
         displayMessage = hasFieldErrors ? highlightedMessage : saveErrorMessage
       }
-      displayMessage = parseServerMessage(displayMessage)
+      // Translate the top-level submit error the same way field errors are translated above.
+      // Server commands return stable i18n keys (e.g. `warranty_claims.errors.*`) in the error
+      // body; without this they leaked to the UI as raw keys. `t(msg, msg)` is a no-op for
+      // already-localized strings, so this only affects unresolved keys.
+      displayMessage = translateValidationMessage(parseServerMessage(displayMessage))
       if (optimisticLockConflict) {
         // Primary surface for the conflict is the persistent, error-styled
         // RecordConflictBanner (unified across all forms). Keep the inline

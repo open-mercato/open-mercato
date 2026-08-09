@@ -31,6 +31,9 @@ const orderLineSchema = z.object({
   name: z.string().nullable(),
   quantity: z.union([z.string(), z.number()]).nullable(),
   estimatedWarrantyStatus: z.enum(['in_warranty', 'out_of_warranty', 'unknown']),
+  // Warranty basis for the line so the claim persists real entitlement metadata (WQA-004).
+  purchaseDate: z.string().nullable(),
+  warrantyMonths: z.number().nullable(),
 })
 
 const responseSchema = z.object({
@@ -163,6 +166,8 @@ async function loadOwnedOrder(
 function serializeOrderLine(
   row: Record<string, unknown>,
   estimatedWarrantyStatus: WarrantyClaimWarrantyStatus,
+  purchaseDate: string | null,
+  warrantyMonths: number | null,
 ): PortalOrderLineItem | null {
   if (stringField(row, 'kind') !== 'product') return null
   const id = stringField(row, 'id')
@@ -178,6 +183,8 @@ function serializeOrderLine(
     name: stringField(row, 'name') ?? stringField(snapshot, 'title') ?? stringField(snapshot, 'name'),
     quantity: amountField(row, 'quantity'),
     estimatedWarrantyStatus,
+    purchaseDate,
+    warrantyMonths,
   }
 }
 
@@ -219,7 +226,7 @@ export async function GET(req: Request) {
       ok: true,
       order,
       items: rows
-        .map((row) => serializeOrderLine(row, estimatedWarrantyStatus))
+        .map((row) => serializeOrderLine(row, estimatedWarrantyStatus, order.placedAt, settings.defaultWarrantyMonths))
         .filter((item): item is PortalOrderLineItem => item !== null),
     })
   } catch (err) {

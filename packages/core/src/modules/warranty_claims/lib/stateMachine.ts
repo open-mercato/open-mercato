@@ -1,6 +1,7 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CLAIM_STATUS_TRANSITIONS } from '../data/constants'
 import type { WarrantyClaimLineStatus, WarrantyClaimStatus } from '../data/validators'
+import { claimTypeAllowsLineFinancialAdjustments } from './claimTypeConfig'
 
 type AmountValue = number | string | null | undefined
 
@@ -71,8 +72,8 @@ export function assertTransition(from: WarrantyClaimStatus, to: WarrantyClaimSta
   throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidTransition' })
 }
 
-export function isTerminal(status: WarrantyClaimStatus): boolean {
-  return terminalStatuses.has(status)
+export function isTerminal(status: string): boolean {
+  return (terminalStatuses as Set<string>).has(status)
 }
 
 export function canResolveWithLineStatuses(lines: readonly ClaimLineRollupInput[]): boolean {
@@ -91,10 +92,19 @@ function roundRollupAmount(value: number): number {
   return Math.round((value + Number.EPSILON) * ROLLUP_AMOUNT_SCALE) / ROLLUP_AMOUNT_SCALE
 }
 
-export function computeHeaderRollups(lines: readonly ClaimLineRollupInput[]): {
+export function computeHeaderRollups(
+  lines: readonly ClaimLineRollupInput[],
+  options?: { claimType?: string | null },
+): {
   totalClaimedAmount: number
   totalApprovedAmount: number
 } {
+  // Restocking / core adjustments only belong to return-family claims. When a claimType is
+  // supplied, warranty and vendor-recovery claims roll up the credit amount alone so they can
+  // never inherit a return's restock/core math (LINE-05). When omitted, behavior is unchanged.
+  const applyFinancialAdjustments = options?.claimType === undefined
+    ? true
+    : claimTypeAllowsLineFinancialAdjustments(options.claimType)
   let totalClaimedAmount = 0
   let totalApprovedAmount = 0
 
@@ -107,7 +117,9 @@ export function computeHeaderRollups(lines: readonly ClaimLineRollupInput[]): {
     if (status && approvedRollupStatuses.has(status)) {
       // A restocking fee larger than the line's credit must not drag the
       // approved header total negative — clamp the line contribution at zero.
-      totalApprovedAmount += Math.max(0, creditAmount - lineRestockingFee(line) + lineCoreCreditAmount(line))
+      totalApprovedAmount += applyFinancialAdjustments
+        ? Math.max(0, creditAmount - lineRestockingFee(line) + lineCoreCreditAmount(line))
+        : Math.max(0, creditAmount)
     }
   }
 

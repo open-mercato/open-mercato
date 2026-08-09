@@ -55,6 +55,8 @@ type LineDraft = {
   faultCode: string
   faultDescription: string
   qtyClaimed: string
+  purchaseDate?: string
+  warrantyMonths?: number
 }
 
 type PortalClaimLineInput = {
@@ -66,10 +68,13 @@ type PortalClaimLineInput = {
   faultCode?: string
   faultDescription: string
   qtyClaimed: number
+  purchaseDate?: string
+  warrantyMonths?: number
 }
 
 type PortalIntakePayload = {
   orderId?: string
+  orderReference?: string
   reasonCode: string
   notes?: string
   lines: PortalClaimLineInput[]
@@ -124,6 +129,8 @@ type PortalOrderLine = {
   name: string | null
   quantity: string | number | null
   estimatedWarrantyStatus: WarrantyStatus
+  purchaseDate: string | null
+  warrantyMonths: number | null
 }
 
 type PortalOrderLinesResponse = {
@@ -607,6 +614,8 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
           productName: line.name ?? undefined,
           sku: line.sku ?? '',
           qtyClaimed,
+          purchaseDate: line.purchaseDate ?? undefined,
+          warrantyMonths: line.warrantyMonths ?? undefined,
         }
       })
       .filter((line): line is LineDraft => line !== null)
@@ -661,10 +670,15 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
       faultCode: optionalText(line.faultCode),
       faultDescription: line.faultDescription.trim(),
       qtyClaimed: Number(line.qtyClaimed),
+      purchaseDate: line.purchaseDate,
+      warrantyMonths: line.warrantyMonths,
     }))
 
     return {
-      orderId: noOrder ? undefined : selectedOrderId || optionalText(orderReference),
+      // Only a real selected order becomes `orderId` (a UUID). A typed "my order isn't listed"
+      // reference travels as free text so the API no longer rejects it as a non-UUID (WQA-002).
+      orderId: noOrder ? undefined : (selectedOrderId || undefined),
+      orderReference: noOrder || selectedOrderId ? undefined : optionalText(orderReference),
       reasonCode: reasonCode.trim(),
       notes: optionalText(notes),
       lines: normalizedLines,
@@ -802,24 +816,26 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    // A form submit only finalizes the claim from the Review step; step advancement is handled
+    // by the explicit Next control so submission can never happen before Review (WQA-003).
     if (currentStep === 'review') {
       void submitClaim()
-      return
     }
-    goNext()
-  }, [currentStep, goNext, submitClaim])
+  }, [currentStep, submitClaim])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLFormElement>) => {
     if (event.key !== 'Enter') return
     const target = event.target
     if (target instanceof HTMLTextAreaElement) return
+    // Plain Enter must never walk the wizard or submit — that skipped the Review step and
+    // caused premature/errored submissions (WQA-003 / PORTAL-07). Only Cmd/Ctrl+Enter submits,
+    // and only from the Review step (the shared dialog/submit shortcut convention). Step
+    // advancement is left to the explicit Next control.
     event.preventDefault()
-    if (currentStep === 'review') {
+    if ((event.metaKey || event.ctrlKey) && currentStep === 'review') {
       void submitClaim()
-      return
     }
-    goNext()
-  }, [currentStep, goNext, submitClaim])
+  }, [currentStep, submitClaim])
 
   const reasonOptions = portalOptions.reasons
   const faultCodeOptions = portalOptions.faultCodes
@@ -1122,9 +1138,16 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
             {lines.map((line, index) => (
               <div key={line.localId} className="rounded-lg border border-border bg-background p-4">
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold">
-                    {t('warranty_claims.portal.new.lineLabel', { number: index + 1 })}
-                  </h3>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold">
+                      {t('warranty_claims.portal.new.lineLabel', { number: index + 1 })}
+                    </h3>
+                    {line.productName ? (
+                      // Order-backed lines carry a product name but often no visible SKU (SKU comes
+                      // from the catalog snapshot); show it so the line is never visually blank (WQA-004).
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{line.productName}</p>
+                    ) : null}
+                  </div>
                   <IconButton
                     type="button"
                     variant="ghost"

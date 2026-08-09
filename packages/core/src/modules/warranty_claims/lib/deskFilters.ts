@@ -95,6 +95,20 @@ export function narrowFiltersToClaimIds(filters: Record<string, unknown>, claimI
   filters.id = mergedId ?? { $in: claimIds }
 }
 
+export function buildAttentionFilter(atRiskClaimIds: string[], now: Date = new Date()): Record<string, unknown> {
+  const branches: Record<string, unknown>[] = [
+    { awaiting_staff_reply: { $eq: true } },
+    {
+      sla_due_at: { $lt: now },
+      sla_paused_at: { $exists: false },
+      submitted_at: { $exists: true },
+      status: { $nin: [...SLA_AT_RISK_EXCLUDED_STATUSES] },
+    },
+  ]
+  if (atRiskClaimIds.length) branches.push({ id: { $in: atRiskClaimIds } })
+  return { $or: branches }
+}
+
 function parseIsoDateBoundary(value: string, boundary: 'start' | 'end'): Date | null {
   if (!ISO_DATE_PATTERN.test(value)) return null
   const suffix = boundary === 'start' ? 'T00:00:00.000Z' : 'T23:59:59.999Z'

@@ -517,3 +517,8 @@ Fully compliant — implemented and verified against the full validation gate.
 - Added `creditMemoId` to the claim so the money document is tracked, manually linkable, reference-validated, and round-tripped through undo.
 - Specified and implemented the credit amount contract: discount-aware proration from order-line totals, percentage-correct tax conversion, single half-up rounding, derived unit prices, and a consistency clamp so persisted values always equal computed values.
 - Fixed the peer-side gap where a credit memo validated but never persisted its order link, making bridge-created memos traceable from sales.
+
+### 2026-08-07 — Designer handoff alignment
+- Aligned the Claims Desk, claim detail, stage-aware edit states, registrations, vendor policies, troubleshooting guides, and portal claim list with the approved Figma workspace hierarchy.
+- Replaced the troubleshooting guide JSON authoring field with an interactive decision-tree canvas, node inspector, and dry-run walkthrough while preserving the existing recursive guide contract.
+- Added functional list segments for automatic/manual vendor policies and open/resolved portal claims as additive query filters; no lifecycle statuses or existing API paths changed.

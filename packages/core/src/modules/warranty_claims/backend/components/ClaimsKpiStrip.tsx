@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { cn } from '@open-mercato/shared/lib/utils'
+import { ArrowLeftRight, BadgeCheck, CreditCard, History, Timer, type LucideIcon } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
@@ -27,16 +27,17 @@ type ClaimsKpiStripProps = {
   stats: WarrantyClaimsStats | null
   isLoading: boolean
   hasError: boolean
+  attentionCount?: number
   onOverdueClick: () => void
-  onAssignedToMeClick: () => void
   onOpenClaimsClick: () => void
 }
 
-type KpiCardProps = {
+type KpiItemProps = {
+  icon: LucideIcon
   label: string
-  value: React.ReactNode
   description: string
-  tone?: 'default' | 'error'
+  value: React.ReactNode
+  detail?: React.ReactNode
   onClick?: () => void
 }
 
@@ -44,22 +45,19 @@ function formatNumber(value: number, options?: Intl.NumberFormatOptions): string
   return new Intl.NumberFormat(undefined, options).format(value)
 }
 
-function KpiCard({ label, value, description, tone = 'default', onClick }: KpiCardProps) {
+function KpiItem({ icon: Icon, label, description, value, detail, onClick }: KpiItemProps) {
   const content = (
-    <>
-      <span className="text-overline font-semibold uppercase tracking-widest text-muted-foreground">
-        {label}
+    <div className="flex min-h-24 w-full items-start gap-3 px-5 py-1 text-left">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <Icon aria-hidden="true" className="size-4" />
       </span>
-      <span
-        className={cn(
-          'mt-2 text-2xl font-semibold tabular-nums',
-          tone === 'error' ? 'text-status-error-text' : 'text-foreground',
-        )}
-      >
-        {value}
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold leading-5 text-foreground">{label}</span>
+        <span className="block text-overline font-normal leading-4 text-muted-foreground">{description}</span>
+        <span className="mt-2 block text-2xl font-bold leading-8 tabular-nums text-foreground">{value}</span>
+        {detail ? <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{detail}</span> : null}
       </span>
-      <span className="mt-1 text-xs text-muted-foreground">{description}</span>
-    </>
+    </div>
   )
 
   if (onClick) {
@@ -68,7 +66,7 @@ function KpiCard({ label, value, description, tone = 'default', onClick }: KpiCa
         type="button"
         variant="ghost"
         onClick={onClick}
-        className="h-auto min-h-24 w-full flex-col items-start justify-start whitespace-normal rounded-lg border border-border bg-card p-4 text-left shadow-sm"
+        className="h-auto min-h-24 w-full whitespace-normal rounded-none p-0 hover:bg-muted/40"
       >
         {content}
       </Button>
@@ -76,7 +74,7 @@ function KpiCard({ label, value, description, tone = 'default', onClick }: KpiCa
   }
 
   return (
-    <div className="flex min-h-24 flex-col rounded-lg border border-border bg-card p-4 shadow-sm">
+    <div className="flex min-h-24">
       {content}
     </div>
   )
@@ -86,8 +84,8 @@ export function ClaimsKpiStrip({
   stats,
   isLoading,
   hasError,
+  attentionCount,
   onOverdueClick,
-  onAssignedToMeClick,
   onOpenClaimsClick,
 }: ClaimsKpiStripProps) {
   const t = useT()
@@ -96,11 +94,11 @@ export function ClaimsKpiStrip({
 
   if (isLoading && !stats) {
     return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, index) => (
+      <div className="grid grid-cols-2 divide-x divide-border border-y border-border py-5 md:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
           <Skeleton
             key={index}
-            className="min-h-24 rounded-lg border border-border"
+            className="min-h-24 rounded-none"
             aria-label={t('warranty_claims.kpi.loading', 'Loading claim KPIs')}
           />
         ))}
@@ -114,51 +112,58 @@ export function ClaimsKpiStrip({
   const recoveredCurrencies = stats.recoveredLast30dByCurrency
   const recovered = recoveredCurrencies[0] ?? null
   const recoveredLabel = recovered
-    ? `${formatNumber(recovered.total, { maximumFractionDigits: 2 })}${recovered.currencyCode ? ` ${recovered.currencyCode}` : ''}`
+    ? formatNumber(recovered.total, { maximumFractionDigits: 2 })
     : null
   const recoveredDescription = recoveredCurrencies.length > 1
     ? t('warranty_claims.kpi.recovered.moreCurrencies', 'Last 30 days — largest of {count} currencies')
       .replace('{count}', formatNumber(recoveredCurrencies.length))
     : t('warranty_claims.kpi.last30d', 'Last 30 days')
+  const slaCompliance = openClaims > 0
+    ? Math.max(0, Math.round(((openClaims - stats.overdue) / openClaims) * 100))
+    : 100
+  const approvedCount = stats.approvalRatePct === null
+    ? null
+    : Math.round(stats.resolvedLast30d * stats.approvalRatePct / 100)
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-      <KpiCard
+    <div className="grid grid-cols-2 divide-x divide-y divide-border border-y border-border py-5 md:grid-cols-5 md:divide-y-0">
+      <KpiItem
+        icon={ArrowLeftRight}
         label={t('warranty_claims.kpi.openClaims', 'Open claims')}
-        value={formatNumber(openClaims)}
         description={t('warranty_claims.kpi.openClaims.description', 'Active queue')}
+        value={formatNumber(openClaims)}
+        detail={t('warranty_claims.kpi.openClaims.attention', '{count} need attention', { count: formatNumber(attentionCount ?? stats.overdue) })}
         onClick={onOpenClaimsClick}
       />
-      <KpiCard
-        label={t('warranty_claims.kpi.overdue', 'Overdue')}
-        value={formatNumber(stats.overdue)}
-        description={t('warranty_claims.kpi.overdue.description', 'Needs attention')}
-        tone="error"
+      <KpiItem
+        icon={Timer}
+        label={t('warranty_claims.kpi.slaCompliance', 'SLA compliance')}
+        description={t('warranty_claims.kpi.slaCompliance.description', 'Within target window')}
+        value={`${formatNumber(slaCompliance)}%`}
+        detail={t('warranty_claims.kpi.slaCompliance.overdue', '{count} overdue', { count: formatNumber(stats.overdue) })}
         onClick={onOverdueClick}
       />
-      <KpiCard
-        label={t('warranty_claims.kpi.assignedToMe', 'Assigned to me')}
-        value={formatNumber(stats.assignedToMe)}
-        description={t('warranty_claims.kpi.assignedToMe.description', 'Open claims')}
-        onClick={onAssignedToMeClick}
-      />
-      <KpiCard
-        label={t('warranty_claims.kpi.avgResolutionDays', 'Avg resolution days')}
-        value={stats.avgResolutionDays === null ? t('warranty_claims.common.noValue') : formatNumber(stats.avgResolutionDays, { maximumFractionDigits: 1 })}
+      <KpiItem
+        icon={History}
+        label={t('warranty_claims.kpi.avgResolutionDays', 'Avg resolution')}
         description={t('warranty_claims.kpi.last30d', 'Last 30 days')}
+        value={stats.avgResolutionDays === null ? t('warranty_claims.common.noValue') : t('warranty_claims.kpi.daysShort', '{count}d', { count: formatNumber(stats.avgResolutionDays, { maximumFractionDigits: 1 }) })}
+        detail={t('warranty_claims.kpi.avgResolution.resolved', '{count} claims resolved', { count: formatNumber(stats.resolvedLast30d) })}
       />
-      <KpiCard
+      <KpiItem
+        icon={BadgeCheck}
         label={t('warranty_claims.kpi.approvalRate', 'Approval rate')}
-        value={stats.approvalRatePct === null ? t('warranty_claims.common.noValue') : `${formatNumber(stats.approvalRatePct)}%`}
         description={t('warranty_claims.kpi.last30d', 'Last 30 days')}
+        value={stats.approvalRatePct === null ? t('warranty_claims.common.noValue') : `${formatNumber(stats.approvalRatePct)}%`}
+        detail={approvedCount === null ? undefined : t('warranty_claims.kpi.approvalRate.approved', '{count} claims approved', { count: formatNumber(approvedCount) })}
       />
-      {recoveredLabel ? (
-        <KpiCard
-          label={t('warranty_claims.kpi.recovered', 'Recovered')}
-          value={recoveredLabel}
-          description={recoveredDescription}
-        />
-      ) : null}
+      <KpiItem
+        icon={CreditCard}
+        label={t('warranty_claims.kpi.recovered', 'Recovered')}
+        description={t('warranty_claims.kpi.recovered.description', 'From vendors')}
+        value={recoveredLabel ?? t('warranty_claims.common.noValue')}
+        detail={recovered ? `${recovered.currencyCode ?? ''} ${t('warranty_claims.kpi.last30d', 'Last 30 days')}`.trim() : recoveredDescription}
+      />
     </div>
   )
 }

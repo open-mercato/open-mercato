@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Plus } from 'lucide-react'
+import { CheckCircle2, Plus, ShieldCheck } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -149,7 +149,10 @@ const ORDER_LINE_MAX_FETCH = 2000
 const MAX_CLAIM_LINES = 200
 const LINE_PAGE_SIZE = 20
 
-const CLAIM_TYPES = ['warranty', 'return', 'core_return', 'vendor_recovery'] as const
+// Vendor-recovery claims are created only via the dedicated vendor-recovery action (they need
+// an existing claim with resolved lines), so they are intentionally excluded from standard
+// intake — selecting one here previously produced an HTTP 400 dead path (INTAKE-02).
+const CLAIM_TYPES = ['warranty', 'return', 'core_return'] as const
 const CLAIM_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const
 const DICTIONARY_KEYS = {
   faultCodes: 'warranty_claims.warranty_claim_fault_code',
@@ -1120,7 +1123,7 @@ export function LineItemsEditor({
                       type="button"
                       variant="link"
                       size="sm"
-                      onClick={() => toggleAllVisibleOrderLines(false)}
+                      onClick={() => setSelectedOrderLineIds(new Set())}
                     >
                       {t('warranty_claims.form.addFromOrder.clear', 'Clear')}
                     </Button>
@@ -1275,20 +1278,31 @@ export default function CreateWarrantyClaimPage() {
     {
       id: 'claimType',
       label: t('warranty_claims.form.claimType'),
-      type: 'select',
+      type: 'custom',
       required: true,
-      layout: 'third',
-      options: CLAIM_TYPES.map((claimType) => ({
-        value: claimType,
-        label: t(`warranty_claims.claimType.${claimType}`),
-      })),
+      layout: 'half',
+      component: ({ values, setFormValue }) => (
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:grid-cols-4">
+          {CLAIM_TYPES.map((claimType) => (
+            <Button
+              key={claimType}
+              type="button"
+              size="sm"
+              variant={values?.claimType === claimType ? 'default' : 'ghost'}
+              onClick={() => setFormValue?.('claimType', claimType)}
+            >
+              {t(`warranty_claims.claimType.${claimType}`)}
+            </Button>
+          ))}
+        </div>
+      ),
     },
     {
       id: 'priority',
       label: t('warranty_claims.form.priority'),
       type: 'select',
       required: true,
-      layout: 'third',
+      layout: 'half',
       options: CLAIM_PRIORITIES.map((priority) => ({
         value: priority,
         label: t(`warranty_claims.priority.${priority}`),
@@ -1298,7 +1312,7 @@ export default function CreateWarrantyClaimPage() {
       id: 'reasonCode',
       label: t('warranty_claims.form.reasonCode'),
       type: 'select',
-      layout: 'third',
+      layout: 'half',
       loadOptions: () => loadDictionaryOptions(DICTIONARY_KEYS.claimReasons, 'reason'),
     },
     {
@@ -1328,7 +1342,7 @@ export default function CreateWarrantyClaimPage() {
       label: t('warranty_claims.form.notes'),
       type: 'textarea',
       rows: 4,
-      layout: 'full',
+      layout: 'half',
     },
     {
       id: 'resolutionSummary',
@@ -1342,10 +1356,11 @@ export default function CreateWarrantyClaimPage() {
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'header',
-      title: t('warranty_claims.form.header'),
+      title: t('warranty_claims.create.basics', 'Claim basics'),
+      column: 1,
       // Render order lives here, not in the field definitions. Keep the three
       // thirds adjacent and the two halves adjacent so each grid row fills.
-      fields: ['claimType', 'priority', 'reasonCode', 'customerId', 'orderId', 'notes', 'resolutionSummary'],
+      fields: ['claimType', 'priority', 'customerId', 'orderId', 'reasonCode', 'notes', 'resolutionSummary'],
       component: ({ values }) => (
         <>
           <CustomerSelectionObserver value={values.customerId} onChange={setSelectedCustomerId} />
@@ -1357,6 +1372,7 @@ export default function CreateWarrantyClaimPage() {
     {
       id: 'troubleshooting',
       title: t('warranty_claims.form.troubleshooting.title', 'Guided troubleshooting'),
+      column: 1,
       bare: true,
       component: ({ setValue }) => (
         <GuidedTroubleshootingSection
@@ -1373,6 +1389,7 @@ export default function CreateWarrantyClaimPage() {
     {
       id: 'line',
       title: t(resolveClaimTypeUiConfig(selectedClaimType).lineHeaderKey),
+      column: 1,
       component: ({ values, setValue, errors }) => (
         <LineItemsEditor
           value={values.lines}
@@ -1386,6 +1403,75 @@ export default function CreateWarrantyClaimPage() {
         />
       ),
     },
+    {
+      id: 'summary',
+      column: 2,
+      bare: true,
+      component: ({ values }) => {
+        const claimType = nullableText(values.claimType) ?? 'warranty'
+        const lineCount = readSubmittedLineValues(values.lines).filter(lineHasContent).length
+        return (
+          <div className="sticky top-4 space-y-4">
+            <aside className="overflow-hidden rounded-xl bg-foreground text-background shadow-sm">
+              <div className="border-b border-background/20 p-5">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-5" aria-hidden />
+                  <h2 className="text-base font-semibold">{t('warranty_claims.create.summary.title', 'Claim summary')}</h2>
+                </div>
+                <p className="mt-2 text-sm text-background/70">
+                  {t('warranty_claims.create.summary.description', 'Review the intake context before creating the claim.')}
+                </p>
+              </div>
+              <dl className="space-y-4 p-5 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-background/70">{t('warranty_claims.form.claimType')}</dt>
+                <dd className="font-medium">{t(`warranty_claims.claimType.${claimType}`)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-background/70">{t('warranty_claims.form.priority')}</dt>
+                <dd className="font-medium">{t(`warranty_claims.priority.${nullableText(values.priority) ?? 'normal'}`)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-background/70">{t('warranty_claims.create.summary.lines', 'Claim lines')}</dt>
+                <dd className="font-medium tabular-nums">{lineCount}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-background/70">{t('warranty_claims.create.summary.customer', 'Customer')}</dt>
+                <dd className="font-medium">
+                  {nullableText(values.customerId)
+                    ? t('warranty_claims.create.summary.selected', 'Selected')
+                    : t('warranty_claims.create.summary.notSelected', 'Not selected')}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-background/70">{t('warranty_claims.list.column.order')}</dt>
+                <dd className="font-medium">
+                  {nullableText(values.orderId)
+                    ? t('warranty_claims.create.summary.linked', 'Linked')
+                    : t('warranty_claims.create.summary.notLinked', 'Not linked')}
+                </dd>
+              </div>
+              </dl>
+            </aside>
+            <div className="rounded-xl border border-border bg-card p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('warranty_claims.create.summary.automation', 'Automation')}
+              </p>
+              <ul className="mt-3 space-y-3 text-sm text-foreground">
+                <li className="flex gap-2">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  {t('warranty_claims.create.summary.entitlement', 'Warranty entitlement is checked from the selected product and serial.')}
+                </li>
+                <li className="flex gap-2">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  {t('warranty_claims.create.summary.sla', 'The SLA clock starts when the claim is submitted.')}
+                </li>
+              </ul>
+            </div>
+          </div>
+        )
+      },
+    },
   ], [defaultWarrantyMonths, faultCodeOptions, lineTranslations, selectedClaimType, selectedReasonCode, t])
 
   const initialValues = React.useMemo<Partial<ClaimCreateFormValues>>(() => ({
@@ -1398,15 +1484,16 @@ export default function CreateWarrantyClaimPage() {
   return (
     <Page>
       <PageBody>
-        <CrudForm<ClaimCreateFormValues>
-          title={t('warranty_claims.create.title')}
-          backHref="/backend/warranty_claims"
-          fields={fields}
-          groups={groups}
-          initialValues={initialValues}
-          submitLabel={t('warranty_claims.form.submit')}
-          cancelHref="/backend/warranty_claims"
-          onSubmit={async (values) => {
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <CrudForm<ClaimCreateFormValues>
+            title={t('warranty_claims.create.title')}
+            backHref="/backend/warranty_claims"
+            fields={fields}
+            groups={groups}
+            initialValues={initialValues}
+            submitLabel={t('warranty_claims.create.submit', 'Create claim')}
+            cancelHref="/backend/warranty_claims"
+            onSubmit={async (values) => {
             const lines = readSubmittedLineValues(values.lines).filter(lineHasContent)
             if (!lines.length) {
               const message = t('warranty_claims.form.lines.error.required', 'Add at least one claim line.')
@@ -1429,8 +1516,9 @@ export default function CreateWarrantyClaimPage() {
             const id = result?.id ?? null
             flash(t('warranty_claims.create.success'), 'success')
             router.push(id ? `/backend/warranty_claims/${id}` : '/backend/warranty_claims')
-          }}
-        />
+            }}
+          />
+        </div>
       </PageBody>
     </Page>
   )

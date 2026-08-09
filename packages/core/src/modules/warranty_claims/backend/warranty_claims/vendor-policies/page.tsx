@@ -22,9 +22,11 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { Plus } from 'lucide-react'
 import { normalizeVendorPolicy, type VendorPolicyRecord } from './vendorPolicyForm'
 import { fetchClaimReasonOptions } from '../../components/claimReasonOptions'
+import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
+import { vendorPolicySegmentQuery, type VendorPolicySegment } from '../../../lib/listSegments'
 
 type VendorPoliciesResponse = {
   items?: unknown[]
@@ -75,6 +77,7 @@ export default function WarrantyVendorPoliciesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [tabCounts, setTabCounts] = React.useState<Partial<Record<VendorPolicySegment, number>>>({})
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
@@ -116,9 +119,11 @@ export default function WarrantyVendorPoliciesPage() {
     })
     if (search.trim()) params.set('search', search.trim())
     const isActive = toFilterString(filterValues.isActive)
+    const autoGenerateRecovery = toFilterString(filterValues.autoGenerateRecovery)
     if (isActive) params.set('isActive', isActive)
+    if (autoGenerateRecovery) params.set('autoGenerateRecovery', autoGenerateRecovery)
     return params.toString()
-  }, [filterValues.isActive, page, search])
+  }, [filterValues.autoGenerateRecovery, filterValues.isActive, page, search])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(listQueryString)),
@@ -173,6 +178,29 @@ export default function WarrantyVendorPoliciesPage() {
       cancelled = true
     }
   }, [listQueryString, reloadToken, scopeVersion, t])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    const segments: VendorPolicySegment[] = ['all', 'active', 'automatic', 'manual', 'inactive']
+    Promise.all(segments.map(async (segment) => {
+      const params = new URLSearchParams({ page: '1', pageSize: '1', ...vendorPolicySegmentQuery(segment) })
+      const fallback: VendorPoliciesResponse = { items: [], total: 0, totalPages: 1 }
+      const call = await apiCall<VendorPoliciesResponse>(
+        `/api/warranty_claims/vendor-policies?${params.toString()}`,
+        { signal: controller.signal },
+        { fallback },
+      )
+      if (!call.ok) throw new Error('[internal] Failed to load vendor policy counts')
+      return [segment, typeof call.result?.total === 'number' ? call.result.total : 0] as const
+    }))
+      .then((entries) => {
+        if (!controller.signal.aborted) setTabCounts(Object.fromEntries(entries))
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setTabCounts({})
+      })
+    return () => controller.abort()
+  }, [reloadToken, scopeVersion])
 
   const executeDelete = React.useCallback(async (policy: VendorPolicyRecord): Promise<unknown> => {
     try {
@@ -278,6 +306,15 @@ export default function WarrantyVendorPoliciesPage() {
         { value: 'false', label: t('warranty_claims.vendorPolicies.status.inactive', 'Inactive') },
       ],
     },
+    {
+      id: 'autoGenerateRecovery',
+      label: t('warranty_claims.vendorPolicies.list.filter.mode', 'Recovery mode'),
+      type: 'select',
+      options: [
+        { value: 'true', label: t('warranty_claims.vendorPolicies.status.auto', 'Automatic') },
+        { value: 'false', label: t('warranty_claims.vendorPolicies.status.manual', 'Manual') },
+      ],
+    },
   ], [t])
 
   const columns = React.useMemo<ColumnDef<VendorPolicyRecord>[]>(() => {
@@ -325,7 +362,7 @@ export default function WarrantyVendorPoliciesPage() {
         accessorKey: 'recoveryRatePct',
         header: t('warranty_claims.vendorPolicies.list.column.recoveryRate', 'Recovery'),
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm font-semibold text-foreground">
             {formatRecoveryRate(row.original.recoveryRatePct, t)}
           </span>
         ),
@@ -334,9 +371,9 @@ export default function WarrantyVendorPoliciesPage() {
         accessorKey: 'autoGenerateRecovery',
         header: t('warranty_claims.vendorPolicies.list.column.auto', 'Mode'),
         cell: ({ row }) => (
-          <StatusBadge variant={row.original.autoGenerateRecovery ? 'warning' : 'neutral'}>
+          <span className={row.original.autoGenerateRecovery ? 'text-sm text-status-warning-text' : 'text-sm text-muted-foreground'}>
             {autoLabel(row.original.autoGenerateRecovery, t)}
-          </StatusBadge>
+          </span>
         ),
       },
       {
@@ -348,37 +385,60 @@ export default function WarrantyVendorPoliciesPage() {
           </StatusBadge>
         ),
       },
-      {
-        accessorKey: 'updatedAt',
-        header: t('warranty_claims.vendorPolicies.list.column.updated', 'Updated'),
-        cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
-            {formatDateTime(row.original.updatedAt) ?? t('warranty_claims.common.noValue', 'Not set')}
-          </span>
-        ),
-      },
     ]
   }, [reasonLabels, t])
+
+  const activeTab = toFilterString(filterValues.autoGenerateRecovery) === 'true'
+    ? 'automatic'
+    : toFilterString(filterValues.autoGenerateRecovery) === 'false'
+      ? 'manual'
+      : toFilterString(filterValues.isActive) === 'true'
+        ? 'active'
+        : toFilterString(filterValues.isActive) === 'false'
+          ? 'inactive'
+          : 'all'
+
+  const handleTabChange = React.useCallback((value: string) => {
+    const segment: VendorPolicySegment = value === 'active' || value === 'inactive' || value === 'automatic' || value === 'manual'
+      ? value
+      : 'all'
+    setFilterValues(vendorPolicySegmentQuery(segment))
+    setPage(1)
+  }, [])
 
   return (
     <Page>
       <PageBody>
-        <DataTable<VendorPolicyRecord>
+        <WarrantyWorkspace
+          title={t('warranty_claims.vendorPolicies.list.title', 'Vendor policies')}
+          action={(
+            <Button asChild>
+              <Link href="/backend/warranty_claims/vendor-policies/create">
+                <Plus className="size-4" aria-hidden />
+                {t('warranty_claims.vendorPolicies.list.actions.add', 'Add policy')}
+              </Link>
+            </Button>
+          )}
+          contentClassName="[&>[data-component-handle]>div:first-child]:px-8 [&>[data-component-handle]>div:first-child]:py-4 [&_:has(>[data-slot=search-input-wrapper])]:lg:w-56"
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          tabs={[
+            { id: 'all', label: t('warranty_claims.vendorPolicies.list.tabs.all', 'All'), count: tabCounts.all },
+            { id: 'active', label: t('warranty_claims.vendorPolicies.list.tabs.active', 'Active'), count: tabCounts.active },
+            { id: 'automatic', label: t('warranty_claims.vendorPolicies.list.tabs.automatic', 'Automatic'), count: tabCounts.automatic },
+            { id: 'manual', label: t('warranty_claims.vendorPolicies.list.tabs.manual', 'Manual'), count: tabCounts.manual },
+            { id: 'inactive', label: t('warranty_claims.vendorPolicies.list.tabs.inactive', 'Inactive'), count: tabCounts.inactive },
+          ]}
+        >
+          <DataTable<VendorPolicyRecord>
+          embedded
           stickyFirstColumn
           stickyActionsColumn
-          title={t('warranty_claims.vendorPolicies.list.title', 'Vendor policies')}
           refreshButton={{
             label: t('warranty_claims.vendorPolicies.list.actions.refresh', 'Refresh'),
             onRefresh: reload,
             isRefreshing: loading,
           }}
-          actions={(
-            <Button asChild>
-              <Link href="/backend/warranty_claims/vendor-policies/create">
-                {t('warranty_claims.vendorPolicies.list.actions.new', 'New vendor policy')}
-              </Link>
-            </Button>
-          )}
           columns={columns}
           data={rows}
           exporter={exportConfig}
@@ -436,7 +496,8 @@ export default function WarrantyVendorPoliciesPage() {
             totalPages,
             onPageChange: setPage,
           }}
-        />
+          />
+        </WarrantyWorkspace>
         {ConfirmDialogElement}
       </PageBody>
     </Page>

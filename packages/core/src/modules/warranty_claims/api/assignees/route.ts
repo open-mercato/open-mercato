@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -8,22 +7,13 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveAssigneeDisplayNames } from '../../lib/assigneeNames'
 
 const logger = createLogger('warranty_claims')
 
 export const MAX_ASSIGNEE_LOOKUP_IDS = 100
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-type AssigneeUsersDb = {
-  users: {
-    id: string
-    name: string | null
-    email: string
-    tenant_id: string | null
-    deleted_at: Date | null
-  }
-}
 
 const querySchema = z.object({
   ids: z.string().min(1),
@@ -62,19 +52,11 @@ export async function GET(req: Request) {
     const requestedIds = parseRequestedIds(parsedQuery.ids)
     if (!requestedIds.length) return NextResponse.json({ items: [] })
 
-    const em = (container.resolve('em') as EntityManager).fork()
-    const rows = await em.getKysely<AssigneeUsersDb>()
-      .selectFrom('users')
-      .select(['id', 'name', 'email'])
-      .where('id', 'in', requestedIds)
-      .where('tenant_id', '=', auth.tenantId)
-      .where('deleted_at', 'is', null)
-      .execute()
-
-    const items = rows.map((row) => ({
-      id: row.id,
-      name: row.name?.trim() || row.email,
-    }))
+    const displayNames = await resolveAssigneeDisplayNames({ container, tenantId: auth.tenantId }, requestedIds)
+    const items = requestedIds.flatMap((id) => {
+      const name = displayNames.get(id)
+      return name ? [{ id, name }] : []
+    })
     return NextResponse.json({ items })
   } catch (error) {
     if (isCrudHttpError(error)) {

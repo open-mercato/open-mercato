@@ -78,7 +78,8 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
       organizationId,
       lineStatus: 'resolved',
       vendorClaimLineId: null,
-      vendorName: { $ne: null },
+      // Do not pre-filter on a per-line vendor name: the matcher now falls back to the
+      // claim-level vendor name, so vendor-less resolved lines must still be considered (VENDOR-05).
       deletedAt: null,
     },
     { orderBy: { lineNo: 'ASC' } },

@@ -234,6 +234,9 @@ export const claimCreateSchema = scopedSchema
     vendorName: clearableString(300),
     vendorRef: clearableString(191),
     orderId: uuid().nullable().optional(),
+    // Display-only order reference for claims without a linked sales order (e.g. portal
+    // "my order isn't listed"). A linked order's number is derived from the order itself.
+    orderNumber: clearableString(190),
     salesReturnId: uuid().nullable().optional(),
     replacementOrderId: uuid().nullable().optional(),
     advanceReplacement: z.boolean().optional(),
@@ -414,12 +417,18 @@ const portalClaimLineInputSchema = z
     faultCode: clearableString(120),
     faultDescription: z.string().trim().min(1).max(4000),
     qtyClaimed: positiveDecimal().optional(),
+    // Warranty basis carried from the selected order line so entitlement is preserved (WQA-004).
+    purchaseDate: z.coerce.date().nullable().optional(),
+    warrantyMonths: z.coerce.number().int().min(0).max(600).nullable().optional(),
   })
   .strict()
 
 export const portalIntakeInputSchema = z
   .object({
     orderId: uuid().nullable().optional(),
+    // Free-text "my order isn't listed" reference. Kept separate from `orderId` (a UUID) so a
+    // typed purchase-order string is no longer rejected as an invalid UUID (WQA-002).
+    orderReference: clearableString(190),
     reasonCode: z.string().trim().min(1).max(120),
     notes: clearableString(8000),
     lines: z.array(portalClaimLineInputSchema).min(1).max(200),

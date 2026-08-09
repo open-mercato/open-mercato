@@ -12,6 +12,7 @@ import {
   useTroubleshootingGuideFormConfig,
   type TroubleshootingGuideFormValues,
 } from '../troubleshootingGuideForm'
+import { defaultTroubleshootingStepsJson } from '../TroubleshootingTreeBuilder'
 
 export default function CreateWarrantyTroubleshootingGuidePage() {
   const t = useT()
@@ -21,9 +22,9 @@ export default function CreateWarrantyTroubleshootingGuidePage() {
   const initialValues = React.useMemo<Partial<TroubleshootingGuideFormValues>>(() => ({
     claimType: 'any',
     reasonCode: '',
-    stepsJson: '',
+    stepsJson: defaultTroubleshootingStepsJson(t),
     isActive: true,
-  }), [])
+  }), [t])
 
   return (
     <Page>

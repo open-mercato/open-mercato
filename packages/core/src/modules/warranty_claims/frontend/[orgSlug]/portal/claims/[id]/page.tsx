@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Ban, ExternalLink, FileText, MessageSquare, Send, ShieldCheck, Upload } from 'lucide-react'
+import { ArrowLeft, Check, CircleAlert, Info, Paperclip, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
@@ -20,26 +20,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { FormField } from '@open-mercato/ui/primitives/form-field'
-import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
-import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
-import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
-import {
-  CLAIM_LINE_STATUS_BADGE_VARIANTS,
-  CLAIM_STATUS_BADGE_VARIANTS,
-} from '../../../../../backend/components/ClaimStatusBadge'
 
 type Props = { params: { orgSlug: string; id: string } }
 
@@ -106,83 +95,169 @@ type ClaimActionResponse = MutationOkResponse & { claimId?: string; status?: str
 
 type PortalClaimAction = 'submit' | 'withdraw'
 
-const CLAIM_STATUS_ORDER = [
-  'submitted',
-  'in_review',
-  'approved',
-  'awaiting_return',
-  'received',
-  'inspecting',
-  'resolved',
-  'closed',
-] as const
+type TrackerStepState = 'complete' | 'current' | 'pending'
 
-function hasClaimStatus(status: string): status is keyof typeof CLAIM_STATUS_BADGE_VARIANTS {
-  return Object.prototype.hasOwnProperty.call(CLAIM_STATUS_BADGE_VARIANTS, status)
+type TrackerStep = {
+  id: string
+  title: string
+  description: string
+  state: TrackerStepState
+  dateLabel: string | null
 }
 
-function hasLineStatus(status: string): status is keyof typeof CLAIM_LINE_STATUS_BADGE_VARIANTS {
-  return Object.prototype.hasOwnProperty.call(CLAIM_LINE_STATUS_BADGE_VARIANTS, status)
+type BannerTone = 'info' | 'success' | 'warning' | 'error'
+
+type ActivityEntry = {
+  id: string
+  title: string
+  description: string
+  createdAt: string | null
+  href?: string
 }
 
-function statusVariant(status: string): StatusBadgeVariant {
-  return hasClaimStatus(status) ? CLAIM_STATUS_BADGE_VARIANTS[status] : 'neutral'
+const TRACKER_STEP_KEYS = ['received', 'review', 'decision', 'return', 'resolved'] as const
+
+const STATUS_STEP_INDEX: Record<string, number> = {
+  draft: 0,
+  submitted: 1,
+  in_review: 1,
+  info_requested: 1,
+  rejected: 2,
+  cancelled: 2,
+  approved: 3,
+  awaiting_return: 3,
+  received: 4,
+  inspecting: 4,
+  resolved: 5,
+  closed: 5,
 }
 
-function lineStatusVariant(status: string): StatusBadgeVariant {
-  return hasLineStatus(status) ? CLAIM_LINE_STATUS_BADGE_VARIANTS[status] : 'neutral'
+const LINE_STATUS_DOT_COLORS: Record<string, string> = {
+  pending: '#a3a3a3',
+  approved: '#10B981',
+  rejected: '#F28026',
+  received: '#6552e3',
+  inspected: '#6552e3',
+  resolved: '#10B981',
 }
 
-function formatDateTime(value: string | null, fallback: string): string {
-  if (!value) return fallback
+const BANNER_TONE_CLASSES: Record<BannerTone, { wrapper: string; text: string; icon: string }> = {
+  info: {
+    wrapper: 'bg-[#f1f4fe] dark:bg-indigo-950/40',
+    text: 'text-[#38408c] dark:text-indigo-300',
+    icon: 'text-[#4A53C4] dark:text-indigo-300',
+  },
+  success: {
+    wrapper: 'bg-[#eefaf3] dark:bg-emerald-950/40',
+    text: 'text-[#1c6b43] dark:text-emerald-300',
+    icon: 'text-[#21ad61] dark:text-emerald-300',
+  },
+  warning: {
+    wrapper: 'bg-[#fdf5e7] dark:bg-amber-950/40',
+    text: 'text-[#8a5a1d] dark:text-amber-300',
+    icon: 'text-[#d97706] dark:text-amber-300',
+  },
+  error: {
+    wrapper: 'bg-[#fdeeee] dark:bg-red-950/40',
+    text: 'text-[#933535] dark:text-red-300',
+    icon: 'text-[#dc2626] dark:text-red-300',
+  },
+}
+
+function bannerTone(status: string): BannerTone {
+  if (status === 'rejected' || status === 'cancelled') return 'error'
+  if (status === 'info_requested') return 'warning'
+  if (status === 'approved' || status === 'resolved' || status === 'closed') return 'success'
+  return 'info'
+}
+
+function bannerMessage(claim: PortalClaim, t: TranslateFn): string {
+  switch (claim.status) {
+    case 'draft':
+      return t('warranty_claims.portal.tracker.banner.draft')
+    case 'info_requested':
+      return t('warranty_claims.portal.tracker.banner.infoRequested')
+    case 'approved':
+      return t('warranty_claims.portal.tracker.banner.approved')
+    case 'awaiting_return':
+      return t('warranty_claims.portal.tracker.banner.awaitingReturn')
+    case 'received':
+    case 'inspecting':
+      return t('warranty_claims.portal.tracker.banner.goodsFlow')
+    case 'resolved':
+    case 'closed':
+      return claim.resolutionSummary ?? t('warranty_claims.portal.tracker.banner.resolved')
+    case 'rejected': {
+      const reason = claim.rejectionReasonCode
+        ? localizeDictionaryLabel(t, 'rejection', claim.rejectionReasonCode, claim.rejectionReasonCode)
+        : null
+      const base = t('warranty_claims.portal.detail.terminal.rejected')
+      const parts = [base, reason, claim.resolutionSummary].filter((part): part is string => Boolean(part))
+      return parts.join(' ')
+    }
+    case 'cancelled':
+      return t('warranty_claims.portal.detail.terminal.cancelled')
+    default:
+      return t('warranty_claims.portal.tracker.banner.review')
+  }
+}
+
+function formatShortDate(value: string | null): string | null {
+  if (!value) return null
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function formatLongDate(value: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function buildTrackerSteps(claim: PortalClaim, t: TranslateFn): TrackerStep[] {
+  const currentIndex = STATUS_STEP_INDEX[claim.status] ?? 1
+  return TRACKER_STEP_KEYS.map((key, index) => {
+    const state: TrackerStepState = index < currentIndex ? 'complete' : index === currentIndex ? 'current' : 'pending'
+    let dateLabel: string | null = null
+    if (index === 0 && state === 'complete') dateLabel = formatShortDate(claim.submittedAt)
+    if (index === TRACKER_STEP_KEYS.length - 1 && state === 'complete') {
+      dateLabel = formatShortDate(claim.resolvedAt ?? claim.closedAt)
+    }
+    if (state === 'current') dateLabel = t('warranty_claims.portal.tracker.step.now')
+    return {
+      id: key,
+      title: t(`warranty_claims.portal.tracker.step.${key}.title`),
+      description: t(`warranty_claims.portal.tracker.step.${key}.description`),
+      state,
+      dateLabel,
+    }
   })
 }
 
-function formatFileSize(bytes: number, t: TranslateFn): string {
-  if (bytes < 1024) return t('warranty_claims.portal.file.bytes', { size: bytes })
-  const kilobytes = bytes / 1024
-  if (kilobytes < 1024) return t('warranty_claims.portal.file.kilobytes', { size: kilobytes.toFixed(1) })
-  return t('warranty_claims.portal.file.megabytes', { size: (kilobytes / 1024).toFixed(1) })
+function buildClaimTitle(claim: PortalClaim, t: TranslateFn): string {
+  const typeLabel = t(`warranty_claims.claimType.${claim.claimType}`)
+  if (claim.reasonCode) {
+    const reasonLabel = localizeDictionaryLabel(t, 'reason', claim.reasonCode, claim.reasonCode)
+    return t('warranty_claims.portal.tracker.titleWithReason', { reason: reasonLabel, type: typeLabel })
+  }
+  return t('warranty_claims.portal.tracker.titleFallback', { type: typeLabel })
 }
 
-function buildClaimProgressSteps(status: string, t: TranslateFn): StepIndicatorStep[] {
-  if (status === 'draft') {
-    return [
-      { id: 'draft', label: t('warranty_claims.status.draft'), status: 'current', description: t('warranty_claims.portal.detail.notSubmitted') },
-      ...CLAIM_STATUS_ORDER.map((step) => ({ id: step, label: t(`warranty_claims.status.${step}`), status: 'pending' as const })),
-    ]
+function buildClaimSubtitle(claim: PortalClaim, t: TranslateFn): string {
+  if (claim.status === 'draft') {
+    const created = formatLongDate(claim.createdAt)
+    return created
+      ? t('warranty_claims.portal.tracker.draftCreated', { date: created })
+      : t('warranty_claims.portal.detail.notSubmitted')
   }
-
-  if (status === 'info_requested') {
-    return [
-      { id: 'submitted', label: t('warranty_claims.status.submitted'), status: 'complete' },
-      { id: 'in_review', label: t('warranty_claims.status.in_review'), status: 'complete' },
-      { id: 'info_requested', label: t('warranty_claims.portal.actionNeeded'), status: 'error', description: t('warranty_claims.portal.detail.actionNeededDescription') },
-      ...CLAIM_STATUS_ORDER.slice(2).map((step) => ({ id: step, label: t(`warranty_claims.status.${step}`), status: 'pending' as const })),
-    ]
+  const submitted = formatLongDate(claim.submittedAt) ?? formatLongDate(claim.createdAt)
+  if (!submitted) return t('warranty_claims.portal.value.notAvailable')
+  if (claim.orderNumber) {
+    return t('warranty_claims.portal.tracker.submittedFromOrder', { date: submitted, order: claim.orderNumber })
   }
-
-  if (status === 'rejected' || status === 'cancelled') {
-    return [
-      { id: 'submitted', label: t('warranty_claims.status.submitted'), status: 'complete' },
-      { id: status, label: t(`warranty_claims.status.${status}`), status: 'error', description: t(`warranty_claims.portal.detail.terminal.${status}`) },
-    ]
-  }
-
-  const currentStatusIndex = CLAIM_STATUS_ORDER.findIndex((step) => step === status)
-  return CLAIM_STATUS_ORDER.map((step, index) => ({
-    id: step,
-    label: t(`warranty_claims.status.${step}`),
-    status: currentStatusIndex < 0 ? 'pending' : index < currentStatusIndex ? 'complete' : index === currentStatusIndex ? 'current' : 'pending',
-  }))
+  return t('warranty_claims.portal.tracker.submittedOn', { date: submitted })
 }
 
 function formatEventBody(event: PortalClaimEvent, t: TranslateFn): string {
@@ -199,7 +274,45 @@ function formatEventBody(event: PortalClaimEvent, t: TranslateFn): string {
   return t('warranty_claims.portal.event.noDetails')
 }
 
+function eventTitle(event: PortalClaimEvent, t: TranslateFn): string {
+  if (event.kind === 'comment') {
+    return event.actorCustomerId
+      ? t('warranty_claims.portal.tracker.event.youReplied')
+      : t('warranty_claims.portal.tracker.event.teamReplied')
+  }
+  return t(`warranty_claims.portal.event.${event.kind}`)
+}
+
+function buildActivityEntries(
+  events: PortalClaimEvent[],
+  attachments: PortalAttachment[],
+  t: TranslateFn,
+): ActivityEntry[] {
+  const eventEntries: ActivityEntry[] = events.map((event) => ({
+    id: `event-${event.id}`,
+    title: eventTitle(event, t),
+    description: formatEventBody(event, t),
+    createdAt: event.createdAt,
+  }))
+  const attachmentEntries: ActivityEntry[] = attachments.map((attachment) => ({
+    id: `attachment-${attachment.id}`,
+    title: t('warranty_claims.portal.tracker.event.attachmentAdded'),
+    description: attachment.fileName,
+    createdAt: attachment.createdAt,
+    href: attachment.downloadUrl,
+  }))
+  return [...eventEntries, ...attachmentEntries].sort((left, right) => {
+    const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0
+    const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0
+    return rightTime - leftTime
+  })
+}
+
 const DETAIL_MUTATION_CONTEXT_ID = 'warranty_claims.portal.claim.detail'
+
+const SECTION_CLASS = 'flex w-full flex-col gap-[12px] border-t border-[#ededed] px-[28px] pb-[22px] pt-[20px] dark:border-border'
+const SECTION_HEADING_CLASS = 'text-[14px] font-semibold text-[#0f0f12] dark:text-foreground'
+const DARK_BUTTON_CLASS = 'rounded-[8px] bg-[#262626] px-[10px] py-[6px] text-[14px] font-medium leading-[20px] tracking-[-0.084px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-foreground dark:text-background'
 
 export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const t = useT()
@@ -218,7 +331,6 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [notFound, setNotFound] = React.useState(false)
   const [comment, setComment] = React.useState('')
   const [commentSubmitting, setCommentSubmitting] = React.useState(false)
-  const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
   const [fileInputKey, setFileInputKey] = React.useState(0)
   const [uploading, setUploading] = React.useState(false)
   const [claimAction, setClaimAction] = React.useState<PortalClaimAction | null>(null)
@@ -311,13 +423,9 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     }
   }, [claim, comment, commentSubmitting, guardedMutation, refreshEvents, t])
 
-  const uploadAttachment = React.useCallback(async () => {
+  const uploadAttachment = React.useCallback(async (file: File) => {
     if (!claim || uploading) return
-    if (!selectedFile) {
-      setError(t('warranty_claims.portal.detail.fileRequired'))
-      return
-    }
-    const validationError = await validateAttachmentFile(selectedFile, t)
+    const validationError = await validateAttachmentFile(file, t)
     if (validationError) {
       setError(validationError)
       flash(validationError, 'error')
@@ -328,7 +436,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     try {
       const form = new FormData()
       form.set('claimId', claim.id)
-      form.set('file', selectedFile)
+      form.set('file', file)
       const result = await guardedMutation.runMutation({
         operation: () => apiCall<UploadResponse>('/api/warranty_claims/portal/attachments', {
           method: 'POST',
@@ -345,22 +453,21 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           resourceId: claim.id,
           retryLastMutation: guardedMutation.retryLastMutation,
         },
-        mutationPayload: { claimId: claim.id, fileName: selectedFile.name, fileSize: selectedFile.size },
+        mutationPayload: { claimId: claim.id, fileName: file.name, fileSize: file.size },
       })
       if (!result.ok || !result.result?.ok) {
         setError(t('warranty_claims.portal.detail.attachmentError'))
         return
       }
-      setSelectedFile(null)
-      setFileInputKey((current) => current + 1)
       flash(t('warranty_claims.portal.detail.attachmentSuccess'), 'success')
       await refreshAttachments(claim.id)
     } catch {
       setError(t('warranty_claims.portal.detail.attachmentError'))
     } finally {
       setUploading(false)
+      setFileInputKey((current) => current + 1)
     }
-  }, [claim, guardedMutation, refreshAttachments, selectedFile, t, uploading])
+  }, [claim, guardedMutation, refreshAttachments, t, uploading])
 
   const runClaimAction = React.useCallback(async (action: PortalClaimAction) => {
     if (!claim || actionSubmitting) return
@@ -423,23 +530,11 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     }
   }, [actionSubmitting, claim, guardedMutation, loadClaim, t])
 
-  const handleSelectedFileChange = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectedFileChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
-    if (!file) {
-      setSelectedFile(null)
-      return
-    }
-    const validationError = await validateAttachmentFile(file, t)
-    if (validationError) {
-      setSelectedFile(null)
-      setFileInputKey((current) => current + 1)
-      setError(validationError)
-      flash(validationError, 'error')
-      return
-    }
-    setError(null)
-    setSelectedFile(file)
-  }, [t])
+    if (!file) return
+    void uploadAttachment(file)
+  }, [uploadAttachment])
 
   const handleCommentSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -490,315 +585,241 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     return <ErrorMessage label={error ?? t('warranty_claims.portal.detail.loadError')} />
   }
 
-  const claimProgressSteps = buildClaimProgressSteps(claim.status, t)
+  const trackerSteps = buildTrackerSteps(claim, t)
   const isDraft = claim.status === 'draft'
   const canWithdraw = claim.status === 'draft' || claim.status === 'submitted'
-  const needsCustomerAction = claim.status === 'info_requested'
-  const isTerminalException = claim.status === 'rejected' || claim.status === 'cancelled'
+  const tone = bannerTone(claim.status)
+  const toneClasses = BANNER_TONE_CLASSES[tone]
+  const BannerIcon = tone === 'error' ? CircleAlert : tone === 'warning' ? TriangleAlert : Info
+  const activityEntries = buildActivityEntries(events, attachments, t)
 
   return (
-    <div className="flex flex-col gap-8">
-      <PortalPageHeader
-        label={t('warranty_claims.portal.nav')}
-        title={claim.claimNumber}
-        description={t('warranty_claims.portal.detail.description')}
-        action={
-          <Button asChild variant="outline">
-            <Link href={`/${params.orgSlug}/portal/claims`}>
-              <ArrowLeft className="size-4" aria-hidden="true" />
-              {t('warranty_claims.portal.detail.back')}
-            </Link>
-          </Button>
-        }
-      />
+    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-[14px]">
+      <Link
+        href={`/${params.orgSlug}/portal/claims`}
+        className="text-[13px] font-medium text-[#737378] transition-colors hover:text-[#0f0f12] dark:text-muted-foreground dark:hover:text-foreground"
+      >
+        {'←'}  {t('warranty_claims.portal.listTitle')}
+      </Link>
 
-      {error ? (
-        <ErrorMessage label={error} />
-      ) : null}
+      {error ? <ErrorMessage label={error} /> : null}
 
-      {isTerminalException ? (
-        <Alert status="error" style="lighter">
-          <AlertTitle>{t(`warranty_claims.status.${claim.status}`)}</AlertTitle>
-          <AlertDescription>{t(`warranty_claims.portal.detail.terminal.${claim.status}`)}</AlertDescription>
-        </Alert>
-      ) : null}
+      <div className="w-full overflow-hidden rounded-[16px] border border-[#e2e2e2] bg-white dark:border-border dark:bg-card">
+        <div className="flex w-full flex-col gap-[10px] px-[28px] pb-[20px] pt-[26px]">
+          <div className="flex w-full items-center gap-[8px]">
+            <div className="flex items-center gap-[6px] rounded-[6px] border border-[#e2e2e2] bg-white px-[10px] py-[4px] dark:border-border dark:bg-transparent">
+              <span className="text-[11.5px] font-medium text-[#6b6b70] dark:text-muted-foreground">
+                {t(`warranty_claims.claimType.${claim.claimType}`)}
+              </span>
+              <span className="text-[13px] font-semibold text-[#0f0f12] dark:text-foreground">
+                {claim.claimNumber}
+              </span>
+            </div>
+            <div className="min-w-px flex-1" />
+            {isDraft ? (
+              <button
+                type="button"
+                className={DARK_BUTTON_CLASS}
+                onClick={() => setClaimAction('submit')}
+                disabled={actionSubmitting}
+              >
+                {t('warranty_claims.portal.submit')}
+              </button>
+            ) : null}
+            {canWithdraw ? (
+              <button
+                type="button"
+                className="rounded-[8px] border border-[#dc2626] bg-white px-[10px] py-[6px] text-[14px] font-medium leading-[20px] tracking-[-0.084px] text-[#dc2626] transition-colors hover:bg-[#fdeeee] disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400 dark:bg-transparent dark:text-red-400 dark:hover:bg-red-950/40"
+                onClick={() => setClaimAction('withdraw')}
+                disabled={actionSubmitting}
+              >
+                {t('warranty_claims.portal.detail.withdraw', 'Withdraw claim')}
+              </button>
+            ) : null}
+          </div>
+          <h1 className="text-[20px] font-bold text-[#0a0a0a] dark:text-foreground">
+            {buildClaimTitle(claim, t)}
+          </h1>
+          <p className="text-[13px] text-[#737378] dark:text-muted-foreground">
+            {buildClaimSubtitle(claim, t)}
+          </p>
+        </div>
 
-      <PortalCard>
-        <PortalCardHeader
-          label={t('warranty_claims.portal.detail.status')}
-          title={t('warranty_claims.portal.detail.statusProgress')}
-          action={
-            <StatusBadge variant={statusVariant(claim.status)} dot>
-              {t(`warranty_claims.status.${claim.status}`)}
-            </StatusBadge>
-          }
-        />
-        <StepIndicator steps={claimProgressSteps} orientation="vertical" />
-        {isDraft ? (
-          <Alert status="information" style="lighter" className="mt-4">
-            <AlertTitle>{t('warranty_claims.status.draft')}</AlertTitle>
-            <AlertDescription className="flex flex-col gap-3">
-              <span>{t('warranty_claims.portal.detail.notSubmitted')}</span>
-              <div>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setClaimAction('submit')}
-                  disabled={actionSubmitting}
-                >
-                  <Send className="size-4" aria-hidden="true" />
-                  {t('warranty_claims.portal.submit')}
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        {canWithdraw ? (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 p-4">
-            <p className="text-sm text-muted-foreground">
-              {t('warranty_claims.portal.detail.withdrawHint', 'No longer need this claim? You can withdraw it while it is a draft or awaiting review.')}
+        <div className="w-full px-[28px] pb-[22px]">
+          <div className={`flex w-full items-start gap-[10px] rounded-[10px] px-[14px] py-[12px] ${toneClasses.wrapper}`}>
+            <BannerIcon className={`mt-px size-[16px] shrink-0 ${toneClasses.icon}`} strokeWidth={1.7} aria-hidden="true" />
+            <p className={`min-w-px flex-1 text-[13px] ${toneClasses.text}`}>
+              {bannerMessage(claim, t)}
             </p>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() => setClaimAction('withdraw')}
-              disabled={actionSubmitting}
-            >
-              <Ban className="size-4" aria-hidden="true" />
-              {t('warranty_claims.portal.detail.withdraw', 'Withdraw claim')}
-            </Button>
           </div>
-        ) : null}
-        {needsCustomerAction ? (
-          <Alert status="warning" style="lighter" className="mt-4">
-            <AlertTitle>{t('warranty_claims.portal.actionNeeded')}</AlertTitle>
-            <AlertDescription className="flex flex-col gap-3">
-              <span>{t('warranty_claims.portal.detail.actionNeededDescription')}</span>
-              <Button asChild variant="outline" size="sm">
-                <a href="#warranty-claim-comment-box">{t('warranty_claims.portal.detail.goToComment')}</a>
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-      </PortalCard>
+        </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <PortalCard>
-          <PortalCardHeader
-            label={t('warranty_claims.portal.detail.claimNumber')}
-            title={claim.claimNumber}
-            description={t(`warranty_claims.claimType.${claim.claimType}`)}
-          />
-          <dl className="grid gap-4 md:grid-cols-2">
-            <div>
-              <dt className="text-xs text-muted-foreground">{t('warranty_claims.portal.detail.order')}</dt>
-              <dd className="mt-1 text-sm font-medium">{claim.orderNumber ?? t('warranty_claims.portal.value.notAvailable')}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.reasonCode')}</dt>
-              <dd className="mt-1 text-sm font-medium">{claim.reasonCode ? localizeDictionaryLabel(t, 'reason', claim.reasonCode, claim.reasonCode) : t('warranty_claims.portal.value.notAvailable')}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">{t('warranty_claims.portal.detail.createdAt')}</dt>
-              <dd className="mt-1 text-sm font-medium">{formatDateTime(claim.createdAt, t('warranty_claims.portal.value.notAvailable'))}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">{t('warranty_claims.portal.detail.updatedAt')}</dt>
-              <dd className="mt-1 text-sm font-medium">{formatDateTime(claim.updatedAt, t('warranty_claims.portal.value.notAvailable'))}</dd>
-            </div>
-          </dl>
-          {claim.resolutionSummary ? (
-            <div className="mt-5 rounded-lg border border-border bg-muted/30 p-4">
-              <h3 className="text-sm font-semibold">{t('warranty_claims.form.resolutionSummary')}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{claim.resolutionSummary}</p>
-            </div>
-          ) : null}
-        </PortalCard>
-
-        <PortalCard>
-          <PortalCardHeader
-            label={t('warranty_claims.portal.detail.status')}
-            title={t(`warranty_claims.status.${claim.status}`)}
-          />
-          <dl className="space-y-3 text-sm">
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-muted-foreground">{t('warranty_claims.portal.detail.submittedAt')}</dt>
-              <dd className="font-medium">{formatDateTime(claim.submittedAt, t('warranty_claims.portal.value.notAvailable'))}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-muted-foreground">{t('warranty_claims.portal.detail.resolvedAt')}</dt>
-              <dd className="font-medium">{formatDateTime(claim.resolvedAt, t('warranty_claims.portal.value.notAvailable'))}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-muted-foreground">{t('warranty_claims.portal.detail.closedAt')}</dt>
-              <dd className="font-medium">{formatDateTime(claim.closedAt, t('warranty_claims.portal.value.notAvailable'))}</dd>
-            </div>
-          </dl>
-        </PortalCard>
-      </div>
-
-      <PortalCard>
-        <PortalCardHeader
-          label={t('warranty_claims.portal.detail.lines')}
-          title={t('warranty_claims.portal.detail.linesTitle')}
-        />
-        {claim.lines.length > 0 ? (
-          <div className="grid gap-3">
-            {claim.lines.map((line) => (
-              <div key={line.id} className="rounded-lg border border-border bg-background p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold">{line.productName ?? line.sku ?? t('warranty_claims.portal.value.unnamedLine')}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {line.serialNumber ?? t('warranty_claims.portal.value.noSerial')}
-                    </p>
-                  </div>
-                  <StatusBadge variant={lineStatusVariant(line.lineStatus)} dot>
-                    {t(`warranty_claims.lineStatus.${line.lineStatus}`)}
-                  </StatusBadge>
-                </div>
-                <dl className="mt-4 grid gap-3 text-sm md:grid-cols-3">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.qtyClaimed')}</dt>
-                    <dd className="mt-1 font-medium">{formatQuantity(line.qtyClaimed, t('warranty_claims.portal.value.notAvailable'))}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.qtyApproved')}</dt>
-                    <dd className="mt-1 font-medium">{formatQuantity(line.qtyApproved, t('warranty_claims.portal.value.notAvailable'))}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.disposition')}</dt>
-                    <dd className="mt-1 font-medium">
-                      {line.disposition ? t(`warranty_claims.disposition.${line.disposition}`) : t('warranty_claims.portal.value.notAvailable')}
-                    </dd>
-                  </div>
-                </dl>
+        <div className="flex w-full flex-col px-[28px] pb-[24px]">
+          {trackerSteps.map((step, index) => (
+            <div key={step.id} className="flex w-full items-stretch gap-[14px]">
+              <div className="flex flex-col items-center">
+                {step.state === 'complete' ? (
+                  <span className="flex size-[24px] shrink-0 items-center justify-center rounded-full bg-[#21ad61]">
+                    <Check className="size-[11px] text-white" strokeWidth={2.5} aria-hidden="true" />
+                  </span>
+                ) : step.state === 'current' ? (
+                  <span className="flex size-[24px] shrink-0 items-center justify-center rounded-full bg-[#6552e3] text-[12px] font-semibold text-white">
+                    {index + 1}
+                  </span>
+                ) : (
+                  <span className="flex size-[24px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-[#e2e2e2] text-[12px] font-semibold text-[#737378] dark:border-border dark:text-muted-foreground">
+                    {index + 1}
+                  </span>
+                )}
+                {index < trackerSteps.length - 1 ? (
+                  <span
+                    className={`min-h-[10px] w-[2px] flex-1 ${step.state === 'complete' ? 'bg-[#21ad61]' : 'bg-[#ebebeb] dark:bg-border'}`}
+                  />
+                ) : null}
               </div>
-            ))}
-          </div>
-        ) : (
-          <PortalEmptyState
-            icon={<ShieldCheck className="size-5" />}
-            title={t('warranty_claims.portal.detail.linesEmpty.title')}
-            description={t('warranty_claims.portal.detail.linesEmpty.description')}
-          />
-        )}
-      </PortalCard>
-
-      <PortalCard>
-        <PortalCardHeader
-          label={t('warranty_claims.portal.detail.timeline')}
-          title={t('warranty_claims.portal.detail.timelineTitle')}
-        />
-        {events.length > 0 ? (
-          <ol className="space-y-4">
-            {events.map((event) => (
-              <li key={event.id} className="flex gap-3">
-                <span className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                  {event.kind === 'comment' ? <MessageSquare className="size-4" aria-hidden="true" /> : <ShieldCheck className="size-4" aria-hidden="true" />}
-                </span>
-                <div className="min-w-0 flex-1 rounded-lg border border-border bg-background p-4">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <p className="text-sm font-semibold">{t(`warranty_claims.portal.event.${event.kind}`)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDateTime(event.createdAt, t('warranty_claims.portal.value.notAvailable'))}
-                    </p>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{formatEventBody(event, t)}</p>
+              <div className="flex min-w-px flex-1 flex-col gap-[2px] pb-[14px]">
+                <div className="flex w-full items-center gap-[8px]">
+                  <p
+                    className={
+                      step.state === 'pending'
+                        ? 'text-[14px] font-medium text-[#737378] dark:text-muted-foreground'
+                        : 'text-[14px] font-semibold text-[#0f0f12] dark:text-foreground'
+                    }
+                  >
+                    {step.title}
+                  </p>
+                  <div className="min-w-px flex-1" />
+                  {step.dateLabel ? (
+                    <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{step.dateLabel}</p>
+                  ) : null}
                 </div>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <PortalEmptyState
-            icon={<MessageSquare className="size-5" />}
-            title={t('warranty_claims.portal.detail.timelineEmpty.title')}
-            description={t('warranty_claims.portal.detail.timelineEmpty.description')}
-          />
-        )}
+                <p className="w-full text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{step.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
 
-        <form id="warranty-claim-comment-box" className="mt-6 flex flex-col gap-3" onSubmit={handleCommentSubmit}>
-          <FormField label={t('warranty_claims.portal.detail.commentTitle')}>
+        <div className={SECTION_CLASS}>
+          <p className={SECTION_HEADING_CLASS}>{t('warranty_claims.portal.tracker.items')}</p>
+          {claim.lines.length > 0 ? (
+            claim.lines.map((line) => (
+              <div
+                key={line.id}
+                className="flex w-full items-center gap-[12px] rounded-[10px] border border-[#ededed] px-[14px] py-[12px] dark:border-border"
+              >
+                <div className="flex min-w-px flex-1 flex-col gap-[2px]">
+                  <p className="text-[14px] font-medium text-[#0f0f12] dark:text-foreground">
+                    {line.productName ?? line.sku ?? t('warranty_claims.portal.value.unnamedLine')}
+                  </p>
+                  <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">
+                    {line.sku
+                      ? t('warranty_claims.portal.tracker.itemMeta', {
+                          sku: line.sku,
+                          qty: formatQuantity(line.qtyClaimed, t('warranty_claims.portal.value.notAvailable')),
+                        })
+                      : t('warranty_claims.portal.tracker.itemQty', {
+                          qty: formatQuantity(line.qtyClaimed, t('warranty_claims.portal.value.notAvailable')),
+                        })}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-[6px] rounded-[6px] border border-[#e2e2e2] bg-white px-[9px] py-[4px] dark:border-border dark:bg-transparent">
+                  <span
+                    className="size-[6px] shrink-0 rounded-full"
+                    style={{ backgroundColor: LINE_STATUS_DOT_COLORS[line.lineStatus] ?? '#a3a3a3' }}
+                    aria-hidden="true"
+                  />
+                  <span className="text-[12px] font-medium text-[#0f0f12] dark:text-foreground">
+                    {t(`warranty_claims.lineStatus.${line.lineStatus}`)}
+                  </span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">
+              {t('warranty_claims.portal.detail.linesEmpty.description')}
+            </p>
+          )}
+        </div>
+
+        <div className={SECTION_CLASS}>
+          <p className={SECTION_HEADING_CLASS}>{t('warranty_claims.portal.tracker.activity')}</p>
+          {activityEntries.length > 0 ? (
+            activityEntries.map((entry) => (
+              <div key={entry.id} className="flex w-full items-start gap-[10px]">
+                <span className="mt-[5px] size-[7px] shrink-0 rounded-full bg-[#D1D1D6] dark:bg-muted-foreground/40" aria-hidden="true" />
+                <div className="flex min-w-px flex-1 flex-col gap-px">
+                  <div className="flex w-full items-start gap-[8px]">
+                    <p className="text-[13px] font-medium text-[#0f0f12] dark:text-foreground">{entry.title}</p>
+                    <div className="min-w-px flex-1" />
+                    {entry.createdAt ? (
+                      <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{formatShortDate(entry.createdAt)}</p>
+                    ) : null}
+                  </div>
+                  {entry.href ? (
+                    <a
+                      href={entry.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="whitespace-pre-wrap text-[12px] text-[#8e8e8e] underline-offset-2 hover:underline dark:text-muted-foreground"
+                    >
+                      {entry.description}
+                    </a>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{entry.description}</p>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">
+              {t('warranty_claims.portal.detail.timelineEmpty.description')}
+            </p>
+          )}
+        </div>
+
+        <div className={SECTION_CLASS}>
+          <p className={SECTION_HEADING_CLASS}>{t('warranty_claims.portal.tracker.message')}</p>
+          <form id="warranty-claim-comment-box" className="flex w-full flex-col gap-[12px]" onSubmit={handleCommentSubmit}>
             <Textarea
               value={comment}
               onChange={(event) => setComment(event.target.value)}
               onKeyDown={handleCommentKeyDown}
-              placeholder={t('warranty_claims.portal.commentPlaceholder')}
+              placeholder={t('warranty_claims.portal.tracker.messagePlaceholder')}
               disabled={commentSubmitting}
               maxLength={8000}
-              showCount
+              className="h-[156px] resize-none rounded-[12px] border-[#ebebeb] bg-white px-[12px] py-[10px] text-[14px] tracking-[-0.084px] shadow-[0px_1px_2px_0px_rgba(10,13,20,0.03)] placeholder:text-[#a3a3a3] dark:border-border dark:bg-background"
             />
-          </FormField>
-          <div className="flex justify-end">
-            <Button type="submit" disabled={commentSubmitting || !comment.trim()}>
-              <Send className="size-4" aria-hidden="true" />
-              {commentSubmitting ? t('warranty_claims.portal.detail.sendingComment') : t('warranty_claims.portal.detail.sendComment')}
-            </Button>
-          </div>
-        </form>
-      </PortalCard>
-
-      <PortalCard>
-        <PortalCardHeader
-          label={t('warranty_claims.detail.tabs.attachments')}
-          title={t('warranty_claims.portal.detail.attachmentsTitle')}
-        />
-        {attachments.length > 0 ? (
-          <div className="grid gap-3">
-            {attachments.map((attachment) => (
-              <div key={attachment.id} className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                    <FileText className="size-4" aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{attachment.fileName}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatFileSize(attachment.fileSize, t)} - {formatDateTime(attachment.createdAt, t('warranty_claims.portal.value.notAvailable'))}
-                    </p>
-                  </div>
-                </div>
-                <Button asChild variant="outline" size="sm">
-                  <a href={attachment.downloadUrl} target="_blank" rel="noreferrer">
-                    <ExternalLink className="size-4" aria-hidden="true" />
-                    {t('warranty_claims.portal.detail.openAttachment')}
-                  </a>
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <PortalEmptyState
-            icon={<FileText className="size-5" />}
-            title={t('warranty_claims.portal.detail.attachmentsEmpty.title')}
-            description={t('warranty_claims.portal.detail.attachmentsEmpty.description')}
-          />
-        )}
-
-        <div className="mt-6 rounded-lg border border-border bg-muted/30 p-4">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-            <FormField
-              label={t('warranty_claims.portal.detail.chooseFile')}
-              description={selectedFile
-                ? t('warranty_claims.portal.detail.selectedFile', { name: selectedFile.name })
-                : t('warranty_claims.portal.detail.noFileSelected')}
-            >
-              <Input
-                key={fileInputKey}
-                type="file"
-                accept={ATTACHMENT_ACCEPT_TYPES}
-                onChange={handleSelectedFileChange}
-                disabled={uploading}
-              />
-            </FormField>
-            <Button type="button" onClick={uploadAttachment} disabled={uploading || !selectedFile}>
-              <Upload className="size-4" aria-hidden="true" />
-              {uploading ? t('warranty_claims.portal.detail.uploading') : t('warranty_claims.portal.detail.upload')}
-            </Button>
-          </div>
+            <div className="flex w-full items-center gap-[8px]">
+              <label className={`flex items-center gap-[6px] ${uploading ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
+                {uploading ? (
+                  <Spinner className="size-[14px]" />
+                ) : (
+                  <Paperclip className="size-[14px] text-[#737378] dark:text-muted-foreground" strokeWidth={1.7} aria-hidden="true" />
+                )}
+                <span className="text-[12px] font-medium text-[#737378] transition-colors hover:text-[#0f0f12] dark:text-muted-foreground dark:hover:text-foreground">
+                  {uploading
+                    ? t('warranty_claims.portal.detail.uploading')
+                    : t('warranty_claims.portal.tracker.attachFiles')}
+                </span>
+                <input
+                  key={fileInputKey}
+                  type="file"
+                  accept={ATTACHMENT_ACCEPT_TYPES}
+                  onChange={handleSelectedFileChange}
+                  disabled={uploading}
+                  className="sr-only"
+                />
+              </label>
+              <div className="min-w-px flex-1" />
+              <button type="submit" className={DARK_BUTTON_CLASS} disabled={commentSubmitting || !comment.trim()}>
+                {commentSubmitting
+                  ? t('warranty_claims.portal.tracker.sending')
+                  : t('warranty_claims.portal.tracker.send')}
+              </button>
+            </div>
+          </form>
         </div>
-      </PortalCard>
+      </div>
 
       <Dialog
         open={claimAction !== null}

@@ -50,11 +50,15 @@ export const AttachmentInput = ({
   recordId,
   def,
   disabled,
+  onCountChange,
 }: {
   entityId?: string
   recordId?: string
   def?: AttachmentFieldDef
   disabled?: boolean
+  // Optional: notified with the current attachment count after each load so a host page can keep
+  // a derived badge (e.g. a tab count) in sync without a full reload. Additive/backward-compatible.
+  onCountChange?: (count: number) => void
 }) => {
   const t = useT()
   const [items, setItems] = React.useState<Array<{ id: string; url: string; fileName: string; fileSize: number }>>([])
@@ -78,13 +82,15 @@ export const AttachmentInput = ({
         throw new Error(message)
       }
       const j = call.result ?? { items: [] }
-      setItems(Array.isArray(j.items) ? j.items : [])
+      const nextItems = Array.isArray(j.items) ? j.items : []
+      setItems(nextItems)
+      onCountChange?.(nextItems.length)
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {
       setLoading(false)
     }
-  }, [entityId, recordId, t])
+  }, [entityId, recordId, t, onCountChange])
 
   React.useEffect(() => { load() }, [load])
 

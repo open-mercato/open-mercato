@@ -21,7 +21,9 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { Plus } from 'lucide-react'
+import type { TroubleshootingNode } from '../../../lib/troubleshooting'
 import { CLAIM_TYPES } from '../../../data/validators'
 import { localizeDictionaryLabel } from '../../../lib/dictionaryLabels'
 import { fetchClaimReasonOptions } from '../../components/claimReasonOptions'
@@ -31,6 +33,7 @@ import {
   normalizeTroubleshootingGuide,
   type TroubleshootingGuideRecord,
 } from './troubleshootingGuideForm'
+import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
 
 type TroubleshootingGuidesResponse = {
   items?: unknown[]
@@ -40,6 +43,7 @@ type TroubleshootingGuidesResponse = {
 }
 
 const PAGE_SIZE = 20
+type GuideSegment = 'all' | 'published' | 'draft'
 
 function reasonLabel(value: string | null, t: TranslateFn, storedLabels: Record<string, string>): string {
   if (!value) return t('warranty_claims.troubleshootingGuides.reason.any', 'Any reason')
@@ -48,6 +52,11 @@ function reasonLabel(value: string | null, t: TranslateFn, storedLabels: Record<
 
 function toFilterString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length ? value.trim() : null
+}
+
+function countGuideSteps(node: TroubleshootingNode | null): number {
+  if (!node) return 0
+  return 1 + node.options.reduce((count, option) => count + (option.next ? countGuideSteps(option.next) : 1), 0)
 }
 
 export default function WarrantyTroubleshootingGuidesPage() {
@@ -59,6 +68,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [tabCounts, setTabCounts] = React.useState<Partial<Record<GuideSegment, number>>>({})
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
@@ -159,6 +169,33 @@ export default function WarrantyTroubleshootingGuidesPage() {
       cancelled = true
     }
   }, [listQueryString, reloadToken, scopeVersion, t])
+
+  React.useEffect(() => {
+    const controller = new AbortController()
+    const segments: Array<readonly [GuideSegment, Record<string, string>]> = [
+      ['all', {}],
+      ['published', { isActive: 'true' }],
+      ['draft', { isActive: 'false' }],
+    ]
+    Promise.all(segments.map(async ([segment, query]) => {
+      const params = new URLSearchParams({ page: '1', pageSize: '1', ...query })
+      const fallback: TroubleshootingGuidesResponse = { items: [], total: 0, totalPages: 1 }
+      const call = await apiCall<TroubleshootingGuidesResponse>(
+        `/api/warranty_claims/troubleshooting-guides?${params.toString()}`,
+        { signal: controller.signal },
+        { fallback },
+      )
+      if (!call.ok) throw new Error('[internal] Failed to load guide counts')
+      return [segment, typeof call.result?.total === 'number' ? call.result.total : 0] as const
+    }))
+      .then((entries) => {
+        if (!controller.signal.aborted) setTabCounts(Object.fromEntries(entries))
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setTabCounts({})
+      })
+    return () => controller.abort()
+  }, [reloadToken, scopeVersion])
 
   const executeDelete = React.useCallback(async (guide: TroubleshootingGuideRecord): Promise<unknown> => {
     try {
@@ -297,10 +334,16 @@ export default function WarrantyTroubleshootingGuidesPage() {
       header: t('warranty_claims.troubleshootingGuides.list.column.reason', 'Reason'),
       meta: { truncate: true, maxWidth: '220px' },
       cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm text-foreground">
           {reasonLabel(row.original.reasonCode, t, reasonLabels)}
         </span>
       ),
+    },
+    {
+      id: 'steps',
+      header: t('warranty_claims.troubleshootingGuides.list.column.steps', 'Steps'),
+      meta: { maxWidth: '100px' },
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{countGuideSteps(row.original.steps)}</span>,
     },
     {
       accessorKey: 'isActive',
@@ -315,32 +358,57 @@ export default function WarrantyTroubleshootingGuidesPage() {
       accessorKey: 'updatedAt',
       header: t('warranty_claims.troubleshootingGuides.list.column.updated', 'Updated'),
       cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {formatDateTime(row.original.updatedAt) ?? t('warranty_claims.common.noValue', 'Not set')}
+        <span className="text-sm text-muted-foreground" title={formatDateTime(row.original.updatedAt) ?? undefined}>
+          {formatRelativeTime(row.original.updatedAt, { translate: t }) ?? t('warranty_claims.common.noValue', 'Not set')}
         </span>
       ),
     },
   ], [reasonLabels, t])
 
+  const activeTab = toFilterString(filterValues.isActive) === 'true'
+    ? 'published'
+    : toFilterString(filterValues.isActive) === 'false'
+      ? 'draft'
+      : 'all'
+
+  const handleTabChange = React.useCallback((value: string) => {
+    if (value === 'published') setFilterValues({ isActive: 'true' })
+    else if (value === 'draft') setFilterValues({ isActive: 'false' })
+    else setFilterValues({})
+    setPage(1)
+  }, [])
+
   return (
     <Page>
       <PageBody>
-        <DataTable<TroubleshootingGuideRecord>
+        <WarrantyWorkspace
+          title={t('warranty_claims.troubleshootingGuides.list.title', 'Troubleshooting guides')}
+          action={(
+            <Button asChild>
+              <Link href="/backend/warranty_claims/troubleshooting-guides/create">
+                <Plus className="size-4" aria-hidden />
+                {t('warranty_claims.troubleshootingGuides.list.actions.new', 'New guide')}
+              </Link>
+            </Button>
+          )}
+          contentClassName="[&>[data-component-handle]>div:first-child]:px-8 [&>[data-component-handle]>div:first-child]:py-4 [&_:has(>[data-slot=search-input-wrapper])]:lg:w-56"
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          tabs={[
+            { id: 'all', label: t('warranty_claims.troubleshootingGuides.list.tabs.all', 'All'), count: tabCounts.all },
+            { id: 'published', label: t('warranty_claims.troubleshootingGuides.list.tabs.published', 'Published'), count: tabCounts.published },
+            { id: 'draft', label: t('warranty_claims.troubleshootingGuides.list.tabs.draft', 'Draft'), count: tabCounts.draft },
+          ]}
+        >
+          <DataTable<TroubleshootingGuideRecord>
+          embedded
           stickyFirstColumn
           stickyActionsColumn
-          title={t('warranty_claims.troubleshootingGuides.list.title', 'Troubleshooting guides')}
           refreshButton={{
             label: t('warranty_claims.troubleshootingGuides.list.actions.refresh', 'Refresh'),
             onRefresh: reload,
             isRefreshing: loading,
           }}
-          actions={(
-            <Button asChild>
-              <Link href="/backend/warranty_claims/troubleshooting-guides/create">
-                {t('warranty_claims.troubleshootingGuides.list.actions.new', 'New guide')}
-              </Link>
-            </Button>
-          )}
           columns={columns}
           data={rows}
           exporter={exportConfig}
@@ -349,7 +417,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
             setSearch(value)
             setPage(1)
           }}
-          searchPlaceholder={t('warranty_claims.troubleshootingGuides.list.searchPlaceholder', 'Search guide titles')}
+          searchPlaceholder={t('warranty_claims.troubleshootingGuides.list.searchPlaceholder', 'Search guides…')}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={(values) => {
@@ -398,7 +466,8 @@ export default function WarrantyTroubleshootingGuidesPage() {
             totalPages,
             onPageChange: setPage,
           }}
-        />
+          />
+        </WarrantyWorkspace>
         {ConfirmDialogElement}
       </PageBody>
     </Page>

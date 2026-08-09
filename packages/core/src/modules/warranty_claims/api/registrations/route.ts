@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -6,6 +7,7 @@ import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/warranty_claim_registration'
 import { WarrantyClaimRegistration } from '../../data/entities'
+import { assertOrderBelongsToCustomer } from '../../lib/orderOwnership'
 import { emitWarrantyClaimsEvent } from '../../events'
 import {
   registrationCreateSchema,
@@ -82,6 +84,26 @@ function parseUpdateInput(input: RawRegistrationInput, ctx: CrudCtx): Registrati
 
 function hasOwn(input: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, key)
+}
+
+async function assertRegistrationSerialUnique(
+  em: EntityManager,
+  scope: { organizationId: string; tenantId: string },
+  serialNumber: string | null | undefined,
+  excludeId: string | null,
+): Promise<void> {
+  if (!serialNumber) return
+  const where: FilterQuery<WarrantyClaimRegistration> = {
+    serialNumber,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  }
+  if (excludeId) where.id = { $ne: excludeId }
+  const existing = await em.count(WarrantyClaimRegistration, where)
+  if (existing > 0) {
+    throw new CrudHttpError(400, { error: 'warranty_claims.errors.duplicateSerial' })
+  }
 }
 
 function parseDate(value: string | Date | null | undefined): Date | null {
@@ -292,6 +314,34 @@ const crud = makeCrudRoute<RawRegistrationInput, RawRegistrationInput, Registrat
     mapToEntity: (input, ctx) => toRegistrationEntityData(parseCreateInput(input, ctx)),
   },
   hooks: {
+    beforeCreate: async (input, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const result = registrationCreateSchema.safeParse({ ...input, ...scope })
+      if (!result.success) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await assertOrderBelongsToCustomer(em, scope, result.data.orderId ?? null, result.data.customerId ?? null)
+      await assertRegistrationSerialUnique(em, scope, result.data.serialNumber ?? null, null)
+    },
+    beforeUpdate: async (input, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const result = registrationUpdateSchema.safeParse({ ...input, ...scope })
+      if (!result.success) return
+      const parsed = result.data
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const existing = await em.findOne(WarrantyClaimRegistration, {
+        id: parsed.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      })
+      if (!existing) return
+      const effectiveCustomerId = hasOwn(parsed, 'customerId') ? (parsed.customerId ?? null) : (existing.customerId ?? null)
+      const effectiveOrderId = hasOwn(parsed, 'orderId') ? (parsed.orderId ?? null) : (existing.orderId ?? null)
+      await assertOrderBelongsToCustomer(em, scope, effectiveOrderId, effectiveCustomerId)
+      if (hasOwn(parsed, 'serialNumber') && (parsed.serialNumber ?? null) !== (existing.serialNumber ?? null)) {
+        await assertRegistrationSerialUnique(em, scope, parsed.serialNumber ?? null, existing.id)
+      }
+    },
     afterCreate: async (entity) => {
       await emitRegistrationCreatedEvent(entity)
     },

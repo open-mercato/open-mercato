@@ -120,6 +120,9 @@ export async function GET(req: Request, ctx: RouteContext) {
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       customerId: context.customerId,
+      // Internal vendor-recovery children copy the source claim's customerId; never expose
+      // them through the customer portal detail endpoint (WQA-008).
+      claimType: { $ne: 'vendor_recovery' },
       deletedAt: null,
     },
     {},

@@ -1,12 +1,14 @@
 "use client"
 
 import * as React from 'react'
+import { Lock } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -21,6 +23,7 @@ import {
 
 type ClaimEditRecord = {
   id: string
+  claimNumber: string | null
   status: string | null
   customerId: string | null
   customerName: string | null
@@ -64,6 +67,7 @@ function normalizeClaim(value: unknown): ClaimEditRecord | null {
   if (!id) return null
   return {
     id,
+    claimNumber: toStringOrNull(value.claimNumber),
     status: toStringOrNull(value.status),
     customerId: toStringOrNull(value.customerId),
     customerName: toStringOrNull(value.customerName),
@@ -358,15 +362,37 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     return []
   }, [claim?.customerId, claim?.customerName, claim?.orderNumber, claimOrderId, editableMode, loadCustomerOptions, loadDictionaryOptions, loadSalesReturnOptionsForClaim, t])
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => [
-    {
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    if (editableMode === 'fulfillment') {
+      return [
+        {
+          id: 'replacement',
+          title: t('warranty_claims.edit.fulfillment.replacement', 'Replacement'),
+          fields: ['advanceReplacement', 'replacementOrderId', 'advanceShippedAt'],
+        },
+        {
+          id: 'return-credit',
+          title: t('warranty_claims.edit.fulfillment.returnCredit', 'Return and credit'),
+          fields: ['salesReturnId', 'creditMemoId'],
+        },
+        {
+          id: 'vendor-recovery',
+          title: t('warranty_claims.edit.fulfillment.vendorRecovery', 'Vendor recovery'),
+          fields: ['vendorName', 'vendorRef'],
+        },
+        {
+          id: 'resolution',
+          title: t('warranty_claims.edit.fulfillment.resolution', 'Resolution'),
+          fields: ['resolutionSummary'],
+        },
+      ]
+    }
+    return [{
       id: 'claim',
-      title: editableMode === 'fulfillment'
-        ? t('warranty_claims.edit.fulfillmentFields')
-        : t('warranty_claims.edit.intakeFields'),
+      title: t('warranty_claims.edit.intakeFields'),
       fields: fields.map((field) => field.id),
-    },
-  ], [editableMode, fields, t])
+    }]
+  }, [editableMode, fields, t])
 
   if (loading) {
     return (
@@ -406,16 +432,25 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     return (
       <Page>
         <PageBody>
-          <EmptyState
-            title={t('warranty_claims.edit.locked.title')}
-            description={t('warranty_claims.edit.locked.description')}
-            variant="subtle"
-            actions={(
-              <Button type="button" variant="outline" onClick={() => router.push(`/backend/warranty_claims/${claim.id}`)}>
-                {t('warranty_claims.detail.actions.backToDetail')}
-              </Button>
-            )}
-          />
+          <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div className="border-b border-border px-5 py-4">
+              <p className="text-sm text-muted-foreground">{claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}</p>
+              <h1 className="mt-1 text-xl font-semibold text-foreground">{t('warranty_claims.edit.title')}</h1>
+            </div>
+            <EmptyState
+              size="lg"
+              className="min-h-80"
+              icon={<Lock className="size-6" aria-hidden />}
+              title={t('warranty_claims.edit.locked.title')}
+              description={t('warranty_claims.edit.locked.description')}
+              variant="subtle"
+              actions={(
+                <Button type="button" variant="outline" onClick={() => router.push(`/backend/warranty_claims/${claim.id}`)}>
+                  {t('warranty_claims.detail.actions.backToDetail')}
+                </Button>
+              )}
+            />
+          </section>
         </PageBody>
       </Page>
     )
@@ -425,11 +460,34 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     <Page>
       <PageBody>
         <CrudForm<ClaimEditFormValues>
-          title={t('warranty_claims.edit.title')}
+          title={editableMode === 'fulfillment'
+            ? t('warranty_claims.edit.fulfillment.title', 'Edit claim — Fulfillment')
+            : t('warranty_claims.edit.title')}
           backHref={`/backend/warranty_claims/${claim.id}`}
           fields={fields}
           groups={groups}
           initialValues={{ ...claim }}
+          contentHeader={editableMode === 'fulfillment' ? (
+            <div className="space-y-3">
+              <Alert status="information" style="lighter">
+                {t('warranty_claims.edit.fulfillment.notice', 'Intake details are locked after approval. Complete the goods flow and resolution details below.')}
+              </Alert>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.customer')}</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{claim.customerName ?? t('warranty_claims.common.noValue')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{t('warranty_claims.list.column.order')}</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{claim.orderNumber ?? t('warranty_claims.common.noValue')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{t('warranty_claims.vendorPolicies.list.column.active', 'Status')}</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{t(`warranty_claims.status.${claim.status ?? 'approved'}`)}</p>
+                </div>
+              </div>
+            </div>
+          ) : undefined}
           submitLabel={t('warranty_claims.form.submit')}
           cancelHref={`/backend/warranty_claims/${claim.id}`}
           onSubmit={async (values) => {

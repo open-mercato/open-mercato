@@ -70,11 +70,13 @@ export function createWarrantyEntitlementResolver(): WarrantyEntitlementResolver
         )
 
         if (registration) {
+          const registrationStatus = resolveStatusFromExpiry(registration.warrantyExpiresAt)
           return {
-            warrantyStatus: resolveStatusFromExpiry(registration.warrantyExpiresAt),
+            warrantyStatus: registrationStatus,
             coverageType: registration.coverageType ?? null,
-            expiresAt: toIso(registration.warrantyExpiresAt),
-            source: 'registration',
+            // Never pair an indeterminate status with a concrete source/expiry (LINE-04).
+            expiresAt: registrationStatus === 'unknown' ? null : toIso(registration.warrantyExpiresAt),
+            source: registrationStatus === 'unknown' ? null : 'registration',
           }
         }
       }
@@ -91,8 +93,9 @@ export function createWarrantyEntitlementResolver(): WarrantyEntitlementResolver
       return {
         warrantyStatus,
         coverageType: null,
-        expiresAt: toIso(expiresAt),
-        source: input.orderId ? 'order' : 'resolver',
+        // Never pair an indeterminate status with a concrete source/expiry (LINE-04).
+        expiresAt: warrantyStatus === 'unknown' ? null : toIso(expiresAt),
+        source: warrantyStatus === 'unknown' ? null : (input.orderId ? 'order' : 'resolver'),
       }
     },
   }

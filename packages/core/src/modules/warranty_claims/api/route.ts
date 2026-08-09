@@ -21,6 +21,7 @@ import {
 } from '../data/validators'
 import {
   ISO_DATE_PATTERN,
+  buildAttentionFilter,
   buildDateRangeFilter,
   findSlaAtRiskClaimIds,
   narrowFiltersToClaimIds,
@@ -79,6 +80,7 @@ const listSchema = z
     overdueOnly: booleanQuerySchema,
     slaAtRiskOnly: booleanQuerySchema,
     needsAttention: booleanQuerySchema,
+    attentionOnly: booleanQuerySchema,
     submittedFrom: isoDateQuerySchema,
     submittedTo: isoDateQuerySchema,
     createdFrom: isoDateQuerySchema,
@@ -379,6 +381,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      const matchGroups: Record<string, unknown>[] = []
       if (query.id) filters.id = { $eq: query.id }
       const statuses = selectedStatuses(query)
       const statusFilter: Record<string, unknown> = {}
@@ -401,6 +404,10 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
         filters.assignee_user_id = { $eq: query.assigneeUserId }
       }
       if (query.needsAttention === true) filters.awaiting_staff_reply = { $eq: true }
+      if (query.attentionOnly === true) {
+        const atRiskIds = await findSlaAtRiskClaimIdsForCtx(ctx)
+        matchGroups.push(buildAttentionFilter(atRiskIds))
+      }
       const submittedRange = buildDateRangeFilter(query.submittedFrom, query.submittedTo)
       if (submittedRange) filters.submitted_at = submittedRange
       const createdRange = buildDateRangeFilter(query.createdFrom, query.createdTo)
@@ -420,8 +427,9 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
         ]
         const lineMatchIds = await findClaimIdsMatchingLineSearch(ctx, query.search)
         if (lineMatchIds.length) searchBranches.push({ id: { $in: lineMatchIds } })
-        filters.$or = searchBranches
+        matchGroups.push({ $or: searchBranches })
       }
+      if (matchGroups.length) filters.$and = matchGroups
       return filters
     },
     transformItem: transformClaimItem,

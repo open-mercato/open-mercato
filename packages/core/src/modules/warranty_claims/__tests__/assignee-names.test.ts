@@ -75,6 +75,20 @@ describe('resolveAssigneeDisplayNames', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('never exposes encrypted name or email payloads when upstream decryption fails open', async () => {
+    const encryptedName = 'tO7TyMk5X1EdR4K1:jtiaFLv2DE/ITjAAuEE=:RqYjgUkWp75s5n3aBf5Ixg==:v1'
+    const encryptedEmail = 'm4mVN1l7L26eR0eD:dGVzdEBleGFtcGxlLmNvbQ==:KOr9qsbfKihoE39GB9GRqA==:v1'
+    const { deps } = createDeps([
+      { id: USER_A, name: encryptedName, email: 'alice@example.test' },
+      { id: USER_B, name: encryptedName, email: encryptedEmail },
+    ])
+
+    const names = await resolveAssigneeDisplayNames(deps, [USER_A, USER_B])
+
+    expect(names.get(USER_A)).toBe('alice@example.test')
+    expect(names.has(USER_B)).toBe(false)
+  })
+
   it('fails open with an empty map when the lookup throws', async () => {
     const failingDeps = {
       container: {

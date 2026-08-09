@@ -19,6 +19,7 @@ import {
   type PortalIntakeInput,
 } from '../../../data/validators'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
+import { portalClaimStatusesForStateGroup } from '../../../lib/listSegments'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -39,6 +40,7 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: optionalTrimmedQueryString(190),
   status: z.preprocess(emptyQueryValueToUndefined, claimStatusSchema.optional()),
+  stateGroup: z.enum(['open', 'resolved']).optional(),
   serialNumber: optionalTrimmedQueryString(191),
 })
 
@@ -299,19 +301,24 @@ export async function GET(req: Request) {
     pageSize: url.searchParams.get('pageSize') ?? undefined,
     search: url.searchParams.get('search') ?? undefined,
     status: url.searchParams.get('status') ?? undefined,
+    stateGroup: url.searchParams.get('stateGroup') ?? undefined,
     serialNumber: url.searchParams.get('serialNumber') ?? undefined,
   })
   if (!query.success) {
     return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
   }
-  const { page, pageSize, search, status, serialNumber } = query.data
+  const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
   const where: FilterQuery<WarrantyClaim> = {
     tenantId: context.tenantId,
     organizationId: context.organizationId,
     customerId: context.customerId,
+    // Internal vendor-recovery children copy the source claim's customerId; they must never
+    // surface in the customer portal (WQA-008).
+    claimType: { $ne: 'vendor_recovery' },
     deletedAt: null,
   }
   if (status) where.status = status
+  else if (stateGroup) where.status = { $in: portalClaimStatusesForStateGroup(stateGroup) }
   if (search) {
     const pattern = `%${escapeLikePattern(search)}%`
     where.$or = [
@@ -320,13 +327,19 @@ export async function GET(req: Request) {
     ]
   }
   if (serialNumber) {
-    const matchingLines = await context.em.find(WarrantyClaimLine, {
-      serialNumber,
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      deletedAt: null,
-      claim: { customerId: context.customerId, deletedAt: null },
-    })
+    const matchingLines = await findWithDecryption(
+      context.em,
+      WarrantyClaimLine,
+      {
+        serialNumber,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        deletedAt: null,
+        claim: { customerId: context.customerId, deletedAt: null },
+      },
+      {},
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+    )
     const matchingClaimIds = Array.from(new Set(
       matchingLines.map((line) => relationId(line.claim)).filter((id): id is string => Boolean(id)),
     ))
@@ -400,6 +413,8 @@ export async function POST(req: Request) {
     customerId: context.customerId,
     customerName: context.auth.displayName || null,
     orderId: ownership.orderId,
+    // A resolved order supplies its own number; otherwise persist the typed reference (WQA-002).
+    orderNumber: ownership.orderId ? null : (parsed.data.orderReference ?? null),
     reasonCode: parsed.data.reasonCode,
     notes: parsed.data.notes ?? null,
     currencyCode: ownership.currencyCode,
@@ -413,6 +428,10 @@ export async function POST(req: Request) {
       faultCode: line.faultCode ?? null,
       faultDescription: line.faultDescription,
       qtyClaimed: line.qtyClaimed ?? 1,
+      // Carry warranty metadata so order-backed portal lines keep their entitlement basis
+      // instead of persisting warrantyStatus='unknown' (WQA-004 / LINE-06).
+      purchaseDate: line.purchaseDate ?? null,
+      warrantyMonths: line.warrantyMonths ?? null,
     })),
   }
 
@@ -430,6 +449,7 @@ export async function POST(req: Request) {
         channel: createInput.channel,
         claimType: createInput.claimType,
         orderId: createInput.orderId,
+        orderNumber: createInput.orderNumber,
         currencyCode: createInput.currencyCode,
         lines: createInput.lines,
       }

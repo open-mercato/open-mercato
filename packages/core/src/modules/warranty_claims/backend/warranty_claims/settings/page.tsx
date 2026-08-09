@@ -517,7 +517,7 @@ function GeneralSwitchField({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-background p-4">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3.5 py-2.5">
       <div className="space-y-1">
         <Label htmlFor={id}>{label}</Label>
         <p className="text-xs text-muted-foreground">{description}</p>
@@ -1609,8 +1609,11 @@ export default function WarrantyClaimSettingsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="space-y-6">
-          <section className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card text-card-foreground">
+          <div className="border-b border-border px-7 py-4">
+            <h1 className="text-xl font-semibold text-foreground">{t('warranty_claims.settings.title', 'Claim settings')}</h1>
+          </div>
+          <section>
             <div className="space-y-1 border-b border-border px-6 py-4">
               <h2 className="text-lg font-medium">{generalTranslations.title}</h2>
               <p className="text-sm text-muted-foreground">{generalTranslations.description}</p>
@@ -1634,9 +1637,9 @@ export default function WarrantyClaimSettingsPage() {
                   )}
                 />
               ) : (
-                <form id={GENERAL_SETTINGS_FORM_ID} className="space-y-6" onSubmit={handleGeneralSubmit}>
+                <form id={GENERAL_SETTINGS_FORM_ID} className="space-y-6" noValidate onSubmit={handleGeneralSubmit}>
                   {generalSaveError ? <ErrorMessage label={generalSaveError} /> : null}
-                  <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-4 md:grid-cols-2">
                     <GeneralNumberField
                       id="warranty-claims-sla-hours"
                       label={generalTranslations.fields.slaHours}
@@ -1822,7 +1825,7 @@ export default function WarrantyClaimSettingsPage() {
           </section>
 
           {SECTIONS.map((section) => (
-            <section key={section.kind} className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+            <section key={section.kind} className="border-t border-border bg-card text-card-foreground">
               <div className="space-y-1 border-b border-border px-6 py-4">
                 <h2 className="text-lg font-medium">{t(section.titleKey)}</h2>
                 <p className="text-sm text-muted-foreground">{t(section.descriptionKey)}</p>

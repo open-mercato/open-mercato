@@ -1,5 +1,7 @@
 /** @jest-environment node */
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   MAX_ASSIGNEE_LOOKUP_IDS,
   metadata,
@@ -13,6 +15,13 @@ describe('warranty_claims assignee lookup guard', () => {
     for (const feature of metadata.GET.requireFeatures) {
       expect(feature.startsWith('warranty_claims.')).toBe(true)
     }
+  })
+
+  it('uses the decrypted lookup helper instead of reading encrypted user columns directly', () => {
+    const source = readFileSync(join(__dirname, '../api/assignees/route.ts'), 'utf8')
+    expect(source).toContain('resolveAssigneeDisplayNames')
+    expect(source).not.toContain("selectFrom('users')")
+    expect(source).not.toContain("select(['id', 'name', 'email'])")
   })
 })
 

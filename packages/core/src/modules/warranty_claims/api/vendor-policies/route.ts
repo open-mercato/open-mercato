@@ -43,6 +43,7 @@ const listSchema = z
     ids: idsSchema,
     search: z.string().trim().max(300).optional(),
     isActive: booleanQuerySchema,
+    autoGenerateRecovery: booleanQuerySchema,
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
     sortField: z.enum(['vendorName', 'updatedAt', 'createdAt']).optional(),
@@ -270,6 +271,9 @@ const crud = makeCrudRoute<RawVendorPolicyInput, RawVendorPolicyInput, VendorPol
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.isActive !== undefined) filters[F.is_active] = { $eq: query.isActive }
+      if (query.autoGenerateRecovery !== undefined) {
+        filters[F.auto_generate_recovery] = { $eq: query.autoGenerateRecovery }
+      }
       if (query.search) {
         const pattern = buildIlikeTerm(query.search)
         filters.$or = [

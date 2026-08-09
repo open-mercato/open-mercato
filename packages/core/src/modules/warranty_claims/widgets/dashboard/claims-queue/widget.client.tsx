@@ -160,30 +160,30 @@ const WarrantyClaimsQueueWidget: React.FC<DashboardWidgetComponentProps<Warranty
   const atRisk = typeof stats.slaAtRisk === 'number' ? stats.slaAtRisk : null
 
   return (
-    <div className="space-y-4">
-      <div className={cn('grid gap-3', atRisk !== null ? 'grid-cols-3' : 'grid-cols-2')}>
+    <div className="space-y-3">
+      <div className={cn('grid divide-x divide-border border-y border-border', atRisk !== null ? 'grid-cols-3' : 'grid-cols-2')}>
         <Link
           href={buildOpenClaimsHref()}
-          className="flex flex-col rounded-md border p-3 transition-colors hover:bg-accent"
+          className="flex flex-col px-3 py-3 transition-colors hover:bg-accent"
         >
           <span className="text-xs text-muted-foreground">
-            {t('warranty_claims.kpi.openClaims', 'Open claims')}
+            {t('warranty_claims.widgets.queue.open', 'Open')}
           </span>
-          <span className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+          <span className="mt-1 text-xl font-bold tabular-nums text-foreground">
             {formatCount(openClaims)}
           </span>
         </Link>
         {atRisk !== null ? (
           <Link
             href={buildAtRiskHref()}
-            className="flex flex-col rounded-md border p-3 transition-colors hover:bg-accent"
+            className="flex flex-col px-3 py-3 transition-colors hover:bg-accent"
           >
             <span className="text-xs text-muted-foreground">
-              {t('warranty_claims.list.quickFilters.slaAtRisk', 'SLA at risk')}
+              {t('warranty_claims.widgets.queue.atRisk', 'At risk')}
             </span>
             <span
               className={cn(
-                'mt-1 text-2xl font-semibold tabular-nums',
+                'mt-1 text-xl font-bold tabular-nums',
                 atRisk > 0 ? 'text-status-warning-text' : 'text-foreground',
               )}
             >
@@ -193,14 +193,14 @@ const WarrantyClaimsQueueWidget: React.FC<DashboardWidgetComponentProps<Warranty
         ) : null}
         <Link
           href={buildOverdueHref()}
-          className="flex flex-col rounded-md border p-3 transition-colors hover:bg-accent"
+          className="flex flex-col px-3 py-3 transition-colors hover:bg-accent"
         >
           <span className="text-xs text-muted-foreground">
             {t('warranty_claims.kpi.overdue', 'Overdue')}
           </span>
           <span
             className={cn(
-              'mt-1 text-2xl font-semibold tabular-nums',
+              'mt-1 text-xl font-bold tabular-nums',
               stats.overdue > 0 ? 'text-status-error-text' : 'text-foreground',
             )}
           >
@@ -209,8 +209,8 @@ const WarrantyClaimsQueueWidget: React.FC<DashboardWidgetComponentProps<Warranty
         </Link>
       </div>
       {hydrated.showStatusBreakdown && breakdown.length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="space-y-1 px-4 pb-2">
+          <p className="text-xs font-medium text-muted-foreground">
             {t('warranty_claims.widgets.queue.byStatus', 'Open by status')}
           </p>
           <ul>
@@ -218,7 +218,7 @@ const WarrantyClaimsQueueWidget: React.FC<DashboardWidgetComponentProps<Warranty
               <li key={status}>
                 <Link
                   href={buildStatusHref(status)}
-                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  className="flex items-center justify-between gap-2 py-1.5 text-sm transition-colors hover:text-foreground"
                 >
                   <span className="text-foreground">
                     {t(`warranty_claims.status.${status}`, STATUS_FALLBACK_LABELS[status])}

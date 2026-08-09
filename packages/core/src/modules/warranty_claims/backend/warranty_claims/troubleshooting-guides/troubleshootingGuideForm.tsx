@@ -12,6 +12,7 @@ import {
   parseGuideSteps,
   type TroubleshootingNode,
 } from '../../../lib/troubleshooting'
+import { TroubleshootingTreeBuilder } from './TroubleshootingTreeBuilder'
 
 export type TroubleshootingGuideRecord = {
   id: string
@@ -187,11 +188,12 @@ export function useTroubleshootingGuideFormConfig(t: TranslateFn): { fields: Cru
     ),
     {
       id: 'stepsJson',
-      label: t('warranty_claims.troubleshootingGuides.form.stepsJson', 'Steps JSON'),
-      type: 'textarea',
-      rows: 16,
+      label: t('warranty_claims.troubleshootingGuides.form.decisionTree', 'Decision tree'),
+      type: 'custom',
       layout: 'full',
-      description: t('warranty_claims.troubleshootingGuides.form.stepsJson.help', 'Use a prompt with options. Each option needs a label and either a next node or a resolution/reason code.'),
+      component: ({ value, setValue, disabled }) => (
+        <TroubleshootingTreeBuilder value={value} setValue={setValue} disabled={disabled} />
+      ),
     },
   ], [claimTypeOptions, loadReasonCodeOptions, t])
 
