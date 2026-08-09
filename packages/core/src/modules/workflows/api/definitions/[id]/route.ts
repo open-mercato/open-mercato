@@ -20,7 +20,8 @@ import {
 } from '../../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
-import { getCodeWorkflow } from '../../../lib/code-registry'
+import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
+import { codeWorkflowUuid } from '../../../lib/find-definition'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
@@ -97,6 +98,18 @@ export async function GET(
     })
 
     if (!definition) {
+      // Instances started from an unpersisted code definition store the
+      // deterministic codeWorkflowUuid(workflowId) as their definitionId
+      // (see lib/find-definition.ts). Resolve that synthetic UUID back to
+      // the code registry so lookups by instance.definitionId succeed.
+      const codeDef = getAllCodeWorkflows().find(
+        (workflow) => codeWorkflowUuid(workflow.workflowId) === params.id
+      )
+      if (codeDef) {
+        return NextResponse.json({
+          data: serializeCodeWorkflowDefinition(codeDef, `code:${codeDef.workflowId}`),
+        })
+      }
       return NextResponse.json(
         { error: 'Workflow definition not found' },
         { status: 404 }

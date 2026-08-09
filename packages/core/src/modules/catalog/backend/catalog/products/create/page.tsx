@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -381,7 +382,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()
           }
@@ -1941,7 +1942,7 @@ function ProductMetaSection({
           )}
         />
         {errors.subtitle ? (
-          <p className="text-xs text-red-600">{errors.subtitle}</p>
+          <p className="text-xs text-status-error-text">{errors.subtitle}</p>
         ) : null}
       </div>
 
@@ -1972,7 +1973,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.handle ? (
-          <p className="text-xs text-red-600">{errors.handle}</p>
+          <p className="text-xs text-status-error-text">{errors.handle}</p>
         ) : null}
       </div>
 
@@ -1994,7 +1995,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.sku ? (
-          <p className="text-xs text-red-600">{errors.sku}</p>
+          <p className="text-xs text-status-error-text">{errors.sku}</p>
         ) : null}
       </div>
 
@@ -2031,7 +2032,7 @@ function ProductMetaSection({
           </SelectContent>
         </Select>
         {errors.productType ? (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-status-error-text">
             {errors.productType}
           </p>
         ) : null}
@@ -2104,7 +2105,7 @@ function ProductMetaSection({
               )}
         </p>
         {errors.taxRateId ? (
-          <p className="text-xs text-red-600">{errors.taxRateId}</p>
+          <p className="text-xs text-status-error-text">{errors.taxRateId}</p>
         ) : null}
       </div>
     </div>

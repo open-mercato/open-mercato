@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
+import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
@@ -21,6 +22,11 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
+  // Next 16.3+ has `next dev` auto-generate AGENTS.md/CLAUDE.md pointing agents
+  // at node_modules/next/dist/docs. This repo owns its own agent-instruction
+  // chain with a ratcheted byte budget (yarn agents:check-budget), so the
+  // generated files would be untracked churn outside that system.
+  agentRules: false,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
@@ -49,6 +55,12 @@ const nextConfig: NextConfig = {
     'esbuild',
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
+    // Telemetry: the OTEL SDK + instrumentations must run as real Node modules,
+    // not be bundled — the auto-instrumentations (pg/undici) monkey-patch the
+    // underlying drivers at runtime. The full list is owned by
+    // @open-mercato/telemetry so it can never drift into a partial (silently
+    // "emits nothing") copy.
+    ...telemetryServerExternalPackages,
   ],
   // Mirror server-only env vars that client components must observe. Keep this
   // list minimal — anything added here is inlined into the client bundle.

@@ -43,6 +43,7 @@ import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
+import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -99,6 +100,11 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'Unable to open static sorted file',
   'TurbopackInternalError',
 ]
+
+// Next.js gives up on `.mercato/next/dev/lock` after 1000ms, so a dev server
+// that lost a startup race against a still-shutting-down sibling needs a
+// slightly longer pause before the retry can win the lock.
+const DEV_COLD_START_RETRY_DELAY_MS = 1500
 
 const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
 
@@ -264,7 +270,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 }
 
 function isTurbopackCacheCorruption(output: string): boolean {
-  return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
+  return TURBOPACK_CORRUPTION_PATTERNS.some((pattern) => output.includes(pattern))
 }
 
 function removeTurbopackDevCache(appDir: string): void {
@@ -862,7 +868,10 @@ async function buildAllModules(): Promise<Module[]> {
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  await ensureEnvLoaded({ createIfMissing: first !== 'deploy', quiet: first === 'deploy' })
+  await ensureEnvLoaded({
+    createIfMissing: first !== 'deploy' && first !== 'telemetry',
+    quiet: first === 'deploy' || first === 'telemetry',
+  })
   
   // Handle init command directly
   if (first === 'init') {
@@ -1327,6 +1336,20 @@ export async function run(argv = process.argv) {
     return exitCode
   }
 
+  // Handle telemetry command (bootstrap-free) — wires @open-mercato/telemetry
+  // into an app scaffolded before telemetry existed.
+  if (first === 'telemetry') {
+    if (second === 'init') {
+      const { runTelemetryInit } = await import('./lib/telemetry-init')
+      return runTelemetryInit(remaining.filter(Boolean))
+    }
+    console.log('Usage: yarn mercato telemetry init [--dry-run]')
+    console.log('  Wires @open-mercato/telemetry into this app (package.json, .env,')
+    console.log('  instrumentation.ts, next.config.ts, and the API dispatcher).')
+    console.log('  Idempotent and safe to re-run. Use --dry-run to preview changes.')
+    return second && second !== 'help' && second !== '--help' && second !== '-h' ? 1 : 0
+  }
+
   if (first === 'module') {
     try {
       const subcommand = second
@@ -1649,6 +1672,8 @@ export async function run(argv = process.argv) {
                 effectiveByQueue.get(queue) ??
                 concurrencyOverride ??
                 Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
+              const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1657,6 +1682,8 @@ export async function run(argv = process.argv) {
                 queueName: queue,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                lockDuration,
+                maxStalledCount,
                 background: true,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
@@ -1700,6 +1727,8 @@ export async function run(argv = process.argv) {
               // never check out more pooled connections than the worker pool holds.
               const budgetPlan = await resolveWorkerBudgetPlan([{ queue: queueName!, concurrency: requested }])
               const concurrency = budgetPlan.entries[0]?.effective ?? requested
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
+              const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1708,6 +1737,8 @@ export async function run(argv = process.argv) {
                 queueName: queueName!,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                lockDuration,
+                maxStalledCount,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {
@@ -1960,6 +1991,7 @@ export async function run(argv = process.argv) {
 
           let processes: ChildProcess[] = []
           let didRetryCorruptedTurbopackCache = false
+          let didRetryFailedColdStart = false
           let stopping = false
           let devRestartPromiseResolve: ((result: DevServerRestartResult) => void) | null = null
           let activeLazySupervisor: ReturnType<typeof startLazyWorkerSupervisor> | null = null
@@ -1968,6 +2000,10 @@ export async function run(argv = process.argv) {
           let lastRestartReason: string | null = null
           const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
+          // The CLI binary registers this primitive manifest before dispatching
+          // `server dev`. Direct `run()` callers keep the existing module-registry
+          // fallback for backward compatibility and focused unit tests.
+          const devSupervisorManifest = getRegisteredDevSupervisorManifest()
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -2122,6 +2158,30 @@ export async function run(argv = process.argv) {
                   restarted.readyPromise.then(readyResolve)
                   return resolve(await restarted.exitPromise)
                 }
+                // A dev server that dies before it ever reported "ready in" lost a
+                // startup race rather than crashing on user code: a sibling instance
+                // still holding the dev lock, a port that is about to free up, or a
+                // bundler init hiccup on a cold cache. Those all clear on their own,
+                // which is why a second `yarn dev` usually succeeds — retry once here
+                // so the first run succeeds too.
+                if (
+                  !didRetryFailedColdStart
+                  && !reportedReady
+                  && !stopping
+                  && typeof code === 'number'
+                  && code !== 0
+                ) {
+                  didRetryFailedColdStart = true
+                  lastRestartReason = 'a failed cold start'
+                  writeDevSplashRuntimeRestarting(lastRestartReason)
+                  console.log(`[server] Next.js dev server exited before becoming ready (exit code ${code}). Retrying once...`)
+                  await new Promise((wake) => setTimeout(wake, DEV_COLD_START_RETRY_DELAY_MS))
+                  if (!stopping) {
+                    const restarted = startNextDev(runtimeEnv)
+                    restarted.readyPromise.then(readyResolve)
+                    return resolve(await restarted.exitPromise)
+                  }
+                }
                 resolve({
                   label: 'Next.js dev server',
                   code,
@@ -2152,14 +2212,15 @@ export async function run(argv = process.argv) {
               applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-              const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const schedulerStartStatus = devSupervisorManifest?.schedulerStartStatus
+                ?? lookupModuleCommand(getCliModules(), 'scheduler', 'start').status
               const embedSchedulerInSharedWorker =
                 shouldEmbedLocalSchedulerInSharedWorker(process.env)
                 && queueStrategy === 'local'
                 && autoSpawnWorkersMode === 'lazy'
                 && resolveLazySpawnMode(process.env) === 'shared'
                 && autoSpawnSchedulerMode !== 'off'
-                && schedulerCommand.status === 'ok'
+                && schedulerStartStatus === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2193,10 +2254,13 @@ export async function run(argv = process.argv) {
                 }
 
                 if (autoSpawnWorkersMode !== 'off') {
-                  const discoveredWorkers = getRegisteredCliWorkers()
+                  const discoveredWorkers = devSupervisorManifest?.workers ?? getRegisteredCliWorkers()
                   const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
                   if (discoveredWorkerQueues.length === 0) {
-                    console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                    const workerRegistryFile = devSupervisorManifest
+                      ? 'dev-supervisor.generated.json'
+                      : 'modules.cli.generated.ts'
+                    console.error(`[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run \`yarn generate\` and verify \`.mercato/generated/${workerRegistryFile}\` contains worker entries. Continuing without auto-spawned workers.`)
                   } else if (autoSpawnWorkersMode === 'lazy') {
                     const lazySpawnMode = resolveLazySpawnMode(process.env)
                     const lazyModeHint = lazySpawnMode === 'shared'
@@ -2244,8 +2308,8 @@ export async function run(argv = process.argv) {
                 if (embedSchedulerInSharedWorker && activeLazySupervisor) {
                   console.log('[server] Local scheduler will run inside the lazy shared worker process.')
                 } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
-                  if (schedulerCommand.status !== 'ok') {
-                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                  if (schedulerStartStatus !== 'ok') {
+                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand({ status: schedulerStartStatus })}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
                     console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
                     activeLazySchedulerSupervisor = startLazySchedulerSupervisor({

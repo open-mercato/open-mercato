@@ -2,6 +2,10 @@ import { LocalSchedulerService } from '../localSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities.js'
+import {
+  clearSchedulerSafeCommandsForTests,
+  registerSchedulerSafeCommands,
+} from '../../lib/scheduler-safe-commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -54,12 +58,19 @@ describe('LocalSchedulerService', () => {
   let mockForkedEm: jest.Mocked<EntityManager>
   let mockQueue: jest.Mocked<Queue>
   let mockQueueFactory: jest.Mock
-  let mockRbacService: { tenantHasFeature: jest.Mock }
+  let mockRbacService: { tenantHasFeature: jest.Mock; userHasAllFeatures: jest.Mock }
   let mockLockStrategy: { runWithLock: jest.Mock }
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
+    clearSchedulerSafeCommandsForTests()
+    registerSchedulerSafeCommands([
+      {
+        commandId: 'test:command',
+        requiredFeatures: ['scheduler.jobs.manage'],
+      },
+    ])
 
     // Create mock queue
     mockQueue = {
@@ -84,6 +95,7 @@ describe('LocalSchedulerService', () => {
     // Create mock RBAC service
     mockRbacService = {
       tenantHasFeature: jest.fn(),
+      userHasAllFeatures: jest.fn().mockResolvedValue(true),
     }
 
     // Create service
@@ -111,6 +123,16 @@ describe('LocalSchedulerService', () => {
 
       expect(loggerInfo).toHaveBeenCalledWith('Starting polling engine', { pollIntervalMs: 1000 })
       expect(loggerInfo).toHaveBeenCalledWith('Polling engine started')
+    })
+
+    it('should warn that the local strategy has no cross-process protection', async () => {
+      mockForkedEm.find.mockResolvedValue([])
+
+      await service.start()
+
+      expect(loggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('no cross-process protection'),
+      )
     })
 
     it('should run initial poll immediately', async () => {
@@ -271,9 +293,9 @@ describe('LocalSchedulerService', () => {
 
       expect(mockQueue.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({
-          scheduleId: 'test-1',
-          scheduleName: 'Test Schedule',
-          scopeType: 'system',
+          tenantId: null,
+          organizationId: null,
+          _idempotencyKey: expect.stringMatching(/^scheduler-test-1-/),
         })
       )
     })
@@ -283,6 +305,7 @@ describe('LocalSchedulerService', () => {
         targetType: 'command',
         targetCommand: 'test:command',
         targetQueue: null,
+        createdByUserId: 'user-1',
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -302,8 +325,85 @@ describe('LocalSchedulerService', () => {
             tenantId: null,
             organizationId: null,
           }),
+          ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-1',
+              userId: 'user-1',
+              tenantId: null,
+              orgId: null,
+            }),
+          }),
         })
       )
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['scheduler.jobs.manage'],
+        { tenantId: null, organizationId: null }
+      )
+    })
+
+    it('should reject command target that is not scheduler safe', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'unsafe.command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: 'Scheduled command is not allowed',
+        })
+      )
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('should reject command target when the schedule creator lacks required features', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'test:command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+
+      mockRbacService.userHasAllFeatures.mockResolvedValueOnce(false)
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['scheduler.jobs.manage'],
+        { tenantId: null, organizationId: null }
+      )
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: 'Scheduled command creator is not authorized',
+        })
+      )
+      consoleErrorSpy.mockRestore()
     })
 
     it('should emit started event', async () => {
@@ -548,9 +648,9 @@ describe('LocalSchedulerService', () => {
       )
     })
 
-    it('should pass payload to queue job', async () => {
+    it('should deliver the flat targetPayload contract to the queue job', async () => {
       const schedule = createSchedule({
-        targetPayload: { foo: 'bar', baz: 123 },
+        targetPayload: { foo: 'bar', baz: 123, tenantId: 'spoofed-tenant' },
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -565,9 +665,17 @@ describe('LocalSchedulerService', () => {
 
       expect(mockQueue.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: { foo: 'bar', baz: 123 },
+          foo: 'bar',
+          baz: 123,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          _idempotencyKey: expect.stringMatching(new RegExp(`^scheduler-${schedule.id}-`)),
         })
       )
+      const enqueued = mockQueue.enqueue.mock.calls[0][0] as Record<string, unknown>
+      expect(enqueued).not.toHaveProperty('payload')
+      expect(enqueued).not.toHaveProperty('scheduleId')
+      expect(enqueued).not.toHaveProperty('scheduleName')
     })
 
     it('should pass scope to command input', async () => {
@@ -579,6 +687,7 @@ describe('LocalSchedulerService', () => {
         scopeType: 'organization',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
+        createdByUserId: 'user-1',
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -600,6 +709,11 @@ describe('LocalSchedulerService', () => {
             organizationId: 'org-1',
           }),
           ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-1',
+              tenantId: 'tenant-1',
+              orgId: 'org-1',
+            }),
             selectedOrganizationId: 'org-1',
             organizationIds: ['org-1'],
           }),

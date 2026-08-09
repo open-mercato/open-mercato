@@ -18,7 +18,7 @@ import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import {
   Dialog,
   DialogContent,
@@ -418,7 +418,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     .pick({ label: true, description: true, defaultEditor: true as any })
     .extend({
       // Allow empty string in the UI select, treat as undefined later
-      defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText']).optional(), z.literal('')]).optional(),
+      defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText','plain']).optional(), z.literal('')]).optional(),
       // Include showInSidebar so CrudForm doesn't strip it on submit
       showInSidebar: z.boolean().optional(),
       accessRestricted: z.boolean().optional(),
@@ -438,6 +438,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         { value: 'markdown', label: t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)') },
         { value: 'simpleMarkdown', label: t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown') },
         { value: 'htmlRichText', label: t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text') },
+        { value: 'plain', label: t('entities.userEntities.form.defaultEditor.options.plain', 'Plain textarea') },
       ],
     } as any,
     ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' }] : []),
@@ -505,7 +506,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const definitionsGroup: CrudFormGroup = { id: 'definitions', title: t('entities.userEntities.edit.groups.definitions', 'Field Definitions'), column: 1, component: renderFieldDefinitions }
 
   const groups: CrudFormGroup[] = [
-    { id: 'settings', title: t('entities.userEntities.edit.groups.settings', 'Entity Settings'), column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar','accessRestricted'] : ['label','description','defaultEditor'] },
+    {
+      id: 'settings',
+      title: t('entities.userEntities.edit.groups.settings', 'Entity Settings'),
+      column: 1,
+      description: getEntitySettingsNotice(entitySource, t),
+      fields: entitySource === 'custom'
+        ? ['label', 'description', 'defaultEditor', 'showInSidebar', 'accessRestricted']
+        : ['label', 'description', 'defaultEditor'],
+    },
     definitionsGroup,
   ]
 
@@ -565,7 +574,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       <Page>
         <PageBody>
           <div className="p-6">
-            <Alert variant="destructive">
+            <Alert status="error">
               <AlertTitle>{t('entities.userEntities.edit.errors.invalidEntityTitle', 'Invalid entity')}</AlertTitle>
               <AlertDescription>{t('entities.userEntities.edit.errors.invalidEntityDescription', 'The requested entity ID is missing or invalid.')}</AlertDescription>
             </Alert>
@@ -654,6 +663,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
 
 export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
   return entitySource === 'custom'
+}
+
+const SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK =
+  'This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.'
+
+export function getEntitySettingsNotice(entitySource: EntitySource, t: TranslateFn): string | undefined {
+  return shouldRegisterEntityMetadata(entitySource)
+    ? undefined
+    : t('entities.userEntities.form.systemEntityNotice', SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK)
 }
 
 export function buildDefinitionsBatchPayload(options: {

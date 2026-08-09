@@ -107,6 +107,7 @@ import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/share
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { crudFormExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
 import MarkdownField from './inputs/MarkdownField'
 
@@ -822,7 +823,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (injectionSpotId) return injectionSpotId
     if (resolvedEntityIds.length) {
       const normalized = resolvedEntityIds[0].replace(/[:]+/g, '.')
-      return `crud-form:${normalized}`
+      return crudFormExtensionSpotId(normalized)
     }
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
@@ -831,7 +832,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (resolvedEntityIds.length) return ComponentReplacementHandles.crudForm(resolvedEntityIds[0].replace(/[:]+/g, '.'))
     return ComponentReplacementHandles.crudForm('unknown')
   }, [replacementHandle, resolvedEntityIds])
-  const headerInjectionSpotId = resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : undefined
+  const headerInjectionSpotId = resolvedInjectionSpotId
+    ? extensionSpotChildId(resolvedInjectionSpotId, 'header')
+    : undefined
   
   const recordId = React.useMemo(() => {
     const raw = values.id
@@ -1089,7 +1092,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     triggerOnLoad: true,
   })
   const { widgets: injectedFieldWidgets } = useInjectionDataWidgets(
-    resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:fields` : '__disabled__:fields'
+    resolvedInjectionSpotId
+      ? extensionSpotChildId(resolvedInjectionSpotId, 'fields')
+      : '__disabled__:fields'
   )
   
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
@@ -2408,10 +2413,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
+      // The fieldset selector never renders an empty option, so a user can never
+      // pick "no fieldset". An empty/null value here only comes from Radix's
+      // hidden native <select>, which fires a spurious onChange when the
+      // controlled value is changed programmatically after mount (e.g. when the
+      // persisted customFieldsetCode arrives via async initialValues and the
+      // binding hydrates the selection). Honoring that reset would wipe both the
+      // selection and the bound value, collapsing the form back to the default
+      // fieldset (#2646). Ignore it.
+      if (!nextCode) return
       setCfFieldsetSelections((prev) => ({ ...prev, [entityId]: nextCode }))
       const bindingKey = customFieldsetBindings?.[entityId]?.valueKey
       if (bindingKey) {
-        setValue(bindingKey, nextCode ?? undefined)
+        setValue(bindingKey, nextCode)
       }
     },
     [customFieldsetBindings, setValue],

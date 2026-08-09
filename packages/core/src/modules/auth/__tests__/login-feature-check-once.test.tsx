@@ -94,6 +94,22 @@ const featureCheckCalls = () =>
   mockApiCall.mock.calls.filter(([url]) => url === '/api/auth/feature-check').length
 
 describe('LoginPage — feature-check fires once (#3128)', () => {
+  it('does not turn the pre-login identity probe into a session-expiry redirect', async () => {
+    await act(async () => {
+      render(<LoginPage />)
+    })
+
+    await waitFor(() => expect(featureCheckCalls()).toBe(1))
+
+    const featureCheckCall = mockApiCall.mock.calls.find(([url]) => url === '/api/auth/feature-check')
+    expect(featureCheckCall?.[1]).toMatchObject({
+      headers: {
+        'content-type': 'application/json',
+        'x-om-unauthorized-redirect': '0',
+      },
+    })
+  })
+
   it('does not re-issue POST /api/auth/feature-check when the tenant param is cleared', async () => {
     currentSearchParams = new URLSearchParams({ redirect: '/backend', tenant: 'tenant-1' })
 
@@ -112,5 +128,23 @@ describe('LoginPage — feature-check fires once (#3128)', () => {
     })
 
     expect(featureCheckCalls()).toBe(1)
+  })
+})
+
+describe('LoginPage — session probe opts out of the session-expired redirect', () => {
+  it('sends the unauthorized/forbidden opt-out headers so a late 401 cannot flash "Session expired"', async () => {
+    await act(async () => {
+      render(<LoginPage />)
+    })
+    await waitFor(() => expect(featureCheckCalls()).toBe(1))
+
+    const [, init] = mockApiCall.mock.calls.find(([url]) => url === '/api/auth/feature-check') as [
+      string,
+      { headers?: Record<string, string> },
+    ]
+    expect(init.headers).toMatchObject({
+      'x-om-unauthorized-redirect': '0',
+      'x-om-forbidden-redirect': '0',
+    })
   })
 })

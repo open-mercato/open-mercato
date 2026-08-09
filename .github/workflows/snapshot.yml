@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
@@ -163,7 +163,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
@@ -227,6 +227,11 @@ jobs:
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
+          # `yarn start` serves a production build, so NODE_ENV is production in
+          # the server process regardless of the NODE_ENV=test line below, and
+          # customer-portal email links refuse to fall back to localhost there.
+          # Without this every portal invite 502s (TC-AUTH-032/033, TC-CACC-INVITE-PERSON-001).
+          PLATFORM_PORTAL_BASE_URL=http://localhost:3001
           AUTH_SECRET=ci-standalone-test-auth-secret
           JWT_SECRET=ci-standalone-test-jwt-secret
           OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
@@ -259,6 +264,11 @@ jobs:
           CACHE_SQLITE_PATH=/tmp/standalone-app/.mercato/cache/cache.db
           OM_OPTIMISTIC_LOCK=all
           EOF
+          # The app writes captured test emails here and the Playwright specs read
+          # them back; the two processes have different working directories, so the
+          # path must be absolute and identical on both sides (see the matching
+          # OM_TEST_EMAIL_CAPTURE_PATH on the integration-test step).
+          echo "OM_TEST_EMAIL_CAPTURE_PATH=${GITHUB_WORKSPACE}/.ai/qa/email-capture.jsonl" >> .env
 
       - name: Install standalone app dependencies
         working-directory: /tmp/standalone-app
@@ -328,6 +338,10 @@ jobs:
           DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL: http://localhost:3001
           NEXT_PUBLIC_APP_URL: http://localhost:3001
+          PLATFORM_PORTAL_BASE_URL: http://localhost:3001
+          # Must match the value written into the standalone app's .env — the app
+          # writes captured emails here and TC-AUTH-033 reads them back.
+          OM_TEST_EMAIL_CAPTURE_PATH: ${{ github.workspace }}/.ai/qa/email-capture.jsonl
           AUTH_SECRET: ci-standalone-test-auth-secret
           JWT_SECRET: ci-standalone-test-jwt-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key

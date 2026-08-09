@@ -96,9 +96,23 @@ export type VectorDriverRemoveOrphansParams = {
   olderThan: Date
 }
 
+export type VectorDriverStatus = {
+  available: boolean
+  reason?: string
+}
+
 export interface VectorDriver {
   readonly id: VectorDriverId
   ensureReady(): Promise<void>
+  /**
+   * Cheap, cached probe answering whether the backing store can serve reads and
+   * writes at all. Drivers that cannot satisfy their hard requirements (for
+   * pgvector: the `vector` extension) MUST report `false` here so callers skip
+   * the strategy instead of failing every record. Optional for backward
+   * compatibility — an absent implementation is treated as available.
+   */
+  isHealthy?(): Promise<boolean>
+  getStatus?(): Promise<VectorDriverStatus>
   upsert(doc: VectorDriverDocument): Promise<void>
   delete(entityId: EntityId, recordId: string, tenantId: string): Promise<void>
   query(input: VectorDriverQuery): Promise<VectorDriverQueryResult[]>

@@ -23,6 +23,7 @@ import {
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { resolveNotificationService } from "../../notifications/lib/notificationService";
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
+import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
@@ -75,6 +76,8 @@ import {
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
   orderCreateSchema,
+  ORDER_PAYMENT_LEDGER_WARNING_CODE,
+  resolveSuppliedOrderPaymentLedgerFields,
   orderLineCreateSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
@@ -86,6 +89,7 @@ import {
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
   type OrderCreateInput,
+  type OrderPaymentLedgerWarning,
   type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
@@ -126,7 +130,8 @@ import {
   type SalesDocumentCalculationResult,
 } from "../lib/types";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
-import { resolveDictionaryEntryValue } from "../lib/dictionaries";
+import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
@@ -141,6 +146,7 @@ import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/tran
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+let warnedDeprecatedOrderPaymentLedgerInput = false
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -659,6 +665,41 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Persists document-level custom fields supplied on a create input.
+ *
+ * Order and quote creates used to accept `customFields` at the HTTP boundary
+ * (`splitCustomFieldPayload` folds `cf_*` keys into it) and then drop the values
+ * on the floor, because the create schemas never declared the key and the
+ * handlers never wrote it — only updates did. Callers therefore had to create,
+ * then immediately update, to get custom fields to stick.
+ */
+async function setDocumentCustomFieldsIfSupplied(
+  em: EntityManager,
+  params: {
+    entityId: string;
+    recordId: string;
+    organizationId: string;
+    tenantId: string;
+    customFields: unknown;
+  },
+): Promise<void> {
+  const { customFields } = params;
+  if (customFields === undefined || customFields === null) return;
+  const values =
+    typeof customFields === "object" && !Array.isArray(customFields)
+      ? (customFields as Record<string, unknown>)
+      : {};
+  if (!Object.keys(values).length) return;
+  await setRecordCustomFields(em, {
+    entityId: params.entityId,
+    recordId: params.recordId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    values: normalizeCustomFieldValues(values),
+  });
+}
+
 async function resolveCustomerSnapshot(
   em: EntityManager,
   organizationId: string,
@@ -855,6 +896,70 @@ function normalizeStatusValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function isConfirmedOrderStatus(status: string | null): boolean {
+  return status === "confirmed";
+}
+
+function isCancelledOrderStatus(status: string | null): boolean {
+  return status === "canceled" || status === "cancelled";
+}
+
+async function emitOrderLifecycleEvent(input: {
+  eventId: "sales.order.confirmed" | "sales.order.cancelled";
+  order: SalesOrder;
+  previousStatus: string | null;
+}): Promise<void> {
+  await emitSalesEvent(input.eventId, {
+    id: input.order.id,
+    orderId: input.order.id,
+    orderNumber: input.order.orderNumber,
+    previousStatus: input.previousStatus,
+    status: normalizeStatusValue(input.order.status),
+    tenantId: input.order.tenantId,
+    organizationId: input.order.organizationId,
+  });
+}
+
+function emitOrderLifecycleEventsForTransition(input: {
+  order: SalesOrder;
+  previousStatus: string | null;
+}): void {
+  const nextStatus = normalizeStatusValue(input.order.status);
+  if (input.previousStatus === nextStatus) return;
+
+  if (isConfirmedOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.confirmed",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      // Surface as warning so downstream automations (e.g. WMS reservation
+      // subscriber) failing to register/persist their own follow-up state is
+      // observable in logs instead of being silently dropped. The order
+      // status transition itself is already committed at this point.
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.confirmed",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
+
+  if (isCancelledOrderStatus(nextStatus)) {
+    void emitOrderLifecycleEvent({
+      eventId: "sales.order.cancelled",
+      order: input.order,
+      previousStatus: input.previousStatus,
+    }).catch((err) => {
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.cancelled",
+        orderId: input.order.id,
+        err,
+      });
+    });
+  }
 }
 
 function resolveNoteAuthorFromAuth(auth: AuthContext | null): string | null {
@@ -4116,6 +4221,20 @@ async function restoreOrderGraph(
       organizationId: snapshot.order.organizationId,
     },
   );
+  let existingLines: SalesOrderLine[] = [];
+  if (order) {
+    existingLines = await em.find(
+      SalesOrderLine,
+      { order },
+      { orderBy: { lineNumber: "asc" } },
+    );
+    await assertShippedOrderGraphRestorable(
+      em,
+      order,
+      existingLines,
+      snapshot,
+    );
+  }
   if (!order) {
     order = em.create(SalesOrder, {
       id: snapshot.order.id,
@@ -4200,11 +4319,6 @@ async function restoreOrderGraph(
   }
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
-  const existingLines = await em.find(
-    SalesOrderLine,
-    { order: order.id },
-    { fields: ["id"] },
-  );
   const existingAdjustments = await em.find(
     SalesOrderAdjustment,
     { order: order.id },
@@ -4711,6 +4825,13 @@ const createQuoteCommand: CommandHandler<
             organizationId: quote.organizationId,
             tenantId: quote.tenantId,
             tagIds: parsed.tags,
+          });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_quote,
+            recordId: quote.id,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            customFields: parsed.customFields,
           });
         },
       ],
@@ -5358,6 +5479,7 @@ const updateOrderCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    emitOrderLifecycleEventsForTransition({ order, previousStatus });
     if (statusChangeNote) {
       const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
@@ -5438,14 +5560,22 @@ const updateOrderCommand: CommandHandler<
 
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
-  { orderId: string }
+  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
+    const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
+    if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
+      warnedDeprecatedOrderPaymentLedgerInput = true
+      logger.warn("sales.orders.create ignored deprecated payment ledger input", {
+        code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+        fields: deprecatedPaymentLedgerFields,
+      })
+    }
     const orderNumber =
       typeof initial.orderNumber === "string" &&
       initial.orderNumber.trim().length
@@ -5464,10 +5594,15 @@ const createOrderCommand: CommandHandler<
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    // Soft-resolve the cache so the per-order status/fulfillment/payment dictionary lookups are
+    // memoized across a bulk import; degrades to a straight EM read when no cache is registered.
+    const dictionaryCache = ctx.container.resolve("cache", { allowUnregistered: true }) as
+      | CacheStrategy
+      | undefined;
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveCachedDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -5720,6 +5855,13 @@ const createOrderCommand: CommandHandler<
             tenantId: order.tenantId,
             tagIds: parsed.tags,
           });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_order,
+            recordId: order.id,
+            organizationId: order.organizationId,
+            tenantId: order.tenantId,
+            customFields: parsed.customFields,
+          });
         },
       ],
       { transaction: true },
@@ -5794,7 +5936,24 @@ const createOrderCommand: CommandHandler<
       "created",
     );
 
-    return { orderId: order.id };
+    emitOrderLifecycleEventsForTransition({
+      order,
+      previousStatus: null,
+    });
+
+    return {
+      orderId: order.id,
+      ...(deprecatedPaymentLedgerFields.length
+        ? {
+            warnings: [
+              {
+                code: ORDER_PAYMENT_LEDGER_WARNING_CODE,
+                fields: deprecatedPaymentLedgerFields,
+              },
+            ],
+          }
+        : {}),
+    };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -6524,11 +6683,50 @@ const quoteAdjustmentDeleteSchema = z.object({
 
 const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
 
+// Locked outright on a shipped line: none of these may move at all.
+const SHIPPED_LINE_NUMERIC_PRICING_FIELDS = [
+  "unitPriceNet",
+  "unitPriceGross",
+  "discountAmount",
+  "discountPercent",
+  "taxRate",
+] as const;
+
+// Line totals are derived, not authored: clients recompute and echo them on every
+// submit, so raising the quantity of a shipped line legitimately changes them. They
+// are still writable straight through, so they cannot simply be ignored either.
+// The invariant that separates a quantity edit from moving money is the per-unit
+// economics — total per unit must stay put, whatever the quantity does. That also
+// keeps discounted lines working, since a proportional total scales with quantity.
+const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
+  "totalNetAmount",
+  "totalGrossAmount",
+] as const;
+
+type ShippedLineComparable = Pick<
+  SalesLineSnapshot,
+  | "quantity"
+  | "quantityUnit"
+  | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
+  | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
+>;
+
 const hasNumericChange = (
   next: number | null | undefined,
   previous: number | null | undefined,
 ): boolean => {
   if (next === undefined || next === null) return false;
+  if (previous === undefined || previous === null) return true;
+  return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
+};
+
+const hasExactNumericChange = (
+  next: number | null | undefined,
+  previous: number | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) {
+    return previous !== undefined && previous !== null;
+  }
   if (previous === undefined || previous === null) return true;
   return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
 };
@@ -6543,6 +6741,111 @@ const hasUnitChange = (
   return next.trim().toLowerCase() !== normalizedPrevious;
 };
 
+const hasExactUnitChange = (
+  next: string | null | undefined,
+  previous: string | null | undefined,
+): boolean =>
+  (next ?? "").trim().toLowerCase() !==
+  (previous ?? "").trim().toLowerCase();
+
+function hasShippedLineTotalChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  nextQuantity: number | null | undefined,
+  exact: boolean,
+): boolean {
+  const numericChange = exact ? hasExactNumericChange : hasNumericChange;
+  const previousQuantity = previous.quantity;
+  const canScale =
+    typeof previousQuantity === "number" &&
+    Math.abs(previousQuantity) > SHIPPED_QUANTITY_TOLERANCE &&
+    typeof nextQuantity === "number";
+
+  return SHIPPED_LINE_DERIVED_TOTAL_FIELDS.some((field) => {
+    const nextTotal = next[field];
+    const previousTotal = previous[field];
+    // Without a scalable quantity pair there is nothing to derive the expected
+    // total from, so fall back to locking the value outright.
+    if (!canScale || typeof previousTotal !== "number") {
+      return numericChange(nextTotal, previousTotal);
+    }
+    if (nextTotal === undefined || nextTotal === null) {
+      return exact ? numericChange(nextTotal, previousTotal) : false;
+    }
+    const expectedTotal =
+      (previousTotal / (previousQuantity as number)) * (nextQuantity as number);
+    // Scale the tolerance with magnitude: a fixed 1e-6 is below the float noise
+    // floor once totals reach six figures.
+    const tolerance = Math.max(
+      SHIPPED_QUANTITY_TOLERANCE,
+      Math.abs(expectedTotal) * 1e-9,
+    );
+    return Math.abs(nextTotal - expectedTotal) > tolerance;
+  });
+}
+
+function hasShippedLinePricingChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  nextQuantity: number | null | undefined,
+  exact: boolean,
+): boolean {
+  const numericChange = exact ? hasExactNumericChange : hasNumericChange;
+  return (
+    SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
+      numericChange(next[field], previous[field]),
+    ) ||
+    hasShippedLineTotalChange(next, previous, nextQuantity, exact) ||
+    (exact
+      ? hasExactUnitChange(next.quantityUnit, previous.quantityUnit)
+      : hasUnitChange(next.quantityUnit, previous.quantityUnit))
+  );
+}
+
+async function assertShippedOrderLineChangeAllowed(
+  existingSnapshot: SalesLineSnapshot,
+  nextSnapshot: Partial<ShippedLineComparable> | null,
+  shippedQuantity: number,
+  exact: boolean,
+): Promise<void> {
+  if (shippedQuantity <= 0) return;
+
+  const nextQuantity = nextSnapshot
+    ? exact
+      ? nextSnapshot.quantity
+      : (nextSnapshot.quantity ?? existingSnapshot.quantity)
+    : 0;
+  const quantityInvalid =
+    nextQuantity === undefined ||
+    nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE;
+  const pricingChanged =
+    nextSnapshot !== null &&
+    hasShippedLinePricingChange(
+      nextSnapshot,
+      existingSnapshot,
+      nextQuantity,
+      exact,
+    );
+  if (!quantityInvalid && !pricingChanged) return;
+
+  const { translate } = await resolveTranslations();
+  if (quantityInvalid) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorQuantityBelowShipped",
+        "You cannot lower the quantity below the {{shipped}} already shipped.",
+        { shipped: shippedQuantity },
+      ),
+    });
+  }
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorPriceShipped",
+      "You cannot change the price or unit of a line that has shipped items.",
+    ),
+  });
+}
+
 async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
@@ -6556,33 +6859,65 @@ async function assertShippedOrderLineEditable(
     organizationId: order.organizationId,
   });
   const shippedQuantity = shippedByLine.get(lineId) ?? 0;
-  if (shippedQuantity <= 0) return;
+  await assertShippedOrderLineChangeAllowed(
+    existingSnapshot,
+    parsed,
+    shippedQuantity,
+    false,
+  );
+}
 
+async function assertShippedOrderGraphRestorable(
+  em: EntityManager,
+  order: SalesOrder,
+  existingLines: SalesOrderLine[],
+  snapshot: OrderGraphSnapshot,
+): Promise<void> {
+  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  });
+  if (shippedByLine.size === 0) return;
+
+  const snapshotLinesById = new Map(
+    snapshot.lines.flatMap((line) => (line.id ? [[line.id, line] as const] : [])),
+  );
+  for (const line of existingLines) {
+    const shippedQuantity = shippedByLine.get(line.id) ?? 0;
+    if (shippedQuantity <= 0) continue;
+    await assertShippedOrderLineChangeAllowed(
+      mapOrderLineEntityToSnapshot(line),
+      snapshotLinesById.get(line.id) ?? null,
+      shippedQuantity,
+      true,
+    );
+  }
+}
+
+const FULFILLED_ORDER_STATUS = "fulfilled";
+
+const isFulfilledOrder = (order: SalesOrder): boolean => {
+  const normalize = (value: string | null | undefined): string =>
+    (value ?? "").trim().toLowerCase();
+  return (
+    normalize(order.status) === FULFILLED_ORDER_STATUS ||
+    normalize(order.fulfillmentStatus) === FULFILLED_ORDER_STATUS
+  );
+};
+
+async function assertOrderAcceptsNewLine(
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+): Promise<void> {
+  if (existingSnapshot) return;
+  if (!isFulfilledOrder(order)) return;
   const { translate } = await resolveTranslations();
-  const nextQuantity = parsed.quantity ?? existingSnapshot.quantity;
-  if (nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE) {
-    throw new CrudHttpError(409, {
-      error: translate(
-        "sales.documents.items.errorQuantityBelowShipped",
-        "You cannot lower the quantity below the {{shipped}} already shipped.",
-        { shipped: shippedQuantity },
-      ),
-    });
-  }
-
-  const pricingChanged =
-    hasNumericChange(parsed.unitPriceNet, existingSnapshot.unitPriceNet) ||
-    hasNumericChange(parsed.unitPriceGross, existingSnapshot.unitPriceGross) ||
-    hasNumericChange(parsed.taxRate, existingSnapshot.taxRate) ||
-    hasUnitChange(parsed.quantityUnit, existingSnapshot.quantityUnit);
-  if (pricingChanged) {
-    throw new CrudHttpError(409, {
-      error: translate(
-        "sales.documents.items.errorPriceShipped",
-        "You cannot change the price or unit of a line that has shipped items.",
-      ),
-    });
-  }
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorAddToFulfilled",
+      "You cannot add a new item to a fulfilled order. Change the order status first.",
+    ),
+  });
 }
 
 const orderLineUpsertCommand: CommandHandler<
@@ -6629,6 +6964,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertOrderAcceptsNewLine(order, existingSnapshot);
     await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
@@ -6964,6 +7300,14 @@ const orderLineDeleteCommand: CommandHandler<
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
         ));
+    }
+    if (filtered.length === 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
+        ),
+      });
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),
