@@ -69,7 +69,10 @@ test.describe('TC-WC-002: warranty claim line partial approvals', () => {
 
       const rolledUp = await expectClaimStatus(request, token, partialClaimId!, 'draft')
       expect(numeric(rolledUp.totalClaimedAmount), 'claimed total should sum line credit amounts').toBe(100)
-      expect(numeric(rolledUp.totalApprovedAmount), 'approved total should apply approved-line rollup policy').toBe(105)
+      // LINE-05: restocking fee and core credit are return-family adjustments. This is a
+      // `warranty` claim, so the approved total settles on the credit amount alone and must
+      // NOT become 100 - 5 + 10 = 105.
+      expect(numeric(rolledUp.totalApprovedAmount), 'warranty approved total should ignore restock/core adjustments').toBe(100)
 
       const invalidApprove = await updateClaimLine(
         request,

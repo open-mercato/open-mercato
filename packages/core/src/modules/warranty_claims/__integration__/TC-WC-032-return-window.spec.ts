@@ -26,7 +26,13 @@ async function createAgedOrderFixture(
   const placedAt = new Date(Date.now() - placedDaysAgo * 86_400_000).toISOString()
   const response = await apiRequest(request, 'POST', '/api/sales/orders', {
     token,
-    data: { currencyCode: 'USD', placedAt },
+    // A sales order must contain at least one line (#4021); this zero-priced
+    // placeholder keeps the fixture valid without moving any total.
+    data: {
+      currencyCode: 'USD',
+      placedAt,
+      lines: [{ currencyCode: 'USD', quantity: 1, name: `QA seed line ${Date.now()}`, unitPriceNet: 0, unitPriceGross: 0 }],
+    },
   })
   const body = await readJsonSafe<{ id?: string | null; orderId?: string | null }>(response)
   expect(response.status(), `aged order create should return 201: ${JSON.stringify(body)}`).toBe(201)

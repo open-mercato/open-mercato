@@ -53,6 +53,9 @@ async function createSalesOrderForCustomer(
     token,
     data: {
       currencyCode: 'USD',
+      // A sales order must contain at least one line (#4021); this zero-priced
+          // placeholder keeps the fixture valid without moving any total.
+      lines: [{ currencyCode: 'USD', quantity: 1, name: `QA seed line ${Date.now()}`, unitPriceNet: 0, unitPriceGross: 0 }],
       customerEntityId: input.customerId,
       customerReference: input.orderNumber,
       orderNumber: input.orderNumber,

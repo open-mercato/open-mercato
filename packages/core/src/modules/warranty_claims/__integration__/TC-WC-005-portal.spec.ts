@@ -137,6 +137,9 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         token: adminToken,
         data: {
           currencyCode: 'USD',
+          // A sales order must contain at least one line (#4021); this zero-priced
+          // placeholder keeps the fixture valid without moving any total.
+          lines: [{ currencyCode: 'USD', quantity: 1, name: `QA seed line ${Date.now()}`, unitPriceNet: 0, unitPriceGross: 0 }],
           customerEntityId: companyBId,
           customerReference: `WC-PORTAL-ORDER-B-${stamp}`,
         },
@@ -151,6 +154,9 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         token: adminToken,
         data: {
           currencyCode: 'USD',
+          // A sales order must contain at least one line (#4021); this zero-priced
+          // placeholder keeps the fixture valid without moving any total.
+          lines: [{ currencyCode: 'USD', quantity: 1, name: `QA seed line ${Date.now()}`, unitPriceNet: 0, unitPriceGross: 0 }],
           customerEntityId: companyAId,
           customerReference: orderANumber,
           orderNumber: orderANumber,

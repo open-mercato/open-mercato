@@ -93,6 +93,33 @@ describe('warranty claim state machine', () => {
     })
   })
 
+  test('applies restock and core adjustments only to return-family claim types (LINE-05)', () => {
+    const lines = [{ lineStatus: 'approved' as const, creditAmount: 100, restockingFee: 5, coreCreditAmount: 10 }]
+
+    // Return-family claims settle on credit - restock + core.
+    for (const claimType of ['return', 'core_return']) {
+      expect(computeHeaderRollups(lines, { claimType })).toEqual({
+        totalClaimedAmount: 100,
+        totalApprovedAmount: 105,
+      })
+    }
+
+    // Warranty and vendor-recovery claims settle on the credit amount alone, so they can
+    // never inherit a return's restock/core math.
+    for (const claimType of ['warranty', 'vendor_recovery']) {
+      expect(computeHeaderRollups(lines, { claimType })).toEqual({
+        totalClaimedAmount: 100,
+        totalApprovedAmount: 100,
+      })
+    }
+
+    // An omitted claimType keeps the pre-LINE-05 behavior for existing callers.
+    expect(computeHeaderRollups(lines)).toEqual({
+      totalClaimedAmount: 100,
+      totalApprovedAmount: 105,
+    })
+  })
+
   test('clamps negative approved line contributions and rounds float artifacts', () => {
     expect(computeHeaderRollups([
       { lineStatus: 'approved', credit_amount: '5', restocking_fee: '8' },
