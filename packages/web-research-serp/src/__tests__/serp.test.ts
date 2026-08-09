@@ -71,8 +71,16 @@ describe('serp adapter', () => {
   })
 
   it('falls through to the next engine when the first is blocked', async () => {
+    const isDuckDuckGoHtmlHost = (candidateUrl: string) => {
+      try {
+        return new URL(candidateUrl).hostname === 'html.duckduckgo.com'
+      } catch {
+        return false
+      }
+    }
+
     const http = createStubHttpClient((url) =>
-      url.includes('html.duckduckgo.com')
+      isDuckDuckGoHtmlHost(url)
         ? { body: CHALLENGE_HTML, status: 200 }
         : { body: DDG_HTML.replace(/result__a/g, 'result-link').replace(/result__snippet/g, 'result-snippet') },
     )
