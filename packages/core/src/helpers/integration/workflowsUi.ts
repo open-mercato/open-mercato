@@ -100,16 +100,27 @@ export function workflowHeaderMenuItem(page: Page, label: string): Locator {
   return page.getByRole('menuitem', { name: label, exact: true })
 }
 
-/** Open the header's overflow menu, unless it is already open. */
+/**
+ * Open the header's overflow menu.
+ *
+ * Hover, never click. `ActionsDropdown` opens on `mouseenter` and its trigger
+ * *toggles* on click, so Playwright's `click()` — which moves the pointer over
+ * the element first — opens the menu on the way in and closes it again on the
+ * press. The row-action menus in these specs are driven the same way.
+ */
 export async function openWorkflowHeaderMenu(page: Page): Promise<void> {
-  const trigger = workflowHeaderMenuTrigger(page)
-  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
+  await workflowHeaderMenuTrigger(page).hover()
 }
 
-/** Close the header's overflow menu, unless it is already closed. */
-export async function closeWorkflowHeaderMenu(page: Page): Promise<void> {
-  const trigger = workflowHeaderMenuTrigger(page)
-  if ((await trigger.getAttribute('aria-expanded')) === 'true') await trigger.click()
+/**
+ * Close the header's overflow menu by moving the pointer off it.
+ *
+ * `handleMouseLeave` closes on a 150 ms timer, so callers that go on to touch
+ * the page underneath should await this rather than race the overlay.
+ */
+export async function closeWorkflowHeaderMenu(page: Page, label: string): Promise<void> {
+  await page.mouse.move(0, 0)
+  await expect(workflowHeaderMenuItem(page, label)).toBeHidden({ timeout: 10_000 })
 }
 
 /** Open the header's overflow menu and pick `label`. */
@@ -119,7 +130,7 @@ export async function invokeWorkflowHeaderAction(page: Page, label: string): Pro
 }
 
 /**
- * Assert a header action is offered, then put the menu back as it was.
+ * Assert a header action is offered, then close the menu again.
  *
  * The pre-Studio header rendered these as always-visible buttons, so specs used
  * to assert availability with a bare `toBeVisible()`; the equivalent now is
@@ -132,9 +143,9 @@ export async function expectWorkflowHeaderAction(
 ): Promise<void> {
   await openWorkflowHeaderMenu(page)
   const item = workflowHeaderMenuItem(page, label)
-  if (available) await expect(item).toBeVisible()
+  if (available) await expect(item).toBeVisible({ timeout: 10_000 })
   else await expect(item).toHaveCount(0)
-  await closeWorkflowHeaderMenu(page)
+  await closeWorkflowHeaderMenu(page, label)
 }
 
 /**
