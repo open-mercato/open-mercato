@@ -39,6 +39,10 @@ export const WORKFLOW_DETAILS_MENU_ITEM_LABEL = 'Settings'
 export const WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL = 'Reset to code version'
 export const WORKFLOW_DETAILS_DRAWER_TITLE = 'Workflow details'
 export const WORKFLOW_INSPECTOR_SELECTOR = '[data-slot="workflow-inspector"]'
+/** The START node's trigger cap — the only affordance that opens `TriggersDialog`. */
+export const WORKFLOW_TRIGGER_CAP_TESTID = 'workflow-trigger-cap'
+/** The add button inside `TriggersDialog` (`workflows.triggers.add`). */
+export const WORKFLOW_ADD_TRIGGER_LABEL = 'Add Trigger'
 
 export function visualEditorHref(definitionId?: string | null): string {
   return definitionId
@@ -146,6 +150,22 @@ export async function expectWorkflowHeaderAction(
   if (available) await expect(item).toBeVisible({ timeout: 10_000 })
   else await expect(item).toHaveCount(0)
   await closeWorkflowHeaderMenu(page, label)
+}
+
+/**
+ * Open the focused Triggers modal and wait for it.
+ *
+ * Triggers are NOT part of the definition drawer. The Studio routes them
+ * through `TriggersDialog`, opened from the START node's trigger cap on the
+ * canvas — page.tsx puts it plainly: the author clicked "what starts this", so
+ * the affordance opens exactly that, "NOT the five-section definition drawer".
+ * (The older `DefinitionTriggersEditor` survives only in the mobile sheet.)
+ */
+export async function openWorkflowTriggersDialog(page: Page): Promise<void> {
+  await page.getByTestId(WORKFLOW_TRIGGER_CAP_TESTID).click()
+  await expect(page.getByRole('button', { name: WORKFLOW_ADD_TRIGGER_LABEL })).toBeVisible({
+    timeout: 15_000,
+  })
 }
 
 /**

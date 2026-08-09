@@ -3,23 +3,22 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 import {
-  openWorkflowDetailsDrawer,
   openWorkflowStudio,
+  openWorkflowTriggersDialog,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
 
 /**
  * Open the Studio and reveal the triggers editor.
  *
- * `DefinitionTriggersEditor` (which owns "Add Trigger") now renders only inside
- * `DefinitionMetadataDrawer`'s `inputs` section, and the drawer starts closed —
- * so the old `/backend/definitions/<id>` + immediate "Add Trigger" probe could
- * never converge. The retry/`Something went wrong` scaffolding went with it: it
- * was compensating for the retired form-editor page.
+ * "Add Trigger" is NOT in the definition drawer: the Studio routes triggers
+ * through the focused `TriggersDialog`, opened from the START node's trigger
+ * cap on the canvas. The old `/backend/definitions/<id>` + immediate probe
+ * could never converge, and neither could opening the drawer — the retry and
+ * `Something went wrong` scaffolding went with the retired form editor.
  */
 async function openTriggersEditor(page: Page, definitionId: string): Promise<void> {
   await openWorkflowStudio(page, definitionId)
-  await openWorkflowDetailsDrawer(page)
-  await expect(page.getByRole('button', { name: 'Add Trigger' })).toBeVisible({ timeout: 15_000 })
+  await openWorkflowTriggersDialog(page)
 }
 
 /**
