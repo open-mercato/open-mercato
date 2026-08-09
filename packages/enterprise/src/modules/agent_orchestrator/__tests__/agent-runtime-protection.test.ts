@@ -3,6 +3,13 @@
 // The model execution and the persistence/guardrail helpers are mocked so the
 // tests exercise ONLY the runtime's protection wiring.
 
+// Same harness budget as native-runner-wiring: importing the runtime pulls in
+// the ai_assistant tool registry, whose first-use initialisation exceeds jest's
+// 5 s default on a loaded CI runner. The wall-clock timeout these tests actually
+// assert on is the runtime's own `OM_AGENT_RUN_TIMEOUT_MS` (30 ms), which this
+// does not touch.
+jest.setTimeout(60_000)
+
 const runAiAgentObjectMock = jest.fn<Promise<unknown>, [{ agentId: string }]>()
 jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime', () => ({
   runAiAgentObject: (args: { agentId: string }) => runAiAgentObjectMock(args),

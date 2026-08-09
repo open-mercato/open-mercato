@@ -5,6 +5,14 @@
 
 import { captureLogs } from './support/captureLogs'
 
+// Pulling in the agent runtime drags the ai_assistant tool registry with it,
+// which parses the generated OpenAPI document and registers the Code Mode tools
+// on first use. That one-off cost lands inside whichever test runs first and
+// comfortably clears jest's 5 s default on a loaded CI runner — the suite takes
+// ~2 s locally and ~40 s there. This is the harness's budget, not the
+// behaviour's: every assertion below is unchanged.
+jest.setTimeout(60_000)
+
 const runAiAgentObjectMock = jest.fn<Promise<unknown>, [Record<string, unknown>]>()
 jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime', () => ({
   runAiAgentObject: (args: Record<string, unknown>) => runAiAgentObjectMock(args),
