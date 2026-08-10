@@ -376,6 +376,22 @@ describe('runTodoBulkCompleteLoop', () => {
     })
 
     expect(progress.failJob).toHaveBeenCalledTimes(1)
+    expect(progress.failJob).toHaveBeenCalledWith(
+      PROGRESS_JOB_ID,
+      {
+        errorMessage: 'example.todos.bulkComplete.allFailed',
+        resultSummary: {
+          affectedCount: 0,
+          failedCount: 3,
+          failedItems: [
+            { id: 'todo-1', code: 'not_found' },
+            { id: 'todo-2', code: 'not_found' },
+            { id: 'todo-3', code: 'not_found' },
+          ],
+        },
+      },
+      { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, userId: SCOPE.userId },
+    )
     expect(progress.completeJob).not.toHaveBeenCalled()
     expect(finished[0]?.status).toBe('failed')
     expect(finished[0]?.summary).toEqual({

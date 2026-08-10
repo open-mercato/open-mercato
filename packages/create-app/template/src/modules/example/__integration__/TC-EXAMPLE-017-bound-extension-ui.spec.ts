@@ -218,7 +218,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
         `TC-EXAMPLE-017 delete success ${suffix}`,
       )
       logs.length = 0
-      await page.getByRole('button', { name: /^Delete$/ }).click()
+      await page.getByRole('button', { name: /^Delete$/ }).first().click()
       const successDialog = page.getByRole('alertdialog')
       await expect(successDialog).toBeVisible()
       const successResponsePromise = page.waitForResponse((response) =>
@@ -239,7 +239,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(staleTitle)
       await bumpRecordViaApi(request, token, TODOS_API, { id: staleTodoId, title: `${staleTitle} moved` })
       logs.length = 0
-      await page.getByRole('button', { name: /^Delete$/ }).click()
+      await page.getByRole('button', { name: /^Delete$/ }).first().click()
       const staleDialog = page.getByRole('alertdialog')
       await expect(staleDialog).toBeVisible()
       const staleResponsePromise = page.waitForResponse((response) =>

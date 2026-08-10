@@ -240,7 +240,7 @@ async function synchronizeTodoBulkProgressTerminal(params: {
   } else if (params.operation.status === 'failed') {
     await params.progress.failJob(
       params.operation.progressJobId,
-      { errorMessage: 'example.todos.bulkComplete.allFailed' },
+      { errorMessage: 'example.todos.bulkComplete.allFailed', resultSummary: summary },
       params.progressContext,
     )
   } else {
