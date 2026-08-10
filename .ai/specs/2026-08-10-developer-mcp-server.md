@@ -22,7 +22,7 @@ serve.
 |---|---|---|
 | Q1 | Where does the code live? | **New module `packages/core/src/modules/dev_mcp/`** — isolates dev-only tooling from `ai_assistant`'s production release surface. Depends on `@open-mercato/ai-assistant` (MCP SDK re-exports, tool-registry read access) and, from Phase A, `@open-mercato/shared`'s introspection core. |
 | Q2 | Which Platform Map tier(s) gate Phase A? | **All of it** — Phase A tool-wiring waits for Platform Map **Phase 1 + Phase 2** (Tier 1 static + Tier 2 DI keys + Tier 3 tenant-scoped + derived `event-flow`/`acl-matrix` views), so the first real tool set ships complete rather than partial. Scaffolding (Phase 0 below) does **not** wait — it ships now with zero/placeholder tools. |
-| Q3 | Auth model? | **No auth. Loopback-only.** Bind hard-coded to `127.0.0.1`; no `--host` flag exists. Tier-3 tenant scoping (once wired) is opt-in per invocation via explicit `--tenant <id> [--org <id>]` CLI flags at server boot, mirroring the Platform Map CLI's own `--tenant`/`--org` convention — omit them and Tier-3 rows are simply absent from the tool output. |
+| Q3 | Auth model? | **No auth. Loopback-only.** Direct CLI use binds hard-coded to `127.0.0.1`; no `--host` flag exists. The containerized form (Q4) binds `0.0.0.0` **inside** the container instead — a `127.0.0.1`-bound process is unreachable through Docker's `-p`/port-forwarding, which targets the container's own network interface, never its loopback — and the compose service publishes the port host-loopback-only (`"127.0.0.1:${DEV_MCP_PORT:-3002}:3002"`) so the "this machine only" guarantee is enforced by the port mapping rather than the bind address. Tier-3 tenant scoping (once wired) is opt-in per invocation via explicit `--tenant <id> [--org <id>]` CLI flags at server boot, mirroring the Platform Map CLI's own `--tenant`/`--org` convention — omit them and Tier-3 rows are simply absent from the tool output. |
 | Q4 | Docker wiring in scope? | **Yes** — a dev-only `dev-mcp` compose service, in the dev-only compose overlays only, never in the plain `docker-compose.yml` or the more production-shaped `docker-compose.fullapp.yml`. |
 
 ## 📝 Problem Statement
@@ -113,6 +113,12 @@ the global MCP tool registry rather than everything registered process-wide.
 - **Hard production refusal.** `mcp:serve-dev-tools` checks `process.env.NODE_ENV === 'production'`
   at startup and exits non-zero with a clear message — no opt-in flag, unlike Platform Map's UI
   (which has a legitimate prod-inspection use case). This tool never has one.
+- **Bind address is context-dependent, published reachability is not.** The direct-CLI path binds
+  `127.0.0.1` (Q3). The compose service instead sets `DEV_MCP_BIND=0.0.0.0` so the process is
+  reachable through Docker's port-forwarding at all — the compose file's own
+  `"127.0.0.1:${DEV_MCP_PORT:-3002}:3002"` port mapping is what keeps it host-loopback-only, not
+  the process's own bind address. Both paths land on the same guarantee ("reachable only from this
+  machine"); only the mechanism differs.
 
 ## 📝 Data Model
 
@@ -131,7 +137,11 @@ mercato dev_mcp mcp:serve-dev-tools
   --tenant <id>            # optional — enables Tier-3 rows once Phase A tools exist
   --org <id>               # optional, requires --tenant
 ```
-No `--host` flag exists; the bind address is hard-coded to `127.0.0.1`.
+No `--host` flag exists. The bind address defaults to `127.0.0.1` and is overridable only through
+the internal `DEV_MCP_BIND` env var (not a CLI flag, so it can't be casually widened) — the compose
+service (Q3, Q4) is the sole caller that sets `DEV_MCP_BIND=0.0.0.0`, needed for Docker's
+port-forwarding to reach the process at all; the host stays reachable-only-from-itself via the
+compose file's own loopback-scoped port mapping instead.
 
 **MCP tools (Phase A, `moduleId: 'platform_map'`):**
 | Tool | Input | Output |
@@ -214,7 +224,8 @@ Each phase leaves the app working and is independently shippable.
 2. Confirm `@open-mercato/ai-assistant`'s existing `getToolRegistry()` export (already used by
    `mcp:list-tools`) covers the read access needed — no new export required.
 3. `lib/dev-mcp-server.ts`: clone `mcp-dev-server.ts`'s per-request `McpServer` +
-   `StreamableHTTPServerTransport` construction; hard-code `127.0.0.1` bind; call
+   `StreamableHTTPServerTransport` construction; default bind `127.0.0.1`, overridable only via the
+   internal `DEV_MCP_BIND` env var (see Q3 / API Contracts); call
    `getToolRegistry().listToolsByModule(id)` for each `moduleId` in an explicit allowlist,
    starting as `['dev_mcp']` (just this module's own `dev.status` tool) — `'platform_map'` is
    added to the allowlist in Phase A, `'telemetry'` only if/when the Future Work addendum lands.
@@ -224,7 +235,10 @@ Each phase leaves the app working and is independently shippable.
 6. `.mcp.json` example entry documented in `dev_mcp/AGENTS.md`, cross-linked from
    `packages/ai-assistant/AGENTS.md`.
 7. Dev-only `dev-mcp` compose service in `docker-compose.fullapp.dev.yml` /
-   `.fullapp.dev.local.yml` only, reusing the app image, `${DEV_MCP_PORT:-3002}:3002`, running
+   `.fullapp.dev.local.yml` only, reusing the app image, `DEV_MCP_BIND=0.0.0.0` (required for
+   Docker's port-forwarding to reach the process — see Q3), port mapping
+   `"127.0.0.1:${DEV_MCP_PORT:-3002}:3002"` (host-loopback-only, keeping the "this machine only"
+   guarantee at the publish boundary instead of the bind address), running
    `mercato dev_mcp mcp:serve-dev-tools` (no `--tenant` in compose — tenant-scoped Tier-3 stays a
    CLI-only, interactive flag).
 8. Register one trivial `dev.status` tool (`moduleId: 'dev_mcp'`, no allowlist filtering needed
@@ -307,3 +321,11 @@ decisions are untouched.
   no BC/AGENTS.md blockers found. Corrected the tool-registry access design — `dev_mcp` reuses
   the already-public `getToolRegistry().listToolsByModule(moduleId)` (used today by
   `mcp:list-tools`) instead of adding a redundant new export. No spec-shape changes otherwise.
+- 2026-08-10 — `om-auto-review-pr` review (PR #5143): fixed a Major finding — a strict
+  `127.0.0.1` bind (Q3) is unreachable through the Q4 compose service's `-p` port-forwarding,
+  which targets the container's own network interface, never its loopback. Introduced
+  `DEV_MCP_BIND` (internal env var, not a CLI flag) so only the compose service binds `0.0.0.0`,
+  paired with a host-loopback-only port mapping (`"127.0.0.1:${DEV_MCP_PORT:-3002}:3002"`) so the
+  "reachable only from this machine" guarantee moves to the publish boundary instead of silently
+  breaking. Direct CLI use is unaffected (still binds `127.0.0.1`). Touches: Q3, the Architecture
+  bullet list, the CLI contract note, and Phasing steps 3 and 7.
