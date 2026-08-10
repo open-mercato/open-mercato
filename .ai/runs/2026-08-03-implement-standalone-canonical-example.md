@@ -1264,8 +1264,9 @@ Ordered by unblocked-ness, not by spec order. Every row states its blocker hones
 | 9 | GOV: certified-release-lane run | depends on 1, 2 | No synthetic end-to-end change has been driven through a real certified lane yet. |
 | 10 | Milestone D certification | depends on 3, 6, 7 | Deliberately unclaimed while B's gate is 12/15. |
 
-The last `qa-only` row in the example inventory (`testing.integration-coverage`, 65 of 66 rows are
-`canonical`/`readable`) clears on its own when row 3, 6 and 7 land — it is qa-only *because* B is 12/15.
+The last `qa-only` row in the example inventory (`testing.integration-coverage`) is intentionally
+repository-only validation evidence. It does not become readable merely because the missing test
+cases land; any status change would require an explicit contract decision.
 
 ### Test environment for rows 3 and 8
 
@@ -1301,5 +1302,8 @@ not from the stale deferred/blocker labels above.
 - [ ] READ/SPEC design-gallery, foundation, topology-routing, preset/tier, and connected-progress proofs.
 - [x] READ: document the live fallback reason/capability channel and adopt it in the bounded OMH-203
   installed-version-mismatch lane; route the generated local example reference sheet from OMH-223.
+- [x] READ family 9: reuse writable OMH-181 to select both canonical bulk-action/progress seams and
+  prove the returned `progressJobId` is connected to the operation-progress observer. Focused READ
+  tests pass 61/61 and the business writable oracle suite passes 12/12 top-level tests.
 - [ ] Milestone D: 15/15 isolated/repeated/randomized, activated standalone, packed-link/fact/design,
   certified harness, and full validation evidence.

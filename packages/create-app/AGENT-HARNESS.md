@@ -77,17 +77,17 @@ The release gate wraps this in a larger ordered sequence.
    file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
-    `src/modules/**` grant can never reach inside it. Eight cases,
-    `OMH-203`…`OMH-226`, declare it today; every other case is byte-identical to before.
-    Six are read-only. `OMH-223`, the module-shaped planning proof, is the one writable
-    declarer: it reads the reference sources its plan has to name, its write allowlist is
-    `.ai/specs/**`, and immutability refuses a write inside the root regardless.
+    `src/modules/**` grant can never reach inside it. Nine cases,
+    `OMH-181` and `OMH-203`…`OMH-226`, declare it today; every other case is byte-identical to
+    before. Seven are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
+    the former adapts the canonical DataTable bulk-action and operation-progress seams while
+    proving their shared `progressJobId`; the latter writes only `.ai/specs/**`. Immutability
+    refuses either case a write inside the reference root regardless.
     `OMH-225` selects the operation-progress sources and `OMH-226` the AI tool-pack and
     agent sources, both separately from the DataTable injection seams `OMH-220` selects.
    The optional `context.installedVersionFallback` sibling is schema- and
-   evaluator-complete but no shipped case declares it, because `buildPrompt()` still
-   emits no instruction telling a runner to supply the `reason` argument the
-   fallback requires.
+   evaluator-complete. `OMH-203` is its one shipped declarer and the live tool instruction
+   documents both its bounded `reason` and specialist `capabilityId` arguments.
 
 ### Phase C — Pre-edit verification & "before" oracle
 7. `verifyWritableTarget()` (`:1788-1836`) asserts the target is a real non-symlink

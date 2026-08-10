@@ -15985,7 +15985,7 @@
     "mode": "one-shot",
     "evaluationKind": "implementation",
     "risk": "high",
-    "prompt": "Add an order-risk filter and a bulk review action to the existing orders table, enforcing permission and version checks for every selected row. Resolve the exact bound DataTable filter and bulk-action targets, deep table ID, execution guard, and correlation provenance from the sales module facts before source context; do not use the base prefix or helper-only IDs as mounts.",
+    "prompt": "Add an order-risk filter and a bulk review action to the existing orders table, enforcing permission and version checks for every selected row. Resolve the exact bound DataTable filter and bulk-action targets, deep table ID, execution guard, and correlation provenance from the sales module facts before source context; do not use the base prefix or helper-only IDs as mounts. Begin at the source-present canonical example's entry document and surface index, then read only its standalone DataTable bulk-action seam and its durable bulk-operation progress seam. Adapt their connected progressJobId lifecycle: return the job ID produced by the bulk request, hand that exact ID to the operation-progress observer, and never invent a second local progress channel. Do not change the canonical example.",
     "tags": [
       "business-language",
       "table-extension",
@@ -16036,6 +16036,21 @@
         ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/guides/modules/sales.md"
       ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.injection.datatable-bulk-action",
+            "runtime.bulk-operation-progress"
+          ],
+          "maxFiles": 10,
+          "maxBytes": 131072
+        }
+      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -16050,7 +16065,8 @@
       "bulk-mutation-safety",
       "wildcard-acl",
       "optimistic-lock-header",
-      "conflict-surfacing"
+      "conflict-surfacing",
+      "connected-progress-job-lifecycle"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -16070,9 +16086,9 @@
       "oracle.artifacts",
       "oracle.business.ui-surface"
     ],
-    "maxContextFiles": 8,
+    "maxContextFiles": 16,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 262144,
     "relatedCases": [
       "OMH-027",
       "OMH-037",

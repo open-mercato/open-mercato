@@ -1023,7 +1023,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226']
+const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1036,6 +1036,7 @@ const DECLARING_CASE_IDS = ['OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222
  * explicit, reviewable edit rather than a silent one.
  */
 const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
+  'OMH-181': ['runtime.bulk-operation-progress', 'umes.injection.datatable-bulk-action'],
   'OMH-203': ['umes.injection-table'],
   'OMH-219': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
   'OMH-220': [
@@ -1141,16 +1142,16 @@ test('reachability: the specialist routing case can use the documented reason-ga
 
 test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
   const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
-  const stated = /(\w+) cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
+  const stated = /(\w+) cases,\s+`(OMH-\d{3})` and `(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Eight')
-  assert.equal(DECLARING_CASE_IDS.length, 8)
-  assert.deepEqual([stated[2], stated[3]], [DECLARING_CASE_IDS[0], DECLARING_CASE_IDS.at(-1)])
+  assert.equal(stated[1], 'Nine')
+  assert.equal(DECLARING_CASE_IDS.length, 9)
+  assert.deepEqual([stated[2], stated[3], stated[4]], ['OMH-181', 'OMH-203', 'OMH-226'])
   // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
   // exactly what immutability precedence has to defend against, so the doc names it by ID.
   const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))
-  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-223'])
-  assert.match(doc, /`OMH-223`, the module-shaped planning proof, is the one writable/)
+  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-181', 'OMH-223'])
+  assert.match(doc, /`OMH-181` and `OMH-223` are the two writable declarers/)
 })
 
 /**
@@ -1851,7 +1852,7 @@ test('family 11: a newest capability demoted to qa-only stops being selectable b
 
 test('family 11: the operation-progress and DataTable bulk-action sources are selected by different cases and share no file', () => {
   const selectors = new Map<string, string[]>()
-  for (const entry of declaringShippedCases()) {
+  for (const entry of declaringShippedCases().filter((candidate) => candidate.evaluationKind === 'routing')) {
     for (const capabilityId of declaredCapabilityIds(entry)) {
       selectors.set(capabilityId, [...(selectors.get(capabilityId) ?? []), entry.id])
     }
@@ -1860,15 +1861,28 @@ test('family 11: the operation-progress and DataTable bulk-action sources are se
   const bulkAction = selectors.get('umes.injection.datatable-bulk-action') ?? []
   assert.deepEqual(progress, ['OMH-225'], 'exactly one case must select the operation-progress source')
   assert.deepEqual(bulkAction, ['OMH-220'], 'exactly one case must select the DataTable bulk-action source')
-  // (The two deepEqual assertions above already pin distinct literals, so a `notDeepEqual`
-  // between them is a tautology. The non-tautological property is that no SINGLE case declares
-  // both seams — that is what "selected independently" actually means.)
+  // The independent read-only assertions stay distinct. The writable connection lane is tested
+  // separately below and deliberately declares both seams so it can prove their lifecycle.
   const combined = [...progress].filter((caseId) => bulkAction.includes(caseId))
   assert.deepEqual(combined, [], 'no single case may declare both the progress and bulk-action seams')
   assert.deepEqual(
     capability('runtime.bulk-operation-progress').sourcePaths.filter((source) => capability('umes.injection.datatable-bulk-action').sourcePaths.includes(source)),
     [],
   )
+})
+
+test('family 11: the writable bulk-review oracle connects the selected progressJobId lifecycle', () => {
+  const writable = shippedCases().find((entry) => entry.id === 'OMH-181')
+  assert.ok(writable)
+  assert.deepEqual(
+    declaredCapabilityIds(writable).slice().sort(),
+    ['runtime.bulk-operation-progress', 'umes.injection.datatable-bulk-action'],
+  )
+  assert.match(writable.prompt, /connected progressJobId lifecycle/)
+  assert.ok(writable.requiredDecisions.includes('connected-progress-job-lifecycle'))
+  const behaviorOracle = fs.readFileSync(path.join(sourceHarness, 'writable-behavior-oracles.mjs'), 'utf8')
+  assert.match(behaviorOracle, /observeProgress\(progressJobId\)/)
+  assert.match(behaviorOracle, /connects-shared-progress-job-lifecycle/)
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -2384,14 +2398,15 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 9,
-    status: 'partial',
+    status: 'covered',
     fixtures: [
       'family 11: the operation-progress and DataTable bulk-action sources are selected by different cases and share no file',
       'family 11: each newest capability resolves to exactly its shipped sources for the case that declares it',
       'family 11: the inventory maps each newest capability to exactly its shipped files, and every one of them exists',
+      'family 11: the writable bulk-review oracle connects the selected progressJobId lifecycle',
     ],
-    blockedBy: ['a writable lane whose contract names the connected progressJobId lifecycle'],
-    note: 'Updated on 2026-08-06. The two independent capability assertions the family opens with exist since 2026-08-04 — OMH-220 selects `umes.injection.datatable-bulk-action` and OMH-225 selects `runtime.bulk-operation-progress`, two inventory rows over disjoint files, checked against paths typed from the shipped example tree rather than derived from the inventory. The blocker was also RESTATED here: it used to read `a WRITABLE shipped case declaring context.exampleRoots`, and OMH-223 became exactly that when it grew its module-shaped planning contract — without asserting anything about progress. Family 9 asks for a lane that proves the connected `progressJobId` lifecycle, so the probe now asks for that lane instead of for a writable declarer of any kind, and the family stays honestly partial.',
+    blockedBy: [],
+    note: 'Closed on 2026-08-10. OMH-220 and OMH-225 independently select the disjoint DataTable bulk-action and durable operation-progress source sets. Writable case OMH-181 reads both canonical seams, requires the connected `progressJobId` decision, and its trusted behavior oracle proves the exact job returned by execution is passed once to the progress observer and returned to the caller.',
   },
   {
     specFamily: 10,
@@ -2426,14 +2441,6 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
   'a preset-narrowed or tier-narrowed inventory record': () => projectedInventory().records
     .every((record) => (record as unknown as Record<string, unknown>).presets === undefined
       && (record as unknown as Record<string, unknown>).tiers === undefined),
-  // Corrected on 2026-08-06. The previous probe here asked whether ANY writable case declares
-  // `context.exampleRoots`, which is not what family 9's second clause needs: OMH-223 became such
-  // a case while grading a planning document, and the probe would have declared the clause closed
-  // without a single assertion about progress. What is genuinely still missing is a writable lane
-  // whose own contract names the connected lifecycle.
-  'a writable lane whose contract names the connected progressJobId lifecycle': () => shippedCases()
-    .filter((entry) => (entry as unknown as { allowedWrites?: unknown }).allowedWrites !== undefined)
-    .every((entry) => !JSON.stringify(entry).toLowerCase().includes('progressjobid')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
 }
@@ -2505,13 +2512,13 @@ test('ledger: every gap the ledger claims is a surface that is genuinely absent 
   }
 })
 
-test('ledger: the honest coverage count is eight covered, two partial, and two uncovered of twelve', () => {
-  // Moved on 2026-08-05: family 6 closed when the declared-link negative half landed, family 4
-  // closed when the installed-package lane landed, and family 8 kept only its preset/tier
-  // remainder. Families 10, 11 and 12 are untouched — this work did not reach any of them.
+test('ledger: the honest coverage count is nine covered, one partial, and two uncovered of twelve', () => {
+  // Moved on 2026-08-10: family 9 closed when the existing writable DataTable extension lane
+  // began selecting both canonical seams and its trusted behavior oracle proved the shared
+  // progressJobId is handed to the operation-progress observer.
   const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
-  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7, 10])
-  assert.deepEqual(tally('partial'), [8, 9])
+  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7, 9, 10])
+  assert.deepEqual(tally('partial'), [8])
   assert.deepEqual(tally('uncovered'), [11, 12])
   assert.equal(COVERAGE_LEDGER.length, 12)
 })
