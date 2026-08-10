@@ -47,7 +47,7 @@ function inferFilterType(accessorKey: string, meta?: ColumnMeta): FilterFieldTyp
   return 'text'
 }
 
-export type UseAutoDiscoveredFieldsInput<T extends RowData> = {
+export type UseAutoDiscoveredFieldsInput<T extends RowData = RowData> = {
   columns: ColumnDef<T, unknown>[]
   customFieldDefs: CustomFieldDefDto[]
 }
@@ -57,7 +57,7 @@ export type UseAutoDiscoveredFieldsResult = {
   columnChooserFields: ColumnChooserField[]
 }
 
-export function useAutoDiscoveredFields<T extends RowData>({
+export function useAutoDiscoveredFields<T extends RowData = RowData>({
   columns,
   customFieldDefs,
 }: UseAutoDiscoveredFieldsInput<T>): UseAutoDiscoveredFieldsResult {
