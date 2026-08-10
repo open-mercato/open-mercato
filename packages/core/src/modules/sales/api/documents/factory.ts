@@ -22,6 +22,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -89,6 +90,8 @@ const listSchema = z
     id: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
+    channelIds: z.string().optional(),
+    channelIdsEmpty: z.string().optional(),
     lineItemCountMin: z.coerce.number().min(0).optional(),
     lineItemCountMax: z.coerce.number().min(0).optional(),
     totalNetMin: z.coerce.number().optional(),
@@ -117,8 +120,16 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
   }
+  // Singular wins over plural, mirroring how `api/channels/route.ts` resolves `id` before `ids`.
+  // An all-malformed `channelIds` narrows to no channel filter rather than an empty-set filter, so
+  // a typo returns the unfiltered page instead of silently returning zero rows.
   if (query.channelId) {
     filters.channel_id = { $eq: query.channelId }
+  } else if (parseBooleanToken(query.channelIdsEmpty) === true) {
+    filters.channel_id = { $exists: false }
+  } else {
+    const channelIds = parseIdsParam(query.channelIds)
+    if (channelIds.length) filters.channel_id = { $in: channelIds }
   }
   const lineRange: Record<string, number> = {}
   if (typeof query.lineItemCountMin === 'number') lineRange.$gte = query.lineItemCountMin

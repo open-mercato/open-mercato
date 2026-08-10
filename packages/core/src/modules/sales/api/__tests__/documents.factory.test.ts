@@ -94,6 +94,94 @@ describe('buildDocumentCrudOptions', () => {
 
       expect(filters).toEqual({})
     })
+
+    describe('channel filtering', () => {
+      const channelA = '11111111-1111-4111-8111-111111111111'
+      const channelB = '22222222-2222-4222-9222-222222222222'
+
+      it('should filter by a single channel with $eq', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelId: channelA })
+
+        expect(filters).toEqual({ channel_id: { $eq: channelA } })
+      })
+
+      it('should filter by several channels with $in', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIds: `${channelA},${channelB}` })
+
+        expect(filters).toEqual({ channel_id: { $in: [channelA, channelB] } })
+      })
+
+      it('should trim and dedupe channelIds entries', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIds: ` ${channelA} , ${channelB},${channelA} ` })
+
+        expect(filters).toEqual({ channel_id: { $in: [channelA, channelB] } })
+      })
+
+      it('should let the singular channelId win over channelIds', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({
+          channelId: channelA,
+          channelIds: `${channelB}`,
+        })
+
+        expect(filters).toEqual({ channel_id: { $eq: channelA } })
+      })
+
+      it('should let the singular channelId win over channelIdsEmpty', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({
+          channelId: channelA,
+          channelIdsEmpty: 'true',
+        })
+
+        expect(filters).toEqual({ channel_id: { $eq: channelA } })
+      })
+
+      it('should match unassigned documents when channelIdsEmpty is set', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIdsEmpty: 'true' })
+
+        expect(filters).toEqual({ channel_id: { $exists: false } })
+      })
+
+      it('should ignore channelIdsEmpty when it is not a truthy token', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIdsEmpty: 'false' })
+
+        expect(filters).toEqual({})
+      })
+
+      it('should drop malformed entries and keep the valid ones', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIds: `not-a-uuid,${channelA},` })
+
+        expect(filters).toEqual({ channel_id: { $in: [channelA] } })
+      })
+
+      it('should not filter at all when every channelIds entry is malformed', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIds: 'not-a-uuid,also-not-a-uuid' })
+
+        expect(filters).toEqual({})
+      })
+
+      it('should not filter when channelIds is empty', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({ channelIds: '' })
+
+        expect(filters).toEqual({})
+      })
+
+      it('should apply the same channel filtering to quotes', async () => {
+        const options = buildDocumentCrudOptions(quoteBinding)
+        const filters = await options.list.buildFilters({ channelIds: `${channelA},${channelB}` })
+
+        expect(filters).toEqual({ channel_id: { $in: [channelA, channelB] } })
+      })
+    })
   })
 
   describe('enrichers', () => {
