@@ -179,6 +179,7 @@
   "workflows.aiDraft.promptPlaceholder": "When a refund is requested above 500, ask a manager to approve it, then notify the customer.",
   "workflows.aiDraft.refusedUnknown": "The generated definition was refused.",
   "workflows.aiDraft.regenerate": "Generate again",
+  "workflows.aiDraft.repairAttempted": "아래 오류를 모델에 {count}회 다시 전달했지만 해결하지 못했습니다.",
   "workflows.aiDraft.replaceBody": "Every step and route on the canvas is replaced. It is one undo away.",
   "workflows.aiDraft.replaceTitle": "Applying replaces the current canvas",
   "workflows.aiDraft.reviewTitle": "Review before applying",

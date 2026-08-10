@@ -179,6 +179,7 @@
   "workflows.aiDraft.promptPlaceholder": "Wenn eine Rückerstattung über 500 beantragt wird, lasse sie von einer Führungskraft genehmigen und benachrichtige dann die Kundschaft.",
   "workflows.aiDraft.refusedUnknown": "Die erzeugte Definition wurde abgelehnt.",
   "workflows.aiDraft.regenerate": "Erneut erzeugen",
+  "workflows.aiDraft.repairAttempted": "Die folgenden Fehler wurden {count}-mal an das Modell zurückgemeldet und konnten nicht behoben werden.",
   "workflows.aiDraft.replaceBody": "Alle Schritte und Routen auf der Arbeitsfläche werden ersetzt. Ein Rückgängig genügt.",
   "workflows.aiDraft.replaceTitle": "Anwenden ersetzt die aktuelle Arbeitsfläche",
   "workflows.aiDraft.reviewTitle": "Vor dem Anwenden prüfen",

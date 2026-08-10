@@ -2248,6 +2248,19 @@ export async function runAiAgentObject<TSchema = unknown>(
   // chat mode; read-only agents have mutation tools stripped, so no direct write
   // is ever possible. Falls through to `generateObject` when no tools resolve.
   const resolvedToolNames = Object.keys((tools ?? {}) as ToolSet)
+  // Degrading to a single-shot call is a legitimate fallback, but it silently
+  // changes what the agent CAN do — an agent whose prompt says "validate your
+  // draft with the tool before returning" is now being asked to obey an
+  // instruction it has no way to follow. Say so, loudly, once per turn.
+  if (input.enableTools && resolvedToolNames.length === 0) {
+    logger.warn(
+      'Agent requested a tool loop but no tools resolved; falling back to a single-shot generateObject',
+      {
+        agentId: agent.id,
+        allowedTools: agent.allowedTools,
+      },
+    )
+  }
   if (input.enableTools && resolvedToolNames.length > 0) {
     const toolLoopConfig = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
     const toolStopConditions = translateStopConditions(toolLoopConfig, sanitizeToolNameForModel)

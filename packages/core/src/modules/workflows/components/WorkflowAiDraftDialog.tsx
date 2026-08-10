@@ -68,6 +68,8 @@ type GenerateResponse = {
   problems?: WorkflowValidationIssue[]
   errorCount?: number
   warningCount?: number
+  /** How many times the server re-prompted the model with the validator errors. */
+  repairAttempts?: number
   error?: string
 }
 
@@ -168,6 +170,16 @@ export function WorkflowAiDraftDialog({
           'workflows.aiDraft.notAWorkflow',
           'The model produced something that does not describe a workflow, so nothing was applied. Try rephrasing the request.',
         ),
+        // Saying the errors were fed back distinguishes "the model never got a
+        // chance" from "it got the errors twice and still could not fix them" —
+        // which is the difference between rephrasing and giving up.
+        ...(result.repairAttempts
+          ? [
+              t('workflows.aiDraft.repairAttempted', undefined, {
+                count: result.repairAttempts,
+              }),
+            ]
+          : []),
         ...(result.messages ?? []),
       ])
       return

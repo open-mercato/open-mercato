@@ -179,6 +179,7 @@
   "workflows.aiDraft.promptPlaceholder": "Cuando se solicite un reembolso superior a 500, pide la aprobación de un responsable y luego avisa al cliente.",
   "workflows.aiDraft.refusedUnknown": "La definición generada fue rechazada.",
   "workflows.aiDraft.regenerate": "Generar de nuevo",
+  "workflows.aiDraft.repairAttempted": "Los errores siguientes se devolvieron al modelo {count} vez/veces y no pudo resolverlos.",
   "workflows.aiDraft.replaceBody": "Se sustituyen todos los pasos y rutas del lienzo. Está a un solo deshacer de distancia.",
   "workflows.aiDraft.replaceTitle": "Aplicar sustituye el lienzo actual",
   "workflows.aiDraft.reviewTitle": "Revisar antes de aplicar",

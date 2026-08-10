@@ -50,12 +50,15 @@ import { listActivityTypes } from '../../../lib/activity-registry'
 import '../../../lib/activity-registry-bootstrap'
 import {
   WORKFLOW_DRAFT_AGENT_ID,
+  WORKFLOW_DRAFT_MAX_REPAIR_ATTEMPTS,
   WORKFLOW_DRAFT_PROMPT_MAX_LENGTH,
   buildWorkflowDraftCatalog,
   buildWorkflowDraftPrompt,
+  buildWorkflowDraftRepairPrompt,
   classifyWorkflowDraftFailure,
   interpretWorkflowDraftObject,
   workflowDraftGenerationSchema,
+  type WorkflowDraftInterpretation,
 } from '../../../lib/ai-authoring'
 import { resolveWorkflowDraftRunner } from '../../../lib/ai-draft-runner'
 import {
@@ -209,53 +212,80 @@ export async function POST(request: NextRequest) {
 
     const acl = (await rbacService.loadAcl?.(auth.sub, { tenantId, organizationId })) ?? null
 
-    let raw: unknown
-    try {
-      raw = await runner({
-        agentId: WORKFLOW_DRAFT_AGENT_ID,
-        prompt: buildWorkflowDraftPrompt({ prompt: validation.data.prompt, catalog }),
-        schemaName: 'WorkflowDraft',
-        schema: workflowDraftGenerationSchema,
-        authContext: {
-          tenantId,
-          organizationId,
-          userId: auth.sub,
-          features: acl?.features ?? [],
-          isSuperAdmin: acl?.isSuperAdmin ?? false,
-        },
-        container,
+    const authContext = {
+      tenantId,
+      organizationId,
+      userId: auth.sub,
+      features: acl?.features ?? [],
+      isSuperAdmin: acl?.isSuperAdmin ?? false,
+    }
+    const parseDefinition = (value: unknown) => {
+      const parsed = workflowDefinitionDataSchema.safeParse(value)
+      if (parsed.success) return { ok: true as const, definition: parsed.data as WorkflowDefinitionData }
+      return {
+        ok: false as const,
+        messages: parsed.error.issues.map(
+          (issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`,
+        ),
+      }
+    }
+
+    // Bounded validate-and-repair. The validator's messages are precise enough
+    // to act on, so a rejected draft goes BACK to the model with them rather
+    // than to the human as a dead end. Bounded because an unbounded loop
+    // against a model that cannot fix its own output is just a slower dead end
+    // that costs tokens; after the last attempt the surface reports the final
+    // errors exactly as it always did.
+    let prompt = buildWorkflowDraftPrompt({ prompt: validation.data.prompt, catalog })
+    let interpreted: WorkflowDraftInterpretation<WorkflowDefinitionData> | null = null
+    let repairAttempts = 0
+
+    for (let attempt = 0; attempt <= WORKFLOW_DRAFT_MAX_REPAIR_ATTEMPTS; attempt += 1) {
+      let raw: unknown
+      try {
+        raw = await runner({
+          agentId: WORKFLOW_DRAFT_AGENT_ID,
+          prompt,
+          schemaName: 'WorkflowDraft',
+          schema: workflowDraftGenerationSchema,
+          authContext,
+          container,
+        })
+      } catch (error) {
+        const kind = classifyWorkflowDraftFailure(error)
+        logger.warn('Workflow draft generation failed', { err: error, kind, attempt })
+        return NextResponse.json({
+          ok: false,
+          reason: kind,
+          ...(kind === 'failed'
+            ? { message: error instanceof Error ? error.message : String(error) }
+            : {}),
+        })
+      }
+
+      interpreted = interpretWorkflowDraftObject<WorkflowDefinitionData>({ raw, parseDefinition })
+      if (interpreted.ok) break
+      if (attempt === WORKFLOW_DRAFT_MAX_REPAIR_ATTEMPTS) break
+
+      repairAttempts += 1
+      logger.info('Workflow draft rejected; asking the model to repair it', {
+        reason: interpreted.reason,
+        messageCount: interpreted.messages.length,
+        attempt: repairAttempts,
       })
-    } catch (error) {
-      const kind = classifyWorkflowDraftFailure(error)
-      logger.warn('Workflow draft generation failed', { err: error, kind })
-      return NextResponse.json({
-        ok: false,
-        reason: kind,
-        ...(kind === 'failed'
-          ? { message: error instanceof Error ? error.message : String(error) }
-          : {}),
+      prompt = buildWorkflowDraftRepairPrompt({
+        previousPrompt: prompt,
+        rejectedDraft: raw,
+        messages: interpreted.messages,
       })
     }
 
-    const interpreted = interpretWorkflowDraftObject<WorkflowDefinitionData>({
-      raw,
-      parseDefinition: (value) => {
-        const parsed = workflowDefinitionDataSchema.safeParse(value)
-        if (parsed.success) return { ok: true, definition: parsed.data as WorkflowDefinitionData }
-        return {
-          ok: false,
-          messages: parsed.error.issues.map(
-            (issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`,
-          ),
-        }
-      },
-    })
-
-    if (!interpreted.ok) {
+    if (!interpreted || !interpreted.ok) {
       return NextResponse.json({
         ok: false,
-        reason: interpreted.reason,
-        messages: interpreted.messages,
+        reason: interpreted?.reason ?? 'malformedResponse',
+        messages: interpreted?.messages ?? [],
+        repairAttempts,
       })
     }
 

@@ -238,6 +238,50 @@ export function buildWorkflowDraftPrompt(input: WorkflowDraftPromptInput): strin
   ].join('\n')
 }
 
+/** How many repair attempts follow a rejected draft before the surface gives up. */
+export const WORKFLOW_DRAFT_MAX_REPAIR_ATTEMPTS = 2
+
+export interface WorkflowDraftRepairPromptInput {
+  /** The prompt the previous attempt was authored against, catalog and all. */
+  previousPrompt: string
+  /** Exactly what the model returned, so it can see what it is amending. */
+  rejectedDraft: unknown
+  /** The validator's own messages, verbatim — `path: message`. */
+  messages: string[]
+}
+
+/**
+ * Build the follow-up message for a rejected draft.
+ *
+ * The validator already produces precise, per-path errors
+ * (`transitions.3.activities.0.config.to: SEND_EMAIL activity requires "to"`).
+ * Handing those to the human as a dead end while the model that can act on them
+ * never sees them is the actual defect this repairs: the errors go BACK to the
+ * author. The instruction is deliberately narrow — amend the listed paths and
+ * change nothing else — because a model told to "try again" tends to rewrite
+ * the graph and lose the parts that were already correct.
+ */
+export function buildWorkflowDraftRepairPrompt(input: WorkflowDraftRepairPromptInput): string {
+  let rendered: string
+  try {
+    rendered = JSON.stringify(input.rejectedDraft)
+  } catch {
+    rendered = '(the previous response could not be serialized)'
+  }
+  return [
+    input.previousPrompt,
+    '',
+    'Your previous answer was rejected by the workflow schema. This was it:',
+    '',
+    rendered,
+    '',
+    'Every path below failed validation. Fix exactly these and change nothing else:',
+    ...input.messages.map((message) => `- ${message}`),
+    '',
+    'Return the whole corrected workflow, in the same shape as before.',
+  ].join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // The response
 // ---------------------------------------------------------------------------

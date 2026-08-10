@@ -280,6 +280,51 @@ export async function loadAllModuleTools(): Promise<void> {
 }
 
 /**
+ * Process-lifetime memo for {@link ensureModuleToolsLoaded}. Holds the in-flight
+ * promise, not a boolean, so concurrent callers await the same load instead of
+ * racing four dynamic imports.
+ */
+let moduleToolsLoad: Promise<void> | null = null
+
+/**
+ * Guarantee the tool registry is populated, at most once per process.
+ *
+ * {@link loadAllModuleTools} was only ever called by the entry points that
+ * exist to serve tools — the MCP servers, `/api/ai_assistant/tools[/execute]`,
+ * the action-confirm route, the CLI. Every OTHER path that resolves an agent's
+ * tools (the chat dispatcher, `runAiAgentText`, `runAiAgentObject`) assumed a
+ * populated registry without ever populating it, so whether an in-app agent
+ * could see its own allowlisted tools depended on what that Node process had
+ * happened to serve first. When it had served none, the policy gate rejected
+ * every tool as `tool_unknown`, the runtime silently degraded to a toolless
+ * call, and an agent whose prompt told it to self-check with a tool had no tool
+ * to call. Resolving tools is now the thing that guarantees they are loaded.
+ *
+ * Repeat calls are free. `loadAllModuleTools` itself is idempotent — it
+ * re-registers into a keyed map — but it also re-runs four dynamic imports and
+ * an OpenAPI spec load, so the memo is about cost, not correctness.
+ */
+export async function ensureModuleToolsLoaded(): Promise<void> {
+  if (!moduleToolsLoad) {
+    moduleToolsLoad = loadAllModuleTools().catch((error) => {
+      // A failed load must not be cached as success, or the process is stuck
+      // toolless until restart.
+      moduleToolsLoad = null
+      throw error
+    })
+  }
+  await moduleToolsLoad
+}
+
+/**
+ * @__internal
+ * Test-only hook — drops the memo so a suite can observe the load again.
+ */
+export function resetModuleToolsLoadedForTests(): void {
+  moduleToolsLoad = null
+}
+
+/**
  * Index all registered tools for hybrid search discovery.
  * This should be called after loadAllModuleTools() when the search service is available.
  *

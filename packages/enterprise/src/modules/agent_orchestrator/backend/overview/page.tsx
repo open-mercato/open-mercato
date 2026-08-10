@@ -28,7 +28,7 @@ import {
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { agentAvatarIcon } from '../../components/agentChips'
-import { WebSearchHealthCard } from '../../components/WebSearchHealthCard'
+import { SystemHealthTile } from '../../components/SystemHealthTile'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
@@ -373,8 +373,6 @@ export default function AgentFleetOverviewPage() {
           </div>
         </div>
 
-        <WebSearchHealthCard />
-
         {isLoading ? (
           <LoadingMessage label={t('agent_orchestrator.overview.title', 'Fleet overview')} />
         ) : error ? (
@@ -386,7 +384,7 @@ export default function AgentFleetOverviewPage() {
           />
         ) : (
           <>
-            <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${previewUi ? 'lg:grid-cols-4' : ''}`}>
+            <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${previewUi ? 'lg:grid-cols-5' : 'lg:grid-cols-3'}`}>
               <KpiTile icon={CheckCircle2}
                 label={t('agent_orchestrator.overview.kpi.autoCompleted', 'Auto-completed')}
                 caption={windowLabel}
@@ -398,6 +396,7 @@ export default function AgentFleetOverviewPage() {
                 value={formatNumber(kpi.pendingCount, locale) ?? '0'}
                 chip={kpi.oldestMin == null ? null : <OldestChip>{t('agent_orchestrator.overview.kpi.oldest', 'oldest {time}', { time: formatWaitMinutes(kpi.oldestMin) ?? '—' })}</OldestChip>}
                 sub={t('agent_orchestrator.overview.kpi.needsDecisionSub', 'Waiting in the inbox now')} />
+              <SystemHealthTile />
               {previewUi ? (
                 <>
                   <KpiTile icon={Users}

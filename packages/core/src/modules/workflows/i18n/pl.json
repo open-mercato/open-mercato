@@ -179,6 +179,7 @@
   "workflows.aiDraft.promptPlaceholder": "Gdy pojawi się wniosek o zwrot powyżej 500, poproś kierownika o akceptację, a potem powiadom klienta.",
   "workflows.aiDraft.refusedUnknown": "Wygenerowana definicja została odrzucona.",
   "workflows.aiDraft.regenerate": "Wygeneruj ponownie",
+  "workflows.aiDraft.repairAttempted": "Poniższe błędy zostały odesłane do modelu {count} raz(y) i nie udało mu się ich naprawić.",
   "workflows.aiDraft.replaceBody": "Wszystkie kroki i trasy na kanwie zostaną zastąpione. Wystarczy jedno cofnięcie.",
   "workflows.aiDraft.replaceTitle": "Zastosowanie zastąpi bieżącą kanwę",
   "workflows.aiDraft.reviewTitle": "Sprawdź przed zastosowaniem",

@@ -250,4 +250,90 @@ describe('POST /api/workflows/definitions/generate', () => {
     expect(response.status).toBe(400)
     expect(runner).not.toHaveBeenCalled()
   })
+
+  /**
+   * The reported defect: the schema validator produced precise, per-path errors
+   * (`transitions.0.activities.0.config.agentId: expected string, received
+   * undefined`) and the surface handed them to the HUMAN as a dead end. The
+   * model that could act on them never saw them. These pin the repair loop.
+   */
+  describe('validate-and-repair', () => {
+    const INVALID_ACTIVITY = {
+      ...VALID_GENERATION,
+      transitions: [
+        {
+          transitionId: 't_1',
+          fromStepId: 'start',
+          toStepId: 'approve',
+          trigger: 'auto',
+          activities: [
+            { activityId: 'a1', activityName: 'Email', activityType: 'SEND_EMAIL', config: {} },
+          ],
+        },
+        { transitionId: 't_2', fromStepId: 'approve', toStepId: 'end', trigger: 'auto' },
+      ],
+    }
+
+    test('feeds the validator errors back to the model instead of stopping at the human', async () => {
+      const runner = jest
+        .fn()
+        .mockResolvedValueOnce(INVALID_ACTIVITY)
+        .mockResolvedValueOnce(VALID_GENERATION)
+      setRunner(runner)
+
+      const { data } = await run({ prompt: 'Email the client after the agent runs' })
+
+      expect(data.ok).toBe(true)
+      expect(runner).toHaveBeenCalledTimes(2)
+
+      // The second call must carry the failing paths verbatim — a prompt that
+      // only says "try again" is the thing this replaces.
+      const repairPrompt = runner.mock.calls[1][0].prompt as string
+      expect(repairPrompt).toContain('SEND_EMAIL activity requires "to"')
+      expect(repairPrompt).toContain('SEND_EMAIL activity requires "subject"')
+      // ...and the draft being amended, so the model edits rather than reinvents.
+      expect(repairPrompt).toContain('t_1')
+    })
+
+    test('gives up after the bounded number of attempts rather than looping', async () => {
+      const runner = jest.fn().mockResolvedValue(INVALID_ACTIVITY)
+      setRunner(runner)
+
+      const { data } = await run({ prompt: 'Email the client after the agent runs' })
+
+      expect(data.ok).toBe(false)
+      expect(data.reason).toBe('schemaError')
+      // One initial attempt plus WORKFLOW_DRAFT_MAX_REPAIR_ATTEMPTS repairs.
+      expect(runner).toHaveBeenCalledTimes(3)
+      expect(data.repairAttempts).toBe(2)
+      // The author still gets the real errors — the loop adds a chance, it does
+      // not swallow the outcome.
+      expect(data.messages.join(' ')).toContain('SEND_EMAIL activity requires')
+    })
+
+    test('does not re-prompt when the first draft is already valid', async () => {
+      const runner = jest.fn().mockResolvedValue(VALID_GENERATION)
+      setRunner(runner)
+
+      const { data } = await run({ prompt: 'Approve refunds over 500' })
+
+      expect(data.ok).toBe(true)
+      expect(runner).toHaveBeenCalledTimes(1)
+      expect(data.repairAttempts).toBeUndefined()
+    })
+
+    test('stops immediately when the model call itself errors mid-repair', async () => {
+      const runner = jest
+        .fn()
+        .mockResolvedValueOnce(INVALID_ACTIVITY)
+        .mockRejectedValueOnce(new Error('rate limited'))
+      setRunner(runner)
+
+      const { data } = await run({ prompt: 'Email the client after the agent runs' })
+
+      expect(data.ok).toBe(false)
+      expect(data.reason).toBe('failed')
+      expect(runner).toHaveBeenCalledTimes(2)
+    })
+  })
 })
