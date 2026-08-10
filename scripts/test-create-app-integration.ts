@@ -9,6 +9,13 @@ import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
+import {
+  EXAMPLE_ACTIVATION_ENTRY,
+  assertExampleActivation,
+  assertModulesUnregistered,
+  enableModuleEntry,
+  modulesConfigPath,
+} from './lib/module-activation-fixtures'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -265,12 +272,24 @@ async function main(): Promise<void> {
       env: standaloneInstallEnv,
     })
 
-    console.log(cyan('Building the scaffolded app in production mode'))
+    console.log(cyan('Building the runtime-disabled scaffold baseline in production mode'))
     runCommand('yarn', ['build'], {
       cwd: appDir,
       env: { ...integrationEnv, NODE_ENV: 'production' },
     })
     assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
+    await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+    console.log(green('✔ Runtime-disabled scaffold baseline contains no reference-module output'))
+
+    enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+    console.log(cyan('Building the explicitly activated example fixture in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ Activated ${label}`)) })
+    await assertExampleActivation(appDir)
+    console.log(green('✔ Activated disposable app exposes example without design_system'))
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,

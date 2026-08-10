@@ -127,9 +127,8 @@
           },
           {
             "value": "generator-plugin",
-            "status": "pending-emission",
-            "note": "REQUIRED: an example/generators.ts GeneratorPlugin declaration; the file does not exist yet",
-            "pendingEmission": "slice-H-missing-example-surfaces"
+            "status": "emitted-example",
+            "note": "example/generators.ts deterministic reference-index generator plugin"
           },
           {
             "value": "extension-host",
@@ -194,9 +193,8 @@
           },
           {
             "value": "generator-plugin",
-            "status": "pending-emission",
-            "note": "REQUIRED: an example/generators.ts GeneratorPlugin declaration; the file does not exist yet",
-            "pendingEmission": "slice-H-missing-example-surfaces"
+            "status": "emitted-example",
+            "note": "example/generators.ts deterministic reference-index generator plugin"
           }
         ]
       },
@@ -864,9 +862,8 @@
           },
           {
             "value": "integration",
-            "status": "pending-emission",
-            "note": "REQUIRED: example integration bundle identity",
-            "pendingEmission": "slice-H-specialized-registries"
+            "status": "emitted-example",
+            "note": "example credential-free integration bundle identity"
           },
           {
             "value": "search",
@@ -875,9 +872,8 @@
           },
           {
             "value": "vector",
-            "status": "pending-emission",
-            "note": "REQUIRED: example Todo vector registry",
-            "pendingEmission": "slice-H-specialized-registries"
+            "status": "emitted-example",
+            "note": "example deterministic Todo vector registry"
           },
           {
             "value": "ai",
@@ -891,21 +887,18 @@
           },
           {
             "value": "shipping",
-            "status": "pending-emission",
-            "note": "REQUIRED: example shipping registry identity",
-            "pendingEmission": "slice-H-specialized-registries"
+            "status": "emitted-example",
+            "note": "example mock shipping registry identity"
           },
           {
             "value": "currency",
-            "status": "pending-emission",
-            "note": "REQUIRED: example currency provider identity",
-            "pendingEmission": "slice-H-specialized-registries"
+            "status": "emitted-example",
+            "note": "example deterministic currency provider identity"
           },
           {
             "value": "workflow",
-            "status": "pending-emission",
-            "note": "REQUIRED: example Todo workflow identity",
-            "pendingEmission": "slice-H-specialized-registries"
+            "status": "emitted-example",
+            "note": "example event-triggered Todo workflow identity"
           }
         ]
       },
@@ -2448,6 +2441,25 @@
       "ruleOwner": "om-create-ai-agent"
     },
     {
+      "capabilityId": "module.generator-plugin",
+      "title": "Deterministic module reference-index generator plugin",
+      "description": "A type-only-import `generators.ts` declaration aggregates the module reference convention into `example-reference-index.generated.ts`. Bootstrap registers the generated entries with the module-local consumer, which rejects duplicate module/capability rows and non-portable source paths. Generator ownership removes the output when the module is disabled.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/generators.ts",
+        "src/modules/example/reference-index.ts",
+        "src/modules/example/lib/module-reference-index.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/lib/__tests__/module-reference-index.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-016-generator-plugin.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
       "capabilityId": "testing.integration-coverage",
       "title": "Module integration and unit coverage",
       "description": "Repository-only Playwright and unit suites for the module. Standalone scaffolding filters `__tests__/**` and `__integration__/**` out of emitted apps, so these are evidence paths, never readable emitted source. Follow the testing guide for how to write your own.",
@@ -2460,6 +2472,7 @@
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-016-generator-plugin.spec.ts",
         "src/modules/example/__integration__/TC-UMES-001.spec.ts",
         "src/modules/example/__integration__/TC-UMES-002.spec.ts",
         "src/modules/example/__integration__/TC-UMES-003.spec.ts",

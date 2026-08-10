@@ -16,6 +16,7 @@ describe('integration discovery', () => {
     'OM_TEST_DISCOVERY_AI_KEY',
     'OM_TEST_DISCOVERY_FALLBACK_AI_KEY',
     'OM_TEST_DISCOVERY_REQUIRED_KEY',
+    'OM_TEST_APP_ROOT',
   ] as const
   const previousTestEnvValues = new Map<string, string | undefined>()
 
@@ -156,6 +157,40 @@ describe('integration discovery', () => {
     const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
     expect(discovered.map((entry) => entry.path)).toEqual([
       'node_modules/@open-mercato/core/src/modules/customers/__integration__/TC-CRM-020.spec.ts',
+    ])
+  })
+
+  it('uses OM_TEST_APP_ROOT and its actual modules.ts for dependency filtering', async () => {
+    const standaloneRoot = path.join(tempRoot, 'standalone-app')
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/src/modules/example/__integration__/meta.ts',
+      "export const integrationMeta = { requiredModules: ['example'] }\n",
+    )
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-016.spec.ts',
+    )
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-018.meta.ts',
+      "export const integrationMeta = { requiredModules: ['design_system'] }\n",
+    )
+    await writeTestFile(
+      tempRoot,
+      'apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-018.spec.ts',
+    )
+    await writeTestFile(
+      tempRoot,
+      'standalone-app/src/modules.ts',
+      "export const enabledModules = [{ id: 'example', from: '@app' }]\n",
+    )
+    await writeTestFile(tempRoot, 'standalone-app/src/modules/design_system/.gitkeep')
+    process.env.OM_TEST_APP_ROOT = standaloneRoot
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([
+      'apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-016.spec.ts',
     ])
   })
 

@@ -28,8 +28,9 @@ Rule owners named per row own the *normative* rule. This module owns only *one c
 | `module.cli-command` | Module CLI entrypoint, custom-entity install, idempotent seeding | [`../cli.ts`](../cli.ts) | readable |
 | `module.i18n-catalogs` | Per-module locale catalogs for `useT()` / `resolveTranslations()` | [`../i18n/en.json`](../i18n/en.json), [`../i18n/de.json`](../i18n/de.json), [`../i18n/es.json`](../i18n/es.json), [`../i18n/pl.json`](../i18n/pl.json) | readable |
 | `module.translatable-fields` | `<module>:<entity>` → translatable field names; declaring the file injects the Translation Manager into that entity's CrudForm header spot | [`../translations.ts`](../translations.ts) | readable |
+| `module.generator-plugin` | Type-only generator declaration → deterministic reference-index output → bootstrap registration in a duplicate- and path-validating consumer | [`../generators.ts`](../generators.ts), [`../reference-index.ts`](../reference-index.ts), [`../lib/module-reference-index.ts`](../lib/module-reference-index.ts) | readable |
 
-Evidence: `__tests__/acl-dependencies.test.ts`, `__tests__/translations.test.ts`, `__tests__/setup-seeding.test.ts`, `__tests__/di-registration.test.ts`.
+Evidence: `__tests__/acl-dependencies.test.ts`, `__tests__/translations.test.ts`, `__tests__/setup-seeding.test.ts`, `__tests__/di-registration.test.ts`, `lib/__tests__/module-reference-index.test.ts`, `__integration__/TC-EXAMPLE-016-generator-plugin.spec.ts`.
 
 Rule owners: `om-module-scaffold`, `om-integration-builder` (DI adapters).
 
@@ -274,12 +275,6 @@ Recorded so the gate stays honest; none of these demote the row.
 - `di.ts` — the Awilix `container.register` call and the external adapter-registry calls sit in one function. Only the former emits a rich DI registration fact; the latter register into registries this container never sees.
 - `data/guards.ts`, `subscribers/prevent-uncomplete.ts` — English rejection messages are inline object properties rather than translation keys.
 - `widgets/dashboard/todos/widget.client.tsx`, `widgets/dashboard/notes/widget.client.tsx`, `widgets/dashboard/welcome/widget.client.tsx` — arbitrary Tailwind values (`min-h-[120px]`, `min-h-[160px]`); the widget registration and settings files linked above are unaffected.
-
-## Capabilities this module does not cover yet
-
-Not present in the tree today, so there is no row and no link: `generators.ts` (a module-level generator plugin). Follow the owning skill; do not infer a pattern from an adjacent `example` file. (**Frontend** page middleware used to be listed here; it now has its own `ui.frontend-page-middleware` row.)
-
-`generators.ts` is deliberately absent rather than merely missing. A `GeneratorPlugin` aggregates a *convention file* across every module and emits a registry that something has to import — the two shipped examples (`packages/webhooks/.../generators.ts`, `packages/enterprise/src/modules/security/generators.ts`) each pair the declaration with a convention file and a `lib/module-*-registry.ts` consumer. Declaring the plugin without both halves would add a fact with no live call site, which is exactly what this module is not allowed to model.
 
 Present but not yet proven by the module-local integration suite the canonical spec names: the cache row is covered by unit tests here, not by `__integration__/TC-EXAMPLE-007-cache.spec.ts`, and the setup row by `__tests__/setup-seeding.test.ts` rather than `__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts`. Both specs are still outstanding.
 

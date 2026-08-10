@@ -334,7 +334,7 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
   return modules
 }
 
-function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+export function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
   const source = fs.readFileSync(cfgPath, 'utf8')
   return parseModulesFromSource(source)
 }

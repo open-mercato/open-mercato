@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
+import { readEnabledModulesFromConfig } from '../resolver'
 
 export type IntegrationSpecDiscoveryItem = {
   path: string
@@ -107,6 +108,14 @@ function collectModuleIdsFromModulesRoot(modulesRoot: string, enabledModules: Se
 }
 
 function resolveEnabledModuleIds(projectRoot: string): Set<string> {
+  const configuredTestAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
+  if (configuredTestAppRoot) {
+    const registryPath = path.join(path.resolve(configuredTestAppRoot), 'src', 'modules.ts')
+    return new Set(
+      readEnabledModulesFromConfig(registryPath).map((entry) => normalizeModuleId(entry.id)),
+    )
+  }
+
   const enabledModules = new Set<string>()
   const appModulesRoot = path.join(projectRoot, 'src', 'modules')
   const appsRoot = path.join(projectRoot, 'apps')

@@ -327,15 +327,7 @@ describe('factCoverage ledger — checked against the real example extraction', 
       }
     }
     expect(wronglyPending).toEqual([])
-    expect(pending).toEqual([
-      'ModuleFactSourceKind.generator-plugin',
-      'ModuleOwnedContractKind.generator-plugin',
-      'SpecializedRegistry.integration',
-      'SpecializedRegistry.vector',
-      'SpecializedRegistry.shipping',
-      'SpecializedRegistry.currency',
-      'SpecializedRegistry.workflow',
-    ])
+    expect(pending).toEqual([])
   })
 
   it('keeps every catalog-only row at a real count of zero, since the example contributes nothing for it', () => {
@@ -350,16 +342,12 @@ describe('factCoverage ledger — checked against the real example extraction', 
     expect(contributing).toEqual([])
   })
 
-  it('publishes nine of the ten owned-contract kinds today, generator-plugin being the open gap', () => {
+  it('publishes all ten owned-contract kinds', () => {
     const ownedCounts = counts.ModuleOwnedContractKind
     for (const kind of MODULE_OWNED_CONTRACT_KINDS) {
-      if (kind === 'generator-plugin') {
-        expect(ownedCounts[kind] ?? 0).toBe(0)
-        continue
-      }
       expect(ownedCounts[kind] ?? 0).toBeGreaterThan(0)
     }
-    expect(fs.existsSync(path.join(findRepoRoot(), 'apps/mercato/src/modules/example/generators.ts'))).toBe(false)
+    expect(fs.existsSync(path.join(findRepoRoot(), 'apps/mercato/src/modules/example/generators.ts'))).toBe(true)
   })
 
   it('emits a real override target for all fifteen module-owned domains and none for framework-only nav', () => {

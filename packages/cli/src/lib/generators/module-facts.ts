@@ -3411,9 +3411,8 @@ const FACT_SOURCE_KIND_COVERAGE: Record<ModuleFactSourceKind, ModuleFactCoverage
   integration: { value: 'integration', status: 'emitted-example', note: 'example/lib/mock-*-adapter.ts integration registrations' },
   'generator-plugin': {
     value: 'generator-plugin',
-    status: 'pending-emission',
-    note: 'REQUIRED: an example/generators.ts GeneratorPlugin declaration; the file does not exist yet',
-    pendingEmission: 'slice-H-missing-example-surfaces',
+    status: 'emitted-example',
+    note: 'example/generators.ts deterministic reference-index generator plugin',
   },
   'extension-host': { value: 'extension-host', status: 'emitted-example', note: 'example/extension-points.ts declared hosts' },
   'extension-contribution': {
@@ -3439,9 +3438,8 @@ const OWNED_CONTRACT_KIND_COVERAGE: Record<ModuleOwnedContractKind, ModuleFactCo
   'ai-extension': { value: 'ai-extension', status: 'emitted-example', note: 'example AI override/extension record' },
   'generator-plugin': {
     value: 'generator-plugin',
-    status: 'pending-emission',
-    note: 'REQUIRED: an example/generators.ts GeneratorPlugin declaration; the file does not exist yet',
-    pendingEmission: 'slice-H-missing-example-surfaces',
+    status: 'emitted-example',
+    note: 'example/generators.ts deterministic reference-index generator plugin',
   },
 }
 
@@ -3643,14 +3641,14 @@ const TOPOLOGY_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRo
 
 const SPECIALIZED_REGISTRY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
   notification: { value: 'notification', status: 'emitted-example', note: 'example notification type registry' },
-  integration: { value: 'integration', status: 'pending-emission', note: 'REQUIRED: example integration bundle identity', pendingEmission: 'slice-H-specialized-registries' },
+  integration: { value: 'integration', status: 'emitted-example', note: 'example credential-free integration bundle identity' },
   search: { value: 'search', status: 'emitted-example', note: 'example Todo search registry' },
-  vector: { value: 'vector', status: 'pending-emission', note: 'REQUIRED: example Todo vector registry', pendingEmission: 'slice-H-specialized-registries' },
+  vector: { value: 'vector', status: 'emitted-example', note: 'example deterministic Todo vector registry' },
   ai: { value: 'ai', status: 'emitted-example', note: 'example AI tool and agent registries' },
   payment: { value: 'payment', status: 'emitted-example', note: 'example mock payment descriptors' },
-  shipping: { value: 'shipping', status: 'pending-emission', note: 'REQUIRED: example shipping registry identity', pendingEmission: 'slice-H-specialized-registries' },
-  currency: { value: 'currency', status: 'pending-emission', note: 'REQUIRED: example currency provider identity', pendingEmission: 'slice-H-specialized-registries' },
-  workflow: { value: 'workflow', status: 'pending-emission', note: 'REQUIRED: example Todo workflow identity', pendingEmission: 'slice-H-specialized-registries' },
+  shipping: { value: 'shipping', status: 'emitted-example', note: 'example mock shipping registry identity' },
+  currency: { value: 'currency', status: 'emitted-example', note: 'example deterministic currency provider identity' },
+  workflow: { value: 'workflow', status: 'emitted-example', note: 'example event-triggered Todo workflow identity' },
 }
 
 const COMPONENT_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {

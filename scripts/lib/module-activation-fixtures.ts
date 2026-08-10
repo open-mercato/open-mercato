@@ -30,6 +30,7 @@ export const DESIGN_SYSTEM_ACTIVATION_ENTRY: ModuleActivationEntry = {
 
 const ENABLED_MODULES_ANCHOR = 'const enabledModules: ModuleEntry[] = ['
 const GENERATED_DIR_SEGMENTS = ['.mercato', 'generated'] as const
+const EXAMPLE_REFERENCE_INDEX_OUTPUT = 'example-reference-index.generated.ts'
 
 type EntityIdRegistry = {
   moduleIds: Record<string, string>
@@ -174,6 +175,30 @@ export async function assertModulesUnregistered(appDir: string, moduleIds: strin
       [],
       `Generated artifacts must not reference '${sourceNeedle}' while '${moduleId}' is disabled`,
     )
+
+    if (moduleId === 'example') {
+      const referenceIndexPath = path.join(generatedDir(appDir), EXAMPLE_REFERENCE_INDEX_OUTPUT)
+      const referenceIndexChecksumPath = referenceIndexPath.replace(/\.ts$/, '.checksum')
+      assert.equal(
+        fs.existsSync(referenceIndexPath),
+        false,
+        `Disabled example module must not emit ${referenceIndexPath}`,
+      )
+      assert.equal(
+        fs.existsSync(referenceIndexChecksumPath),
+        false,
+        `Disabled example module must not emit ${referenceIndexChecksumPath}`,
+      )
+      const pluginManifestPath = path.join(generatedDir(appDir), '.generator-plugin-outputs.json')
+      const pluginOutputs = fs.existsSync(pluginManifestPath)
+        ? JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8')) as string[]
+        : []
+      assert.equal(
+        pluginOutputs.includes(EXAMPLE_REFERENCE_INDEX_OUTPUT),
+        false,
+        `Disabled example module must not retain ${EXAMPLE_REFERENCE_INDEX_OUTPUT} in the plugin manifest`,
+      )
+    }
   }
 }
 
@@ -203,6 +228,28 @@ export async function assertExampleActivation(appDir: string): Promise<void> {
 
   assert.equal(entityIds.example?.todo, 'example:todo')
   assert.equal(moduleIds.example, 'example')
+
+  const referenceIndexPath = path.join(generatedDir(appDir), EXAMPLE_REFERENCE_INDEX_OUTPUT)
+  const referenceIndexChecksumPath = referenceIndexPath.replace(/\.ts$/, '.checksum')
+  const pluginManifestPath = path.join(generatedDir(appDir), '.generator-plugin-outputs.json')
+  const bootstrapPath = path.join(generatedDir(appDir), 'bootstrap-registrations.generated.ts')
+  for (const artifactPath of [referenceIndexPath, referenceIndexChecksumPath, pluginManifestPath]) {
+    assert.ok(fs.existsSync(artifactPath), `Activated example generation did not emit ${artifactPath}`)
+  }
+  const referenceIndexSource = fs.readFileSync(referenceIndexPath, 'utf8')
+  assert.ok(referenceIndexSource.includes("moduleId: 'example'"))
+  assert.ok(referenceIndexSource.includes('src/modules/example/reference-index'))
+  assert.equal(referenceIndexSource.includes(appDir), false, 'Reference index output must not embed the app root')
+  assert.ok(
+    (JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8')) as string[])
+      .includes(EXAMPLE_REFERENCE_INDEX_OUTPUT),
+    `Generator plugin manifest is missing ${EXAMPLE_REFERENCE_INDEX_OUTPUT}`,
+  )
+  const bootstrapSource = fs.readFileSync(bootstrapPath, 'utf8')
+  assert.ok(
+    bootstrapSource.includes('registerModuleReferenceIndexEntries'),
+    'Generated bootstrap registry must consume the example reference index',
+  )
 
   // Only the presets whose modules.ts carries the companion conditional may pull
   // example_customers_sync in; the others must stay untouched by the activation.
