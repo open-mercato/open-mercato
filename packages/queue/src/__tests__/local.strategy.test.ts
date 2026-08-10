@@ -36,6 +36,15 @@ async function within<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   }
 }
 
+function createWatcherStub(): fs.FSWatcher {
+  const watcher = {
+    close: jest.fn(),
+    on: jest.fn(),
+  }
+  watcher.on.mockReturnValue(watcher)
+  return watcher as unknown as fs.FSWatcher
+}
+
 describe('Queue - local strategy', () => {
   const origCwd = process.cwd()
   let tmp: string
@@ -511,32 +520,172 @@ describe('Queue - local strategy', () => {
     }
   })
 
-  test('continuous workers recover after the queue directory is recreated', async () => {
-    const baseDir = path.join(tmp, 'recreated-queue')
-    const movedDir = path.join(tmp, 'moved-queue')
-    const consumer = createQueue<{ value: number }>('recreated-queue', 'local', {
+  test('idle continuous workers do not poll at the queued-work default interval', async () => {
+    jest.useFakeTimers()
+    const baseDir = path.join(tmp, 'idle-default')
+    const queueFile = path.join(baseDir, 'idle-default', 'queue.json')
+    const watcher = createWatcherStub()
+    const watchSpy = jest.spyOn(fs, 'watch').mockReturnValue(watcher)
+    const readFileSpy = jest.spyOn(fs.promises, 'readFile')
+    const consumer = createQueue<{ value: number }>('idle-default', 'local', { baseDir })
+
+    try {
+      await consumer.process(() => {})
+      readFileSpy.mockClear()
+
+      await jest.advanceTimersByTimeAsync(1500)
+      jest.useRealTimers()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const queueReads = readFileSpy.mock.calls.filter(([filePath]) => String(filePath) === queueFile)
+      expect(queueReads).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+      await consumer.close()
+      readFileSpy.mockRestore()
+      watchSpy.mockRestore()
+    }
+  })
+
+  test('custom queued-work polling keeps the idle safety interval', async () => {
+    jest.useFakeTimers()
+    const baseDir = path.join(tmp, 'idle-custom')
+    const queueFile = path.join(baseDir, 'idle-custom', 'queue.json')
+    const watcher = createWatcherStub()
+    const watchSpy = jest.spyOn(fs, 'watch').mockReturnValue(watcher)
+    const readFileSpy = jest.spyOn(fs.promises, 'readFile')
+    const consumer = createQueue<{ value: number }>('idle-custom', 'local', {
       baseDir,
       pollInterval: 50,
     })
-    let resolveProcessed!: (value: number) => void
-    const processed = new Promise<number>((resolve) => {
-      resolveProcessed = resolve
+
+    try {
+      await consumer.process(() => {})
+      readFileSpy.mockClear()
+
+      await jest.advanceTimersByTimeAsync(500)
+      jest.useRealTimers()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const queueReads = readFileSpy.mock.calls.filter(([filePath]) => String(filePath) === queueFile)
+      expect(queueReads).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+      await consumer.close()
+      readFileSpy.mockRestore()
+      watchSpy.mockRestore()
+    }
+  })
+
+  test('continuous workers re-arm filesystem wake-ups after the queue directory is recreated', async () => {
+    jest.useFakeTimers()
+    const baseDir = path.join(tmp, 'recreated-queue')
+    const movedDir = path.join(tmp, 'moved-queue')
+    const consumer = createQueue<{ value: number }>('recreated-queue', 'local', { baseDir })
+    let resolveRecovered!: (value: number) => void
+    const recovered = new Promise<number>((resolve) => {
+      resolveRecovered = resolve
+    })
+    let resolveEventDriven!: (value: number) => void
+    const eventDriven = new Promise<number>((resolve) => {
+      resolveEventDriven = resolve
     })
 
     try {
       await consumer.process((job) => {
-        resolveProcessed(job.payload.value)
+        if (job.payload.value === 7) {
+          resolveRecovered(job.payload.value)
+          return
+        }
+        resolveEventDriven(job.payload.value)
       })
       fs.renameSync(baseDir, movedDir)
       const producer = createQueue<{ value: number }>('recreated-queue', 'local', { baseDir })
 
       try {
         await producer.enqueue({ value: 7 })
-        await expect(within(processed, 500)).resolves.toBe(7)
+        const recoveredWithinFallback = within(recovered, 5500)
+        await jest.advanceTimersByTimeAsync(5000)
+        await expect(recoveredWithinFallback).resolves.toBe(7)
+
+        jest.useRealTimers()
+        await producer.enqueue({ value: 8 })
+        await expect(within(eventDriven, 800)).resolves.toBe(8)
       } finally {
         await producer.close()
       }
     } finally {
+      jest.useRealTimers()
+      await consumer.close()
+    }
+  })
+
+  test('clear cancels queued-work polling after draining the queue', async () => {
+    jest.useFakeTimers()
+    const baseDir = path.join(tmp, 'clear-queued-poll')
+    const queueFile = path.join(baseDir, 'clear-queued-poll', 'queue.json')
+    const watcher = createWatcherStub()
+    const watchSpy = jest.spyOn(fs, 'watch').mockReturnValue(watcher)
+    const readFileSpy = jest.spyOn(fs.promises, 'readFile')
+    const consumer = createQueue<{ value: number }>('clear-queued-poll', 'local', { baseDir })
+
+    try {
+      await consumer.enqueue({ value: 1 }, { delayMs: 10_000 })
+      await consumer.process(() => {})
+      await consumer.clear()
+      readFileSpy.mockClear()
+
+      await jest.advanceTimersByTimeAsync(1000)
+      jest.useRealTimers()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const queueReads = readFileSpy.mock.calls.filter(([filePath]) => String(filePath) === queueFile)
+      expect(queueReads).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+      await consumer.close()
+      readFileSpy.mockRestore()
+      watchSpy.mockRestore()
+    }
+  })
+
+  test('restarting continuous processing closes the previous watcher', async () => {
+    jest.useFakeTimers()
+    const firstWatcher = createWatcherStub()
+    const secondWatcher = createWatcherStub()
+    const watchSpy = jest.spyOn(fs, 'watch')
+      .mockReturnValueOnce(firstWatcher)
+      .mockReturnValueOnce(secondWatcher)
+    const consumer = createQueue<{ value: number }>('restart-worker', 'local', {
+      baseDir: path.join(tmp, 'restart-worker'),
+    })
+
+    try {
+      await consumer.process(() => {})
+      await consumer.process(() => {})
+
+      expect(firstWatcher.close).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+      await consumer.close()
+      firstWatcher.close()
+      secondWatcher.close()
+      watchSpy.mockRestore()
+    }
+  })
+
+  test('continuous processing rejects when its initial queue read fails', async () => {
+    const baseDir = path.join(tmp, 'initial-read-failure')
+    const queueFile = path.join(baseDir, 'initial-read-failure', 'queue.json')
+    const consumer = createQueue<{ value: number }>('initial-read-failure', 'local', { baseDir })
+
+    await consumer.enqueue({ value: 1 })
+    fs.chmodSync(queueFile, 0o000)
+
+    try {
+      await expect(consumer.process(() => {})).rejects.toThrow('Queue file unreadable')
+    } finally {
+      fs.chmodSync(queueFile, 0o600)
       await consumer.close()
     }
   })

@@ -59,7 +59,7 @@ export type LocalQueueOptions = {
   baseDir?: string
   /** Number of concurrent job processors. Defaults to 1 */
   concurrency?: number
-  /** Polling interval in milliseconds while work is queued. Explicit values also control fallback polling. Defaults to 1000. */
+  /** Polling interval in milliseconds while work is queued. Idle safety polling uses at least 5000 ms. Defaults to 1000. */
   pollInterval?: number
 }
 
