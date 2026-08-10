@@ -97,6 +97,23 @@ export function stampOverridingModule(props: unknown): unknown {
  * contributing no component override at all.
  */
 export const componentOverrides: ComponentOverride[] = [
+  /**
+   * The one entry with no `applyWhenEnabled` gate, and the deliberate exception to the rule the
+   * `replace`-mode entry below states. Naming it here because a reader who takes that rule at face
+   * value would not expect a counterexample four entries above it.
+   *
+   * Two things make it different in kind from a gated demo. It **composes** rather than replaces:
+   * `decorateWithDemoFrame` renders the host's own component inside a border, so the screen you
+   * came to look at is still the screen you get — a `replace` on a foreign handle would discard it.
+   * And it is the subject of a guided lesson rather than incidental chrome: Phase H of
+   * `/backend/example/umes-extensions` tells the reader to go and find this border on a customer
+   * detail page (`example.umes.extensions.phaseH.hint4`), and `TC-UMES-004` asserts it renders.
+   * Gating it would make both of those statements false.
+   *
+   * Its blast radius is this monorepo alone: a scaffolded app ships `src/modules/example` in source
+   * and registers neither it nor the gallery, so nothing here loads until an app opts in — see
+   * `packages/create-app/agentic/shared/ai/specs/2026-08-06-reference-module-activation.md`.
+   */
   {
     target: { componentId: ComponentReplacementHandles.section('ui.detail', 'NotesSection') },
     priority: 50,
@@ -150,9 +167,13 @@ export const componentOverrides: ComponentOverride[] = [
    *
    * The target is a handle this module hosts itself
    * (`components/ComponentOverrideShowcase.tsx`, rendered by
-   * `/backend/component-overrides`). A production override names a handle another
-   * module exposes; a canonical reference module must not, because enabling it for
-   * inspection would then rewrite a screen you did not come to look at.
+   * `/backend/component-overrides`). A production override in `replace` mode names a handle
+   * another module exposes; a canonical reference module must not, because `replace` discards
+   * the host's markup, so enabling this module for inspection would rewrite a screen you did not
+   * come to look at. The rule is about **replacement**, not about touching a foreign handle at
+   * all: the `wrapper` entries above do name foreign handles and keep the host's own component
+   * rendered inside their frame, which is why the notes wrapper is a documented exception rather
+   * than a violation.
    */
   {
     target: { componentId: SHOWCASE_HANDLE },
