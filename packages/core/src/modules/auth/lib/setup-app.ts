@@ -655,12 +655,18 @@ async function ensureRoleAclFor(
   features: string[],
   options: { isSuperAdmin?: boolean } = {},
 ) {
+  // Deduplicated on the create path too, not only on merge. `ensureDefaultRoleAcls` concatenates
+  // every enabled module's declared features, and two modules legitimately declare the same
+  // grant (the example module asks for `payment_gateways.view`, and so does that module itself),
+  // so a first init used to store the string twice while the second run silently collapsed it.
+  // Same list, two shapes, depending only on how many times setup had run.
+  const uniqueFeatures = Array.from(new Set(features))
   const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
   if (!existing) {
     const acl = em.create(RoleAcl, {
       role,
       tenantId,
-      featuresJson: features,
+      featuresJson: uniqueFeatures,
       isSuperAdmin: !!options.isSuperAdmin,
       createdAt: new Date(),
     })
@@ -668,7 +674,7 @@ async function ensureRoleAclFor(
     return
   }
   const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
-  const merged = Array.from(new Set([...currentFeatures, ...features]))
+  const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
   const changed =
     merged.length !== currentFeatures.length ||
     merged.some((value, index) => value !== currentFeatures[index])

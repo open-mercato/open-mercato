@@ -390,7 +390,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/setup.ts", "src/modules/example/lib/exampleSeeds.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/setup-seeding.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/setup-seeding.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts"
+      ],
       "dependencyModules": ["entities"],
       "ruleOwner": "om-module-scaffold"
     },

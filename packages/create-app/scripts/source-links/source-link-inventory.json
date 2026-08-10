@@ -1436,6 +1436,7 @@
         "module.setup-scheduler-target"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts",
         "src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts",
         "src/modules/example/__tests__/setup-seeding.test.ts"
       ],
@@ -2427,6 +2428,7 @@
         "module.setup-scheduler-target"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts",
         "src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts",
         "src/modules/example/__tests__/setup-seeding.test.ts"
       ],
