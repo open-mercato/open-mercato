@@ -5365,6 +5365,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ioredis/commands@npm:2.0.0":
+  version: 2.0.0
+  resolution: "@ioredis/commands@npm:2.0.0"
+  checksum: 10/03c0e0735ac75dae14380a153e6b330391d3c7fcef47de13d0bfbe7de1f83ad8d617c6629c25b478eb3d4013a95f0b602840acfd047981d8796438f5e7ddffbb
+  languageName: node
+  linkType: hard
+
 "@isaacs/cliui@npm:^8.0.2":
   version: 8.0.2
   resolution: "@isaacs/cliui@npm:8.0.2"
@@ -7565,7 +7572,7 @@ __metadata:
     dotenv: "npm:^17.4.2"
     eslint: "npm:^9.39.4"
     eslint-config-next: "npm:16.3.0"
-    ioredis: "npm:^5.11.1"
+    ioredis: "npm:^6.0.0"
     jest: "npm:^30.4.2"
     lucide-react: "npm:^1.27.0"
     newrelic: "npm:^14.3.4"
@@ -7610,7 +7617,7 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     better-sqlite3: ">=9.0.0"
-    ioredis: ^5.0.0
+    ioredis: ^5.0.0 || ^6.0.0
   peerDependenciesMeta:
     better-sqlite3:
       optional: true
@@ -7936,7 +7943,7 @@ __metadata:
     "@mikro-orm/core": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     bullmq: ^5.0.0 || ^6.0.0
-    ioredis: ^5.0.0
+    ioredis: ^5.0.0 || ^6.0.0
     zod: ">=3.23.0"
   peerDependenciesMeta:
     bullmq:
@@ -20993,7 +21000,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ioredis@npm:5.11.1, ioredis@npm:^5.11.1":
+"ioredis@npm:5.11.1":
   version: 5.11.1
   resolution: "ioredis@npm:5.11.1"
   dependencies:
@@ -21005,6 +21012,20 @@ __metadata:
     redis-parser: "npm:3.0.0"
     standard-as-callback: "npm:2.1.0"
   checksum: 10/f27653075b0599a9e8886b28a59bb2e232ca7d91b4a81de699e932cb55dcdcec791fe571fb7d4ebc81fc26f44667a76cf165162ecea57285548190ea0d58f734
+  languageName: node
+  linkType: hard
+
+"ioredis@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "ioredis@npm:6.0.0"
+  dependencies:
+    "@ioredis/commands": "npm:2.0.0"
+    cluster-key-slot: "npm:1.1.1"
+    debug: "npm:4.4.3"
+    denque: "npm:2.1.0"
+    redis-errors: "npm:1.2.0"
+    standard-as-callback: "npm:2.1.0"
+  checksum: 10/afd383b034ff8fdf9d1fed0b4b4524e7d73bc0d0f5cad9ad93d2787d0b70f025ed0170eceab19a4d37f460eb7f2edfc544e86936492779149f1e5ec0e94f0910
   languageName: node
   linkType: hard
 
