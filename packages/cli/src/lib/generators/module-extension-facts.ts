@@ -2399,6 +2399,14 @@ export function assertNoUnresolvedExtensionTargets(
  * — spec 2026-08-02-module-facts-exact-override-targets). Keyed by the dotted
  * host id (e.g. `routes.api`, `ai.extensions`, `nav.groupOrder`) so the module
  * override-target adapters share one mode source of truth with the catalog.
+ *
+ * @deprecated Use {@link getFrameworkOverrideHostOperations}. This helper drops any host whose
+ * declared operation is not one of the three recognized modes, which collapses "the catalog does
+ * not describe this host" into "the catalog describes it with a mode this generator has fallen
+ * behind on" — the distinction the `unknown-framework-domain` / `unknown-framework-mode`
+ * diagnostics exist to keep apart. Every in-tree consumer has moved; the export is retained
+ * because `BACKWARD_COMPATIBILITY.md` classifies exported generator helpers as removable only
+ * through the deprecation protocol, and it stays behaviour-identical for as long as it exists.
  */
 export function getFrameworkOverrideModes(
   hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
