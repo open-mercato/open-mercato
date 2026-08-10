@@ -45,8 +45,8 @@ describes is already implemented and its `test` job's jest phase is green — on
 
 ### Phase 1: Classify the new cross-package guard
 
-- [ ] 1.1 Add an `@open-mercato/search` group to `REPO_WIDE_GUARDS` listing `global-search-acl.test.ts`
-- [ ] 1.2 Verify `node --test scripts/__tests__/repo-wide-guards.test.mjs` and `yarn test:repo-wide-guards` pass
+- [x] 1.1 Add an `@open-mercato/search` group to `REPO_WIDE_GUARDS` listing `global-search-acl.test.ts` — 3f5cb199b
+- [x] 1.2 Verify `node --test scripts/__tests__/repo-wide-guards.test.mjs` and `yarn test:repo-wide-guards` pass — 3f5cb199b
 
 ### Phase 2: Validate and report
 
