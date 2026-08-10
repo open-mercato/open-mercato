@@ -48,3 +48,4 @@ PR: #5162
 
 - [x] 2.1 Document, mirror, and record the retrieval workflow — e33e3ff8a
 - [x] 2.2 Accept timestamped migration filenames without weakening phone detection — ca5e198eb
+- [x] 2.3 Redact unrelated browser tab listings while preserving session structure — 248815141
