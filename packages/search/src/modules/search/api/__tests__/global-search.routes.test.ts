@@ -82,7 +82,10 @@ function createContainer(
 ) {
   const registrations: Record<string, unknown> = {
     searchService,
-    searchIndexer: { getEntityConfig: (entityId: string) => configMap.get(entityId as EntityId) },
+    searchIndexer: {
+      getEntityConfig: (entityId: string) => configMap.get(entityId as EntityId),
+      getAllEntityConfigs: () => [...configMap.values()],
+    },
     rbacService: {
       loadAcl: async () => ({
         isSuperAdmin: acl.isSuperAdmin ?? false,
@@ -239,6 +242,36 @@ describe('GET /api/search/search/global per-entity access control', () => {
 
     expect(status).toBe(200)
     expect(body.results).toHaveLength(3)
+  })
+
+  it('narrows the query to the readable entity types instead of only filtering afterwards', async () => {
+    // Filtering after the fact would spend `limit` on unreadable records and leave
+    // the palette looking empty, so the restriction has to reach the strategies.
+    const { searchService, configMap } = buildDemoSearchService()
+    const searchSpy = jest.spyOn(searchService, 'search')
+    mockCreateRequestContainer.mockResolvedValue(
+      createContainer(searchService, configMap, { features: ['search.global', 'demo.view'] }),
+    )
+
+    await GET(new Request('http://localhost/api/search/search/global?q=person'))
+
+    expect(searchSpy).toHaveBeenCalledTimes(1)
+    const options = searchSpy.mock.calls[0][1] as { entityTypes?: string[] }
+    expect(options.entityTypes).toEqual([DEMO_ENTITY_ID])
+  })
+
+  it('skips the search entirely when the caller can read nothing', async () => {
+    const { searchService, configMap } = buildDemoSearchService()
+    const searchSpy = jest.spyOn(searchService, 'search')
+    mockCreateRequestContainer.mockResolvedValue(
+      createContainer(searchService, configMap, { features: ['search.global'] }),
+    )
+
+    const response = await GET(new Request('http://localhost/api/search/search/global?q=person'))
+
+    expect(response.status).toBe(200)
+    expect(searchSpy).not.toHaveBeenCalled()
+    expect((await response.json() as { results: SearchResult[] }).results).toEqual([])
   })
 
   it('returns results for a superadmin without any explicit grant', async () => {

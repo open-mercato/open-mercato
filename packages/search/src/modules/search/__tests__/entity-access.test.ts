@@ -2,6 +2,7 @@ import type { SearchEntityConfig } from '@open-mercato/shared/modules/search'
 import {
   canReadSearchEntity,
   filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
   type SearchEntityDenyReason,
 } from '../lib/entity-access'
 
@@ -20,7 +21,10 @@ const CONFIGS: Record<string, SearchEntityConfig> = {
   },
 }
 
-const lookup = { getEntityConfig: (entityId: string) => CONFIGS[entityId] }
+const lookup = {
+  getEntityConfig: (entityId: string) => CONFIGS[entityId],
+  getAllEntityConfigs: () => Object.values(CONFIGS),
+}
 
 function result(entityId: string, recordId: string) {
   return { entityId, recordId }
@@ -75,6 +79,44 @@ describe('canReadSearchEntity', () => {
     expect(
       canReadSearchEntity('wms:warehouse', lookup, { grantedFeatures: [], isSuperAdmin: true }),
     ).toBe(true)
+  })
+})
+
+describe('resolveReadableEntityTypes', () => {
+  it('narrows the query to the entity types the caller can read', () => {
+    expect(
+      resolveReadableEntityTypes(lookup, { grantedFeatures: ['customers.people.view'] }),
+    ).toEqual(['customers:customer_person_profile'])
+  })
+
+  it('returns an empty list when nothing is readable, so callers can short-circuit', () => {
+    expect(resolveReadableEntityTypes(lookup, { grantedFeatures: ['search.global'] })).toEqual([])
+  })
+
+  it('intersects the readable types with the explicitly requested ones', () => {
+    expect(
+      resolveReadableEntityTypes(lookup, { grantedFeatures: ['*'] }, ['catalog:catalog_product', 'wms:warehouse']),
+    ).toEqual(['catalog:catalog_product'])
+  })
+
+  it('applies no restriction for a superadmin and passes an explicit request through', () => {
+    expect(
+      resolveReadableEntityTypes(lookup, { grantedFeatures: [], isSuperAdmin: true }),
+    ).toBeUndefined()
+    expect(
+      resolveReadableEntityTypes(lookup, { grantedFeatures: [], isSuperAdmin: true }, ['wms:warehouse']),
+    ).toEqual(['wms:warehouse'])
+  })
+
+  it('skips entities explicitly disabled for search', () => {
+    const disabledLookup = {
+      getEntityConfig: (entityId: string) => CONFIGS[entityId],
+      getAllEntityConfigs: () => [
+        { entityId: 'catalog:catalog_product', aclFeatures: ['catalog.products.view'], enabled: false },
+      ],
+    }
+
+    expect(resolveReadableEntityTypes(disabledLookup, { grantedFeatures: ['*'] })).toEqual([])
   })
 })
 

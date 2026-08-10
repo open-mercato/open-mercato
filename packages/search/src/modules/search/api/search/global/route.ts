@@ -10,6 +10,7 @@ import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import { resolveGlobalSearchStrategies } from '../../../lib/global-search-config'
 import {
   filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
   type SearchEntityConfigLookup,
 } from '../../../lib/entity-access'
 import { searchDebug, searchError } from '../../../../../lib/debug'
@@ -131,24 +132,40 @@ export async function GET(req: Request) {
     const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
     const organizationId =
       typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
+
+    // `search.global` authorizes using the palette, not reading every indexed
+    // record. Narrow the query to the entity types this caller may read so the
+    // result budget is not spent on records that would only be filtered out.
+    const acl = await rbac.loadAcl(auth.sub, {
+      tenantId: scope.tenantId ?? auth.tenantId ?? null,
+      organizationId: organizationId ?? null,
+    })
+    const subject = { grantedFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin }
+    const readableEntityTypes = resolveReadableEntityTypes(searchIndexer, subject, entityTypes)
+    if (readableEntityTypes && readableEntityTypes.length === 0) {
+      return NextResponse.json({
+        results: [],
+        strategiesUsed: [],
+        strategiesEnabled: strategies,
+        timing: Date.now() - startTime,
+        query,
+        limit,
+      })
+    }
+
     const searchOptions = {
       tenantId: auth.tenantId,
       organizationId,
       organizationIds: scopeFilter.organizationIds,
       limit,
       strategies,
-      entityTypes,
+      entityTypes: readableEntityTypes,
     }
 
     const rawResults = await searchService.search(query, searchOptions)
 
-    // `search.global` authorizes using the palette, not reading every indexed
-    // record. Drop the results whose entity type the caller has no view feature
-    // for, before any presenter title, subtitle or deep link leaves the server.
-    const acl = await rbac.loadAcl(auth.sub, {
-      tenantId: scope.tenantId ?? auth.tenantId ?? null,
-      organizationId: organizationId ?? null,
-    })
+    // Defense in depth: a strategy that ignores `entityTypes` must still not leak
+    // a presenter title, subtitle or deep link past the per-entity gate.
     const results = filterSearchResultsByEntityAccess(
       rawResults,
       searchIndexer,

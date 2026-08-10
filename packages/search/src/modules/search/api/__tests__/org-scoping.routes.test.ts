@@ -97,7 +97,7 @@ describe('Search API organizationId scoping', () => {
     // by per-entity view features (issue #5163).
     const registrations: Record<string, unknown> = {
       searchService,
-      searchIndexer: { getEntityConfig: () => undefined },
+      searchIndexer: { getEntityConfig: () => undefined, getAllEntityConfigs: () => [] },
       rbacService: {
         loadAcl: jest.fn().mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null }),
       },

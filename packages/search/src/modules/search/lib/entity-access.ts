@@ -8,6 +8,7 @@ import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
  */
 export type SearchEntityConfigLookup = {
   getEntityConfig: (entityId: string) => SearchEntityConfig | undefined
+  getAllEntityConfigs: () => SearchEntityConfig[]
 }
 
 export type SearchEntityAccessSubject = {
@@ -70,6 +71,38 @@ export function canReadSearchEntity(
   })
   if (!allowed) options.onDeny?.(entityId, 'insufficient-features')
   return allowed
+}
+
+/**
+ * The entity types this caller may read, narrowed to `requestedEntityTypes` when
+ * the caller asked for specific ones.
+ *
+ * Restricting the query up front is what keeps `limit` meaningful. Filtering only
+ * after the search would spend the whole result budget on records the caller
+ * cannot see: an employee granted just `customers.people.view` would get the top
+ * 50 hits across every entity type, then watch most of them be dropped, and the
+ * palette would look empty even with hundreds of matching people behind it.
+ *
+ * Returns `undefined` when no restriction applies (superadmin with no explicit
+ * request), and an empty array when nothing is readable — callers should
+ * short-circuit on that rather than pass it down as "no filter".
+ */
+export function resolveReadableEntityTypes(
+  lookup: SearchEntityConfigLookup,
+  subject: SearchEntityAccessSubject,
+  requestedEntityTypes?: string[],
+): string[] | undefined {
+  if (subject.isSuperAdmin) return requestedEntityTypes
+
+  const readable = lookup
+    .getAllEntityConfigs()
+    .filter((config) => config.enabled !== false)
+    .map((config) => config.entityId)
+    .filter((entityId) => canReadSearchEntity(entityId, lookup, subject))
+
+  if (!requestedEntityTypes) return readable
+  const requested = new Set(requestedEntityTypes)
+  return readable.filter((entityId) => requested.has(entityId))
 }
 
 /**
