@@ -65,9 +65,18 @@ jobs:
       matrix: ${{ steps.scope.outputs.matrix }}
       has_work: ${{ steps.scope.outputs.has_work }}
     steps:
+      # Pinned to the PR's own head commit, not the default `refs/pull/<n>/merge`.
+      # That ref is GitHub's live merge of this branch into whatever the base branch's
+      # tip is *at checkout time* — which can already be ahead of `base.sha` below by
+      # the time a queued job starts. Diffing the frozen `base.sha` against a HEAD that
+      # silently gained every commit merged into develop in the meantime turns "what
+      # this PR changed" into "what this PR changed plus everything upstream since it
+      # branched", which is how an unrelated develop-side refactor once got mutated as
+      # if this PR had written it (and blew the mutate job's timeout doing so).
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Set up Node
@@ -117,8 +126,13 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.scope.outputs.matrix) }}
     steps:
+      # Same head-sha pin as the `scope` job, and for the same reason: the tree being
+      # mutated must be exactly the one `scope` diffed, not a live merge that can have
+      # drifted ahead of it between the two jobs.
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up Node
         uses: actions/setup-node@v7
