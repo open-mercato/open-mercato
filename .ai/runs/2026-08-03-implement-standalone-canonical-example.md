@@ -1317,3 +1317,11 @@ not from the stale deferred/blocker labels above.
   controller passed base-fail/head-pass with all six required lanes declared. Remaining release gates:
   the trusted provider-backed harness lane must run on Linux with Bubblewrap (native macOS fails closed
   by design), followed by the final CI result.
+- [x] Fresh-scaffold deterministic harness: the final audit found that build-time
+  `reference-module-facts.json` and `reference-modules/example.md` were not copied by
+  `generateShared()` or owned by the harness manifest. Both now ship without activating `example`,
+  and a real fresh classic scaffold proves the files and ownership entries. The same run exposed byte
+  ceilings calibrated before the expanded installed module-fact topology; all affected cases were
+  remeasured against packed and current-source controllers, rounded to the next 4 KiB, and the bounded
+  catalog ceiling was raised to 1 MiB. The corrected generated controller passes 228/228 deterministic
+  cases; focused evaluator, budget, build, and fresh-scaffold tests pass 164/164.
