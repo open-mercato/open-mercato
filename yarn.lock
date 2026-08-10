@@ -5365,6 +5365,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ioredis/commands@npm:2.0.0":
+  version: 2.0.0
+  resolution: "@ioredis/commands@npm:2.0.0"
+  checksum: 10/03c0e0735ac75dae14380a153e6b330391d3c7fcef47de13d0bfbe7de1f83ad8d617c6629c25b478eb3d4013a95f0b602840acfd047981d8796438f5e7ddffbb
+  languageName: node
+  linkType: hard
+
 "@isaacs/cliui@npm:^8.0.2":
   version: 8.0.2
   resolution: "@isaacs/cliui@npm:8.0.2"
@@ -7487,7 +7494,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.3"
     ai: "npm:^7.0.4"
     cmdk: "npm:^1.0.0"
-    framer-motion: "npm:^12.43.0"
+    framer-motion: "npm:^13.0.0"
     isolated-vm: "npm:^7.0.0"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -7544,7 +7551,7 @@ __metadata:
     "@stripe/stripe-js": "npm:^9.12.1"
     "@tailwindcss/postcss": "npm:^4.3.2"
     "@tanstack/react-query": "npm:^5.101.4"
-    "@tanstack/react-table": "npm:^8.20.5"
+    "@tanstack/react-table": "npm:^9.0.0"
     "@testing-library/dom": "npm:^10.4.0"
     "@testing-library/jest-dom": "npm:^7.0.0"
     "@testing-library/react": "npm:^16.2.0"
@@ -7556,8 +7563,8 @@ __metadata:
     ai: "npm:^7.0.4"
     awilix: "npm:^13.0.5"
     bcryptjs: "npm:^3.0.3"
-    better-sqlite3: "npm:^13.0.2"
-    bullmq: "npm:^6.0.2"
+    better-sqlite3: "npm:^13.0.3"
+    bullmq: "npm:^6.0.9"
     bullmq-otel: "npm:^1.3.1"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
@@ -7565,7 +7572,7 @@ __metadata:
     dotenv: "npm:^17.4.2"
     eslint: "npm:^9.39.4"
     eslint-config-next: "npm:16.3.0"
-    ioredis: "npm:^5.11.1"
+    ioredis: "npm:^6.0.0"
     jest: "npm:^30.4.2"
     lucide-react: "npm:^1.27.0"
     newrelic: "npm:^14.3.4"
@@ -7610,7 +7617,7 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     better-sqlite3: ">=9.0.0"
-    ioredis: ^5.0.0
+    ioredis: ^5.0.0 || ^6.0.0
   peerDependenciesMeta:
     better-sqlite3:
       optional: true
@@ -7936,7 +7943,7 @@ __metadata:
     "@mikro-orm/core": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     bullmq: ^5.0.0 || ^6.0.0
-    ioredis: ^5.0.0
+    ioredis: ^5.0.0 || ^6.0.0
     zod: ">=3.23.0"
   peerDependenciesMeta:
     bullmq:
@@ -11937,15 +11944,28 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tanstack/react-table@npm:^8.20.5":
-  version: 8.21.3
-  resolution: "@tanstack/react-table@npm:8.21.3"
+"@tanstack/react-store@npm:^0.11.0":
+  version: 0.11.1
+  resolution: "@tanstack/react-store@npm:0.11.1"
   dependencies:
-    "@tanstack/table-core": "npm:8.21.3"
+    "@tanstack/store": "npm:0.11.1"
+    use-sync-external-store: "npm:^1.6.0"
   peerDependencies:
-    react: ">=16.8"
-    react-dom: ">=16.8"
-  checksum: 10/a32217ebe64d24e71dea6a6742bc288dcabf389657b16805a1ab3f347d3dca8262759c45c604a1f65bd97925d5cbdfb66d1be7637100a12eb5b279bdd420962d
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10/55e8b99926a296b630f5f287f95be6411851d5d026096d1b17a5564ad1d763c2b859734496baff91433eb6cb19cc3ce02f4946ac900984379ffb5c73821b6724
+  languageName: node
+  linkType: hard
+
+"@tanstack/react-table@npm:^9.0.0":
+  version: 9.1.2
+  resolution: "@tanstack/react-table@npm:9.1.2"
+  dependencies:
+    "@tanstack/react-store": "npm:^0.11.0"
+    "@tanstack/table-core": "npm:9.1.2"
+  peerDependencies:
+    react: ">=18"
+  checksum: 10/c2ab995cfb12266171717a33aa5662ddc138863284e3447a06e952d48acd48ac15dc7c33c355c2b90028f88727a297caf86149b8b92732feb9c9e05d6531d49c
   languageName: node
   linkType: hard
 
@@ -11961,10 +11981,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tanstack/table-core@npm:8.21.3":
-  version: 8.21.3
-  resolution: "@tanstack/table-core@npm:8.21.3"
-  checksum: 10/aa05e5f80110f0f56d66161e950668ea6ef3e2ea4f3a2ccd5d5980b39b4feea987245b20531aee2c6743e6edd12c0361503413b63090c807f88a61b19bfd04f3
+"@tanstack/store@npm:0.11.1, @tanstack/store@npm:^0.11.0":
+  version: 0.11.1
+  resolution: "@tanstack/store@npm:0.11.1"
+  checksum: 10/412d1c9fd6f41657c5f9995672fdb205c048948bf5873dae3028155e2d708bb2319c79f27b59b0f51d0673edb36e2437efc72af83a0c424b0bad05c03ed74393
+  languageName: node
+  linkType: hard
+
+"@tanstack/table-core@npm:9.1.2":
+  version: 9.1.2
+  resolution: "@tanstack/table-core@npm:9.1.2"
+  dependencies:
+    "@tanstack/store": "npm:^0.11.0"
+  checksum: 10/9de120cffabe373fa4ffb58aea217fc92e4990695fc7390aa306d211f9a4d0973a19261b3e92e9b455418ecd91857337cf9cefe359170f47b47505d684a91e78
   languageName: node
   linkType: hard
 
@@ -14995,13 +15024,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"better-sqlite3@npm:^13.0.2":
-  version: 13.0.2
-  resolution: "better-sqlite3@npm:13.0.2"
+"better-sqlite3@npm:^13.0.3":
+  version: 13.0.3
+  resolution: "better-sqlite3@npm:13.0.3"
   dependencies:
     node-addon-api: "npm:^8.0.0"
     node-gyp: "npm:latest"
-  checksum: 10/80c7a0929128b5e897c8e3692d1d455d5229a597ea0397c45d6f296aa5e318b1faf43cd406de480ebfce896308c64b7abb93c977a0928e5a3ec9a27ea62c7a75
+  checksum: 10/035f8fa70784762fd73e1dbeb6f157186abb97705ff759b312cfb0dc1c675fd1c6b5378d2c036758000ce9da1d49bf61689531aa2718a7e32dc272c114a4c71f
   languageName: node
   linkType: hard
 
@@ -15275,9 +15304,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bullmq@npm:^6.0.2":
-  version: 6.0.6
-  resolution: "bullmq@npm:6.0.6"
+"bullmq@npm:^6.0.9":
+  version: 6.0.9
+  resolution: "bullmq@npm:6.0.9"
   dependencies:
     cron-parser: "npm:5.7.0"
     msgpackr: "npm:2.0.5"
@@ -15298,7 +15327,7 @@ __metadata:
       optional: true
     redis:
       optional: true
-  checksum: 10/1579ed9f894771a162fbb46f337f038719cc7568f834ed2c3a2d3d89ed01eaf6c7d4bbbd6fe1e83f58410c9bec6e393306a53007e9f54aedb05e13d4018eb36f
+  checksum: 10/bddc23f7f310931a5d06ce06b8dfbda213effde60838c6f2177276a24cb702c482a263cc78821a8fe894f6df01c6f01caca002869b3f868265a2acd4e4c384c8
   languageName: node
   linkType: hard
 
@@ -19476,25 +19505,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"framer-motion@npm:^12.43.0":
-  version: 12.43.0
-  resolution: "framer-motion@npm:12.43.0"
+"framer-motion@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "framer-motion@npm:13.0.0"
   dependencies:
-    motion-dom: "npm:^12.43.0"
-    motion-utils: "npm:^12.39.0"
+    motion-dom: "npm:^13.0.0"
+    motion-utils: "npm:^13.0.0"
     tslib: "npm:^2.4.0"
   peerDependencies:
-    "@emotion/is-prop-valid": "*"
     react: ^18.0.0 || ^19.0.0
     react-dom: ^18.0.0 || ^19.0.0
   peerDependenciesMeta:
-    "@emotion/is-prop-valid":
-      optional: true
     react:
       optional: true
     react-dom:
       optional: true
-  checksum: 10/c8013cae9f1eec14af4fa769c6589a3af08ad7b4e7e0e9b67010d4a75ca12c347b8c735750ba798f6c5df09251e4c1f60c7650d24fb6fddc6328d022cdd7f11d
+  checksum: 10/9456065a16a18c5fdf048b9580c3a22bb93a457b777d234bc6eaaf70e66fa046a4af0ae7502a2c08389f911e7bb1482db2c83a1d3529300b0ac67baf92dedb51
   languageName: node
   linkType: hard
 
@@ -20996,7 +21022,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ioredis@npm:5.11.1, ioredis@npm:^5.11.1":
+"ioredis@npm:5.11.1":
   version: 5.11.1
   resolution: "ioredis@npm:5.11.1"
   dependencies:
@@ -21008,6 +21034,20 @@ __metadata:
     redis-parser: "npm:3.0.0"
     standard-as-callback: "npm:2.1.0"
   checksum: 10/f27653075b0599a9e8886b28a59bb2e232ca7d91b4a81de699e932cb55dcdcec791fe571fb7d4ebc81fc26f44667a76cf165162ecea57285548190ea0d58f734
+  languageName: node
+  linkType: hard
+
+"ioredis@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "ioredis@npm:6.0.0"
+  dependencies:
+    "@ioredis/commands": "npm:2.0.0"
+    cluster-key-slot: "npm:1.1.1"
+    debug: "npm:4.4.3"
+    denque: "npm:2.1.0"
+    redis-errors: "npm:1.2.0"
+    standard-as-callback: "npm:2.1.0"
+  checksum: 10/afd383b034ff8fdf9d1fed0b4b4524e7d73bc0d0f5cad9ad93d2787d0b70f025ed0170eceab19a4d37f460eb7f2edfc544e86936492779149f1e5ec0e94f0910
   languageName: node
   linkType: hard
 
@@ -24508,19 +24548,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"motion-dom@npm:^12.43.0":
-  version: 12.43.0
-  resolution: "motion-dom@npm:12.43.0"
+"motion-dom@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "motion-dom@npm:13.0.0"
   dependencies:
-    motion-utils: "npm:^12.39.0"
-  checksum: 10/ac5f7164b77e317f265bf1382156e4a106a1091b442dc1c546f9b565c119baa9e139abec2c2c55ad710ad9d69c02c1c8b96a6932b1904726b64137e7c443f82d
+    motion-utils: "npm:^13.0.0"
+  checksum: 10/d6df40c87c7ee5a70dc4dd9baa314f04c7576e889486660b2343445363def897f5d7aa7efe27c0693b0e050def8976895fb51af443b579b4434968afc3a9d60d
   languageName: node
   linkType: hard
 
-"motion-utils@npm:^12.39.0":
-  version: 12.39.0
-  resolution: "motion-utils@npm:12.39.0"
-  checksum: 10/5aa2972bf38c44e44e0a39a70202ce69d585d88d28b37975ca0849756b8614e28d5ebd263ed806e94886b1fe684ce28ee630c4556c465581eaa6dca420249486
+"motion-utils@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "motion-utils@npm:13.0.0"
+  checksum: 10/ee6296263ed6fd16a46eced143446e9335facdf72d1922ecdcfb945fb498d3723e9c94f3036fed4cc3cda7fca59de9b2971c11496fdfb8511cefb70eb2ec2da3
   languageName: node
   linkType: hard
 
@@ -25230,7 +25270,7 @@ __metadata:
     "@radix-ui/react-slot": "npm:^1.3.3"
     "@react-email/components": "npm:^1.0.12"
     "@tanstack/react-query": "npm:^5.101.4"
-    "@tanstack/react-table": "npm:^8.20.5"
+    "@tanstack/react-table": "npm:^9.0.0"
     "@types/better-sqlite3": "npm:^7.6.11"
     "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
@@ -31582,7 +31622,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"use-sync-external-store@npm:^1.2.2, use-sync-external-store@npm:^1.4.0":
+"use-sync-external-store@npm:^1.2.2, use-sync-external-store@npm:^1.4.0, use-sync-external-store@npm:^1.6.0":
   version: 1.6.0
   resolution: "use-sync-external-store@npm:1.6.0"
   peerDependencies:

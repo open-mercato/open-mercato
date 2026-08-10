@@ -1,4 +1,5 @@
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
+import { REDIS_WIRE_PROTOCOL } from '../redis/connection'
 import type { RateLimitConfig, RateLimitResult, RateLimitGlobalConfig } from './types'
 
 /** Narrow interface for the ioredis client — only the methods we actually use. */
@@ -24,6 +25,7 @@ export class RateLimiterService {
       this.redisClient = new Redis(this.globalConfig.redisUrl, {
         enableOfflineQueue: false,
         maxRetriesPerRequest: 1,
+        protocol: REDIS_WIRE_PROTOCOL,
       })
     }
   }

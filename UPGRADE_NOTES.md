@@ -41,6 +41,54 @@ Two changes ship together on `GET /api/search/search/global`, the endpoint the C
 `create-mercato-app --preset crm` and `--preset empty` produced apps with no Cmd+K palette at all, not even for a superadmin: the app shell renders the palette on `search.global`, and `filterGrantsByEnabledModules` strips every feature whose owning module is absent from the enabled-modules registry, so the grant never survived. Only the `classic` preset — which keeps the template's own `src/modules.ts` — had it.
 
 **Action:** none for existing apps. This changes only what *new* scaffolds generate. An app already scaffolded from `crm` or `empty` can add `{ id: 'search', from: '@open-mercato/search' }` to its `src/modules.ts`; the package is already pinned in the generated `package.json`, and the token strategy runs on the `search_tokens` table `query_index` maintains, so no Meilisearch and no embedding provider are needed.
+### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
+
+The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.
+
+v9 ships an official v8 compatibility entry point, and that is what the platform's own `DataTable` uses.
+
+**Action for module authors:** repoint type-only imports.
+
+```diff
+-import type { ColumnDef } from '@tanstack/react-table'
++import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+```
+
+State types that live in `table-core` are unaffected and keep their root import — `SortingState`, `RowSelectionState`, `SortFn`. Two renames to be aware of if you used them: `VisibilityState` is now `ColumnVisibilityState`, and `SortingFn<TData>` is now `SortFn<TFeatures, TData>` (pair it with `LegacyFeatures` from the legacy entry point to keep v8 semantics).
+
+If you call the table hook yourself rather than using `DataTable`:
+
+```diff
+-import { useReactTable, getCoreRowModel, getSortedRowModel } from '@tanstack/react-table'
++import { useLegacyTable, getCoreRowModel, getSortedRowModel } from '@tanstack/react-table/legacy'
+```
+
+`useLegacyTable` registers the full stock feature set, so column visibility/ordering/sizing/pinning/resizing, row selection, sorting and pagination behave exactly as they did on v8. `flexRender` stays on the package root.
+
+Two further consequences may reach your code:
+
+- **`RowData` narrowed** from `unknown` to `Record<string, any> | Array<any>`. A helper generic over its row type now needs a constraint — `function myHelper<T extends RowData>(...)`. The platform's own `DataTableProps<T>`, `useAutoDiscoveredFields` and `applyCustomFieldVisibility` gained that constraint for the same reason; the latter two default their new type parameter, so bare references keep compiling.
+- **v9 ships ESM-only** where v8 shipped CJS. If you run Jest, add the table packages to your `transformIgnorePatterns` allowlist, mirroring the scaffolded template:
+
+  ```
+  '/node_modules/(?!(@open-mercato|@mikro-orm|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)'
+  ```
+
+Migrating to the v9-native feature-slot API (`tableFeatures`, `createColumnHelper`, `table.Subscribe`) is optional and can happen per module at your own pace; the legacy entry point is supported by upstream for exactly this transition.
+
+### ioredis upgraded to v6 — the platform pins RESP2
+
+The platform now depends on `ioredis@^6.0.0`. v6's one breaking change is that it negotiates **RESP3 by default**, which reshapes map-style replies and moves pub/sub onto push frames. BullMQ and `rate-limiter-flexible` do not declare RESP3 support, so every Redis client the platform constructs now passes `protocol: 2` explicitly.
+
+**Action for module authors:** none, if you obtain connection options from `parseRedisUrl`/`resolveRedisConnection` in `@open-mercato/shared/lib/redis/connection` — they now carry `protocol: 2` for you. If you construct an `ioredis` client directly, pass the shared constant so your client does not silently diverge onto RESP3:
+
+```ts
+import { REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+
+const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
+```
+
+`ParsedRedisConnection` gained an optional `protocol?: RedisProtocolVersion` field — additive, so existing consumers are unaffected.
 
 ### Sales line list endpoints now default to `line_number` order
 
