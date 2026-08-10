@@ -1,11 +1,14 @@
 nodeLinker: node-modules
 
 # Yarn refuses versions younger than `npmMinimalAgeGate` (default 1 day) with
-# "All versions satisfying ... are quarantined". This app pins the exact
-# @open-mercato release it was scaffolded from, which is usually minutes old, so
-# the first-party scope opts out while every third-party package keeps the
-# cooldown. A per-scope `npmRegistryServer` entry shadows a top-level
+# "All versions satisfying ... are quarantined". Raised to 14 days to close the
+# supply-chain window where a compromised maintainer account pushes a malicious
+# patch before any advisory exists. This app pins the exact @open-mercato
+# release it was scaffolded from, which is usually minutes old, so the
+# first-party scope opts out while every third-party package keeps the cooldown.
+# A per-scope `npmRegistryServer` entry shadows a top-level
 # `npmMinimalAgeGate: 0`, so the opt-out has to be expressed as a preapproval.
+npmMinimalAgeGate: 14d
 npmPreapprovedPackages:
   - "@open-mercato/*"
 {{REGISTRY_CONFIG}}
