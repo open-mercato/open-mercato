@@ -24,6 +24,18 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### Sales line list endpoints now default to `line_number` order
+
+`GET /api/sales/order-lines` and `GET /api/sales/quote-lines` previously inherited the CRUD factory's `sortField = 'id'` fallback. Line ids are `gen_random_uuid()` v4 UUIDs, so a document's lines came back in an arbitrary order — and any integration that rewrites lines by delete-and-reinsert got a different order after every sync. Both endpoints now default to `line_number ASC, id ASC`.
+
+**Action for API consumers:** none, unless you relied on the previous order. Nothing about the route, method, or response shape changed, and result ordering is not a contract surface under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) — but the bytes on the wire do come back in a different sequence. A caller that needs the old behavior can pass `?sortField=id` explicitly.
+
+**Note for deployments:** the CRUD list cache keys on the incoming request, and the admin items table sends no sort param, so a payload cached before the upgrade keeps its key afterwards and keeps serving the old ordering until a write invalidates its tag or the TTL expires. Documents that get touched resolve immediately; a static archived order may hold the old order for the remainder of its TTL. Nothing to configure — just don't read a stale cached document as the fix having failed.
+
+**Note on legacy documents:** `line_number` is `integer NOT NULL DEFAULT 0`, so rows written before line numbers were assigned all tie at `0`. For those documents the `id` tiebreak makes the order *stable and repeatable* rather than *meaningful* — which is the intended behavior, but it means a legacy document can look unchanged after the upgrade.
+
+**For module authors:** the mechanism is two new optional `list` options on `makeCrudRoute`, `defaultSort` and `tiebreakSortField`. Both are opt-in; a route that sets neither is unaffected. See [the CRUD factory docs](https://docs.openmercato.com/docs/framework/api/crud-factory) → "Default and tiebreak sorting".
+
 ### Workflow activities now fail on unresolved `{{...}}` templates (#4334)
 
 `interpolateVariables()` returns the **original string** when a context path is missing, so a workflow definition referencing a key its start path never seeds passed the literal `"{{context.orderId}}"` downstream. With `continueOnActivityFailure: true` the resulting command rejection was swallowed: the workflow advanced, the user saw the decision accepted, and nothing happened. `UPDATE_ENTITY` inputs and `EMIT_EVENT` payloads are now scanned at every depth, and an activity carrying an unresolved template fails loudly instead — naming the offending key path.
@@ -98,6 +110,62 @@ module look empty to the agent harness.
 **Action for module authors generally:** export `injectionTable` and `componentOverrides` as
 plain literals. Gate behavior *inside* a widget or wrapper, or declare
 `metadata.requiredModules` on the widget; do not branch the exported registry value itself.
+
+
+### Generated `module-facts.json` values change, and extension joins now derive irregular plurals (#4897)
+
+`BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
+generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
+exact public IDs, as STABLE once published. Four changes land against that surface and the
+adjacent generator/query types. None of them is a removal and none needs a compatibility bridge —
+three correct values that named something nonexistent, and the fourth fixes a join that resolved
+to a table that does not exist — but each is a visible value change for anyone who reads the
+generated facts or extends an entity, so they are listed here rather than only in the PR.
+
+**1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
+`packages/cli/src/lib/generators/module-extension-facts.ts` now folds
+`ComponentReplacementHandles.section('ui.detail', 'NotesSection')` into the handle the runtime
+actually registers, so the contribution publishes `section:ui.detail.NotesSection` where it
+previously published `ui.detail`. The old value named no component — `ui.detail` is the section
+namespace, not a component id — so nothing could have correlated against it successfully. Still,
+it is an exact public ID changing: a scaffolded app or downstream tool that pinned the old string
+must repin. The same applies to the sibling `page`/`region` formulas.
+
+**2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
+The component-override reader used to discriminate `mode` on an `entry.props` property that the
+`ComponentOverride` union has no member for; together with the other reader fixes in this change it
+now discriminates on the union's real members (`wrapper` / `propsTransform` / `replacement`).
+Measured across a 55-module corpus, `section:auth.login.form` (enterprise `security`) is the only
+leaf whose value changes; every other contribution keeps the mode it published. `wrapper` is what
+that entry has always done at runtime — the fact sheet was wrong, not the module.
+
+**3. Recovered injection-table contributions (additive).** The extractor silently dropped every
+string-form and single-object-form slot declaration, hiding twelve real contributions across six
+modules — `integrations` published none at all. Those contributions now appear. This is additive:
+no previously published ID disappears or changes. If you diff generated facts between releases,
+expect new entries; the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold them.
+
+**4. `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`.**
+`packages/shared/src/lib/query/engine.ts` derived an extension's physical table by appending an
+`s` to the entity segment, while the same file already used `pluralizeBaseName` for every other
+table-name fallback. Any third-party extension whose entity segment ends in `y` therefore joined
+a table that does not exist: `foo:company` derived `companys`. It now derives `companies`.
+
+**Action for module authors:** this is a runtime behavior change in the shared query engine. If
+you worked around the old derivation by adding a `y`-ending entity's real table under
+`EntityExtension.table`, that declaration is now redundant but still honored — an explicit
+`table` always wins, so nothing breaks either way. Keep `table` for plurals no guesser can win
+(`person` → `people`) and for any entity whose `@Entity({ tableName })` simply does not match the
+derived name. Behavior is unchanged for every entity segment that does not end in `y`.
+
+**Type-surface note (#4897).** `ExtractAllModuleFactsResult`
+(`packages/cli/src/lib/generators/module-facts.ts`) gains a **required**
+`unresolvedFirstPartyTargets: string[]`. It is a return type, so readers are unaffected; anything
+that *constructs* or mocks the interface — a generator test double, a wrapper that rebuilds the
+result — must add the field. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
+in the other direction and needs no action: `headers` accepts a function in addition to
+`string[]`, and `row` gains a second `ctx` parameter, so every existing `(item) => …`
+implementation stays assignable.
 
 
 ### Settings sections are identified by their untranslated group id (#4843)

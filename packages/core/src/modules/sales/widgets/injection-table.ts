@@ -23,7 +23,7 @@ export const injectionTable: ModuleInjectionTable = {
   // extensionTableId, so extensionTableId is null and the columns spot degrades to
   // '__disabled__:columns'. The widget itself is still registered and is now UNBOUND: giving
   // the payments table a real tableId so the gateway-status column finally renders is a sales
-  // feature gap, tracked separately rather than silently reintroduced here.
+  // feature gap, tracked in #5142 rather than silently reintroduced here.
   'crud-form:sales.payment_method:fields': {
     widgetId: 'sales.injection.payment-gateway-config-field',
     priority: 40,

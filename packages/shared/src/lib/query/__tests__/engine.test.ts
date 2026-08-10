@@ -15,7 +15,7 @@ const mockModules = [
   {
     id: 'example',
     entityExtensions: [
-      // Declares `table` because the derived plural (`example_customer_prioritys`) is wrong.
+      // Declares `table` explicitly; the derived plural now agrees with it.
       { base: 'customers:customer_entity', extension: 'example:example_customer_priority', join: { baseKey: 'id', extensionKey: 'customer_id' }, table: 'example_customer_priorities' },
       // No `table`: exercises the derived-plural fallback.
       { base: 'auth:role', extension: 'example:example_role_policy', join: { baseKey: 'id', extensionKey: 'role_id' } },
@@ -952,6 +952,92 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
+  })
+
+  // A tiebreak sort is only worth configuring if the engine actually emits it.
+  // `list.tiebreakSortField` (used by the sales line routes to keep lines with an
+  // equal `line_number` in a repeatable order) is the first caller to pass more
+  // than one sort element, so pin that every element reaches ORDER BY in order —
+  // dropping sort[1] would silently restore the non-determinism it exists to fix.
+  test('emits every sort element as an ORDER BY column, in order', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'b', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Asc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'asc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
+  test('keeps each sort element on its own direction', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 1 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Desc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'desc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
   })
 
   describe('search_tokens coverage probe (#4723 parity)', () => {

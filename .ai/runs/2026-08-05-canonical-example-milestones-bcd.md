@@ -711,3 +711,19 @@ effort:
 | 3 | D | **INTEGRATED** `3167576ba`, `9e803f5b0` |
 | 4 | B | **12 of 15 integrated and run** `b17d06306`, `43d835c33`, `de28cdeec`, `35eefb97e`. Remaining: `012`, `015`, `016` — each blocked as described above |
 | 5 | I + spec changelogs | spec changelog + surface-map honesty done; the aggregate certification deliberately NOT claimed while B is 12/15 |
+
+### Merge with the base, 2026-08-10 — one real collision, resolved by renumbering
+
+The stacking base moved from `5b4be4bc5` to `2c4b93ddf` and brought its own harness cases. Ten
+files conflicted; nine were catalog-count text. The tenth was a genuine collision: the base added
+`OMH-217`…`OMH-226`, and slice D's `reuse-spec` case had also taken `OMH-217`. Both sides' cases
+survive — this branch's is now **`OMH-227`**, content untouched, and the catalog is 227.
+
+The base also renumbered the canonical-example declarer block `OMH-209`…`OMH-216` to
+`OMH-219`…`OMH-226`. Git applied slice D's edits to the renumbered cases correctly (the
+module-shaped writable planning proof is now **`OMH-223`**, and it is still the only writable
+declarer), but every hand-written reference to the old numbers had to be retargeted: the
+declaring-case list, the capability map, the family-9 ledger note, and the `AGENT-HARNESS.md`
+paragraph the read-policy test matches against. Verified by count rather than by reading: the
+merged catalog has 227 cases, zero duplicate ids, and exactly seven `context.exampleRoots`
+declarers of which one is writable.

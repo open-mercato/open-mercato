@@ -86,6 +86,90 @@ describe('dashboard widget discovery', () => {
     await expect(loadWidgetById('example.dashboard.removed')).resolves.toBeNull()
   })
 
+  it('retries an empty registry instead of caching it for the process lifetime (#5041)', async () => {
+    const loader = jest.fn(async () => ({
+      default: {
+        metadata: { id: 'example.dashboard.late', title: 'Late' },
+        Widget: () => null,
+      } satisfies DashboardWidgetModule<any>,
+    }))
+
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([] as any)
+
+    const { loadAllWidgets, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
+
+    await expect(loadAllWidgets()).resolves.toEqual([])
+
+    // The registry finishes populating after the first (boot-race) read.
+    registerModules([
+      { id: 'example', dashboardWidgets: [{ key: 'example:late:widget', moduleId: 'example', loader }] },
+    ] as any)
+
+    const recovered = await loadAllWidgets()
+    expect(recovered.map((widget) => widget.metadata.id)).toEqual(['example.dashboard.late'])
+  })
+
+  it('retries after a failed registry resolution (#5041)', async () => {
+    const loader = jest.fn(async () => ({
+      default: {
+        metadata: { id: 'example.dashboard.recovered', title: 'Recovered' },
+        Widget: () => null,
+      } satisfies DashboardWidgetModule<any>,
+    }))
+    const entries = [{ key: 'example:recovered:widget', moduleId: 'example', loader }]
+    let reads = 0
+
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([
+      {
+        id: 'example',
+        get dashboardWidgets() {
+          reads += 1
+          if (reads === 1) throw new Error('registry not ready')
+          return entries
+        },
+      },
+    ] as any)
+
+    const { loadAllWidgets, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
+
+    await expect(loadAllWidgets()).rejects.toThrow('registry not ready')
+
+    const recovered = await loadAllWidgets()
+    expect(recovered.map((widget) => widget.metadata.id)).toEqual(['example.dashboard.recovered'])
+  })
+
+  it('retries a widget loader that rejected instead of caching the failure (#5041)', async () => {
+    let attempts = 0
+    const loader = jest.fn(async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('transient import failure')
+      return {
+        default: {
+          metadata: { id: 'example.dashboard.flaky', title: 'Flaky' },
+          Widget: () => null,
+        } satisfies DashboardWidgetModule<any>,
+      }
+    })
+
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([
+      { id: 'example', dashboardWidgets: [{ key: 'example:flaky:widget', moduleId: 'example', loader }] },
+    ] as any)
+
+    const { loadAllWidgets, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
+
+    await expect(loadAllWidgets()).rejects.toThrow('transient import failure')
+
+    const recovered = await loadAllWidgets()
+    expect(recovered.map((widget) => widget.metadata.id)).toEqual(['example.dashboard.flaky'])
+    expect(loader).toHaveBeenCalledTimes(2)
+  })
+
   it('returns null for unknown widget id', async () => {
     const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
     registerModules([] as any)

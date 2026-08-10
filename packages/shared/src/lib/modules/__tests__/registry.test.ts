@@ -145,4 +145,30 @@ describe('shared modules registry', () => {
       }),
     ])
   })
+
+  it('preserves translations when runtime modules register after locale shards', () => {
+    const registry = loadRegistry()
+    const handler = jest.fn()
+    registry.registerModules([
+      {
+        id: 'checkout',
+        translations: { pl: { title: 'Kasa' } },
+      } as Module,
+    ])
+
+    registry.registerModules([
+      {
+        id: 'checkout',
+        subscribers: [{ id: 'checkout-gateway-payment-failed', event: 'payment_gateways.payment.failed', handler }],
+      } as Module,
+    ])
+
+    expect(registry.getModules()).toEqual([
+      expect.objectContaining({
+        id: 'checkout',
+        subscribers: [expect.objectContaining({ id: 'checkout-gateway-payment-failed' })],
+        translations: { pl: { title: 'Kasa' } },
+      }),
+    ])
+  })
 })

@@ -1023,7 +1023,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212', 'OMH-213', 'OMH-215', 'OMH-216']
+const DECLARING_CASE_IDS = ['OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1031,32 +1031,32 @@ const DECLARING_CASE_IDS = ['OMH-209', 'OMH-210', 'OMH-211', 'OMH-212', 'OMH-213
  * The reachability test below derives its expected allowlist FROM the case's own
  * `allowedCapabilityIds`, so adding a capability widens both sides of that comparison
  * equally and the assertion still passes — a verifier probe proved it: appending
- * `umes.injection.datatable-column` to OMH-209 silently widened that case's example-read
+ * `umes.injection.datatable-column` to OMH-219 silently widened that case's example-read
  * scope with the whole suite green. Pinning the sets here makes widening a case's reach an
  * explicit, reviewable edit rather than a silent one.
  */
 const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
-  'OMH-209': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
-  'OMH-210': [
+  'OMH-219': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
+  'OMH-220': [
     'umes.injection.datatable-bulk-action',
     'umes.injection.datatable-column',
     'umes.injection.datatable-filter',
     'umes.injection.datatable-row-action',
   ],
-  'OMH-211': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
-  'OMH-212': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
+  'OMH-221': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
+  'OMH-222': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
   // The one writable declaring case: its plan must name exact reference sources, so it reads the
   // module-shaped capability set a stock-transfer module would adapt. Its write allowlist is
   // `.ai/specs/**`, and root immutability rejects a write here regardless.
-  'OMH-213': [
+  'OMH-223': [
     'api.crud-factory',
     'commands.write',
     'data.entities',
     'data.validators',
     'events.typed-definitions',
   ],
-  'OMH-215': ['runtime.bulk-operation-progress'],
-  'OMH-216': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
+  'OMH-225': ['runtime.bulk-operation-progress'],
+  'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
 }
 const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
 
@@ -1141,8 +1141,8 @@ test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which
   // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
   // exactly what immutability precedence has to defend against, so the doc names it by ID.
   const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))
-  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-213'])
-  assert.match(doc, /`OMH-213`, the module-shaped planning proof, is the one writable/)
+  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-223'])
+  assert.match(doc, /`OMH-223`, the module-shaped planning proof, is the one writable/)
 })
 
 /**
@@ -1688,19 +1688,19 @@ const NEWEST_CAPABILITY_SOURCES: Record<string, string[]> = {
 /**
  * A read resolves to ONE capability, so two inventory rows declared in the same file contribute a
  * single resolved id. `ai.agent` and `ai.agent-extension` both map `ai-agents.ts`, which is exactly
- * the fact OMH-216's prompt asks the model to report instead of inventing a second path — pinned
+ * the fact OMH-226's prompt asks the model to report instead of inventing a second path — pinned
  * here so a future split into two files, or a merge of two rows, has to be a deliberate edit.
  */
 const RESOLVED_CAPABILITIES: Record<string, string[]> = {
-  'OMH-215': ['runtime.bulk-operation-progress'],
-  'OMH-216': ['ai.agent', 'ai.tool-pack'],
+  'OMH-225': ['runtime.bulk-operation-progress'],
+  'OMH-226': ['ai.agent', 'ai.tool-pack'],
 }
 
 const NEWEST_CAPABILITY_SELECTOR: Record<string, string> = {
-  'runtime.bulk-operation-progress': 'OMH-215',
-  'ai.tool-pack': 'OMH-216',
-  'ai.agent': 'OMH-216',
-  'ai.agent-extension': 'OMH-216',
+  'runtime.bulk-operation-progress': 'OMH-225',
+  'ai.tool-pack': 'OMH-226',
+  'ai.agent': 'OMH-226',
+  'ai.agent-extension': 'OMH-226',
 }
 
 function shippedCase(id: string) {
@@ -1786,16 +1786,16 @@ test('family 11: an undeclared, cross-case, sibling, directory, or stale newest 
     const refusals: Array<[string, string, RegExp]> = [
       // The AI case cannot reach the progress sources and the progress case cannot reach the AI
       // sources, even though both declare the same root.
-      ['OMH-216', `${EXAMPLE_ROOT}/workers/todos-bulk-dispatch.ts`, /maps to a capability the case did not declare/],
-      ['OMH-215', `${EXAMPLE_ROOT}/ai-tools.ts`, /maps to a capability the case did not declare/],
+      ['OMH-226', `${EXAMPLE_ROOT}/workers/todos-bulk-dispatch.ts`, /maps to a capability the case did not declare/],
+      ['OMH-225', `${EXAMPLE_ROOT}/ai-tools.ts`, /maps to a capability the case did not declare/],
       // A neighbouring seam that lives one directory away from a declared source.
-      ['OMH-215', `${EXAMPLE_ROOT}/widgets/injection/customer-priority-bulk-actions/widget.ts`, /maps to a capability the case did not declare/],
+      ['OMH-225', `${EXAMPLE_ROOT}/widgets/injection/customer-priority-bulk-actions/widget.ts`, /maps to a capability the case did not declare/],
       // The progress route's own directory, and the whole worker directory.
-      ['OMH-215', `${EXAMPLE_ROOT}/workers`, /must name one exact file/],
-      ['OMH-216', `${EXAMPLE_ROOT}/ai-agents.*`, /must name one exact file|not mapped by the surface inventory|does not exist/],
+      ['OMH-225', `${EXAMPLE_ROOT}/workers`, /must name one exact file/],
+      ['OMH-226', `${EXAMPLE_ROOT}/ai-agents.*`, /must name one exact file|not mapped by the surface inventory|does not exist/],
       // A stale spelling of a real declared source.
-      ['OMH-215', `${EXAMPLE_ROOT}/workers/todos-bulk-complete-v2.ts`, /does not exist|not mapped by the surface inventory/],
-      ['OMH-216', `${EXAMPLE_ROOT}/ai-agent.ts`, /does not exist|not mapped by the surface inventory/],
+      ['OMH-225', `${EXAMPLE_ROOT}/workers/todos-bulk-complete-v2.ts`, /does not exist|not mapped by the surface inventory/],
+      ['OMH-226', `${EXAMPLE_ROOT}/ai-agent.ts`, /does not exist|not mapped by the surface inventory/],
     ]
     for (const [caseId, target, expected] of refusals) {
       const trace = evaluator.evaluateExampleReadPolicy({
@@ -1808,7 +1808,7 @@ test('family 11: an undeclared, cross-case, sibling, directory, or stale newest 
     }
 
     // Same refusal at the tool server, so the allowlist and the evaluator agree.
-    const progress = shippedCase('OMH-215')
+    const progress = shippedCase('OMH-225')
     const replies = callToolServer(root, 'read-only', evaluator.exampleReadAllowlist(progress, root), [], [], [
       { name: 'read', arguments: { path: `${EXAMPLE_ROOT}/ai-tools.ts` } },
       { name: 'read', arguments: { path: NEWEST_CAPABILITY_SOURCES['runtime.bulk-operation-progress'][2] } },
@@ -1825,7 +1825,7 @@ test('family 11: a newest capability demoted to qa-only stops being selectable b
   const evaluator = await loadEvaluator()
   const { root, qaOnly } = stageExampleAppWithQaOnlyCapability('runtime.bulk-operation-progress')
   try {
-    const progress = shippedCase('OMH-215')
+    const progress = shippedCase('OMH-225')
     assert.ok(
       evaluator.validateExampleReadPolicyDeclaration(progress, root).some((message) => /qa-only and cannot be read/.test(message)),
       'a qa-only demotion must invalidate the declaration that selects it',
@@ -1850,8 +1850,8 @@ test('family 11: the operation-progress and DataTable bulk-action sources are se
   }
   const progress = selectors.get('runtime.bulk-operation-progress') ?? []
   const bulkAction = selectors.get('umes.injection.datatable-bulk-action') ?? []
-  assert.deepEqual(progress, ['OMH-215'], 'exactly one case must select the operation-progress source')
-  assert.deepEqual(bulkAction, ['OMH-210'], 'exactly one case must select the DataTable bulk-action source')
+  assert.deepEqual(progress, ['OMH-225'], 'exactly one case must select the operation-progress source')
+  assert.deepEqual(bulkAction, ['OMH-220'], 'exactly one case must select the DataTable bulk-action source')
   // (The two deepEqual assertions above already pin distinct literals, so a `notDeepEqual`
   // between them is a tautology. The non-tautological property is that no SINGLE case declares
   // both seams — that is what "selected independently" actually means.)
@@ -2372,7 +2372,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 11: the inventory maps each newest capability to exactly its shipped files, and every one of them exists',
     ],
     blockedBy: ['a writable lane whose contract names the connected progressJobId lifecycle'],
-    note: 'Updated on 2026-08-06. The two independent capability assertions the family opens with exist since 2026-08-04 — OMH-210 selects `umes.injection.datatable-bulk-action` and OMH-215 selects `runtime.bulk-operation-progress`, two inventory rows over disjoint files, checked against paths typed from the shipped example tree rather than derived from the inventory. The blocker was also RESTATED here: it used to read `a WRITABLE shipped case declaring context.exampleRoots`, and OMH-213 became exactly that when it grew its module-shaped planning contract — without asserting anything about progress. Family 9 asks for a lane that proves the connected `progressJobId` lifecycle, so the probe now asks for that lane instead of for a writable declarer of any kind, and the family stays honestly partial.',
+    note: 'Updated on 2026-08-06. The two independent capability assertions the family opens with exist since 2026-08-04 — OMH-220 selects `umes.injection.datatable-bulk-action` and OMH-225 selects `runtime.bulk-operation-progress`, two inventory rows over disjoint files, checked against paths typed from the shipped example tree rather than derived from the inventory. The blocker was also RESTATED here: it used to read `a WRITABLE shipped case declaring context.exampleRoots`, and OMH-223 became exactly that when it grew its module-shaped planning contract — without asserting anything about progress. Family 9 asks for a lane that proves the connected `progressJobId` lifecycle, so the probe now asks for that lane instead of for a writable declarer of any kind, and the family stays honestly partial.',
   },
   {
     specFamily: 10,
@@ -2408,7 +2408,7 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
     .every((record) => (record as unknown as Record<string, unknown>).presets === undefined
       && (record as unknown as Record<string, unknown>).tiers === undefined),
   // Corrected on 2026-08-06. The previous probe here asked whether ANY writable case declares
-  // `context.exampleRoots`, which is not what family 9's second clause needs: OMH-213 became such
+  // `context.exampleRoots`, which is not what family 9's second clause needs: OMH-223 became such
   // a case while grading a planning document, and the probe would have declared the clause closed
   // without a single assertion about progress. What is genuinely still missing is a writable lane
   // whose own contract names the connected lifecycle.

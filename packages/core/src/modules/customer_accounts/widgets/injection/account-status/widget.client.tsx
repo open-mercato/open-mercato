@@ -19,6 +19,12 @@ interface AccountStatusData {
   lastLoginAt: string | null
 }
 
+interface PendingInvitationData {
+  id: string
+  email: string
+  expiresAt: string
+}
+
 interface AccountStatusProps {
   context?: {
     entityId?: string
@@ -266,9 +272,29 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     enabled: !!personEntityId,
   })
 
+  // A portal account only exists once the invitation is accepted, so the users
+  // query above stays empty right after a successful invite. Without this the
+  // widget renders the identical "no account" state and the invite looks like a
+  // no-op (#4950).
+  const { data: pendingInvitation, isLoading: isLoadingInvitation } = useQuery({
+    queryKey: ['customer-account-pending-invitation', personEntityId],
+    queryFn: async (): Promise<PendingInvitationData | null> => {
+      if (!personEntityId) return null
+      const result = await apiCall(
+        `/api/customer_accounts/admin/users-invite?personEntityId=${encodeURIComponent(personEntityId)}&pageSize=1`,
+      )
+      if (!result.ok) return null
+      const json = result.result as Record<string, unknown> | null
+      const items = json?.items as PendingInvitationData[] | undefined
+      return items?.[0] || null
+    },
+    enabled: !!personEntityId && !isLoading && !data,
+  })
+
   function handleInviteSuccess() {
     setShowInviteForm(false)
     queryClient.invalidateQueries({ queryKey: ['customer-account-status', personEntityId] })
+    queryClient.invalidateQueries({ queryKey: ['customer-account-pending-invitation', personEntityId] })
   }
 
   if (isLoading) {
@@ -279,8 +305,29 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     return (
       <div className="rounded-md border p-3">
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
-        <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
-        {!showInviteForm && personEntityId && (
+        {isLoadingInvitation ? (
+          <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+        ) : pendingInvitation ? (
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('common.status', 'Status')}</span>
+              <StatusBadge variant="warning" dot>
+                {t('customer_accounts.widgets.invitationPending', 'Invitation pending')}
+              </StatusBadge>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('common.email', 'Email')}</span>
+              <span>{pendingInvitation.email}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('customer_accounts.widgets.invitationExpires', 'Invitation expires')}</span>
+              <span>{new Date(pendingInvitation.expiresAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
+        )}
+        {!showInviteForm && personEntityId && !isLoadingInvitation && (
           <div className="mt-2">
             <Button
               type="button"
@@ -288,7 +335,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
               size="sm"
               onClick={() => setShowInviteForm(true)}
             >
-              {t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
+              {pendingInvitation
+                ? t('customer_accounts.widgets.invite.resend', 'Resend invitation')
+                : t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
             </Button>
           </div>
         )}

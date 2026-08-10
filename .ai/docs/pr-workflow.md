@@ -197,3 +197,21 @@ is free to take over.
 
 `ci-monitoring` gates nothing. It does not affect the QA-approval merge gate, the priority/risk
 requirements, or any hard merge block.
+
+## Design-system governance files
+
+The CODEOWNERS design-system section (`.github/CODEOWNERS`) assigns a single design owner to the
+files that encode *how* the design system is governed — the rules, tokens, lint-escalation policy,
+guardian skill and docs — as opposed to the UI code those files judge. At time of writing:
+`docs/design-system/`, `.ai/ds-rules.md`, `.ai/ui-components.md`, `.ai/skills/om-ds-guardian/`,
+`.ai/scripts/ds-health-check.sh`, `packages/eslint-plugin-ds/`, `.ai/ds/`, and both `globals.css`
+files. Read CODEOWNERS for the current list rather than trusting this one.
+
+**An automated PR MUST NOT change these files.** File an issue for the design owner instead. A
+coding agent cannot weigh a governance trade-off the owner exists to make, and a CODEOWNERS review
+request on a bot-authored diff puts that owner in the position of rubber-stamping or re-deriving
+the reasoning from scratch.
+
+**UI code and modules stay open.** The restriction is deliberately narrow: it covers the governance
+surface, not the components, pages, or module code that the design system applies to. An automated
+PR that changes a component while respecting `.ai/ds-rules.md` is doing exactly what it should.

@@ -23,12 +23,13 @@ export type EntityExtension = {
   /**
    * Physical table backing the extension entity.
    *
-   * Optional. When omitted the query engine derives the table by appending an
-   * `s` to the entity segment of `extension`, which is wrong for any name whose
-   * plural is not formed that way — `example:example_customer_priority` derives
-   * `example_customer_prioritys` while the real table is
-   * `example_customer_priorities`. Declare this whenever the derived name does
-   * not match the `@Entity({ tableName })` of the extension entity.
+   * Optional. When omitted the query engine derives the table from the entity
+   * segment of `extension` with the same regular pluralizer it uses for every
+   * other table-name fallback, so `y` → `ies` is handled:
+   * `example:example_customer_priority` derives `example_customer_priorities`.
+   * Declare this for the plurals no guesser can win (`person` → `people`) and
+   * for any entity whose `@Entity({ tableName })` simply does not match the
+   * derived name.
    *
    * MUST be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`); the engine ignores
    * any other value and falls back to the derived name.

@@ -14,7 +14,46 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
+let activeBootstrapLoads = 0
+let esbuildRuntime: typeof import('esbuild') | null = null
+let esbuildStopPromise: Promise<void> | null = null
+
 const logger = createLogger('shared').child({ component: 'bootstrap' })
+
+async function getEsbuildRuntime(): Promise<typeof import('esbuild')> {
+  if (esbuildStopPromise) await esbuildStopPromise
+  if (esbuildRuntime) return esbuildRuntime
+
+  const loadedRuntime = await import('esbuild')
+  esbuildRuntime ??= loadedRuntime
+  return esbuildRuntime
+}
+
+async function withEsbuildLifecycle<T>(load: () => Promise<T>): Promise<T> {
+  activeBootstrapLoads += 1
+
+  try {
+    return await load()
+  } finally {
+    activeBootstrapLoads -= 1
+    if (activeBootstrapLoads === 0 && esbuildRuntime) {
+      // esbuild keeps a helper process alive after build(). Bootstrap compilation
+      // is a bounded phase, so release it once every concurrent loader is done.
+      // A later build() call transparently starts a fresh helper process.
+      const runtimeToStop = esbuildRuntime
+      esbuildRuntime = null
+      const stopPromise = runtimeToStop.stop().catch((err) => {
+        logger.warn('Failed to stop the bootstrap compiler service', { err })
+      })
+      esbuildStopPromise = stopPromise
+      try {
+        await stopPromise
+      } finally {
+        if (esbuildStopPromise === stopPromise) esbuildStopPromise = null
+      }
+    }
+  }
+}
 
 /**
  * Thrown when an expected generated source file is absent.
@@ -345,8 +384,21 @@ export type CompileAppSourceOptions = {
  * The artifact is cached against the content of the entry, its whole bundled
  * dependency graph, and the tsconfig chain, so an edit anywhere in the graph
  * invalidates it.
+ *
+ * The build runs inside the shared esbuild lifecycle. Callers outside a
+ * bootstrap load — the generated-registry loader compiling an `@app` module —
+ * would otherwise hold a build on a service another scope is entitled to
+ * `stop()`, and would leave the helper process running afterwards. Nesting is
+ * safe: the scope only releases the service when the last participant exits.
  */
 export async function compileAppSourceFile(
+  tsPath: string,
+  options: CompileAppSourceOptions,
+): Promise<string> {
+  return withEsbuildLifecycle(() => compileAppSourceFileWithActiveEsbuild(tsPath, options))
+}
+
+async function compileAppSourceFileWithActiveEsbuild(
   tsPath: string,
   options: CompileAppSourceOptions,
 ): Promise<string> {
@@ -374,7 +426,7 @@ export async function compileAppSourceFile(
 
   fs.mkdirSync(path.dirname(outFile), { recursive: true })
   // Dynamically import esbuild only when needed
-  const esbuild = await import('esbuild')
+  const esbuild = await getEsbuildRuntime()
 
   // Use esbuild.build with bundling to handle JSON imports
   const result = await esbuild.build({
@@ -550,7 +602,7 @@ async function loadAppDiRegistrar(appDir: string): Promise<AppDiRegistrar | null
  * @returns The loaded bootstrap data
  * @throws Error if app root cannot be found or generated files are missing
  */
-export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData> {
+async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<BootstrapData> {
   const resolved = resolveAppRootOrThrow(appRoot)
 
   const { generatedDir } = resolved
@@ -610,6 +662,10 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
   }
 }
 
+export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData> {
+  return withEsbuildLifecycle(() => loadBootstrapDataWithActiveEsbuild(appRoot))
+}
+
 /**
  * Create and execute bootstrap in CLI context.
  *
@@ -625,8 +681,13 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
 export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapData> {
   const { createBootstrap, waitForAsyncRegistration } = await import('./factory.js')
   const resolved = resolveAppRootOrThrow(appRoot)
-  const data = await loadBootstrapData(resolved.appDir)
-  const appDiRegistrar = await loadAppDiRegistrar(resolved.appDir)
+  // Both loads compile through esbuild, so they share one lifecycle scope: without it
+  // `loadBootstrapData` releases the esbuild helper process and `loadAppDiRegistrar`
+  // silently starts a second one that nothing ever stops.
+  const { data, appDiRegistrar } = await withEsbuildLifecycle(async () => ({
+    data: await loadBootstrapData(resolved.appDir),
+    appDiRegistrar: await loadAppDiRegistrar(resolved.appDir),
+  }))
   const bootstrap = createBootstrap(data, appDiRegistrar ? { appDiRegistrar } : {})
   bootstrap()
   // In CLI context, wait for async registrations (UI widgets, search configs, etc.)

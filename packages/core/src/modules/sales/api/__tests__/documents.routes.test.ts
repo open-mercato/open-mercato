@@ -20,7 +20,6 @@ const mockEm = {
   findOne: jest.fn(),
   fork: jest.fn(),
 }
-
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))

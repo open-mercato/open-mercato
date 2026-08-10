@@ -85,7 +85,7 @@ export async function POST(req: Request) {
       // Fail closed below when the attachments quota service is not registered.
     }
     if (!attachmentQuotaService) {
-      return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+      return NextResponse.json({ error: t('storage_s3.errors.quotaUnavailable', 'Storage quota accounting is unavailable.') }, { status: 500 })
     }
     const compatibilityToken = randomBytes(32).toString('base64url')
     const reservedBytes = size ?? resolveAttachmentMaxBytes()
@@ -107,7 +107,7 @@ export async function POST(req: Request) {
         uploadTokenHash: createHash('sha256').update(compatibilityToken).digest('hex'),
         ttlMs: expiresIn * 1000,
       })
-      if (!recoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+      if (!recoveryScheduler) throw new Error('[internal] Storage quota recovery is unavailable.')
       await recoveryScheduler({
         reservationId: reservation.id,
         tenantId: auth.tenantId,
@@ -124,9 +124,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: t('storage_s3.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.') }, { status: 413 })
       }
       if (code === 'quota_target_exists') {
-        return NextResponse.json({ error: 'The target storage key already exists.' }, { status: 409 })
+        return NextResponse.json({ error: t('storage_s3.errors.quotaTargetExists', 'The target storage key already exists.') }, { status: 409 })
       }
-      return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+      return NextResponse.json({ error: t('storage_s3.errors.quotaUnavailable', 'Storage quota accounting is unavailable.') }, { status: 500 })
     }
   }
 

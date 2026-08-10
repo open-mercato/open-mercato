@@ -5,8 +5,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
+import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
+import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -192,7 +194,23 @@ async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams 
   ])
 }
 
+function ensurePlaywrightBrowsersInstalled(): void {
+  const failure = findChromiumPreflightFailure({
+    resolveManagedExecutablePath: () => chromium.executablePath(),
+  })
+  if (!failure) return
+
+  console.error(red(failure.message))
+  for (const remedy of failure.remedies) {
+    console.error(yellow(`  ${remedy}`))
+  }
+  console.error(cyan(`See: ${PLAYWRIGHT_BROWSERS_DOCS_URL}`))
+  process.exit(1)
+}
+
 async function main(): Promise<void> {
+  ensurePlaywrightBrowsersInstalled()
+
   const cleanup = process.argv.includes('--cleanup')
   const testArgs = rootIntegrationArgs()
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
