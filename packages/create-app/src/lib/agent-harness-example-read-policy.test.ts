@@ -2363,16 +2363,49 @@ test('family 12: the distinct design-foundation case has exact token and role-ga
   const root = stageExampleApp()
   try {
     assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(foundationCase, root), [])
-    const malformed = { ...figma, referenceRole: 'design-system-implementation' }
-    const rejected = evaluator.resolveSourceReference({
-      referenceId: DESIGN_FIGMA_REFERENCE,
-      inventory: { byId: new Map([[DESIGN_FIGMA_REFERENCE, malformed]]) },
+    const designRecords = [
+      recordIn(records, DESIGN_GALLERY_REFERENCE),
+      recordIn(records, DESIGN_IMPLEMENTATION_REFERENCE),
+      figma,
+      recordIn(records, DESIGN_TOKEN_REFERENCE),
+    ]
+    const resolve = (record: InventoryRecord) => evaluator.resolveSourceReference({
+      referenceId: record.referenceId,
+      inventory: { byId: new Map([[record.referenceId, record]]) },
       appRoot: root,
       routedOwners: new Set([DESIGN_OWNER]),
       preset: 'classic',
       tiers: ['core'],
     })
-    assert.match(rejected.violation ?? '', /lacks the exact packed Code Connect role/)
+    for (const [index, record] of designRecords.entries()) {
+      const malformed = structuredClone(record)
+      malformed.referenceRole = designRecords[(index + 1) % designRecords.length].referenceRole
+      assert.match(
+        resolve(malformed).violation ?? '',
+        /violates the design-source contract/,
+        `${record.referenceRole} must reject a role from another design source family`,
+      )
+    }
+
+    const corruptEnvelope = (record: InventoryRecord, field: string, value: unknown) => {
+      const malformed = structuredClone(record)
+      const visual = malformed.visualReferences?.[0] as Record<string, unknown> | undefined
+      assert.ok(visual)
+      if (field.startsWith('designFoundation.')) {
+        const foundation = visual.designFoundation as Record<string, unknown>
+        foundation[field.slice('designFoundation.'.length)] = value
+      } else {
+        visual[field] = value
+      }
+      assert.match(resolve(malformed).violation ?? '', /violates the design-source contract/)
+    }
+    corruptEnvelope(designRecords[0], 'featureId', 'wrong.feature')
+    corruptEnvelope(designRecords[1], 'designFoundation.packageName', '@open-mercato/core')
+    corruptEnvelope(figma, 'designFoundation.codeConnectArtifactAvailability', 'not-emitted')
+    corruptEnvelope(figma, 'designFoundation.codeConnectExportStatus', 'exported')
+    corruptEnvelope(figma, 'designFoundation.codeConnectSourceReferenceId', 'node_modules/@open-mercato/ui/figma/wrong.figma.tsx')
+    corruptEnvelope(figma, 'designFoundation.publicationStatus', 'published')
+    corruptEnvelope(designRecords[3], 'designFoundation.tokenApplicability', 'not-applicable')
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

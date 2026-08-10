@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { designSourceReferenceErrors } from './design-source-contract.mjs'
 import { sandboxedInvocation } from './execution-sandbox.mjs'
 
 const EXIT_PASS = 0
@@ -592,16 +593,12 @@ export function resolveSourceReference({ referenceId, inventory, appRoot, routed
     && (activeTiers.length === 0 || !record.tiers.some((tierId) => activeTiers.includes(tierId)))) {
     return { violation: `source reference is not applicable to selected skill tiers ${activeTiers.join(',')}: ${referenceId}` }
   }
-  const isCodeConnectAuxiliary = /^node_modules\/@open-mercato\/ui\/figma\/[a-z0-9-]+\.figma\.tsx$/.test(normalized.relative)
-  if (isCodeConnectAuxiliary) {
-    const foundations = Array.isArray(record.visualReferences)
-      ? record.visualReferences.map((reference) => reference?.designFoundation).filter(isPlainObject)
-      : []
-    if (record.referenceRole !== 'figma-code-connect'
-      || foundations.length === 0
-      || foundations.some((foundation) => foundation.codeConnectArtifactAvailability !== 'installed-packed-auxiliary')) {
-      return { violation: `source reference lacks the exact packed Code Connect role and design-foundation envelope: ${referenceId}` }
-    }
+  const designContractErrors = designSourceReferenceErrors(
+    { ...record, resolvedPath: normalized.relative },
+    { requireEnvelope: true },
+  )
+  if (designContractErrors.length > 0) {
+    return { violation: `source reference violates the design-source contract: ${referenceId} (${designContractErrors[0]})` }
   }
   if (!appRoot) return { referenceId, originAsset, resolvedPath: normalized.relative, targetKind: record.targetKind }
   const resolved = isInstalledSourceRelative(normalized.relative)

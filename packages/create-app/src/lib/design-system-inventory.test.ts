@@ -9,6 +9,7 @@ import {
   INVENTORY_RELATIVE_PATH,
   PROJECTED_ITEM_FIELDS,
   PROJECTION_RELATIVE_PATH,
+  availabilityFromResolvedPresets,
   foundationTupleErrors,
   main,
   normalizeProvenanceVersions,
@@ -20,6 +21,8 @@ import {
   readGallery,
   resolvePackageExport,
 } from '../../scripts/design-system-sources.mjs'
+import { resolvePreset } from './apply-starter-preset.js'
+import { STARTER_PRESETS, VALID_PRESET_IDS } from './starter-presets.js'
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('../../../../', import.meta.url)))
 
@@ -215,6 +218,29 @@ test('every fresh preset records the gallery route as source-only', () => {
         `${item.galleryItemId} must be source-only in preset ${presetId} while design_system is unregistered`,
       )
     }
+  }
+})
+
+test('preset applicability follows each genuine resolved preset instead of a global registration bit', () => {
+  const crm = STARTER_PRESETS.crm
+  assert.equal(crm.modules.mode, 'patch')
+  const additions = crm.modules.add ?? (crm.modules.add = [])
+  const originalLength = additions.length
+  additions.push({ id: 'design_system', from: '@open-mercato/core' })
+  try {
+    const resolved = VALID_PRESET_IDS.map((presetId) => resolvePreset(presetId))
+    assert.deepEqual(availabilityFromResolvedPresets(resolved, false), {
+      classic: 'source-only',
+      crm: 'live',
+      empty: 'source-only',
+    })
+    assert.deepEqual(availabilityFromResolvedPresets(resolved, true), {
+      classic: 'live',
+      crm: 'live',
+      empty: 'source-only',
+    })
+  } finally {
+    additions.length = originalLength
   }
 })
 

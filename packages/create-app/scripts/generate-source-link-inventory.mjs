@@ -26,6 +26,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { designSourceReferenceErrors } from '../agentic/shared/scripts/design-source-contract.mjs'
+
 import {
   authoringPathOfEmittedPath,
   deriveTopicId,
@@ -379,8 +381,13 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
       record.packageName = installed.packageName
       record.packageRelativePath = installed.packageRelativePath
     }
+    for (const error of designSourceReferenceErrors(record, { requireEnvelope: true })) {
+      errors.push(`topic "${topicId}" ${error}`)
+    }
     records.push(record)
   }
+
+  if (errors.length > 0) return { errors, inventory: null }
 
   const inventory = {
     version: INVENTORY_VERSION,
@@ -404,7 +411,7 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
     ],
     records,
   }
-  return { errors: [], inventory }
+  return { errors, inventory }
 }
 
 const PROJECTION_NOTE =

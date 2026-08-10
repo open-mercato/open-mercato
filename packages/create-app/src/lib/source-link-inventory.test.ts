@@ -57,6 +57,8 @@ type BuildInput = {
   baseline: unknown
   surfaceInventory: unknown
   cases: unknown
+  designSystemInventory?: unknown
+  skillTiers?: unknown
 }
 
 type Generator = {
@@ -285,7 +287,7 @@ test('every source-required record resolves to a file a generated app really con
   }
 })
 
-test('the only installed non-src shape is an exact role-gated UI Code Connect auxiliary', () => {
+test('the design source roles are closed and target-gated, including the UI Code Connect auxiliary', () => {
   const exact = sourceLinkValidator.installedPackageTarget(
     'node_modules/@open-mercato/ui/figma/button.figma.tsx',
   )
@@ -300,12 +302,46 @@ test('the only installed non-src shape is an exact role-gated UI Code Connect au
     'node_modules/@open-mercato/core/figma/button.figma.tsx',
   ]) assert.equal(sourceLinkValidator.installedPackageTarget(invalid), null, invalid)
 
+  const roles = [
+    'design-system-gallery',
+    'design-system-implementation',
+    'figma-code-connect',
+    'design-foundation-token',
+  ]
+  for (const [index, role] of roles.entries()) {
+    const registry = readJson<{ topics: Array<Record<string, unknown>> }>(generator.TOPICS_RELATIVE_PATH)
+    const topic = registry.topics.find((candidate) => candidate.referenceRole === role)
+    assert.ok(topic)
+    topic.referenceRole = roles[(index + 1) % roles.length]
+    const result = sourceLinkValidator.validateTopicRegistry({ registry, packageRoot })
+    assert.ok(
+      result.errors.some((error) => error.includes(`must declare referenceRole "${role}"`)),
+      `${role} must reject a semantically wrong design role`,
+    )
+  }
+
   const registry = readJson<{ topics: Array<Record<string, unknown>> }>(generator.TOPICS_RELATIVE_PATH)
   const figma = registry.topics.find((topic) => topic.referenceRole === 'figma-code-connect')
   assert.ok(figma)
-  delete figma.referenceRole
+  figma.referenceRole = 'invented-design-role'
   const result = sourceLinkValidator.validateTopicRegistry({ registry, packageRoot })
-  assert.ok(result.errors.some((error) => /must declare referenceRole "figma-code-connect"/.test(error)))
+  assert.ok(result.errors.some((error) => /unknown design referenceRole/.test(error)))
+})
+
+test('source-link generation rejects a corrupted design-foundation envelope', () => {
+  const inputs = freshInputs()
+  const designSystemInventory = cloneJson(inputs.designSystemInventory) as {
+    items: Array<{ designFoundation: Record<string, unknown> }>
+  }
+  const mapped = designSystemInventory.items.find(
+    (item) => item.designFoundation.codeConnectStatus === 'mapped',
+  )
+  assert.ok(mapped)
+  mapped.designFoundation.codeConnectExportStatus = 'exported'
+
+  const { errors, inventory } = generator.buildInventory({ ...inputs, designSystemInventory })
+  assert.equal(inventory, null)
+  assert.ok(errors.some((error) => error.includes('codeConnectExportStatus "not-exported"')))
 })
 
 test('rendered link counts distinguish a once-rendered link from a twice-rendered one', () => {

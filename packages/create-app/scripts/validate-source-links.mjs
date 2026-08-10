@@ -7,6 +7,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { designSourceReferenceErrors } from '../agentic/shared/scripts/design-source-contract.mjs'
+
 const EXIT_PASS = 0
 const EXIT_FAILURE = 1
 const EXIT_INVALID = 2
@@ -391,12 +393,8 @@ export function validateTopicRegistry({ registry, packageRoot }) {
     if (derived !== topicId) {
       errors.push(`topic "${topicId}" does not match its derived ID "${String(derived)}"`)
     }
-    const isCodeConnectAuxiliary = /^node_modules\/@open-mercato\/ui\/figma\/[a-z0-9-]+\.figma\.tsx$/.test(resolved)
-    if (isCodeConnectAuxiliary && topic.referenceRole !== 'figma-code-connect') {
-      errors.push(`topic "${topicId}" must declare referenceRole "figma-code-connect" for an auxiliary Code Connect file`)
-    }
-    if (!isCodeConnectAuxiliary && topic.referenceRole === 'figma-code-connect') {
-      errors.push(`topic "${topicId}" declares the Code Connect role for a non-Code-Connect target`)
+    for (const error of designSourceReferenceErrors({ ...topic, resolvedPath: resolved })) {
+      errors.push(`topic "${topicId}" ${error}`)
     }
     for (const error of targetResolutionErrors(packageRoot, owner, href, resolved)) errors.push(`topic "${topicId}": ${error}`)
     declaredLinks.add(`${owner} ${resolved}`)

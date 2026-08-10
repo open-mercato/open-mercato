@@ -113,6 +113,17 @@ function readJson(absolute) {
   return JSON.parse(fs.readFileSync(absolute, 'utf8'))
 }
 
+export function availabilityFromResolvedPresets(resolvedPresets, registeredInTemplate) {
+  const availability = {}
+  for (const preset of [...resolvedPresets].sort((left, right) => left.id.localeCompare(right.id))) {
+    const moduleIds = preset.isClassic && registeredInTemplate
+      ? new Set([GALLERY_MODULE_ID])
+      : new Set(preset.modules.map((module) => module.id))
+    availability[preset.id] = moduleIds.has(GALLERY_MODULE_ID) ? 'live' : 'source-only'
+  }
+  return availability
+}
+
 /**
  * The starter presets a fresh app can be scaffolded with, and whether each registers the gallery.
  *
@@ -121,24 +132,28 @@ function readJson(absolute) {
  * for it instead of repeating the old sentence.
  */
 function readPresetAvailability(root) {
-  const source = fs.readFileSync(path.join(root, 'packages/create-app/src/lib/starter-presets.ts'), 'utf8')
-  const presetIds = [...source.matchAll(/^ {4}id: '([a-z-]+)',$/gm)].map((match) => match[1])
-  if (presetIds.length === 0) throw new Error('no starter presets could be read from starter-presets.ts')
+  const presetsUrl = pathToFileURL(path.join(root, 'packages/create-app/src/lib/starter-presets.ts')).href
+  const resolverUrl = pathToFileURL(path.join(root, 'packages/create-app/src/lib/apply-starter-preset.ts')).href
+  const probe = [
+    `import { VALID_PRESET_IDS } from ${JSON.stringify(presetsUrl)}`,
+    `import { resolvePreset } from ${JSON.stringify(resolverUrl)}`,
+    'process.stdout.write(JSON.stringify(VALID_PRESET_IDS.map((presetId) => resolvePreset(presetId))))',
+  ].join(';')
+  const resolvedPresets = JSON.parse(execFileSync(
+    process.execPath,
+    ['--import', 'tsx', '--input-type=module', '--eval', probe],
+    { cwd: root, encoding: 'utf8' },
+  ))
+  if (resolvedPresets.length === 0) throw new Error('the starter preset resolver returned no presets')
 
-  // A preset that never names the module cannot register it. The template baseline is the other
-  // half of the same question, so both are read before any preset is called source-only.
+  // `classic` is deliberately a no-op resolver result: the scaffolder preserves the template's
+  // module registry for it. Every other preset replaces that file with the resolver's modules.
   const templateModules = fs.readFileSync(
     path.join(root, 'packages/create-app/template/src/modules.ts'),
     'utf8',
   )
   const registeredInTemplate = new RegExp(`id: '${GALLERY_MODULE_ID}'`).test(templateModules)
-  const registeredInPresets = new RegExp(`'${GALLERY_MODULE_ID}'`).test(source)
-
-  const availability = {}
-  for (const presetId of presetIds.sort()) {
-    availability[presetId] = registeredInTemplate || registeredInPresets ? 'live' : 'source-only'
-  }
-  return availability
+  return availabilityFromResolvedPresets(resolvedPresets, registeredInTemplate)
 }
 
 /**
