@@ -43,6 +43,7 @@ import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
+import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -793,7 +794,7 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
  * watchers. Filesystem events mark the tree dirty; the existing full content
  * checksum remains the final authority and the fallback when watching fails.
  */
-async function createGenerateWatchRuntime() {
+async function createGenerateWatchRuntime(quiet = false) {
   const [
     { createResolver },
     { calculateGenerateWatchStructureChecksum },
@@ -824,6 +825,9 @@ async function createGenerateWatchRuntime() {
       return calculateGenerateWatchStructureChecksum(collectWatchState())
     },
     changeSignal: createGenerateWatchChangeSignal({
+      onSkippedDirectory: quiet
+        ? undefined
+        : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
       getWatchTargets: () => {
         const state = collectWatchState()
         const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
@@ -1863,7 +1867,7 @@ export async function run(argv = process.argv) {
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
 
-          const generateWatchRuntime = await createGenerateWatchRuntime()
+          const generateWatchRuntime = await createGenerateWatchRuntime(quiet)
           const watcher = startInProcessGenerateWatcher({
             pollMs: intervalMs,
             skipInitial,
@@ -1999,6 +2003,10 @@ export async function run(argv = process.argv) {
           let lastRestartReason: string | null = null
           const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
+          // The CLI binary registers this primitive manifest before dispatching
+          // `server dev`. Direct `run()` callers keep the existing module-registry
+          // fallback for backward compatibility and focused unit tests.
+          const devSupervisorManifest = getRegisteredDevSupervisorManifest()
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -2207,14 +2215,15 @@ export async function run(argv = process.argv) {
               applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-              const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const schedulerStartStatus = devSupervisorManifest?.schedulerStartStatus
+                ?? lookupModuleCommand(getCliModules(), 'scheduler', 'start').status
               const embedSchedulerInSharedWorker =
                 shouldEmbedLocalSchedulerInSharedWorker(process.env)
                 && queueStrategy === 'local'
                 && autoSpawnWorkersMode === 'lazy'
                 && resolveLazySpawnMode(process.env) === 'shared'
                 && autoSpawnSchedulerMode !== 'off'
-                && schedulerCommand.status === 'ok'
+                && schedulerStartStatus === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2248,10 +2257,13 @@ export async function run(argv = process.argv) {
                 }
 
                 if (autoSpawnWorkersMode !== 'off') {
-                  const discoveredWorkers = getRegisteredCliWorkers()
+                  const discoveredWorkers = devSupervisorManifest?.workers ?? getRegisteredCliWorkers()
                   const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
                   if (discoveredWorkerQueues.length === 0) {
-                    console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                    const workerRegistryFile = devSupervisorManifest
+                      ? 'dev-supervisor.generated.json'
+                      : 'modules.cli.generated.ts'
+                    console.error(`[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run \`yarn generate\` and verify \`.mercato/generated/${workerRegistryFile}\` contains worker entries. Continuing without auto-spawned workers.`)
                   } else if (autoSpawnWorkersMode === 'lazy') {
                     const lazySpawnMode = resolveLazySpawnMode(process.env)
                     const lazyModeHint = lazySpawnMode === 'shared'
@@ -2299,8 +2311,8 @@ export async function run(argv = process.argv) {
                 if (embedSchedulerInSharedWorker && activeLazySupervisor) {
                   console.log('[server] Local scheduler will run inside the lazy shared worker process.')
                 } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
-                  if (schedulerCommand.status !== 'ok') {
-                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                  if (schedulerStartStatus !== 'ok') {
+                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand({ status: schedulerStartStatus })}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
                     console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
                     activeLazySchedulerSupervisor = startLazySchedulerSupervisor({

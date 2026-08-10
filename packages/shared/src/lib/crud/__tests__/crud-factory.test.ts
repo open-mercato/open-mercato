@@ -11,6 +11,7 @@ import {
 } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { z } from 'zod'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
@@ -371,6 +372,107 @@ describe('CRUD Factory', () => {
     expect(queryArgs?.sort).toEqual([
       { field: 'cf:priority', dir: 'desc' },
     ])
+  })
+
+  // Routes that delegate the fallback order to `list.defaultSort` leave `sortField`
+  // optional; a zod `.default()` would make every request look explicitly sorted.
+  const sortableQuerySchema = z.object({
+    page: z.coerce.number().default(1),
+    pageSize: z.coerce.number().default(50),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+
+  const makeSortedRoute = (list?: Partial<Parameters<typeof makeCrudRoute>[0]['list']>) => makeCrudRoute({
+    metadata: { GET: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    list: {
+      schema: sortableQuerySchema,
+      entityId: 'example.todo',
+      fields: ['id', 'title'],
+      sortFieldMap: { id: 'id', title: 'title', lineNumber: 'line_number' },
+      buildFilters: () => ({} as any),
+      disableListCache: true,
+      ...list,
+    } as any,
+  })
+
+  it('GET falls back to sorting by id when no default sort is configured', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'asc' }])
+  })
+
+  it('GET applies list.defaultSort through sortFieldMap when the request omits a sort', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'line_number', dir: 'asc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET honours an explicit sort over list.defaultSort and keeps the tiebreak', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=title&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'title', dir: 'desc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET keeps an explicit sort ascending by default even when list.defaultSort is descending', async () => {
+    const sortedRoute = makeSortedRoute({ defaultSort: { field: 'title', dir: 'desc' } })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'asc' }])
+  })
+
+  it('GET treats a blank sortField as absent and falls back to list.defaultSort', async () => {
+    const sortedRoute = makeSortedRoute({
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField='))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'line_number', dir: 'asc' },
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET keeps falling back to id for a blank sortField when no default is configured', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'desc' }])
+  })
+
+  it('GET does not duplicate the tiebreak when it matches the primary sort', async () => {
+    const sortedRoute = makeSortedRoute({ tiebreakSortField: 'id' })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=desc'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([{ field: 'id', dir: 'desc' }])
   })
 
   it('GET intersects ids with existing buildFilters id constraint', async () => {
@@ -880,6 +982,78 @@ describe('CRUD Factory', () => {
       resourceId: 'cmd-created-1',
       operation: 'create',
     }))
+  })
+
+  // Issue #5045 — a deliberate interceptor rejection must not be laundered into a generic 500.
+  const interceptorErrorRoute = () => makeCrudRoute({
+    metadata: { POST: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    actions: {
+      create: {
+        commandId: 'example.todo.create',
+        schema: createSchema,
+        response: () => ({ ok: true }),
+      },
+    },
+  })
+
+  const postInterceptorErrorRequest = (route: ReturnType<typeof interceptorErrorRoute>) => route.POST(
+    new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'A' }),
+      headers: { 'content-type': 'application/json' },
+    }),
+  )
+
+  it('POST command route keeps the generic 500 when an interceptor blocks without a status', async () => {
+    commandBus.execute.mockRejectedValue(new CommandInterceptorError('Missing required fields: VAT id'))
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Internal server error',
+      message: 'Something went wrong. Please try again later.',
+    })
+  })
+
+  it('POST command route surfaces the interceptor status and message when the block carries a status', async () => {
+    commandBus.execute.mockRejectedValue(
+      new CommandInterceptorError('Missing required fields: VAT id', { status: 422 }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({ error: 'Missing required fields: VAT id' })
+  })
+
+  it('POST command route surfaces the interceptor body verbatim when one is supplied', async () => {
+    commandBus.execute.mockRejectedValue(
+      new CommandInterceptorError('Blocked', { status: 422, body: { error: 'Blocked', missingFields: ['vatId'] } }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({ error: 'Blocked', missingFields: ['vatId'] })
+  })
+
+  it('POST command route keeps the generic 500 when the interceptor status is outside 4xx/5xx', async () => {
+    // A status the Response constructor would reject (or that would report a block as success)
+    // must not escape handleError as a RangeError — it falls back to the generic 500 instead.
+    commandBus.execute.mockRejectedValue(
+      Object.assign(new CommandInterceptorError('Blocked'), { status: 600, body: { error: 'Blocked' } }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Internal server error',
+      message: 'Something went wrong. Please try again later.',
+    })
   })
 
   it('POST command route falls back to the response payload id for guard afterSuccess', async () => {
