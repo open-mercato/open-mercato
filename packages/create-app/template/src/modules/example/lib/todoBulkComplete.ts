@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import { raw } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -179,9 +180,16 @@ export type TodoBulkOperationStore = {
     owner: string,
     expiresAt: Date,
   ) => Promise<boolean>
+  renewLease: (
+    operationId: string,
+    scope: TodoBulkScope,
+    owner: string,
+    expiresAt: Date,
+  ) => Promise<boolean>
   saveCheckpoint: (
     operationId: string,
     scope: TodoBulkScope,
+    owner: string,
     checkpoint: {
       nextItemIndex: number
       succeededCount: number
@@ -189,12 +197,13 @@ export type TodoBulkOperationStore = {
       failedItems: TodoBulkFailedItem[]
       leaseExpiresAt: Date
     },
-  ) => Promise<void>
+  ) => Promise<boolean>
   finish: (
     operationId: string,
     scope: TodoBulkScope,
+    owner: string,
     result: { status: TodoBulkOutcome['terminal']; summary: TodoBulkOutcome['summary'] },
-  ) => Promise<void>
+  ) => Promise<boolean>
 }
 
 export type ExampleTodoBulkOperationSnapshot = {
@@ -216,6 +225,83 @@ export type RunTodoBulkResult = {
   executed: boolean
 }
 
+async function synchronizeTodoBulkProgressTerminal(params: {
+  operation: ExampleTodoBulkOperationSnapshot
+  progress: ProgressServiceLike
+  progressContext: Record<string, unknown>
+}): Promise<void> {
+  const summary = {
+    affectedCount: params.operation.succeededCount,
+    failedCount: params.operation.failedCount,
+    failedItems: boundFailedItems(params.operation.failedItems),
+  }
+  if (params.operation.status === 'cancelled') {
+    await params.progress.markCancelled(params.operation.progressJobId, params.progressContext)
+  } else if (params.operation.status === 'failed') {
+    await params.progress.failJob(
+      params.operation.progressJobId,
+      { errorMessage: 'example.todos.bulkComplete.allFailed' },
+      params.progressContext,
+    )
+  } else {
+    await params.progress.completeJob(
+      params.operation.progressJobId,
+      { resultSummary: summary },
+      params.progressContext,
+    )
+  }
+}
+
+async function executeWithTodoBulkLeaseHeartbeat(params: {
+  operationId: string
+  scope: TodoBulkScope
+  leaseOwner: string
+  store: TodoBulkOperationStore
+  execute: () => Promise<void>
+  now: () => Date
+  leaseTtlMs: number
+  heartbeatMs: number
+}): Promise<{ executionError: unknown | null; leaseHeld: boolean }> {
+  const initiallyRenewed = await params.store.renewLease(
+    params.operationId,
+    params.scope,
+    params.leaseOwner,
+    new Date(params.now().getTime() + params.leaseTtlMs),
+  )
+  if (!initiallyRenewed) return { executionError: null, leaseHeld: false }
+
+  let leaseHeld = true
+  let renewalError: unknown | null = null
+  let activeRenewal: Promise<void> | null = null
+  const heartbeat = () => {
+    if (activeRenewal || !leaseHeld || renewalError) return
+    activeRenewal = params.store.renewLease(
+      params.operationId,
+      params.scope,
+      params.leaseOwner,
+      new Date(params.now().getTime() + params.leaseTtlMs),
+    ).then((renewed) => {
+      leaseHeld = renewed
+    }).catch((error: unknown) => {
+      renewalError = error
+    }).finally(() => {
+      activeRenewal = null
+    })
+  }
+  const timer = setInterval(heartbeat, params.heartbeatMs)
+  let executionError: unknown | null = null
+  try {
+    await params.execute()
+  } catch (error) {
+    executionError = error
+  } finally {
+    clearInterval(timer)
+    if (activeRenewal) await activeRenewal
+  }
+  if (renewalError) throw renewalError
+  return { executionError, leaseHeld }
+}
+
 /**
  * Leased, checkpointed execution loop.
  *
@@ -232,12 +318,21 @@ export async function runTodoBulkCompleteLoop(params: {
   execute: TodoBulkExecutor
   now?: () => Date
   leaseTtlMs?: number
+  leaseHeartbeatMs?: number
 }): Promise<RunTodoBulkResult> {
   const now = params.now ?? (() => new Date())
   const leaseTtlMs = params.leaseTtlMs ?? TODO_BULK_LEASE_TTL_MS
   const operation = await params.store.load(params.operationId, params.scope)
   if (!operation) return { outcome: null, executed: false }
-  if (isTodoBulkTerminal(operation.status)) return { outcome: null, executed: false }
+  const progressContext = {
+    tenantId: params.scope.tenantId,
+    organizationId: params.scope.organizationId,
+    userId: params.scope.userId,
+  }
+  if (isTodoBulkTerminal(operation.status)) {
+    await synchronizeTodoBulkProgressTerminal({ operation, progress: params.progress, progressContext })
+    return { outcome: null, executed: false }
+  }
 
   const leased = await params.store.acquireLease(
     params.operationId,
@@ -247,11 +342,6 @@ export async function runTodoBulkCompleteLoop(params: {
   )
   if (!leased) return { outcome: null, executed: false }
 
-  const progressContext = {
-    tenantId: params.scope.tenantId,
-    organizationId: params.scope.organizationId,
-    userId: params.scope.userId,
-  }
   await params.progress.startJob(operation.progressJobId, progressContext)
   await params.progress.updateProgress(
     operation.progressJobId,
@@ -277,27 +367,38 @@ export async function runTodoBulkCompleteLoop(params: {
     }
 
     const todoId = operation.todoIds[index]
-    try {
-      await params.execute(todoId)
+    const execution = await executeWithTodoBulkLeaseHeartbeat({
+      operationId: params.operationId,
+      scope: params.scope,
+      leaseOwner: params.leaseOwner,
+      store: params.store,
+      execute: () => params.execute(todoId),
+      now,
+      leaseTtlMs,
+      heartbeatMs: Math.max(1, params.leaseHeartbeatMs ?? Math.max(1_000, Math.floor(leaseTtlMs / 3))),
+    })
+    if (!execution.leaseHeld) return { outcome: null, executed: true }
+    if (!execution.executionError) {
       succeededCount += 1
-    } catch (error) {
+    } else {
       failedCount += 1
-      failedItems.push({ id: todoId, code: classifyTodoBulkFailure(error) })
+      failedItems.push({ id: todoId, code: classifyTodoBulkFailure(execution.executionError) })
       logger.warn('Todo bulk-complete item failed', {
         operationId: params.operationId,
         todoId,
-        err: error,
+        err: execution.executionError,
       })
     }
 
     index += 1
-    await params.store.saveCheckpoint(params.operationId, params.scope, {
+    const checkpointSaved = await params.store.saveCheckpoint(params.operationId, params.scope, params.leaseOwner, {
       nextItemIndex: index,
       succeededCount,
       failedCount,
       failedItems: boundFailedItems(failedItems),
       leaseExpiresAt: new Date(now().getTime() + leaseTtlMs),
     })
+    if (!checkpointSaved) return { outcome: null, executed: true }
     await params.progress.updateProgress(
       operation.progressJobId,
       { totalCount: operation.todoIds.length, processedCount: index },
@@ -306,26 +407,29 @@ export async function runTodoBulkCompleteLoop(params: {
   }
 
   const outcome = resolveTodoBulkOutcome({ succeededCount, failedItems, cancelled })
-  await params.store.finish(params.operationId, params.scope, {
+  const leaseRenewed = await params.store.renewLease(
+    params.operationId,
+    params.scope,
+    params.leaseOwner,
+    new Date(now().getTime() + leaseTtlMs),
+  )
+  if (!leaseRenewed) return { outcome: null, executed: true }
+  await synchronizeTodoBulkProgressTerminal({
+    operation: {
+      ...operation,
+      status: outcome.terminal,
+      succeededCount: outcome.summary.affectedCount,
+      failedCount: outcome.summary.failedCount,
+      failedItems: outcome.summary.failedItems,
+    },
+    progress: params.progress,
+    progressContext,
+  })
+  const finished = await params.store.finish(params.operationId, params.scope, params.leaseOwner, {
     status: outcome.terminal,
     summary: outcome.summary,
   })
-
-  if (outcome.terminal === 'cancelled') {
-    await params.progress.markCancelled(operation.progressJobId, progressContext)
-  } else if (outcome.terminal === 'failed') {
-    await params.progress.failJob(
-      operation.progressJobId,
-      { errorMessage: 'example.todos.bulkComplete.allFailed' },
-      progressContext,
-    )
-  } else {
-    await params.progress.completeJob(
-      operation.progressJobId,
-      { resultSummary: outcome.summary },
-      progressContext,
-    )
-  }
+  if (!finished) return { outcome: null, executed: true }
 
   return { outcome, executed: true }
 }
@@ -373,10 +477,26 @@ export function createTodoBulkOperationStore(em: EntityManager): TodoBulkOperati
       )
       return claimed > 0
     },
-    async saveCheckpoint(operationId, scope, checkpoint) {
-      await em.fork().nativeUpdate(
+    async renewLease(operationId, scope, owner, expiresAt) {
+      const renewed = await em.fork().nativeUpdate(
         ExampleTodoBulkOperation,
-        scopeFilter(operationId, scope),
+        {
+          ...scopeFilter(operationId, scope),
+          status: 'running',
+          leaseOwner: owner,
+        } as FilterQuery<ExampleTodoBulkOperation>,
+        { leaseExpiresAt: expiresAt, updatedAt: new Date() },
+      )
+      return renewed > 0
+    },
+    async saveCheckpoint(operationId, scope, owner, checkpoint) {
+      const saved = await em.fork().nativeUpdate(
+        ExampleTodoBulkOperation,
+        {
+          ...scopeFilter(operationId, scope),
+          status: 'running',
+          leaseOwner: owner,
+        } as FilterQuery<ExampleTodoBulkOperation>,
         {
           nextItemIndex: checkpoint.nextItemIndex,
           succeededCount: checkpoint.succeededCount,
@@ -386,11 +506,16 @@ export function createTodoBulkOperationStore(em: EntityManager): TodoBulkOperati
           updatedAt: new Date(),
         },
       )
+      return saved > 0
     },
-    async finish(operationId, scope, result) {
-      await em.fork().nativeUpdate(
+    async finish(operationId, scope, owner, result) {
+      const finished = await em.fork().nativeUpdate(
         ExampleTodoBulkOperation,
-        scopeFilter(operationId, scope),
+        {
+          ...scopeFilter(operationId, scope),
+          status: 'running',
+          leaseOwner: owner,
+        } as FilterQuery<ExampleTodoBulkOperation>,
         {
           status: result.status,
           succeededCount: result.summary.affectedCount,
@@ -403,6 +528,7 @@ export function createTodoBulkOperationStore(em: EntityManager): TodoBulkOperati
           updatedAt: new Date(),
         },
       )
+      return finished > 0
     },
   }
 }
@@ -459,28 +585,33 @@ export async function claimTodoBulkOperation(params: {
   )
 
   const isolated = params.em.fork()
-  const operation = isolated.create(ExampleTodoBulkOperation, {
-    tenantId: params.scope.tenantId,
-    organizationId: params.scope.organizationId,
-    userId: params.scope.userId,
-    idempotencyKey: params.idempotencyKey,
-    todoIds: params.todoIds,
-    progressJobId: progressJob.id,
-    status: 'pending',
-    publishAttempts: 0,
-    nextItemIndex: 0,
-    succeededCount: 0,
-    failedCount: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })
+  let operation: ExampleTodoBulkOperation
   try {
+    operation = isolated.create(ExampleTodoBulkOperation, {
+      tenantId: params.scope.tenantId,
+      organizationId: params.scope.organizationId,
+      userId: params.scope.userId,
+      idempotencyKey: params.idempotencyKey,
+      todoIds: params.todoIds,
+      progressJobId: progressJob.id,
+      status: 'pending',
+      publishAttempts: 0,
+      nextItemIndex: 0,
+      succeededCount: 0,
+      failedCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
     isolated.persist(operation)
     await isolated.flush()
   } catch (error) {
-    const winner = await params.em.fork().findOne(ExampleTodoBulkOperation, uniqueFilter)
+    let winner: ExampleTodoBulkOperation | null = null
+    try {
+      winner = await params.em.fork().findOne(ExampleTodoBulkOperation, uniqueFilter)
+    } finally {
+      await params.progress.markCancelled(progressJob.id, progressContext)
+    }
     if (!winner) throw error
-    await params.progress.markCancelled(progressJob.id, progressContext)
     return { operationId: winner.id, progressJobId: winner.progressJobId, created: false }
   }
 
@@ -504,7 +635,7 @@ export async function recordTodoBulkPublication(params: {
     } as FilterQuery<ExampleTodoBulkOperation>,
     {
       lastPublishAttemptAt: now,
-      publishAttempts: params.published ? 1 : 0,
+      publishAttempts: raw('publish_attempts + 1'),
       ...(params.published ? { publishedAt: now } : {}),
       updatedAt: now,
     },

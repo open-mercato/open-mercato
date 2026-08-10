@@ -45,15 +45,18 @@ function buildStore(snapshot: ExampleTodoBulkOperationSnapshot | null, leaseGran
   const store: TodoBulkOperationStore = {
     load: jest.fn(async () => snapshot),
     acquireLease: jest.fn(async () => leaseGranted),
-    saveCheckpoint: jest.fn(async (_id, _scope, checkpoint) => {
+    renewLease: jest.fn(async () => true),
+    saveCheckpoint: jest.fn(async (_id, _scope, _owner, checkpoint) => {
       checkpoints.push({
         nextItemIndex: checkpoint.nextItemIndex,
         succeededCount: checkpoint.succeededCount,
         failedCount: checkpoint.failedCount,
       })
+      return true
     }),
-    finish: jest.fn(async (_id, _scope, result) => {
+    finish: jest.fn(async (_id, _scope, _owner, result) => {
       finished.push({ status: result.status, summary: result.summary })
+      return true
     }),
   }
   return { store, checkpoints, finished }
@@ -129,7 +132,7 @@ describe('runTodoBulkCompleteLoop', () => {
     expect(result).toEqual({ outcome: null, executed: false })
   })
 
-  it('does not even attempt to lease an operation that already reached a terminal state', async () => {
+  it('reconciles a terminal operation with its progress job without leasing or executing it', async () => {
     const { store } = buildStore(buildSnapshot({ status: 'completed' }))
     const progress = buildProgress()
     const execute = jest.fn(async () => undefined)
@@ -145,7 +148,59 @@ describe('runTodoBulkCompleteLoop', () => {
 
     expect(store.acquireLease).not.toHaveBeenCalled()
     expect(execute).not.toHaveBeenCalled()
+    expect(progress.completeJob).toHaveBeenCalledWith(
+      PROGRESS_JOB_ID,
+      { resultSummary: { affectedCount: 0, failedCount: 0, failedItems: [] } },
+      { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, userId: SCOPE.userId },
+    )
     expect(result.executed).toBe(false)
+  })
+
+  it('finalizes progress before making the operation terminal so a failed progress write stays recoverable', async () => {
+    const { store } = buildStore(buildSnapshot({ todoIds: [] }))
+    const progress = buildProgress()
+    const order: string[] = []
+    jest.mocked(progress.completeJob).mockImplementation(async () => {
+      order.push('progress')
+      return undefined
+    })
+    jest.mocked(store.finish).mockImplementation(async () => {
+      order.push('operation')
+      return true
+    })
+
+    await runTodoBulkCompleteLoop({
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress,
+      execute: async () => undefined,
+    })
+
+    expect(order).toEqual(['progress', 'operation'])
+  })
+
+  it('retries terminal progress reconciliation after a transient failure', async () => {
+    const { store } = buildStore(buildSnapshot({ status: 'completed', succeededCount: 2 }))
+    const progress = buildProgress()
+    jest.mocked(progress.completeJob)
+      .mockRejectedValueOnce(new Error('progress unavailable'))
+      .mockResolvedValueOnce(undefined)
+    const input = {
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress,
+      execute: async () => undefined,
+    }
+
+    await expect(runTodoBulkCompleteLoop(input)).rejects.toThrow('progress unavailable')
+    await expect(runTodoBulkCompleteLoop(input)).resolves.toEqual({ outcome: null, executed: false })
+
+    expect(progress.completeJob).toHaveBeenCalledTimes(2)
+    expect(store.acquireLease).not.toHaveBeenCalled()
   })
 
   it('resumes from the checkpoint instead of repeating a mutation that already landed', async () => {
@@ -174,6 +229,86 @@ describe('runTodoBulkCompleteLoop', () => {
       status: 'completed',
       summary: { affectedCount: 3, failedCount: 0, failedItems: [] },
     })
+  })
+
+  it('renews the lease while one item is still executing', async () => {
+    const { store } = buildStore(buildSnapshot({ todoIds: ['todo-1'] }))
+    const progress = buildProgress()
+    let releaseExecution: (() => void) | null = null
+    const executionReleased = new Promise<void>((resolve) => {
+      releaseExecution = resolve
+    })
+
+    const running = runTodoBulkCompleteLoop({
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress,
+      execute: async () => executionReleased,
+      leaseTtlMs: 30,
+      leaseHeartbeatMs: 5,
+    })
+
+    await new Promise((resolve) => { setTimeout(resolve, 20) })
+    expect(jest.mocked(store.renewLease).mock.calls.length).toBeGreaterThan(1)
+    releaseExecution?.()
+    await running
+  })
+
+  it('stops without checkpointing when the lease heartbeat reports a new owner', async () => {
+    const { store } = buildStore(buildSnapshot({ todoIds: ['todo-1'] }))
+    const progress = buildProgress()
+    jest.mocked(store.renewLease)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false)
+    let releaseExecution: (() => void) | null = null
+    const executionReleased = new Promise<void>((resolve) => {
+      releaseExecution = resolve
+    })
+
+    const running = runTodoBulkCompleteLoop({
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress,
+      execute: async () => executionReleased,
+      leaseTtlMs: 30,
+      leaseHeartbeatMs: 5,
+    })
+
+    await new Promise((resolve) => { setTimeout(resolve, 20) })
+    releaseExecution?.()
+    await expect(running).resolves.toEqual({ outcome: null, executed: true })
+    expect(store.saveCheckpoint).not.toHaveBeenCalled()
+    expect(store.finish).not.toHaveBeenCalled()
+  })
+
+  it('passes the lease owner into every checkpoint and terminal write', async () => {
+    const { store } = buildStore(buildSnapshot({ todoIds: ['todo-1'] }))
+
+    await runTodoBulkCompleteLoop({
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress: buildProgress(),
+      execute: async () => undefined,
+    })
+
+    expect(store.saveCheckpoint).toHaveBeenCalledWith(
+      OPERATION_ID,
+      SCOPE,
+      'worker-a',
+      expect.objectContaining({ nextItemIndex: 1 }),
+    )
+    expect(store.finish).toHaveBeenCalledWith(
+      OPERATION_ID,
+      SCOPE,
+      'worker-a',
+      expect.objectContaining({ status: 'completed' }),
+    )
   })
 
   it('stops before the next item when cancellation is requested and marks the job cancelled', async () => {
