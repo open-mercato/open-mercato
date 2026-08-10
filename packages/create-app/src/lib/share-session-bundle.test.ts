@@ -433,9 +433,12 @@ test('monorepo and standalone session-share skills stay byte-identical and defau
 
   const skill = fs.readFileSync(path.join(monorepoSkillDirectory, 'SKILL.md'), 'utf8')
   const consent = fs.readFileSync(path.join(monorepoSkillDirectory, 'references', 'consent-and-review.md'), 'utf8')
+  const preparation = fs.readFileSync(path.join(monorepoSkillDirectory, 'references', 'bundle-preparation.md'), 'utf8')
   assert.match(skill, /Invocation, earlier consent, or a generic “yes” never satisfies this gate/)
   assert.match(consent, /I AGREE TO PUBLICLY SHARE "<share-name>" WITH OPEN-MERCATO/)
   assert.match(consent, /Deleting the temporary branch later cannot guarantee erasure/)
+  assert.match(preparation, /scripts\/export-codex-session\.mjs/)
+  assert.match(preparation, /thread\/read/)
 })
 
 test('both standalone copy pipelines include the whole skill tree and tracker publication stays atomic', () => {
