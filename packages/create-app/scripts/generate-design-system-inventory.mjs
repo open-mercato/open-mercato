@@ -793,6 +793,56 @@ function serialize(value) {
   return `${JSON.stringify(value, null, 2)}\n`
 }
 
+/** What a release-version string collapses to before `--check` compares two documents. */
+export const PROVENANCE_VERSION_SENTINEL = '<release-version>'
+
+/**
+ * Collapse every workspace release version to a sentinel.
+ *
+ * The inventory records the releasing package's version on each item as provenance — which is
+ * useful to read and disastrous to compare byte-for-byte. `packageVersion` appears on 106 items
+ * plus `inputs.packageVersions`, so a version bump landing on a base branch invalidates the
+ * committed asset for **every** open branch carrying it, with a staleness message that points at
+ * the author's own reader changes rather than at the release that actually caused it (PR #4991
+ * lost an afternoon to exactly that, on `v0.6.7`).
+ *
+ * So `--check` compares provenance-normalized documents. The guard keeps its full strength over
+ * design-system content — these are the only fields that carry a release version, and nothing
+ * about the gallery, the mappings or the foundation tuples can hide behind one — while a release
+ * no longer breaks unrelated branches. Generation still writes the real versions, and a checked
+ * asset whose versions have drifted is reported as a NOTE so it can be refreshed deliberately.
+ *
+ * Returns `null` when the text is not JSON, so a corrupt checked file fails the byte comparison
+ * rather than being normalized into agreement.
+ */
+export function normalizeProvenanceVersions(serialized) {
+  let parsed
+  try {
+    parsed = JSON.parse(serialized)
+  } catch {
+    return null
+  }
+  const walk = (value, key) => {
+    if (Array.isArray(value)) return value.map((element) => walk(element, null))
+    if (value !== null && typeof value === 'object') {
+      const mapped = {}
+      for (const [childKey, childValue] of Object.entries(value)) {
+        mapped[childKey] = walk(childValue, childKey)
+      }
+      return mapped
+    }
+    if (key === 'packageVersion' && typeof value === 'string') return PROVENANCE_VERSION_SENTINEL
+    return value
+  }
+  const normalized = walk(parsed, null)
+  if (normalized?.inputs?.packageVersions && typeof normalized.inputs.packageVersions === 'object') {
+    for (const packageName of Object.keys(normalized.inputs.packageVersions)) {
+      normalized.inputs.packageVersions[packageName] = PROVENANCE_VERSION_SENTINEL
+    }
+  }
+  return serialize(normalized)
+}
+
 export function main(argv = process.argv.slice(2)) {
   const check = argv.includes('--check')
   let root
@@ -821,6 +871,7 @@ export function main(argv = process.argv.slice(2)) {
     [INVENTORY_RELATIVE_PATH, serialize(built.inventory)],
     [PROJECTION_RELATIVE_PATH, serialize(projectInventory(built.inventory))],
   ]
+  const provenanceDrift = []
   for (const [relative, serialized] of outputs) {
     const absolute = path.join(root, relative)
     if (check) {
@@ -833,6 +884,12 @@ export function main(argv = process.argv.slice(2)) {
         return EXIT_FAILURE
       }
       if (existing !== serialized) {
+        const existingContent = normalizeProvenanceVersions(existing)
+        const derivedContent = normalizeProvenanceVersions(serialized)
+        if (existingContent !== null && existingContent === derivedContent) {
+          provenanceDrift.push(relative)
+          continue
+        }
         console.error(
           `design-system-inventory: ${relative} is stale — checked ${sha256(existing)}, derived ${sha256(serialized)}`,
         )
@@ -843,6 +900,14 @@ export function main(argv = process.argv.slice(2)) {
       fs.mkdirSync(path.dirname(absolute), { recursive: true })
       fs.writeFileSync(absolute, serialized)
     }
+  }
+
+  for (const relative of provenanceDrift) {
+    console.log(
+      `NOTE design-system-inventory: ${relative} differs from the derived asset only in release-version `
+      + 'provenance, which a release bump on the base branch causes and no branch can be expected to '
+      + 'chase. Not a failure; refresh it with `harness:generate-design-system-inventory` when convenient.',
+    )
   }
 
   const derived = built.inventory.derived

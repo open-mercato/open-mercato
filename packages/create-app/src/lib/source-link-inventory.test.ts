@@ -303,9 +303,29 @@ test('records carry the derived joins the spec names, with exact values', () => 
   assert.equal(form.moduleId, 'example')
   assert.equal(form.heading, 'Canonical example source')
   assert.deepEqual(form.capabilityIds, ['ui.form-create', 'ui.form-edit'])
-  assert.deepEqual(form.integrationTestPaths, [
-    'src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts',
-  ])
+
+  // The join, not the surface inventory's contents: every spec the record's own capabilities
+  // name, deduplicated and sorted. Pinned as a literal it churned on each new `TC-EXAMPLE-*`
+  // spec and told a reader nothing, so the exactness that matters is asserted two other ways —
+  // the anchor spec must survive any future edit, and every named path must be a real file.
+  const surfaceForJoin = readJson<{
+    capabilities: Array<{ capabilityId: string; integrationTestPaths?: string[] }>
+  }>(generator.SURFACE_INVENTORY_RELATIVE_PATH)
+  const joinedSpecPaths = [...new Set(surfaceForJoin.capabilities
+    .filter((capability) => form.capabilityIds.includes(capability.capabilityId))
+    .flatMap((capability) => capability.integrationTestPaths ?? []))].sort()
+  assert.deepEqual(form.integrationTestPaths, joinedSpecPaths)
+  assert.ok(
+    form.integrationTestPaths.includes('src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts'),
+    'the shared form surface is covered by TC-EXAMPLE-001 and must stay joined to it',
+  )
+  for (const specPath of form.integrationTestPaths) {
+    assert.ok(
+      fs.existsSync(path.join(packageRoot, 'template', specPath)),
+      `${specPath} is named as coverage but no such spec is emitted`,
+    )
+  }
+
   assert.ok(form.affectedCaseIds.includes('OMH-014'))
 
   const registry = recordFor(inventory, 'om-system-extension/unified-overrides:src/modules.ts')

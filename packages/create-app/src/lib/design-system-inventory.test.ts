@@ -11,6 +11,7 @@ import {
   PROJECTION_RELATIVE_PATH,
   foundationTupleErrors,
   main,
+  normalizeProvenanceVersions,
 } from '../../scripts/generate-design-system-inventory.mjs'
 // @ts-expect-error - see above
 import {
@@ -70,6 +71,70 @@ test('the checked design-system inventory is exactly what the generator derives'
     0,
     'the checked inventory is stale — regenerate with '
       + '`yarn workspace create-mercato-app harness:generate-design-system-inventory`',
+  )
+})
+
+test('a release bump alone never makes the checked inventory stale, but any other edit does', () => {
+  const checked = fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8')
+  const bumped = JSON.parse(checked)
+  let bumpedFields = 0
+  for (const packageName of Object.keys(bumped.inputs.packageVersions)) {
+    bumped.inputs.packageVersions[packageName] = '99.99.99'
+    bumpedFields += 1
+  }
+  for (const item of bumped.items) {
+    if (typeof item.designFoundation.packageVersion !== 'string') continue
+    item.designFoundation.packageVersion = '99.99.99'
+    bumpedFields += 1
+  }
+  assert.ok(bumpedFields > 100, 'the asset must really pin a release version on its items')
+
+  const bumpedText = `${JSON.stringify(bumped, null, 2)}\n`
+  assert.notEqual(bumpedText, checked, 'the probe must actually change the document')
+  assert.equal(
+    normalizeProvenanceVersions(bumpedText),
+    normalizeProvenanceVersions(checked),
+    'a release bump is provenance drift, not design-system content — it must not fail --check',
+  )
+
+  // The mutation probes: everything that is not a release version still has to be caught.
+  const renamedItem = JSON.parse(checked)
+  renamedItem.items[0].title = `${renamedItem.items[0].title} (mutated)`
+  assert.notEqual(
+    normalizeProvenanceVersions(`${JSON.stringify(renamedItem, null, 2)}\n`),
+    normalizeProvenanceVersions(checked),
+    'a changed gallery title must still fail the check',
+  )
+
+  const droppedVariant = JSON.parse(checked)
+  droppedVariant.items[0].variantIds = droppedVariant.items[0].variantIds.slice(1)
+  assert.notEqual(
+    normalizeProvenanceVersions(`${JSON.stringify(droppedVariant, null, 2)}\n`),
+    normalizeProvenanceVersions(checked),
+    'an under-counted variant list must still fail the check',
+  )
+
+  const rewrittenFoundation = JSON.parse(checked)
+  rewrittenFoundation.items[0].designFoundation.publicationStatus = 'published'
+  assert.notEqual(
+    normalizeProvenanceVersions(`${JSON.stringify(rewrittenFoundation, null, 2)}\n`),
+    normalizeProvenanceVersions(checked),
+    'a rewritten foundation tuple must still fail the check',
+  )
+
+  // A version-shaped value under any other key is content, not provenance.
+  const versionShapedContent = JSON.parse(checked)
+  versionShapedContent.items[0].entryId = '0.6.7'
+  assert.notEqual(
+    normalizeProvenanceVersions(`${JSON.stringify(versionShapedContent, null, 2)}\n`),
+    normalizeProvenanceVersions(checked),
+    'normalization keys off the field name, never off the shape of the value',
+  )
+
+  assert.equal(
+    normalizeProvenanceVersions('{ not json'),
+    null,
+    'a corrupt checked file must fall through to the byte comparison rather than normalize into agreement',
   )
 })
 
