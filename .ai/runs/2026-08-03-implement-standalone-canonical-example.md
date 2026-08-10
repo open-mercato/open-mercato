@@ -1296,14 +1296,24 @@ not from the stale deferred/blocker labels above.
   nine-step knowledge-change contract, require the machine manifest and affected certified lane, and
   retain only sanitized evidence. Added a focused guard in
   `agent-harness-knowledge-change.test.ts`; fail-before and pass-after were both observed.
-- [ ] TC-EXAMPLE-012 and complete topology/fact enumeration.
-- [ ] TC-EXAMPLE-015 and the missing vector/integration/workflow/currency identities.
-- [ ] TC-EXAMPLE-016, deterministic generator plugin, and activated disposable create-app lane.
-- [ ] READ/SPEC design-gallery, foundation, topology-routing, preset/tier, and connected-progress proofs.
+- [x] TC-EXAMPLE-012 and complete topology/fact enumeration. The focused live lane passed 2/2,
+  including the real non-fallback enricher/command path and a scoped customer-portal SSE reaction.
+- [x] TC-EXAMPLE-015 and the missing vector/integration/workflow/currency identities. The focused live
+  lane passed 2/2 and the specialized-registry unit suite passed 7/7.
+- [x] TC-EXAMPLE-016, deterministic generator plugin, and activated disposable create-app lane. The
+  full standalone controller passed 1/1 after disabled and activated production builds, generation
+  repeat parity, bootstrap-consumer proof, real database/app boot, and cleanup.
+- [x] READ/SPEC design-gallery, foundation, topology-routing, preset/tier, and connected-progress proofs.
+  All twelve read-policy families are covered, including distinct OMH-228 design-foundation routing.
 - [x] READ: document the live fallback reason/capability channel and adopt it in the bounded OMH-203
   installed-version-mismatch lane; route the generated local example reference sheet from OMH-223.
 - [x] READ family 9: reuse writable OMH-181 to select both canonical bulk-action/progress seams and
   prove the returned `progressJobId` is connected to the operation-progress observer. Focused READ
   tests pass 61/61 and the business writable oracle suite passes 12/12 top-level tests.
-- [ ] Milestone D: 15/15 isolated/repeated/randomized, activated standalone, packed-link/fact/design,
-  certified harness, and full validation evidence.
+- [ ] Milestone D: the 15/15 runtime matrix is complete (43/43 randomized; 86 repeated executions;
+  the only repeated-run race was fixed and then proved 6/6 with retries disabled), the activated
+  standalone lane is 1/1, packed source links are 136/136 with 130 topics / 29 owners / 107 rendered
+  links, and the 113-item / 17-family design projection has zero mismatches. The knowledge-change
+  controller passed base-fail/head-pass with all six required lanes declared. Remaining release gates:
+  the trusted provider-backed harness lane must run on Linux with Bubblewrap (native macOS fails closed
+  by design), followed by the final CI result.

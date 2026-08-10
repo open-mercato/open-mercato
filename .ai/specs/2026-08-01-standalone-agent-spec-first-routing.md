@@ -1,6 +1,6 @@
 # Standalone Agent Spec-First Routing
 
-- **Status:** Implementation complete — Phase 2 fixed-oracle coverage landed; certified live-lane evidence pending PR integration
+- **Status:** Implemented — Phase 2 fixed-oracle coverage landed; Linux/Bubblewrap certified live-lane evidence remains pending
 - **Date:** 2026-08-01
 - **Revised:** 2026-08-10
 - **Scope:** OSS agent instructions and planning skills emitted by `create-mercato-app`
@@ -154,10 +154,11 @@ This is an additive agent-workflow policy. It changes generated-agent behavior b
 
 ### Verdict
 
-**Implementation complete; ready for the PR-level certified harness lane and final review.**
+**Implementation complete; deterministic and fixed-oracle evidence is green. The trusted Linux/Bubblewrap certified live lane remains the release-environment gate.**
 
 ## Changelog
 
+- 2026-08-10: Finalized `OMH-223` against the emitted reference-fact and source-link identities. The bounded prompt and fixed writable oracle now require the exact capability, contribution, activation, override-target, worker, specialist-route, source-reference, gallery/foundation, ordering, traceability, integration-test, and mechanism bindings; single-property negative controls cover each family. The deterministic catalog remains 228 cases. Only the trusted Linux/Bubblewrap provider-backed lane is pending.
 - 2026-08-10: Closed the remaining executable gap in writable planning proof `OMH-223`. The prompt now includes a workflow-defined lifecycle, bounded DataTable bulk operation, connected `progressJobId` path, and public-Button UI so one shipped spec proof exercises the canonical data/command, specialist registry, bulk action, durable progress, and gallery/foundation branches without allocating the reserved `OMH-228`. Its fixed oracle reads the target's own `.ai/guides/reference-module-facts.json`, source-link inventory, and canonical surface-inventory projection; requires exact capability, contribution, activation, override-target, worker, specialist-route, source-reference, gallery item/family/entry, provenance, and activation identities; binds each identity family to one ordered requirement/phase/integration-test/mechanism row; and rejects missing generated facts, generic IDs, split traceability, wrong mechanism classification, live-gallery claims, provenance conflation, workspace token paths, runtime coupling, or external Figma authority. Focused coverage adds one mutation per new check and preserves the separate existing-spec proof.
 
 - 2026-08-01: Initial draft defined the standalone spec-first decision contract and routing proofs.

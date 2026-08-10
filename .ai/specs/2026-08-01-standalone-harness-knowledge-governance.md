@@ -1,8 +1,8 @@
 # Standalone Harness Knowledge Governance
 
-- **Status:** Draft
+- **Status:** Implemented — all validator/controller contracts are complete; Linux/Bubblewrap certified release execution remains pending
 - **Date:** 2026-08-01
-- **Revised:** 2026-08-03
+- **Revised:** 2026-08-10
 - **Scope:** OSS standalone harness evolution/refresh workflows and evaluator synchronization
 - **Related:** [Standalone Canonical Example Module](./2026-07-31-standalone-canonical-example-module.md), [Standalone Harness Example and Linked-Source Read Policy](./2026-08-01-standalone-harness-example-read-policy.md), [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md), design-foundation [PR #4277](https://github.com/open-mercato/open-mercato/pull/4277) (merged 2026-08-03 as [PR #4891](https://github.com/open-mercato/open-mercato/pull/4891)), design-system gallery [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301), follow-up issue [#4670](https://github.com/open-mercato/open-mercato/issues/4670)
 
@@ -242,7 +242,9 @@ The change strengthens internal harness procedure and evaluator policy. It does 
 
 - 2026-08-10: **The packed-target check landed, closing the last of the three pending Phase 2 checks.** The gap it fills is that `checkFileRecords` hashes a generated file *against itself* — a mirror that has drifted from its authoritative source matches its own recorded hash perfectly and passes. The obvious fix, demanding that every generated copy equal its source, is wrong in this repository: `packages/create-app/template/scripts/validate-knowledge-change.mjs` is a deliberate four-line "run `agentic:init` first" stub standing in for a 1300-line source, and a rule requiring byte equality of every declared pair would reject it. `generatedTargetErrors` therefore **derives mirror-ness from the base commit** instead of assuming it, which yields two rules that need no schema change and no new manifest field: (1) **stale copy** — the `sourcePath` changed in this diff while the generated target did not, which is the forgotten `yarn template:sync` and needs only the diff, no hashes; and (2) **mirror ratchet** — a pair whose bytes were identical at base must still be identical at head, while a pair that was never identical is left alone, so deliberate stubs and transformed outputs are never forced into an equality they never had. An unknown base hash cannot manufacture a mirror claim, so a newly added pair is not retroactively asserted to be a copy. Five tests added, including one that pins the shipped stub pair as a genuine non-mirror so the ratchet provably stays off it (73 total).
 
-  With this, the Phase 2 validator checks are complete. **What remains for GOV is the certified-release-lane run** — no synthetic end-to-end change has yet been driven through a real certified lane — and, as recorded for GOV-P1, the validator stays out of `.ai/agentic.config.json` `validation.commands` and CI until it has been.
+  With this, the Phase 2 validator checks are complete. A real knowledge-contract manifest has now passed the controller against PR #4897: the base plus the new focused test failed, the implementation head passed, and the completed manifest recorded the controller-derived SHAs/hashes, all six required release lanes, catalog count 228, 29 owners, 130 topics, 107 rendered links, eight baseline assets, and 136 dispositions. **What remains for GOV is the provider-backed certified-release-lane run**; the release controller correctly refuses native macOS because trusted Linux/Bubblewrap containment is mandatory.
+
+- 2026-08-10: Executed the complete knowledge-change controller contract for the canonical gap-completion change. It derived `knowledge-contract`, validated the seven affected contract classes and ten affected cases, proved base-plus-test-only failure and head success without retry, and emitted a schema-valid sanitized completed manifest. This closes the former synthetic-controller evidence gap. Release-lane declaration is also complete for deterministic, routing, writable, generated-code-review, generative-judge, and generated-tests; executing those provider-backed lanes remains a Linux/Bubblewrap release-environment responsibility rather than a macOS-waivable check.
 
 ### Review — 2026-08-03
 

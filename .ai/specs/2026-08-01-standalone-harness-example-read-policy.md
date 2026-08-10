@@ -1,6 +1,6 @@
 # Standalone Harness Example and Linked-Source Read Policy
 
-- **Status:** Implemented — all twelve evaluator oracle families covered; PR-wide certified lane pending
+- **Status:** Implemented — all twelve evaluator oracle families covered; Linux/Bubblewrap certified lane pending
 - **Date:** 2026-08-01
 - **Revised:** 2026-08-10
 - **Scope:** OSS standalone harness context/evaluator semantics for capability-scoped canonical-example and declared installed-source reads
@@ -155,10 +155,11 @@ The schema is additive, but installed-source permissions are intentionally tight
 | Finite oracle | One schema and twelve enumerated evaluator fixture families plus whole-harness packed-link/local-fact/design-gallery/foundation validation. |
 | Compatibility | Non-installed behavior stays identical; every prior broad installed-source reliance receives an explicit migration disposition and an exact declared reference or reason-gated fallback before permission removal. |
 
-**Verdict: Implemented with focused deterministic coverage; awaiting the PR-wide certified lane and final review.**
+**Verdict: Implemented with focused deterministic and packed-source coverage; awaiting only the trusted Linux/Bubblewrap certified lane.**
 
 ## Changelog
 
+- 2026-08-10: Finalized all twelve read-policy families with explicit preset/tier applicability, a writable connected `progressJobId` lifecycle, generated reference-fact routing, and distinct gallery/design-foundation cases. The canonical/source-link/design join now validates 130 topics across 29 owners, 107 rendered links, all 136 baseline dispositions, and 113 design items across 17 families with zero mismatches. Focused read-policy, source-inventory, source-link, and evaluator suites are green; only the trusted Linux/Bubblewrap provider-backed lane is pending.
 - 2026-08-01: Initial draft established bounded multi-file example reads and installed-version fallback.
 - 2026-08-03: Pointed the policy at the shipped `src/modules/example` tree, added inventory validation and read-only precedence, restricted fallback to specialist/versioned gaps, rejected legacy shadow roots, added generated-empty fixtures, and made `referenceStatus: "qa-only"` a deterministic read denial.
 - 2026-08-03: Added visible owner-bound source references, first-class exact installed-package links, packed-artifact resolution, generated-fact exact links, broad-glob removal, and whole-harness dead/orphan link enforcement.
