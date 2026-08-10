@@ -26,6 +26,7 @@
 import type { Node, Edge } from '@xyflow/react'
 import { generateTransitionId } from './graph-utils'
 import { isDataMappingEdge } from './data-edge-mapping'
+import { buildWorkflowRouteEdge } from './route-edge'
 
 export type PaletteDropRejectionCode = 'unknownRoute' | 'dataMappingRoute'
 
@@ -67,11 +68,10 @@ export function insertStepOnRoute(
   if (!route) return { ok: false, code: 'unknownRoute' }
   if (isDataMappingEdge(route)) return { ok: false, code: 'dataMappingRoute' }
 
-  const continuation: Edge = {
+  const continuation: Edge = buildWorkflowRouteEdge({
     id: generateTransitionId(),
     source: newNode.id,
     target: route.target,
-    type: 'smoothstep',
     data: {
       trigger: 'auto',
       preConditions: [],
@@ -79,7 +79,7 @@ export function insertStepOnRoute(
       activities: [],
       label: '',
     },
-  }
+  })
 
   const nextEdges = edges.flatMap((edge) =>
     edge.id === edgeId

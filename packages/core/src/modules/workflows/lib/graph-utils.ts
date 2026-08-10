@@ -6,6 +6,7 @@ import { isCompensationGhostEdge } from './compensation-ghosts'
 import { isDataMappingEdge } from './data-edge-mapping'
 import { isAnnotationNode } from './editor-annotations'
 import { isTriggerEdge, isTriggerNode } from './trigger-node'
+import { buildWorkflowRouteEdge } from './route-edge'
 import {
   findRouteKindDescriptor,
   resolveEdgeRouteKind,
@@ -549,18 +550,15 @@ export function definitionToGraph(
       ?.has(transition.transitionId)
       ? transition.transitionId
       : undefined
-    return {
+    return buildWorkflowRouteEdge({
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
-      type: 'workflowTransition',
       // A kinded route re-attaches to its own output handle so the canvas
       // renders it leaving the same port the author drew it from.
-      ...(routeKind
-        ? { sourceHandle: routeKind.resolveSourceHandle(routeTransition) }
-        : decisionSourceHandle
-          ? { sourceHandle: decisionSourceHandle }
-          : {}),
+      sourceHandle: routeKind
+        ? routeKind.resolveSourceHandle(routeTransition)
+        : decisionSourceHandle,
       data: {
         trigger: transition.trigger,
         ...(routeKind ? { kind: routeKind.kind } : {}),
@@ -577,7 +575,7 @@ export function definitionToGraph(
         label: (transition as any).transitionName || (transition as any).label, // Backward compat
         state: (transition as any).state || 'pending', // Default edge state
       },
-    }
+    })
   })
 
   return { nodes, edges }

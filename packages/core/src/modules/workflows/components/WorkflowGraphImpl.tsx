@@ -40,6 +40,7 @@ import {
   WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE,
 } from '../lib/compensation-ghosts'
 import { buildAgentOutcomeRows } from '../lib/node-outcome-rows'
+import { WORKFLOW_TRANSITION_EDGE_TYPE } from '../lib/route-edge'
 import { filterOwnedNodeChanges } from '../lib/owned-node-changes'
 import { isRouteTaken, resolveNodeRunStatus, type RunExecution } from '../lib/run-execution'
 import {
@@ -329,7 +330,7 @@ export default function WorkflowGraphImpl({
       } else {
         const newEdge = {
           ...connection,
-          type: 'workflowTransition',
+          type: WORKFLOW_TRANSITION_EDGE_TYPE,
           animated: false,
           markerEnd: ROUTE_MARKER_END,
         }
@@ -550,7 +551,7 @@ export default function WorkflowGraphImpl({
 
   const edgeTypes = useMemo(
     () => ({
-      workflowTransition: WorkflowTransitionEdge,
+      [WORKFLOW_TRANSITION_EDGE_TYPE]: WorkflowTransitionEdge,
       workflowDataMapping: WorkflowDataMappingEdge,
       [WORKFLOW_COMPENSATION_GHOST_EDGE_TYPE]: WorkflowCompensationGhostEdge,
     }),
@@ -593,7 +594,7 @@ export default function WorkflowGraphImpl({
         minZoom={0.1}
         maxZoom={2}
         defaultEdgeOptions={{
-          type: 'workflowTransition',
+          type: WORKFLOW_TRANSITION_EDGE_TYPE,
           animated: false,
           markerEnd: ROUTE_MARKER_END,
         }}

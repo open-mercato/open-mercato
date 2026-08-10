@@ -76,6 +76,7 @@ import { decideDraftRestore, isServerDraftEligible, stableSerializeDefinition } 
 import { buildDefinitionPayload, buildMetadataPayload } from '../../../lib/definition-payload'
 import { resolveDefinitionInterpolationMode, type WorkflowInterpolationMode } from '../../../lib/interpolation-pipeline'
 import { findRouteKindDescriptorForHandle } from '../../../lib/route-kinds'
+import { buildWorkflowRouteEdge } from '../../../lib/route-edge'
 import { isDecisionSourceHandle, type DecisionRowLike } from '../../../lib/node-outcome-rows'
 import { STRUCTURAL_EDIT_CONFLICT_CODE } from '../../../lib/definition-edit-safety'
 import type { WorkflowErrorHandlerConfig } from '../../../data/validators'
@@ -1496,18 +1497,14 @@ export default function VisualEditorPage() {
         }
       : {}
 
-    const newEdge: Edge = {
+    // A drawn route is the same object a saved one loads as, so it takes the
+    // workflow edge renderer (a curve) immediately rather than on the next
+    // reload — see `lib/route-edge.ts`.
+    const newEdge: Edge = buildWorkflowRouteEdge({
       id: decisionTransitionId ?? generateTransitionId(),
       source: connection.source!,
       target: connection.target!,
-      // A kinded route must read as one the moment it is drawn, so it takes the
-      // workflow edge renderer immediately instead of on the next reload.
-      type: routeKind ? 'workflowTransition' : 'smoothstep',
-      ...(routeKind
-        ? { sourceHandle: connection.sourceHandle }
-        : decisionTransitionId
-          ? { sourceHandle: decisionTransitionId }
-          : {}),
+      sourceHandle: routeKind ? connection.sourceHandle : decisionTransitionId,
       data: {
         trigger: 'auto',
         preConditions: [],
@@ -1516,7 +1513,7 @@ export default function VisualEditorPage() {
         label: '',
         ...routeData,
       },
-    }
+    })
 
     commitHistory(historyLabels.connect)
     setEdges((eds) => appendWorkflowEdge(eds, newEdge))

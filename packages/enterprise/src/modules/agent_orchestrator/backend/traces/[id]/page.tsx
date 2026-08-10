@@ -31,6 +31,7 @@ import {
   type ToolCallView,
 } from '../../../components/types'
 import { deriveReasoning } from '../../../components/proposalFactsData'
+import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTimeline'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
@@ -68,27 +69,6 @@ function parseTime(value: string | null): number | null {
   if (!value) return null
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : null
-}
-
-type Timeline = { startMs: number; totalMs: number }
-
-function buildTimeline(spans: SpanView[], latencyMs: number | null): Timeline | null {
-  const starts = spans.map((span) => parseTime(span.startedAt)).filter((value): value is number => value != null)
-  if (starts.length === 0) {
-    return latencyMs && latencyMs > 0 ? { startMs: 0, totalMs: latencyMs } : null
-  }
-  const startMs = Math.min(...starts)
-  const ends = spans.map((span) => {
-    const started = parseTime(span.startedAt)
-    const ended = parseTime(span.endedAt)
-    if (ended != null) return ended
-    if (started != null && span.durationMs != null) return started + span.durationMs
-    return started
-  }).filter((value): value is number => value != null)
-  const endMs = ends.length ? Math.max(...ends) : startMs
-  const spanTotal = endMs - startMs
-  const totalMs = Math.max(spanTotal, latencyMs ?? 0, 1)
-  return { startMs, totalMs }
 }
 
 function StatCell({
@@ -498,15 +478,46 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
 // Real reasoning chain: the persisted rationale(s) of the run's proposal(s),
 // then rationales of nested upstream findings carried in the run input — the
 // same derivation the Caseload decision panel uses (`deriveReasoning`).
-function ReasoningCard({ proposals, input }: { proposals: ProposalView[]; input: unknown }) {
+/**
+ * `output` is passed only so the card can drop what the Output JSON already
+ * shows verbatim. Reasoning stays the readable home for the rationale; Output
+ * stays the raw record. Neither should print the same sentence twice.
+ */
+function ReasoningCard({
+  proposals,
+  input,
+  output,
+}: {
+  proposals: ProposalView[]
+  input: unknown
+  output: unknown
+}) {
   const t = useT()
-  const items = React.useMemo(
+  const renderedOutput = React.useMemo(() => {
+    if (output == null) return ''
+    try {
+      return typeof output === 'string' ? output : JSON.stringify(output)
+    } catch {
+      return ''
+    }
+  }, [output])
+  const derived = React.useMemo(
     () => [
       ...proposals.flatMap((proposal) => deriveReasoning(proposal.rationale, null)),
       ...deriveReasoning(null, input),
     ],
     [proposals, input],
   )
+  const items = React.useMemo(
+    () =>
+      renderedOutput.length > 0
+        ? derived.filter((item) => !(item.text && renderedOutput.includes(item.text)))
+        : derived,
+    [derived, renderedOutput],
+  )
+  // Nothing left BECAUSE Output already carries it is not the same as nothing
+  // to say — the "no reasoning" empty state would be a lie, so drop the card.
+  if (items.length === 0 && derived.length > 0) return null
   return (
     <InspectorCard
       title={t('agent_orchestrator.traces.detail.reasoning')}
@@ -774,7 +785,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   )
 
   const timeline = React.useMemo(
-    () => (detail ? buildTimeline(detail.spans, detail.run.latencyMs) : null),
+    () => (detail ? buildSpanTimeline(detail.spans, detail.run.latencyMs) : null),
     [detail],
   )
 
@@ -833,6 +844,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
               run.inputTokens != null || run.outputTokens != null
                 ? (run.inputTokens ?? 0) + (run.outputTokens ?? 0)
                 : null
+            const tokensLabel = formatTokens(tokensTotal)
+            const costLabel = formatCostMinor(run.costMinor, run.currency)
             const gated = run.humanConfirmedAt == null && run.resultKind === 'actionable'
             const runLabel = run.externalRunId ?? `RUN-${run.id.slice(0, 8)}`
             const subtitle = [
@@ -841,7 +854,9 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
               run.runtime,
             ].filter(Boolean).join(' — ')
             const axisTicks = timeline
-              ? [0, 0.25, 0.5, 0.75, 1].map((fraction) => formatDurationMs(timeline.totalMs * fraction) ?? '')
+              ? [0, 0.25, 0.5, 0.75, 1].map(
+                  (fraction) => formatDurationMs(timeline.timeAtRatio(fraction) - timeline.startMs) ?? '',
+                )
               : []
             return (
               <div className="space-y-6">
@@ -1004,16 +1019,16 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       label={t('agent_orchestrator.traces.detail.duration')}
                       value={formatDurationMs(run.latencyMs) ?? '—'}
                     />
-                    <StatCell
-                      icon={Hash}
-                      label={t('agent_orchestrator.traces.detail.tokens')}
-                      value={formatTokens(tokensTotal) ?? '—'}
-                    />
-                    <StatCell
-                      icon={Coins}
-                      label={t('agent_orchestrator.traces.detail.cost')}
-                      value={formatCostMinor(run.costMinor, run.currency) ?? '—'}
-                    />
+                    {/* Tokens and cost are runtime-reported; the opencode runtime
+                        supplies neither, and a permanent '—' tile reads as a bug
+                        rather than as an absent metric. Timing tiles keep their
+                        dash — those are expected to fill in. */}
+                    {tokensLabel ? (
+                      <StatCell icon={Hash} label={t('agent_orchestrator.traces.detail.tokens')} value={tokensLabel} />
+                    ) : null}
+                    {costLabel ? (
+                      <StatCell icon={Coins} label={t('agent_orchestrator.traces.detail.cost')} value={costLabel} />
+                    ) : null}
                     <StatCell
                       icon={Wrench}
                       label={t('agent_orchestrator.traces.detail.toolCalls')}
@@ -1056,18 +1071,32 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       ) : (
                         <div className="space-y-1.5">
                           {detail.spans.map((span) => {
-                            const start = parseTime(span.startedAt)
-                            const offsetMs = start != null ? Math.max(0, start - timeline.startMs) : 0
-                            const leftPct = Math.max(0, Math.min(100, (offsetMs / timeline.totalMs) * 100))
-                            const rawWidth = ((span.durationMs ?? 0) / timeline.totalMs) * 100
-                            const widthPct = Math.max(1.5, Math.min(100 - leftPct, rawWidth))
+                            // Geometry comes from the piecewise model, never from
+                            // duration/total — see lib/trace/spanTimeline.ts. The
+                            // duration on the right is always the TRUE one.
+                            const bar = timeline.bars.find((candidate) => candidate.id === span.id)
+                            if (!bar) return null
+                            const leftPct = bar.offsetRatio * 100
+                            const widthPct = Math.max(0.75, Math.min(100 - leftPct, bar.widthRatio * 100))
                             return (
                               <div key={span.id} className="flex items-center gap-3">
                                 <div className="flex w-44 shrink-0 items-center gap-2">
                                   <span className={`size-2 shrink-0 rounded-sm ${spanBarClass(span.kind)}`} />
-                                  <span className="truncate font-mono text-xs text-foreground">{span.name}</span>
+                                  <SimpleTooltip side="right" content={span.name}>
+                                    <span className="font-mono text-xs text-foreground">
+                                      {truncateSpanName(span.name)}
+                                    </span>
+                                  </SimpleTooltip>
                                 </div>
                                 <div className="relative h-5 flex-1 rounded bg-muted/60">
+                                  {timeline.gaps.map((gap, index) => (
+                                    <span
+                                      key={index}
+                                      aria-hidden="true"
+                                      className="absolute inset-y-0 bg-muted"
+                                      style={{ left: `${gap.offsetRatio * 100}%`, width: `${gap.widthRatio * 100}%` }}
+                                    />
+                                  ))}
                                   <div
                                     className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded ${spanBarClass(span.kind)} ${span.status === 'error' ? 'opacity-60 ring-1 ring-status-error-border' : ''}`}
                                     style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
@@ -1079,6 +1108,15 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                               </div>
                             )
                           })}
+                          {/* Compressing a wait without saying so would trade one
+                              dishonest picture for another. */}
+                          {timeline.compressedMs > 0 ? (
+                            <p className="pt-1 text-xs text-muted-foreground">
+                              {t('agent_orchestrator.traces.detail.timelineCompressed', undefined, {
+                                duration: formatDurationMs(timeline.compressedMs) ?? '',
+                              })}
+                            </p>
+                          ) : null}
                           <div className="flex items-center gap-3 pt-1.5">
                             <div className="w-44 shrink-0" />
                             <div className="flex flex-1 justify-between text-xs tabular-nums text-muted-foreground">
@@ -1201,11 +1239,29 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
 
                 {/* Run analysis: Reasoning + Guardrails + Context assembled (TDCR) — three columns */}
                 <div className="grid gap-6 lg:grid-cols-3">
-                  <ReasoningCard proposals={detail.proposals} input={run.input} />
-                  <GuardrailsCard checks={detail.guardrailChecks} />
+                  <ReasoningCard proposals={detail.proposals} input={run.input} output={run.output} />
+                  {detail.guardrailChecks.length > 0 ? (
+                    <GuardrailsCard checks={detail.guardrailChecks} />
+                  ) : null}
                   <FilesCard runId={run.id} />
-                  <ContextAssembledCard bundle={detail.contextBundle} />
+                  {detail.contextBundle ? <ContextAssembledCard bundle={detail.contextBundle} /> : null}
                 </div>
+                {/* Absence is still stated — it just no longer costs a card each.
+                    The copy was right; the footprint was not. */}
+                {detail.guardrailChecks.length === 0 || !detail.contextBundle ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('agent_orchestrator.traces.detail.notRecorded', undefined, {
+                      items: [
+                        detail.guardrailChecks.length === 0
+                          ? t('agent_orchestrator.traces.detail.guardrails')
+                          : null,
+                        !detail.contextBundle ? t('agent_orchestrator.traces.detail.context') : null,
+                      ]
+                        .filter(Boolean)
+                        .join(', '),
+                    })}
+                  </p>
+                ) : null}
 
                 {/* Illustrative — mock sections grouped + de-emphasized at the bottom */}
                 {isAgentPreviewUiEnabled() ? (

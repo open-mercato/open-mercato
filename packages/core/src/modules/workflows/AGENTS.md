@@ -246,8 +246,10 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   outcome and for an unwired `approved`, while every OTHER unwired outcome inherits the error
   directive — a row promising "everything else comes here" would be wrong.
 - **Every handle on the canvas is sized from `NODE_HANDLE_CLASS`** (`lib/node-geometry.ts`), footer
-  dots included. MUST NOT spell `!w-3 !h-3` in a node component; `nodeHandleGeometry.test.ts` fails
-  if you do. `countOutcomeRows` adds one for the default row, or dagre under-reserves the card.
+  dots included, and every route chip from `ROUTE_CHIP_CLASS` / `ROUTE_CHIP_ICON_CLASS` in the same
+  file. MUST NOT spell `!w-3 !h-3` in a node component or a `size-*`/padding class in
+  `WorkflowRouteChips`; `nodeHandleGeometry.test.ts` and `routeChips.test.tsx` fail if you do. A chip
+  is READ, not aimed at, so it is deliberately larger than a handle. `countOutcomeRows` adds one for the default row, or dagre under-reserves the card.
 - **The LABEL carries the meaning, never the dot colour** (§4.6 acceptance criterion). Two rows paint
   the same red (`rejected`, `guardrailBlocked`), which at 10px and at canvas zoom is not a
   distinction anyone can read, so every row also carries its own GLYPH and every handle is named.
@@ -342,6 +344,13 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   `lib/__tests__/route-kinds.test.ts`).
 - A kinded route NEVER inherits its source AUTOMATED step's activity — it is not the happy path out
   of that step.
+- **Every route edge is BUILT by `buildWorkflowRouteEdge` (`lib/route-edge.ts`)** — the load path
+  (`definitionToGraph`), `handleConnect` and the insert-on-route splice alike. That is render-time
+  only (`graphToDefinition` never reads `type`), but it is not cosmetic: creation used to type a
+  normal route `smoothstep` while load typed it `workflowTransition`, so a route came out with 90°
+  corners until it was saved and reloaded, and `defaultEdgeOptions` cannot correct it (ReactFlow
+  merges it UNDER each edge). MUST NOT name a React Flow built-in edge type for a route;
+  `lib/__tests__/route-edge.test.ts` scans the module sources for it.
 - `ROUTE_KIND_SOURCE_NODE_TYPES` (`lib/edge-reattachment.ts`) refuses moving a kinded route onto a
   node type that can never reach it (an error route off a step that cannot fail, a breach route off a
   step that carries no deadline) rather than leaving a dead route behind.

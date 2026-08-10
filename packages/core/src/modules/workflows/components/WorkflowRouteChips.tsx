@@ -5,6 +5,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import '../lib/activity-registry-bootstrap'
 import { getActivityType } from '../lib/activity-registry'
 import type { RouteChipModel, RouteChipSection } from '../lib/route-chips'
+import { ROUTE_CHIP_CLASS, ROUTE_CHIP_ICON_CLASS, ROUTE_CHIP_LABEL_ICON_CLASS } from '../lib/node-geometry'
 
 /**
  * Icon names the activity registry declares (`ActivityTypeEntry.icon`) mapped to
@@ -42,13 +43,6 @@ export type WorkflowRouteChipsProps = {
 }
 
 /**
- * The DS radius scale has no 4px step for a chip: it is either `rounded-full`
- * (pill) or `rounded-md`. Bare `rounded` was neither, and read as a slightly
- * squared-off box next to every other chip in the product.
- */
-const CHIP_CLASSES = 'inline-flex items-center gap-1 rounded-md border bg-card px-1.5 py-0.5 text-xs font-medium'
-
-/**
  * WorkflowRouteChips — the condition / activity / otherwise chip row a
  * transition renders along its edge (spec section 4.4, issue #4244).
  *
@@ -84,7 +78,7 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
       {model.conditionSummary ? (
         <button
           type="button"
-          className={`${CHIP_CLASSES} border-border text-foreground hover:border-primary`}
+          className={`${ROUTE_CHIP_CLASS} border-border text-foreground hover:border-primary`}
           aria-label={t('workflows.routeChips.conditionLabel', { summary: model.conditionSummary })}
           onClick={(event) => {
             // The chip lives in ReactFlow's EdgeLabelRenderer portal; a synthetic
@@ -95,17 +89,17 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
             onOpenSection?.('condition')
           }}
         >
-          <Filter className="size-3 shrink-0" aria-hidden="true" />
+          <Filter className={`${ROUTE_CHIP_LABEL_ICON_CLASS} shrink-0`} aria-hidden="true" />
           <span className="font-mono">{model.conditionSummary}</span>
         </button>
       ) : null}
 
       {model.isOtherwise ? (
         <span
-          className={`${CHIP_CLASSES} border-dashed border-border text-muted-foreground`}
+          className={`${ROUTE_CHIP_CLASS} border-dashed border-border text-muted-foreground`}
           data-testid="route-chip-otherwise"
         >
-          <CornerDownLeft className="size-3 shrink-0" aria-hidden="true" />
+          <CornerDownLeft className={`${ROUTE_CHIP_LABEL_ICON_CLASS} shrink-0`} aria-hidden="true" />
           {t('workflows.routeChips.otherwise')}
         </span>
       ) : null}
@@ -118,7 +112,7 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
           <button
             key={activity.activityId}
             type="button"
-            className={`${CHIP_CLASSES} border-border text-muted-foreground hover:border-primary hover:text-foreground`}
+            className={`${ROUTE_CHIP_CLASS} border-border text-muted-foreground hover:border-primary hover:text-foreground`}
             aria-label={t('workflows.routeChips.activityLabel', { activity: label })}
             title={label}
             onClick={(event) => {
@@ -127,7 +121,7 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
               else onOpenSection?.('activities')
             }}
           >
-            <Icon className="size-3 shrink-0" aria-hidden="true" />
+            <Icon className={`${ROUTE_CHIP_ICON_CLASS} shrink-0`} aria-hidden="true" />
           </button>
         )
       })}
@@ -135,7 +129,7 @@ export function WorkflowRouteChips({ model, collapsed = false, onOpenSection, on
       {model.overflowCount > 0 ? (
         <button
           type="button"
-          className={`${CHIP_CLASSES} border-border text-muted-foreground hover:border-primary`}
+          className={`${ROUTE_CHIP_CLASS} border-border text-muted-foreground hover:border-primary`}
           aria-label={t('workflows.routeChips.overflowLabel', { count: model.overflowCount })}
           onClick={(event) => {
             event.stopPropagation()

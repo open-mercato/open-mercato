@@ -111,3 +111,58 @@ export const NODE_HANDLE_EDGE_OFFSET = -(NODE_HANDLE_SIZE / 2)
  */
 export const NODE_PORT_HANDLE_SIZE_CLASS = '!h-2.5 !w-2.5'
 export const NODE_PORT_HANDLE_CLASS = `${NODE_PORT_HANDLE_SIZE_CLASS} !border !border-background`
+
+/**
+ * Geometry of the chips a route renders at its midpoint (`WorkflowRouteChips`,
+ * #4244) — the condition summary, the activity icons and the `+N` overflow.
+ *
+ * They live here for the reason the handle constants do: a canvas element whose
+ * size is spelled inline in the component that draws it drifts. The activity
+ * chip was the drift's first casualty — an icon at `size-3` in `px-1.5 py-0.5`
+ * padding rendered an ~18px box carrying a 12px glyph, which is the size of a
+ * connection handle and unreadable at any canvas zoom below 1. A route chip is
+ * something the author reads, not a dot they aim at, so it is sized against the
+ * card it sits between rather than against the handle it sits near: the icon is
+ * {@link ROUTE_CHIP_ICON_SIZE}px and the box lands near {@link ROUTE_CHIP_HEIGHT}px,
+ * comfortably under half of {@link NODE_HEIGHT} so a chip never competes with the
+ * steps it connects.
+ *
+ * The label stays `text-xs` — the DS floor the node config summaries already
+ * hold — so a chip grows by its glyph and its padding, never by inventing a
+ * type size the design system does not have.
+ */
+export const ROUTE_CHIP_ICON_SIZE = 20
+
+/**
+ * Tailwind form of {@link ROUTE_CHIP_ICON_SIZE}. For the ICON-ONLY activity
+ * chip, where the glyph is the whole chip and has to carry it alone.
+ */
+export const ROUTE_CHIP_ICON_CLASS = 'size-5'
+
+/**
+ * The glyph on a chip that also carries text (the condition summary, the
+ * `otherwise` marker). It sits on the label's optical line, so it is sized
+ * against the `text-xs` next to it rather than against the canvas — at
+ * {@link ROUTE_CHIP_ICON_SIZE} it would tower over its own label.
+ */
+export const ROUTE_CHIP_LABEL_ICON_CLASS = 'size-3.5'
+
+/** Breathing room around a chip's glyph, on the DS spacing scale. */
+export const ROUTE_CHIP_PADDING_CLASS = 'px-2 py-1'
+
+/**
+ * Rendered height of a chip: the glyph plus {@link ROUTE_CHIP_PADDING_CLASS}'s
+ * 4px vertical padding on each side plus the 1px border on each side. Derived
+ * so the ratio to the node card stays checkable.
+ */
+export const ROUTE_CHIP_HEIGHT = ROUTE_CHIP_ICON_SIZE + 8 + 2
+
+/**
+ * Everything a chip shares regardless of what it says. Callers add only the DS
+ * colour tokens and the interaction states their own chip speaks with.
+ *
+ * On the radius: the DS scale has no 4px step for a chip — it is either
+ * `rounded-full` (pill) or `rounded-md`. Bare `rounded` was neither, and read as
+ * a slightly squared-off box next to every other chip in the product.
+ */
+export const ROUTE_CHIP_CLASS = `inline-flex items-center gap-1 rounded-md border bg-card ${ROUTE_CHIP_PADDING_CLASS} text-xs font-medium`
