@@ -25,8 +25,11 @@ const plugin = {
 // Flat-config preset: all rules at `warn` (rollout severity for existing code —
 // see docs/design-system/lint-rules.md L.0). Escalation to `error` happens per
 // rule × module via the override blocks in eslint.ds.config.mjs once the
-// module's counter reads zero in two consecutive .ai/reports/ds-health-*.txt
-// reports — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md
+// module's counter reads zero in two consecutive runs of the rolling report
+// .ai/reports/ds-health-latest.txt — the current file and its previous
+// committed revision, never a ds-health-*.txt glob (which also matches the
+// pre-drift ds-health-baseline-*.txt anchor and would compare against that)
+// — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md
 // (Workstream 2). When every module is at zero for a rule, its per-module
 // entries are deleted and the severity flips to `error` here — the terminal
 // state per rule.
