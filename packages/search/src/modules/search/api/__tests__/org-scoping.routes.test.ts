@@ -93,8 +93,18 @@ describe('Search API organizationId scoping', () => {
     const searchService = {
       search: jest.fn().mockResolvedValue([]),
     }
+    // The global route also resolves rbacService + searchIndexer to filter results
+    // by per-entity view features (issue #5163).
+    const registrations: Record<string, unknown> = {
+      searchService,
+      searchIndexer: { getEntityConfig: () => undefined },
+      rbacService: {
+        loadAcl: jest.fn().mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null }),
+      },
+    }
     const container = {
-      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
+      hasRegistration: (name: string) => name in registrations,
+      resolve: jest.fn((name: string) => registrations[name]),
       dispose: jest.fn(),
     }
     mockCreateRequestContainer.mockResolvedValue(container)

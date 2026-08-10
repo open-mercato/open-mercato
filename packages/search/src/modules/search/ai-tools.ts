@@ -5,6 +5,7 @@ import type {
   SearchStrategyId,
 } from '@open-mercato/shared/modules/search'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { filterSearchResultsByEntityAccess } from './lib/entity-access'
 
 /**
  * AI Tools definitions for the Search module.
@@ -187,13 +188,22 @@ Searches customers, products, orders, deals, and more in one call.`,
       search: (query: string, options: any) => Promise<SearchResult[]>
     }>('searchService')
 
-    const results = await searchService.search(input.query, {
+    const rawResults = await searchService.search(input.query, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       entityTypes: input.entityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
     })
+
+    // Same rule the HTTP palette applies: `search.global` authorizes using search,
+    // not reading every indexed entity type. Presenter titles, subtitles and deep
+    // links are dropped for entity types the caller holds no view feature for.
+    const results = filterSearchResultsByEntityAccess(
+      rawResults,
+      ctx.container.resolve<SearchIndexerLike>('searchIndexer'),
+      { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin },
+    )
 
     return {
       query: input.query,

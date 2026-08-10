@@ -122,6 +122,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: 'staff:staff_team',
+      aclFeatures: ['staff.view'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {
@@ -144,6 +145,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'staff:staff_team_member',
+      aclFeatures: ['staff.view'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {
@@ -167,6 +169,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'staff:staff_team_role',
+      aclFeatures: ['staff.view'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {
@@ -190,6 +193,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'staff:staff_time_project',
+      aclFeatures: ['staff.timesheets.projects.view'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {

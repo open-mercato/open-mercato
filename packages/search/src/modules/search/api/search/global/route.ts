@@ -8,11 +8,30 @@ import type { SearchService } from '@open-mercato/search'
 import type { EmbeddingService } from '../../../../../vector'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import { resolveGlobalSearchStrategies } from '../../../lib/global-search-config'
-import { searchError } from '../../../../../lib/debug'
+import {
+  filterSearchResultsByEntityAccess,
+  type SearchEntityConfigLookup,
+} from '../../../lib/entity-access'
+import { searchDebug, searchError } from '../../../../../lib/debug'
 import { globalSearchOpenApi } from '../../openapi'
 
+/**
+ * `search.global` — the same feature the topbar gates the Cmd+K palette on
+ * (`BackendHeaderChrome`). It used to be `search.view`, which is the
+ * search-administration feature guarding the settings endpoints; the two gates
+ * could disagree in either direction, so a role holding only one of them either
+ * saw a search box that 403'd on every keystroke or could query the endpoint with
+ * no UI. `search.view` stays on `api/settings/**`, where it belongs.
+ */
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['search.view'] },
+  GET: { requireAuth: true, requireFeatures: ['search.global'] },
+}
+
+type RbacLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
 }
 
 function parseLimit(value: string | null): number {
@@ -64,6 +83,21 @@ export async function GET(req: Request) {
       )
     }
 
+    // Fail closed: without the RBAC service or the entity registry there is no way
+    // to tell which entity types this caller may read, so refuse rather than search.
+    if (!container.hasRegistration('rbacService') || !container.hasRegistration('searchIndexer')) {
+      searchError('search.api.global', 'entity-acl-unavailable', {
+        rbacService: container.hasRegistration('rbacService'),
+        searchIndexer: container.hasRegistration('searchIndexer'),
+      })
+      return NextResponse.json(
+        { error: t('search.api.errors.serviceUnavailable', 'Search service unavailable') },
+        { status: 503 }
+      )
+    }
+    const rbac = container.resolve('rbacService') as RbacLike
+    const searchIndexer = container.resolve('searchIndexer') as SearchEntityConfigLookup
+
     // Fetch saved global search strategies (per-tenant; falls back to the instance default)
     const strategies = await resolveGlobalSearchStrategies(container, { scope: { tenantId: auth.tenantId } })
 
@@ -106,7 +140,25 @@ export async function GET(req: Request) {
       entityTypes,
     }
 
-    const results = await searchService.search(query, searchOptions)
+    const rawResults = await searchService.search(query, searchOptions)
+
+    // `search.global` authorizes using the palette, not reading every indexed
+    // record. Drop the results whose entity type the caller has no view feature
+    // for, before any presenter title, subtitle or deep link leaves the server.
+    const acl = await rbac.loadAcl(auth.sub, {
+      tenantId: scope.tenantId ?? auth.tenantId ?? null,
+      organizationId: organizationId ?? null,
+    })
+    const results = filterSearchResultsByEntityAccess(
+      rawResults,
+      searchIndexer,
+      { grantedFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin },
+      {
+        onDeny: (deniedEntityId, reason) => {
+          searchDebug('search.api.global', 'entity-filtered', { entityId: deniedEntityId, reason })
+        },
+      },
+    )
 
     const timing = Date.now() - startTime
 

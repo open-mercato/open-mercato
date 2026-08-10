@@ -70,6 +70,73 @@ function createStrategy(source: SearchStrategyId, recordId: string): SearchStrat
   }
 }
 
+/**
+ * The route resolves `rbacService` and `searchIndexer` to drop results whose entity
+ * type the caller has no view feature for (issue #5163), so the container mock has
+ * to answer for both.
+ */
+function createContainer(
+  searchService: SearchService,
+  configMap: Map<EntityId, SearchEntityConfig>,
+  acl: { features: string[]; isSuperAdmin?: boolean },
+) {
+  const registrations: Record<string, unknown> = {
+    searchService,
+    searchIndexer: { getEntityConfig: (entityId: string) => configMap.get(entityId as EntityId) },
+    rbacService: {
+      loadAcl: async () => ({
+        isSuperAdmin: acl.isSuperAdmin ?? false,
+        features: acl.features,
+        organizations: null,
+      }),
+    },
+  }
+  return {
+    hasRegistration: (name: string) => name in registrations,
+    resolve: jest.fn((name: string) => registrations[name]),
+    dispose: jest.fn().mockResolvedValue(undefined),
+  }
+}
+
+function buildDemoSearchService() {
+  const rows = ['fulltext-record', 'vector-record', 'tokens-record'].map((recordId) => ({
+    entity_type: DEMO_ENTITY_ID,
+    entity_id: recordId,
+    doc: { id: recordId, title: recordId },
+  }))
+  const config: SearchEntityConfig = {
+    entityId: DEMO_ENTITY_ID,
+    enabled: true,
+    aclFeatures: ['demo.view'],
+    formatResult: async (context) => {
+      const { t } = await resolveTranslations()
+      return {
+        title: String(context.record.title),
+        badge: t('demo.search.badge', 'Person'),
+      }
+    },
+    resolveLinks: async (context) => {
+      const { t } = await resolveTranslations()
+      return [{
+        href: `/backend/demo/${String(context.record.id)}`,
+        label: t('demo.search.link.open', 'Open person'),
+        kind: 'primary',
+      }]
+    },
+  }
+  const configMap = new Map<EntityId, SearchEntityConfig>([[DEMO_ENTITY_ID, config]])
+  const searchService = new SearchService({
+    strategies: [
+      createStrategy('fulltext', 'fulltext-record'),
+      createStrategy('vector', 'vector-record'),
+      createStrategy('tokens', 'tokens-record'),
+    ],
+    defaultStrategies: ['fulltext', 'vector', 'tokens'],
+    presenterEnricher: createPresenterEnricher(createDatabase(rows), configMap),
+  })
+  return { searchService, configMap }
+}
+
 describe('GET /api/search/search/global presenter localization', () => {
   beforeAll(() => {
     registerModules([
@@ -106,46 +173,10 @@ describe('GET /api/search/search/global presenter localization', () => {
   })
 
   it('replaces frozen presenters and links for fulltext, vector, and tokens using Accept-Language', async () => {
-    const rows = ['fulltext-record', 'vector-record', 'tokens-record'].map((recordId) => ({
-      entity_type: DEMO_ENTITY_ID,
-      entity_id: recordId,
-      doc: { id: recordId, title: recordId },
-    }))
-    const config: SearchEntityConfig = {
-      entityId: DEMO_ENTITY_ID,
-      enabled: true,
-      formatResult: async (context) => {
-        const { t } = await resolveTranslations()
-        return {
-          title: String(context.record.title),
-          badge: t('demo.search.badge', 'Person'),
-        }
-      },
-      resolveLinks: async (context) => {
-        const { t } = await resolveTranslations()
-        return [{
-          href: `/backend/demo/${String(context.record.id)}`,
-          label: t('demo.search.link.open', 'Open person'),
-          kind: 'primary',
-        }]
-      },
-    }
-    const configMap = new Map<EntityId, SearchEntityConfig>([[DEMO_ENTITY_ID, config]])
-    const presenterEnricher = createPresenterEnricher(createDatabase(rows), configMap)
-    const searchService = new SearchService({
-      strategies: [
-        createStrategy('fulltext', 'fulltext-record'),
-        createStrategy('vector', 'vector-record'),
-        createStrategy('tokens', 'tokens-record'),
-      ],
-      defaultStrategies: ['fulltext', 'vector', 'tokens'],
-      presenterEnricher,
-    })
-    const container = {
-      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
-      dispose: jest.fn().mockResolvedValue(undefined),
-    }
-    mockCreateRequestContainer.mockResolvedValue(container)
+    const { searchService, configMap } = buildDemoSearchService()
+    mockCreateRequestContainer.mockResolvedValue(
+      createContainer(searchService, configMap, { features: ['search.global', 'demo.view'] }),
+    )
 
     const request = new Request('http://localhost/api/search/search/global?q=person', {
       headers: { 'accept-language': 'pl-PL' },
@@ -163,5 +194,57 @@ describe('GET /api/search/search/global presenter localization', () => {
       expect(result.presenter?.badge).toBe('Osoba')
       expect(result.links?.[0]?.label).toBe('Otwórz osobę')
     }
+  })
+})
+
+describe('GET /api/search/search/global per-entity access control', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuthFromRequest.mockResolvedValue({
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      sub: 'user-1',
+      isSuperAdmin: false,
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: 'org-1',
+      filterIds: ['org-1'],
+      allowedIds: ['org-1'],
+      tenantId: 'tenant-1',
+    })
+  })
+
+  async function search(acl: { features: string[]; isSuperAdmin?: boolean }) {
+    const { searchService, configMap } = buildDemoSearchService()
+    mockCreateRequestContainer.mockResolvedValue(createContainer(searchService, configMap, acl))
+    const response = await GET(new Request('http://localhost/api/search/search/global?q=person'))
+    return {
+      status: response.status,
+      body: await response.json() as { results: SearchResult[]; strategiesUsed: SearchStrategyId[] },
+    }
+  }
+
+  it('withholds results for entity types the caller cannot view', async () => {
+    // `search.global` alone opens the palette; it must not expose presenter titles,
+    // subtitles or deep links for records the caller has no view feature for.
+    const { status, body } = await search({ features: ['search.global'] })
+
+    expect(status).toBe(200)
+    expect(body.results).toEqual([])
+    expect(body.strategiesUsed).toEqual([])
+  })
+
+  it('returns results once the caller holds the entity view feature', async () => {
+    const { status, body } = await search({ features: ['search.global', 'demo.view'] })
+
+    expect(status).toBe(200)
+    expect(body.results).toHaveLength(3)
+  })
+
+  it('returns results for a superadmin without any explicit grant', async () => {
+    const { status, body } = await search({ features: [], isSuperAdmin: true })
+
+    expect(status).toBe(200)
+    expect(body.results).toHaveLength(3)
   })
 })
