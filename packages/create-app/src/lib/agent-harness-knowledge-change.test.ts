@@ -86,6 +86,14 @@ type Validator = {
   expandCaseRange: (rangeId: string) => string[] | null
   exampleReadStatus: (relativePath: string) => string
   readExampleCapabilityRows: (inventory: unknown) => Array<Record<string, unknown>> | null
+  READ_ONLY_CASE_MODES: readonly string[]
+  WRITABLE_CASE_MODES: readonly string[]
+  touchesCaseMembershipSurface: (changedPaths: string[]) => boolean
+  caseModeMembershipErrors: (
+    cases: unknown,
+    registry: unknown,
+    options?: { runnerExists?: (runner: string) => boolean },
+  ) => string[]
   exampleCoverageErrors: (
     headRows: Array<Record<string, unknown>> | null,
     baseRows: Array<Record<string, unknown>> | null,
@@ -1736,4 +1744,171 @@ test('the shipped canonical-example inventory satisfies the gate, with paths res
   })
   assert.ok(repoRelative.length > 0, 'repo-relative resolution must not silently pass')
   for (const error of repoRelative) assert.match(error, /is not a file in the working tree/)
+})
+
+// ── Per-case-mode validator/oracle membership (GOV Phase 2) ──────────────────────────────────────
+//
+// The catalog and its validator registry can drift apart while both files still parse perfectly:
+// a case can name a validator nobody defines, an oracle can name a runner that is not there, and a
+// read-only case can claim oracles that grade artifacts it never writes. Each is silent today.
+
+// Mirrors the two legitimate oracle implementations the shipped registry uses: an in-evaluator
+// function (no runners) and a trusted executable (runners required).
+const oracleRegistry = {
+  'catalog.schema': { kind: 'catalog', implementation: 'validateCaseShape' },
+  'writable.allowed-paths': { kind: 'oracle', implementation: 'validateAllowedWrites' },
+  'oracle.artifacts': { kind: 'oracle', implementation: 'validateExpectedArtifacts' },
+  'oracle.module.crud': { kind: 'oracle', implementation: 'trusted-executable', runners: ['writable-ast-oracles.mjs'] },
+}
+
+const writableCase = (overrides: Record<string, unknown> = {}) => ({
+  id: 'OMH-001',
+  mode: 'one-shot',
+  validators: ['catalog.schema', 'writable.allowed-paths', 'oracle.artifacts', 'oracle.module.crud'],
+  ...overrides,
+})
+
+test('a case naming a validator the registry does not define is rejected', () => {
+  const errors = validator.caseModeMembershipErrors(
+    [writableCase({ validators: ['catalog.schema', 'oracle.invented'] })],
+    oracleRegistry,
+  )
+  assert.ok(errors.some((error) => /declares validator oracle\.invented, which the validator registry does not define/.test(error)))
+})
+
+test('a trusted-executable oracle with no runner, or a runner that is not there, is unreachable', () => {
+  const noRunner = validator.caseModeMembershipErrors(
+    [],
+    { 'oracle.x': { kind: 'oracle', implementation: 'trusted-executable', runners: [] } },
+  )
+  assert.equal(noRunner.length, 1)
+  assert.match(noRunner[0], /names no runners, so nothing executes it/)
+
+  const missingRunner = validator.caseModeMembershipErrors([], oracleRegistry, { runnerExists: () => false })
+  assert.equal(missingRunner.length, 1)
+  assert.match(missingRunner[0], /is not a file in the harness directory/)
+})
+
+test('an in-evaluator oracle needs an implementation and must not claim a runner', () => {
+  const noImplementation = validator.caseModeMembershipErrors([], { 'oracle.x': { kind: 'oracle' } })
+  assert.equal(noImplementation.length, 1)
+  assert.match(noImplementation[0], /oracle with no implementation, so nothing grades it/)
+
+  const bothWays = validator.caseModeMembershipErrors(
+    [],
+    { 'oracle.x': { kind: 'oracle', implementation: 'validateAllowedWrites', runners: ['writable-ast-oracles.mjs'] } },
+  )
+  assert.equal(bothWays.length, 1)
+  assert.match(bothWays[0], /only a trusted-executable oracle is run from a runner file/)
+})
+
+test('an oracle without its artifact contract, or without writable paths, is rejected', () => {
+  const noArtifacts = validator.caseModeMembershipErrors(
+    [writableCase({ validators: ['catalog.schema', 'writable.allowed-paths', 'oracle.module.crud'] })],
+    oracleRegistry,
+  )
+  assert.equal(noArtifacts.length, 1)
+  assert.match(noArtifacts[0], /without oracle\.artifacts/)
+
+  const noWritable = validator.caseModeMembershipErrors(
+    [writableCase({ validators: ['catalog.schema', 'oracle.artifacts', 'oracle.module.crud'] })],
+    oracleRegistry,
+  )
+  assert.equal(noWritable.length, 1)
+  assert.match(noWritable[0], /without writable\.allowed-paths/)
+})
+
+test('the artifact contract and the write permission alone demand no further oracle', () => {
+  const errors = validator.caseModeMembershipErrors(
+    [writableCase({ validators: ['catalog.schema', 'oracle.artifacts'] })],
+    oracleRegistry,
+  )
+  assert.deepEqual(errors, [])
+})
+
+test('a read-only mode may declare neither an oracle nor writable paths', () => {
+  for (const mode of validator.READ_ONLY_CASE_MODES) {
+    const errors = validator.caseModeMembershipErrors([writableCase({ mode })], oracleRegistry)
+    assert.equal(errors.length, 2, mode)
+    assert.ok(errors.some((error) => /which grade written artifacts/.test(error)), mode)
+    assert.ok(errors.some((error) => /declares writable\.allowed-paths/.test(error)), mode)
+  }
+})
+
+test('an unclassified mode fails closed instead of skipping every membership rule', () => {
+  const errors = validator.caseModeMembershipErrors([writableCase({ mode: 'exploration' })], oracleRegistry)
+  assert.equal(errors.length, 1)
+  assert.match(errors[0], /classified neither read-only nor writable/)
+})
+
+test('an unreadable catalog or registry fails closed', () => {
+  assert.match(validator.caseModeMembershipErrors('nope', oracleRegistry)[0], /case catalog is not an array/)
+  assert.match(validator.caseModeMembershipErrors([], null)[0], /validator registry is not an object/)
+})
+
+test('the shipped case catalog satisfies per-case-mode membership', () => {
+  const harnessDir = path.join(sharedRoot, 'ai', 'harness')
+  const cases = JSON.parse(fs.readFileSync(path.join(harnessDir, 'cases.json'), 'utf8'))
+  const registry = JSON.parse(fs.readFileSync(path.join(harnessDir, 'validators.json'), 'utf8')).validators
+
+  const errors = validator.caseModeMembershipErrors(cases, registry, {
+    runnerExists: (runner) => fs.existsSync(path.join(harnessDir, runner)),
+  })
+  assert.deepEqual(errors, [])
+
+  // Every mode the case schema permits must carry a classification, or the check above silently
+  // stops applying to a whole mode the day one is added.
+  const schema = JSON.parse(fs.readFileSync(path.join(harnessDir, 'cases.schema.json'), 'utf8'))
+  const modeEnum: string[] = schema.items?.properties?.mode?.enum ?? []
+  assert.ok(modeEnum.length > 0, 'the case schema enumerates its modes')
+  const classified = [...validator.READ_ONLY_CASE_MODES, ...validator.WRITABLE_CASE_MODES]
+  assert.deepEqual([...modeEnum].sort(), [...classified].sort())
+})
+
+test('membership is scoped to the three surfaces that can orphan a case', () => {
+  for (const changedPath of [
+    'packages/create-app/agentic/shared/ai/harness/cases.json',
+    '.ai/harness/validators.json',
+    'packages/create-app/agentic/shared/ai/harness/writable-ast-oracles.mjs',
+  ]) {
+    assert.equal(validator.touchesCaseMembershipSurface([changedPath]), true, changedPath)
+  }
+  for (const changedPath of ['AGENTS.md', 'packages/create-app/agentic/shared/ai/harness/release-matrix.json']) {
+    assert.equal(validator.touchesCaseMembershipSurface([changedPath]), false, changedPath)
+  }
+  assert.equal(validator.touchesCaseMembershipSurface([]), false)
+})
+
+test('scoping does not neuter the check: touching the catalog still fails a broken registry closed', () => {
+  const root = initGitFixture('om-knowledge-change-membership-')
+  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  writeFixtureFile(root, '.ai/harness/cases.json', JSON.stringify([{ id: 'OMH-001' }]))
+  writeFixtureFile(root, '.ai/harness/release-matrix.json', JSON.stringify({ deterministic: {} }))
+  writeFixtureFile(root, 'pkg/lib.test.mjs', 'export const value = 1\n')
+
+  const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
+  const run = (changedPaths: string[]) => validator.validateKnowledgeChange({
+    root,
+    schema,
+    manifest: baseManifest({
+      affectedCaseIds: ['OMH-001'],
+      affectedRanges: ['OMH-001..OMH-001'],
+      changedContracts: ['context-read'],
+      focusedTestFiles: ['pkg/lib.test.mjs'],
+      expectedCatalogCount: 1,
+    }),
+    changedPaths,
+    harnessRelativeDir: '.ai/harness',
+  })
+
+  // No validators.json exists in this fixture. Touching the catalog must surface that; touching
+  // something else must not — otherwise the scope predicate would be a silent global off switch.
+  const touched = run(['packages/create-app/agentic/shared/ai/harness/cases.json', 'pkg/lib.test.mjs'])
+  assert.ok(
+    touched.errors.some((error) => /validator registry could not be read/.test(error)),
+    `expected a fail-closed registry error, got: ${touched.errors.join(' | ')}`,
+  )
+
+  const untouched = run(['AGENTS.md', 'pkg/lib.test.mjs'])
+  assert.ok(!untouched.errors.some((error) => /validator registry could not be read/.test(error)))
 })

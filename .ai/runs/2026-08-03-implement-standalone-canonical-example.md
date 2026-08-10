@@ -1272,3 +1272,9 @@ The last `qa-only` row in the example inventory (`testing.integration-coverage`,
 `om-prepare-test-env` compiled `.ai/scripts/test-env-up.sh` / `test-env-down.sh` on this machine
 (gitignored, machine-local, regenerate per checkout). Cold 186s, warm reuse 1s, descriptor
 `.ai/qa/test-env.json`. Any run after a source change needs `--force-rebuild`, not `--force`.
+
+- [x] GOV Phase 2: per-case-mode oracle-membership check — `caseModeMembershipErrors` /
+  `touchesCaseMembershipSurface`, +11 tests (68 total). Row 1 of the Session 7b table. Details, and the
+  two-shapes-of-oracle distinction the first draft got wrong, are in the GOV spec's second 2026-08-10
+  changelog entry. Remaining GOV work is the packed-target check (row 2) and the certified-release-lane
+  run (row 9).

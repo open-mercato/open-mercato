@@ -771,6 +771,135 @@ function baseFileBuffer(root, baseSha, relativePath) {
   return result.status === 0 ? result.stdout : null
 }
 
+/**
+ * Which case modes can produce a writable artifact. An oracle inspects what a case *wrote*, so the
+ * split is what makes "which validators may this mode declare" answerable at all.
+ *
+ * Deliberately a closed classification rather than a heuristic: an unrecognised mode is an error,
+ * not a pass. A new mode added to `cases.schema.json` without a decision here would otherwise sail
+ * through every membership rule below, which is the exact silence this check exists to remove.
+ */
+export const READ_ONLY_CASE_MODES = Object.freeze(['analysis', 'review'])
+export const WRITABLE_CASE_MODES = Object.freeze(['one-shot', 'spec', 'bugfix'])
+const ARTIFACT_VALIDATOR_ID = 'oracle.artifacts'
+const TRUSTED_EXECUTABLE = 'trusted-executable'
+const WRITABLE_PATHS_VALIDATOR_ID = 'writable.allowed-paths'
+
+/**
+ * Per-case-mode validator/oracle membership — spec
+ * `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`: the validator "checks
+ * validator/oracle membership required by each case mode".
+ *
+ * Five failures, each catching a different way the case catalog and its validator registry drift
+ * apart while every file still parses:
+ *
+ *   1. a case declares a validator id the registry does not define (it silently never runs);
+ *   2. an `oracle`-kind registry entry names no runner, or names a runner file that is not there
+ *      (the oracle is unreachable, so the case is graded by nothing);
+ *   3. a case declares an oracle but not `oracle.artifacts` (an oracle with no artifact contract
+ *      has nothing to bind to);
+ *   4. a case declares an oracle but not `writable.allowed-paths` (nothing it may legally write);
+ *   5. a read-only mode declares an oracle or writable paths at all, or a mode is unclassified.
+ *
+ * `runnerExists` is injected so the rules stay unit-testable without a harness directory on disk.
+ */
+/**
+ * The three surfaces whose movement can orphan a case from the validator that grades it: the case
+ * catalog, the validator registry, and the oracle runner modules. Matched on basename so a harness
+ * that lives at a different relative directory — a scaffolded app's, or a test fixture's — is still
+ * in scope.
+ */
+export function touchesCaseMembershipSurface(changedPaths) {
+  return (changedPaths ?? []).some((changedPath) => {
+    const basename = normalizeRelativePath(String(changedPath)).split('/').pop() ?? ''
+    return basename === 'cases.json' || basename === 'validators.json' || basename.endsWith('-oracles.mjs')
+  })
+}
+
+export function caseModeMembershipErrors(cases, registry, options = {}) {
+  const errors = []
+  const runnerExists = options.runnerExists ?? (() => true)
+  if (!Array.isArray(cases)) return ['the case catalog is not an array, so validator membership cannot be checked']
+  if (!isPlainObject(registry)) return ['the validator registry is not an object, so validator membership cannot be checked']
+
+  for (const [validatorId, entry] of Object.entries(registry)) {
+    if (!isPlainObject(entry) || entry.kind !== 'oracle') continue
+    const runners = Array.isArray(entry.runners) ? entry.runners : []
+    // Two legitimate oracle implementations, and the runner rule differs between them: a
+    // `trusted-executable` is executed from a runner file, while the rest name an in-evaluator
+    // function (`validateAllowedWrites`, `validateExpectedArtifacts`) and correctly carry none.
+    if (entry.implementation === TRUSTED_EXECUTABLE) {
+      if (!runners.length) {
+        errors.push(`validator ${validatorId} is a ${TRUSTED_EXECUTABLE} oracle but names no runners, so nothing executes it`)
+        continue
+      }
+      for (const runner of runners) {
+        if (!runnerExists(String(runner))) {
+          errors.push(`validator ${validatorId} names runner ${runner}, which is not a file in the harness directory`)
+        }
+      }
+      continue
+    }
+    if (typeof entry.implementation !== 'string' || entry.implementation === '') {
+      errors.push(`validator ${validatorId} is an oracle with no implementation, so nothing grades it`)
+    }
+    if (runners.length) {
+      errors.push(
+        `validator ${validatorId} names an in-evaluator implementation "${entry.implementation}" and runners ` +
+        `(${runners.join(', ')}); only a ${TRUSTED_EXECUTABLE} oracle is run from a runner file`,
+      )
+    }
+  }
+
+  for (const caseRecord of cases) {
+    if (!isPlainObject(caseRecord)) continue
+    const caseId = typeof caseRecord.id === 'string' ? caseRecord.id : '(unnamed case)'
+    const mode = caseRecord.mode
+    const declared = Array.isArray(caseRecord.validators) ? caseRecord.validators : []
+
+    const readOnly = READ_ONLY_CASE_MODES.includes(mode)
+    const writable = WRITABLE_CASE_MODES.includes(mode)
+    if (!readOnly && !writable) {
+      errors.push(
+        `${caseId} declares mode "${mode}", which is classified neither read-only nor writable; ` +
+        'classify the mode before shipping cases in it',
+      )
+      continue
+    }
+
+    const oracles = []
+    for (const validatorId of declared) {
+      const entry = registry[validatorId]
+      if (!entry) {
+        errors.push(`${caseId} declares validator ${validatorId}, which the validator registry does not define`)
+        continue
+      }
+      if (isPlainObject(entry) && entry.kind === 'oracle') oracles.push(validatorId)
+    }
+
+    const gradingOracles = oracles.filter(
+      (validatorId) => registry[validatorId]?.implementation === TRUSTED_EXECUTABLE,
+    )
+    if (readOnly) {
+      if (oracles.length) {
+        errors.push(`${caseId} is a read-only "${mode}" case but declares oracle(s) ${oracles.join(', ')}, which grade written artifacts`)
+      }
+      if (declared.includes(WRITABLE_PATHS_VALIDATOR_ID)) {
+        errors.push(`${caseId} is a read-only "${mode}" case but declares ${WRITABLE_PATHS_VALIDATOR_ID}`)
+      }
+      continue
+    }
+    if (!gradingOracles.length) continue
+    if (!declared.includes(ARTIFACT_VALIDATOR_ID)) {
+      errors.push(`${caseId} declares ${gradingOracles.join(', ')} without ${ARTIFACT_VALIDATOR_ID}, so its oracles have no artifact contract to bind to`)
+    }
+    if (!declared.includes(WRITABLE_PATHS_VALIDATOR_ID)) {
+      errors.push(`${caseId} declares ${gradingOracles.join(', ')} without ${WRITABLE_PATHS_VALIDATOR_ID}, so it may not legally write what its oracles grade`)
+    }
+  }
+  return errors
+}
+
 const NODE_TEST_SCRIPT_PATTERN = /(?:^|\s)--test(?:[=\s]|$)/
 
 /**
@@ -1121,6 +1250,25 @@ export function validateKnowledgeChange(input) {
       const knownCaseIds = new Set(cases.map((entry) => entry?.id))
       for (const caseId of manifest.affectedCaseIds ?? []) {
         if (!knownCaseIds.has(caseId)) errors.push(`affectedCaseIds ${caseId} does not exist in the case catalog`)
+      }
+
+      // Per-case-mode validator/oracle membership. Scoped to diffs that touch the catalog, the
+      // registry or an oracle runner — the three surfaces whose movement can orphan a case — and
+      // then checked over the WHOLE catalog rather than only the affected cases, because a registry
+      // edit that orphans an untouched case is exactly the drift this exists to catch.
+      const harnessDir = path.join(root, input.harnessRelativeDir ?? '')
+      const registryDocument = input.validators ?? readJsonIfPresent(path.join(harnessDir, 'validators.json'))
+      const registry = isPlainObject(registryDocument) ? registryDocument.validators : null
+      if (!touchesCaseMembershipSurface(input.changedPaths ?? [])) {
+        // out of scope for this diff
+      } else if (!isPlainObject(registry)) {
+        errors.push('the validator registry could not be read, so per-case-mode validator membership fails closed')
+      } else {
+        const membershipErrors = caseModeMembershipErrors(cases, registry, {
+          runnerExists: (runner) => isRegularFile(path.join(harnessDir, runner)),
+        })
+        derived.caseModeMembershipErrorCount = membershipErrors.length
+        errors.push(...membershipErrors)
       }
       if (manifest.expectedCatalogCount !== cases.length) {
         errors.push(`expectedCatalogCount ${manifest.expectedCatalogCount} does not match the catalog's ${cases.length} cases`)
