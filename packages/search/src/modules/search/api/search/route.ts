@@ -126,6 +126,7 @@ export async function GET(req: Request) {
     const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
     const organizationId =
       typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
+
     // `search.view` authorizes the playground, not reading every indexed record.
     // Narrow the query to the entity types this caller may read so the result
     // budget is not spent on records that would only be filtered out.
