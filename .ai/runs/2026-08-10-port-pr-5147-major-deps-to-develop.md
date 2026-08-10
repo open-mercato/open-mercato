@@ -124,14 +124,16 @@ None (`--skill-url` not supplied).
 
 ### Phase 4: tanstack react-table 8 to 9
 
-- [ ] 4.1 Bump react-table to ^9.0.0 and relock
-- [ ] 4.2 Migrate DataTable.tsx to useLegacyTable
-- [ ] 4.3 Repoint remaining react-table type imports to the legacy entry point
-- [ ] 4.4 Run ui and core DataTable test suites and fix fallout
+- [x] 4.1 Bump react-table to ^9.0.0 and relock — a8191dc30 (resolves 9.1.2; adds `@tanstack/react-store`/`@tanstack/store`)
+- [x] 4.2 Migrate DataTable.tsx to useLegacyTable — a8191dc30 (`useReactTable` → `useLegacyTable`, `getCoreRowModel`/`getSortedRowModel` from `/legacy`; `flexRender` and the state types stay on the package root, where `VisibilityState` is now `ColumnVisibilityState`)
+- [x] 4.3 Repoint remaining react-table type imports to the legacy entry point — a8191dc30 (97 files swept mechanically, 3 fixed by hand: a double-quoted value import in `OverridesTable.tsx`, `SortingFn` → `SortFn<LegacyFeatures, …>` in the staff team-members page, and the WMS inventory section's unconstrained row generic)
+- [x] 4.4 Run ui and core DataTable test suites and fix fallout — a8191dc30 (ui 222/222 suites, 1799 tests). Two non-obvious breaks: v9 narrowed `RowData` from `unknown` to `Record<string, any> | Array<any>`, so `DataTableProps`/`useAutoDiscoveredFields`/`InventoryDataTableSection` needed `T extends RowData`; and v9 ships ESM-only where v8 shipped CJS, so 21 jest `transformIgnorePatterns` allowlists gained the `@tanstack` table packages. The create-app template's pin-drift guard caught the four `apps/mercato` bumps and they were mirrored.
 
 ### Phase 5: Full validation gate
 
-- [ ] 5.1 Run the ordered validation.commands gate end to end
+- [x] 5.1 Run the ordered validation.commands gate end to end — green in local runner mode: `yarn build:packages` 22/22, `yarn generate`, `yarn build:packages` (full turbo), `yarn i18n:check-sync` all locales in sync, `yarn i18n:check-usage` advisory-only, `yarn typecheck` 22/22, `yarn test` 24/25, `yarn build:app` ✓, plus `yarn lint` 0 errors / 13 pre-existing warnings.
+
+  The single `yarn test` failure is `create-mercato-app`, whose four "standalone template dev wrapper" cases spawn a Turbopack dev server and abort on this machine's `fs.inotify` sysctl limits. Verified pre-existing: the same four fail identically with the branch stashed on unmodified `develop`. Native `better-sqlite3` also cannot compile locally (`make` is absent) — likewise environmental and identical on `develop`; CI builds it in Docker.
 
 ### Phase 6: Ship and retire the original
 
