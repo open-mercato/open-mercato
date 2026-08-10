@@ -35,6 +35,8 @@ Allow `om-share-this-session` to obtain a complete native Codex session export w
 
 ## Progress
 
+PR: #5162
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Native retrieval and parsing
