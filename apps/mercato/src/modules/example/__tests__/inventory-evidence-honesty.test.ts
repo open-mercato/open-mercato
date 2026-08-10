@@ -118,7 +118,7 @@ describe('surface inventory evidence honesty', () => {
       .map((match) => match[1])
       .filter((token) => byId.has(token)))
 
-    const stated = paragraph.match(/None of the ([a-z]+) has an/)
+    const stated = paragraph.match(/None of (?:the|these) ([a-z]+) has a(?:n)?/)
     expect(stated).not.toBeNull()
     expect(NUMBER_WORDS.indexOf(stated![1])).toBe(named.size)
   })
