@@ -1744,7 +1744,8 @@
         "src/modules/example/subscribers/announce-todo-to-portal.ts"
       ],
       "integrationTestPaths": [
-        "src/modules/example/__tests__/announce-todo-to-portal.test.ts"
+        "src/modules/example/__tests__/announce-todo-to-portal.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-012-extension-topology.spec.ts"
       ],
       "dependencyModules": [
         "events",

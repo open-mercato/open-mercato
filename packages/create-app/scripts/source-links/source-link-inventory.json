@@ -3434,6 +3434,7 @@
         "events.typed-definitions"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-012-extension-topology.spec.ts",
         "src/modules/example/__integration__/TC-UMES-003.spec.ts",
         "src/modules/example/__tests__/announce-todo-to-portal.test.ts"
       ],

@@ -1,6 +1,18 @@
 import { test, expect } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  createCustomerUserFixture,
+  deleteCustomerUserFixture,
+  portalLogin,
+} from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+
+export const integrationMeta = {
+  dependsOnModules: ['example', 'customers', 'customer_accounts', 'events'],
+}
+
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
 test.describe('TC-EXAMPLE-012: extension facts and runtime topology', () => {
   let token: string
@@ -51,6 +63,78 @@ test.describe('TC-EXAMPLE-012: extension facts and runtime topology', () => {
       await deleteEntityIfExists(request, token, '/api/example/todos', todoId)
       await deleteEntityIfExists(request, token, '/api/example/customer-priorities', priorityId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
+  test('bridges a scoped Todo write through the real customer portal SSE endpoint', async ({ request, page, context }) => {
+    const { tenantId } = getTokenScope(token)
+    const customer = await createCustomerUserFixture(request, token)
+    let todoId: string | null = null
+
+    try {
+      const session = await portalLogin(request, {
+        email: customer.email,
+        password: customer.password,
+        tenantId,
+      })
+      await context.addCookies([
+        { name: 'customer_auth_token', value: session.authToken, url: BASE_URL, sameSite: 'Lax' },
+        { name: 'customer_session_token', value: session.sessionToken, url: BASE_URL, sameSite: 'Lax' },
+      ])
+      await page.goto('/portal/login', { waitUntil: 'domcontentloaded' })
+      await page.evaluate(() => {
+        const portalWindow = window as unknown as {
+          __examplePortalEvents?: Array<Record<string, unknown>>
+          __examplePortalSource?: EventSource
+          __examplePortalReady?: boolean
+        }
+        portalWindow.__examplePortalEvents = []
+        const source = new EventSource('/api/customer_accounts/portal/events/stream', { withCredentials: true })
+        source.onopen = () => { portalWindow.__examplePortalReady = true }
+        source.onmessage = (event) => {
+          const payload = JSON.parse(event.data) as Record<string, unknown>
+          portalWindow.__examplePortalEvents?.push(payload)
+        }
+        portalWindow.__examplePortalSource = source
+      })
+      await expect.poll(() => page.evaluate(() => (
+        (window as unknown as { __examplePortalReady?: boolean }).__examplePortalReady === true
+      )), { timeout: 10_000 }).toBe(true)
+
+      const title = `TC-EXAMPLE-012 portal ${Date.now()}`
+      const created = await apiRequest(request, 'POST', '/api/example/todos', {
+        token,
+        data: { title, notes: 'staff-only portal exclusion proof' },
+      })
+      expect(created.ok()).toBeTruthy()
+      todoId = (await created.json() as { id?: string }).id ?? null
+      expect(todoId).toBeTruthy()
+
+      await expect.poll(() => page.evaluate(() => {
+        const events = (window as unknown as {
+          __examplePortalEvents?: Array<{ id?: unknown; payload?: unknown }>
+        }).__examplePortalEvents ?? []
+        return events.find((event) => event.id === 'example.todo_announcement.published') ?? null
+      }), { timeout: 10_000 }).not.toBeNull()
+
+      const captured = await page.evaluate(() => {
+        const events = (window as unknown as {
+          __examplePortalEvents?: Array<{ id?: unknown; payload?: unknown }>
+        }).__examplePortalEvents ?? []
+        return events.find((event) => event.id === 'example.todo_announcement.published') ?? null
+      })
+      expect(captured).toMatchObject({
+        id: 'example.todo_announcement.published',
+        payload: { todoId, action: 'created' },
+      })
+      expect(JSON.stringify(captured)).not.toContain(title)
+      expect(JSON.stringify(captured)).not.toContain('staff-only portal exclusion proof')
+    } finally {
+      await page.evaluate(() => {
+        (window as unknown as { __examplePortalSource?: EventSource }).__examplePortalSource?.close()
+      }).catch(() => undefined)
+      await deleteEntityIfExists(request, token, '/api/example/todos', todoId)
+      await deleteCustomerUserFixture(request, token, customer.id)
     }
   })
 })
