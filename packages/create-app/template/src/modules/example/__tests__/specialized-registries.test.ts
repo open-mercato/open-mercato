@@ -7,6 +7,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getGatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
 import { getShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
 import type { RateProvider } from '@open-mercato/core/modules/currencies/services/providers/base'
+import { getCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import {
   VectorIndexService,
@@ -225,6 +226,7 @@ describe('example specialized registries', () => {
     expect(rates.map((rate) => rate.serviceCode)).toEqual(['standard', 'express'])
 
     const currencyProvider = container.resolve<RateProvider>(EXAMPLE_CURRENCY_RATE_PROVIDER)
+    expect(getCurrencyRateProvider('example_fixed_rates')).toBe(currencyProvider)
     const date = new Date('2026-08-10T00:00:00.000Z')
     await expect(currencyProvider.fetchRates(
       date,

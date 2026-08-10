@@ -12,6 +12,7 @@ import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
 import { mockWebhookEndpointAdapter } from './lib/mock-webhook-endpoint-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
+import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -129,6 +130,7 @@ export function register(container: AppContainer) {
 
   // Register mock shipping adapter for carrier testing (no real credentials needed)
   registerShippingAdapter(mockShippingAdapter)
+  registerCurrencyRateProvider(exampleCurrencyRateProvider)
 
   // Register mock inbound webhook adapter for webhooks module integration tests
   registerWebhookEndpointAdapter(mockWebhookEndpointAdapter)

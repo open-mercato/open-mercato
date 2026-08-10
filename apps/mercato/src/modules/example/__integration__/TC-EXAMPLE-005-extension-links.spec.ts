@@ -110,7 +110,7 @@ test.describe('TC-EXAMPLE-005: the customer-priority contributor round-trips aga
 
   test('accepts a priority for an absent host and refuses an authenticated feature-denied write', async ({ request }) => {
     test.slow()
-    const token = await getAuthToken(request, 'superadmin')
+    const token = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenContext(token)
     const missingCustomerId = randomUUID()
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
