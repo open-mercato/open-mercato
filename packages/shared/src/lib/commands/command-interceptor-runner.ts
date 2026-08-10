@@ -1,5 +1,6 @@
 import type {
   CommandInterceptor,
+  CommandInterceptorBeforeResult,
   CommandInterceptorContext,
   CommandInterceptorUndoContext,
 } from './command-interceptor'
@@ -7,6 +8,26 @@ import { authorizeFeatures } from '../../security/featurePolicy'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'commands' })
+
+/**
+ * A blocking verdict from a before-hook, normalized for the command bus. `status`/`body` are
+ * present only when the interceptor supplied a status, so a rejection without one keeps the
+ * historical generic-500 handling downstream.
+ */
+export type CommandInterceptorBlockedError = {
+  message: string
+  status?: number
+  body?: Record<string, unknown>
+}
+
+function buildBlockedError(
+  result: CommandInterceptorBeforeResult,
+  fallbackMessage: string,
+): CommandInterceptorBlockedError {
+  const message = result.message ?? fallbackMessage
+  if (typeof result.status !== 'number') return { message }
+  return { message, status: result.status, body: result.body ?? { error: message } }
+}
 
 // ---------------------------------------------------------------------------
 // Command pattern matching
@@ -49,7 +70,7 @@ export async function runCommandInterceptorsBefore(
   userFeatures: string[],
 ): Promise<{
   ok: boolean
-  error?: { message: string }
+  error?: CommandInterceptorBlockedError
   modifiedInput?: Record<string, unknown>
   metadataByInterceptor: Map<string, Record<string, unknown>>
 }> {
@@ -65,7 +86,7 @@ export async function runCommandInterceptorsBefore(
     if (result?.ok === false) {
       return {
         ok: false,
-        error: { message: result.message ?? `Blocked by command interceptor: ${interceptor.id}` },
+        error: buildBlockedError(result, `Blocked by command interceptor: ${interceptor.id}`),
         metadataByInterceptor,
       }
     }
@@ -139,7 +160,7 @@ export async function runCommandInterceptorsBeforeUndo(
   userFeatures: string[],
 ): Promise<{
   ok: boolean
-  error?: { message: string }
+  error?: CommandInterceptorBlockedError
   metadataByInterceptor: Map<string, Record<string, unknown>>
 }> {
   const matching = collectMatching(interceptors, commandId, userFeatures)
@@ -153,7 +174,7 @@ export async function runCommandInterceptorsBeforeUndo(
     if (result?.ok === false) {
       return {
         ok: false,
-        error: { message: result.message ?? `Undo blocked by command interceptor: ${interceptor.id}` },
+        error: buildBlockedError(result, `Undo blocked by command interceptor: ${interceptor.id}`),
         metadataByInterceptor,
       }
     }
