@@ -75,21 +75,21 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 27 | **Wave 4 E2** — translations / extension-points / notifications.client + the false-binding-claim fix | CANON-B gaps | done | `1bc2ce509` |
 | 28 | Close the `withScopedApiRequestHeaders` coverage loophole in the optimistic-lock workspace scan | CANON-B follow-up | done | `7865c6bc1` |
 | 29 | **Wave 5 E3** — both example registries statically readable (extractor 0 → 26/3); injection flag retired + dead refs cleaned | CANON-B registry readability | done | `34e349823` |
-| 30 | **Wave 5 H3** — SPEC-P2 routing cases OMH-204..208 (5 of 6 rows) | SPEC-P2 | done | `a8c06457a` |
+| 30 | **Wave 5 H3** — SPEC-P2 routing cases OMH-214..208 (5 of 6 rows) | SPEC-P2 | done | `a8c06457a` |
 | 31 | Gate cross-module example injection widgets on their host module (`requiredModules`) | CANON-B / D2 follow-up | done | `8cd970087` |
 | 32 | **Wave 6 H4** — visible exact-file example links across 5 owner families + measured budget raises | CANON-C link migration | done | `2e9fd74cb` |
 | 33 | **Wave 6 E4** (retry) — encrypted `notes` column + migration + `encryption.ts` + `search.ts`, reworked onto the platform search path | CANON-B encryption/search | done | `f050e659a` |
 | 34 | Measure harness runner duration on a monotonic clock (kills the `durationMs < 0` flake) | flake root-cause | done | `4c72bdabc` |
 | 35 | **Wave 7 E5** — tenant-scoped cache + first real DI registration + all three setup hooks | CANON-B cache/DI/seeding | done | `0d130e01d` |
-| 36 | **Wave 7 H5** — OMH-209..212 declare `exampleRoots`; the read policy is reachable at last | READ-P1/P2 reachability | done | `75d02a6ff` |
+| 36 | **Wave 7 H5** — OMH-219..212 declare `exampleRoots`; the read policy is reachable at last | READ-P1/P2 reachability | done | `75d02a6ff` |
 | 37 | **Wave 7 C4** — source-link baseline + topics registry + validator (D4) | CANON-C baseline | done | `904d9cf4d` |
-| 38 | **Wave 8 H6** — SPEC-P2 writable proofs OMH-213/214 + the oracle-runner guard generalized | SPEC-P2 | done | `8d3a199ca` |
+| 38 | **Wave 8 H6** — SPEC-P2 writable proofs OMH-223/214 + the oracle-runner guard generalized | SPEC-P2 | done | `8d3a199ca` |
 | 39 | **Wave 8 E6** — ai-tools/ai-agents/page-middleware/portal-broadcast + 2 vacuous tests fixed | CANON-B fact families | done | `fef7fc4b1` |
 | 40 | Resolve a DI token declared as a computed property key (silent-zero fix) | CANON-B / reader | done | `00cba7f17` |
 | 41 | **Wave 9 C6** — fix the `search` silent zero + add the missing diagnostic (0 → 6 ids) | CANON-B / reader | done | (merge) |
 | 42 | **Wave 9 E7 (PARTIAL)** — durable Todo bulk-complete: outbox, CAS worker, progress route, bulk widget | CANON-B bulk/progress | partial | `d5fa51253` |
 | 43 | **Wave 9 H7** — GOV-P2 controller-owned base/head evidence contract | GOV-P2 | done | `e8eb259b0` |
-| 44 | **Wave 10 H8** — harness source-selection assertions (family 11, OMH-215/216) | CANON-C harness cases | done | `34b199657` |
+| 44 | **Wave 10 H8** — harness source-selection assertions (family 11, OMH-225/216) | CANON-C harness cases | done | `34b199657` |
 | 45 | **Wave 10 C5** — derived source-link inventory + D4 equality + drift gate + anti-staleness fix | CANON-C keystone | done | `c5db477fa` |
 | 46 | **Wave 11 E8 (PARTIAL)** — additive `EntityExtension.table` + engine preference; declaration-only example | CANON-B entity extensions | partial | `0f2ecf729` |
 | 47 | **Wave 12 S12** — blocked-backlog sweep: oracle-family re-derivation, enricher decryption reads | CANON-C / cleanup | done | `e610c3e9a` |
@@ -470,7 +470,7 @@ budget rebalance route (H4), the GOV-P1 standalone-command shape (H1), the SPEC-
 
   **Next session starts at wave 5** (E3 registry static-readability — note maintainer decision D2
   requires a BC waiver + UPGRADE_NOTES.md entry for retiring
-  `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`; H3 the six SPEC-P2 routing cases OMH-204..209).
+  `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`; H3 the six SPEC-P2 routing cases OMH-214..209).
 
   **Concurrent push by another actor (session 4).** While wave 4 was merging, someone pushed
   `c2264fe51 Merge remote-tracking branch 'origin/develop' into review/pr-4897`, bringing 13 develop
@@ -659,7 +659,7 @@ before merging E3; findings change what E3 is allowed to do.
 
   **Wave 7 merged (session 4). The milestone here is H5.** Until it landed, ZERO of the 208 shipped
   cases declared `context.exampleRoots` — so every capability row six waves of work had added to the
-  example was **inert for the live harness**. OMH-209..212 now declare it across four disjoint
+  example was **inert for the live harness**. OMH-219..212 now declare it across four disjoint
   capability groups. 212 cases, contiguous. The verifier enumerated all **14** count/order pins from
   scratch and confirmed none was missed.
 
@@ -729,7 +729,7 @@ before merging E3; findings change what E3 is allowed to do.
     H3's `reuse-spec` row 6. It does NOT. The implementer reproduced the blocker and the verifier
     re-confirmed it in source: the evaluator forbids `expectedSpecRouting` on a writable case,
     requires `coveringSpecPath` to appear in the case's own context, and requires every declared
-    context path to EXIST in the fresh-scaffold root the deterministic lane validates. OMH-214's
+    context path to EXIST in the fresh-scaffold root the deterministic lane validates. OMH-224's
     covering spec lives only in a fixture-prepared disposable copy, and read-only cases may not
     declare fixtures. **Row 6 remains blocked; it was not faked.** Unblocking it needs either a real
     example spec shipped in every scaffold (product decision) or an evaluator change.
@@ -869,7 +869,7 @@ before merging E3; findings change what E3 is allowed to do.
     updated (`source-link-inventory.json` is no longer a blocker, `context.sourceReferenceIds` still
     is). **Removing the inventory now fails 23 tests instead of passing silently.**
   - **The drift gate proved itself immediately**: after merging H8's new cases, C5's
-    regenerate-and-diff caught the checked inventory as stale (`citedByCaseIds` missing OMH-215).
+    regenerate-and-diff caught the checked inventory as stale (`citedByCaseIds` missing OMH-225).
     Two slices' guards catching each other is the outcome this structure is for.
   - **D4 is a real equality, not a subset.** Two symmetric loops reject both a derived topic the
     registry does not declare and a registry topic nobody renders; `buildInventory` returns null on

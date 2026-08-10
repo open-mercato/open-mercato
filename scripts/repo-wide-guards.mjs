@@ -209,6 +209,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/__tests__/module-override-acl-features.test.ts',
         scans: 'apps/mercato/src/modules and every packages/ acl.ts — ACL override keys anchored to a declared feature (#4944)',
       },
+      {
+        path: 'src/__tests__/api-bootstrap-ui-boundary.test.ts',
+        scans: 'every packages/*/src message-object contributor reached from the generated manifest — runtime imports of the @open-mercato/ui barrel on the API bootstrap path',
+      },
     ],
   },
 ]

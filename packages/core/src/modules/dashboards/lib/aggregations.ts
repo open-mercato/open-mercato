@@ -173,6 +173,21 @@ function normalizeSetFilterValues(value: unknown): unknown[] {
   return values
 }
 
+/**
+ * Builds the shared WHERE clause every aggregation query reads from, together with its parameters.
+ *
+ * The `eq` / `neq` cases branch on a null value instead of binding it (#5016). Under SQL
+ * three-valued logic neither `column = NULL` nor `column != NULL` is ever `TRUE`, so binding a raw
+ * null selected zero rows and rendered as a legitimate-looking empty aggregation — a silent zero on
+ * a reporting surface. Nullness has to be asked with the `IS NULL` / `IS NOT NULL` keywords, which
+ * take no parameter; that is also what the dedicated `is_null` / `is_not_null` operators emit, and
+ * it mirrors how the query index builds column filters (`query_index/lib/engine.ts`).
+ *
+ * The ordering operators (`gt`/`gte`/`lt`/`lte`) deliberately keep binding the value: comparing an
+ * ordering against NULL is genuinely undefined rather than a mistake, so their never-`TRUE` result
+ * is the correct answer. Set operators refuse null members outright — see
+ * `normalizeSetFilterValues`.
+ */
 function buildWhereClause(
   options: Pick<BuildAggregationQueryOptions, 'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'>,
 ): { clause: string; params: unknown[] } {
@@ -207,10 +222,18 @@ function buildWhereClause(
 
       switch (filter.operator) {
         case 'eq':
+          if (filter.value === null) {
+            whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
+            break
+          }
           whereClauses.push(`${filterMapping.dbColumn} = ?`)
           params.push(filter.value)
           break
         case 'neq':
+          if (filter.value === null) {
+            whereClauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
+            break
+          }
           whereClauses.push(`${filterMapping.dbColumn} != ?`)
           params.push(filter.value)
           break

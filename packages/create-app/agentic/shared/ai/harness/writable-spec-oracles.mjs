@@ -70,13 +70,13 @@ const REQUIRED_SECTIONS = Object.freeze([
 ])
 
 const SPEC_CASES = Object.freeze({
-  'OMH-213': {
+  'OMH-223': {
     kind: 'new-feature',
     // The ordering proof is that planning delivered one covering spec and no implementation.
     // These are the module-directory names a warehouse-transfer implementation would occupy.
     implementationKeywords: ['transfer', 'warehouse'],
   },
-  'OMH-214': {
+  'OMH-224': {
     kind: 'existing-spec',
     coveringSpec: `${SPEC_ROOT}/2026-08-04-service-appointment-reminders.md`,
     // Fixed expectations for the contract change the prompt introduces. Hard-coded here, never

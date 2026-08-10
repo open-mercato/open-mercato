@@ -8,6 +8,7 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   runMutationGuards,
@@ -81,10 +82,13 @@ type RbacServiceLike = {
 
 const logger = createLogger('shared').child({ component: 'crud' })
 
-function resolveSortParams(queryParams: Record<string, unknown>) {
-  const rawSortField = queryParams.sortField ?? queryParams.sort ?? 'id'
-  const rawSortDir = queryParams.sortDir ?? queryParams.order ?? 'asc'
-  const sortField = typeof rawSortField === 'string' && rawSortField.trim().length > 0 ? rawSortField.trim() : 'id'
+function resolveSortParams(queryParams: Record<string, unknown>, defaultSort?: CrudDefaultSort) {
+  const rawSortField = queryParams.sortField ?? queryParams.sort
+  const requestedSortField =
+    typeof rawSortField === 'string' && rawSortField.trim().length > 0 ? rawSortField.trim() : null
+  const sortField = requestedSortField ?? defaultSort?.field ?? 'id'
+  const rawSortDir =
+    queryParams.sortDir ?? queryParams.order ?? (requestedSortField ? 'asc' : defaultSort?.dir ?? 'asc')
   const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
   const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
   return { sortField, sortDir }
@@ -192,6 +196,8 @@ export type CrudListCustomFieldDecorator = {
   stripPrefixedKeys?: boolean
 }
 
+export type CrudDefaultSort = { field: string; dir?: 'asc' | 'desc' }
+
 export type ListConfig<TList> = {
   schema: z.ZodType<TList>
   // Optional: use the QueryEngine when entityId + fields are provided.
@@ -202,6 +208,31 @@ export type ListConfig<TList> = {
   entityId?: any
   fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
   sortFieldMap?: Record<string, any>
+  /**
+   * Sort used when the request carries no `sortField` / `sort` param. The field is
+   * resolved through `sortFieldMap`, so a name the map defines is translated to its
+   * column and an unmapped name is used as the column directly. `dir` only applies
+   * together with the default field — an explicit `sortField` without `sortDir`
+   * still defaults to ascending. Defaults to `{ field: 'id', dir: 'asc' }`, which is
+   * only a meaningful order for sequential ids, never for random UUIDs.
+   *
+   * Applies to the Query Engine list path only (the route must set both `entityId`
+   * and `fields`). The plain-ORM fallback list issues an unordered `find` and
+   * already ignores `sortField` today, so it ignores this too.
+   *
+   * The list schema must keep `sortField` optional for this to take effect — a zod
+   * `.default()` on `sortField` reaches the sort resolver as an explicit request and
+   * pins the order itself.
+   */
+  defaultSort?: CrudDefaultSort
+  /**
+   * Appended as a secondary ascending sort whenever it differs from the resolved
+   * primary sort, so rows sharing a primary value keep a stable order across pages
+   * and re-fetches instead of falling back to the database's arbitrary row order.
+   * Applies to explicit sorts too, and is resolved through `sortFieldMap` and gated
+   * on the Query Engine path exactly like `defaultSort`.
+   */
+  tiebreakSortField?: string
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
   allowCsv?: boolean
@@ -566,6 +597,13 @@ function attachOperationHeader(res: Response, logEntry: any) {
 function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+  // A command interceptor that blocked with an explicit status is a deliberate business
+  // rejection, not a server fault — surface its status and message instead of a generic 500.
+  // Without a usable status the error falls through to the historical handling below (issue #5045).
+  const interceptorRejection = getCommandInterceptorHttpRejection(err)
+  if (interceptorRejection) {
+    return json(interceptorRejection.body, { status: interceptorRejection.status })
+  }
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
@@ -1686,10 +1724,21 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('query_engine_prepare')
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
-        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>)
-        const mappedSortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
-        const sortField = typeof mappedSortField === 'string' ? normalizeSortFieldSelector(mappedSortField) : mappedSortField
+        const sortFieldMap = opts.list.sortFieldMap
+        const resolveSortSelector = (field: string) => {
+          const mapped = (sortFieldMap && sortFieldMap[field]) || field
+          return typeof mapped === 'string' ? normalizeSortFieldSelector(mapped) : mapped
+        }
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(
+          queryParams as Record<string, unknown>,
+          opts.list.defaultSort,
+        )
+        const sortField = resolveSortSelector(sortFieldRaw)
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
+        if (opts.list.tiebreakSortField) {
+          const tiebreakField = resolveSortSelector(opts.list.tiebreakSortField)
+          if (tiebreakField !== sortField) sort.push({ field: tiebreakField as any, dir: SortDir.Asc } as any)
+        }
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }

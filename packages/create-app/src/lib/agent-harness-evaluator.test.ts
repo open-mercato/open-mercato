@@ -310,8 +310,8 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-191', 420_000],
     ['OMH-192', 600_000],
     ['OMH-193', 600_000],
-    ['OMH-213', 600_000],
-    ['OMH-214', 600_000],
+    ['OMH-223', 600_000],
+    ['OMH-224', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -524,6 +524,38 @@ test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4
   }
 })
 
+test('deterministic evaluation keeps timeoutMs a writable-only budget (#5057)', () => {
+  // Duration is a property of the operator's runner, not of the case: the same routing case has
+  // measured 147 s and 132 s on consecutive runs of the same model. Files and bytes measure the
+  // agent's context discipline and belong to the portable catalog; a per-case duration would encode
+  // one machine's speed into it. The runner-aware operator floors in resolveLiveCaseTimeout carry
+  // that budget instead, and this pins the catalog side of that decision.
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      id: string
+      evaluationKind: string
+      timeoutMs?: number
+    }>
+    const routing = cases.find((entry) => entry.evaluationKind === 'routing')
+    const writable = cases.find((entry) => entry.evaluationKind === 'implementation' && entry.timeoutMs === undefined)
+    assert.ok(routing, 'the catalog must still carry a routing case')
+    assert.ok(writable, 'the catalog must still carry a writable case without its own timeout')
+    routing.timeoutMs = 420_000
+    writable.timeoutMs = 420_000
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, new RegExp(`FAIL ${routing.id}:.*timeoutMs must be a writable-case duration`))
+    assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${writable.id}:.*timeoutMs`))
+    assert.match(result.stdout, new RegExp(`PASS ${writable.id} `))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the evaluator, the mirrored helper, and the calibration template agree on initial-context exclusions (#4565)', () => {
   const evaluatorSource = fs.readFileSync(sourceEvaluator, 'utf8')
   const productionRule = /function isInitialContextPath\(relative\) \{\n([\s\S]*?)\n\}/.exec(evaluatorSource)
@@ -583,12 +615,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-216', () => {
+test('deterministic evaluation enforces the case schema through OMH-226', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-216')
+    assert.equal(cases.at(-1)?.id, 'OMH-226')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3747,17 +3779,17 @@ test('the spec routing declaration contract fails closed on every malformed shap
 // scaffold ships only the folder README and the blank template, so no honest covering-spec
 // path exists to declare yet.
 const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
-  ['OMH-204', 'spec-first'],
-  ['OMH-205', 'direct'],
-  ['OMH-206', 'direct'],
-  ['OMH-207', 'direct'],
-  ['OMH-208', 'ask'],
+  ['OMH-214', 'spec-first'],
+  ['OMH-215', 'direct'],
+  ['OMH-216', 'direct'],
+  ['OMH-217', 'direct'],
+  ['OMH-218', 'ask'],
 ]
 
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 216)
+  assert.equal(cases.length, 226)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
@@ -4061,7 +4093,7 @@ test('live routing rejects a structurally invalid spec routing payload before sc
 })
 
 // ---------------------------------------------------------------------------------------
-// SPEC-P2 writable planning proofs (OMH-213, OMH-214) and their fixed Markdown oracle.
+// SPEC-P2 writable planning proofs (OMH-223, OMH-224) and their fixed Markdown oracle.
 // ---------------------------------------------------------------------------------------
 
 const specOracle = path.join(sourceHarness, 'writable-spec-oracles.mjs')
@@ -4114,7 +4146,7 @@ function failedSpecCheckIds(report: SpecOracleReport): string[] {
   return report.checks.filter((entry) => !entry.passed).map((entry) => entry.id).sort()
 }
 
-// A plausible complete answer for OMH-213. Every graded property is present exactly once, so a
+// A plausible complete answer for OMH-223. Every graded property is present exactly once, so a
 // single targeted mutation below can flip exactly one named check.
 const deliveredTransferSpec = `# Warehouse Stock Transfers
 
@@ -4196,7 +4228,7 @@ Phases are dependency ordered; each one leaves the application working and close
 | 2026-08-04 | Initial covering specification for warehouse stock transfers. |
 `
 
-// The OMH-214 answer is the seeded covering spec plus the contract change the prompt asks for.
+// The OMH-224 answer is the seeded covering spec plus the contract change the prompt asks for.
 // Each edit is anchored and asserted, so a silent no-op replacement cannot fake an amendment.
 function amendCoveringSpec(seeded: string): string {
   const edits: Array<[string, string]> = [
@@ -4256,13 +4288,13 @@ function amendCoveringSpec(seeded: string): string {
 test('the new-feature planning proof fails on its seeded scaffold and passes on one complete covering spec', () => {
   const root = stageSpecTarget('planning-new-feature')
   try {
-    const before = runSpecOracle(root, 'OMH-213', 'before')
+    const before = runSpecOracle(root, 'OMH-223', 'before')
     assert.equal(before.passed, false)
     assert.equal(before.status, 1)
     assert.deepEqual(failedSpecCheckIds(before), ['spec.single'])
 
     fs.writeFileSync(path.join(root, newFeatureSpecPath), deliveredTransferSpec)
-    const after = runSpecOracle(root, 'OMH-213', 'after')
+    const after = runSpecOracle(root, 'OMH-223', 'after')
     assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
     assert.equal(after.status, 0)
   } finally {
@@ -4306,9 +4338,9 @@ for (const [label, breakIt, expectedCheck] of newFeatureNegatives) {
     const root = stageSpecTarget('planning-new-feature')
     try {
       fs.writeFileSync(path.join(root, newFeatureSpecPath), deliveredTransferSpec)
-      assert.equal(runSpecOracle(root, 'OMH-213', 'after').passed, true)
+      assert.equal(runSpecOracle(root, 'OMH-223', 'after').passed, true)
       breakIt(root)
-      const report = runSpecOracle(root, 'OMH-213', 'after')
+      const report = runSpecOracle(root, 'OMH-223', 'after')
       assert.equal(report.passed, false)
       assert.ok(failedSpecCheckIds(report).includes(expectedCheck), JSON.stringify(failedSpecCheckIds(report)))
     } finally {
@@ -4320,7 +4352,7 @@ for (const [label, breakIt, expectedCheck] of newFeatureNegatives) {
 test('the existing-spec planning proof fails on the seeded covering spec and passes once it is amended', () => {
   const root = stageSpecTarget('planning-existing-spec')
   try {
-    const before = runSpecOracle(root, 'OMH-214', 'before')
+    const before = runSpecOracle(root, 'OMH-224', 'before')
     assert.equal(before.passed, false)
     assert.equal(before.status, 1)
     // The seeded spec is already structurally complete: only the contract change the prompt
@@ -4333,7 +4365,7 @@ test('the existing-spec planning proof fails on the seeded covering spec and pas
 
     const seeded = fs.readFileSync(path.join(root, coveringSpecPath), 'utf8')
     fs.writeFileSync(path.join(root, coveringSpecPath), amendCoveringSpec(seeded))
-    const after = runSpecOracle(root, 'OMH-214', 'after')
+    const after = runSpecOracle(root, 'OMH-224', 'after')
     assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
     assert.equal(after.status, 0)
   } finally {
@@ -4369,9 +4401,9 @@ for (const [label, breakIt, expectedCheck] of existingSpecNegatives) {
     try {
       const seeded = fs.readFileSync(path.join(root, coveringSpecPath), 'utf8')
       fs.writeFileSync(path.join(root, coveringSpecPath), amendCoveringSpec(seeded))
-      assert.equal(runSpecOracle(root, 'OMH-214', 'after').passed, true)
+      assert.equal(runSpecOracle(root, 'OMH-224', 'after').passed, true)
       breakIt(root)
-      const report = runSpecOracle(root, 'OMH-214', 'after')
+      const report = runSpecOracle(root, 'OMH-224', 'after')
       assert.equal(report.passed, false)
       assert.ok(failedSpecCheckIds(report).includes(expectedCheck), JSON.stringify(failedSpecCheckIds(report)))
     } finally {
@@ -4385,8 +4417,8 @@ test('the spec oracle refuses an unknown case, an unknown phase, and a relative 
   try {
     for (const args of [
       ['--root', root, '--case', 'OMH-193', '--phase', 'after', '--json'],
-      ['--root', root, '--case', 'OMH-213', '--phase', 'midway', '--json'],
-      ['--root', '.', '--case', 'OMH-213', '--phase', 'after', '--json'],
+      ['--root', root, '--case', 'OMH-223', '--phase', 'midway', '--json'],
+      ['--root', '.', '--case', 'OMH-223', '--phase', 'after', '--json'],
     ]) {
       const result = spawnSync(process.execPath, [specOracle, ...args], { encoding: 'utf8', timeout: 30_000 })
       assert.equal(result.status, 2, `${args.join(' ')} -> ${result.stdout}`)
@@ -4417,7 +4449,7 @@ test('the two planning proofs are the only writable cases graded by the spec ora
     assert.deepEqual(registry.validators[validatorId]?.runners, ['writable-spec-oracles.mjs'])
   }
   const declaring = cases.filter((record) => record.validators.some((entry) => planningOracles.includes(entry)))
-  assert.deepEqual(declaring.map((record) => record.id), ['OMH-213', 'OMH-214'])
+  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224'])
   for (const record of declaring) {
     assert.equal(record.evaluationKind, 'implementation', `${record.id} must be a writable case`)
     // The planning gate itself is scored by the read-only routing contract; a writable proof

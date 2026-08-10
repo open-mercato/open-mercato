@@ -1369,9 +1369,15 @@ export class BasicQueryEngine implements QueryEngine {
       const textExpr = sql<string | null>`(${sql.ref(`${alias}.doc`)} ->> ${opts.field})`
       switch (opts.op) {
         case 'eq':
-          sub = sub.where(sql<boolean>`${textExpr} = ${opts.value}`); break
+          sub = opts.value === null
+            ? sub.where(sql<boolean>`${textExpr} is null`)
+            : sub.where(sql<boolean>`${textExpr} = ${opts.value}`)
+          break
         case 'ne':
-          sub = sub.where(sql<boolean>`${textExpr} <> ${opts.value}`); break
+          sub = opts.value === null
+            ? sub.where(sql<boolean>`${textExpr} is not null`)
+            : sub.where(sql<boolean>`${textExpr} <> ${opts.value}`)
+          break
         case 'gt':
         case 'gte':
         case 'lt':
