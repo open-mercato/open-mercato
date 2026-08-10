@@ -203,8 +203,17 @@ function inferRole(value) {
   if (!value || typeof value !== 'object') return null
   for (const candidate of [value.type, value.role, value.message?.role]) {
     if (candidate === 'user' || candidate === 'assistant') return candidate
+    if (candidate === 'userMessage') return 'user'
+    if (candidate === 'agentMessage') return 'assistant'
   }
   return null
+}
+
+function inferRoles(value) {
+  const directRole = inferRole(value)
+  if (directRole) return [directRole]
+  if (!value || typeof value !== 'object' || !Array.isArray(value.items)) return []
+  return [...new Set(value.items.map(inferRole).filter(Boolean))]
 }
 
 function analyzeSession(session) {
@@ -224,7 +233,7 @@ function analyzeSession(session) {
   }
   if (!entries) fail('Session JSON has no recognizable turn/event collection.')
 
-  const roles = entries.map(inferRole).filter(Boolean)
+  const roles = entries.flatMap(inferRoles)
   const userTurns = roles.filter((role) => role === 'user').length
   const assistantTurns = roles.filter((role) => role === 'assistant').length
   if (userTurns === 0 || assistantTurns === 0) {

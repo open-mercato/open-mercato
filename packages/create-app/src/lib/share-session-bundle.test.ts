@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url'
 const preparer = fileURLToPath(
   new URL('../../../../.ai/skills/om-share-this-session/scripts/prepare-share-bundle.mjs', import.meta.url),
 )
+const codexExporter = fileURLToPath(
+  new URL('../../../../.ai/skills/om-share-this-session/scripts/export-codex-session.mjs', import.meta.url),
+)
 const monorepoSkillDirectory = fileURLToPath(
   new URL('../../../../.ai/skills/om-share-this-session/', import.meta.url),
 )
@@ -59,6 +62,114 @@ function runPreparer(fixture: ReturnType<typeof createFixture>, extraArguments: 
     { encoding: 'utf8' },
   )
 }
+
+function createFakeCodex(root: string): string {
+  const binDirectory = path.join(root, 'bin')
+  const executablePath = path.join(binDirectory, 'codex')
+  fs.mkdirSync(binDirectory)
+  fs.writeFileSync(
+    executablePath,
+    `#!/usr/bin/env node
+let input = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  input += chunk
+  while (input.includes('\\n')) {
+    const newlineIndex = input.indexOf('\\n')
+    const line = input.slice(0, newlineIndex)
+    input = input.slice(newlineIndex + 1)
+    if (!line.trim()) continue
+    const message = JSON.parse(line)
+    if (message.id === 1) {
+      process.stdout.write(JSON.stringify({ id: 1, result: { userAgent: 'fake-codex' } }) + '\\n')
+    }
+    if (message.id === 2) {
+      const requestedId = message.params.threadId
+      const threadId = process.env.FAKE_CODEX_MODE === 'mismatch'
+        ? 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+        : requestedId
+      process.stdout.write(JSON.stringify({
+        id: 2,
+        result: {
+          thread: {
+            id: threadId,
+            sessionId: threadId,
+            turns: [
+              {
+                id: 'turn-1',
+                items: [
+                  { type: 'userMessage', content: [{ type: 'text', text: 'Hello' }] },
+                  { type: 'agentMessage', text: 'Working' },
+                  { type: 'agentMessage', text: 'Done' },
+                ],
+              },
+            ],
+          },
+        },
+      }) + '\\n')
+    }
+  }
+})
+`,
+  )
+  fs.chmodSync(executablePath, 0o755)
+  return binDirectory
+}
+
+function runCodexExporter(root: string, mode = 'success') {
+  const threadId = '123e4567-e89b-42d3-a456-426614174000'
+  const outputPath = path.join(root, 'native-codex-session.json')
+  const binDirectory = createFakeCodex(root)
+  const result = spawnSync(
+    process.execPath,
+    [codexExporter, '--thread-id', threadId, '--out', outputPath],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
+        FAKE_CODEX_MODE: mode,
+      },
+    },
+  )
+  return { result, outputPath, threadId }
+}
+
+test('Codex session exporter reads the requested native thread through app-server', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-codex-export-')))
+  try {
+    const { result, outputPath, threadId } = runCodexExporter(root)
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(JSON.parse(result.stdout), { status: 'exported', turns: 1 })
+    const exported = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as {
+      id: string
+      sessionId: string
+      turns: Array<{ items: Array<{ type: string }> }>
+    }
+    assert.equal(exported.id, threadId)
+    assert.equal(exported.sessionId, threadId)
+    assert.deepEqual(exported.turns.flatMap((turn) => turn.items.map((item) => item.type)), [
+      'userMessage',
+      'agentMessage',
+      'agentMessage',
+    ])
+    assert.equal(fs.statSync(outputPath).mode & 0o077, 0, 'native export must be owner-readable only')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Codex session exporter rejects a mismatched thread without leaving output', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-codex-export-')))
+  try {
+    const { result, outputPath } = runCodexExporter(root, 'mismatch')
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /different thread than requested/)
+    assert.equal(fs.existsSync(outputPath), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('session-share preparer preserves turns, sanitizes content, and creates a valid generated-files ZIP', () => {
   const fixture = createFixture()
@@ -163,6 +274,55 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
       fs.readFileSync(path.join(fixture.outputPath, 'review', 'generated-files', 'src', 'generated.ts'), 'utf8'),
       'local review tree must match the archived sanitized file',
     )
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true })
+  }
+})
+
+test('session-share preparer recognizes messages nested in native Codex turns', () => {
+  const fixture = createFixture()
+  try {
+    fs.writeFileSync(
+      fixture.sessionPath,
+      JSON.stringify({
+        id: '123e4567-e89b-42d3-a456-426614174000',
+        sessionId: '123e4567-e89b-42d3-a456-426614174000',
+        turns: [
+          {
+            id: 'turn-1',
+            items: [
+              { type: 'userMessage', content: [{ type: 'text', text: 'Hello' }] },
+              { type: 'reasoning', summary: [] },
+              { type: 'agentMessage', text: 'Working' },
+              { type: 'agentMessage', text: 'Done' },
+            ],
+          },
+        ],
+      }),
+    )
+    fs.writeFileSync(path.join(fixture.root, 'src', 'generated.ts'), 'export {}\n')
+    fs.writeFileSync(fixture.manifestPath, 'src/generated.ts\n')
+
+    const result = runPreparer(fixture)
+    assert.equal(result.status, 0, result.stderr)
+    const manifest = JSON.parse(fs.readFileSync(path.join(fixture.outputPath, 'manifest.json'), 'utf8')) as {
+      session: {
+        collection: string
+        entries: number
+        recognizedTurns: number
+        userTurns: number
+        assistantTurns: number
+        firstRecognizedRole: string
+        lastRecognizedRole: string
+      }
+    }
+    assert.equal(manifest.session.collection, 'turns')
+    assert.equal(manifest.session.entries, 1)
+    assert.equal(manifest.session.recognizedTurns, 2)
+    assert.equal(manifest.session.userTurns, 1)
+    assert.equal(manifest.session.assistantTurns, 1)
+    assert.equal(manifest.session.firstRecognizedRole, 'user')
+    assert.equal(manifest.session.lastRecognizedRole, 'assistant')
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true })
   }
