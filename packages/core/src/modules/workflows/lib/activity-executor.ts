@@ -866,9 +866,13 @@ async function executeActivityByType(
     return simulated
   }
 
+  // `signal` MUST reach the registry entry: CALL_API / CALL_WEBHOOK thread it
+  // into fetch, and without it a per-activity timeout rejects the promise while
+  // the HTTP request stays in flight — the phantom-execution bug from #4918.
   return await entry.execute(interpolatedConfig, context, {
     em: em as PostgreSqlEntityManager,
     container,
+    signal,
   })
 }
 

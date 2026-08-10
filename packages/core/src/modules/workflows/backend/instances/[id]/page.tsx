@@ -701,16 +701,14 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
           {/* Spec section 8.2 — a simulation must SAY it is one everywhere it is
               read, so nobody mistakes an empty inbox for a broken workflow. */}
           {instance.isDryRun && (
-            <Alert variant="info">
-              <FlaskConical className="size-4" aria-hidden="true" />
+            <Alert status="information" icon={<FlaskConical aria-hidden="true" />}>
               <AlertTitle>{t('workflows.dryRun.badge')}</AlertTitle>
               <AlertDescription>{t('workflows.dryRun.bannerDescription')}</AlertDescription>
             </Alert>
           )}
 
           {isStepping && (
-            <Alert variant="warning">
-              <Footprints className="size-4" aria-hidden="true" />
+            <Alert status="warning" icon={<Footprints aria-hidden="true" />}>
               <AlertTitle>{t('workflows.stepThrough.title')}</AlertTitle>
               <AlertDescription>
                 <div className="space-y-2">

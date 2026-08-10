@@ -157,7 +157,15 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
 
       <div className="space-y-3">
         {value.map((activity, index) => (
-          <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-green-500">
+          // Keyed on the activity's own identity, never the row position: the
+          // config editor holds the in-progress (invalid) text in local state,
+          // so an index key would leave that draft behind on whatever activity
+          // slid into the slot after a delete or a reorder — and finishing the
+          // edit would write the config onto the wrong activity.
+          <div
+            key={activity.activityId || `activity-${index}`}
+            className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-green-500"
+          >
             <div className="space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">

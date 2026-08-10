@@ -82,14 +82,33 @@ describe('module-facts BC resolve guard (T2)', () => {
     // pathological regression from ordinary hardware variance and failed
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
+    //
+    // JSON cap raised a fourth time when the agent-orchestrator branch was
+    // integrated. This guard is develop-only — it does not exist on that branch
+    // — so its cap had never measured that branch's modules. The extraction now
+    // covers 57 modules at a ~67KB mean with a smooth distribution (largest:
+    // `customers` 255KB, a long-standing core module; `agent_orchestrator`
+    // 170KB, third), i.e. linear growth from describing more modules rather
+    // than a per-module blow-up, which is what this detector is for. Headroom is
+    // deliberately modest so a genuine multiplicative regression still trips it.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_200_000)
+    // Per-module mean pins the invariant the absolute cap only approximates:
+    // adding modules is expected, inflating every module's facts is not. This
+    // is what keeps the absolute cap from being raised on autopilot.
+    expect(Buffer.byteLength(completeJson) / Object.keys(factsByModule).length).toBeLessThan(90_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_550_000)
+    //
+    // Raised again alongside the JSON cap above, for the same reason and on the
+    // same evidence: this develop-only guard now renders fact-sheets for the
+    // agent-orchestrator branch's modules too. Growth is one more sheet per
+    // module, not fatter sheets — which the per-module mean below pins.
+    expect(markdownBytes).toBeLessThan(1_900_000)
+    expect(markdownBytes / Object.keys(markdownByModule).length).toBeLessThan(40_000)
   })
 
   it('discovers a superset of the historical core modules', () => {

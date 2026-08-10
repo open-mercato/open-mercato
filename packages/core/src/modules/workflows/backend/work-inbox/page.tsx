@@ -46,12 +46,17 @@ import {
 } from '../../lib/work-inbox/presentation'
 import { StatusChip } from '../../components/work-inbox/StatusChip'
 import { WorkInboxEmptyState } from '../../components/work-inbox/WorkInboxEmptyState'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 
 /**
  * `data-table:workflows.tasks.list:*` is a FROZEN widget spot id — the
  * enterprise Caseload row action is wired to it. Never rename this.
+ *
+ * Read from the extension-point catalogue rather than re-typed here: this page
+ * is the declared host, so the literal and the declaration cannot drift apart,
+ * and the module-facts extractor can bind the declaration to its host.
  */
-const WORK_INBOX_TABLE_ID = 'workflows.tasks.list'
+const WORK_INBOX_TABLE_ID = extensionPoints.hosts.tasksTable.tableId
 
 const PAGE_SIZE = 50
 

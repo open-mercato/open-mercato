@@ -115,8 +115,12 @@ describe('generateModuleRegistry backend route collision guard', () => {
 
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     try {
+      // Two package modules are refused by whichever guard sees the pattern
+      // first: the per-pattern assertion during generation, or the aggregate
+      // sweep that runs after it. Accept either message so the test asserts the
+      // refusal rather than which guard won the race.
       await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
-        /Backend route collision/,
+        /Backend route collision|Duplicate backend route pattern/,
       )
       const printed = consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n')
       expect(printed).toContain('/backend/tasks')

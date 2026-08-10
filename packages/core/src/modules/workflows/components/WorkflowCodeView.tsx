@@ -164,8 +164,7 @@ export function WorkflowCodeView({
               />
             </div>
             {draftStatus.blockingMessages.length > 0 && (
-              <Alert variant="destructive" className="mt-2">
-                <CircleAlert className="size-4" aria-hidden="true" />
+              <Alert status="error" className="mt-2" icon={<CircleAlert aria-hidden="true" />}>
                 <AlertTitle>{t('workflows.visualEditor.codeView.cannotApply', 'This JSON cannot be applied yet')}</AlertTitle>
                 <AlertDescription>
                   <ul data-testid="workflow-code-view-blocking" className="list-disc space-y-0.5 pl-4">

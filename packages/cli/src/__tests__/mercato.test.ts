@@ -615,6 +615,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(unchangedResult),
     }
     const invalidate = jest.fn()
 
@@ -702,6 +703,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi: generate,
       generateModulePackageSources: generate,
       generateOpenApi: generate,
+      generateWebResearchAdapters: generate,
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({

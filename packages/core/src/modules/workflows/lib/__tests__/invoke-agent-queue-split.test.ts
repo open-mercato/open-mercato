@@ -21,6 +21,20 @@ const createModuleQueueMock = jest.fn((name: string) => {
   return { enqueue }
 })
 
+// The worker reports the skip through the structured-logging facade, not a raw
+// `console.warn`, so the assertion has to observe the facade.
+const loggerWarnMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const stub = {
+    warn: (...args: unknown[]) => loggerWarnMock(...args),
+    info: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    child: () => stub,
+  }
+  return { createLogger: () => stub }
+})
+
 jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: (name: string, options?: { concurrency?: number }) =>
     createModuleQueueMock(name, options),
@@ -161,7 +175,7 @@ describe('workflow-invoke-agent worker', () => {
   })
 
   it('warns and skips (no throw) on a non-invoke_agent job kind', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    loggerWarnMock.mockClear()
     const timerPayload: WorkflowActivityJob = {
       kind: 'timer',
       workflowInstanceId: 'instance-1',
@@ -175,9 +189,8 @@ describe('workflow-invoke-agent worker', () => {
     await expect(invokeAgentWorkerHandle(makeQueuedJob(timerPayload), ctx)).resolves.toBeUndefined()
 
     expect(handleInvokeAgentJobMock).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(String(warnSpy.mock.calls[0][0])).toContain('unexpected kind')
-    warnSpy.mockRestore()
+    expect(loggerWarnMock).toHaveBeenCalledTimes(1)
+    expect(String(loggerWarnMock.mock.calls[0][0])).toContain('unexpected kind')
   })
 })
 

@@ -86,8 +86,32 @@ function findBareSortLines(source: string): number[] {
   if (!source.includes('.sort(') && !source.includes('.toSorted(')) return []
   const hits: number[] = []
   const lines = source.split('\n')
+  let inBlockComment = false
   for (let index = 0; index < lines.length; index += 1) {
-    if (BARE_SORT.test(lines[index])) hits.push(index + 1)
+    // Comments are stripped before matching. Prose documenting this very rule
+    // ("never a bare `.sort()`") is not a call site, and flagging it would make
+    // the guard unsatisfiable without deleting the explanation it exists to
+    // enforce.
+    let line = lines[index]
+    if (inBlockComment) {
+      const end = line.indexOf('*/')
+      if (end === -1) continue
+      line = line.slice(end + 2)
+      inBlockComment = false
+    }
+    const blockStart = line.indexOf('/*')
+    if (blockStart !== -1) {
+      const end = line.indexOf('*/', blockStart + 2)
+      if (end === -1) {
+        line = line.slice(0, blockStart)
+        inBlockComment = true
+      } else {
+        line = line.slice(0, blockStart) + line.slice(end + 2)
+      }
+    }
+    const lineComment = line.indexOf('//')
+    if (lineComment !== -1) line = line.slice(0, lineComment)
+    if (BARE_SORT.test(line)) hits.push(index + 1)
   }
   return hits
 }
@@ -124,6 +148,12 @@ describe('sort/toSorted call sites use explicit comparators (#3620)', () => {
     expect(findBareSortLines('const a = [2, 1].sort((x, y) => x - y)')).toEqual([])
     expect(findBareSortLines('const a = keys.sort((x, y) => x.localeCompare(y))')).toEqual([])
     expect(findBareSortLines('const a = keys.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))')).toEqual([])
+  })
+
+  it('ignores a mention inside a comment, so the rule can be documented in prose', () => {
+    expect(findBareSortLines('// never a bare `.sort()` here')).toEqual([])
+    expect(findBareSortLines('/**\n * explicit and stable rather than a bare `.sort()`.\n */')).toEqual([])
+    expect(findBareSortLines('const a = [2, 1].sort() // still a violation')).toEqual([1])
   })
 
   it('no production sort/toSorted call omits its comparator', () => {

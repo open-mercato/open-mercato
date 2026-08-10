@@ -378,9 +378,13 @@ describe('runAgenticSetup ownership modes', () => {
     expect(existsSync(join(appDir, '.claude', 'settings.json'))).toBe(true)
     expect(existsSync(join(appDir, '.codex', 'mcp.json.example'))).toBe(true)
     expect(existsSync(join(appDir, '.cursor', 'hooks.json'))).toBe(false)
+    expect(existsSync(join(appDir, '.github', 'copilot-instructions.md'))).toBe(false)
     const tiers = JSON.parse(readFileSync(join(appDir, '.ai', 'skills', 'tiers.json'), 'utf8')) as {
       agents?: { ignore?: string[] }
     }
-    expect(tiers.agents?.ignore).toEqual(['cursor'])
+    // Every supported tool the app did NOT select is ignored, so the skills
+    // installer skips its links. This list grows with each tool the generator
+    // learns — GitHub Copilot joined `cursor` here.
+    expect(tiers.agents?.ignore).toEqual(['cursor', 'github-copilot'])
   })
 })

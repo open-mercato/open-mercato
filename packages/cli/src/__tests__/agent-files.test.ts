@@ -143,8 +143,14 @@ describe('agent-files generator (Phase 4 sub-agents)', () => {
 
     // Primary allows the task tool and whitelists ONLY its sub-agent's name.
     expect(primaryMd).toContain('mode: primary')
-    expect(primaryMd).toContain('"task": true')
-    expect(primaryMd).toContain('"deals_activity_scan": allow')
+    // Delegation runs through the orchestrator's own MCP tool, never OpenCode's
+    // native `task`: the server-side path is depth-capped, read-only and takes
+    // its scope from the run context rather than from model-supplied input. So
+    // `task` stays denied on the primary agent too, and the generated allowlist
+    // names the delegate tool instead.
+    expect(primaryMd).toContain('"open-mercato_agent_orchestrator_delegate_agent": true')
+    expect(primaryMd).toContain('task: deny')
+    expect(primaryMd).not.toContain('"task": true')
     expect(primaryMd).toContain('## Sub-agents')
 
     // Manifest carries the sub-agent as a nested descriptor.

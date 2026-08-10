@@ -47,8 +47,7 @@ export function WouldDoReport({ report }: { report: WouldDoReportPayload | null 
       </div>
 
       {report.stoppedByRefusal && (
-        <Alert variant="warning">
-          <AlertTriangle className="size-4" aria-hidden="true" />
+        <Alert status="warning" icon={<AlertTriangle aria-hidden="true" />}>
           <AlertTitle>{t('workflows.dryRun.report.stoppedTitle')}</AlertTitle>
           <AlertDescription>{t('workflows.dryRun.report.stoppedDescription')}</AlertDescription>
         </Alert>

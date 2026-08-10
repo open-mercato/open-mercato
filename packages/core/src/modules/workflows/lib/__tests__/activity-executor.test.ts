@@ -594,7 +594,9 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // Grandfathered: this command was reachable before the tenant
+        // enablement gate, so it stays on for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
 
       mockContainer.resolve.mockImplementation((name: string) => {
@@ -639,7 +641,9 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // Grandfathered: this command was reachable before the tenant
+        // enablement gate, so it stays on for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
 
       mockContainer.resolve.mockImplementation((name: string) => {
@@ -685,7 +689,9 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       registerWorkflowSafeCommands([
-        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+        // Grandfathered: this command was reachable before the tenant
+        // enablement gate, so it stays on for a tenant with no stored setting.
+        { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
       ])
 
       mockContainer.resolve.mockImplementation((name: string) => {
@@ -857,10 +863,15 @@ describe('Activity Executor (Unit Tests)', () => {
         mockContainer.resolve.mockImplementation((name: string) => {
           if (name === 'moduleConfigService') return { getValue, setValue: jest.fn() } as any
           if (name === 'rbacService') {
+            // The executor asks the realm service the question directly
+            // (`userHasAllFeatures`) rather than matching a raw grant array
+            // itself, and fails closed when the method is absent — so the mock
+            // MUST answer that shape, not `getGrantedFeatures`.
+            const granted = options.grantedFeatures ?? ['sales.orders.manage', 'customers.deals.manage']
             return {
-              getGrantedFeatures: jest
-                .fn()
-                .mockResolvedValue(options.grantedFeatures ?? ['sales.orders.manage', 'customers.deals.manage']),
+              userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) =>
+                required.every((feature) => granted.includes(feature))
+              ),
             } as any
           }
           if (name === 'commandBus') return commandBus as any
