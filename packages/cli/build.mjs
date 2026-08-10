@@ -59,6 +59,7 @@ await buildPackage(packageDir, {
     rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
     rmSync(join(guidesDestDir, 'reference-modules'), { recursive: true, force: true })
     rmSync(join(guidesDestDir, 'reference-module-facts.json'), { force: true })
+    rmSync(join(guidesDestDir, 'module-facts.v2.json'), { force: true })
     for (const entry of readdirSync(guidesDestDir)) {
       if (/^core\..+\.md$/.test(entry)) {
         rmSync(join(guidesDestDir, entry))
@@ -90,8 +91,9 @@ await buildPackage(packageDir, {
       console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
     }
 
-    // Generate per-module fact-sheets (Layer 2) for every package-provided module via
-    // the freshly built ts-morph extractor + resolver-routed discovery, so
+    // Generate per-module fact-sheets plus legacy-v1 and corrected-v2 JSON sidecars
+    // for every package-provided module via the freshly built ts-morph extractor and
+    // resolver-routed discovery, so
     // `mercato agentic:init` bundles the same guides as a create-mercato-app scaffold
     // (packages/create-app/build.mjs). Discovery goes through the resolver, never a
     // hardcoded packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
@@ -127,15 +129,23 @@ await buildPackage(packageDir, {
         registryPath: existsSync(registryPath) ? registryPath : null,
         coreVersion,
       })
+      const { factsByModule: legacyFactsByModule } = extractAllModuleFacts({
+        sources,
+        registryPath: existsSync(registryPath) ? registryPath : null,
+        coreVersion,
+        factsContractVersion: 1,
+      })
 
       assertPackageModuleFactsOnly(factsByModule)
+      assertPackageModuleFactsOnly(legacyFactsByModule)
 
       const modulesGuidesDir = join(guidesDestDir, 'modules')
       mkdirSync(modulesGuidesDir, { recursive: true })
       for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
         writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
       }
-      writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+      writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(legacyFactsByModule))
+      writeFileSync(join(guidesDestDir, 'module-facts.v2.json'), renderModuleFactsJson(factsByModule))
       writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
       for (const warning of warnings) console.warn(warning)

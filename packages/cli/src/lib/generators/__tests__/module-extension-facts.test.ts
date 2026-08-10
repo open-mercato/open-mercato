@@ -343,6 +343,23 @@ describe('module extension facts', () => {
     const overrides = facts.contributions.filter((contribution) => contribution.kind === 'component-override')
     expect(overrides).toEqual([])
     expect(JSON.stringify(facts)).not.toContain('alpha.records.list')
+
+    const legacyFacts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+      factsContractVersion: 1,
+    })
+    expect(legacyFacts.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'alpha.component-override.0:alpha.records.list',
+        details: expect.objectContaining({ handle: 'alpha.records.list', mode: 'replace' }),
+      }),
+    ]))
   })
 
   it('classifies component overrides by the ComponentOverride discriminant and resolves handle builders', () => {
@@ -425,6 +442,53 @@ describe('module extension facts', () => {
     // guessed id built from the call's first argument.
     expect(JSON.stringify(facts.contributions)).not.toContain('ui.detail"')
     expect(JSON.stringify(facts.contributions)).not.toContain('"alpha"')
+
+    const legacyFacts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+      factsContractVersion: 1,
+    })
+    expect(legacyFacts.contributions
+      .filter((contribution) => contribution.kind === 'component-override')
+      .map((contribution) => contribution.kind === 'component-override'
+        ? { id: contribution.id, ...contribution.details }
+        : null)).toEqual([
+      {
+        id: 'alpha.component-override.0:ui.detail',
+        handle: 'ui.detail',
+        mode: 'replace',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.1:alpha.records.list',
+        handle: 'alpha.records.list',
+        mode: 'replace',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.2:alpha.record',
+        handle: 'alpha.record',
+        mode: 'replace',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.3:/backend/alpha',
+        handle: '/backend/alpha',
+        mode: 'replace',
+        propsContract: 'component-props-schema',
+      },
+      {
+        id: 'alpha.component-override.4:alpha',
+        handle: 'alpha',
+        mode: 'replace',
+        propsContract: 'component-props-schema',
+      },
+    ])
   })
 
   it('reads arrow-function convention hooks as declared surfaces', () => {
@@ -452,6 +516,20 @@ describe('module extension facts', () => {
         id: 'alpha.arrow',
         details: expect.objectContaining({ surfaces: ['list', 'detail'] }),
       }),
+    ]))
+
+    const legacyFacts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [{ id: 'alpha:record' }],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+      factsContractVersion: 1,
+    })
+    expect(legacyFacts.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'alpha.arrow', details: expect.objectContaining({ surfaces: [] }) }),
     ]))
   })
 
@@ -509,6 +587,19 @@ describe('module extension facts', () => {
       }),
     ]))
     expect(injected).toHaveLength(3)
+
+    const legacyFacts = extractModuleExtensionFacts({
+      moduleId: 'alpha',
+      moduleRoot,
+      sourceRoot: 'node_modules/pkg/src/modules/alpha',
+      entities: [],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+      factsContractVersion: 1,
+    })
+    expect(legacyFacts.contributions.filter((contribution) => contribution.source.symbol === 'injectionTable'))
+      .toEqual([expect.objectContaining({ id: 'alpha.array-entry@data-table:alpha.records:columns' })])
   })
 
   it('reports declarations whose authoritative source no longer binds the host key', () => {

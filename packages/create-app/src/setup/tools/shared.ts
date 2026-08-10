@@ -226,7 +226,12 @@ export function finalizeHarnessManifest(config: AgenticConfig, selectedTools: st
   ])
 
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json' || file === 'reference-module-facts.json') {
+    if (
+      file.endsWith('.md')
+      || file === 'module-facts.json'
+      || file === 'module-facts.v2.json'
+      || file === 'reference-module-facts.json'
+    ) {
       paths.add(join(targetDir, '.ai', 'guides', file))
     }
   }
@@ -298,8 +303,8 @@ export function generateShared(config: AgenticConfig): void {
 
   // Package & conceptual guides are copied wholesale (framework-wide). Per-module
   // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
-  // module set. The combined facts and disabled local-reference projections are
-  // copied as-is so source-present reference modules remain readable without activation.
+  // module set. The combined v1/v2 facts and disabled local-reference projections
+  // are copied as-is so source-present reference modules remain readable without activation.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -315,6 +320,13 @@ export function generateShared(config: AgenticConfig): void {
       const destPath = join(guidesDestDir, 'module-facts.json')
       ensureDir(destPath)
       copyFileSync(moduleFactsPath, destPath)
+    }
+
+    const moduleFactsV2Path = join(GUIDES_DIR, 'module-facts.v2.json')
+    if (existsSync(moduleFactsV2Path)) {
+      const destPath = join(guidesDestDir, 'module-facts.v2.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsV2Path, destPath)
     }
 
     const referenceFactsPath = join(GUIDES_DIR, 'reference-module-facts.json')

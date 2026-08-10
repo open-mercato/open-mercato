@@ -65,6 +65,7 @@ mkdirSync(guidesDestDir, { recursive: true })
 rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
 rmSync(join(guidesDestDir, 'reference-modules'), { recursive: true, force: true })
 rmSync(join(guidesDestDir, 'reference-module-facts.json'), { force: true })
+rmSync(join(guidesDestDir, 'module-facts.v2.json'), { force: true })
 for (const entry of readdirSync(guidesDestDir)) {
   if (/^core\..+\.md$/.test(entry)) {
     rmSync(join(guidesDestDir, entry))
@@ -97,8 +98,8 @@ if (guidesFound > 0) {
 
 // Generate per-module fact-sheets (Layer 2) for every package-provided module via
 // the reusable ts-morph extractor + resolver-routed discovery in @open-mercato/cli.
-// Emits one markdown sheet per discovered module plus a combined JSON sidecar; a
-// scaffold links only its enabled subset (packages/create-app/src/setup/tools/shared.ts).
+// Emits one markdown sheet per discovered module plus legacy-v1 and corrected-v2
+// JSON sidecars. A scaffold links only its enabled subset; shared.ts owns that filtering.
 // Auth comes from the generated module registry (`apis[].metadata`); a missing registry
 // yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
 // packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
@@ -135,15 +136,23 @@ if (sources.length > 0) {
     registryPath: existsSync(registryPath) ? registryPath : null,
     coreVersion,
   })
+  const { factsByModule: legacyFactsByModule } = extractAllModuleFacts({
+    sources,
+    registryPath: existsSync(registryPath) ? registryPath : null,
+    coreVersion,
+    factsContractVersion: 1,
+  })
 
   assertPackageModuleFactsOnly(factsByModule)
+  assertPackageModuleFactsOnly(legacyFactsByModule)
 
   const modulesGuidesDir = join(guidesDestDir, 'modules')
   mkdirSync(modulesGuidesDir, { recursive: true })
   for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
     writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
   }
-  writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+  writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(legacyFactsByModule))
+  writeFileSync(join(guidesDestDir, 'module-facts.v2.json'), renderModuleFactsJson(factsByModule))
   writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
   for (const warning of warnings) console.warn(warning)

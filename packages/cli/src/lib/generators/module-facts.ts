@@ -311,6 +311,8 @@ export interface ExtractModuleFactsOptions {
    */
   portableSourceRoot?: string
   sourceKind?: ModuleFactProjectionSourceKind
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 /** A discovered module and the source directory its facts are extracted from. */
@@ -2138,6 +2140,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     notifications,
     aiTools,
     aiAgents,
+    factsContractVersion: options.factsContractVersion ?? 2,
   })
 
   const indexSourcePath = portableOf(indexFilePath)
@@ -3189,6 +3192,8 @@ export interface ExtractAllModuleFactsOptions {
    * so a disposable projection can publish the gap instead of silently dropping it.
    */
   unresolvedFirstPartyTargets?: 'throw' | 'collect'
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 export interface ExtractAllModuleFactsResult {
@@ -3252,6 +3257,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       registrySource: options.registrySource ?? null,
       ...(source.portableSourceRoot ? { portableSourceRoot: source.portableSourceRoot } : {}),
       ...(source.sourceKind ? { sourceKind: source.sourceKind } : {}),
+      factsContractVersion: options.factsContractVersion ?? 2,
     })
     factsByModule[source.moduleId] = facts
     warnings.push(...facts.warnings)
@@ -3271,6 +3277,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       ...sources.flatMap((source) => extractKnownApiRouteIds(source.moduleId, source.moduleRoot)),
     ]),
     commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
+    factsContractVersion: options.factsContractVersion ?? 2,
   })
   const unresolvedFirstPartyTargets = collectUnresolvedFirstPartyTargets(correlated)
   if ((options.unresolvedFirstPartyTargets ?? 'throw') === 'throw') assertNoUnresolvedExtensionTargets(correlated)

@@ -35,12 +35,15 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
   ensureBuilt()
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
+  assert.ok(fs.existsSync(join(guidesDir, 'module-facts.v2.json')), 'module-facts.v2.json sidecar should exist')
   assert.ok(
     fs.existsSync(join(guidesDir, 'framework-extension-points.md')),
     'framework extension catalog should exist',
   )
   const facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.json'), 'utf8'))
+  const v2Facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.v2.json'), 'utf8'))
   assert.ok(facts.customers, 'module-facts.json should contain the customers entry')
+  assert.ok(v2Facts.customers, 'module-facts.v2.json should contain the customers entry')
   assert.equal(
     facts.customers.sourceRoot,
     'node_modules/@open-mercato/core/src/modules/customers',
@@ -76,6 +79,15 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
   const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
   assert.match(frameworkMarkdown, /^# Framework extension points/m)
   assert.match(frameworkMarkdown, /menu/i)
+
+  const legacySecurityOverride = facts.security.extensionSurfaces.contributions.find(
+    (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
+  )
+  const v2SecurityOverride = v2Facts.security.extensionSurfaces.contributions.find(
+    (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
+  )
+  assert.equal(legacySecurityOverride.details.mode, 'replace')
+  assert.equal(v2SecurityOverride.details.mode, 'wrapper')
 })
 
 test('fresh scaffolds receive the disabled local-reference projection', () => {
@@ -94,6 +106,8 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
     )
 
     for (const relativePath of [
+      '.ai/guides/module-facts.json',
+      '.ai/guides/module-facts.v2.json',
       '.ai/guides/reference-module-facts.json',
       '.ai/guides/reference-modules/example.md',
     ]) {
@@ -103,6 +117,8 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
       fs.readFileSync(join(target, '.ai', 'harness', 'manifest.json'), 'utf8'),
     ) as { files: Array<{ path: string }> }
     const ownedPaths = new Set(manifest.files.map((entry) => entry.path))
+    assert.equal(ownedPaths.has('.ai/guides/module-facts.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/module-facts.v2.json'), true)
     assert.equal(ownedPaths.has('.ai/guides/reference-module-facts.json'), true)
     assert.equal(ownedPaths.has('.ai/guides/reference-modules/example.md'), true)
   } finally {

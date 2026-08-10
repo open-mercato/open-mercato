@@ -28,6 +28,7 @@ describe('module-facts BC resolve guard (T2)', () => {
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
   const extractionStartedAt = process.cpuUsage()
   const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const legacyFactsByModule = extractAllModuleFacts({ sources, factsContractVersion: 1 }).factsByModule
   const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
   const extractionCpuDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
 
@@ -40,6 +41,23 @@ describe('module-facts BC resolve guard (T2)', () => {
       expect(facts.extensionSurfaces).toBeDefined()
       expect(facts.extensionSurfaces?.unresolved).toEqual([])
     }
+  })
+
+  it('preserves stable v1 extension arrays while exposing corrected v2 facts separately', () => {
+    const legacySecurity = legacyFactsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    const v2Security = factsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    expect(legacySecurity?.kind === 'component-override' ? legacySecurity.details.mode : null).toBe('replace')
+    expect(v2Security?.kind === 'component-override' ? v2Security.details.mode : null).toBe('wrapper')
+
+    const recoveredContribution = 'catalog.injection.product-bulk-delete@data-table:catalog.products.list:bulk-actions'
+    expect(legacyFactsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .not.toContain(recoveredContribution)
+    expect(factsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .toContain(recoveredContribution)
   })
 
   it('keeps generated extension facts within bounded build-time and context budgets', () => {

@@ -60,6 +60,8 @@ export interface ExtractModuleExtensionFactsOptions {
   notifications?: readonly string[]
   aiTools?: ReadonlyArray<{ name: string; sourcePath: string }>
   aiAgents?: ReadonlyArray<{ id: string; sourcePath: string }>
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 export interface CorrelateExtensionFactsOptions {
@@ -69,12 +71,15 @@ export interface CorrelateExtensionFactsOptions {
   apiRoutes: ReadonlySet<string>
   commandIds?: ReadonlySet<string>
   contributingModuleId?: string
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 type StaticContext = {
   initializers: Map<string, ts.Expression | ts.FunctionDeclaration>
   sourceFile: ts.SourceFile
   resolving: Set<string>
+  factsContractVersion: 1 | 2
 }
 
 type ApiExtensionHostIds = {
@@ -229,7 +234,7 @@ function propertyName(node: ts.PropertyName): string | null {
   return null
 }
 
-function buildStaticContext(file: ts.SourceFile): StaticContext {
+function buildStaticContext(file: ts.SourceFile, factsContractVersion: 1 | 2 = 2): StaticContext {
   const initializers = new Map<string, ts.Expression | ts.FunctionDeclaration>()
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
@@ -241,7 +246,7 @@ function buildStaticContext(file: ts.SourceFile): StaticContext {
     node.forEachChild(visit)
   }
   file.forEachChild(visit)
-  return { initializers, sourceFile: file, resolving: new Set() }
+  return { initializers, sourceFile: file, resolving: new Set(), factsContractVersion }
 }
 
 function entityRegistryValue(expression: ts.PropertyAccessExpression): string | null {
@@ -294,7 +299,7 @@ function staticObject(expression: ts.ObjectLiteralExpression, context: StaticCon
       if (!name) continue
       const value = staticValue(property.initializer, context)
       if (value !== undefined) result[name] = value
-      else if (isFunctionLikeInitializer(property.initializer, context)) result[name] = true
+      else if (context.factsContractVersion === 2 && isFunctionLikeInitializer(property.initializer, context)) result[name] = true
       continue
     }
     if (ts.isShorthandPropertyAssignment(property)) {
@@ -348,7 +353,11 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
   }
   if (ts.isCallExpression(current)) {
     const handle = componentReplacementHandle(current, context)
-    if (handle) return handle.resolved
+    if (handle) {
+      if (context.factsContractVersion === 2) return handle.resolved
+      const firstArgument = current.arguments[0]
+      return firstArgument ? staticValue(firstArgument, context) : undefined
+    }
     if (ts.isIdentifier(current.expression)) {
       const callable = context.initializers.get(current.expression.text)
       if (callable && (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable) || ts.isFunctionDeclaration(callable))) {
@@ -362,6 +371,7 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
           initializers,
           sourceFile: context.sourceFile,
           resolving: new Set(context.resolving),
+          factsContractVersion: context.factsContractVersion,
         }
         if (callable.body && ts.isExpression(callable.body)) return staticValue(callable.body, childContext)
         const returnStatement = callable.body?.statements.find(ts.isReturnStatement)
@@ -373,9 +383,9 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     // arguments — forwarding the first one there invents a wrong id, so it stays
     // unresolved unless a formula above knows the builder.
     const firstArgument = current.arguments[0]
-    if (firstArgument && ts.isIdentifier(current.expression)) {
+    if (firstArgument && (context.factsContractVersion === 1 || ts.isIdentifier(current.expression))) {
       const value = staticValue(firstArgument, context)
-      if (!isStaticObject(value)) return value
+      if (!isStaticObject(value) || !ts.isIdentifier(current.expression)) return value
       if (current.expression.text === 'dataTableExtensionHost') return { family: 'data-table', ...value }
       if (current.expression.text === 'crudFormExtensionHost') return { family: 'crud-form', ...value }
       if (current.expression.text === 'componentExtensionHost') return { family: 'component-handle', ...value }
@@ -453,20 +463,32 @@ function conventionPath(moduleRoot: string, relativePath: string): string | null
   return null
 }
 
-export function readConventionObjectArray(filePath: string, exportName: string): StaticObject[] {
+function readConventionObjectArrayForContract(
+  filePath: string,
+  exportName: string,
+  factsContractVersion: 1 | 2,
+): StaticObject[] {
   const file = sourceFile(filePath)
   if (!file) return []
-  const context = buildStaticContext(file)
+  const context = buildStaticContext(file, factsContractVersion)
   const initializer = context.initializers.get(exportName)
   if (!initializer || ts.isFunctionDeclaration(initializer)) return []
   const value = staticValue(initializer, context)
   return Array.isArray(value) ? value.filter(isStaticObject) : []
 }
 
-function readRootObject(filePath: string, variableName: string): StaticObject | null {
+export function readConventionObjectArray(filePath: string, exportName: string): StaticObject[] {
+  return readConventionObjectArrayForContract(filePath, exportName, 2)
+}
+
+function readRootObject(
+  filePath: string,
+  variableName: string,
+  factsContractVersion: 1 | 2 = 2,
+): StaticObject | null {
   const file = sourceFile(filePath)
   if (!file) return null
-  const context = buildStaticContext(file)
+  const context = buildStaticContext(file, factsContractVersion)
   const initializer = context.initializers.get(variableName)
   if (!initializer || ts.isFunctionDeclaration(initializer)) return null
   const value = staticValue(initializer, context)
@@ -1088,12 +1110,16 @@ function injectionTableSlots(value: StaticValue | undefined): StaticValue[] {
 function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
   const filePath = conventionPath(options.moduleRoot, 'widgets/injection-table.ts')
   if (!filePath) return []
-  const table = readRootObject(filePath, 'injectionTable')
+  const table = readRootObject(filePath, 'injectionTable', options.factsContractVersion ?? 2)
   if (!table) return []
   const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
   const facts: ModuleExtensionContributionFact[] = []
   for (const targetId of Object.keys(table).sort((left, right) => left.localeCompare(right))) {
-    for (const entry of injectionTableSlots(table[targetId])) {
+    const entries = options.factsContractVersion === 1
+      ? (Array.isArray(table[targetId]) ? table[targetId] as StaticValue[] : [])
+      : injectionTableSlots(table[targetId])
+    for (const entry of entries) {
+      if (options.factsContractVersion === 1 && !isStaticObject(entry)) continue
       const slot = isStaticObject(entry) ? entry : null
       const widgetId = typeof entry === 'string' ? entry : slot ? stringValue(slot.widgetId) : undefined
       if (!widgetId) continue
@@ -1159,7 +1185,9 @@ function extractObjectConvention(options: {
   if (!filePath) return []
   const exportNames = [options.exportName, ...(options.exportAliases ?? [])]
   const entries = exportNames.reduce<StaticObject[]>((found, exportName) =>
-    found.length > 0 ? found : readConventionObjectArray(filePath, exportName), [])
+    found.length > 0
+      ? found
+      : readConventionObjectArrayForContract(filePath, exportName, options.module.factsContractVersion ?? 2), [])
   const sourcePath = portablePath(options.module.moduleRoot, options.module.sourceRoot, filePath)
   return entries.flatMap((entry, index) => options.build(entry, sourcePath, index) ?? [])
 }
@@ -1421,7 +1449,9 @@ function extractComponentOverrides(options: ExtractModuleExtensionFactsOptions):
       if (!handle) return null
       // `ComponentOverride` discriminates on `wrapper` / `propsTransform` /
       // `replacement` — never on a `props` property, which the union has no member for.
-      const mode = entry.wrapper !== undefined ? 'wrapper' : entry.propsTransform !== undefined ? 'props' : 'replace'
+      const mode = options.factsContractVersion === 1
+        ? (entry.wrapper !== undefined ? 'wrapper' : entry.props !== undefined ? 'props' : 'replace')
+        : (entry.wrapper !== undefined ? 'wrapper' : entry.propsTransform !== undefined ? 'props' : 'replace')
       const id = `${options.moduleId}.component-override.${index}:${handle}`
       const contribution = contributionBase(id, sourcePath, 'componentOverrides')
       return {
@@ -1897,7 +1927,9 @@ export function correlateExtensionTarget(
   const framework = allFrameworkHosts().find((host) => patternMatches(host.id, targetFact.id))
     ?? (FRAMEWORK_PREFIXES.some((prefix) => targetFact.id.startsWith(prefix)) ? FRAMEWORK_HOSTS[0] : undefined)
   if (framework) return { id: targetFact.id, resolution: 'framework' }
-  const entityFactKey = entityFactKeyForTarget(targetFact.id, options.entityIds)
+  const entityFactKey = options.factsContractVersion === 1
+    ? (options.entityIds.has(targetFact.id) ? targetFact.id : null)
+    : entityFactKeyForTarget(targetFact.id, options.entityIds)
   if (entityFactKey) {
     return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: entityFactKey } }
   }

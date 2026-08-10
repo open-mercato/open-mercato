@@ -1151,6 +1151,11 @@ app-source compilation joins that lifecycle instead of starting a second helper 
   and the additive `ListConfig.csv` widening. They are now in `UPGRADE_NOTES.md` under
   `0.6.7 → 0.6.8 (unreleased)` with migration guidance, and the canonical spec's Backward
   Compatibility section no longer asserts the opposite of what shipped (`ee8be0729`).
+- **Major follow-up — documentation alone did not bridge stable generated values.** The final
+  compatibility boundary preserves `.ai/guides/module-facts.json` as a source-generated v1
+  projection and emits corrected `.ai/guides/module-facts.v2.json` additively. Generated harness
+  consumers prefer v2 with a v1 fallback; build, scaffold ownership, component-ID/mode, recovered
+  injection-slot, and reader-preference regressions cover both projections.
 - **Minor — `EntityExtension.table`'s JSDoc still described the defect this PR fixed.** It had four
   more copies, all introduced here: the example module's `data/extensions.ts` docstring, its
   `surface-inventory.json` row, both template mirrors, and a comment in the engine tests. All say

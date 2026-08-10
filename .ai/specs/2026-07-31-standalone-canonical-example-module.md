@@ -1,6 +1,6 @@
 # Standalone Canonical Example Module
 
-- **Status:** Implemented — Milestones A–C and the 15/15 runtime matrix are complete; Milestone D awaits only the Linux/Bubblewrap certified harness lane and final CI
+- **Status:** In progress — Milestones A–C and the 15/15 runtime matrix are complete; Milestone D awaits the Linux/Bubblewrap certified harness lane and final CI
 - **Date:** 2026-08-01
 - **Revised:** 2026-08-03
 - **Scope:** OSS, standalone applications emitted by `create-mercato-app`
@@ -540,23 +540,23 @@ Run the affected harness lane and its knowledge-change manifest through the owni
 
 - No framework API, import, event, widget, CLI, or database contract is removed or renamed. The
   added `ExtractAllModuleFactsResult` observability fields remain optional at the exported type
-  boundary and are always populated by the implementation. Four **value** changes are proposed
-  against the STABLE generated-facts surface of `BACKWARD_COMPATIBILITY.md`
+  boundary and are always populated by the implementation. Four **value** corrections land
+  adjacent to the STABLE generated-facts surface of `BACKWARD_COMPATIBILITY.md`
   §14 and against the shared query engine, all corrections rather than removals: contribution IDs
   built from `ComponentReplacementHandles` gain their component segment (`ui.detail` →
   `section:ui.detail.NotesSection`), one published `mode` changes (`section:auth.login.form`,
   `replace` → `wrapper`), twelve previously dropped injection-table contributions start being
   published, and `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`
   (`companys` → `companies`). Each is documented with migration guidance in `UPGRADE_NOTES.md`
-  under `0.6.7 → 0.6.8 (unreleased)`. They are not compatibility-complete merely because every
-  superseded value named something that did not exist: the unversioned scalar `mode` cannot carry
-  both values without ambiguity, while publishing the truncated IDs as normal contributions would
-  falsely assert correlation. Release is blocked until a versioned generated-facts boundary lands
-  or those stable-value changes are reverted.
+  under `0.6.7 → 0.6.8 (unreleased)`. The generated-facts correction uses a truthful filename
+  boundary: `.ai/guides/module-facts.json` remains the source-generated v1 compatibility artifact,
+  while additive `.ai/guides/module-facts.v2.json` exposes the corrected IDs, modes, recovered
+  contributions, and correlation values. Harness consumers prefer v2 and fall back to v1; neither
+  file adds a non-module top-level key.
 - Existing `example` identifiers and paths remain stable; the design eliminates the proposed, unshipped duplicate identifiers.
 - Existing repositories are not modified. The observable behavior change applies only to newly generated `classic` apps, where `example` becomes source-present but runtime-disabled.
 - Lean presets gain additive source files and stop deleting `example`; their runtime remains unchanged because registration stays absent.
-- Normal `.ai/guides/module-facts.json` retains its combined package-module *meaning*, and `.ai/guides/modules/**` retains its enabled-filtered package-Markdown meaning. Its *content* is not unchanged: the reader fixes above add twelve recovered contributions, rewrite the `ComponentReplacementHandles` contribution IDs, and flip one `mode` value, so a byte-comparison against a previously published artifact will differ (see `UPGRADE_NOTES.md`). The new reference-only JSON/Markdown artifacts are additive generated-file contracts, explicitly mark the disabled local projection, and are parity-checked against a fresh activated app-local extraction without mutating either normal output.
+- Normal `.ai/guides/module-facts.json` retains its combined package-module meaning and its legacy v1 stable arrays/IDs/modes. Additive `.ai/guides/module-facts.v2.json` carries the corrected reader facts used by newly generated harness consumers, while `.ai/guides/modules/**` remains corrected, enabled-filtered package Markdown. The new reference-only JSON/Markdown artifacts are additive generated-file contracts, explicitly mark the disabled local projection, and are parity-checked against a fresh activated app-local extraction without mutating either normal package sidecar.
 - PR #4301 gallery references are additive documentation/provenance metadata. Example runtime imports remain public `@open-mercato/ui` paths, so the design-system module and example stay independently activatable.
 - PR #4277 design-foundation records are additive tooling/provenance metadata. They grant no runtime import, Figma credential/network/publish authority, or claim that provisional mappings are merged, complete, live, or published.
 - Fresh standalone registries omit `design_system`; existing applications and the monorepo app are not rewritten, and explicit downstream registration restores the unchanged PR #4301 route/ACL contract.

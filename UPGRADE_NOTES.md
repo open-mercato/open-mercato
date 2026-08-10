@@ -161,7 +161,7 @@ plain literals. Gate behavior *inside* a widget or wrapper, or declare
 `metadata.requiredModules` on the widget; do not branch the exported registry value itself.
 
 
-### Generated `module-facts.json` values change, and extension joins now derive irregular plurals (#4897)
+### Generated facts gain a v2 sidecar, and extension joins now derive irregular plurals (#4897)
 
 `BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
 generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
@@ -171,12 +171,18 @@ fourth fixes a join that resolved to a table that does not exist, but correctnes
 the published contract: each is a visible value change for anyone who reads the generated facts
 or extends an entity.
 
-**Release blocker:** the current unversioned fact leaf cannot represent both `replace` and
-`wrapper` for one contribution without becoming ambiguous, and dual-emitting the old truncated
-component IDs as ordinary contributions would falsely claim that those nonexistent handles
-correlate. This change therefore has no truthful in-band compatibility bridge. Before release,
-the generated-facts contract must gain an explicitly versioned compatibility boundary (or the
-stable-value changes must be reverted). Merely listing the migration below is not a bridge.
+The generated-facts boundary is now explicitly versioned. `.ai/guides/module-facts.json` remains
+the v1 compatibility artifact: its stable extension-surface arrays, exact contribution IDs,
+classification modes, and correlation behavior are generated with the legacy reader contract.
+`.ai/guides/module-facts.v2.json` is an additive sibling containing the corrected reader facts.
+Newly generated harness consumers prefer v2 and fall back to v1, while downstream tools that have
+not migrated keep reading the original path without observing stable-value changes. Both files
+retain the frozen top-level `Record<moduleId, ModuleFactsJsonEntry>` shape; the version is carried
+by the filename rather than an invented non-module key.
+
+**Action for direct extractor callers:** omission of `factsContractVersion` selects v2. Pass
+`factsContractVersion: 1` only while reproducing the legacy sidecar during the compatibility
+window; migrate comparisons and pinned IDs to v2, then remove the explicit v1 selection.
 
 **1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
 `packages/cli/src/lib/generators/module-extension-facts.ts` now folds
@@ -185,21 +191,23 @@ actually registers, so the contribution publishes `section:ui.detail.NotesSectio
 previously published `ui.detail`. The old value named no component — `ui.detail` is the section
 namespace, not a component id — so nothing could have correlated against it successfully. Still,
 it is an exact public ID changing: a scaffolded app or downstream tool that pinned the old string
-must repin. The same applies to the sibling `page`/`region` formulas.
+should move to `module-facts.v2.json` and repin. The same applies to the sibling `page`,
+`dataTable`, and `crudForm` formulas. The legacy sidecar keeps the old strings during the bridge.
 
 **2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
 The component-override reader used to discriminate `mode` on an `entry.props` property that the
 `ComponentOverride` union has no member for; together with the other reader fixes in this change it
 now discriminates on the union's real members (`wrapper` / `propsTransform` / `replacement`).
 Measured across a 55-module corpus, `section:auth.login.form` (enterprise `security`) is the only
-leaf whose value changes; every other contribution keeps the mode it published. `wrapper` is what
-that entry has always done at runtime — the fact sheet was wrong, not the module.
+leaf whose value changes in v2; every other contribution keeps the mode it published. `wrapper` is
+what that entry has always done at runtime — the v1 fact sheet was wrong, not the module. The v1
+sidecar continues to publish `replace` during the bridge.
 
 **3. Recovered injection-table contributions (additive).** The extractor silently dropped every
 string-form and single-object-form slot declaration, hiding twelve real contributions across six
-modules — `integrations` published none at all. Those contributions now appear. This is additive:
-no previously published ID disappears or changes. If you diff generated facts between releases,
-expect new entries; the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold them.
+modules — `integrations` published none at all. Those contributions appear in v2. This is additive:
+no previously published ID disappears or changes. The v1 sidecar preserves its published arrays;
+the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold the corrected projection.
 
 **4. `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`.**
 `packages/shared/src/lib/query/engine.ts` derived an extension's physical table by appending an
