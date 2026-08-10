@@ -25,7 +25,8 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
-import { parseDuration, toTimeoutMs } from './duration'
+import { parseDuration } from './duration'
+import { resolveActivityTimeoutMs } from './activityTimeoutFields'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
@@ -114,28 +115,7 @@ export interface ActivityDefinition {
   compensate?: boolean // Flag to execute compensation on failure
 }
 
-/**
- * Effective timeout for an activity, in milliseconds.
- *
- * The editor and this executor both speak `timeoutMs`, but the definition
- * schema historically accepted only a `timeout` string — so stored definitions
- * can carry either. Prefer `timeoutMs`; fall back to `toTimeoutMs`, which
- * reads both a duration string ("PT30S", "5m") and a plain millisecond string
- * ("30000") — the CrudForm activity editor writes the latter, and its own
- * placeholder tells the user to. A malformed value is ignored rather than
- * thrown mid-execution (an unparseable timeout must not fail an activity that
- * would otherwise succeed). Returns undefined when no usable timeout is
- * configured (#4424).
- */
-export function resolveActivityTimeoutMs(activity: {
-  timeoutMs?: number
-  timeout?: string
-}): number | undefined {
-  if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
-    return activity.timeoutMs
-  }
-  return toTimeoutMs(activity.timeout)
-}
+export { resolveActivityTimeoutMs }
 
 export interface RetryPolicy {
   maxAttempts: number
@@ -1492,7 +1472,8 @@ function sleep(ms: number): Promise<void> {
  *
  * Only CALL_API and CALL_WEBHOOK honour the abort signal today — they forward
  * it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and EXECUTE_FUNCTION
- * still run to completion after the timeout has been recorded.
+ * still run to completion after the timeout has been recorded. Tracked in
+ * #5148.
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,
