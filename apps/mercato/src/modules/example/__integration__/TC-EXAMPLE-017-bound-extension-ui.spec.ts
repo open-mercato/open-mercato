@@ -91,8 +91,19 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
 
       await login(page, 'admin')
       await page.goto(TODOS_LIST_PATH, { waitUntil: 'domcontentloaded' })
-      await page.locator('input[placeholder="Search"]').first().fill(suffix)
-      await expect.poll(async () => page.locator('tbody tr').count(), { timeout: 20_000 }).toBe(1)
+      // Same two hazards as TC-EXAMPLE-003, handled the same way: scope to `main` so the
+      // sidebar's own placeholder-"Search" input is not what gets typed into, and re-type on
+      // every attempt, because DataTable's asynchronous view restore clears a search typed
+      // before it lands.
+      const searchInput = page.locator('main input[placeholder="Search"]').first()
+      await expect(searchInput).toBeVisible({ timeout: 60_000 })
+      await expect
+        .poll(async () => {
+          await searchInput.fill(suffix)
+          await page.waitForTimeout(1500)
+          return page.locator('tbody tr').count()
+        }, { timeout: 60_000, intervals: [1000, 2000, 3000] })
+        .toBe(1)
 
       // `TodosTable` sets `perspective.tableId`, `DataTable` derives `extensionTableId` from it,
       // and the bulk-action spot id is built from that. The selection column exists ONLY when a

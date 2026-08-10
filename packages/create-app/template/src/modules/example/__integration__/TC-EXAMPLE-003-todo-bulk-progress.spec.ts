@@ -163,11 +163,22 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
       await login(page, 'admin')
       await page.goto('/backend/todos', { waitUntil: 'domcontentloaded' })
 
-      // Narrow to this run's own rows first: the bulk action must act on the selection, and a
-      // shared database makes any selection assertion meaningless without the filter.
-      await page.locator('input[placeholder="Search"]').first().fill(suffix)
+      // Scoped to `main`: the AppShell sidebar also renders a placeholder-"Search" input for
+      // navigation, and an unscoped locator picks that one whenever the sidebar is expanded.
+      const searchInput = page.locator('main input[placeholder="Search"]').first()
+      await expect(searchInput).toBeVisible({ timeout: 60_000 })
+
+      // Re-typed on every attempt, deliberately. `DataTable` restores its persisted view state
+      // asynchronously and calls `onSearchChange(normalized.searchValue ?? '')` when it lands, so
+      // a search typed before the restore is wiped by a view that carries none. On a warm page the
+      // restore has already happened and one fill is enough; on a cold one it has not, which is
+      // exactly the difference between this test passing first try and only on retry.
       await expect
-        .poll(async () => page.locator('tbody tr').count(), { timeout: 20_000 })
+        .poll(async () => {
+          await searchInput.fill(suffix)
+          await page.waitForTimeout(1500)
+          return page.locator('tbody tr').count()
+        }, { timeout: 60_000, intervals: [1000, 2000, 3000] })
         .toBe(2)
 
       // The checkbox column exists only because an injected bulk action is registered — its
