@@ -161,14 +161,17 @@ function sanitizeString(input, key, state) {
   value = replaceMatches(value, /\b(Authorization\s*:\s*)[^\s,;]+/gi, (_match, prefix) => `${prefix}«redacted:authorization»`, state, 'secrets')
   value = replaceMatches(value, /([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, (_match, prefix) => `${prefix}«redacted:credential»@`, state, 'secrets')
   value = replaceMatches(value, /\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret)\s*[:=]\s*)[^\s,;"']+/gi, (_match, prefix) => `${prefix}«redacted:secret»`, state, 'secrets')
-  value = redactHighEntropy(value, state)
+  if (key !== 'generated-file-path') value = redactHighEntropy(value, state)
 
   value = replaceMatches(value, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '«redacted:email»', state, 'pii')
   value = replaceMatches(value, /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{1,4}\b/gi, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '«redacted:identifier»', state, 'identifiers')
   value = replaceMatches(value, /\b[0-9a-f]{64,}\b/gi, '«redacted:hex-secret»', state, 'secrets')
-  value = value.replace(/\+?\d[\d ()-]{7,}\d/g, (candidate) => {
+  const phonePattern = key === 'generated-file-path'
+    ? /(?<![A-Za-z0-9_])\+?\d[\d ()-]{7,}\d(?![A-Za-z0-9_])/g
+    : /\+?\d[\d ()-]{7,}\d/g
+  value = value.replace(phonePattern, (candidate) => {
     const digits = candidate.replace(/\D/g, '')
     if (digits.length < 9 || digits.length > 15) return candidate
     countReplacement(state, 'pii')

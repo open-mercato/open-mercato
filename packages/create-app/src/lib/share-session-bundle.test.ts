@@ -328,6 +328,34 @@ test('session-share preparer recognizes messages nested in native Codex turns', 
   }
 })
 
+test('session-share preparer accepts migration timestamps without weakening phone detection in paths', () => {
+  const fixture = createFixture()
+  try {
+    const migrationDirectory = path.join(fixture.root, 'src', 'migrations')
+    fs.mkdirSync(migrationDirectory, { recursive: true })
+    fs.writeFileSync(fixture.sessionPath, JSON.stringify([{ type: 'user' }, { type: 'assistant' }]))
+    fs.writeFileSync(path.join(migrationDirectory, 'Migration20260810130011_demo.ts'), 'export {}\n')
+    fs.writeFileSync(fixture.manifestPath, 'src/migrations/Migration20260810130011_demo.ts\n')
+
+    const migrationResult = runPreparer(fixture)
+    assert.equal(migrationResult.status, 0, migrationResult.stderr)
+
+    const phoneFixture = createFixture()
+    try {
+      fs.writeFileSync(phoneFixture.sessionPath, JSON.stringify([{ type: 'user' }, { type: 'assistant' }]))
+      fs.writeFileSync(path.join(phoneFixture.root, 'src', 'phone-48123123123.ts'), 'export {}\n')
+      fs.writeFileSync(phoneFixture.manifestPath, 'src/phone-48123123123.ts\n')
+      const phoneResult = runPreparer(phoneFixture)
+      assert.notEqual(phoneResult.status, 0)
+      assert.match(phoneResult.stderr, /sensitive generated-file path/)
+    } finally {
+      fs.rmSync(phoneFixture.root, { recursive: true, force: true })
+    }
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true })
+  }
+})
+
 test('session-share preparer fails closed for incomplete sessions and unsafe file inputs', async (t) => {
   await t.test('missing assistant turn', () => {
     const fixture = createFixture()
