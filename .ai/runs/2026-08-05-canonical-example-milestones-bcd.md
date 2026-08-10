@@ -706,11 +706,11 @@ effort:
 | Wave | Slices | Status |
 |---|---|---|
 | 1 | A, E, H | **INTEGRATED** `3e27096ca` |
-| 2 | C | mostly integrated; family 8's preset/tier applicability blocked on a preset-narrowed owner |
-| 2 | F, G | **INTEGRATED** `b34f5bb98`, `11e84e4d2`, `f34827af6` |
+| 2 | C | **INTEGRATED**; preset/tier applicability now has explicit matching and wrong-preset/wrong-tier fixtures |
+| 2 | F, G | **INTEGRATED** `b34f5bb98`, `11e84e4d2`, `f34827af6`; the final derived design/source-link projection is green |
 | 3 | D | **INTEGRATED** `3167576ba`, `9e803f5b0` |
-| 4 | B | **12 of 15 integrated and run** `b17d06306`, `43d835c33`, `de28cdeec`, `35eefb97e`. Remaining: `012`, `015`, `016` — each blocked as described above |
-| 5 | I + spec changelogs | spec changelog + surface-map honesty done; the aggregate certification deliberately NOT claimed while B is 12/15 |
+| 4 | B | **15 of 15 integrated and run**; `TC-EXAMPLE-012`, `015`, and `016` close the former topology, specialized-registry, and activated-standalone gaps |
+| 5 | I + spec changelogs | **LOCAL CERTIFICATION COMPLETE**; trusted provider-backed execution remains pending because the release controller correctly requires Linux/Bubblewrap containment |
 
 ### Merge with the base, 2026-08-10 — one real collision, resolved by renumbering
 
@@ -727,3 +727,27 @@ declaring-case list, the capability map, the family-9 ledger note, and the `AGEN
 paragraph the read-policy test matches against. Verified by count rather than by reading: the
 merged catalog has 227 cases, zero duplicate ids, and exactly seven `context.exampleRoots`
 declarers of which one is writable.
+
+## Gap completion and final local gate — 2026-08-10 session 5
+
+The three missing runtime cases are implemented and executed. The complete runtime matrix passed
+in randomized dependency order (43/43); the repeated aggregate executed 86 cases and found one
+real dynamic-form setup race, after which `TC-EXAMPLE-011` passed 6/6 with Playwright retries
+disabled. `TC-EXAMPLE-016` also passed through the standalone controller: disabled scaffold,
+explicit example activation, deterministic generator rerun, production build, real boot and cleanup.
+
+Fresh-scaffold certification found and closed the last emission discrepancy: generated reference
+facts existed in the package build but were not copied or hash-owned by `generateShared()`. Both
+the JSON projection and Markdown entry now reach a classic scaffold while the module remains
+disabled. Measured per-case context ceilings were ratcheted to the next 4 KiB against packed and
+current-source controllers, and the complete deterministic catalog passes **228/228**. The real
+knowledge-change controller passes base-failure/head-success with all seven affected contracts,
+six required release lanes, 29 owners, 130 topics, 107 rendered links, eight baseline assets and
+136 dispositions.
+
+The ordered repository validation gate is green in local runner mode: `yarn build:packages`,
+`yarn generate`, the second `yarn build:packages`, `yarn i18n:check-sync`,
+`yarn i18n:check-usage`, `yarn typecheck`, `yarn test` (25/25 package tasks), and
+`yarn build:app`. The only remaining Milestone D execution is the provider-backed certified
+release lane in a Linux/Bubblewrap host. Native macOS refuses it before model execution by design;
+that containment requirement is not waived or reported as a pass.
