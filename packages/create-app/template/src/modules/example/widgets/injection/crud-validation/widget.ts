@@ -180,6 +180,19 @@ const widget: InjectionWidgetModule<any, any> = {
       console.log('[Example Widget] After save complete:', data, context)
       await runRecursiveLifecycleEvent('onAfterSave', data, context)
     },
+    onBeforeDelete: async (data, context) => {
+      console.log('[Example Widget] Before delete:', data, context)
+      return true
+    },
+    onDelete: async (data, context) => {
+      console.log('[Example Widget] Delete triggered:', data, context)
+    },
+    onAfterDelete: async (data, context) => {
+      console.log('[Example Widget] After delete complete:', data, context)
+    },
+    onDeleteError: async (data, context, error) => {
+      console.log('[Example Widget] Delete failed:', error, data, context)
+    },
     onFieldChange: async (fieldId, value, data, context) => {
       const sharedState = readSharedState(context)
       sharedState?.set('lastFieldChange', { fieldId, value })

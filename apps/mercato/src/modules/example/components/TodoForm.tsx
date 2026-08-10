@@ -6,7 +6,6 @@ import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/deta
 import { createCrud, fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import type { TodoListItem } from '../types'
@@ -248,18 +247,8 @@ export function TodoEditForm({ id }: { id: string }) {
       loadingMessage={t('example.todos.form.loading')}
       onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
       onDelete={async () => {
-        try {
-          await deleteCrud('example/todos', String(id))
-          pushWithFlash(router, LIST_HREF, t('example.todos.form.flash.deleted'), 'success')
-        } catch (error) {
-          // `CrudForm` scopes the expected-version header around `onDelete`, so a
-          // stale version comes back as a 409 here rather than reaching the form's
-          // own handler. Route it to the shared conflict bar first.
-          if (surfaceRecordConflict(error, t)) return
-          const message =
-            error instanceof Error && error.message ? error.message : t('example.todos.table.error.delete')
-          setErr(message)
-        }
+        await deleteCrud('example/todos', String(id))
+        pushWithFlash(router, LIST_HREF, t('example.todos.form.flash.deleted'), 'success')
       }}
     />
   )

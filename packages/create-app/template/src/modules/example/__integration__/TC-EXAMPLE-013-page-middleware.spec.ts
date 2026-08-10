@@ -1,13 +1,56 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import backendMiddleware from '../backend/middleware'
 import frontendMiddleware from '../frontend/middleware'
 import exampleModuleOverridesReference from '../references/module-overrides.reference'
 
 const TODOS_LIST_PATH = '/backend/todos'
+const DENIED_TEXT = /don't have access|permission|forbidden|not authorized|access denied/i
+
+function readTokenClaims(token: string): { tenantId?: string; orgId?: string | null } {
+  const parts = token.split('.')
+  return JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as {
+    tenantId?: string
+    orgId?: string | null
+  }
+}
+
+async function loginWithCredentials(page: Page, email: string, password: string): Promise<void> {
+  const form = new URLSearchParams()
+  form.set('email', email)
+  form.set('password', password)
+  const response = await page.request.post('/api/auth/login', {
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: form.toString(),
+  })
+  expect(response.ok(), `limited-user login failed: ${response.status()}`).toBeTruthy()
+  const payload = await readJsonSafe<{ token?: string }>(response)
+  expect(payload?.token).toBeTruthy()
+  const claims = readTokenClaims(payload!.token!)
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+  const cookies = [
+    { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+    { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+  ]
+  if (claims.tenantId) {
+    cookies.push({ name: 'om_selected_tenant', value: claims.tenantId, url: baseUrl, sameSite: 'Lax' as const })
+  }
+  if (claims.orgId) {
+    cookies.push({ name: 'om_selected_org', value: claims.orgId, url: baseUrl, sameSite: 'Lax' as const })
+  }
+  await page.context().addCookies(cookies)
+}
 
 /**
  * Milestone B coverage for the module's two page-middleware surfaces.
@@ -78,6 +121,82 @@ test.describe('TC-EXAMPLE-013: backend and frontend page middleware redirect the
 
     await page.goto('/blog/mixed-case-post', { waitUntil: 'commit' })
     await expect(page).toHaveURL(/\/blog\/mixed-case-post\/?$/)
+  })
+
+  test('denies the backend middleware target before redirect when its feature guard fails', async ({ page, request }) => {
+    test.slow()
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const email = `tc-example-013-feature-${suffix}@example.com`
+    const password = 'StrongSecret123!'
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `TC-EXAMPLE-013 feature ${suffix}`,
+        tenantId: scope.tenantId,
+      })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId,
+        features: ['example.backend'],
+        organizations: [scope.organizationId],
+      })
+      userId = await createUserFixture(request, adminToken, {
+        email,
+        password,
+        organizationId: scope.organizationId,
+        roles: [roleId],
+        name: 'TC EXAMPLE 013 feature denied',
+      })
+
+      await loginWithCredentials(page, email, password)
+      await page.goto('/backend/todos/not-a-real-todo-id/edit', { waitUntil: 'domcontentloaded' })
+      await expect(page.getByText(DENIED_TEXT).first()).toBeVisible()
+      await expect(page).not.toHaveURL(new RegExp(`${TODOS_LIST_PATH}(?:\\?.*)?$`))
+    } finally {
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
+  })
+
+  test('denies the backend middleware target before redirect when organization scope is empty', async ({ page, request }) => {
+    test.slow()
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const email = `tc-example-013-scope-${suffix}@example.com`
+    const password = 'StrongSecret123!'
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `TC-EXAMPLE-013 scope ${suffix}`,
+        tenantId: scope.tenantId,
+      })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId,
+        features: ['example.todos.manage'],
+        organizations: [],
+      })
+      userId = await createUserFixture(request, adminToken, {
+        email,
+        password,
+        organizationId: scope.organizationId,
+        roles: [roleId],
+        name: 'TC EXAMPLE 013 scope denied',
+      })
+
+      await loginWithCredentials(page, email, password)
+      await page.goto('/backend/todos/not-a-real-todo-id/edit', { waitUntil: 'domcontentloaded' })
+      await expect(page.getByText(DENIED_TEXT).first()).toBeVisible()
+      await expect(page).not.toHaveURL(new RegExp(`${TODOS_LIST_PATH}(?:\\?.*)?$`))
+    } finally {
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
   })
 
   test('leaves API requests to the mutation guards and never redirects them', async ({ request }) => {

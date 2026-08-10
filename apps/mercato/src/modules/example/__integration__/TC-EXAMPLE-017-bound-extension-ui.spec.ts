@@ -1,8 +1,20 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  bumpRecordViaApi,
+  expectConflictBanner,
+} from '@open-mercato/core/helpers/integration/optimisticLockUi'
 
 export const integrationMeta = {
   dependsOnModules: ['example', 'customers', 'events'],
@@ -11,6 +23,50 @@ export const integrationMeta = {
 const TODOS_API = '/api/example/todos'
 const TODOS_LIST_PATH = '/backend/todos'
 const COMPONENT_OVERRIDES_PATH = '/backend/component-overrides'
+
+function readTokenClaims(token: string): { tenantId?: string; orgId?: string | null } {
+  const parts = token.split('.')
+  return JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as {
+    tenantId?: string
+    orgId?: string | null
+  }
+}
+
+async function loginWithCredentials(page: Page, email: string, password: string): Promise<void> {
+  const form = new URLSearchParams()
+  form.set('email', email)
+  form.set('password', password)
+  const response = await page.request.post('/api/auth/login', {
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: form.toString(),
+  })
+  expect(response.ok(), `limited-user login failed: ${response.status()}`).toBeTruthy()
+  const payload = await readJsonSafe<{ token?: string }>(response)
+  expect(payload?.token).toBeTruthy()
+  const claims = readTokenClaims(payload!.token!)
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+  const cookies = [
+    { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+    { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+  ]
+  if (claims.tenantId) {
+    cookies.push({ name: 'om_selected_tenant', value: claims.tenantId, url: baseUrl, sameSite: 'Lax' as const })
+  }
+  if (claims.orgId) {
+    cookies.push({ name: 'om_selected_org', value: claims.orgId, url: baseUrl, sameSite: 'Lax' as const })
+  }
+  await page.context().addCookies(cookies)
+}
+
+function collectExampleLifecycleLogs(page: Page): string[] {
+  const entries: string[] = []
+  page.on('console', (message) => {
+    if (message.text().includes('[Example Widget]') || message.text().includes('[UMES] Nested addon')) {
+      entries.push(message.text())
+    }
+  })
+  return entries
+}
 
 /**
  * Milestone B coverage for the extension surfaces this module BINDS, as opposed to the ones it
@@ -77,6 +133,167 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
         return (await page.getByTestId('widget-field-change').textContent()) ?? ''
       }, { timeout: 30_000, intervals: [500, 1000, 2000, 3000] })
       .not.toBe('fieldChange=null')
+  })
+
+  test('runs validation, transform, recursive, save and after-save phases through a real create', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const logs = collectExampleLifecycleLogs(page)
+    let todoId: string | null = null
+
+    try {
+      await login(page, 'admin')
+      await page.goto('/backend/todos/create', { waitUntil: 'domcontentloaded' })
+      const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
+      await page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first().fill('3')
+      await page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first().click()
+      await page.getByRole('option', { name: 'Medium' }).click()
+
+      const blockedTitle = `[block] TC-EXAMPLE-017 ${suffix}`
+      await titleInput.fill(blockedTitle)
+      await titleInput.locator('xpath=ancestor::form').first().locator('button[type="submit"]').first().click()
+      await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":false')
+      await expect(page).toHaveURL(/\/backend\/todos\/create(?:\?.*)?$/)
+      expect(logs.some((entry) => entry.includes('Before save validation'))).toBe(true)
+      expect(logs.some((entry) => entry.includes('Save triggered'))).toBe(false)
+
+      logs.length = 0
+      const rawTitle = `[transform] TC-EXAMPLE-017 ${suffix}`
+      const expectedTitle = `TC-EXAMPLE-017 ${suffix} (transformed)`
+      await titleInput.fill(rawTitle)
+      const [createRequest, createResponse] = await Promise.all([
+        page.waitForRequest((candidate) => candidate.url().includes(TODOS_API) && candidate.method() === 'POST'),
+        page.waitForResponse((response) => response.url().includes(TODOS_API) && response.request().method() === 'POST'),
+        titleInput.locator('xpath=ancestor::form').first().locator('button[type="submit"]').first().click(),
+      ])
+      expect(createResponse.ok(), `create failed: ${createResponse.status()}`).toBeTruthy()
+      todoId = ((await createResponse.json()) as { id?: string }).id ?? null
+      expect(todoId).toBeTruthy()
+      expect((createRequest.postDataJSON() as { title?: string }).title).toBe(expectedTitle)
+      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
+
+      expect(logs.findIndex((entry) => entry.includes('Before save validation'))).toBeGreaterThanOrEqual(0)
+      expect(logs.findIndex((entry) => entry.includes('Save triggered'))).toBeGreaterThan(
+        logs.findIndex((entry) => entry.includes('Before save validation')),
+      )
+      expect(logs.findIndex((entry) => entry.includes('After save complete'))).toBeGreaterThan(
+        logs.findIndex((entry) => entry.includes('Save triggered')),
+      )
+      expect(logs.some((entry) => entry.includes('[UMES] Nested addon widget onBeforeSave fired'))).toBe(true)
+
+      const read = await apiRequest(request, 'GET', `${TODOS_API}?ids=${todoId}&page=1&pageSize=1`, { token })
+      const item = ((await read.json()) as { items?: Array<{ title?: string }> }).items?.[0]
+      expect(item?.title).toBe(expectedTitle)
+    } finally {
+      await deleteEntityIfExists(request, token, TODOS_API, todoId)
+    }
+  })
+
+  test('runs the delete success and stale-delete error lifecycles at the real CrudForm host', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const logs = collectExampleLifecycleLogs(page)
+    let successTodoId: string | null = null
+    let staleTodoId: string | null = null
+
+    try {
+      for (const branch of ['success', 'stale'] as const) {
+        const created = await apiRequest(request, 'POST', TODOS_API, {
+          token,
+          data: { title: `TC-EXAMPLE-017 delete ${branch} ${suffix}`, cf_priority: 1, cf_severity: 'low' },
+        })
+        expect(created.ok()).toBeTruthy()
+        const createdId = ((await created.json()) as { id?: string }).id ?? null
+        expect(createdId).toBeTruthy()
+        if (branch === 'success') successTodoId = createdId
+        else staleTodoId = createdId
+      }
+
+      await login(page, 'admin')
+      await page.goto(`/backend/todos/${encodeURIComponent(successTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
+      await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(
+        `TC-EXAMPLE-017 delete success ${suffix}`,
+      )
+      logs.length = 0
+      await page.getByRole('button', { name: /^Delete$/ }).click()
+      const successDialog = page.getByRole('alertdialog')
+      await expect(successDialog).toBeVisible()
+      const successResponsePromise = page.waitForResponse((response) =>
+        response.url().includes(TODOS_API) && response.request().method() === 'DELETE')
+      await successDialog.getByRole('button', { name: /^Confirm$/ }).click()
+      expect((await successResponsePromise).ok()).toBeTruthy()
+      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
+      expect(logs.findIndex((entry) => entry.includes('Before delete'))).toBeGreaterThanOrEqual(0)
+      expect(logs.findIndex((entry) => entry.includes('Delete triggered'))).toBeGreaterThan(
+        logs.findIndex((entry) => entry.includes('Before delete')),
+      )
+      expect(logs.findIndex((entry) => entry.includes('After delete complete'))).toBeGreaterThan(
+        logs.findIndex((entry) => entry.includes('Delete triggered')),
+      )
+
+      await page.goto(`/backend/todos/${encodeURIComponent(staleTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
+      const staleTitle = `TC-EXAMPLE-017 delete stale ${suffix}`
+      await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(staleTitle)
+      await bumpRecordViaApi(request, token, TODOS_API, { id: staleTodoId, title: `${staleTitle} moved` })
+      logs.length = 0
+      await page.getByRole('button', { name: /^Delete$/ }).click()
+      const staleDialog = page.getByRole('alertdialog')
+      await expect(staleDialog).toBeVisible()
+      const staleResponsePromise = page.waitForResponse((response) =>
+        response.url().includes(TODOS_API) && response.request().method() === 'DELETE')
+      await staleDialog.getByRole('button', { name: /^Confirm$/ }).click()
+      expect((await staleResponsePromise).status()).toBe(409)
+      await expectConflictBanner(page)
+      expect(logs.some((entry) => entry.includes('Before delete'))).toBe(true)
+      expect(logs.some((entry) => entry.includes('Delete triggered'))).toBe(true)
+      expect(logs.some((entry) => entry.includes('Delete failed'))).toBe(true)
+      expect(logs.some((entry) => entry.includes('After delete complete'))).toBe(false)
+    } finally {
+      await deleteEntityIfExists(request, token, TODOS_API, successTodoId)
+      await deleteEntityIfExists(request, token, TODOS_API, staleTodoId)
+    }
+  })
+
+  test('keeps the Todo form available while hiding its widgets from a user without the widget feature', async ({ page, request }) => {
+    test.slow()
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const email = `tc-example-017-widget-${suffix}@example.com`
+    const password = 'StrongSecret123!'
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `TC-EXAMPLE-017 widget gate ${suffix}`,
+        tenantId: scope.tenantId,
+      })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId,
+        features: ['example.todos.manage'],
+        organizations: [scope.organizationId],
+      })
+      userId = await createUserFixture(request, adminToken, {
+        email,
+        password,
+        organizationId: scope.organizationId,
+        roles: [roleId],
+        name: 'TC EXAMPLE 017 widget gate',
+      })
+
+      await loginWithCredentials(page, email, password)
+      await page.goto('/backend/todos/create', { waitUntil: 'domcontentloaded' })
+      await expect(page.locator('[data-crud-field-id="title"] input').first()).toBeVisible()
+      await expect(page.getByText('Example Injection Widget')).toHaveCount(0)
+      await expect(page.getByTestId('widget-recursive-addon-host')).toHaveCount(0)
+    } finally {
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
   })
 
   test('the bound DataTable host resolves its bulk-action spot from the perspective table id', async ({ page, request }) => {

@@ -21,6 +21,7 @@ export const integrationMeta = {
 const TODOS_API = '/api/example/todos'
 const BULK_API = '/api/example/todos/bulk-complete'
 const PROGRESS_JOB_API = '/api/progress/jobs'
+const QA_EVENTS_API = '/api/example/qa-events'
 const BULK_QUEUE = 'example-todos-bulk-complete'
 const DISPATCH_QUEUE = 'example-todos-bulk-dispatch'
 const APP_ROOT = path.resolve(process.env.OM_TEST_APP_ROOT?.trim() || path.resolve(process.cwd(), 'apps/mercato'))
@@ -33,8 +34,10 @@ type ProgressJob = {
   processedCount: number | null
   totalCount: number | null
   cancellable: boolean
+  errorMessage?: string | null
   resultSummary: { affectedCount?: number; failedCount?: number; failedItems?: unknown[] } | null
 }
+type CapturedEvent = { event: string; payload: Record<string, unknown> }
 type OperationRow = {
   id: string
   status: string
@@ -76,6 +79,17 @@ async function readProgressJob(
   const response = await apiRequest(request, 'GET', `${PROGRESS_JOB_API}/${jobId}`, { token })
   if (!response.ok()) return null
   return await response.json() as ProgressJob
+}
+
+async function clearQaEvents(request: APIRequestContext, token: string): Promise<void> {
+  const response = await apiRequest(request, 'DELETE', QA_EVENTS_API, { token })
+  expect(response.ok(), `clear QA events failed: ${response.status()}`).toBeTruthy()
+}
+
+async function readQaEvents(request: APIRequestContext, token: string): Promise<CapturedEvent[]> {
+  const response = await apiRequest(request, 'GET', `${QA_EVENTS_API}?prefix=progress.job.`, { token })
+  expect(response.ok(), `read QA events failed: ${response.status()}`).toBeTruthy()
+  return ((await response.json()) as { items?: CapturedEvent[] }).items ?? []
 }
 
 async function loadOperation(idempotencyKey: string): Promise<OperationRow | null> {
@@ -159,6 +173,7 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
     const token = await getAuthToken(request, 'admin')
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
     const todoIds: string[] = []
+    let idempotencyKey: string | null = null
 
     try {
       todoIds.push(await createTodo(request, token, `TC-EXAMPLE-003 A ${suffix}`))
@@ -213,16 +228,49 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
 
       // Start feedback and the top progress bar are both driven by that id.
       await expect(page.getByText(/Bulk completion started/i).first()).toBeVisible({ timeout: 15_000 })
+      await expect(page.locator('tbody').getByRole('checkbox', { checked: true })).toHaveCount(0)
 
-      const settled = await settleOperation(
-        (await withClient(async (client) => {
-          const result = await client.query<{ idempotency_key: string }>(
-            'SELECT idempotency_key FROM example_todo_bulk_operations WHERE progress_job_id = $1',
-            [progressJobId],
-          )
-          return result.rows[0]?.idempotency_key ?? ''
-        })),
-      )
+      idempotencyKey = await withClient(async (client) => {
+        const result = await client.query<{ idempotency_key: string }>(
+          'SELECT idempotency_key FROM example_todo_bulk_operations WHERE progress_job_id = $1',
+          [progressJobId],
+        )
+        return result.rows[0]?.idempotency_key ?? null
+      })
+      expect(idempotencyKey, 'the accepted progress job must belong to a durable operation').toBeTruthy()
+
+      // The app worker can finish before a human can see the top bar. Rewind both durable rows
+      // to their post-acceptance state, then let the real browser poll and the real dispatcher
+      // observe the same lifecycle at a deterministic pace.
+      await settleOperation(idempotencyKey!)
+      await withClient(async (client) => {
+        await client.query('UPDATE todos SET is_done = false WHERE id = ANY($1::uuid[])', [todoIds])
+        await client.query(
+          `UPDATE example_todo_bulk_operations
+              SET status = 'pending', next_item_index = 0, succeeded_count = 0, failed_count = 0,
+                  published_at = NULL, lease_owner = NULL, lease_expires_at = NULL
+            WHERE idempotency_key = $1`,
+          [idempotencyKey],
+        )
+        await client.query(
+          `UPDATE progress_jobs
+              SET status = 'pending', processed_count = 0, progress_percent = 0,
+                  started_at = NULL, finished_at = NULL, cancel_requested_at = NULL,
+                  error_message = NULL, result_summary = NULL
+            WHERE id = $1`,
+          [progressJobId],
+        )
+      })
+
+      const runningSummary = page.getByRole('button', { name: /operations running/i })
+      await expect(runningSummary).toBeVisible({ timeout: 15_000 })
+      await expect(runningSummary).toContainText('Mark selected todos done')
+      await runningSummary.click()
+      await expect(page.getByText('0 / 2', { exact: true })).toBeVisible()
+      await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
+
+      await runDispatcherTick(getTokenScope(token))
+      const settled = await settleOperation(idempotencyKey!)
       expect(settled?.status, 'the operation must reach a terminal state').toBe('completed')
       expect(settled?.succeeded_count).toBe(2)
       expect(settled?.failed_count).toBe(0)
@@ -235,11 +283,13 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
       expect(job?.totalCount).toBe(2)
       expect(job?.resultSummary?.affectedCount).toBe(2)
       expect(job?.resultSummary?.failedCount).toBe(0)
+      await expect(page.getByRole('button', { name: /operations completed/i })).toBeVisible({ timeout: 15_000 })
 
       for (const id of todoIds) {
         expect(await readTodoDone(request, token, id), `${id} must be done`).toBe(true)
       }
     } finally {
+      if (idempotencyKey) await deleteOperation(idempotencyKey)
       for (const id of todoIds) {
         await deleteEntityIfExists(request, token, TODOS_API, id)
       }
@@ -467,6 +517,75 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
       expect(failedItems?.[0]?.id).toBe(orderedIds[1])
       // A stable code, never the raw message of whatever threw — the summary reaches the browser.
       expect(failedItems?.[0]?.code).toBe('not_found')
+    } finally {
+      await deleteOperation(idempotencyKey)
+      for (const id of todoIds) {
+        await deleteEntityIfExists(request, token, TODOS_API, id)
+      }
+    }
+  })
+
+  test('fails with a bounded summary and one terminal event when every selected todo disappears', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const idempotencyKey = randomUUID()
+    const todoIds: string[] = []
+
+    try {
+      todoIds.push(await createTodo(request, token, `TC-EXAMPLE-003 failed A ${suffix}`))
+      todoIds.push(await createTodo(request, token, `TC-EXAMPLE-003 failed B ${suffix}`))
+
+      const accepted = await apiRequest(request, 'POST', BULK_API, {
+        token,
+        data: { ids: todoIds, idempotencyKey },
+      })
+      expect(accepted.status()).toBe(202)
+      const progressJobId = (await accepted.json() as BulkResponse).progressJobId!
+      expect(progressJobId).toBeTruthy()
+
+      await settleOperation(idempotencyKey)
+      await clearQaEvents(request, token)
+      await withClient(async (client) => {
+        await client.query('UPDATE todos SET is_done = false, deleted_at = now() WHERE id = ANY($1::uuid[])', [todoIds])
+        await client.query(
+          `UPDATE example_todo_bulk_operations
+              SET status = 'pending', next_item_index = 0, succeeded_count = 0, failed_count = 0,
+                  published_at = NULL, lease_owner = NULL, lease_expires_at = NULL
+            WHERE idempotency_key = $1`,
+          [idempotencyKey],
+        )
+        await client.query(
+          `UPDATE progress_jobs
+              SET status = 'pending', processed_count = 0, progress_percent = 0,
+                  started_at = NULL, finished_at = NULL, cancel_requested_at = NULL,
+                  error_message = NULL, result_summary = NULL
+            WHERE id = $1`,
+          [progressJobId],
+        )
+      })
+
+      await runDispatcherTick(getTokenScope(token))
+      const settled = await settleOperation(idempotencyKey)
+      expect(settled?.status, 'an all-failed run must fail rather than complete').toBe('failed')
+      expect(settled?.succeeded_count).toBe(0)
+      expect(settled?.failed_count).toBe(2)
+
+      const job = await readProgressJob(request, token, progressJobId)
+      expect(job?.status).toBe('failed')
+      expect(job?.resultSummary?.affectedCount).toBe(0)
+      expect(job?.resultSummary?.failedCount).toBe(2)
+      expect(job?.errorMessage).toBeTruthy()
+      const failedItems = job?.resultSummary?.failedItems as Array<{ id?: string; code?: string }> | undefined
+      expect(failedItems).toHaveLength(2)
+      expect(failedItems?.map((item) => item.id).sort()).toEqual([...todoIds].sort())
+      expect(failedItems?.every((item) => item.code === 'not_found')).toBe(true)
+
+      await expect.poll(async () => {
+        const events = await readQaEvents(request, token)
+        return events.filter((event) =>
+          event.event === 'progress.job.failed' && event.payload.jobId === progressJobId).length
+      }, { timeout: 15_000 }).toBe(1)
     } finally {
       await deleteOperation(idempotencyKey)
       for (const id of todoIds) {
