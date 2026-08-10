@@ -8,11 +8,13 @@ import type { EntityExtension } from '@open-mercato/shared/modules/entities'
  * is a plain `customer_id` uuid column plus this declaration, which is what the
  * generators and the data engine traverse.
  *
- * `table` is mandatory here: the query engine otherwise derives the extension
- * table by appending an `s` to the entity segment, producing
- * `example_customer_prioritys` instead of the real `example_customer_priorities`.
- * `__tests__/entity-extensions.test.ts` pins the declaration to the physical
- * schema in `migrations/.snapshot-open-mercato.json`.
+ * `table` is declared, not required: the query engine derives the extension table
+ * with the same regular pluralizer it uses everywhere else, so it would also reach
+ * `example_customer_priorities` from `example_customer_priority`. The declaration
+ * is the explicit form — it demonstrates the escape hatch a module needs when its
+ * `@Entity({ tableName })` does not match the derived name (`person` → `people`),
+ * and `__tests__/entity-extensions.test.ts` pins it to the physical schema in
+ * `migrations/.snapshot-open-mercato.json`.
  *
  * NOTE — declaration-only extension point. Nothing in this module (or in the
  * platform) passes `includeExtensions` to a query at runtime, and doing so would

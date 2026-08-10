@@ -15,7 +15,7 @@ const mockModules = [
   {
     id: 'example',
     entityExtensions: [
-      // Declares `table` because the derived plural (`example_customer_prioritys`) is wrong.
+      // Declares `table` explicitly; the derived plural now agrees with it.
       { base: 'customers:customer_entity', extension: 'example:example_customer_priority', join: { baseKey: 'id', extensionKey: 'customer_id' }, table: 'example_customer_priorities' },
       // No `table`: exercises the derived-plural fallback.
       { base: 'auth:role', extension: 'example:example_role_policy', join: { baseKey: 'id', extensionKey: 'role_id' } },

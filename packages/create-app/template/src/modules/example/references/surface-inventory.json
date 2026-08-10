@@ -195,7 +195,7 @@
     {
       "capabilityId": "data.entity-extensions",
       "title": "Cross-module entity link declaration",
-      "description": "`EntityExtension` in `data/extensions.ts` linking the customers base entity to this module's per-customer priority entity through plain FK-id join keys, the shape the ban on cross-module ORM relations forces. Declares `table` because the query engine's extension join otherwise derives `example_customer_prioritys`. DECLARATION-ONLY: no runtime call site exists — nothing in the platform passes `includeExtensions`, the basic engine's extension join adds no projection and no filterable alias, and the hybrid engine DI registers ignores the flag outside its basic-engine fallback.",
+      "description": "`EntityExtension` in `data/extensions.ts` linking the customers base entity to this module's per-customer priority entity through plain FK-id join keys, the shape the ban on cross-module ORM relations forces. Declares `table` explicitly even though the query engine's regular pluralizer now derives the same `example_customer_priorities`; the field is the escape hatch for an entity whose `@Entity({ tableName })` does not match the derived name. DECLARATION-ONLY: no runtime call site exists — nothing in the platform passes `includeExtensions`, the basic engine's extension join adds no projection and no filterable alias, and the hybrid engine DI registers ignores the flag outside its basic-engine fallback.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
