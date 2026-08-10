@@ -18,7 +18,7 @@ Every app page is module-owned and auto-discovered: author it under `src/modules
 | Public frontend | `src/modules/<id>/frontend/**/page.tsx`; explicitly declare auth posture in metadata. |
 | Customer portal | `src/modules/<id>/frontend/[orgSlug]/portal/**/page.tsx`; public login/signup/verify/landing pages are `navHidden` without customer auth, authenticated pages require customer auth/features, and only sidebar destinations add `nav`. |
 
-List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a registered string icon name in `page.meta.ts` so generated metadata stays serializable; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
+List destinations need stable `pageGroup`, `pageGroupKey`, and order. A `page.meta.ts` `icon` MUST be a name the installed icon registry already lists — an unlisted Lucide name renders no icon at all, silently — so verify it before use; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
 
 ## Default CRUD Completeness
 

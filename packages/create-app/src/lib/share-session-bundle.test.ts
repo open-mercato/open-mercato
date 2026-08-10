@@ -76,7 +76,7 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
         ) as Record<string, unknown>,
         message: {
           role: 'user',
-          content: `Please contact alice@example.com and use token=${fakeToken}, id=${fakeIdentifier}, checksum=${fakeHexSecret}`,
+          content: `Please contact alice@example.com or +48 123 456 789 and use token=${fakeToken}, id=${fakeIdentifier}, checksum=${fakeHexSecret}, migration=Migration20260810120000_agreements.ts`,
         },
       },
       {
@@ -116,6 +116,12 @@ test('session-share preparer preserves turns, sanitizes content, and creates a v
     assert.match(sanitizedSession, /redacted:custom-literal/)
     assert.match(sanitizedSession, /redacted:identifier/)
     assert.match(sanitizedSession, /redacted:hex-secret/)
+    // A phone number still goes, but the digit run inside a migration filename
+    // must survive: over-redaction silently destroys the evidence a shared
+    // bundle exists to carry.
+    assert.match(sanitizedSession, /redacted:phone/)
+    assert.doesNotMatch(sanitizedSession, /\+48 123 456 789/)
+    assert.match(sanitizedSession, /Migration20260810120000_agreements\.ts/)
     const identifierMarkers = sanitizedSession.match(/redacted:identifier:[a-f0-9]{12}/g) ?? []
     assert.equal(identifierMarkers.length, 2)
     assert.equal(identifierMarkers[0], identifierMarkers[1], 'equal identifiers must keep bundle-local correlation')

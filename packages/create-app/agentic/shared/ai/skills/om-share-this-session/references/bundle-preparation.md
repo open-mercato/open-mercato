@@ -5,6 +5,7 @@ Use this procedure in steps 1–2 to prove scope and create a local-only sanitiz
 ## Resolve the native session export
 
 - Prefer an explicit `--session` path or a path exposed by the active harness. Do not crawl `~/.claude`, `~/.codex`, browser profiles, or unrelated history.
+- When the harness exposes no export path, ask it for the transcript through its own API before declaring the bundle impossible — a first-party request to the running harness is not the profile crawling forbidden above. Codex CLI answers `thread/read` for the active thread id over `codex app-server --stdio` (JSON-RPC: `initialize`, then the read) and returns every turn. Write the response to a temporary file outside the repository and treat it as the native export. Only when no such API exists, ask the user to export the session.
 - Accept only a parseable native JSON export. A hand-written transcript, summary, screenshot, or copy/paste of selected turns is not complete enough.
 - Confirm the export belongs to this active session using the harness session/thread id when available. Then compare the first recognizable user turn and the latest completed assistant turn with the active conversation. Record only pass/fail and counts; never quote raw turn content into the report.
 - The preparer requires at least one recognizable user turn and one assistant turn. Structural success does not prove current-session completeness; the explicit first/latest comparison remains mandatory.

@@ -148,6 +148,56 @@ test('Jest loads shared DOM matchers and transforms framework ESM dependencies',
   }
 })
 
+// MikroORM v7 is ESM-only and calls `import.meta.resolve()` at module scope.
+// Jest loads it as CommonJS, so a bare ts-jest transform dies with
+// "Cannot use 'import.meta' outside a module" before a single assertion runs —
+// and `@open-mercato/shared/lib/commands` pulls MikroORM in transitively, which
+// covers every command, entity, and data-engine test the harness tells an app
+// author to write. The monorepo has always shipped a sanitizing transformer for
+// this; the standalone template did not, which is what a live session hit.
+test('Jest routes every transform through the sanitizing MikroORM transformer', () => {
+  const transformerRelativePath = 'scripts/jest-mikroorm-transformer.cjs'
+  const transformerUrl = new URL(transformerRelativePath, TEMPLATE_DIR)
+  const jestConfig = createRequire(import.meta.url)(
+    fileURLToPath(new URL('jest.config.cjs', TEMPLATE_DIR)),
+  ) as { transform?: Record<string, unknown> }
+  const transformEntries = Object.values(jestConfig.transform ?? {})
+
+  assert.ok(transformEntries.length > 0, 'template jest config declares no transform')
+  for (const entry of transformEntries) {
+    assert.equal(
+      Array.isArray(entry) ? entry[0] : entry,
+      `<rootDir>/${transformerRelativePath}`,
+      'a bare ts-jest transform cannot parse MikroORM',
+    )
+  }
+
+  assert.ok(fs.existsSync(transformerUrl), `${transformerRelativePath} is missing from the template`)
+  const transformer = createRequire(import.meta.url)(fileURLToPath(transformerUrl)) as {
+    createTransformer: (config: unknown) => unknown
+    sanitize: (code: string) => string
+  }
+  assert.equal(typeof transformer.createTransformer, 'function')
+
+  const sanitized = transformer.sanitize(
+    "const url = import.meta.resolve('pg'); const dir = import.meta.dirname; const self = import.meta.url; const bare = import.meta",
+  )
+  assert.ok(!sanitized.includes('import.meta'), 'a surviving import.meta still fails to parse')
+  assert.ok(sanitized.includes("require.resolve('pg')"))
+
+  const untouched = "const literal = 'import' + '.meta'\nexport const value = 1\n"
+  assert.equal(transformer.sanitize(untouched), untouched, 'sanitization must be a no-op elsewhere')
+
+  // The monorepo's copy redirects `typescript` to the `typescript-js` alias
+  // because it pins the native TypeScript 7 compiler ts-jest cannot drive.
+  // Standalone apps pin TypeScript 6 and never install that alias, so copying
+  // the redirect would break every scaffolded app's test run at require time.
+  assert.ok(
+    !fs.readFileSync(transformerUrl, 'utf8').includes('typescript-js'),
+    'standalone apps do not install typescript-js',
+  )
+})
+
 test('the template ignores raw agent session exports', () => {
   const gitignore = fs.readFileSync(new URL('gitignore', TEMPLATE_DIR), 'utf8')
 

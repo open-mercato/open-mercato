@@ -168,7 +168,12 @@ function sanitizeString(input, key, state) {
   value = replaceMatches(value, /\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{1,4}\b/gi, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '«redacted:identifier»', state, 'identifiers')
   value = replaceMatches(value, /\b[0-9a-f]{64,}\b/gi, '«redacted:hex-secret»', state, 'secrets')
-  value = value.replace(/\+?\d[\d ()-]{7,}\d/g, (candidate) => {
+  // Anchored on both sides: an unanchored digit run also matches inside
+  // identifiers a shared bundle exists to explain — `Migration20260810120000`
+  // came back as `Migration«redacted:phone»`, which destroys the evidence
+  // without protecting anyone. A phone number glued to a word is left to the
+  // mandatory semantic review instead.
+  value = value.replace(/(?<![A-Za-z0-9_])\+?\d[\d ()-]{7,}\d(?![A-Za-z0-9_])/g, (candidate) => {
     const digits = candidate.replace(/\D/g, '')
     if (digits.length < 9 || digits.length > 15) return candidate
     countReplacement(state, 'pii')
