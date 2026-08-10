@@ -112,9 +112,9 @@ None (`--skill-url` not supplied).
 
 ### Phase 2: ioredis 5 to 6
 
-- [ ] 2.1 Bump ioredis and widen cache/scheduler peer ranges
-- [ ] 2.2 Reconcile ioredis v6 breaking changes against the four consumers
-- [ ] 2.3 Run cache/shared/queue/scheduler test suites
+- [x] 2.1 Bump ioredis and widen cache/scheduler peer ranges — ac326b9ea
+- [x] 2.2 Reconcile ioredis v6 breaking changes against the four consumers — ac326b9ea (the only documented break is RESP3-by-default; `REDIS_WIRE_PROTOCOL = 2` is now threaded through `parseRedisUrl`, the queue's host-branch options, the cache strategy constructor, the rate limiter and the CLI flush client)
+- [x] 2.3 Run cache/shared/queue/scheduler test suites — ac326b9ea (shared 1824/1824, cache 69/69, queue 66/66, scheduler 365/365, cli 1480/1480; new regression tests assert the RESP2 pin in `parseRedisUrl` and the cache strategy)
 
 ### Phase 3: eslint 9 to 10
 
