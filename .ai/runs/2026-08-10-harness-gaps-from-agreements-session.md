@@ -61,6 +61,8 @@ is a real tooling defect. Findings 7–8 are the harness's own reported weakness
 
 ## Progress
 
+PR: #5166
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Plan
@@ -86,4 +88,5 @@ is a real tooling defect. Findings 7–8 are the harness's own reported weakness
 
 ### Phase 5: Validation and delivery
 
-- [ ] 5.1 Run the validation gate and report byte deltas against the harness budgets
+- [x] 5.1 Run the validation gate and report byte deltas against the harness budgets — 805ea0297
+- [x] 5.2 Review pass (`om-auto-review-pr --autofix`): no blockers, two minors fixed — 1f0c63ca2
