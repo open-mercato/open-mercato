@@ -1,7 +1,8 @@
 "use client"
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import type { TodoListItem } from '../types'
 import extensionPoints from '../extension-points'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'

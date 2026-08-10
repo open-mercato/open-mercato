@@ -161,18 +161,13 @@ function sanitizeString(input, key, state) {
   value = replaceMatches(value, /\b(Authorization\s*:\s*)[^\s,;]+/gi, (_match, prefix) => `${prefix}«redacted:authorization»`, state, 'secrets')
   value = replaceMatches(value, /([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, (_match, prefix) => `${prefix}«redacted:credential»@`, state, 'secrets')
   value = replaceMatches(value, /\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret)\s*[:=]\s*)[^\s,;"']+/gi, (_match, prefix) => `${prefix}«redacted:secret»`, state, 'secrets')
-  value = redactHighEntropy(value, state)
+  if (key !== 'generated-file-path') value = redactHighEntropy(value, state)
 
   value = replaceMatches(value, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '«redacted:email»', state, 'pii')
   value = replaceMatches(value, /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{1,4}\b/gi, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '«redacted:identifier»', state, 'identifiers')
   value = replaceMatches(value, /\b[0-9a-f]{64,}\b/gi, '«redacted:hex-secret»', state, 'secrets')
-  // Anchored on both sides: an unanchored digit run also matches inside
-  // identifiers a shared bundle exists to explain — `Migration20260810120000`
-  // came back as `Migration«redacted:phone»`, which destroys the evidence
-  // without protecting anyone. A phone number glued to a word is left to the
-  // mandatory semantic review instead.
   value = value.replace(/(?<![A-Za-z0-9_])\+?\d[\d ()-]{7,}\d(?![A-Za-z0-9_])/g, (candidate) => {
     const digits = candidate.replace(/\D/g, '')
     if (digits.length < 9 || digits.length > 15) return candidate
@@ -188,6 +183,10 @@ function sanitizeNode(value, key, state) {
   if (Array.isArray(value)) return value.map((item) => sanitizeNode(item, '', state))
   if (!value || typeof value !== 'object') return value
 
+  const redactsBrowserTabListing = value.type === 'mcpToolCall'
+    && typeof value.arguments?.code === 'string'
+    && /\.user\.openTabs\s*\(/.test(value.arguments.code)
+
   for (const [candidateKey, candidateValue] of Object.entries(value)) {
     if (pathKeyPattern.test(candidateKey) && typeof candidateValue === 'string' && isDangerousPath(candidateValue)) {
       countReplacement(state, 'dangerous')
@@ -199,6 +198,11 @@ function sanitizeNode(value, key, state) {
   for (const [childKey, childValue] of Object.entries(value)) {
     const sanitizedKey = sanitizeString(childKey, 'object-key', state)
     if (Object.hasOwn(output, sanitizedKey)) fail('Sanitization produced duplicate object keys.')
+    if (redactsBrowserTabListing && childKey === 'result') {
+      countReplacement(state, 'pii')
+      output[sanitizedKey] = { redacted: 'browser-tab-list' }
+      continue
+    }
     output[sanitizedKey] = sanitizeNode(childValue, childKey, state)
   }
   return output
@@ -208,8 +212,17 @@ function inferRole(value) {
   if (!value || typeof value !== 'object') return null
   for (const candidate of [value.type, value.role, value.message?.role]) {
     if (candidate === 'user' || candidate === 'assistant') return candidate
+    if (candidate === 'userMessage') return 'user'
+    if (candidate === 'agentMessage') return 'assistant'
   }
   return null
+}
+
+function inferRoles(value) {
+  const directRole = inferRole(value)
+  if (directRole) return [directRole]
+  if (!value || typeof value !== 'object' || !Array.isArray(value.items)) return []
+  return [...new Set(value.items.map(inferRole).filter(Boolean))]
 }
 
 function analyzeSession(session) {
@@ -229,7 +242,7 @@ function analyzeSession(session) {
   }
   if (!entries) fail('Session JSON has no recognizable turn/event collection.')
 
-  const roles = entries.map(inferRole).filter(Boolean)
+  const roles = entries.flatMap(inferRoles)
   const userTurns = roles.filter((role) => role === 'user').length
   const assistantTurns = roles.filter((role) => role === 'assistant').length
   if (userTurns === 0 || assistantTurns === 0) {
