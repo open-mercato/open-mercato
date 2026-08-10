@@ -1,13 +1,24 @@
 # Discord two-way communication channel + AI bot
 
 **Date**: 2026-06-19
-**Status**: Draft — ready for pre-implementation review
+**Status**: Draft — blocked on an open contract decision (see § Open decision — hub sender-identity contract)
 **Scope**: Open Source
 **Depends on**: [`SPEC-045d-communication-notification-hubs.md`](implemented/SPEC-045d-communication-notification-hubs.md) (Communication & Notification Hubs — the `communication_channels` hub + `ChannelAdapter` contract)
 **Related**:
 - [`SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md`](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) — first AI-assisted channel; easy-vs-complex reply tiering reused here.
 - `packages/channel-gmail/` and `packages/channel-imap/` — reference provider packages (file layout, DI, health check, capabilities).
 - `packages/ai-assistant/AGENTS.md` — `runAiAgentText` / `runAiAgentObject` programmatic agent invocation.
+- **QA of #4391 against a real Discord bot filed four blockers; this spec is the decision record for
+  the first and the reference for the rest:**
+  - #4975 — inbound Discord messages are rejected (hub requires `externalEmail`) → § Backward
+    compatibility touch-point 1, § Open decision.
+  - #4976 — no product path to send a Discord message (both hub outbound endpoints require an email
+    recipient) → touch-point 2, § Shared prerequisite. **Deferred by this spec, tracked there.**
+  - #4977 — reconnecting Discord creates a duplicate channel (the `externalIdentifier = NULL`
+    consequence) → touch-point 3, § Shared prerequisite. **Deferred by this spec, tracked there.**
+  - #4978 — inbound messages are silently lost under `QUEUE_STRATEGY=local` → § Risks & impact
+    review. **Out of scope for this spec** (queue/observability defect, independent of the identity
+    contract).
 
 ---
 
@@ -26,6 +37,10 @@
 - Discord's transport is a persistent **Gateway WebSocket**, not inbound HTTP webhooks like Slack/WhatsApp. The hub's inbound model assumes either an HTTP webhook (`verifyWebhook`) or a poller (`fetchHistory`). The design resolves this with a dedicated gateway worker that calls the hub's ingest command directly, plus a thin signed HTTP interactions route — see § Architecture.
 - Ed25519 signature verification on the interactions endpoint MUST be fail-closed (the shared webhook route treats a non-throwing `verifyWebhook` as "verified").
 - AI auto-reply must never auto-send privileged actions — reuse the mutation-approval gate.
+- **The hub's message path is email-shaped and Discord cannot satisfy it.** Sender identity, outbound
+  recipient validation, and channel identity all assume an email address. This was mis-stated as
+  "no hub contract change required" until QA of #4391 against a real Discord bot proved otherwise
+  (#4975). See § Backward compatibility and § Open decision — hub sender-identity contract.
 
 ---
 
@@ -43,8 +58,9 @@
 10. Integration test coverage ✅
 11. Risks & impact review ✅
 12. Backward compatibility ✅
-13. Final compliance report ✅
-14. Changelog ✅
+13. Open decision — hub sender-identity contract ⛔ (blocks implementation)
+14. Final compliance report ✅
+15. Changelog ✅
 
 ---
 
@@ -524,7 +540,8 @@ gateway identify/resume/backoff state machine, bot-self-message filter.
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| **Gateway ≠ webhook** — the hub assumes HTTP-webhook or poll inbound; Discord pushes over a socket. | High (design) | Dedicated gateway worker calls the hub's existing `ingest_inbound` command directly — the hub stays unchanged; the provider owns the socket lifecycle. `realtimePush: true` disables redundant polling. |
+| **Gateway ≠ webhook** — the hub assumes HTTP-webhook or poll inbound; Discord pushes over a socket. | High (design) | Dedicated gateway worker calls the hub's existing `ingest_inbound` command directly — no hub change on the *transport* axis; the provider owns the socket lifecycle. `realtimePush: true` disables redundant polling. Verified live during QA of #4391: the socket state machine works. |
+| **Email-shaped sender identity** — the hub requires `externalEmail` on every public message, validates outbound recipients as emails, and derives channel identity from email-shaped credential keys. Discord has none of these. | **Critical (blocker)** | Inbound Discord is non-functional and messages are lost silently (dead BullMQ job, channel still `Connected`, integration still `Healthy`) — see #4975. The silent-loss half of that symptom is a separate, independently tracked defect (#4978, `QUEUE_STRATEGY=local` swallows the failure and the inbound path logs nothing) and is **out of scope for this spec** — fixing the identity contract makes the message land, fixing #4978 makes a future failure visible. Requires a hub contract decision before implementation: § Open decision — hub sender-identity contract. Three exact touch-points with file:line in § Backward compatibility. |
 | **Interactions PING handshake** needs a synchronous `{ type: 1 }` response, but the shared webhook route currently 202-acks and enqueues. | Medium | See § Backward compatibility — a small additive hub touch-point (let `verifyWebhook` return a synchronous body for the handshake) OR a dedicated signed `api/post/webhooks/discord` route (like the existing dedicated `webhooks/gmail` route). Decide in pre-implementation; both are additive. |
 | **Ed25519 fail-open** — the route treats a non-throwing `verifyWebhook` as verified. | High (security) | Adapter MUST throw on any verification failure and return `eventType: 'other'` for non-interaction bodies, per the documented security contract in `lib/adapter.ts`. Covered by TC-005/TC-008. |
 | **Bot token leakage** | High (security) | Token stored via `integrationCredentialsService` (encrypted), never logged; health check uses it server-side only. |
@@ -541,9 +558,57 @@ gateway identify/resume/backoff state machine, bot-self-message filter.
 - **Additive only.** New package `@open-mercato/channel-discord`; new provider key `discord`; new
   ACL features `channel_discord.*`; new env vars `OM_CHANNEL_DISCORD_*`. No existing event ids,
   API routes, DI names, ACL ids, widget spot ids, or DB schema change.
-- **No hub contract change required for the core message path.** Outbound and inbound message flows
-  reuse the existing `ChannelAdapter` methods and hub commands/events verbatim. `'discord'` is a
-  valid `channelType` (the contract types it as `… | string`).
+- **The core message path DOES require hub changes** (corrected 2026-08-05). An earlier revision of
+  this section claimed *"No hub contract change required for the core message path — outbound and
+  inbound message flows reuse the existing `ChannelAdapter` methods and hub commands/events
+  verbatim."* **That claim is false.** QA of #4391 against a real Discord bot on a real guild, with a
+  human typing a real message, disproved it empirically (#4975): every inbound Discord message dies
+  in hub validation, three retries, then a dead BullMQ job — while the channel still reports
+  `Connected` and the integration reports `Healthy`. `'discord'` is indeed a valid `channelType`
+  (the contract types it as `… | string`), but the hub's message path assumes an **email-shaped
+  sender identity** in three concrete places, and Discord can satisfy none of them.
+
+#### Touch-point 1 — sender identity must be an email (blocks all inbound)
+
+- `packages/core/src/modules/messages/data/validators.ts:107` — `externalEmail: z.string().email().optional()`:
+  when supplied it MUST parse as an email address.
+- `packages/core/src/modules/messages/data/validators.ts:131` (inside the `composeMessageSchema`
+  `superRefine`, lines 121–137) — for any non-draft message with `visibility === 'public'`, a missing
+  `externalEmail` raises `externalEmail is required when visibility is public`.
+- The hub's ingest command hardcodes exactly that shape:
+  `packages/core/src/modules/communication_channels/commands/ingest-inbound-message.ts:351` sets
+  `visibility: 'public' as const` and `:354` passes `externalEmail: contactHint?.email ?? undefined`.
+- A Discord `ContactHint` has no `email` — by this spec's own design (§ API & adapter contracts,
+  `resolveContact` row: *"no email/phone"*). So `messages.messages.compose` throws a `ZodError` on
+  **every** inbound Discord message. Inbound is non-functional in every configuration, and outbound
+  is blocked as a consequence: `deliver-outbound-message` needs a `conversationId` from a thread, and
+  threads are created by inbound messages.
+
+#### Touch-point 2 — outbound routes require an email recipient (and a subject)
+
+- `packages/core/src/modules/communication_channels/api/post/channels/[id]/test-send/route.ts:33`
+  (body schema at `:32`) — `to: z.string().email()`; `subject` is optional here (`:34`).
+- `packages/core/src/modules/communication_channels/api/post/send-as-user/route.ts:20` (body schema
+  at `:17`) — `to: z.array(z.string().email()).min(1)`, and `:26` requires a **non-empty** `subject`
+  (`z.string().min(1).max(500)`).
+- A Discord recipient is a channel/user snowflake, not an email address, and Discord messages have no
+  subject. Both routes reject a structurally valid Discord send, so the admin UI's "Test send" button
+  and the send-as-user path cannot reach a Discord channel at all.
+
+#### Touch-point 3 — channel identity is inferred from email-shaped credential keys
+
+- `packages/core/src/modules/communication_channels/commands/connect-credential-channel.ts:161-169`
+  derives the channel's `externalIdentifier` as
+  `credentials.username ?? credentials.email ?? credentials.fromAddress` (then lowercased when it
+  contains `@`).
+- The Discord credential bag is `{ botToken, applicationId, publicKey, guildId, defaultChannelId }`
+  (§ Data models) — it matches none of those three keys, so a connected Discord channel persists
+  `externalIdentifier = NULL`. That silently disables the cross-provider duplicate-mailbox guard and
+  the per-`(tenant, user, provider, mailbox)` heal index for Discord, and it contradicts § Data
+  models, which states `externalIdentifier = <bot application id or guild id>`.
+
+#### Touch-point 4 — interactions handshake (already known before QA)
+
 - **One hub touch-point under negotiation (interactions handshake).** The Discord Interactions PING
   requires a synchronous `{ type: 1 }` response, whereas the generic `api/post/webhook/[provider]`
   route 202-acks and enqueues. Two additive options, decided in pre-implementation review:
@@ -556,6 +621,268 @@ gateway identify/resume/backoff state machine, bot-self-message filter.
   contract surface" rule.
 - Follows the deprecation protocol only if option 1 is chosen and any shared type gains a field —
   it would be additive/optional, no removal.
+
+#### How the contradiction survived review — a lesson for non-email providers
+
+Both halves of the truth were already written **in this document**, one section apart, and nobody
+joined them:
+
+- § API & adapter contracts, `resolveContact` row: *"maps Discord user id + username/global\_name to a
+  `ContactHint` (**no email/phone**; sets `displayName`, `externalProfileUrl`, …)"* — restated in
+  § Data models: *"Discord senders have no email/phone"*. The provider code says the same thing
+  (`packages/channel-discord/src/modules/channel_discord/lib/normalize-inbound.ts:31`, on the #4391
+  branch).
+- § Backward compatibility: *"reuse the existing hub commands/events **verbatim**"*.
+
+The second statement is only true if the hub is identity-agnostic. Nobody checked whether it is,
+because the hub's own providers — `channel-gmail`, `channel-imap` — are both email providers, so the
+email assumption had never been exercised as an assumption. It was invisible precisely because it had
+always held. The design review reasoned about the *transport* difference (socket vs webhook, which
+this spec handled correctly and which QA confirmed works live) and never about the *identity*
+difference.
+
+CI did not catch it either, and for a related reason: `TC-CHANNEL-DISCORD-003` passes while feeding
+the hub fixture data the adapter can never produce — a seeded `externalIdentifier` of
+`discord-003-<stamp>@test-seed.local`, a `to:` of the same invented address, and a `subject`. It
+drives the `test-seed` fixture endpoint, so `normalizeInboundDiscordMessage` never executes on that
+path. A test that satisfies a contract with data the production code cannot generate proves nothing
+about the contract.
+
+**Rules this yields for every future non-email provider** (Discord, Slack, Telegram, SMS, in-app
+chat, WhatsApp Business ids):
+
+1. A "no hub change required" claim MUST be verified against the hub's *validators*, not only its
+   method signatures. A `ChannelAdapter` method that compiles can still be rejected at runtime by a
+   Zod refinement two commands downstream.
+2. Whenever a spec states a provider **lacks** a platform field (no email, no phone, no subject, no
+   threading), the same spec MUST trace every hub surface that requires that field and record the
+   result. The absence statement and the compatibility statement belong in the same review.
+3. Integration tests for a provider MUST drive the provider's own normalize/convert code path with
+   provider-shaped data. Seeded fixtures that inject platform-shaped values (an email for a channel
+   that has no emails) hide exactly the contract this class of provider breaks.
+
+This is why the second Discord provider onto the hub will be cheap: the identity contract, once
+generalized, is generalized for everyone.
+
+---
+
+## Open decision — hub sender-identity contract
+
+**Blocks implementation of #4391.** Decision owner: the `communication_channels` / `messages` hub
+owner (root `AGENTS.md` → "Ask First: changing public contracts"). Every variant below touches
+`packages/core`, so this spec doubles as the required "Migration & Backward Compatibility" reference
+per `BACKWARD_COMPATIBILITY.md` § Deprecation Protocol, step 5.
+
+The options are **A** (relax the refinement — the minimal unblocker), **A+** (A plus a CRM-side
+identity key — **recommended**), **B** (a generic `externalIdentity` persisted on `messages`) and the
+rejected **C** (synthetic email). Read § Recommendation for why A+ supersedes the earlier Variant B
+recommendation.
+
+### Variant A — relax the hub's email requirement (conditional validation)
+
+Make the sender-identity requirement conditional instead of unconditional: in
+`composeMessageSchema`'s `superRefine` (`messages/data/validators.ts:129-137`), require
+`externalEmail` for a `visibility: 'public'` message **only when the originating channel is
+email-typed** (or, equivalently, only when the caller supplies no other sender identity), and let the
+hub's ingest command pass the channel type through. `externalEmail` keeps its `z.string().email()`
+shape; no new field, no new column.
+
+| Aspect | Assessment |
+|---|---|
+| Contract surfaces touched | Cat. 1 (`data/validators.ts` — FROZEN convention file, rule: *"MUST NOT remove or narrow existing schemas"*), Cat. 3 (function signatures — if the compose input gains an optional channel-type argument) |
+| Classification | **Additive / non-breaking.** The change *widens* the set of accepted inputs; nothing is removed, renamed, or narrowed. Per the Allowed-vs-Breaking quick reference, "add optional field" and relaxation are OK for convention files and function params. |
+| Deprecation protocol required? | **No.** Nothing is removed or renamed, so steps 1–4 do not apply; step 5 (spec reference) is satisfied by this section. |
+| Blast radius | Small — one refinement plus one call site. No DB migration, no API response change, no new field for consumers to learn. |
+| Residual risk | Behavioral relaxation: a caller that today relies on the hub rejecting a public message without an email would stop seeing that error for non-email channels. Mitigate by keying the relaxation on channel type (fail-closed: unknown/absent channel type keeps requiring the email), never on "field simply absent". |
+| Leaves unsolved | Touch-points 2 and 3 (see the shared prerequisite below) — Variant A only unblocks inbound. Plus the non-ingest compose paths below, and CRM person matching (§ Variant A+). |
+
+**What the fail-closed rule costs — the compose paths that stay blocked.** `composeMessageSchema` is
+not reached only through `ingest-inbound-message`: it is the body schema of the public compose route
+(`packages/core/src/modules/messages/api/route.ts:448`, `composeMessageSchema.parse(body)`) and is
+published in the OpenAPI surface (`packages/core/src/modules/messages/api/openapi.ts:267`). Keying
+the relaxation on a channel type that only the ingest command passes through means every *other*
+public compose still fails with the same `ZodError` — an operator composing a new public message on a
+Discord conversation from the backoffice, or any integration calling `POST /api/messages`. **Variant A
+as sketched unblocks the inbound leg only; it does not by itself deliver a working two-way Discord
+flow from the product UI.** Closing that gap means threading the same channel-type (or conversation
+id → channel type) resolution into the compose route, which is a second, larger call site than the
+"one refinement plus one call site" the table above prices — decide it together with the variant, not
+after.
+
+The reassuring half, true under every variant: **the reply path is unaffected.**
+`replyMessageSchema` (`packages/core/src/modules/messages/data/validators.ts:248-266`) never requires
+`externalEmail`, and `replyMessageCommand` (`commands/messages.ts:741-744`) copies `visibility` and
+`externalEmail` from the original message, so an agent replying into a Discord thread keeps working
+with a `NULL` identity once the inbound message exists.
+
+### Variant A+ — Variant A plus a CRM-side identity key (recommended)
+
+Variant A, plus the one change that actually makes a Discord sender resolvable to a CRM person:
+a lookup key for non-email identities on `customers:customer_entity` and the corresponding branch in
+`buildPersonLookupFilter`
+(`packages/core/src/modules/communication_channels/lib/contact-resolver.ts:145-149`), which today can
+only filter by `primary_email` or `primary_phone`. **No `messages`-side column**: the provider-native
+identity is already persisted (see Variant B below), and `resolveContact` already receives the raw
+snowflake as `ContactResolverInput.senderIdentifier` (`contact-resolver.ts:22`, passed at
+`ingest-inbound-message.ts:292-317`) — the missing half is exclusively on the CRM side.
+
+Two shapes are available for that key, and the choice is the CRM owner's, not this spec's:
+
+- **A custom field on `customer_entity`** (e.g. `discord_user_id`) — no migration at all, and the
+  query engine already filters custom fields with the `cf:<key>` selector convention
+  (`packages/shared/src/lib/query/types.ts:12`, `:93`), so `buildPersonLookupFilter` gains a branch
+  returning `{ 'cf:discord_user_id': value, kind: 'person' }`. Cheapest, per-provider.
+- **A generic `(kind, value)` identity record** on the person — one migration, provider-neutral,
+  and the shape the second and third non-email provider will want. Preferable if more than one
+  non-email channel is on the roadmap.
+
+Either way the hub side is identical: `resolveContact` passes the identity it already has, and the
+filter learns one more way to match.
+
+| Aspect | Assessment |
+|---|---|
+| Contract surfaces touched | Variant A's surfaces, plus Cat. 8 (DB schema — a new nullable column or a custom-field definition on `customer_entity`) and the `buildPersonLookupFilter` branch (module-internal, not a contract surface) |
+| Classification | **Additive / non-breaking.** A new nullable/defaulted column is allowed under the ADDITIVE-ONLY DB rules; the filter gains a branch, no existing branch changes. |
+| Deprecation protocol required? | **No.** Nothing is removed or renamed. |
+| Blast radius | Small–medium — Variant A's refinement and call sites, one CRM migration + snapshot, one filter branch. No change to the `messages` contract, no response-shape change, no new field for hub consumers to learn. |
+| Residual risk | The CRM key has to be populated for a match to happen (manual entry or an onboarding flow); until it is, resolution falls back to display name exactly as today — i.e. no regression, just an unrealized upside. |
+| Leaves unsolved | Touch-points 2 and 3 (shared prerequisite). Non-ingest compose paths (above) unless the channel-type threading covers them. |
+
+### Variant B — add a generic sender identity (`externalIdentity`)
+
+Introduce an optional, provider-neutral identity alongside `externalEmail`:
+`externalIdentity: { kind: 'email' | 'discord' | 'slack' | …, value: string, displayName?: string }`.
+`composeMessageSchema` accepts `externalEmail` **or** `externalIdentity`; the refinement requires
+*one of the two* for a public message. `resolveContact`'s `ContactHint` gains the same optional
+shape, and `messages` persists it (new nullable column / JSONB, e.g. `external_identity`).
+
+**Corrected costing — two claims in the original write-up of this variant do not hold.** Both were
+checked against the hub as it stands on `develop`:
+
+1. **The provider-native identity is already persisted; the new column duplicates it.**
+   `ExternalMessage.senderIdentifier`
+   (`packages/core/src/modules/communication_channels/data/entities.ts:243-244`,
+   `sender_identifier text NULL`) stores the Discord snowflake for every inbound channel message —
+   the row is created unconditionally on every ingest with `senderIdentifier: m.senderIdentifier`
+   (`ingest-inbound-message.ts:426-438`) — and
+   `MessageChannelLink` (`:269` onwards) joins it 1:1 to the platform `Message`: `message_id` carries
+   the unique index `message_channel_links_message_uq` (`:268`), `external_message_id` is written on
+   every inbound ingest (`ingest-inbound-message.ts:450-465`), and the link row already carries
+   `provider_key` and `channel_type`. *"Which non-email identity sent this platform message, on which
+   provider"* is therefore answerable today with a join and no migration.
+2. **A `messages`-side column does not unlock CRM matching.** Contact resolution runs *before*
+   compose — `resolveContact` at step (4) (`ingest-inbound-message.ts:292-317`), compose at step (5)
+   (`:387`) — and it already receives the raw snowflake (`ContactResolverInput.senderIdentifier`,
+   `contact-resolver.ts:22`). What blocks the match is the CRM side: `buildPersonLookupFilter`
+   (`contact-resolver.ts:145-149`) can only filter `customers:customer_entity` by `primary_email` or
+   `primary_phone`, and no field on a CRM person can hold a Discord id to match against. Adding
+   `messages.external_identity` leaves that filter returning `null` for every Discord sender, so
+   resolution still falls back to `displayName` — **the exact outcome this variant was justified as
+   fixing.** That unlock is Variant A+, and it is independent of where the identity is stored.
+
+What Variant B does buy, honestly stated: a *hub-level* identity slot on `messages` itself, usable by
+a caller that has no `MessageChannelLink` to join through — the non-ingest compose paths named under
+Variant A. That is a real but narrow benefit, and it is the only one left after the two corrections
+above.
+
+| Aspect | Assessment |
+|---|---|
+| Contract surfaces touched | Cat. 1 (`data/validators.ts` — **three sites, not one**: `composeMessageSchema:107`, `updateDraftSchema:186`, and the inbox filter in `listMessagesSchema:220`; without the parallel `externalIdentity` treatment a non-email sender's message cannot be draft-edited or filtered by sender), Cat. 2 (public types — `ContactHint`, compose input), Cat. 7 (API routes — new optional request/response field), Cat. 8 (DB schema — new nullable column) |
+| Classification | **Additive / non-breaking**, provided `externalEmail` stays supported: optional-field additions are explicitly allowed on convention files, type interfaces, and API request/response schemas; a new nullable column with a default is allowed under ADDITIVE-ONLY DB rules. |
+| Deprecation protocol required? | **Not for the addition itself.** It becomes required the moment anyone wants to *retire* `externalEmail` in favor of `externalIdentity` — that is a removal from a FROZEN/STABLE surface and needs the full protocol: `@deprecated` JSDoc, a dual-accept bridge for ≥1 minor version, an `UPGRADE_NOTES.md` entry, and a spec reference. This spec recommends never scheduling that removal: `externalEmail` should remain the email-typed shorthand indefinitely. |
+| Blast radius | Medium — three validator schemas, a public type, a migration + snapshot, response serialization, and CRM contact-resolution code paths. **Plus a third identity store for the same value** (`messages.external_identity` alongside `external_messages.sender_identifier`), which has to be kept consistent with the one the ingest path already writes. |
+| Residual risk | Two identity fields can drift (a message carrying both, disagreeing). Mitigate with a refinement that rejects a mismatched pair, and by having the hub derive `externalIdentity = { kind: 'email', value: externalEmail }` when only the legacy field is supplied. **Second drift axis introduced by the correction above**: `messages.external_identity` and the linked `external_messages.sender_identifier` can disagree for the same message, with no single source of truth. |
+| Leaves unsolved | **CRM person matching for non-email senders** — `buildPersonLookupFilter` still returns `null` for a Discord sender, so `matchedPersonId` stays unresolved and resolution falls back to display name. Closing that needs the CRM-side key of Variant A+, which this variant does not include. Also still needs the shared prerequisite for touch-points 2 and 3. |
+
+### Rejected — Variant C: synthesize `<discordUserId>@discord.invalid`
+
+Satisfies the validator without changing any contract, and is the wrong fix: it writes fabricated
+email addresses into CRM data, breaks contact resolution and de-duplication for every non-email
+provider, and would need a data cleanup the day a real identity contract lands. Recorded here so the
+option is visibly declined rather than silently re-proposed.
+
+### Shared prerequisite (needed under any variant)
+
+Touch-points 2 and 3 are independent of the identity-storage choice and must be decided together
+with it. Both are already filed as blockers from the same QA pass and are **deferred by this spec,
+not solved by it**: touch-point 2 is #4976, touch-point 3 is #4977.
+
+- **Recipient/subject validation** (`test-send/route.ts:33`, `send-as-user/route.ts:20` and `:26`) —
+  tracked as **#4976**: widen `to` to accept a provider-native recipient (union of email and
+  adapter-validated identifier) and make `subject` conditional on the channel's capabilities.
+  Widening a request schema is **additive** under Cat. 7 (only *removing* response fields or renaming
+  routes is breaking).
+  **Security control that MUST survive the widening**: `send-as-user/route.ts:26` is
+  `z.string().min(1).max(500).regex(/^[^\r\n]*$/)` — the regex (documented at `:23-25`, and applied
+  to `inReplyTo` / `references` too) rejects CR/LF so a caller cannot inject extra email headers, e.g.
+  a hidden `Bcc`, through the subject or threading fields. Making `subject` optional or conditional
+  MUST keep that guard on every code path where a subject *is* supplied; dropping the regex while
+  relaxing the schema would trade an ingest bug for a header-injection hole.
+- **Channel identity** (`connect-credential-channel.ts:161-169`) — tracked as **#4977** (the measured
+  consequence: reconnecting Discord creates a duplicate channel, because the duplicate-mailbox guard
+  stops applying once `externalIdentifier` is `NULL`): let the adapter supply its own
+  channel identifier (an optional `ChannelAdapter` method, e.g. `resolveChannelIdentity(credentials)`,
+  falling back to today's `username ?? email ?? fromAddress` when absent). An **optional** method on
+  a public interface is additive under Cat. 2; the fallback keeps every existing provider byte-identical.
+
+### Recommendation
+
+**Ship Variant A+ (Variant A plus the CRM-side identity key), plus the shared prerequisite. This
+reverses the earlier recommendation of Variant B, which rested on a cost/benefit that does not
+survive contact with the code.**
+
+The earlier argument for Variant B was that Variant A "leaves the platform with no way to *store* who
+a non-email sender is". That is false: `external_messages.sender_identifier` stores exactly that for
+every inbound channel message and `message_channel_links` joins it 1:1 to the platform message. The
+second half of the argument — that Variant B gives CRM resolution "a real key for non-email senders"
+— is also false: resolution is blocked in `buildPersonLookupFilter`, on the CRM side, and a column on
+`messages` does not touch it. With both halves removed, Variant B pays a migration, three validator
+schemas, a public type, response serialization and a duplicated identity store for one narrow
+benefit (an identity slot for compose paths that have no channel link), while **Variant A+ buys the
+CRM unlock that was Variant B's headline justification, for a smaller change and no duplicated
+storage.**
+
+Sequencing for the hub owner:
+
+1. **Variant A** is the unblocker for #4975 and can land alone — inbound Discord messages start
+   landing. Its honest limit is the compose paths named above: the inbound leg works, the operator's
+   compose-on-a-Discord-conversation path does not until the channel-type resolution is threaded into
+   `POST /api/messages` too.
+2. **The CRM-side key (A+)** is what makes those messages resolve to a person instead of a display
+   name. It is independent of the identity-storage decision and is worth landing in the same release
+   — otherwise Discord contacts stay display-name-only, which was the failure mode the whole variant
+   comparison was trying to avoid.
+3. **Variant B stays on the table as a later generalization, not a prerequisite.** The moment a
+   provider needs a sender identity on a message that has *no* `MessageChannelLink` — a caller-supplied
+   external sender through `POST /api/messages` — the `messages`-side field earns its cost. Until
+   then it duplicates storage the hub already has. Nothing in Variant A+ blocks adding it later:
+   both are additive, and the deprecation protocol is not triggered by either.
+
+The generalization worry that motivated Variant B ("Slack/Telegram/SMS would each re-open this
+decision") is answered by A+ rather than by B: the channel-type-keyed refinement and the CRM identity
+key are provider-neutral, so the second non-email provider inherits both.
+
+### Test consequence (mandatory under any variant)
+
+`TC-CHANNEL-DISCORD-003` MUST stop seeding an invented email (`…@test-seed.local`) and MUST drive
+`normalizeInboundDiscordMessage` on the real path, or the defect regresses immediately with a green
+suite. Add coverage for a public message composed with **no** email (accepted for a Discord channel,
+still rejected for an email channel), for `test-send` to a Discord channel id, and for a connected
+Discord channel persisting a non-null `externalIdentifier`.
+
+Under the recommended Variant A+, one more case is required, because it is the only proof the CRM
+unlock actually happened: with the non-email identity key populated on a CRM person, an inbound
+Discord message from that sender MUST resolve `matchedPersonId` to that person (and MUST still fall
+back to `displayName`, without failing ingest, when no person carries the key).
+
+Two notes for whoever picks this up. First, `TC-CHANNEL-DISCORD-003` does not exist on `develop` — it
+lives on the #4391 branch together with the rest of the provider suite (tracked by #4665), so a reader
+looking for it on `develop` will find it only in this spec's own test table (§ Integration test
+coverage). Second, the acceptance criterion that actually protects the hub is broader than the
+TC-003 rewrite and belongs on the implementation PR: **a test asserting that a non-email provider can
+complete an inbound compose end to end.** The absence of exactly that assertion is what let the
+original "no hub contract change required" claim ship (§ How the contradiction survived review,
+rule 3), and no variant should be considered done without it.
 
 ---
 
@@ -577,11 +904,54 @@ gateway identify/resume/backoff state machine, bot-self-message filter.
 - **Generation**: run `yarn generate` after adding module files (DI/setup/acl/integration/worker/
   subscriber). ✅
 - **Tests**: integration TC-CHANNEL-DISCORD-001..010 + provider unit tests, shipped with the
-  implementation PR; no live Discord calls in CI. ✅
+  implementation PR; no live Discord calls in CI. ⚠️ TC-CHANNEL-DISCORD-003 currently passes on
+  fixture data the adapter cannot produce — it MUST be rewritten to drive
+  `normalizeInboundDiscordMessage` (§ Open decision → Test consequence).
+- **Hub contract**: ⛔ **not clear.** The sender-identity contract is unresolved and blocks
+  implementation — see § Open decision — hub sender-identity contract.
 
 ---
 
 ## Changelog
+
+### 2026-08-05 — Backward-compatibility correction (QA of #4391, issue #4975)
+
+- Removed the false claim that the core message path needs no hub contract change. QA against a real
+  Discord bot proved every inbound message is rejected by hub validation.
+- Documented the three concrete touch-points with file and line: sender identity
+  (`messages/data/validators.ts:107` + `:131`, driven by
+  `communication_channels/commands/ingest-inbound-message.ts:351`/`:354`), outbound recipient and
+  subject validation (`api/post/channels/[id]/test-send/route.ts:33`,
+  `api/post/send-as-user/route.ts:20` and `:26`), and channel identity inference
+  (`commands/connect-credential-channel.ts:161-169`). The previously known interactions-handshake
+  touch-point is retained as the fourth.
+- Added § Open decision — hub sender-identity contract: Variant A (conditional validation),
+  Variant A+ (A plus a CRM-side identity key) and Variant B (generic `externalIdentity`), each
+  classified against `BACKWARD_COMPATIBILITY.md` — all additive, none requiring the deprecation
+  protocol for the addition itself — plus the rejected synthetic-email option, the shared
+  prerequisite for touch-points 2 and 3 (#4976, #4977), a recommendation, and the mandatory test
+  consequence for TC-CHANNEL-DISCORD-003.
+- **Corrected the variant costing after review (#4998).** The first draft of the section recommended
+  Variant B on two claims that do not hold against the code: that Variant A leaves the platform
+  unable to store a non-email sender (it does not — `external_messages.sender_identifier` stores it
+  and `message_channel_links` joins it 1:1 to the message), and that a `messages.external_identity`
+  column would unlock CRM contact resolution (it would not — resolution is blocked in
+  `buildPersonLookupFilter`, which can only match `primary_email` / `primary_phone`). The
+  recommendation is now **Variant A+**: relax the refinement, keep the identity where it is already
+  persisted, and add the CRM-side lookup key that was Variant B's headline justification. Variant B
+  is retained as a later generalization with its remaining narrow benefit stated. Also documented the
+  non-ingest compose paths Variant A leaves blocked, linked #4976/#4977/#4978 for the deferred and
+  out-of-scope touch-points, named all three `externalEmail` validator sites, and flagged the CR/LF
+  header-injection guard on `send-as-user`'s `subject` that any widening must preserve.
+- **Re-grounded every citation on the current `develop` head (`c514f2eb3`).** All 30 `file:line`
+  references added by this correction still resolve to the quoted code after the base advanced;
+  one off-by-one was found and fixed — `ContactResolverInput.senderIdentifier` is at
+  `communication_channels/lib/contact-resolver.ts:22`, not `:21` (which is the `adapter` field).
+- Recorded how the contradiction survived review: this document already contained both halves
+  (`resolveContact` — *"no email/phone"* — and the "verbatim reuse" claim) one section apart. Kept as
+  a documented lesson for future non-email providers, with three rules derived from it.
+- Added the identity blocker to § Risks & impact review, corrected the "hub stays unchanged" clause
+  on the gateway row, and moved Status to blocked. No code changes — spec only.
 
 ### 2026-06-19 — Initial draft
 

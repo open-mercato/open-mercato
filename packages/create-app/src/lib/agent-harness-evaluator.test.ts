@@ -517,6 +517,38 @@ test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4
   }
 })
 
+test('deterministic evaluation keeps timeoutMs a writable-only budget (#5057)', () => {
+  // Duration is a property of the operator's runner, not of the case: the same routing case has
+  // measured 147 s and 132 s on consecutive runs of the same model. Files and bytes measure the
+  // agent's context discipline and belong to the portable catalog; a per-case duration would encode
+  // one machine's speed into it. The runner-aware operator floors in resolveLiveCaseTimeout carry
+  // that budget instead, and this pins the catalog side of that decision.
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      id: string
+      evaluationKind: string
+      timeoutMs?: number
+    }>
+    const routing = cases.find((entry) => entry.evaluationKind === 'routing')
+    const writable = cases.find((entry) => entry.evaluationKind === 'implementation' && entry.timeoutMs === undefined)
+    assert.ok(routing, 'the catalog must still carry a routing case')
+    assert.ok(writable, 'the catalog must still carry a writable case without its own timeout')
+    routing.timeoutMs = 420_000
+    writable.timeoutMs = 420_000
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, new RegExp(`FAIL ${routing.id}:.*timeoutMs must be a writable-case duration`))
+    assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${writable.id}:.*timeoutMs`))
+    assert.match(result.stdout, new RegExp(`PASS ${writable.id} `))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the evaluator, the mirrored helper, and the calibration template agree on initial-context exclusions (#4565)', () => {
   const evaluatorSource = fs.readFileSync(sourceEvaluator, 'utf8')
   const productionRule = /function isInitialContextPath\(relative\) \{\n([\s\S]*?)\n\}/.exec(evaluatorSource)
@@ -576,12 +608,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-203', () => {
+test('deterministic evaluation enforces the case schema through OMH-213', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-203')
+    assert.equal(cases.at(-1)?.id, 'OMH-213')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
