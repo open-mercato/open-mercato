@@ -1167,3 +1167,41 @@ app-source compilation joins that lifecycle instead of starting a second helper 
 
 `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`
 green (22/22 turbo tasks). `test` and `build:app` run after; results recorded on the PR.
+
+## Session 7 — the red `audit` job (inherited, not ours)
+
+Both fixes are post-review, outside the wave plan: the `audit` job was red on this PR while the
+branch's `yarn.lock` was byte-identical to `develop`'s. `audit-scope` only schedules the job when a
+manifest changes, so `develop`'s own pushes report it `skipped` and every manifest-touching PR
+inherits the red. Filed upstream as **#5144**.
+
+- [x] Post-review fix: pin `nanoid` to 3.3.18, clearing GHSA-2v37-7h3g-55p8 (postcss 8.5.22 is the
+  only dependent and requests `^3.3.16`, so the pin stays inside the declared range) — `3e91b0a51`
+- [x] Post-review fix: `.audit-allowlist.json` + waiver support in `scripts/audit-ci.mjs` for the two
+  `image-size` advisories — `9a3b998cb`
+
+### Why a waiver, when `2026-08-04-audit-gate-transitive-dep-bumps.md` ruled allowlists out
+
+That run's non-goal ("the gate must go green because the graph is fixed") assumed a fix exists. For
+GHSA-w3rx-r6r6-pgpr and GHSA-5p2g-fcmc-qvqq it does not: 2.0.2 is the newest `image-size` npm has
+ever published, both advisories cover `<=2.0.2`, and the GitHub advisory API reports
+`first_patched_version: null` for both. No bump, resolution or lockfile edit can clear them, so the
+alternative to a waiver is a permanently red gate on an unrepairable graph. Maintainer decision
+taken this session: ship the waiver.
+
+The mechanism is built to fail closed rather than to soften the gate. A waiver must name the GHSA
+id, the package, the exact vulnerable range the registry reports, a reason and an expiry no more
+than `MAX_WAIVER_DAYS` (90) out; a malformed entry exits 2 *before* the scan runs, a re-scoped
+advisory stops matching, an expired waiver suppresses nothing, a waiver matching nothing is printed
+as stale, and every suppression is printed on every run. `image-size` reaches the graph only from
+`apps/docs` through `@docusaurus/mdx-loader`, which sizes repo-authored images at documentation
+build time — no runtime package or app depends on it.
+
+### Gate (local runner; no compose `app` container in this WSL distro)
+
+`build:packages`, `generate` (no drift), `build:packages`, `i18n:check-sync`, `i18n:check-usage`,
+`typecheck`, `build:app` green. `test`: 24/24 turbo tasks pass (core alone 1198 suites / 9256
+tests); the sole failure is `create-mercato-app`'s `template-dev-log-files.test.ts` asserting this
+host's inotify limits (`max_user_watches` 253174, `max_user_instances` 128 against the required
+4194304/4096) — the documented host-environment class, unreachable from a transitive patch bump or
+a CI script.
