@@ -1278,3 +1278,8 @@ The last `qa-only` row in the example inventory (`testing.integration-coverage`,
   two-shapes-of-oracle distinction the first draft got wrong, are in the GOV spec's second 2026-08-10
   changelog entry. Remaining GOV work is the packed-target check (row 2) and the certified-release-lane
   run (row 9).
+- [x] GOV Phase 2: packed-target check — `generatedTargetErrors`, +5 tests (73 total). Row 2 of the
+  Session 7b table. Mirror-ness is derived from the base commit rather than assumed, because the
+  template stub pair is a deliberate non-mirror. **All three pending GOV Phase 2 checks are now done**;
+  the remaining GOV item is the certified-release-lane run (row 9), which needs a real lane execution
+  rather than more validator code.

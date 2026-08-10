@@ -760,6 +760,56 @@ export function exampleCoverageErrors(headRows, baseRows, options = {}) {
   return errors
 }
 
+/**
+ * Generated/template/packed-target hashes against their authoritative source — spec
+ * `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md` line 97.
+ *
+ * `checkFileRecords` hashes a generated file against *itself*, which always matches, so a mirror
+ * that has drifted from its source passes today. The obvious fix — demand the copy equal its source
+ * — is wrong here: not every declared pair is a byte mirror.
+ * `template/scripts/validate-knowledge-change.mjs` is a four-line "run agentic:init first" stub
+ * standing in for a 1300-line source, and it is supposed to be.
+ *
+ * So mirror-ness is *derived from the base commit* rather than assumed, giving two rules:
+ *
+ *   1. **Stale copy.** The source changed in this diff and the generated target did not. This is the
+ *      forgotten `yarn template:sync`, and it needs no hashes at all — only the diff.
+ *   2. **Mirror ratchet.** A pair whose bytes were identical at base must still be identical at head.
+ *      A pair that was never identical is left alone, so deliberate stubs and transformed outputs are
+ *      not forced into a byte equality they never had.
+ *
+ * `hashAt('base'|'head', relativePath)` is injected so both rules stay unit-testable without git.
+ */
+export function generatedTargetErrors(generatedFiles, changedPaths, hashAt) {
+  const errors = []
+  const changed = new Set((changedPaths ?? []).map((value) => normalizeRelativePath(String(value))))
+  for (const record of generatedFiles ?? []) {
+    if (!isPlainObject(record)) continue
+    const target = normalizeRelativePath(String(record.path ?? ''))
+    const source = normalizeRelativePath(String(record.sourcePath ?? ''))
+    if (!target || !source) continue
+
+    if (changed.has(source) && !changed.has(target)) {
+      errors.push(
+        `generatedFiles ${target} declares sourcePath ${source}, which changed in this diff while the ` +
+        'generated target did not; regenerate the target or it ships stale',
+      )
+    }
+
+    const baseTarget = hashAt('base', target)
+    const baseSource = hashAt('base', source)
+    if (baseTarget === null || baseSource === null || baseTarget !== baseSource) continue
+    const headTarget = hashAt('head', target)
+    const headSource = hashAt('head', source)
+    if (headTarget === null || headSource === null || headTarget === headSource) continue
+    errors.push(
+      `generatedFiles ${target} was byte-identical to its source ${source} at the base commit and is ` +
+      'no longer; a mirror may not silently diverge from the file it copies',
+    )
+  }
+  return errors
+}
+
 function baseFileHash(root, baseSha, relativePath) {
   const result = spawnSync('git', ['-C', root, 'show', `${baseSha}:${relativePath}`], { encoding: 'buffer' })
   if (result.status !== 0) return null
@@ -1174,6 +1224,15 @@ export function validateKnowledgeChange(input) {
 
   checkFileRecords(root, 'authoritativeFiles', manifest.authoritativeFiles ?? [], errors)
   checkFileRecords(root, 'generatedFiles', manifest.generatedFiles ?? [], errors, { sourcePathRequired: true })
+  // Generated/template/packed targets against the source they copy. checkFileRecords above hashes
+  // each target against itself, so drift from the authoritative source is invisible to it.
+  errors.push(...generatedTargetErrors(manifest.generatedFiles ?? [], input.changedPaths ?? [], (ref, relativePath) => {
+    if (ref === 'head') {
+      const absolute = path.join(root, relativePath)
+      return isRegularFile(absolute) ? hashFile(absolute) : null
+    }
+    return input.baseSha ? baseFileHash(root, input.baseSha, relativePath) : null
+  }))
   for (const documentationPath of manifest.documentationFiles ?? []) {
     if (!isRegularFile(path.join(root, documentationPath))) {
       errors.push(`documentationFiles ${documentationPath} is not an exact regular file in the working tree`)

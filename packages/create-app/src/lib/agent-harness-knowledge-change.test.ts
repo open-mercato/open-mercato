@@ -89,6 +89,11 @@ type Validator = {
   READ_ONLY_CASE_MODES: readonly string[]
   WRITABLE_CASE_MODES: readonly string[]
   touchesCaseMembershipSurface: (changedPaths: string[]) => boolean
+  generatedTargetErrors: (
+    generatedFiles: Array<Record<string, unknown>>,
+    changedPaths: string[],
+    hashAt: (ref: string, relativePath: string) => string | null,
+  ) => string[]
   caseModeMembershipErrors: (
     cases: unknown,
     registry: unknown,
@@ -1911,4 +1916,67 @@ test('scoping does not neuter the check: touching the catalog still fails a brok
 
   const untouched = run(['AGENTS.md', 'pkg/lib.test.mjs'])
   assert.ok(!untouched.errors.some((error) => /validator registry could not be read/.test(error)))
+})
+
+// ── Generated/template/packed-target hashes vs their authoritative source (GOV Phase 2) ──────────
+
+const hashTable = (entries: Record<string, string | null>) => (ref: string, relativePath: string) =>
+  Object.hasOwn(entries, `${ref}:${relativePath}`) ? entries[`${ref}:${relativePath}`] : null
+
+test('a source that moved without its generated target is a stale copy', () => {
+  const records = [{ path: 'template/a.mjs', sourcePath: 'shared/a.mjs' }]
+  const stale = validator.generatedTargetErrors(records, ['shared/a.mjs'], () => null)
+  assert.equal(stale.length, 1)
+  assert.match(stale[0], /changed in this diff while the generated target did not/)
+
+  const regenerated = validator.generatedTargetErrors(records, ['shared/a.mjs', 'template/a.mjs'], () => null)
+  assert.deepEqual(regenerated, [])
+
+  const untouched = validator.generatedTargetErrors(records, ['unrelated.md'], () => null)
+  assert.deepEqual(untouched, [])
+})
+
+test('a pair that was a byte mirror at base may not diverge at head', () => {
+  const records = [{ path: 'template/a.mjs', sourcePath: 'shared/a.mjs' }]
+  const changed = ['shared/a.mjs', 'template/a.mjs']
+
+  const diverged = validator.generatedTargetErrors(records, changed, hashTable({
+    'base:template/a.mjs': 'aaa', 'base:shared/a.mjs': 'aaa',
+    'head:template/a.mjs': 'bbb', 'head:shared/a.mjs': 'ccc',
+  }))
+  assert.equal(diverged.length, 1)
+  assert.match(diverged[0], /was byte-identical to its source .* at the base commit and is no longer/)
+
+  const stillMirrored = validator.generatedTargetErrors(records, changed, hashTable({
+    'base:template/a.mjs': 'aaa', 'base:shared/a.mjs': 'aaa',
+    'head:template/a.mjs': 'bbb', 'head:shared/a.mjs': 'bbb',
+  }))
+  assert.deepEqual(stillMirrored, [])
+})
+
+test('a pair that was never a byte mirror is not forced into one', () => {
+  // The shipped case: template/scripts/validate-knowledge-change.mjs is a deliberate stub, not a
+  // copy of the 1300-line shared source. Demanding equality of every declared pair would fail it.
+  const records = [{ path: 'template/stub.mjs', sourcePath: 'shared/real.mjs' }]
+  const errors = validator.generatedTargetErrors(records, ['shared/real.mjs', 'template/stub.mjs'], hashTable({
+    'base:template/stub.mjs': 'stub', 'base:shared/real.mjs': 'real',
+    'head:template/stub.mjs': 'stub2', 'head:shared/real.mjs': 'real2',
+  }))
+  assert.deepEqual(errors, [])
+})
+
+test('an unknown base hash cannot manufacture a mirror claim', () => {
+  const records = [{ path: 'template/a.mjs', sourcePath: 'shared/a.mjs' }]
+  const errors = validator.generatedTargetErrors(records, ['shared/a.mjs', 'template/a.mjs'], hashTable({
+    'head:template/a.mjs': 'bbb', 'head:shared/a.mjs': 'ccc',
+  }))
+  assert.deepEqual(errors, [])
+})
+
+test('the shipped template stub pair really is a non-mirror, so the ratchet stays off it', () => {
+  const repoRoot = path.resolve(fileURLToPath(new URL('../../../../', import.meta.url)))
+  const sourcePath = path.join(repoRoot, 'packages/create-app/agentic/shared/scripts/validate-knowledge-change.mjs')
+  const targetPath = path.join(repoRoot, 'packages/create-app/template/scripts/validate-knowledge-change.mjs')
+  if (!fs.existsSync(sourcePath) || !fs.existsSync(targetPath)) return
+  assert.notEqual(fs.readFileSync(sourcePath, 'utf8'), fs.readFileSync(targetPath, 'utf8'))
 })
