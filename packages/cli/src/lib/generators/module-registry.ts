@@ -414,7 +414,11 @@ function reconcileGeneratorPluginOutputs(options: {
     return
   }
 
-  const manifestContent = `${JSON.stringify([...currentOutputs].sort(), null, 2)}\n`
+  const manifestContent = `${JSON.stringify(
+    [...currentOutputs].sort((left, right) => left.localeCompare(right)),
+    null,
+    2,
+  )}\n`
   if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestContent) {
     fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
     fs.writeFileSync(manifestPath, manifestContent)
