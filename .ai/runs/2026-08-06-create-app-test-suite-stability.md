@@ -163,3 +163,23 @@ PR: #5064
       header states that a single builder at a time is an assumption of the staged-swap design
 - [x] 5.5 Follow-up issue for the same in-place `rmSync` + `cpSync` pattern still in
       `packages/cli/build.mjs` — out of scope here, nothing reads that tree concurrently today
+
+### Phase 6: Second review follow-up — the conflict against `develop` (@adeptofvoltron, changes-requested)
+
+- [x] 6.1 Merge the current `develop` tip (`2968c89bd`) and resolve the one conflicting file,
+      `packages/create-app/src/lib/module-facts-build.test.ts`, by taking `develop`'s stricter
+      "required by at least one catalog case" guard from #4603 (`50ba13cfd`) — including its
+      `FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE` list and the two staleness assertions — and applying
+      only this PR's own change on top of it: the removal of the in-test `ensureBuilt()` build
+      spawn, which is the whole point of #5059. Keeping this branch's weaker "routed by at least
+      one catalog case" predicate would have silently regressed a guard that already landed
+- [x] 6.2 Re-run the full validation gate on the merged head — eight configured commands, local
+      runner, no Docker `app` container present. Seven green; `yarn test` fails only on
+      `@open-mercato/cli` `openapi.test.ts` (4 × 5 s Jest timeout), a package this branch leaves
+      byte-identical to `develop`, and that file passes 10/10 in 1.9 s when run without the
+      parallel monorepo load — host contention, not a regression. The changed package's own suite
+      was run directly and is green: 477 tests, 472 pass, 0 fail, 5 skipped
+- [x] 6.3 The failing required `audit` check is base-branch breakage, not this PR's: `yarn.lock`
+      is byte-identical to `develop`, and the advisories are already tracked repo-wide by the
+      auto-refreshed issue #5111 (`security: high-severity dependency advisories on develop`).
+      No duplicate follow-up filed; no dependency bump attempted from this branch
