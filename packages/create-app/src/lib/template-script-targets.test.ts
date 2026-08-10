@@ -198,6 +198,24 @@ test('the standalone smoke installs from the same Verdaccio registry it publishe
   )
 })
 
+test('the standalone integration lane uses the configured Verdaccio registry', () => {
+  const integrationTest = fs.readFileSync(
+    new URL('../../../../scripts/test-create-app-integration.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    integrationTest,
+    /\[CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'\]/,
+    'the activated standalone lane must not silently fall back to the fixed --verdaccio port',
+  )
+  assert.match(
+    integrationTest,
+    /yarnConfig\.includes\(`npmRegistryServer: \"\$\{VERDACCIO_URL\}\"`\)/,
+    'the activated standalone lane must verify the generated Yarn registry before installing packages',
+  )
+})
+
 test('`yarn test` succeeds on a scaffold that ships no test files', () => {
   const scaffoldedTestFiles = listScaffoldedTestFiles(fileURLToPath(new URL('src/', TEMPLATE_DIR)))
   const jestConfig = createRequire(import.meta.url)(

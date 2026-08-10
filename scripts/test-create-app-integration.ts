@@ -260,10 +260,15 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--skip-agentic-setup'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'], { cwd: ROOT })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded standalone app created')
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')
+    const yarnConfig = fs.readFileSync(path.join(appDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error(`Scaffolded standalone app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
+    }
+    console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
 
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)

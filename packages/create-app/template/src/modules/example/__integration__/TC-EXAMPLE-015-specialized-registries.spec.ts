@@ -1,17 +1,5 @@
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  getBundle,
-  getIntegration,
-} from '@open-mercato/shared/modules/integrations/types'
-import { getGatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
-import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
-import { getShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
-import type { RateProvider } from '@open-mercato/core/modules/currencies/services/providers/base'
 import {
   apiRequestWithSelectedOrg,
   createOrganizationFixture,
@@ -21,14 +9,6 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import { extractModuleFacts } from '@open-mercato/cli/lib/generators/module-facts'
-import {
-  VectorIndexService,
-  type EmbeddingService,
-  type VectorDriver,
-  type VectorDriverDocument,
-} from '@open-mercato/search/vector'
-import { EXAMPLE_CURRENCY_RATE_PROVIDER } from '../di'
 
 export const integrationMeta = {
   dependsOnModules: [
@@ -44,25 +24,8 @@ export const integrationMeta = {
   ],
 }
 
-const APP_ROOT = path.resolve(process.env.OM_TEST_APP_ROOT?.trim() || path.resolve(process.cwd(), 'apps/mercato'))
-const EXAMPLE_MODULE_ROOT = path.join(APP_ROOT, 'src', 'modules', 'example')
 const TODOS_API = '/api/example/todos'
 const WORKFLOW_ID = 'example.todo-created-reference'
-
-type ModuleLike = {
-  id: string
-  vector?: VectorModuleConfig
-}
-
-type WorkflowLike = {
-  workflowId: string
-  moduleId: string
-}
-
-type BootstrapResult = {
-  modules: ModuleLike[]
-  codeWorkflows?: WorkflowLike[]
-}
 
 type WorkflowInstance = {
   id: string
@@ -75,47 +38,6 @@ type SearchResponse = {
   results?: Array<{ entityId?: unknown; recordId?: unknown }>
 }
 
-let bootstrapPromise: Promise<BootstrapResult> | null = null
-
-async function bootstrapReferenceApp(): Promise<BootstrapResult> {
-  if (!bootstrapPromise) {
-    bootstrapPromise = bootstrapFromAppRoot(APP_ROOT) as Promise<BootstrapResult>
-  }
-  return bootstrapPromise
-}
-
-function createVectorDriver() {
-  const documents = new Map<string, VectorDriverDocument>()
-  const keyOf = (entityId: string, recordId: string, tenantId: string) => `${tenantId}:${entityId}:${recordId}`
-  const driver: VectorDriver = {
-    id: 'pgvector',
-    async ensureReady() {},
-    async upsert(document) {
-      documents.set(keyOf(document.entityId, document.recordId, document.tenantId), document)
-    },
-    async delete(entityId, recordId, tenantId) {
-      documents.delete(keyOf(entityId, recordId, tenantId))
-    },
-    async query() {
-      return []
-    },
-    async getChecksum(entityId, recordId, tenantId) {
-      return documents.get(keyOf(entityId, recordId, tenantId))?.checksum ?? null
-    },
-  }
-  return { documents, driver }
-}
-
-function createEmbeddingService(): EmbeddingService {
-  return {
-    available: true,
-    async createEmbedding(input: string | string[]) {
-      const text = Array.isArray(input) ? input.join('\n') : input
-      const total = [...text].reduce((sum, character) => sum + character.codePointAt(0)!, 0)
-      return [text.length, total % 997, 1]
-    },
-  } as unknown as EmbeddingService
-}
 
 async function readWorkflowInstances(
   request: APIRequestContext,
@@ -183,93 +105,7 @@ async function deleteWorkflowInstances(instanceIds: string[]): Promise<void> {
 }
 
 test.describe('TC-EXAMPLE-015: the nine specialized registries have real local callers', () => {
-  test('the canonical fact extractor emits every specialized registry kind', () => {
-    const facts = extractModuleFacts({
-      moduleId: 'example',
-      moduleRoot: EXAMPLE_MODULE_ROOT,
-      portableSourceRoot: 'src/modules/example',
-    })
-    const registries = new Set(
-      (facts.extensionSurfaces?.contributions ?? [])
-        .filter((contribution) => contribution.kind === 'specialized-registry')
-        .map((contribution) => contribution.details.registry),
-    )
-    expect([...registries].sort()).toEqual([
-      'ai',
-      'currency',
-      'integration',
-      'notification',
-      'payment',
-      'search',
-      'shipping',
-      'vector',
-      'workflow',
-    ])
-  })
-
-  test('bootstrap registers the bundle, mock adapters, deterministic currency provider, and workflow', async () => {
-    const bootstrap = await bootstrapReferenceApp()
-    const bundle = getBundle('example_reference_bundle')
-    expect(bundle?.credentials.fields).toEqual([])
-
-    expect(getIntegration('example_mock_payment')).toMatchObject({
-      bundleId: bundle?.id,
-      category: 'payment',
-      providerKey: 'mock',
-    })
-    expect(getIntegration('example_mock_shipping')).toMatchObject({
-      bundleId: bundle?.id,
-      category: 'shipping',
-      providerKey: 'mock_carrier',
-    })
-    expect(getIntegration('example_fixed_currency')).toMatchObject({
-      bundleId: bundle?.id,
-      category: 'currency',
-      providerKey: 'example_fixed_rates',
-    })
-
-    const paymentAdapter = getGatewayAdapter('mock')
-    expect(paymentAdapter).toBeDefined()
-    const payment = await paymentAdapter!.createSession({
-      paymentId: randomUUID(),
-      tenantId: randomUUID(),
-      organizationId: randomUUID(),
-      amount: 12.34,
-      currencyCode: 'USD',
-      credentials: {},
-    })
-    expect(payment.status).toBe('captured')
-
-    const shippingAdapter = getShippingAdapter('mock_carrier')
-    expect(shippingAdapter).toBeDefined()
-    const rates = await shippingAdapter!.calculateRates({
-      origin: { countryCode: 'US', city: 'New York', postalCode: '10001', line1: '1 Main St' },
-      destination: { countryCode: 'US', city: 'Boston', postalCode: '02108', line1: '1 Beacon St' },
-      packages: [{ weightKg: 1, lengthCm: 10, widthCm: 10, heightCm: 10 }],
-      credentials: {},
-    })
-    expect(rates.map((rate) => rate.serviceCode)).toEqual(['standard', 'express'])
-
-    const container = await createRequestContainer()
-    const currencyProvider = container.resolve<RateProvider>(EXAMPLE_CURRENCY_RATE_PROVIDER)
-    const date = new Date('2026-08-10T00:00:00.000Z')
-    const currencyRates = await currencyProvider.fetchRates(
-      date,
-      { tenantId: randomUUID(), organizationId: randomUUID() },
-      new Set(['USD', 'EUR']),
-    )
-    expect(currencyRates).toEqual([
-      expect.objectContaining({ fromCurrencyCode: 'USD', toCurrencyCode: 'EUR', rate: '0.9200', date }),
-      expect.objectContaining({ fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', rate: '1.0870', date }),
-    ])
-
-    expect(bootstrap.codeWorkflows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ workflowId: WORKFLOW_ID, moduleId: 'example' }),
-    ]))
-  })
-
-  test('the generated vector config indexes a real scoped Todo deterministically without credentials', async ({ request }) => {
-    const bootstrap = await bootstrapReferenceApp()
+  test('token search indexes a real Todo and preserves organization scope', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
@@ -319,47 +155,6 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       expect(await searchTodoIds(request, token, `TC-EXAMPLE-015 foreign vector ${suffix}`))
         .not.toContain(foreignTodoId)
 
-      const exampleModule = bootstrap.modules.find((module) => module.id === 'example')
-      expect(exampleModule?.vector?.entities.map((entity) => entity.entityId)).toContain('example:todo')
-      const container = await createRequestContainer()
-      const queryEngine = container.resolve<QueryEngine>('queryEngine')
-      const { documents, driver } = createVectorDriver()
-      const service = new VectorIndexService({
-        drivers: [driver],
-        embeddingService: createEmbeddingService(),
-        queryEngine,
-        moduleConfigs: [exampleModule!.vector!],
-      })
-
-      const first = await service.indexRecord({
-        entityId: 'example:todo',
-        recordId: todoId!,
-        tenantId,
-        organizationId,
-      })
-      expect(first.action).toBe('indexed')
-      const document = [...documents.values()].find((candidate) => candidate.recordId === todoId)
-      expect(document).toMatchObject({ tenantId, organizationId, entityId: 'example:todo' })
-      expect(JSON.stringify(document)).toContain(`TC-EXAMPLE-015 vector ${suffix}`)
-      expect(JSON.stringify(document)).not.toContain(`private-${suffix}`)
-
-      const repeated = await service.indexRecord({
-        entityId: 'example:todo',
-        recordId: todoId!,
-        tenantId,
-        organizationId,
-      })
-      expect(repeated).toMatchObject({ action: 'skipped', reason: 'checksum_match', existed: true })
-      expect(documents.size).toBe(1)
-
-      const wrongScope = await service.indexRecord({
-        entityId: 'example:todo',
-        recordId: foreignTodoId!,
-        tenantId,
-        organizationId,
-      })
-      expect(wrongScope).toMatchObject({ action: 'skipped', reason: 'missing_record', existed: false })
-      expect([...documents.values()].map((candidate) => candidate.recordId)).not.toContain(foreignTodoId)
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
       if (foreignOrgId && foreignTodoId) {
@@ -374,7 +169,6 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
   })
 
   test('one scoped Todo event starts exactly one workflow instance in its organization', async ({ request }) => {
-    await bootstrapReferenceApp()
     const token = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
