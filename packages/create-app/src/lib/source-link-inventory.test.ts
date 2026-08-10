@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -30,6 +31,8 @@ type Record_ = {
   href?: string
   renderedLinkCount?: number
   evidence?: string
+  packageName?: string
+  packageRelativePath?: string
 }
 
 type Inventory = {
@@ -226,17 +229,44 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 100)
-  assert.equal(inventory.records.length, 125)
-  assert.equal(inventory.derived.renderedLinkCount, 102)
+  // 101 source-required of 126: the extra one over the canonical-example set is the single
+  // installed-package link `.ai/guides/backend-ui.md` renders into `@open-mercato/ui`.
+  assert.equal(inventory.derived.sourceRequiredCount, 101)
+  assert.equal(inventory.records.length, 126)
+  assert.equal(inventory.derived.renderedLinkCount, 103)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 100)
+  assert.equal(sourceRequired.length, 101)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
+
+    // An installed-package target is not authored inside `packages/create-app` at all: a
+    // generated app gets it by INSTALLING the package. It is therefore resolved against the
+    // publishing workspace package and, decisively, against what that package packs — a file
+    // present in the workspace but excluded from the tarball is a dead link in every real app.
+    if (record.targetKind === 'installed-package') {
+      assert.equal(record.targetAuthoringPath, null, `${record.topicId} is installed, not authored here`)
+      const installed = record as unknown as { packageName: string; packageRelativePath: string }
+      assert.ok(installed.packageName?.startsWith('@open-mercato/'))
+      const workspaceDir = path.join(repoRoot, 'packages', installed.packageName.slice('@open-mercato/'.length))
+      assert.ok(fs.statSync(path.join(workspaceDir, installed.packageRelativePath)).isFile())
+      const packed = JSON.parse(execFileSync(
+        'npm',
+        ['pack', '--dry-run', '--json', '--ignore-scripts'],
+        { cwd: workspaceDir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+      )) as Array<{ files: Array<{ path: string }> }>
+      assert.ok(
+        packed[0].files.some((entry) => entry.path === installed.packageRelativePath),
+        `${record.topicId} links a path ${installed.packageName} does not pack`,
+      )
+      const ownerSourceForInstalled = fs.readFileSync(path.join(packageRoot, record.originAuthoringPath as string), 'utf8')
+      assert.ok(ownerSourceForInstalled.includes(`](${record.href})`), `${record.topicId} must be rendered by its owner`)
+      continue
+    }
+
     assert.ok(record.targetAuthoringPath, `${record.topicId} must resolve to an authored file`)
     const absolute = path.join(packageRoot, record.targetAuthoringPath as string)
     assert.ok(fs.statSync(absolute).isFile(), `${record.topicId} must resolve to a regular file`)
@@ -273,9 +303,29 @@ test('records carry the derived joins the spec names, with exact values', () => 
   assert.equal(form.moduleId, 'example')
   assert.equal(form.heading, 'Canonical example source')
   assert.deepEqual(form.capabilityIds, ['ui.form-create', 'ui.form-edit'])
-  assert.deepEqual(form.integrationTestPaths, [
-    'src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts',
-  ])
+
+  // The join, not the surface inventory's contents: every spec the record's own capabilities
+  // name, deduplicated and sorted. Pinned as a literal it churned on each new `TC-EXAMPLE-*`
+  // spec and told a reader nothing, so the exactness that matters is asserted two other ways —
+  // the anchor spec must survive any future edit, and every named path must be a real file.
+  const surfaceForJoin = readJson<{
+    capabilities: Array<{ capabilityId: string; integrationTestPaths?: string[] }>
+  }>(generator.SURFACE_INVENTORY_RELATIVE_PATH)
+  const joinedSpecPaths = [...new Set(surfaceForJoin.capabilities
+    .filter((capability) => form.capabilityIds.includes(capability.capabilityId))
+    .flatMap((capability) => capability.integrationTestPaths ?? []))].sort()
+  assert.deepEqual(form.integrationTestPaths, joinedSpecPaths)
+  assert.ok(
+    form.integrationTestPaths.includes('src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts'),
+    'the shared form surface is covered by TC-EXAMPLE-001 and must stay joined to it',
+  )
+  for (const specPath of form.integrationTestPaths) {
+    assert.ok(
+      fs.existsSync(path.join(packageRoot, 'template', specPath)),
+      `${specPath} is named as coverage but no such spec is emitted`,
+    )
+  }
+
   assert.ok(form.affectedCaseIds.includes('OMH-014'))
 
   const registry = recordFor(inventory, 'om-system-extension/unified-overrides:src/modules.ts')
@@ -312,6 +362,9 @@ test('capability joins come from the example surface inventory, not from the top
   assert.deepEqual(
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
+      // The installed UI implementation joins no example capability: it is the framework's own
+      // component, not a canonical-example surface.
+      'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
       'src/modules/example/README.md',
       'src/modules/example/references/surface-inventory.json',
       'src/modules/example/references/surface-map.md',
@@ -430,10 +483,111 @@ test('the CANON-C fail-closed branch resolves once the inventory is present', ()
   }
 })
 
-test('the inventory is never copied into a scaffolded app', () => {
+test('the repository inventory is never copied into a scaffolded app; only its projection is', () => {
   assert.ok(generator.INVENTORY_RELATIVE_PATH.startsWith('packages/create-app/scripts/'))
   assert.ok(!generator.INVENTORY_RELATIVE_PATH.includes('agentic/'))
-  assert.ok(!fs.existsSync(path.join(packageRoot, 'agentic/shared/ai/harness/source-link-inventory.json')))
+
+  // What a scaffolded app receives is a PROJECTION of the same derivation, not the file above.
+  // Everything that only means something inside the monorepo — authoring paths, harness case
+  // IDs, baseline block IDs, repository-only QA evidence — is dropped rather than blanked, so a
+  // consumer cannot mistake an empty field for a real one.
+  const projected = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, generator.PROJECTION_RELATIVE_PATH), 'utf8'),
+  ) as { records: Array<Record<string, unknown>> }
+  const full = checkedInventory()
+  assert.equal(projected.records.length, full.records.length)
+
+  const repositoryOnlyFields = [
+    'topicId',
+    'originAuthoringPath',
+    'targetAuthoringPath',
+    'affectedCaseIds',
+    'integrationTestPaths',
+    'replacesBaselineBlockIds',
+    'citedByBaselineBlockIds',
+    'evidence',
+  ]
+  for (const record of projected.records) {
+    for (const field of repositoryOnlyFields) {
+      assert.ok(!(field in record), `the projection must not carry the repository-only field ${field}`)
+    }
+    for (const field of Object.keys(record)) {
+      assert.ok(generator.PROJECTED_RECORD_FIELDS.includes(field), `unexpected projected field ${field}`)
+    }
+  }
+
+  // Every projected value is the SAME value the repository inventory derived, keyed by the
+  // reference ID. A projection that recomputed anything could disagree with its own source.
+  const fullById = new Map(full.records.map((record) => [record.referenceId, record]))
+  for (const record of projected.records) {
+    const origin = fullById.get(record.referenceId as string)
+    assert.ok(origin, `projected reference ${String(record.referenceId)} has no repository record`)
+    for (const [field, value] of Object.entries(record)) {
+      assert.deepEqual(value, (origin as Record<string, unknown>)[field], `${String(record.referenceId)}.${field}`)
+    }
+  }
+})
+
+test('the projection lands at the exact path harness cases resolve references against', () => {
+  // `shared.ts` emits `agentic/shared/ai/**` to `.ai/**` wholesale, so the projection's path
+  // under that tree IS its path in a scaffolded app. The evaluator hard-codes the app-side path;
+  // this pins the two ends together so moving one without the other fails here.
+  const underAgenticAi = path.relative(
+    path.join(packageRoot, 'agentic/shared/ai'),
+    path.join(repoRoot, generator.PROJECTION_RELATIVE_PATH),
+  ).split(path.sep).join('/')
+  assert.equal(underAgenticAi, 'harness/source-link-inventory.json')
+
+  const evaluatorSource = fs.readFileSync(
+    path.join(packageRoot, 'agentic/shared/scripts/evaluate-agent-harness.mjs'),
+    'utf8',
+  )
+  assert.match(
+    evaluatorSource,
+    new RegExp(`SOURCE_LINK_INVENTORY_RELATIVE = '\\.ai/${underAgenticAi.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`),
+  )
+  assert.ok(fs.existsSync(path.join(repoRoot, generator.PROJECTION_RELATIVE_PATH)))
+})
+
+test('a source reference id and its topic id are deliberately the same string', () => {
+  // Two identifier spaces would be free to drift; this pins them as one. If a later change wants
+  // separate IDs it has to change this assertion and say why.
+  const inventory = checkedInventory()
+  for (const record of inventory.records) assert.equal(record.referenceId, record.topicId)
+  assert.equal(new Set(inventory.records.map((record) => record.referenceId)).size, inventory.records.length)
+})
+
+test('a stale projection fails the same regenerate-and-diff gate as a stale inventory', () => {
+  // `agentic` is COPIED rather than symlinked here: this fixture mutates the projection to prove
+  // the gate bites, and a symlink would write that mutation into the tracked tree.
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-source-link-projection-')))
+  try {
+    const createApp = path.join(root, 'packages/create-app')
+    fs.mkdirSync(path.join(createApp, 'scripts/source-links'), { recursive: true })
+    fs.cpSync(path.join(packageRoot, 'agentic'), path.join(createApp, 'agentic'), { recursive: true })
+    fs.symlinkSync(path.join(packageRoot, 'template'), path.join(createApp, 'template'), 'dir')
+    for (const relativePath of [generator.TOPICS_RELATIVE_PATH, generator.BASELINE_RELATIVE_PATH]) {
+      fs.copyFileSync(path.join(repoRoot, relativePath), path.join(root, relativePath))
+    }
+    fs.copyFileSync(inventoryAbsolutePath, path.join(root, generator.INVENTORY_RELATIVE_PATH))
+    assert.equal(generator.main(['--check', '--root', root]), 0, 'both checked artifacts must satisfy the gate')
+
+    const projectionPath = path.join(root, generator.PROJECTION_RELATIVE_PATH)
+    const original = fs.readFileSync(projectionPath, 'utf8')
+    fs.writeFileSync(projectionPath, original.replace('"readableCount"', '"readableCountRenamed"'))
+    assert.equal(generator.main(['--check', '--root', root]), 1, 'a hand-edited projection must fail the gate')
+
+    // Regenerating restores it byte-for-byte from the same derivation.
+    assert.equal(generator.main(['--root', root]), 0)
+    assert.equal(fs.readFileSync(projectionPath, 'utf8'), original)
+    assert.equal(generator.main(['--check', '--root', root]), 0)
+
+    // And a missing projection is as loud as a stale one.
+    fs.rmSync(projectionPath)
+    assert.equal(generator.main(['--check', '--root', root]), 1, 'a missing projection must fail the gate')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('derivation helpers classify targets by their real shape', () => {
@@ -454,7 +608,9 @@ test('derivation helpers classify targets by their real shape', () => {
 test('the inventory records what it does not cover instead of implying coverage', () => {
   const inventory = checkedInventory()
   assert.ok(inventory.notCovered.length > 0)
-  assert.ok(inventory.records.every((record) => record.targetKind !== 'installed-package'))
-  assert.ok(inventory.notCovered.some((note) => note.startsWith('installed-package targets:')))
+  // Installed-package targets ARE covered now; what stays uncovered is their version and hash,
+  // which belong to the install a given app made rather than to this derivation.
+  assert.ok(inventory.records.some((record) => record.targetKind === 'installed-package'))
+  assert.ok(inventory.notCovered.some((note) => note.startsWith('installed-package version and content hash:')))
   assert.match(inventory.generatedNote, /Never hand-edit/)
 })

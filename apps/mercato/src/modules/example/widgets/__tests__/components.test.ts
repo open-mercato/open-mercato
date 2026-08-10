@@ -16,6 +16,7 @@ const moduleRoot = path.join(__dirname, '..', '..')
 const NOTES_HANDLE = ComponentReplacementHandles.section('ui.detail', 'NotesSection')
 const CHECKOUT_SUMMARY_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'summary')
 const CHECKOUT_HELP_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'help')
+const SHOWCASE_HANDLE = ComponentReplacementHandles.section('example.overrides', 'showcase')
 
 const PaySummary = (props: unknown) =>
   React.createElement('section', { 'data-testid': 'pay-summary' }, String((props as { total?: string }).total ?? ''))
@@ -57,8 +58,14 @@ describe('example component overrides', () => {
     jest.resetModules()
   })
 
-  it('registers all three handles unconditionally, in both flag states', async () => {
-    const expectedHandles = [NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE]
+  it('registers every handle unconditionally, in both flag states', async () => {
+    const expectedHandles = [
+      NOTES_HANDLE,
+      CHECKOUT_SUMMARY_HANDLE,
+      CHECKOUT_HELP_HANDLE,
+      SHOWCASE_HANDLE,
+      SHOWCASE_HANDLE,
+    ]
 
     const disabled = await loadComponentOverridesWithFlag(undefined)
     expect(disabled.map((override) => override.target.componentId)).toEqual(expectedHandles)
@@ -99,13 +106,35 @@ describe('example component overrides', () => {
       .toContain('data-testid="example-checkout-help-wrapper"')
   })
 
-  it('always decorates the always-on notes section, in both flag states', async () => {
+  /**
+   * The ungated entry, and the exception `components.ts` documents. What makes it acceptable is
+   * asserted rather than described: it composes, so the host's own markup survives the frame.
+   * A wrapper that dropped the host would be the `replace`-on-a-foreign-handle the file forbids,
+   * and this is what would catch it.
+   */
+  it('always decorates the always-on notes section and keeps the host rendered, in both flag states', async () => {
     for (const flagValue of [undefined, 'true']) {
       const overrides = await loadComponentOverridesWithFlag(flagValue)
       const notes = wrapperFor(overrides, NOTES_HANDLE)(PaySummary)
       expect(notes).not.toBe(PaySummary)
-      expect(renderToStaticMarkup(React.createElement(notes, { total: '42.00' })))
-        .toContain('data-testid="example-notes-wrapper"')
+      const markup = renderToStaticMarkup(React.createElement(notes, { total: '42.00' }))
+      expect(markup).toContain('data-testid="example-notes-wrapper"')
+      expect(markup).toContain('data-testid="pay-summary"')
+      expect(markup).toContain('42.00')
+    }
+  })
+
+  /**
+   * The rule the `replace`-mode comment states, made mechanical: a canonical reference module may
+   * decorate a handle another module exposes, but it may never replace one, because replacement
+   * discards the host's markup on a screen the reader did not come to look at.
+   */
+  it('never replaces a handle another module exposes', async () => {
+    const overrides = await loadComponentOverridesWithFlag(undefined)
+
+    for (const override of overrides) {
+      if (!('replacement' in override) || !override.replacement) continue
+      expect(override.target.componentId).toBe(SHOWCASE_HANDLE)
     }
   })
 
@@ -114,15 +143,23 @@ describe('example component overrides', () => {
    * `staticValue` could not fold, so the framework's own reader published ZERO
    * component-override contributions for the canonical module.
    */
-  it('is read by the real fact extractor, with every handle resolved in wrapper mode', () => {
+  it('is read by the real fact extractor, with every declared mode resolved', () => {
     const facts = readComponentOverrideFacts()
 
-    expect(facts).toHaveLength(3)
+    expect(facts).toHaveLength(5)
     expect(facts.map((fact) => (fact as { details: { handle: string } }).details.handle))
-      .toEqual([NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE])
+      .toEqual([NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE, SHOWCASE_HANDLE, SHOWCASE_HANDLE])
+    expect(facts.map((fact) => (fact as { details: { mode: string } }).details.mode))
+      .toEqual(['wrapper', 'wrapper', 'wrapper', 'replace', 'props'])
     for (const fact of facts) {
-      expect((fact as { details: { mode: string } }).details.mode).toBe('wrapper')
       expect(fact.kind).toBe('component-override')
     }
+  })
+
+  it('covers all three modes the ComponentOverride union defines', () => {
+    const modes = new Set(
+      readComponentOverrideFacts().map((fact) => (fact as { details: { mode: string } }).details.mode),
+    )
+    expect([...modes].sort()).toEqual(['props', 'replace', 'wrapper'])
   })
 })

@@ -2399,15 +2399,54 @@ export function assertNoUnresolvedExtensionTargets(
  * — spec 2026-08-02-module-facts-exact-override-targets). Keyed by the dotted
  * host id (e.g. `routes.api`, `ai.extensions`, `nav.groupOrder`) so the module
  * override-target adapters share one mode source of truth with the catalog.
+ *
+ * @deprecated Use {@link getFrameworkOverrideHostOperations}. This helper drops any host whose
+ * declared operation is not one of the three recognized modes, which collapses "the catalog does
+ * not describe this host" into "the catalog describes it with a mode this generator has fallen
+ * behind on" — the distinction the `unknown-framework-domain` / `unknown-framework-mode`
+ * diagnostics exist to keep apart. Every in-tree consumer has moved; the export is retained
+ * because `BACKWARD_COMPATIBILITY.md` classifies exported generator helpers as removable only
+ * through the deprecation protocol, and it stays behaviour-identical for as long as it exists.
  */
-export function getFrameworkOverrideModes(): Record<string, 'disable-replace' | 'replace' | 'additive'> {
+export function getFrameworkOverrideModes(
+  hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
+): Record<string, 'disable-replace' | 'replace' | 'additive'> {
   const modes: Record<string, 'disable-replace' | 'replace' | 'additive'> = {}
-  for (const host of FRAMEWORK_OVERRIDE_HOSTS) {
-    const dotted = host.key.replace(/^framework\.module-override\./, '')
-    const mode = host.operations?.[0]
-    if (mode === 'disable-replace' || mode === 'replace' || mode === 'additive') modes[dotted] = mode
+  for (const [dotted, operation] of Object.entries(getFrameworkOverrideHostOperations(hosts))) {
+    if (operation === 'disable-replace' || operation === 'replace' || operation === 'additive') {
+      modes[dotted] = operation
+    }
   }
   return modes
+}
+
+/**
+ * The catalog's declared first operation for every dotted unified-override host,
+ * **without** validating it against the known mode set.
+ *
+ * {@link getFrameworkOverrideModes} silently drops a host whose operation is not a
+ * recognized mode, which makes "the catalog does not describe this host at all"
+ * indistinguishable from "the catalog describes it with a mode this generator does
+ * not understand". Consumers that must tell those apart (the override-target
+ * adapters, which emit different diagnostics for each) read the raw operations
+ * here instead — spec `2026-07-31-standalone-canonical-example-module.md`,
+ * § PR #4883 Module-Fact and Extension-Topology Contract.
+ *
+ * `hosts` defaults to the framework catalog. Every catalog host declares a valid
+ * mode today, so the pass-through is unobservable against the real catalog; passing
+ * an explicit host list is how `module-override-targets.unknown-mode.test.ts` proves
+ * that an operation this generator does not recognize really does survive here.
+ */
+export function getFrameworkOverrideHostOperations(
+  hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
+): Record<string, string> {
+  const operations: Record<string, string> = {}
+  for (const host of hosts) {
+    const dotted = host.key.replace(/^framework\.module-override\./, '')
+    const operation = host.operations?.[0]
+    if (typeof operation === 'string') operations[dotted] = operation
+  }
+  return operations
 }
 
 export function getFrameworkExtensionHosts(): ModuleExtensionHostFact[] {

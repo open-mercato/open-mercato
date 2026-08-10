@@ -491,10 +491,115 @@ function readExampleRootInventory(appRoot, root) {
   return { byId, byPath }
 }
 
+// Declared source references. A case names IDs from the emitted source-link inventory; each ID
+// is one visible link in one emitted owner resolving to one exact readable file. Following a
+// reference is first-class context, not fallback — but only after the case has read the owner
+// that renders the link, so an agent never reaches a file it was never pointed at.
+const SOURCE_LINK_INVENTORY_RELATIVE = '.ai/harness/source-link-inventory.json'
+
+function declaredSourceReferenceIds(caseRecord) {
+  const declared = caseRecord?.context?.sourceReferenceIds
+  return Array.isArray(declared) ? declared.filter((entry) => typeof entry === 'string' && entry) : []
+}
+
+function readSourceLinkInventory(appRoot) {
+  const resolved = resolveExampleRootFile(appRoot, SOURCE_LINK_INVENTORY_RELATIVE)
+  if (resolved.violation) return { violation: `source-link inventory is unusable: ${resolved.violation}` }
+  let parsed
+  try { parsed = readJson(resolved.absolute) } catch { return { violation: `source-link inventory is not valid JSON: ${SOURCE_LINK_INVENTORY_RELATIVE}` } }
+  const records = parsed?.records
+  if (!Array.isArray(records) || records.length === 0) {
+    return { violation: `source-link inventory declares no records: ${SOURCE_LINK_INVENTORY_RELATIVE}` }
+  }
+  const byId = new Map()
+  for (const record of records) {
+    if (!isPlainObject(record) || typeof record.referenceId !== 'string' || !record.referenceId) {
+      return { violation: `source-link inventory contains a malformed record: ${SOURCE_LINK_INVENTORY_RELATIVE}` }
+    }
+    if (byId.has(record.referenceId)) return { violation: `source-link inventory repeats reference ${record.referenceId}` }
+    byId.set(record.referenceId, record)
+  }
+  return { byId }
+}
+
+/**
+ * Resolve one declared reference to its exact target, or explain why it cannot be followed.
+ *
+ * This is the whole negative half of the declared-link contract: an orphan ID, a prose topic
+ * with no target file, a qa-only target, a wildcard or directory target, and a dead path all
+ * fail here rather than at read time.
+ */
+export function resolveSourceReference({ referenceId, inventory, appRoot, routedOwners }) {
+  const record = inventory.byId.get(referenceId)
+  if (!record) return { violation: `source reference is unknown or orphaned: ${referenceId}` }
+  if (record.requirement !== 'source-required') {
+    return { violation: `source reference names a prose topic with no target file: ${referenceId}` }
+  }
+  if (record.readStatus !== 'readable') {
+    return { violation: `source reference target is qa-only and cannot be read: ${referenceId}` }
+  }
+  const target = typeof record.resolvedPath === 'string' ? record.resolvedPath : ''
+  if (!target) return { violation: `source reference declares no target path: ${referenceId}` }
+  if (target.includes('*') || target.includes('?')) {
+    return { violation: `source reference target is a wildcard, not one exact file: ${referenceId}` }
+  }
+  const normalized = normalizeExampleReadPath(target)
+  if (normalized.violation) return { violation: `source reference target is unsafe: ${referenceId}` }
+  const originAsset = typeof record.originAsset === 'string' ? record.originAsset : ''
+  if (!originAsset) return { violation: `source reference declares no origin owner: ${referenceId}` }
+  if (routedOwners && !routedOwners.has(originAsset)) {
+    return { violation: `source reference origin owner is not routed to this case: ${referenceId} (${originAsset})` }
+  }
+  if (!appRoot) return { referenceId, originAsset, resolvedPath: normalized.relative, targetKind: record.targetKind }
+  const resolved = isInstalledSourceRelative(normalized.relative)
+    ? resolveInstalledSourceFile(appRoot, normalized.relative)
+    : resolveExampleRootFile(appRoot, normalized.relative)
+  if (resolved.violation) return { violation: `source reference target is dead or unreadable: ${referenceId} (${resolved.violation})` }
+  return {
+    referenceId,
+    originAsset,
+    resolvedPath: normalized.relative,
+    targetKind: record.targetKind,
+    size: resolved.size,
+    absolute: resolved.absolute,
+  }
+}
+
+/** Package identity of an installed-source target, so the trace can record what it followed. */
+function installedTargetIdentity(appRoot, relative, absolute) {
+  const match = /^node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(relative)
+  if (!match) return { package: null, version: null, hash: null }
+  let version = null
+  try {
+    const manifest = readJson(path.join(appRoot, 'node_modules', match[1], 'package.json'))
+    version = typeof manifest?.version === 'string' ? manifest.version : null
+  } catch { version = null }
+  let hash = null
+  try { hash = createHash('sha256').update(fs.readFileSync(absolute)).digest('hex') } catch { hash = null }
+  return { package: match[1], version, hash }
+}
+
 export function validateExampleReadPolicyDeclaration(caseRecord, appRoot) {
   const errors = []
   const declarations = caseRecord?.context?.exampleRoots
   const fallback = caseRecord?.context?.installedVersionFallback
+  const referenceIds = caseRecord?.context?.sourceReferenceIds
+  if (referenceIds !== undefined && !isUniqueStringArray(referenceIds, { min: 1 })) {
+    errors.push('context.sourceReferenceIds must be a non-empty unique list of strings')
+  } else if (Array.isArray(referenceIds) && referenceIds.length && appRoot) {
+    const inventory = readSourceLinkInventory(appRoot)
+    if (inventory.violation) errors.push(inventory.violation)
+    else {
+      const routedOwners = new Set([
+        ...(caseRecord?.context?.required ?? []),
+        ...(caseRecord?.context?.allowedExtra ?? []),
+      ].filter((entry) => typeof entry === 'string'))
+      for (const referenceId of referenceIds) {
+        const resolved = resolveSourceReference({ referenceId, inventory, appRoot, routedOwners })
+        if (resolved.violation) errors.push(resolved.violation)
+      }
+    }
+  }
   if (declarations !== undefined && (!Array.isArray(declarations) || declarations.length !== 1 || !declarations.every(isPlainObject))) {
     errors.push('context.exampleRoots must declare exactly one example root object')
     return errors
@@ -592,6 +697,7 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
       bytes: 0,
     })),
     fallback: { reason: null, files: 0, bytes: 0 },
+    references: { declared: declaredSourceReferenceIds(caseRecord), owners: [], followed: [] },
     firstViolation: null,
   }
   if (!declarations.length) return trace
@@ -605,20 +711,92 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
   }
   const chargedByRoot = declarations.map(() => new Set())
   const chargedFallback = new Set()
+
+  // Resolve the declared references once. A reference that cannot be resolved is a violation the
+  // moment the case tries to follow it, not a silent downgrade to ordinary traversal.
+  const referenceIds = declaredSourceReferenceIds(caseRecord)
+  const referenceInventory = referenceIds.length ? readSourceLinkInventory(appRoot) : null
+  const routedOwners = new Set([
+    ...(caseRecord?.context?.required ?? []),
+    ...(caseRecord?.context?.allowedExtra ?? []),
+  ].filter((entry) => typeof entry === 'string'))
+  const referencesByTarget = new Map()
+  const referenceOwners = new Set()
+  // A declared reference that cannot be resolved is keyed by the target it CLAIMS, so following
+  // it reports why the reference is broken instead of degrading into ordinary traversal.
+  const brokenReferenceTargets = new Map()
+  if (referenceInventory && !referenceInventory.violation) {
+    for (const referenceId of referenceIds) {
+      const resolved = resolveSourceReference({ referenceId, inventory: referenceInventory, appRoot, routedOwners })
+      if (resolved.violation) {
+        const claimed = referenceInventory.byId.get(referenceId)?.resolvedPath
+        if (typeof claimed === 'string' && claimed) brokenReferenceTargets.set(claimed, resolved.violation)
+        continue
+      }
+      referenceOwners.add(resolved.originAsset)
+      if (!referencesByTarget.has(resolved.resolvedPath)) referencesByTarget.set(resolved.resolvedPath, resolved)
+    }
+  }
+  const readOwners = new Set()
+
   for (const entry of Array.isArray(reads) ? reads : []) {
     const request = isPlainObject(entry) ? entry : { path: entry }
     const normalized = normalizeExampleReadPath(request.path)
     if (normalized.violation) { trace.firstViolation = normalized.violation; break }
     const relative = normalized.relative
+    if (referenceIds.length && referenceInventory?.violation) { trace.firstViolation = referenceInventory.violation; break }
+    // Reading the owner that renders a declared link is what earns the right to follow it. The
+    // owner is ordinary routed context, so it is recorded but not charged to the root budget.
+    if (referenceOwners.has(relative)) {
+      readOwners.add(relative)
+      if (!trace.references.owners.includes(relative)) trace.references.owners.push(relative)
+    }
+    const brokenReference = brokenReferenceTargets.get(relative)
+    if (brokenReference) { trace.firstViolation = brokenReference; break }
+    const reference = referencesByTarget.get(relative)
+    if (reference && !readOwners.has(reference.originAsset)) {
+      trace.firstViolation = `source reference followed before its origin owner was read: ${reference.referenceId}`
+      break
+    }
     const index = declarations.findIndex((declaration) => {
       const root = declaredExampleRoot(declaration)
       return Boolean(root) && (relative === root || relative.startsWith(`${root}/`))
     })
     const installed = isInstalledSourceRelative(relative)
-    if (index < 0 && !installed) continue
+    if (index < 0 && !installed && !reference) continue
     if (request.kind === 'list' || request.kind === 'glob' || relative.includes('*') || relative.includes('?')) {
       trace.firstViolation = `example-root read must name one exact file, not a directory listing or glob: ${relative}`
       break
+    }
+    // A declared reference outside the canonical root is first-class context, not fallback: it
+    // needs no reason code, but it is charged against the declaring root's normal budgets and
+    // its package identity is recorded so the trace says exactly what was followed.
+    if (reference && index < 0) {
+      const rootTrace = trace.roots[0]
+      const declaration = declarations[0]
+      if (!chargedByRoot[0].has(relative)) {
+        const files = rootTrace.files + 1
+        const bytes = rootTrace.bytes + reference.size
+        if (files > declaration.maxFiles) { trace.firstViolation = `example root file budget exceeded: ${files}/${declaration.maxFiles}`; break }
+        if (bytes > declaration.maxBytes) { trace.firstViolation = `example root byte budget exceeded: ${bytes}/${declaration.maxBytes}`; break }
+        chargedByRoot[0].add(relative)
+        rootTrace.files = files
+        rootTrace.bytes = bytes
+      }
+      const identity = installed
+        ? installedTargetIdentity(appRoot, relative, reference.absolute)
+        : { package: null, version: null, hash: null }
+      if (!trace.references.followed.some((followed) => followed.referenceId === reference.referenceId)) {
+        trace.references.followed.push({
+          referenceId: reference.referenceId,
+          originAsset: reference.originAsset,
+          resolvedPath: relative,
+          targetKind: reference.targetKind,
+          ...identity,
+        })
+      }
+      trace.reads.push({ path: relative, root: rootTrace.root, capabilityId: null, referenceId: reference.referenceId })
+      continue
     }
     if (index >= 0) {
       const declaration = declarations[index]
@@ -662,7 +840,26 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
       }
       if (isEntrypoint && !rootTrace.entrypoints.includes(rootRelative)) rootTrace.entrypoints.push(rootRelative)
       if (capabilityId && !rootTrace.capabilities.includes(capabilityId)) rootTrace.capabilities.push(capabilityId)
-      trace.reads.push({ path: relative, root: rootTrace.root, capabilityId, entrypoint: isEntrypoint || isInventory })
+      // An in-root read that a declared reference also names is recorded as a followed reference:
+      // the capability mapping proved it is allowed, the reference proves an owner pointed at it.
+      if (reference && !trace.references.followed.some((followed) => followed.referenceId === reference.referenceId)) {
+        trace.references.followed.push({
+          referenceId: reference.referenceId,
+          originAsset: reference.originAsset,
+          resolvedPath: relative,
+          targetKind: reference.targetKind,
+          package: null,
+          version: null,
+          hash: null,
+        })
+      }
+      trace.reads.push({
+        path: relative,
+        root: rootTrace.root,
+        capabilityId,
+        entrypoint: isEntrypoint || isInventory,
+        ...(reference ? { referenceId: reference.referenceId } : {}),
+      })
       continue
     }
     if (!fallbackPolicy || fallbackPolicy.allowed !== true) {
@@ -731,6 +928,23 @@ export function exampleReadAllowlist(caseRecord, appRoot) {
       if (!capability || capability.readStatus !== 'readable') continue
       for (const source of capability.sourcePaths) {
         if (source.startsWith(`${root}/`)) patterns.push(source)
+      }
+    }
+  }
+  // Declared references widen the allowlist by exactly one exact file each — never a directory,
+  // a sibling, or a glob. Unresolvable references contribute nothing, so a broken declaration
+  // narrows the allowlist instead of silently widening it.
+  const referenceIds = declaredSourceReferenceIds(caseRecord)
+  if (referenceIds.length && appRoot) {
+    const inventory = readSourceLinkInventory(appRoot)
+    if (!inventory.violation) {
+      const routedOwners = new Set([
+        ...(caseRecord?.context?.required ?? []),
+        ...(caseRecord?.context?.allowedExtra ?? []),
+      ].filter((entry) => typeof entry === 'string'))
+      for (const referenceId of referenceIds) {
+        const resolved = resolveSourceReference({ referenceId, inventory, appRoot, routedOwners })
+        if (!resolved.violation) patterns.push(resolved.resolvedPath)
       }
     }
   }
@@ -987,7 +1201,7 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
       if (!isSafeRelative(reference)) add(id, `unsafe context path ${reference}`)
     }
     for (const key of Object.keys(item.context ?? {})) {
-      if (!['required', 'allowedExtra', 'warn', 'forbidden', 'exampleRoots', 'installedVersionFallback'].includes(key)) add(id, `unknown context property ${key}`)
+      if (!['required', 'allowedExtra', 'warn', 'forbidden', 'sourceReferenceIds', 'exampleRoots', 'installedVersionFallback'].includes(key)) add(id, `unknown context property ${key}`)
     }
     for (const message of validateExampleReadPolicyDeclaration(item, root)) add(id, message)
     if (!(item.context?.required ?? []).includes(item.owner?.path)) add(id, 'required context must include owner.path')
@@ -2088,6 +2302,19 @@ function exampleReadPolicySummary(trace) {
       reason: trace.fallback?.reason ?? null,
       files: trace.fallback?.files ?? 0,
       bytes: trace.fallback?.bytes ?? 0,
+    },
+    references: {
+      declared: [...(trace.references?.declared ?? [])],
+      owners: [...(trace.references?.owners ?? [])],
+      followed: (trace.references?.followed ?? []).map((entry) => ({
+        referenceId: entry.referenceId,
+        originAsset: entry.originAsset,
+        resolvedPath: entry.resolvedPath,
+        targetKind: entry.targetKind,
+        package: entry.package ?? null,
+        version: entry.version ?? null,
+        hash: entry.hash ?? null,
+      })),
     },
   }
 }

@@ -30,6 +30,16 @@ export const SCHEMA_BASENAME = 'knowledge-change.schema.json'
 // back into every scaffold when it lands.
 export const SOURCE_LINK_INVENTORY_PATH =
   'packages/create-app/scripts/source-links/source-link-inventory.json'
+// The spec's finite `main` parity ledger ships as `source-link-baseline.json`. Its path is pinned
+// here rather than read out of the inventory's `inputs.baseline`, because that string lives inside
+// an asset the same author is editing: anchoring the manifest to it would let an author point both
+// at a ledger they fabricated. The inventory may now only agree with this literal or fail.
+// `validate-source-links.mjs` hardcodes the same path for the same reason.
+export const SOURCE_LINK_BASELINE_PATH =
+  'packages/create-app/scripts/source-links/source-link-baseline.json'
+// The schema pinning that ledger's shape is the ledger's exact sibling, so `baselineSchemaPath` is
+// derived from the pinned ledger path rather than spelled out a second time.
+export const SOURCE_LINK_BASELINE_SCHEMA_BASENAME = 'source-link-baseline.schema.json'
 export const CANON_C_REASON =
   `${SOURCE_LINK_INVENTORY_PATH} not present — CANON-C (canonical-example source-link inventory) is a ` +
   'monorepo-only asset and is absent from this tree, so source-link, example-source, and ' +
@@ -65,10 +75,13 @@ const CLASSIFICATION_RULES = Object.freeze([
     pattern: /^(?:apps\/mercato\/src|packages\/create-app\/template\/src|src)\/modules\/example\/.+$/,
   },
   {
+    // The derived inventory, the topic registry it derives from, the finite `main` parity ledger
+    // (`source-link-baseline.json` — the spec names it a parity ledger, it ships under this name),
+    // and the schema pinning that ledger's shape.
     rule: 'source-link-inventory',
     contract: 'source-link',
     changeClass: 'knowledge-contract',
-    pattern: /(?:^|\/)(?:source-link-inventory\.json|source-link-baseline\.json|source-link-baseline\.schema\.json|source-link-parity-ledger\.json)$/,
+    pattern: /(?:^|\/)(?:source-link-inventory\.json|source-link-topics\.json|source-link-baseline\.json|source-link-baseline\.schema\.json)$/,
   },
   {
     rule: 'installed-package-manifest',
@@ -382,6 +395,264 @@ function checkFileRecords(root, label, records, errors, options = {}) {
     if (!isRegularFile(sourceAbsolute)) {
       errors.push(`${label} ${record.path} names sourcePath ${record.sourcePath}, which is not an exact regular file`)
     }
+  }
+}
+
+/**
+ * Re-derive the source-link facts a run manifest declares, from the inventory's own records
+ * rather than from its summary block: an author who edits the summary must not be able to
+ * make a wrong declaration agree with it.
+ */
+export function deriveSourceLinkInventoryFacts(inventory) {
+  const records = isPlainObject(inventory) && Array.isArray(inventory.records) ? inventory.records : null
+  if (records === null) return null
+  return {
+    ownerCount: new Set(records.map((record) => record?.originAsset)).size,
+    topicCount: new Set(records.map((record) => record?.topicId)).size,
+    resolvedLinkCount: records.reduce(
+      (total, record) => total + (Number.isInteger(record?.renderedLinkCount) ? record.renderedLinkCount : 0),
+      0,
+    ),
+    declaredBaselinePath: typeof inventory.inputs?.baseline === 'string' ? inventory.inputs.baseline : null,
+  }
+}
+
+const EMPTY_BASELINE_FACTS = Object.freeze({
+  baselineAssetCount: null,
+  baselineDispositionCount: null,
+  baselineSha: null,
+})
+
+export function deriveSourceLinkBaselineFacts(baseline) {
+  if (!isPlainObject(baseline)) return null
+  return {
+    baselineAssetCount: Array.isArray(baseline.baselineAssets) ? baseline.baselineAssets.length : null,
+    baselineDispositionCount: Array.isArray(baseline.blocks) ? baseline.blocks.length : null,
+    baselineSha: typeof baseline.baselineSha === 'string' ? baseline.baselineSha : null,
+  }
+}
+
+function siblingPath(relativePath, basename) {
+  const segments = normalizeRelativePath(relativePath).split('/')
+  segments[segments.length - 1] = basename
+  return segments.join('/')
+}
+
+/**
+ * A minimal, schema-valid parity ledger. It is never written anywhere: it exists only so the
+ * declared ledger schema can be probed before the real ledger is trusted to it.
+ */
+const BASELINE_SCHEMA_PROBE_LEDGER = Object.freeze({
+  baselineSha: '0'.repeat(40),
+  baselineAssets: [{ path: 'AGENTS.md', sha256: '1'.repeat(64), expectedFenceCount: 1 }],
+  blocks: [{
+    id: 'main:AGENTS.md#fence:1',
+    asset: 'AGENTS.md',
+    ordinal: 1,
+    heading: null,
+    openingLine: '```ts',
+    info: 'ts',
+    contentSha256: '2'.repeat(64),
+    topicIds: [],
+    disposition: 'linked',
+  }],
+})
+
+function probeLedger(mutate) {
+  const ledger = structuredClone(BASELINE_SCHEMA_PROBE_LEDGER)
+  mutate(ledger)
+  return ledger
+}
+
+/**
+ * The clauses the gate relies on, each as a ledger the schema must reject. They are a readable
+ * checklist of what the pinned schema is trusted to assert — and a second line of defence for the
+ * one moment the SHA pin below is open, namely a change that legitimately updates the pin: guttings
+ * that the new bytes would smuggle in still have to survive every probe.
+ */
+export const BASELINE_SCHEMA_PROBES = Object.freeze([
+  ['a non-hex baselineSha', probeLedger((ledger) => { ledger.baselineSha = 'not-a-commit' })],
+  ['a ledger missing its blocks array', probeLedger((ledger) => { delete ledger.blocks })],
+  ['a ledger missing its baselineAssets array', probeLedger((ledger) => { delete ledger.baselineAssets })],
+  ['an undeclared top-level ledger field', probeLedger((ledger) => { ledger.supersededBy = 'anything' })],
+  ['an absolute baseline asset path', probeLedger((ledger) => { ledger.baselineAssets[0].path = '/etc/passwd' })],
+  ['a parent-traversal baseline asset path', probeLedger((ledger) => { ledger.baselineAssets[0].path = '../outside.md' })],
+  ['a baseline asset missing its sha256', probeLedger((ledger) => { delete ledger.baselineAssets[0].sha256 })],
+  ['a baseline asset missing its expectedFenceCount', probeLedger((ledger) => { delete ledger.baselineAssets[0].expectedFenceCount })],
+  ['a non-hex baseline asset sha256', probeLedger((ledger) => { ledger.baselineAssets[0].sha256 = 'not-a-hash' })],
+  ['an undeclared baseline asset field', probeLedger((ledger) => { ledger.baselineAssets[0].note = 'anything' })],
+  ['a parent-traversal block asset path', probeLedger((ledger) => { ledger.blocks[0].asset = '../outside.md' })],
+  ['a block id that is not main:<asset>#fence:<ordinal>', probeLedger((ledger) => { ledger.blocks[0].id = 'AGENTS.md:1' })],
+  ['a block missing its contentSha256', probeLedger((ledger) => { delete ledger.blocks[0].contentSha256 })],
+  ['a block missing its topicIds', probeLedger((ledger) => { delete ledger.blocks[0].topicIds })],
+  ['a block missing its disposition', probeLedger((ledger) => { delete ledger.blocks[0].disposition })],
+  ['a block missing its ordinal', probeLedger((ledger) => { delete ledger.blocks[0].ordinal })],
+  ['a non-integer block ordinal', probeLedger((ledger) => { ledger.blocks[0].ordinal = '1' })],
+  ['a non-hex block contentSha256', probeLedger((ledger) => { ledger.blocks[0].contentSha256 = 'not-a-hash' })],
+  ['an invented block disposition', probeLedger((ledger) => { ledger.blocks[0].disposition = 'invented-disposition' })],
+  ['an undeclared block field', probeLedger((ledger) => { ledger.blocks[0].supersededBy = 'anything' })],
+  ['repeated block topic IDs', probeLedger((ledger) => { ledger.blocks[0].topicIds = ['guides/a:one.ts', 'guides/a:one.ts'] })],
+])
+
+export const SOURCE_LINK_BASELINE_SCHEMA_ID = 'https://open-mercato.dev/schemas/source-link-baseline.schema.json'
+
+/**
+ * The exact bytes of `source-link-baseline.schema.json`. Behavioural probing alone is not a pin:
+ * this engine supports `anyOf`/`oneOf`/`not`, so a schema carrying the pinned `$id`, the real body in
+ * one branch and an escape branch no probe ever matches passes every probe while accepting a lawless
+ * ledger. Pinning the file itself is what makes "a gutted or swapped schema fails the run" true, and
+ * pinning a baseline by SHA is what the rest of this subsystem already does — `source-link-baseline.json`
+ * pins eight asset SHAs the same way. Updating this constant when the schema legitimately changes is
+ * the normal path: that edit lands in the `evaluator` contract, not in the `source-link` assets under
+ * audit, so it can never be made by the ledger change it would be waving through.
+ * Recompute with `sha256sum packages/create-app/scripts/source-links/source-link-baseline.schema.json`.
+ */
+export const SOURCE_LINK_BASELINE_SCHEMA_SHA256 =
+  'b1ce4c0845b078b317cd0f699921628a2c23edb7271c883d0597de73dd401cc8'
+
+/**
+ * Prove the declared schema is the pinned one and still asserts what the gate relies on. Returns the
+ * reasons it is not; a non-empty result means the ledger must not be validated against it.
+ */
+export function baselineSchemaPinErrors(baselineSchema, schemaSha256) {
+  const reasons = []
+  if (schemaSha256 !== SOURCE_LINK_BASELINE_SCHEMA_SHA256) {
+    reasons.push(
+      `its sha256 is ${JSON.stringify(schemaSha256 ?? null)} rather than the pinned ${SOURCE_LINK_BASELINE_SCHEMA_SHA256}`,
+    )
+  }
+  if (!isPlainObject(baselineSchema)) {
+    reasons.push('it is not a JSON schema object')
+    return reasons
+  }
+  if (baselineSchema.$id !== SOURCE_LINK_BASELINE_SCHEMA_ID) {
+    reasons.push(`its $id is ${JSON.stringify(baselineSchema.$id)} rather than ${SOURCE_LINK_BASELINE_SCHEMA_ID}`)
+  }
+  const acceptErrors = validateJsonSchema(BASELINE_SCHEMA_PROBE_LEDGER, baselineSchema, '$', baselineSchema)
+  if (acceptErrors.length) reasons.push(`it rejects a canonical minimal ledger: ${acceptErrors.join('; ')}`)
+  for (const [label, ledger] of BASELINE_SCHEMA_PROBES) {
+    if (!validateJsonSchema(ledger, baselineSchema, '$', baselineSchema).length) reasons.push(`it accepts ${label}`)
+  }
+  return reasons
+}
+
+/**
+ * `uniqueItems` compares whole serialized records, so two blocks sharing an `id` and differing in
+ * any other field satisfy it. Block IDs are the ledger's join key, so uniqueness is checked here
+ * rather than left to a schema vocabulary that cannot express it.
+ */
+function duplicateBlockIds(baseline) {
+  const seen = new Set()
+  const duplicates = new Set()
+  for (const block of Array.isArray(baseline?.blocks) ? baseline.blocks : []) {
+    if (typeof block?.id !== 'string') continue
+    if (seen.has(block.id)) duplicates.add(block.id)
+    seen.add(block.id)
+  }
+  return [...duplicates].sort()
+}
+
+function checkDeclaredCount(errors, field, declared, actual, subject) {
+  if (!Number.isInteger(declared) || declared === actual) return
+  errors.push(`sourceLinkInventory.${field} declares ${declared}, but ${subject} resolves ${actual}`)
+}
+
+/**
+ * Enforce every field of the manifest's `sourceLinkInventory` block against the checked assets it
+ * names. Declaring a count is worthless unless the count is compared with the real one, so each
+ * field is re-derived here: owners, topics and rendered links from the inventory records, assets,
+ * dispositions and the pinned baseline SHA from the parity ledger, and the ledger's whole shape
+ * from the schema the manifest names.
+ */
+function checkSourceLinkInventory(root, declared, errors, derived) {
+  const declaredInventoryPath = declared?.path
+  if (typeof declaredInventoryPath === 'string' && declaredInventoryPath !== SOURCE_LINK_INVENTORY_PATH) {
+    errors.push(`sourceLinkInventory.path must be ${SOURCE_LINK_INVENTORY_PATH}`)
+  }
+  const inventoryPath = typeof declaredInventoryPath === 'string' ? declaredInventoryPath : SOURCE_LINK_INVENTORY_PATH
+  if (!isRegularFile(path.join(root, inventoryPath))) {
+    derived.sourceLinkInventoryStatus = 'absent'
+    errors.push(CANON_C_REASON)
+    return
+  }
+  derived.sourceLinkInventoryStatus = 'present'
+
+  const inventoryFacts = deriveSourceLinkInventoryFacts(readJsonIfPresent(path.join(root, inventoryPath)))
+  if (inventoryFacts === null) {
+    errors.push(`sourceLinkInventory.path ${inventoryPath} is not a readable inventory: it carries no records array`)
+    return
+  }
+  derived.sourceLinkInventoryFacts = { ...inventoryFacts, ...EMPTY_BASELINE_FACTS }
+  checkDeclaredCount(errors, 'expectedOwnerCount', declared.expectedOwnerCount, inventoryFacts.ownerCount, `${inventoryPath} distinct originAsset owners`)
+  checkDeclaredCount(errors, 'expectedTopicCount', declared.expectedTopicCount, inventoryFacts.topicCount, `${inventoryPath} distinct topic IDs`)
+  checkDeclaredCount(errors, 'resolvedLinkCount', declared.resolvedLinkCount, inventoryFacts.resolvedLinkCount, `${inventoryPath} rendered links`)
+
+  if (inventoryFacts.declaredBaselinePath !== SOURCE_LINK_BASELINE_PATH) {
+    errors.push(
+      `sourceLinkInventory: ${inventoryPath} declares inputs.baseline `
+      + `${JSON.stringify(inventoryFacts.declaredBaselinePath)}, but the parity ledger is pinned to `
+      + `${SOURCE_LINK_BASELINE_PATH}, so no asset under audit may redirect which ledger is checked`,
+    )
+    return
+  }
+  const declaredBaselinePath = declared?.baselinePath
+  if (typeof declaredBaselinePath !== 'string') return
+  if (declaredBaselinePath !== SOURCE_LINK_BASELINE_PATH) {
+    errors.push(`sourceLinkInventory.baselinePath must be ${SOURCE_LINK_BASELINE_PATH}`)
+    return
+  }
+  if (!isRegularFile(path.join(root, declaredBaselinePath))) {
+    errors.push(`sourceLinkInventory.baselinePath ${declaredBaselinePath} is not an exact regular file in the working tree`)
+    return
+  }
+  const baseline = readJsonIfPresent(path.join(root, declaredBaselinePath))
+  const baselineFacts = deriveSourceLinkBaselineFacts(baseline)
+  if (baselineFacts === null) {
+    errors.push(`sourceLinkInventory.baselinePath ${declaredBaselinePath} is not a readable JSON object`)
+    return
+  }
+  derived.sourceLinkInventoryFacts = { ...inventoryFacts, ...baselineFacts }
+  const repeatedBlockIds = duplicateBlockIds(baseline)
+  if (repeatedBlockIds.length) {
+    errors.push(`sourceLinkInventory ${declaredBaselinePath} repeats block ids: ${repeatedBlockIds.join(', ')}`)
+  }
+  checkDeclaredCount(errors, 'baselineAssetCount', declared.baselineAssetCount, baselineFacts.baselineAssetCount, `${declaredBaselinePath} pinned assets`)
+  checkDeclaredCount(
+    errors,
+    'baselineDispositionCount',
+    declared.baselineDispositionCount,
+    baselineFacts.baselineDispositionCount,
+    `${declaredBaselinePath} disposition records`,
+  )
+  if (typeof declared.baselineRef === 'string' && declared.baselineRef !== baselineFacts.baselineSha) {
+    errors.push(
+      `sourceLinkInventory.baselineRef declares ${declared.baselineRef}, but ${declaredBaselinePath} pins `
+      + `${String(baselineFacts.baselineSha)}`,
+    )
+  }
+
+  const expectedSchemaPath = siblingPath(SOURCE_LINK_BASELINE_PATH, SOURCE_LINK_BASELINE_SCHEMA_BASENAME)
+  const declaredSchemaPath = declared?.baselineSchemaPath
+  if (typeof declaredSchemaPath !== 'string') return
+  if (declaredSchemaPath !== expectedSchemaPath) {
+    errors.push(`sourceLinkInventory.baselineSchemaPath declares ${declaredSchemaPath}, but the ledger's schema is ${expectedSchemaPath}`)
+    return
+  }
+  const schemaAbsolutePath = path.join(root, declaredSchemaPath)
+  if (!isRegularFile(schemaAbsolutePath)) {
+    errors.push(`sourceLinkInventory.baselineSchemaPath ${declaredSchemaPath} is not an exact regular file in the working tree`)
+    return
+  }
+  const baselineSchema = readJsonIfPresent(schemaAbsolutePath)
+  const pinErrors = baselineSchemaPinErrors(baselineSchema, hashFile(schemaAbsolutePath))
+  if (pinErrors.length) {
+    for (const reason of pinErrors) {
+      errors.push(`sourceLinkInventory.baselineSchemaPath ${declaredSchemaPath} no longer pins the ledger contract: ${reason}`)
+    }
+    return
+  }
+  for (const error of validateJsonSchema(baseline, baselineSchema, '$', baselineSchema)) {
+    errors.push(`sourceLinkInventory ${declaredBaselinePath} violates ${declaredSchemaPath}: ${error}`)
   }
 }
 
@@ -757,17 +1028,7 @@ export function validateKnowledgeChange(input) {
   const needsSourceLinkInventory = classification.changedContracts.some((contract) => linkedContracts.includes(contract))
   derived.sourceLinkInventoryRequired = needsSourceLinkInventory
   if (needsSourceLinkInventory) {
-    const declaredInventory = manifest.sourceLinkInventory?.path
-    if (declaredInventory && declaredInventory !== SOURCE_LINK_INVENTORY_PATH) {
-      errors.push(`sourceLinkInventory.path must be ${SOURCE_LINK_INVENTORY_PATH}`)
-    }
-    const inventoryPath = declaredInventory ?? SOURCE_LINK_INVENTORY_PATH
-    if (!isRegularFile(path.join(root, inventoryPath))) {
-      derived.sourceLinkInventoryStatus = 'absent'
-      errors.push(CANON_C_REASON)
-    } else {
-      derived.sourceLinkInventoryStatus = 'present'
-    }
+    checkSourceLinkInventory(root, isPlainObject(manifest.sourceLinkInventory) ? manifest.sourceLinkInventory : {}, errors, derived)
   }
 
   checkExampleSourceMirrors(root, classification.records, errors, derived)
