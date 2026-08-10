@@ -11,7 +11,15 @@
  * the `agent_orchestrator token-usage` CLI command. Both MUST stay in sync.
  */
 
-/** A single counted file, path relative to the agent directory. */
+/**
+ * A single counted file, path relative to the agent directory.
+ *
+ * `path` is ALWAYS `/`-separated, on every platform. It is a wire value the
+ * Files tab splits into a folder tree, so it must not carry the host's native
+ * separator — `path.join` on Windows yields `skills\\x\\SKILL.md`, which the
+ * tree reads as one segment and renders flat. Producers normalize; see
+ * `toPosixRelativePath` in `computeAgentTokenUsage.ts` and its CLI mirror.
+ */
 export type TokenizedFile = {
   path: string
   tokens: number
@@ -21,7 +29,8 @@ export type TokenizedFile = {
  * A single raw definition file of a file-defined (OpenCode) agent, baked into
  * `file-agents.generated.ts` at `yarn generate` time so the Files tab can read
  * the agent's source without any runtime filesystem access. `path` is relative
- * to the agent directory (sub-agent files are prefixed `sub-agents/<id>/`);
+ * to the agent directory and ALWAYS `/`-separated on every platform (sub-agent
+ * files are prefixed `sub-agents/<id>/`);
  * `tokens` is the `o200k_base` count of the file; `inContext` is `true` for
  * files that form the agent's constructed prompt (AGENT.md, OUTCOME.md, skills,
  * tools) and `false` for auxiliary files (SAMPLE.json, FACTS.json) that do not.

@@ -11,10 +11,20 @@ import type {
 
 const TOOL_EXTENSIONS = ['.ts', '.js']
 
+/**
+ * Relative paths reach the browser and are split into a folder tree there, so
+ * they must be `/`-separated whatever the host is. `path.join` answers with the
+ * native separator, which on Windows collapsed the whole Files tab into a flat
+ * list. Normalize at every point a relative path becomes a `path` field.
+ */
+function toPosixRelativePath(relativePath: string): string {
+  return relativePath.split(path.sep).join('/')
+}
+
 function countFile(dir: string, relativePath: string): TokenizedFile | null {
   const absolute = path.join(dir, relativePath)
   if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) return null
-  return { path: relativePath, tokens: countTokens(fs.readFileSync(absolute, 'utf8')) }
+  return { path: toPosixRelativePath(relativePath), tokens: countTokens(fs.readFileSync(absolute, 'utf8')) }
 }
 
 function listFiles(dir: string, extensions?: string[]): string[] {
@@ -61,7 +71,7 @@ function computeTools(agentDir: string): ToolTokenUsage[] {
     const rel = path.join('tools', name)
     return {
       name: name.replace(/\.[^.]+$/, ''),
-      path: rel,
+      path: toPosixRelativePath(rel),
       tokens: countTokens(fs.readFileSync(path.join(agentDir, rel), 'utf8')),
     }
   })

@@ -88,8 +88,13 @@ type SettingsResponse = {
 
 type AdapterOptions = Record<string, Record<string, unknown>>
 
-/** One Save button's worth of settings. `adapter:<id>` is a single adapter card. */
-type SectionId = 'adapters' | 'tuning' | `adapter:${string}`
+/**
+ * A unit of dirty-tracking. `'all'` is the single Save the page now presents;
+ * the narrower ids remain because dirtiness is still reported per card (an
+ * adapter row shows whether IT differs), even though every commit writes the
+ * whole document.
+ */
+type SectionId = 'all' | 'adapters' | 'tuning' | `adapter:${string}`
 
 /** Top-level keys of the stored document, as the PUT accepts them. */
 type Baseline = Record<string, unknown>
@@ -233,13 +238,19 @@ function NumberField({
 }
 
 /**
- * Per-section Save.
+ * ONE Save for the whole screen.
  *
- * The screen used to autosave on every keystroke, which left an operator unable
- * to tell whether anything had been written, or to abandon a half-typed value.
- * A section states plainly whether it differs from what is stored.
+ * This page used to carry a Save per section — the roster, the tuning block and
+ * every adapter card each had their own — so configuring a single adapter
+ * presented two buttons and no way to tell which one committed what. Operators
+ * read that as "did it save?", which is the opposite of what per-section Save
+ * was for. One control, stating plainly whether anything differs from what is
+ * stored, answers that question once.
+ *
+ * It still does NOT autosave: the original reason for having a button at all was
+ * that keystroke-autosave left no way to abandon a half-typed value.
  */
-function SectionSave({
+function PageSave({
   dirty,
   saving,
   onSave,
@@ -250,12 +261,12 @@ function SectionSave({
 }) {
   const t = useT()
   return (
-    <div className="flex items-center justify-end gap-3 border-t border-border pt-3">
-      {dirty ? (
-        <span className="text-xs text-muted-foreground">
-          {t('agent_orchestrator.settings.webSearch.unsavedHint', 'Not saved yet')}
-        </span>
-      ) : null}
+    <div className="sticky bottom-0 z-sticky mt-4 flex items-center justify-end gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
+      <span className="text-xs text-muted-foreground">
+        {dirty
+          ? t('agent_orchestrator.settings.webSearch.unsavedHint', 'Not saved yet')
+          : t('agent_orchestrator.settings.webSearch.allSaved', 'All changes saved')}
+      </span>
       <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
         {saving ? <Spinner className="size-4" /> : null}
         {t('agent_orchestrator.settings.webSearch.save', 'Save')}
@@ -488,23 +499,53 @@ export default function WebSearchSettingsPage() {
     [sectionPatch, baseline, adapterOptions, policy],
   )
 
-  const saveSectionNow = React.useCallback(
-    (section: SectionId) => {
-      const patch = sectionPatch(section)
-      if (section.startsWith('adapter:')) {
-        void saveSection(section, patch, {
-          adapters: patch.adapters,
-          adapterOptions: {
-            ...((baseline.adapterOptions ?? {}) as AdapterOptions),
-            ...((patch.adapterOptions ?? {}) as AdapterOptions),
-          },
-        })
-        return
-      }
-      void saveSection(section, patch)
-    },
-    [sectionPatch, saveSection, baseline],
-  )
+  /**
+   * Everything the screen owns, in the shape the PUT accepts.
+   *
+   * With one Save there is no longer a reason to send a narrowed patch: the
+   * operator commits when the screen as a whole is how they want it, so the
+   * roster, each adapter's tuning and credentials, and the tuning block all go
+   * together. That also removes the per-section baseline bookkeeping that a
+   * partial write needed.
+   */
+  const wholePatch = React.useCallback((): Record<string, unknown> => {
+    if (!policy) return {}
+    return {
+      adapters: policy.adapters.map((entry) => ({
+        id: entry.id,
+        enabled: entry.enabled,
+        order: entry.order,
+        weight: entry.weight,
+        ...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }),
+        ...(entry.maxCallsPerHour === undefined ? {} : { maxCallsPerHour: entry.maxCallsPerHour }),
+      })),
+      adapterOptions: { ...adapterOptions },
+      settleMode: policy.settleMode,
+      concurrency: policy.concurrency,
+      minResults: policy.minResults,
+      minConfidence: policy.minConfidence,
+      lastResort: policy.lastResort,
+      softDeadlineMs: policy.softDeadlineMs,
+      hardDeadlineMs: policy.hardDeadlineMs,
+      cacheTtlMs: policy.cacheTtlMs,
+      escalateToBrowser: policy.escalateToBrowser,
+      content: policy.content,
+      ...(guardrails ? { guardrails } : {}),
+    }
+  }, [policy, adapterOptions, guardrails])
+
+  /** True when any part of the screen differs from what is stored. */
+  const anyDirty = React.useMemo(() => {
+    if (!policy) return false
+    if (isDirty('adapters') || isDirty('tuning')) return true
+    return policy.adapters.some((entry) => isDirty(`adapter:${entry.id}`))
+  }, [policy, isDirty])
+
+  const saveAll = React.useCallback(() => {
+    const patch = wholePatch()
+    void saveSection('all', patch)
+  }, [wholePatch, saveSection])
+
 
   const update = (patch: Partial<Policy>) => {
     setPolicy((current) => (current ? { ...current, ...patch } : current))
@@ -636,9 +677,6 @@ export default function WebSearchSettingsPage() {
                         onWeight={(weight) => updateAdapter(entry.id, { weight })}
                         onTimeout={(timeoutMs) => updateAdapter(entry.id, { timeoutMs })}
                         onMaxCalls={(maxCallsPerHour) => updateAdapter(entry.id, { maxCallsPerHour })}
-                        optionsDirty={isDirty(`adapter:${entry.id}`)}
-                        optionsSaving={savingSection === `adapter:${entry.id}`}
-                        onSaveOptions={() => saveSectionNow(`adapter:${entry.id}`)}
                         onOption={(field, value) => updateOption(entry.id, field, value)}
                       />
                     ))}
@@ -646,13 +684,6 @@ export default function WebSearchSettingsPage() {
                 </SortableContext>
               </DndContext>
             )}
-            <div className="mt-4">
-              <SectionSave
-                dirty={isDirty('adapters')}
-                saving={savingSection === 'adapters'}
-                onSave={() => saveSectionNow('adapters')}
-              />
-            </div>
           </CardContent>
         </Card>
 
@@ -831,13 +862,10 @@ export default function WebSearchSettingsPage() {
               </div>
             </FieldGroup>
 
-            <SectionSave
-              dirty={isDirty('tuning')}
-              saving={savingSection === 'tuning'}
-              onSave={() => saveSectionNow('tuning')}
-            />
           </CardContent>
         </Card>
+
+        <PageSave dirty={anyDirty} saving={savingSection === 'all'} onSave={saveAll} />
 
         <div className="mt-4">
           <WebSearchPreview />

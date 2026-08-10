@@ -15,7 +15,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -172,9 +171,6 @@ export type AdapterRowProps = {
   onMaxCalls: (maxCallsPerHour: number | undefined) => void
   onOption: (field: string, value: unknown) => void
   /** True when this adapter's options differ from what is stored. */
-  optionsDirty?: boolean
-  optionsSaving?: boolean
-  onSaveOptions?: () => void
 }
 
 export function AdapterRow({
@@ -190,9 +186,6 @@ export function AdapterRow({
   onWeight,
   onTimeout,
   onMaxCalls,
-  optionsDirty = false,
-  optionsSaving = false,
-  onSaveOptions,
   onOption,
 }: AdapterRowProps) {
   const t = useT()
@@ -354,21 +347,8 @@ export function AdapterRow({
               </div>
             ))}
           </div>
-          {/* A credential half-typed into an autosaving field was written on every
-              keystroke; this card owns when its own values are committed. */}
-          {onSaveOptions ? (
-            <div className="flex items-center justify-end gap-3 border-t border-border pt-3">
-              {optionsDirty ? (
-                <span className="text-xs text-muted-foreground">
-                  {t('agent_orchestrator.settings.webSearch.unsavedHint', 'Not saved yet')}
-                </span>
-              ) : null}
-              <Button size="sm" disabled={!optionsDirty || optionsSaving} onClick={onSaveOptions}>
-                {optionsSaving ? <Spinner className="size-4" /> : null}
-                {t('agent_orchestrator.settings.webSearch.save', 'Save')}
-              </Button>
-            </div>
-          ) : null}
+          {/* Committed by the page's single Save, not here: a card of its own
+              was the second button operators could not tell apart from it. */}
         </div>
       ) : null}
     </div>

@@ -72,7 +72,11 @@ export function buildFileTree(files: AgentSourceFile[]): FileTreeNode[] {
   }
 
   for (const file of files) {
-    const segments = file.path.split('/')
+    // Producers emit `/`-separated paths, but an artifact baked on Windows by an
+    // older generator carries backslashes. Split on either so a stale
+    // `file-agents.generated.ts` still renders as a tree instead of one flat
+    // list, and drop empty segments so a doubled separator adds no phantom dir.
+    const segments = file.path.split(/[\\/]+/).filter(Boolean)
     const name = segments.pop() as string
     const container = segments.length ? ensureDir(segments) : roots
     container.push({ type: 'file', name, path: file.path, file, tokens: file.tokens, inContext: file.inContext })

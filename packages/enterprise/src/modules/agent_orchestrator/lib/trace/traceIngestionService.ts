@@ -11,6 +11,7 @@ import {
 import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../../data/validators'
 import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
 import { computeCostMinor } from '../runtime/modelPricing'
+import { redactSecrets } from './redactToolSummary'
 
 export type IngestScope = { tenantId: string; organizationId: string }
 
@@ -193,8 +194,19 @@ export async function ingestTrace(
   let toolCallsAppended = 0
   for (const { span, payloadSpan } of freshSpans) {
     for (const toolCall of payloadSpan.toolCalls ?? []) {
-      const request = await offloadOrCap(toolCall.requestSummary, ARTIFACT_REFS.toolRequest, offload)
-      const response = await offloadOrCap(toolCall.responseSummary, ARTIFACT_REFS.toolResponse, offload)
+      // Scrub before offload/persist, so the secret reaches neither the row nor
+      // the artifact store — the model is told to pass `_sessionToken` on every
+      // call, and a trace row outlives that token's TTL.
+      const request = await offloadOrCap(
+        redactSecrets(toolCall.requestSummary),
+        ARTIFACT_REFS.toolRequest,
+        offload,
+      )
+      const response = await offloadOrCap(
+        redactSecrets(toolCall.responseSummary),
+        ARTIFACT_REFS.toolResponse,
+        offload,
+      )
       em.persist(
         em.create(AgentToolCall, {
           tenantId,

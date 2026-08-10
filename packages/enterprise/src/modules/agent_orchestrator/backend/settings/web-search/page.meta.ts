@@ -16,11 +16,14 @@ export const metadata = {
   requireFeatures: ['agent_orchestrator.agents.view'],
   pageTitle: 'Web search',
   pageTitleKey: 'agent_orchestrator.nav.webSearch',
-  pageGroup: 'Agents',
-  pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 70,
-  pageOrder: 190,
+  // Lives in Settings, not the Agents group: this screen configures an
+  // instance-wide capability (which adapters run, their credentials and the
+  // fusion policy) rather than operating on any one agent.
+  pageGroup: 'Settings',
+  pageGroupKey: 'backend.nav.settings',
+  pageOrder: 290,
   icon: webSearchIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'Web search', labelKey: 'agent_orchestrator.nav.webSearch' }],
 }
 

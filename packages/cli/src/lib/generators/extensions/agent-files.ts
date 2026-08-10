@@ -663,10 +663,22 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
 
 const TOKEN_TOOL_EXTENSIONS = ['.ts', '.js']
 
+/**
+ * MIRRORS `toPosixRelativePath` in lib/tokens/computeAgentTokenUsage.ts.
+ *
+ * These relative paths are baked into `file-agents.generated.ts` and split into
+ * a folder tree in the browser, so they must be `/`-separated whatever machine
+ * ran `yarn generate`. `path.join` answers with the native separator, which on
+ * Windows baked backslashes into the artifact and flattened the Files tab.
+ */
+function toPosixRelativePath(relativePath: string): string {
+  return relativePath.split(path.sep).join('/')
+}
+
 function tokenCountFile(agentDir: string, relativePath: string): TokenizedFile | null {
   const absolute = path.join(agentDir, relativePath)
   if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) return null
-  return { path: relativePath, tokens: countTokens(fs.readFileSync(absolute, 'utf8')) }
+  return { path: toPosixRelativePath(relativePath), tokens: countTokens(fs.readFileSync(absolute, 'utf8')) }
 }
 
 function tokenListFiles(dir: string, extensions?: string[]): string[] {
@@ -711,7 +723,7 @@ function tokenComputeTools(agentDir: string): ToolTokenUsage[] {
     const rel = path.join('tools', name)
     return {
       name: name.replace(/\.[^.]+$/, ''),
-      path: rel,
+      path: toPosixRelativePath(rel),
       tokens: countTokens(fs.readFileSync(path.join(agentDir, rel), 'utf8')),
     }
   })
@@ -760,7 +772,7 @@ function collectAgentFiles(agentDir: string, prefix = '', depth = 0): FileAgentS
     const absolute = path.join(agentDir, relativePath)
     if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) return
     const content = fs.readFileSync(absolute, 'utf8')
-    files.push({ path: path.join(prefix, relativePath), content, tokens: countTokens(content), inContext })
+    files.push({ path: toPosixRelativePath(path.join(prefix, relativePath)), content, tokens: countTokens(content), inContext })
   }
   add('AGENT.md', true)
   add('OUTCOME.md', true)

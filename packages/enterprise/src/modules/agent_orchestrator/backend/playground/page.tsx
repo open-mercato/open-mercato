@@ -354,7 +354,14 @@ export default function AgentPlaygroundPage() {
           <ConnectionBadges />
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        {/*
+          Stacked, not side by side. Compose and Result shared a two-column row,
+          which capped the result at half the viewport — the one panel whose
+          whole job is to be read. An agent's returned payload is wide (JSON,
+          prose, tool traces) and was the thing operators squinted at. Compose is
+          a short form and loses nothing by being full width above it.
+        */}
+        <div className="grid grid-cols-1 items-start gap-4">
           {/* Compose panel */}
           <div className="overflow-hidden rounded-xl border border-border bg-card">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
