@@ -68,6 +68,8 @@ export function RunParameterFields({ params, values, onChange }: RunParameterFie
     <div className="grid gap-3 sm:grid-cols-2">
       {params.map((param) => {
         const value = values[param.key]
+        // No required marker on booleans: a switch always submits true/false,
+        // so `required` can never fail for them (see RunParameter.required).
         if (param.type === 'boolean') {
           return (
             <div key={param.key} className="rounded-lg border bg-card p-3 sm:col-span-2">

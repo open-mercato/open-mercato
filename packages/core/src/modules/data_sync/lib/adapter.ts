@@ -124,7 +124,15 @@ export interface RunParameter {
   type: RunParameterType
   /** Optional helper text rendered under the input. */
   description?: string
-  /** When true, the run cannot start unless a non-empty value is provided. */
+  /**
+   * When true, the run cannot start unless a non-empty value is provided.
+   *
+   * Has no effect on `boolean` parameters: a switch always submits `true` or
+   * `false`, neither of which is blank, so the check can never fire. Use
+   * `defaultValue` to express the intended default instead. This is why the
+   * dashboard renders the required marker only on the input types where the
+   * constraint is real.
+   */
   required?: boolean
   /** Pre-filled value; also the value used when the field is left blank. */
   defaultValue?: RunParameterValue

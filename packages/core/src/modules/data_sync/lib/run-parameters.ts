@@ -10,10 +10,27 @@ export type NormalizeRunParametersResult =
   | { ok: false; errors: RunParameterError[] }
 
 /**
+ * Keys that cannot round-trip through a plain object literal. Assigning a
+ * primitive to `__proto__` is silently discarded rather than creating an own
+ * property, so a parameter declared under that key would vanish between the
+ * form and the adapter instead of failing loudly. Rejecting it here — the one
+ * place every surface funnels through — keeps the dashboard, the default-value
+ * builder and the normalizer agreeing on the same parameter set.
+ *
+ * (`constructor` / `prototype` assign normally and are left alone.)
+ */
+const RESERVED_PARAMETER_KEYS = new Set(['__proto__'])
+
+export function isReservedRunParameterKey(key: string): boolean {
+  return RESERVED_PARAMETER_KEYS.has(key)
+}
+
+/**
  * Returns the declared parameters that apply to a given run. A parameter
  * without an explicit `direction` applies to both directions; one without an
  * explicit `entityType` applies to every entity. When `entityType` is omitted
  * here (the caller does not know the run's entity), entity scoping is skipped.
+ * Parameters declared under a reserved key are dropped.
  */
 export function getApplicableRunParameters(
   declared: RunParameter[] | undefined,
@@ -22,6 +39,7 @@ export function getApplicableRunParameters(
 ): RunParameter[] {
   if (!declared || declared.length === 0) return []
   return declared.filter((param) => {
+    if (isReservedRunParameterKey(param.key)) return false
     if (param.direction && param.direction !== direction) return false
     if (param.entityType !== undefined && entityType !== undefined) {
       const allowed = Array.isArray(param.entityType) ? param.entityType : [param.entityType]

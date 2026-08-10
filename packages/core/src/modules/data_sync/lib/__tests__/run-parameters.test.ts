@@ -1,5 +1,9 @@
 import type { RunParameter } from '../adapter'
-import { getApplicableRunParameters, normalizeRunParameters } from '../run-parameters'
+import {
+  getApplicableRunParameters,
+  isReservedRunParameterKey,
+  normalizeRunParameters,
+} from '../run-parameters'
 
 const params: RunParameter[] = [
   { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: false },
@@ -86,5 +90,49 @@ describe('normalizeRunParameters', () => {
     // Running the `orders` entity: the products-only required param is dropped, not enforced.
     const result = normalizeRunParameters(scoped, 'import', { bulk: 'true', refCursor: 'x' }, 'orders')
     expect(result).toEqual({ ok: true, values: { bulk: true } })
+  })
+})
+
+describe('reserved parameter keys', () => {
+  // Assigning a primitive to `__proto__` on an object literal is silently
+  // discarded, so such a param would disappear between the form and the
+  // adapter. It is rejected at declaration instead of vanishing later.
+  const reserved: RunParameter[] = [
+    { key: '__proto__', label: 'Proto', type: 'string' },
+    { key: 'safe', label: 'Safe', type: 'string' },
+  ]
+
+  it('flags only __proto__ as reserved', () => {
+    expect(isReservedRunParameterKey('__proto__')).toBe(true)
+    expect(isReservedRunParameterKey('constructor')).toBe(false)
+    expect(isReservedRunParameterKey('startId')).toBe(false)
+  })
+
+  it('drops a reserved key from the applicable set', () => {
+    expect(getApplicableRunParameters(reserved, 'import').map((p) => p.key)).toEqual(['safe'])
+  })
+
+  it('never emits a reserved key from the normalizer', () => {
+    const result = normalizeRunParameters(reserved, 'import', { __proto__: 'x', safe: 'ok' })
+    expect(result).toEqual({ ok: true, values: { safe: 'ok' } })
+  })
+
+  it('does not enforce a reserved key declared as required', () => {
+    const result = normalizeRunParameters(
+      [{ key: '__proto__', label: 'Proto', type: 'string', required: true }],
+      'import',
+      {},
+    )
+    expect(result).toEqual({ ok: true, values: {} })
+  })
+
+  it('leaves Object.prototype untouched and allows constructor as an ordinary key', () => {
+    const result = normalizeRunParameters(
+      [{ key: 'constructor', label: 'Ctor', type: 'string' }],
+      'import',
+      { constructor: 'plain' },
+    )
+    expect(result).toEqual({ ok: true, values: { constructor: 'plain' } })
+    expect((({}) as Record<string, unknown>).polluted).toBeUndefined()
   })
 })

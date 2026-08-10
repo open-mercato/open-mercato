@@ -13,7 +13,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
 
-type RunParameters = Record<string, RunParameterValue> | undefined
+type RunParameters = Record<string, RunParameterValue>
 
 type SyncScope = {
   organizationId: string
@@ -464,7 +464,7 @@ export function createSyncEngine(deps: EngineDeps) {
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
           runId: run.id,
-          parameters: (run.parameters ?? undefined) as RunParameters,
+          parameters: (run.parameters ?? {}) as RunParameters,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
@@ -609,7 +609,7 @@ export function createSyncEngine(deps: EngineDeps) {
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
           runId: run.id,
-          parameters: (run.parameters ?? undefined) as RunParameters,
+          parameters: (run.parameters ?? {}) as RunParameters,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
