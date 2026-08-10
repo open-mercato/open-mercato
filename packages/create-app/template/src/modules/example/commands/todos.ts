@@ -17,7 +17,6 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { z } from 'zod'
 import { Todo } from '../data/entities'
 import { todoNotesSchema } from '../data/validators'
@@ -82,6 +81,14 @@ export type TodoEncryptionService = {
   ) => Promise<Record<string, unknown>>
 }
 
+function tryResolveTodoEncryptionService(ctx: CommandRuntimeContext): TodoEncryptionService | null {
+  try {
+    return ctx.container.resolve('tenantEncryptionService') as TodoEncryptionService
+  } catch {
+    return null
+  }
+}
+
 /**
  * Builds the column patch handed to `nativeUpdate`.
  *
@@ -94,8 +101,9 @@ export type TodoEncryptionService = {
  * through untouched.
  *
  * `encryptEntityPayload` is a no-op when encryption is disabled, when the tenant
- * has no DEK, or when no map covers the entity, so the plaintext fallback below
- * is the intended behavior in those cases rather than a silent failure.
+ * has no DEK, or when no map covers the entity. Sensitive notes must fail closed
+ * in every one of those cases: accepting the unchanged value would write
+ * plaintext into a column the module declares as encrypted at rest.
  */
 export async function buildTodoUpdatePatch(
   input: { title?: string; isDone?: boolean; notes?: string | null },
@@ -107,9 +115,10 @@ export async function buildTodoUpdatePatch(
   if (input.isDone !== undefined) patch.isDone = input.isDone
   if (input.notes !== undefined) {
     const plaintext = input.notes
-    if (plaintext === null || !encryption) {
+    if (plaintext === null) {
       patch.notes = plaintext
     } else {
+      if (!encryption) throw new Error('[internal] Todo notes encryption service is unavailable')
       const encrypted = await encryption.encryptEntityPayload(
         ENTITY_ID,
         { notes: plaintext },
@@ -117,7 +126,10 @@ export async function buildTodoUpdatePatch(
         scope.organizationId,
       )
       const stored = encrypted?.notes
-      patch.notes = typeof stored === 'string' ? stored : plaintext
+      if (typeof stored !== 'string' || stored === plaintext) {
+        throw new Error('[internal] Todo notes encryption did not produce ciphertext')
+      }
+      patch.notes = stored
     }
   }
   return patch
@@ -160,17 +172,22 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const { parsed, custom } = parseWithCustomFields(todoCreateSchema, rawInput)
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const encryption = parsed.notes != null
+      ? tryResolveTodoEncryptionService(ctx)
+      : null
+    const encryptedNotes = parsed.notes === undefined
+      ? null
+      : (await buildTodoUpdatePatch({ notes: parsed.notes }, scope, encryption)).notes ?? null
 
     const todo = await de.createOrmEntity({
       entity: Todo,
       data: {
         ...(parsed.id ? { id: parsed.id } : {}),
         title: parsed.title,
-        // Assigned as plaintext on purpose: `createOrmEntity` persists through the
-        // request `EntityManager`, whose `beforeCreate` hook runs the tenant
-        // encryption subscriber. The update path cannot rely on that — see
-        // `buildTodoUpdatePatch`.
-        notes: parsed.notes ?? null,
+        // Pre-encrypt so a missing map, DEK, or service fails before persistence.
+        // The ORM subscriber recognizes authenticated ciphertext and leaves it
+        // unchanged, so this does not double-encrypt on the normal create path.
+        notes: encryptedNotes,
         isDone: parsed.is_done ?? false,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
@@ -328,7 +345,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const encryption = parsed.notes !== undefined ? resolveTenantEncryptionService(em) : null
+    const encryption = parsed.notes !== undefined ? tryResolveTodoEncryptionService(ctx) : null
     const patch = await buildTodoUpdatePatch(
       { title: parsed.title, isDone: parsed.is_done, notes: parsed.notes },
       scope,

@@ -69,6 +69,15 @@ async function encryptionMapCount(organizationId: string): Promise<number> {
   })
 }
 
+async function deleteEncryptionMap(organizationId: string): Promise<void> {
+  await withDatabase(async (client) => {
+    await client.query(
+      "delete from encryption_maps where entity_id = 'example:todo' and organization_id = $1",
+      [organizationId],
+    )
+  })
+}
+
 /**
  * Milestone B coverage for the module's at-rest encryption surface.
  *
@@ -99,6 +108,17 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
         tenantId,
       })
 
+      const seededOtherMap = await apiRequestWithSelectedOrg(request, 'POST', '/api/entities/encryption', {
+        token,
+        selectedOrgId: otherOrgId,
+        data: {
+          entityId: 'example:todo',
+          fields: [{ field: 'notes' }],
+          isActive: true,
+        },
+      })
+      expect(seededOtherMap.ok(), `seed other-org encryption map failed: ${seededOtherMap.status()}`).toBeTruthy()
+
       const createdHome = await apiRequest(request, 'POST', '/api/example/todos', {
         token,
         data: { title: `TC-EXAMPLE-004 home ${suffix}`, notes: homeSecret, cf_priority: 2, cf_severity: 'low' },
@@ -120,23 +140,15 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
       expect((await readTodo(request, token, homeTodoId!))?.notes).toBe(homeSecret)
       expect((await readTodo(request, token, otherTodoId!, otherOrgId))?.notes).toBe(otherSecret)
 
-      // At rest the column holds ciphertext for the scope whose encryption map is materialized.
+      // At rest the column holds independently scoped ciphertext in both organizations.
       const homeAtRest = await storedNotes(homeTodoId!)
       expect(homeAtRest, 'the encrypted column must not be empty').toBeTruthy()
       expect(homeAtRest).not.toBe(homeSecret)
-
-      // The second organization is deliberately NOT asserted to be ciphertext here, and the
-      // reason is a platform boundary rather than a property of this module. `encryption_maps`
-      // rows are materialized per (tenant, organization) at tenant creation, so an organization
-      // created afterwards has no row for `example:todo` at all — this test's own fixture is
-      // exactly such an organization. What the assertion below pins is the precondition, so the
-      // day that seeding covers a later organization the row appears, this expectation fails,
-      // and whoever changes it has to decide what the second scope must now store.
-      expect(await encryptionMapCount(otherOrgId!), [
-        'a newly created organization has no materialized encryption map for example:todo.',
-        'Until tenant seeding covers it, a write in that scope is stored unencrypted rather than',
-        'refused — a fail-open worth closing in the encryption layer, not in this module.',
-      ].join(' ')).toBe(0)
+      const otherAtRest = await storedNotes(otherTodoId!)
+      expect(otherAtRest, 'the second-scope encrypted column must not be empty').toBeTruthy()
+      expect(otherAtRest).not.toBe(otherSecret)
+      expect(otherAtRest).not.toBe(homeAtRest)
+      expect(await encryptionMapCount(otherOrgId!)).toBe(1)
 
       // The list projection is a response-excluded surface. The route selects `notes` only for
       // a single-record request, so a list row reports it as `null` — the key is present and
@@ -180,6 +192,7 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
           data: { id: otherTodoId },
         }).catch(() => undefined)
       }
+      if (otherOrgId) await deleteEncryptionMap(otherOrgId).catch(() => undefined)
       await deleteOrganizationIfExists(request, token, otherOrgId)
     }
   })

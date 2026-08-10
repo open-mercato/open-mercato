@@ -81,19 +81,29 @@ describe('todo update patch encryption', () => {
     expect(Object.prototype.hasOwnProperty.call(patch, 'notes')).toBe(false)
   })
 
-  it('falls back to the plaintext value when encryption is unavailable', async () => {
-    const patch = await buildTodoUpdatePatch({ notes: 'plain' }, SCOPE, null)
-
-    expect(patch).toEqual({ notes: 'plain' })
+  it('fails closed when encryption is unavailable', async () => {
+    await expect(buildTodoUpdatePatch({ notes: 'plain' }, SCOPE, null)).rejects.toThrow(
+      '[internal] Todo notes encryption service is unavailable',
+    )
   })
 
-  it('falls back to the plaintext value when the service returns no ciphertext', async () => {
+  it('fails closed when the service returns no ciphertext', async () => {
     const service: TodoEncryptionService = {
       encryptEntityPayload: async (_entityId, payload) => ({ ...payload, notes: undefined }),
     }
 
-    const patch = await buildTodoUpdatePatch({ notes: 'plain' }, SCOPE, service)
+    await expect(buildTodoUpdatePatch({ notes: 'plain' }, SCOPE, service)).rejects.toThrow(
+      '[internal] Todo notes encryption did not produce ciphertext',
+    )
+  })
 
-    expect(patch).toEqual({ notes: 'plain' })
+  it('fails closed when the service returns the plaintext unchanged', async () => {
+    const service: TodoEncryptionService = {
+      encryptEntityPayload: async (_entityId, payload) => payload,
+    }
+
+    await expect(buildTodoUpdatePatch({ notes: 'plain' }, SCOPE, service)).rejects.toThrow(
+      '[internal] Todo notes encryption did not produce ciphertext',
+    )
   })
 })
