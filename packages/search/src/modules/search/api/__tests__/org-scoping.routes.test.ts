@@ -48,6 +48,27 @@ type MockOrganizationScope = {
   tenantId: string | null
 }
 
+/**
+ * The hybrid search route resolves `rbacService` + `searchIndexer` to drop results
+ * whose entity type the caller has no view feature for (issue #5168). These org-scoping
+ * cases are about organization filtering, so the caller is a superadmin and the
+ * per-entity gate stays out of the way.
+ */
+function createSearchContainer(searchService: { search: jest.Mock }) {
+  const registrations: Record<string, unknown> = {
+    searchService,
+    searchIndexer: { getEntityConfig: () => undefined, getAllEntityConfigs: () => [] },
+    rbacService: {
+      loadAcl: jest.fn().mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null }),
+    },
+  }
+  return {
+    hasRegistration: (name: string) => name in registrations,
+    resolve: jest.fn((name: string) => registrations[name]),
+    dispose: jest.fn(),
+  }
+}
+
 describe('Search API organizationId scoping', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -59,10 +80,7 @@ describe('Search API organizationId scoping', () => {
     const searchService = {
       search: jest.fn().mockResolvedValue([{ entityId: 'x:y', recordId: '1', score: 1, source: 'tokens' }]),
     }
-    const container = {
-      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
-      dispose: jest.fn(),
-    }
+    const container = createSearchContainer(searchService)
     mockCreateRequestContainer.mockResolvedValue(container)
     mockResolveOrganizationScopeForRequest.mockResolvedValue({
       selectedId: 'org-A',
@@ -129,10 +147,7 @@ describe('Search API organizationId scoping', () => {
     const searchService = {
       search: jest.fn().mockResolvedValue([]),
     }
-    const container = {
-      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
-      dispose: jest.fn(),
-    }
+    const container = createSearchContainer(searchService)
     mockCreateRequestContainer.mockResolvedValue(container)
     mockResolveOrganizationScopeForRequest.mockResolvedValue({
       selectedId: null,
