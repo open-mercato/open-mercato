@@ -1115,3 +1115,55 @@ left every other module misread. Recorded in the spec.
 6. `frontend/middleware.ts`, `generators.ts`, `aiToolOverrides`/`aiAgentOverrides`, vector/workflow/
    currency identities, `componentOverrides` `replace` + `props`.
 7. Milestone D certification — untouched, blocked on the above.
+
+## Session 6 — `develop` merged again (case-ID collision), re-review findings addressed
+
+Entered via `/om-auto-continue-pr 4897` on the changes-requested re-review of `5b4be4bc`. Two jobs:
+resolve the merge conflicts, and close the two findings.
+
+### The merge was not mechanical: both sides claimed OMH-204..213
+
+`develop` published ten new harness cases (`OMH-204`–`OMH-213`, all `analysis`/routing, from the
+module-facts-required and routing-timeout work) while this branch had already added thirteen of its
+own under the same numbers. Nine files conflicted; `cases.json` alone had 25 hunks, and the collision
+is invisible in a textual diff because both sides look like clean appends.
+
+Resolved in `develop`'s favour — its ten keep the IDs it already published — and this branch's
+thirteen are renumbered **`OMH-204..216` → `OMH-214..226`** everywhere they are named:
+`cases.json` (rebuilt by splicing element texts so the file's hand-inlined arrays survive byte-exact),
+`release-matrix.json`, `validators.json`, `writable-spec-oracles.mjs`, the regenerated
+`source-link-inventory.json`, `agent-harness-evaluator.test.ts`,
+`agent-harness-example-read-policy.test.ts`, `AGENT-HARNESS.md`, and the two harness specs.
+Published counts follow: **226 cases, 48 writable (21.2%), 48-case portability sample**, and the
+schema id pattern widens to `OMH-226`. `every published case count states the shipped catalog or the
+portability sample` and `the published case schema accepts the shipped catalog it pins` both pass —
+they are what makes this renumbering checkable rather than hopeful.
+
+`packages/shared/src/lib/bootstrap/dynamicLoader.ts` conflicted for a subtler reason: `develop` added
+a shared esbuild runtime (`getEsbuildRuntime` + `withEsbuildLifecycle`, so bootstrap compilation stops
+its helper process) and edited the call site inside `compileAndImport` — the exact function this
+branch had extracted into `compileAppSourceFile`. Git aligned the hunk into the new function. Taking
+either side alone would have been wrong: `compileAppSourceFile` now calls `getEsbuildRuntime()`, so
+app-source compilation joins that lifecycle instead of starting a second helper nothing stops.
+
+### Re-review findings
+
+- **Major — contract changes documented only in the PR description.** Four value changes land against
+  `BACKWARD_COMPATIBILITY.md` §14's STABLE generated-facts surface (the `ComponentReplacementHandles`
+  contribution IDs, the `section:auth.login.form` `mode`, the twelve recovered injection-table
+  contributions, the extension-join pluralizer) plus the `ExtractAllModuleFactsResult` required field
+  and the additive `ListConfig.csv` widening. They are now in `UPGRADE_NOTES.md` under
+  `0.6.7 → 0.6.8 (unreleased)` with migration guidance, and the canonical spec's Backward
+  Compatibility section no longer asserts the opposite of what shipped (`ee8be0729`).
+- **Minor — `EntityExtension.table`'s JSDoc still described the defect this PR fixed.** It had four
+  more copies, all introduced here: the example module's `data/extensions.ts` docstring, its
+  `surface-inventory.json` row, both template mirrors, and a comment in the engine tests. All say
+  what is true now; the example keeps its `table` declaration as the escape-hatch demonstration its
+  inventory row claims (`ba4ebba1f`).
+- **Note — the unbound `sales.injection.payment-gateway-status-column`.** The removal note said
+  "tracked separately" without saying where. Filed as **#5142** and named at the site (`3d5706359`).
+
+### Gate (local runner; no compose `app` container in this WSL distro)
+
+`build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`
+green (22/22 turbo tasks). `test` and `build:app` run after; results recorded on the PR.
