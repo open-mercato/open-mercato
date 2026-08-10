@@ -226,10 +226,15 @@ export function finalizeHarnessManifest(config: AgenticConfig, selectedTools: st
   ])
 
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json') paths.add(join(targetDir, '.ai', 'guides', file))
+    if (file.endsWith('.md') || file === 'module-facts.json' || file === 'reference-module-facts.json') {
+      paths.add(join(targetDir, '.ai', 'guides', file))
+    }
   }
   for (const file of listFiles(join(GUIDES_DIR, 'upstream'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'upstream', relative(join(GUIDES_DIR, 'upstream'), file)))
+  }
+  for (const file of listFiles(join(GUIDES_DIR, 'reference-modules'))) {
+    paths.add(join(targetDir, '.ai', 'guides', 'reference-modules', relative(join(GUIDES_DIR, 'reference-modules'), file)))
   }
   for (const moduleId of selectedModules) paths.add(join(targetDir, '.ai', 'guides', 'modules', `${moduleId}.md`))
 
@@ -293,7 +298,8 @@ export function generateShared(config: AgenticConfig): void {
 
   // Package & conceptual guides are copied wholesale (framework-wide). Per-module
   // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
-  // module set; the combined module-facts.json sidecar is copied as-is.
+  // module set. The combined facts and disabled local-reference projections are
+  // copied as-is so source-present reference modules remain readable without activation.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -311,7 +317,15 @@ export function generateShared(config: AgenticConfig): void {
       copyFileSync(moduleFactsPath, destPath)
     }
 
+    const referenceFactsPath = join(GUIDES_DIR, 'reference-module-facts.json')
+    if (existsSync(referenceFactsPath)) {
+      const destPath = join(guidesDestDir, 'reference-module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(referenceFactsPath, destPath)
+    }
+
     copyTree(join(GUIDES_DIR, 'upstream'), join(guidesDestDir, 'upstream'), config)
+    copyTree(join(GUIDES_DIR, 'reference-modules'), join(guidesDestDir, 'reference-modules'), config)
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
     for (const moduleId of selectedModules) {

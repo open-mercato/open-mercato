@@ -208,7 +208,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 249856,
     "relatedCases": [
       "OMH-004"
     ]
@@ -1079,9 +1079,6 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
-      "allowedExtra": [
-        ".ai/guides/modules/design_system.md"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -1272,7 +1269,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 151552,
     "relatedCases": [
       "OMH-017"
     ]
@@ -3122,7 +3119,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 151552,
     "relatedCases": [
       "OMH-040"
     ]
@@ -3758,7 +3755,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 143360,
     "relatedCases": [
       "OMH-048"
     ]
@@ -4395,7 +4392,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 67584,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 143360,
     "relatedCases": [
       "OMH-056"
     ]
@@ -5687,7 +5684,7 @@
     ],
     "maxContextFiles": 13,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 163840,
+    "maxTotalContextBytes": 311296,
     "relatedCases": [
       "OMH-024",
       "OMH-026",
@@ -5785,7 +5782,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 335872,
     "relatedCases": [
       "OMH-027",
       "OMH-031",
@@ -5887,7 +5884,7 @@
     ],
     "maxContextFiles": 13,
     "maxInitialContextBytes": 71680,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 376832,
     "relatedCases": [
       "OMH-018",
       "OMH-034",
@@ -5994,7 +5991,7 @@
     ],
     "maxContextFiles": 13,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 446464,
     "relatedCases": [
       "OMH-020",
       "OMH-034",
@@ -6088,7 +6085,7 @@
     ],
     "maxContextFiles": 13,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 327680,
     "relatedCases": [
       "OMH-021",
       "OMH-027",
@@ -6185,7 +6182,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 442368,
     "relatedCases": [
       "OMH-025",
       "OMH-033",
@@ -6292,7 +6289,7 @@
     ],
     "maxContextFiles": 14,
     "maxInitialContextBytes": 77824,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 376832,
     "relatedCases": [
       "OMH-012",
       "OMH-053",
@@ -6401,7 +6398,7 @@
     ],
     "maxContextFiles": 15,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 245760,
+    "maxTotalContextBytes": 839680,
     "relatedCases": [
       "OMH-016",
       "OMH-077",
@@ -6508,7 +6505,7 @@
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 77824,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 405504,
     "relatedCases": [
       "OMH-041",
       "OMH-042",
@@ -6616,7 +6613,7 @@
     ],
     "maxContextFiles": 14,
     "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 421888,
     "relatedCases": [
       "OMH-040",
       "OMH-043",
@@ -6711,7 +6708,7 @@
     ],
     "maxContextFiles": 9,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 397312,
     "relatedCases": [
       "OMH-016",
       "OMH-037",
@@ -6815,7 +6812,7 @@
     ],
     "maxContextFiles": 13,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 245760,
+    "maxTotalContextBytes": 524288,
     "relatedCases": [
       "OMH-042",
       "OMH-045",
@@ -7049,7 +7046,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 323584,
     "relatedCases": [
       "OMH-016",
       "OMH-081",
@@ -7266,7 +7263,7 @@
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 94208,
-    "maxTotalContextBytes": 212992,
+    "maxTotalContextBytes": 655360,
     "relatedCases": [
       "OMH-001",
       "OMH-004",
@@ -7382,7 +7379,7 @@
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 380928,
     "relatedCases": [
       "OMH-025",
       "OMH-026",
@@ -7876,7 +7873,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 311296,
     "relatedCases": [
       "OMH-060",
       "OMH-071"
@@ -7980,7 +7977,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 270336,
     "relatedCases": [
       "OMH-010",
       "OMH-033",
@@ -8071,7 +8068,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 60416,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 360448,
     "relatedCases": [
       "OMH-009",
       "OMH-024",
@@ -8161,7 +8158,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 319488,
     "relatedCases": [
       "OMH-012",
       "OMH-072"
@@ -8267,7 +8264,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 548864,
     "relatedCases": [
       "OMH-018",
       "OMH-053",
@@ -8360,7 +8357,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 512000,
     "relatedCases": [
       "OMH-025",
       "OMH-074",
@@ -8454,7 +8451,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 307200,
     "relatedCases": [
       "OMH-019",
       "OMH-074"
@@ -8545,7 +8542,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 60416,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 466944,
     "relatedCases": [
       "OMH-018",
       "OMH-020",
@@ -8635,7 +8632,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-017",
       "OMH-075"
@@ -8722,7 +8719,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 290816,
     "relatedCases": [
       "OMH-057",
       "OMH-073"
@@ -8812,7 +8809,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-012",
       "OMH-027",
@@ -8913,7 +8910,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 323584,
     "relatedCases": [
       "OMH-044",
       "OMH-071",
@@ -9009,7 +9006,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 335872,
     "relatedCases": [
       "OMH-031",
       "OMH-072"
@@ -9119,7 +9116,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 380928,
     "relatedCases": [
       "OMH-018",
       "OMH-054",
@@ -9214,7 +9211,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 294912,
     "relatedCases": [
       "OMH-012",
       "OMH-053",
@@ -9323,7 +9320,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 60416,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 266240,
     "relatedCases": [
       "OMH-009",
       "OMH-062",
@@ -9419,7 +9416,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 315392,
     "relatedCases": [
       "OMH-019",
       "OMH-054",
@@ -9511,7 +9508,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 253952,
     "relatedCases": [
       "OMH-012",
       "OMH-078",
@@ -9612,7 +9609,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 618496,
     "relatedCases": [
       "OMH-060",
       "OMH-069",
@@ -9709,7 +9706,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 71680,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 307200,
     "relatedCases": [
       "OMH-077",
       "OMH-078"
@@ -9798,7 +9795,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 471040,
     "relatedCases": [
       "OMH-069",
       "OMH-079"
@@ -9888,7 +9885,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 60416,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 299008,
     "relatedCases": [
       "OMH-075",
       "OMH-079"
@@ -9978,7 +9975,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-027",
       "OMH-072",
@@ -10091,7 +10088,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 368640,
     "relatedCases": [
       "OMH-020",
       "OMH-036",
@@ -10182,7 +10179,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 348160,
     "relatedCases": [
       "OMH-010",
       "OMH-076"
@@ -10273,7 +10270,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 204800,
     "relatedCases": [
       "OMH-009",
       "OMH-011"
@@ -10365,7 +10362,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 60416,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 442368,
     "relatedCases": [
       "OMH-025",
       "OMH-076"
@@ -10459,7 +10456,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 380928,
     "relatedCases": [
       "OMH-069",
       "OMH-076"
@@ -10553,7 +10550,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 51200,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 446464,
     "relatedCases": [
       "OMH-009",
       "OMH-060"
@@ -10643,7 +10640,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 233472,
     "relatedCases": [
       "OMH-012",
       "OMH-060"
@@ -10756,7 +10753,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 258048,
     "relatedCases": [
       "OMH-004",
       "OMH-077"
@@ -10848,7 +10845,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 348160,
     "relatedCases": [
       "OMH-012",
       "OMH-060"
@@ -11029,7 +11026,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 569344,
     "relatedCases": [
       "OMH-010"
     ]
@@ -11114,8 +11111,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 8,
-    "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 147456,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 221184,
     "relatedCases": [
       "OMH-017",
       "OMH-066"
@@ -11411,7 +11408,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 344064,
     "relatedCases": [
       "OMH-034",
       "OMH-073"
@@ -11527,7 +11524,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 503808,
     "relatedCases": [
       "OMH-016",
       "OMH-057",
@@ -11614,7 +11611,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 409600,
     "relatedCases": [
       "OMH-068",
       "OMH-081",
@@ -11707,7 +11704,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 356352,
     "relatedCases": [
       "OMH-062",
       "OMH-077",
@@ -11974,7 +11971,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 180224,
     "relatedCases": [
       "OMH-085",
       "OMH-092"
@@ -12169,8 +12166,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 8,
-    "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 196608,
+    "maxInitialContextBytes": 45056,
+    "maxTotalContextBytes": 221184,
     "relatedCases": [
       "OMH-061",
       "OMH-062",
@@ -12256,8 +12253,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 9,
-    "maxInitialContextBytes": 53248,
-    "maxTotalContextBytes": 147456,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 512000,
     "relatedCases": [
       "OMH-053",
       "OMH-074",
@@ -12378,8 +12375,8 @@
       "src/modules/invoice_dunning/events.ts"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 147456,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 352256,
     "relatedCases": [
       "OMH-039",
       "OMH-053",
@@ -12469,7 +12466,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 307200,
     "relatedCases": [
       "OMH-053",
       "OMH-078",
@@ -12552,7 +12549,7 @@
     ],
     "maxContextFiles": 7,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 290816,
     "relatedCases": [
       "OMH-019",
       "OMH-054",
@@ -12627,7 +12624,7 @@
     ],
     "maxContextFiles": 7,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 241664,
     "relatedCases": [
       "OMH-049",
       "OMH-050",
@@ -12730,7 +12727,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 200704,
     "relatedCases": [
       "OMH-012",
       "OMH-050",
@@ -12809,7 +12806,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 61440,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 155648,
     "relatedCases": [
       "OMH-050",
       "OMH-052"
@@ -12895,7 +12892,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 389120,
     "relatedCases": [
       "OMH-051"
     ],
@@ -13000,7 +12997,7 @@
     ],
     "maxContextFiles": 7,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 315392,
     "relatedCases": [
       "OMH-056",
       "OMH-089"
@@ -13081,7 +13078,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 61440,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 167936,
     "relatedCases": [
       "OMH-035",
       "OMH-055"
@@ -13297,7 +13294,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 163840,
+    "maxTotalContextBytes": 266240,
     "relatedCases": [
       "OMH-041",
       "OMH-079"
@@ -13528,7 +13525,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 253952,
     "relatedCases": [
       "OMH-021",
       "OMH-041"
@@ -13651,7 +13648,7 @@
     ],
     "maxContextFiles": 15,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 163840,
+    "maxTotalContextBytes": 638976,
     "relatedCases": [
       "OMH-042",
       "OMH-070",
@@ -13728,7 +13725,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 55296,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 245760,
     "relatedCases": [
       "OMH-043",
       "OMH-057"
@@ -13818,7 +13815,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 311296,
     "relatedCases": [
       "OMH-018",
       "OMH-043"
@@ -13896,7 +13893,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 143360,
     "relatedCases": [
       "OMH-044",
       "OMH-068"
@@ -14004,7 +14001,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 286720,
     "relatedCases": [
       "OMH-052"
     ]
@@ -14226,7 +14223,7 @@
     ],
     "maxContextFiles": 9,
     "maxInitialContextBytes": 53248,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 204800,
     "relatedCases": [
       "OMH-047"
     ]
@@ -14475,7 +14472,7 @@
     ],
     "maxContextFiles": 4,
     "maxInitialContextBytes": 32768,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-060",
       "OMH-077",
@@ -14574,7 +14571,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 237568,
     "relatedCases": [
       "OMH-057",
       "OMH-062",
@@ -14661,7 +14658,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 323584,
     "relatedCases": [
       "OMH-081",
       "OMH-085",
@@ -15006,7 +15003,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 69632,
-    "maxTotalContextBytes": 196608,
+    "maxTotalContextBytes": 286720,
     "relatedCases": [
       "OMH-005",
       "OMH-073"
@@ -15174,7 +15171,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 278528,
     "relatedCases": [
       "OMH-057",
       "OMH-059"
@@ -15279,7 +15276,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 266240,
     "relatedCases": [
       "OMH-024",
       "OMH-061",
@@ -15374,7 +15371,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 52224,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 139264,
     "relatedCases": [
       "OMH-043",
       "OMH-060"
@@ -15619,7 +15616,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 53248,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 229376,
     "relatedCases": [
       "OMH-085",
       "OMH-092"
@@ -15706,7 +15703,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 278528,
     "relatedCases": [
       "OMH-002",
       "OMH-024",
@@ -15792,7 +15789,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 212992,
     "relatedCases": [
       "OMH-003",
       "OMH-087"
@@ -15872,7 +15869,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 253952,
     "relatedCases": [
       "OMH-025",
       "OMH-088"
@@ -15970,8 +15967,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 8,
-    "maxInitialContextBytes": 53248,
-    "maxTotalContextBytes": 131072,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-024",
       "OMH-026",
@@ -16200,7 +16197,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 241664,
     "relatedCases": [
       "OMH-031",
       "OMH-032",
@@ -16289,7 +16286,7 @@
     ],
     "maxContextFiles": 7,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 249856,
     "relatedCases": [
       "OMH-018",
       "OMH-034"
@@ -17055,7 +17052,7 @@
     "timeoutMs": 420000,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 245760,
+    "maxTotalContextBytes": 258048,
     "relatedCases": [
       "OMH-185"
     ]
@@ -17303,7 +17300,7 @@
     "timeoutMs": 600000,
     "maxContextFiles": 14,
     "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 229376,
+    "maxTotalContextBytes": 323584,
     "relatedCases": [
       "OMH-083",
       "OMH-093",
@@ -17813,7 +17810,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, the operations team tracks shared company assets \u2014 vans, measuring tools, loaner laptops \u2014 in a spreadsheet. They want them grouped by kind, labelled with their own tags, searchable, commented on, and carrying a readable history of what happened to each one. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing versus managing those records, and identify the smallest relevant validation. Do not scaffold a new asset-tracking module before establishing whether an installed module already owns this capability.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the operations team tracks shared company assets — vans, measuring tools, loaner laptops — in a spreadsheet. They want them grouped by kind, labelled with their own tags, searchable, commented on, and carrying a readable history of what happened to each one. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing versus managing those records, and identify the smallest relevant validation. Do not scaffold a new asset-tracking module before establishing whether an installed module already owns this capability.",
     "tags": [
       "architecture",
       "module-facts",
@@ -18206,7 +18203,7 @@
     ],
     "maxContextFiles": 11,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 147456,
+    "maxTotalContextBytes": 430080,
     "relatedCases": [
       "OMH-002",
       "OMH-194"
@@ -18317,7 +18314,7 @@
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 270336,
     "relatedCases": [
       "OMH-026",
       "OMH-027"
@@ -18952,7 +18949,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 32768,
-    "maxTotalContextBytes": 61440,
+    "maxTotalContextBytes": 65536,
     "relatedCases": [
       "OMH-002",
       "OMH-194"
@@ -19390,7 +19387,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Add a staff page that lists this week's pickup appointments, soonest first, from the appointments our own module already stores. Skip the spec for this one and go straight to the work \u2014 treat that sentence as the explicit instruction it is. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "prompt": "Add a staff page that lists this week's pickup appointments, soonest first, from the appointments our own module already stores. Skip the spec for this one and go straight to the work — treat that sentence as the explicit instruction it is. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
     "tags": [
       "spec-gate",
       "planning-decision",
@@ -19695,7 +19692,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "An app must extend an installed list screen with an added column, a server-strategy filter, a single-row action, and a bulk action over the selected rows. Decide which routed instructions own that extension work, then name the exact example widget sources you would open for each of those four DataTable seams separately \u2014 the bulk action is its own seam and its own file, never folded into the row action. Start from the example entry document and its surface index. The example component-replacement surface is marked qa-only and must not be opened or copied. Do not open unrelated example surfaces, do not list or glob the widget directory, and do not change anything inside the example root.",
+    "prompt": "An app must extend an installed list screen with an added column, a server-strategy filter, a single-row action, and a bulk action over the selected rows. Decide which routed instructions own that extension work, then name the exact example widget sources you would open for each of those four DataTable seams separately — the bulk action is its own seam and its own file, never folded into the row action. Start from the example entry document and its surface index. The example component-replacement surface is marked qa-only and must not be opened or copied. Do not open unrelated example surfaces, do not list or glob the widget directory, and do not change anything inside the example root.",
     "tags": [
       "umes",
       "canonical-example",

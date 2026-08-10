@@ -30,6 +30,7 @@ const ROOT_SOURCES = [
 function isInitialContext(relativePath: string): boolean {
   return !relativePath.includes('/references/')
     && !relativePath.startsWith('.ai/guides/modules/')
+    && !relativePath.startsWith('.ai/guides/reference-modules/')
     && !relativePath.startsWith('.ai/guides/upstream/')
     && !relativePath.startsWith('.agents/skills/')
 }

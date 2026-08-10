@@ -87,6 +87,7 @@ function isInitialContextPath(relative: string): boolean {
   return !relative.includes('/references/')
     && !relative.startsWith('.ai/framework-context/')
     && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/reference-modules/')
     && !relative.startsWith('.ai/guides/upstream/')
     && !relative.startsWith('.agents/skills/')
 }
@@ -682,7 +683,7 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
       fixture: { setup: string[] }
     }>
     cases[0].relatedCases = ['OMH-999']
-    cases[1].maxTotalContextBytes = 999_999
+    cases[1].maxTotalContextBytes = 1_048_577
     cases[8].fixture.setup = ['node dangerous-script.mjs']
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
     const routingSchemaPath = path.join(root, '.ai', 'harness', 'routing-response.schema.json')

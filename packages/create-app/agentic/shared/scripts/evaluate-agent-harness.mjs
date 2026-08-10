@@ -2517,6 +2517,7 @@ function isInitialContextPath(relative) {
   return !relative.includes('/references/')
     && !relative.startsWith('.ai/framework-context/')
     && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/reference-modules/')
     && !relative.startsWith('.ai/guides/upstream/')
     && !relative.startsWith('.agents/skills/')
 }

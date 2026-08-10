@@ -4,7 +4,7 @@
     "expectedCaseCount": 228,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 1048576,
     "backwardCompatibilityRuleIds": [
       "BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07",
       "BC-08", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13", "BC-14"

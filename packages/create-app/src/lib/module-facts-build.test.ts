@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -75,6 +75,34 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
   const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
   assert.match(frameworkMarkdown, /^# Framework extension points/m)
   assert.match(frameworkMarkdown, /menu/i)
+})
+
+test('fresh scaffolds receive the disabled local-reference projection', () => {
+  ensureBuilt()
+  const parent = fs.mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'om-reference-projection-'))
+  const target = join(parent, 'reference-projection-app')
+  execFileSync(
+    process.execPath,
+    [join(pkgRoot, 'dist', 'index.js'), target, '--preset', 'classic', '--agents', 'codex', '--no-init-git'],
+    {
+      cwd: pkgRoot,
+      env: { ...process.env, OM_SKIP_EXTERNAL_SKILLS: '1' },
+      stdio: 'ignore',
+    },
+  )
+
+  for (const relativePath of [
+    '.ai/guides/reference-module-facts.json',
+    '.ai/guides/reference-modules/example.md',
+  ]) {
+    assert.equal(fs.existsSync(join(target, relativePath)), true, `${relativePath} must reach a fresh scaffold`)
+  }
+  const manifest = JSON.parse(
+    fs.readFileSync(join(target, '.ai', 'harness', 'manifest.json'), 'utf8'),
+  ) as { files: Array<{ path: string }> }
+  const ownedPaths = new Set(manifest.files.map((entry) => entry.path))
+  assert.equal(ownedPaths.has('.ai/guides/reference-module-facts.json'), true)
+  assert.equal(ownedPaths.has('.ai/guides/reference-modules/example.md'), true)
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {

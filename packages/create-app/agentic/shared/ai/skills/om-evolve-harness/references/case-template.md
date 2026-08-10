@@ -29,7 +29,7 @@ Use the next contiguous `OMH-NNN` ID. Take the shape of an adjacent case from `.
 Copy the shape from an adjacent case, never its budgets. Calibrate them from this case's own measured
 footprint in a scaffolded controller: sum the on-disk size of `context.required` plus every
 `context.allowedExtra` path, counting a path toward the *initial* budgets unless it lives under
-`/references/`, `.ai/framework-context/`, `.ai/guides/modules/`, `.ai/guides/upstream/`, or `.agents/skills/`. Round up to leave real
+`/references/`, `.ai/framework-context/`, `.ai/guides/modules/`, `.ai/guides/reference-modules/`, `.ai/guides/upstream/`, or `.agents/skills/`. Round up to leave real
 slack — a budget equal to the declared set fails a correct run on one incidental read — then confirm
 against a clean passing live trace rather than a neighbouring case's envelope.
 
