@@ -13,6 +13,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`)
 8. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
 9. **MUST keep the generated standalone root inside its byte budget** — the scaffolded `AGENTS.md` targets `STANDALONE_ROOT_TARGET_BYTES` (12 KiB) so a routed chain still fits Codex's 32 KiB `project_doc_max_bytes`. `enforceRootInstructionBudget` runs after every tool generator has patched the root and sheds the enumerated module-fact index for an O(1) pointer form rather than overflowing, so enabling another template module is safe — but an addition that trips the fallback costs the app its inline routing index and fails `packages/create-app/src/lib/agent-instruction-budget.test.ts`. Reclaim root bytes or accept the fallback deliberately; do not raise the target without re-measuring the routed chains
+10. **MUST make Git-history provenance gates work in shallow CI checkouts** — fetch the missing ancestry before asserting it, and fail closed when the history cannot be fetched or verified
 
 ## Ask First
 

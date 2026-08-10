@@ -103,7 +103,31 @@ function repositoryRoot() {
   return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
 }
 
+const completeHistoryRoots = new Set()
+
+function ensureCompleteHistory(root) {
+  if (completeHistoryRoots.has(root)) return true
+  try {
+    const isShallow = execFileSync(
+      'git',
+      ['rev-parse', '--is-shallow-repository'],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim() === 'true'
+    if (isShallow) {
+      execFileSync('git', ['fetch', '--no-tags', '--unshallow', 'origin'], {
+        cwd: root,
+        stdio: 'ignore',
+      })
+    }
+    completeHistoryRoots.add(root)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function isAncestor(root, sha) {
+  if (!ensureCompleteHistory(root)) return false
   try {
     execFileSync('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: root, stdio: 'ignore' })
     return true
