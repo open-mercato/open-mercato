@@ -1,8 +1,8 @@
 # Standalone Agent Spec-First Routing
 
-- **Status:** Partially implemented — Phase 1 landed; Phase 2 pending
+- **Status:** Implementation complete — Phase 2 fixed-oracle coverage landed; certified live-lane evidence pending PR integration
 - **Date:** 2026-08-01
-- **Revised:** 2026-08-03
+- **Revised:** 2026-08-10
 - **Scope:** OSS agent instructions and planning skills emitted by `create-mercato-app`
 - **Related:** [Standalone Canonical Example Module](./2026-07-31-standalone-canonical-example-module.md), [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md), design-foundation [PR #4277](https://github.com/open-mercato/open-mercato/pull/4277) (merged 2026-08-03 as [PR #4891](https://github.com/open-mercato/open-mercato/pull/4891)), design-system gallery [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301)
 
@@ -149,14 +149,16 @@ This is an additive agent-workflow policy. It changes generated-agent behavior b
 | Example reuse | Planning stays source-read-only and hands module work to visible exact canonical/installed references without owning their read policy. |
 | Integration traceability | Every newly planned extension surface names a self-contained real-path integration test in the requirement/phase matrix. |
 | Instruction budget | Normative decision only in `AGENTS.md`; procedure remains in the owning skill. |
-| Testing | Six finite routing oracles, preset/link/budget tests, and an affected certified lane. |
+| Testing | Six finite routing oracles, both writable planning proofs, and single-property negative controls for exact generated topology, specialist, bulk-progress, UI/gallery/foundation, ordering, traceability, and mechanism binding; the affected certified lane remains the PR integration gate. |
 | Runtime/compatibility | No runtime, API, schema, provider, or module behavior changes. |
 
 ### Verdict
 
-**Fully specified and ready for implementation after design review.**
+**Implementation complete; ready for the PR-level certified harness lane and final review.**
 
 ## Changelog
+
+- 2026-08-10: Closed the remaining executable gap in writable planning proof `OMH-223`. The prompt now includes a workflow-defined lifecycle, bounded DataTable bulk operation, connected `progressJobId` path, and public-Button UI so one shipped spec proof exercises the canonical data/command, specialist registry, bulk action, durable progress, and gallery/foundation branches without allocating the reserved `OMH-228`. Its fixed oracle reads the target's own `.ai/guides/reference-module-facts.json`, source-link inventory, and canonical surface-inventory projection; requires exact capability, contribution, activation, override-target, worker, specialist-route, source-reference, gallery item/family/entry, provenance, and activation identities; binds each identity family to one ordered requirement/phase/integration-test/mechanism row; and rejects missing generated facts, generic IDs, split traceability, wrong mechanism classification, live-gallery claims, provenance conflation, workspace token paths, runtime coupling, or external Figma authority. Focused coverage adds one mutation per new check and preserves the separate existing-spec proof.
 
 - 2026-08-01: Initial draft defined the standalone spec-first decision contract and routing proofs.
 - 2026-08-03: Added the one-way module implementation handoff to `om-module-scaffold` and canonical `src/modules/example` capability links; prohibited shadow teaching modules, whole-tree copies, and `ratelimit_probe` reuse.

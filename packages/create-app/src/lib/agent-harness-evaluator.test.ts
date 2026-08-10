@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
+const generatedGuidesRoot = fileURLToPath(new URL('../../dist/agentic/guides/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
@@ -4195,6 +4196,76 @@ function stageSpecTarget(fixtureId: string): string {
   // emitted tree rather than an empty directory.
   fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = ['example']\n")
+  fs.mkdirSync(path.join(root, '.ai', 'guides'), { recursive: true })
+  fs.copyFileSync(
+    path.join(generatedGuidesRoot, 'reference-module-facts.json'),
+    path.join(root, '.ai', 'guides', 'reference-module-facts.json'),
+  )
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
+  fs.copyFileSync(
+    path.join(generatedGuidesRoot, 'reference-modules', 'example.md'),
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+  )
+  const sourceLinks = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8')) as {
+    records: Array<Record<string, unknown>>
+  }
+  const designReferenceFixture = [
+    ['om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx', 'design-system-gallery', 'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx'],
+    ['om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx', 'design-system-implementation', 'node_modules/@open-mercato/ui/src/primitives/button.tsx'],
+    ['om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx', 'figma-code-connect', 'node_modules/@open-mercato/ui/figma/button.figma.tsx'],
+    ['om-backend-ui-design/frontend-and-design-system:src/app/globals.css', 'design-foundation-token', 'src/app/globals.css'],
+  ] as const
+  for (const [referenceId, referenceRole, resolvedPath] of designReferenceFixture) {
+    if (sourceLinks.records.some((entry) => entry.referenceId === referenceId)) continue
+    sourceLinks.records.push({
+      referenceId,
+      requirement: 'source-required',
+      originAsset: '.ai/guides/backend-ui.md',
+      targetKind: resolvedPath.startsWith('node_modules/') ? 'installed-package' : 'app-local',
+      readStatus: 'readable',
+      resolvedPath,
+      referenceRole,
+      presets: ['classic', 'crm', 'empty'],
+      tiers: ['core'],
+      galleryItemIds: ['buttons/button'],
+      visualReferences: [{
+        galleryItemId: 'buttons/button',
+        familyId: 'buttons',
+        entryId: 'button',
+        importPath: '@open-mercato/ui/primitives/button',
+        route: '/backend/design-system/buttons',
+        availabilityByPreset: { classic: 'source-only', crm: 'source-only', empty: 'source-only' },
+        featureId: 'design_system.view',
+        designFoundation: {
+          galleryNodeId: 'buttons/button',
+          codeConnectNodeId: 'button.figma',
+          nodeComparison: 'mapped',
+          publicationStatus: 'not-evidenced',
+        },
+      }],
+    })
+  }
+  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'harness', 'source-link-inventory.json'), JSON.stringify(sourceLinks, null, 2))
+  const exampleInventoryPath = path.join(root, 'src', 'modules', 'example', 'references', 'surface-inventory.json')
+  const exampleInventory = JSON.parse(fs.readFileSync(exampleInventoryPath, 'utf8')) as Record<string, unknown>
+  exampleInventory.designSystemInventoryPath = '.ai/harness/design-system-inventory.json'
+  exampleInventory.designSystemGallery = {
+    itemCount: 1,
+    familyIds: ['buttons'],
+    referenceCount: 4,
+    rowsWithoutVisualCoverage: 0,
+    coverageGapCount: 0,
+  }
+  exampleInventory.designFoundation = {
+    mappedItemCount: 1,
+    nodeComparisonCounts: { mapped: 1 },
+    designSkillAvailability: 'available-with-design-tier',
+    publicationStatus: 'not-evidenced',
+    codeConnectArtifactAvailability: 'packed-source',
+    codeConnectExportStatus: 'not-exported-runtime',
+  }
+  fs.writeFileSync(exampleInventoryPath, JSON.stringify(exampleInventory, null, 2))
   for (const [relative, content] of Object.entries(seededFixtureFiles(fixtureId))) {
     fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true })
     fs.writeFileSync(path.join(root, relative), content)
@@ -4259,12 +4330,17 @@ Each test creates its own tenant, organization, warehouses, users, and stock row
 | TEST-002 | integration | a dispatched transfer | receive less than was dispatched | a shortfall line is recorded, both warehouses are notified, and stock moves by the received quantity only |
 | TEST-003 | security | two organizations with one transfer each | read and dispatch across the organization boundary | both attempts fail closed and no identifier from the other organization is returned |
 | TEST-004 | integration | a dispatched transfer and two concurrent receipts | submit both receipts with the same record version | exactly one succeeds, the other returns a conflict, and stock moves once |
+| TEST-005 | integration | 250 authorized transfer rows with one short receipt and one cancelled row | start the bulk dispatch action and observe the returned job | the same progressJobId reaches the progress observer, both workers finish, the top bar completes, partial failure remains visible, cancellation is scoped, retry is idempotent, and the table refreshes |
 
 ## Implementation Phases
 
 Phases are dependency ordered; each one leaves the application working and closes with its own evidence.
 
-Module work routes to om-module-scaffold, which starts at the reference module's entry document and its surface index. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
+Module work routes to om-module-scaffold and UI work routes to om-backend-ui-design. Planning starts at the reference module's entry document and its surface index, then checks .ai/guides/reference-modules/example.md against .ai/guides/reference-module-facts.json. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
+
+The generated reference projection binds the planned seams exactly. The bulk action uses capability umes.injection.datatable-bulk-action, contribution example.injection.todo-bulk-complete@data-table:example.todos.list:bulk-actions, activation widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer, and override target 53534ccb2cedeb06. Durable progress uses capability runtime.bulk-operation-progress, workers example:todos-bulk-dispatch and example:todos-bulk-complete, and override targets 3cce1583e990d1d5 and f13b1b4f95dcb7af. The lifecycle definition uses capability workflows.code-definition and the specialist contribution workflow:example.todo-created-reference at specialistRoute workflows from src/modules/example/workflows.ts.
+
+The exact source-reference IDs are om-module-scaffold/data-and-migrations:data/entities.ts, om-module-scaffold/api-and-domain:commands/todos.ts, and om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts. The action styling additionally checks om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx, om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx, om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx, and om-backend-ui-design/frontend-and-design-system:src/app/globals.css. Those records correlate gallery item buttons/button, family buttons, and entry button. Gallery package evidence is bf25803d7a8c85c8552db9e76c7cc4398d1768be; foundation evidence keeps audited head fb9b8ddfe4470ef11d312caa4628c46af7d48adf separate from merged package b2d26489c683edc44265212ac8a79be1b981774f. Every preset remains source-only; /backend/design-system is mentioned only as an explicit activation fixture. Figma publication is publication not-evidenced, and its packed source grants no credential, network, push, or publish authority.
 
 ### Phase 1 — Transfer record and scoped read path
 
@@ -4286,15 +4362,27 @@ Module work routes to om-module-scaffold, which starts at the reference module's
 - **Validation:** focused command tests plus the three named integration tests.
 - **Exit gate:** a full receipt, a short receipt, and two concurrent receipts each leave the two stock counts correct exactly once.
 
+### Phase 3 — Bulk dispatch progress and operator UI
+
+- **Depends on:** Phase 2 exit gate
+- **Outcome:** an operator can dispatch a bounded selection and watch the durable operation complete without blocking the request.
+- **Deliverables:** the bound DataTable bulk-action contribution, the dispatch and completion workers, one returned progressJobId passed unchanged to the operation-progress observer, the visible top-bar lifecycle, partial-failure and cancellation states, idempotent retry, and a button built from the public primitive with the gallery and foundation records used only as visual and token evidence.
+- **Adapted from:** umes.injection.datatable-bulk-action and runtime.bulk-operation-progress through the generated identities recorded above.
+- **Tests:** TEST-005
+- **Validation:** the named integration test, focused worker tests, and backend UI validation.
+- **Exit gate:** selected-row start, worker execution, completion refresh, partial failure, cancellation, retry, and organization scope are all proven by the connected TEST-005 path.
+
 ## Requirement Traceability
 
 One row per extension surface this specification adds. Each names the source it is adapted from, the phase that lands it, its own self-contained integration test, and the one mechanism classification it uses.
 
 | Requirement | Extension surface | Adapted from | Phase | Test | Mechanism |
 |---|---|---|---|---|---|
-| REQ-001 | scoped transfer entities and their migration | data.entities at src/modules/example/data/entities.ts | Phase 1 | TEST-003 in __integration__ | emitted-example |
-| REQ-002 | guarded dispatch and receive commands | commands.write at src/modules/example/commands/todos.ts | Phase 2 | TEST-001 in __integration__ | emitted-example |
-| REQ-003 | typed lifecycle events for the three transitions | events.typed-definitions at src/modules/example/events.ts | Phase 2 | TEST-002 in __integration__ | emitted-example |
+| REQ-001 | scoped transfer entities and guarded commands | data.entities at src/modules/example/data/entities.ts via om-module-scaffold/data-and-migrations:data/entities.ts; commands.write at src/modules/example/commands/todos.ts via om-module-scaffold/api-and-domain:commands/todos.ts | Phase 1 | TEST-003 in __integration__ | emitted-example |
+| REQ-002 | workflow-defined transfer lifecycle | workflows.code-definition; workflow:example.todo-created-reference; specialistRoute workflows; src/modules/example/workflows.ts | Phase 2 | TEST-001 in __integration__ | emitted-example |
+| REQ-003 | bound bulk-action start | umes.injection.datatable-bulk-action; example.injection.todo-bulk-complete@data-table:example.todos.list:bulk-actions; widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer; om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts | Phase 3 | TEST-005 in __integration__ | emitted-example |
+| REQ-004 | durable connected progress lifecycle | runtime.bulk-operation-progress; example:todos-bulk-dispatch; example:todos-bulk-complete; override targets 53534ccb2cedeb06, 3cce1583e990d1d5, f13b1b4f95dcb7af; the request's progressJobId is passed unchanged to the observer | Phase 3 | TEST-005 in __integration__ | emitted-example |
+| REQ-005 | public Button implementation with visual and foundation evidence | om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx; om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx; om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx; om-backend-ui-design/frontend-and-design-system:src/app/globals.css; buttons/button; bf25803d7a8c85c8552db9e76c7cc4398d1768be; b2d26489c683edc44265212ac8a79be1b981774f | Phase 3 | TEST-005 in __integration__ | framework-only |
 
 ## Risks and Tradeoffs
 
@@ -4424,7 +4512,7 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
   }, 'reserved.README.md'],
   // Module-shaped clauses. One row per graded property, same discipline as above.
   ['a plan that never routes module work to the scaffold skill', (root) => {
-    rewriteNewFeatureSpec(root, (spec) => spec.replace('routes to om-module-scaffold', 'proceeds directly'))
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('om-module-scaffold', 'the scaffold workflow'))
   }, 'plan.module-scaffold-route'],
   ['a plan that names no reference capability IDs', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec
@@ -4432,7 +4520,10 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
       .replaceAll('data.validators', 'the validator file')
       .replaceAll('api.crud-factory', 'the CRUD route')
       .replaceAll('commands.write', 'the write command')
-      .replaceAll('events.typed-definitions', 'the event definitions'))
+      .replaceAll('events.typed-definitions', 'the event definitions')
+      .replaceAll('umes.injection.datatable-bulk-action', 'the bulk-action seam')
+      .replaceAll('runtime.bulk-operation-progress', 'the progress seam')
+      .replaceAll('workflows.code-definition', 'the workflow seam'))
   }, 'plan.example-capability-ids'],
   ['a plan whose reference sources are directory hints rather than files', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(/src\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+/g, 'src/modules/example/data/'))
@@ -4446,6 +4537,59 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
       'The reference module is already running in this app, so its routes and grants are live today;',
     ))
   }, 'plan.example-after-opt-in'],
+  ['a target with no generated reference-facts bundle', (root) => {
+    fs.rmSync(path.join(root, '.ai/guides/reference-module-facts.json'))
+  }, 'plan.reference-facts-readable'],
+  ['a plan that omits the generated reference sheet route', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('.ai/guides/reference-modules/example.md', 'the generated guide'))
+  }, 'plan.reference-sheet-route'],
+  ['a plan that drops the exact progress capability', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('runtime.bulk-operation-progress', 'the progress capability'))
+  }, 'plan.required-capability-identities'],
+  ['a plan that drops the generated bulk activation identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(
+      'widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer',
+      'the widget consumer',
+    ))
+  }, 'plan.contribution-activation-identities'],
+  ['a plan that drops one generated override-target identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('3cce1583e990d1d5', 'the dispatch worker override'))
+  }, 'plan.override-target-identities'],
+  ['a plan that names a generic specialist instead of the generated workflow identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('workflow:example.todo-created-reference', 'the workflow specialist'))
+  }, 'plan.specialist-identities'],
+  ['a plan that invents a second progress channel instead of naming progressJobId', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('progressJobId', 'localProgressId'))
+  }, 'plan.bulk-progress-identities'],
+  ['a target whose exact design source-reference record is unavailable', (root) => {
+    const file = path.join(root, '.ai/harness/source-link-inventory.json')
+    const inventory = JSON.parse(fs.readFileSync(file, 'utf8')) as { records: Array<Record<string, unknown>> }
+    inventory.records = inventory.records.filter((entry) => entry.referenceRole !== 'figma-code-connect')
+    fs.writeFileSync(file, JSON.stringify(inventory, null, 2))
+  }, 'plan.source-reference-inventory-readable'],
+  ['a plan that cites a gallery path but not its exact source-reference identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(
+      'om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+      'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+    ))
+  }, 'plan.source-reference-identities'],
+  ['a plan that names no exact gallery item identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('buttons/button', 'the Button gallery row'))
+  }, 'plan.gallery-identities'],
+  ['a target whose canonical inventory does not project design facts', (root) => {
+    const file = path.join(root, 'src/modules/example/references/surface-inventory.json')
+    const inventory = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+    delete inventory.designFoundation
+    fs.writeFileSync(file, JSON.stringify(inventory, null, 2))
+  }, 'plan.design-inventory-projection'],
+  ['a UI plan that treats the gallery route as generally live', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec
+      .replaceAll('source-only', 'live in every preset')
+      .replaceAll('explicit activation', 'normal navigation'))
+  }, 'plan.ui-design-route'],
+  ['a design plan that conflates the audited head with merged package provenance', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('b2d26489c683edc44265212ac8a79be1b981774f', 'the audited head'))
+  }, 'plan.design-provenance'],
   ['a plan that proposes a second teaching module', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec.replace(
       'adapted into the new stock_transfers module',
@@ -4474,8 +4618,8 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
   }, 'plan.traceability.complete'],
   ['a traceability row with no mechanism classification', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec.replace(
-      '| TEST-002 in __integration__ | emitted-example |',
-      '| TEST-002 in __integration__ | the usual way |',
+      '| TEST-001 in __integration__ | emitted-example |',
+      '| TEST-001 in __integration__ | the usual way |',
     ))
   }, 'plan.traceability.classification'],
   ['a proposed surface classified as a negative fixture', (root) => {
@@ -4484,6 +4628,41 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
       '| TEST-003 in __integration__ | negative-fixture |',
     ))
   }, 'plan.traceability.no-negative-fixture'],
+  ['a framework-owned design row misclassified as emitted example code', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const row = spec.match(/\| REQ-005 \|[^\n]*\n/)?.[0]
+      assert.ok(row)
+      return spec.replace(row, row.replace('framework-only', 'emitted-example'))
+    })
+  }, 'plan.traceability.binding.ui-foundation'],
+  ['traceability rows whose requirement and phase order is reversed', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const second = spec.match(/\| REQ-002 \|[^\n]*\n/)?.[0]
+      const third = spec.match(/\| REQ-003 \|[^\n]*\n/)?.[0]
+      assert.ok(second && third)
+      return spec.replace(second, '__TRACEABILITY_ROW__\n').replace(third, second).replace('__TRACEABILITY_ROW__\n', third)
+    })
+  }, 'plan.traceability.ordering'],
+  ['a bulk-action traceability row that separates its activation from its contribution', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      '; widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer;',
+      '; the widget activation;',
+    ))
+  }, 'plan.traceability.binding.bulk-action'],
+  ['a progress traceability row that omits the dispatch worker override', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const row = spec.match(/\| REQ-004 \|[^\n]*\n/)?.[0]
+      assert.ok(row)
+      return spec.replace(row, row.replace('3cce1583e990d1d5', 'dispatch override'))
+    })
+  }, 'plan.traceability.binding.bulk-progress'],
+  ['a design traceability row that loses the foundation baseline', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const row = spec.match(/\| REQ-005 \|[^\n]*\n/)?.[0]
+      assert.ok(row)
+      return spec.replace(row, row.replace('b2d26489c683edc44265212ac8a79be1b981774f', 'foundation baseline'))
+    })
+  }, 'plan.traceability.binding.ui-foundation'],
 ]
 
 for (const [label, breakIt, expectedCheck] of newFeatureNegatives) {

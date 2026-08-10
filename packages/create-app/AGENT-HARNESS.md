@@ -206,7 +206,11 @@ The release gate wraps this in a larger ordered sequence.
     under `.ai/specs/`: it grades section structure, ordered phases, named test
     coverage, template-placeholder residue, reserved-scaffolding integrity, the fixed
     amendment terms of the seeded covering spec, and the absence of any module that
-    would mean implementation had started. Which fixed runner a semantic oracle must
+    would mean implementation had started. The module-shaped proof additionally reads
+    the target's generated local-reference facts, source-link inventory, and canonical
+    gallery/foundation projection: exact contribution, activation, override-target,
+    specialist, bulk-progress, and design identities must stay bound to their ordered
+    requirement/phase/integration-test/mechanism rows. Which fixed runner a semantic oracle must
     declare is decided by `FIXED_ORACLE_RUNNER_OVERRIDES` in the evaluator, not by
     `validators.json`, so a case can still never bring its own grading rules.
 18. **Post-oracle mutation guard:** a third snapshot detects whether the oracle run

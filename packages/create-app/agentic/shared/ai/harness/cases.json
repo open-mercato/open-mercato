@@ -20059,7 +20059,7 @@
     "mode": "spec",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "Branch managers want warehouse stock transfers in this app: a manager raises a transfer request for named stock, the sending warehouse packs and dispatches it, the receiving warehouse confirms what actually arrived, stock levels move only on that confirmation, and both warehouses are told when a transfer is short or refused. Nobody has said to skip the specification. Produce the covering specification for this capability and nothing else: one new correctly named file under .ai/specs, carrying the problem, the contracts, the self-contained integration coverage, and the dependency-ordered implementation phases. Ground the implementation section in the reference module this app already ships in source: route module work to the scaffold skill, begin at the reference module's entry document and its surface index, then read the generated local reference sheet and name the exact capability, contribution, activation, and override-target IDs plus exact reference source files you will adapt, stating the reference module's real runtime status rather than describing it as already live. Give every extension surface you propose its own requirement traceability row naming the requirement, the phase, its self-contained integration test, and the one mechanism classification the routed guide defines. Do not create the module, the entities, the migrations, the routes, the registry entry, or any other source file \u2014 writing the specification is the whole deliverable and the only thing this task authorizes. Do not write anything inside the reference module, and do not list or glob its directories.",
+    "prompt": "Plan warehouse stock transfers: request, dispatch, confirmed receipt, short/refused notifications, and stock movement only on confirmation. Include a bounded DataTable bulk-dispatch action whose durable workers return one progressJobId to the top-bar observer, a workflow-defined lifecycle, and a public-Button operator surface. Nobody said to skip the spec. Deliver only one correctly named covering file under .ai/specs with problem, contracts, self-contained integration coverage, and dependency-ordered phases. Route module work to om-module-scaffold and UI work to om-backend-ui-design. Start at the source-present example entrypoint and inventory, then read its generated local reference sheet. Name the exact capability, contribution, activation, override-target, worker, specialist-route, source-reference, gallery item/family/entry, and design-foundation identities, plus exact source files. State that the example remains disabled until opt-in. Keep gallery activation source-only, distinguish audited from merged package provenance, and grant no Figma credential, network, push, or publication authority. Give each extension surface an ordered traceability row with requirement, phase, self-contained integration test, and one routed mechanism classification. Bind canonical data/command, workflow specialist, bulk action, connected progress, and UI/foundation identities in their owning rows. Do not create source, migrations, registries, or the module; the specification is the entire authorized deliverable. Do not modify or glob the example root.",
     "tags": [
       "spec-gate",
       "planning-proof",
@@ -20085,14 +20085,21 @@
     },
     "requiredSkills": [
       "om-spec-writing",
-      "om-module-scaffold"
+      "om-module-scaffold",
+      "om-backend-ui-design"
     ],
     "context": {
       "required": [
         "AGENTS.md",
         ".ai/guides/spec-delivery.md",
+        ".ai/guides/backend-ui.md",
         ".ai/specs/README.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
       ],
       "allowedExtra": [
         ".ai/specs/SPEC-000-template.md",
@@ -20116,11 +20123,23 @@
             "commands.write",
             "data.entities",
             "data.validators",
-            "events.typed-definitions"
+            "events.typed-definitions",
+            "umes.injection.datatable-bulk-action",
+            "runtime.bulk-operation-progress",
+            "workflows.code-definition"
           ],
-          "maxFiles": 8,
-          "maxBytes": 180224
+          "maxFiles": 16,
+          "maxBytes": 229376
         }
+      ],
+      "sourceReferenceIds": [
+        "om-module-scaffold/data-and-migrations:data/entities.ts",
+        "om-module-scaffold/api-and-domain:commands/todos.ts",
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+        "om-backend-ui-design/frontend-and-design-system:src/app/globals.css"
       ]
     },
     "decisionVocabulary": [
@@ -20131,6 +20150,10 @@
       "no-source-write-while-planning",
       "canonical-example-grounded-plan",
       "mechanism-classified-traceability",
+      "generated-topology-identities",
+      "specialist-route-identity",
+      "connected-bulk-progress-traceability",
+      "design-gallery-foundation-identities",
       "implementation-before-spec",
       "placeholder-spec-accepted",
       "shadow-teaching-module",
@@ -20143,12 +20166,18 @@
       "named-integration-coverage",
       "no-source-write-while-planning",
       "canonical-example-grounded-plan",
-      "mechanism-classified-traceability"
+      "mechanism-classified-traceability",
+      "generated-topology-identities",
+      "specialist-route-identity",
+      "connected-bulk-progress-traceability",
+      "design-gallery-foundation-identities"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
       "src/modules/.{0,60}(?:write|edit|patch|create)",
-      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:publish|push).{0,40}(?:figma|code connect)",
+      "apps/mercato/src/app/globals\\.css"
     ],
     "validators": [
       "catalog.schema",
