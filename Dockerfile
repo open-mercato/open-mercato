@@ -25,6 +25,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/document-generators/package.json ./packages/document-generators/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
@@ -97,6 +98,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/document-generators/package.json ./packages/document-generators/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
@@ -155,6 +157,7 @@ COPY --from=dev-build /app/packages/cli/dist /opt/prebuilt/dist/cli
 COPY --from=dev-build /app/packages/cache/dist /opt/prebuilt/dist/cache
 COPY --from=dev-build /app/packages/content/dist /opt/prebuilt/dist/content
 COPY --from=dev-build /app/packages/checkout/dist /opt/prebuilt/dist/checkout
+COPY --from=dev-build /app/packages/document-generators/dist /opt/prebuilt/dist/document-generators
 COPY --from=dev-build /app/packages/events/dist /opt/prebuilt/dist/events
 COPY --from=dev-build /app/packages/onboarding/dist /opt/prebuilt/dist/onboarding
 COPY --from=dev-build /app/packages/queue/dist /opt/prebuilt/dist/queue
@@ -207,6 +210,7 @@ COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
 COPY --from=builder /app/packages/core/package.json ./packages/core/
 COPY --from=builder /app/packages/create-app/package.json ./packages/create-app/
+COPY --from=builder /app/packages/document-generators/package.json ./packages/document-generators/
 COPY --from=builder /app/packages/enterprise/package.json ./packages/enterprise/
 COPY --from=builder /app/packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY --from=builder /app/packages/events/package.json ./packages/events/

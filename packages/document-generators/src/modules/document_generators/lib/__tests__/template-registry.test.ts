@@ -1,0 +1,162 @@
+import type { ComponentType } from 'react'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { templateRegistry, UnknownTemplateError } from '../template-registry'
+import type { TemplateEntry } from '../interfaces'
+
+// Minimal React-PDF-like component stand-in — the registry only stores and returns it.
+const FakeComponent: ComponentType<{ data: Record<string, unknown> }> = () => null
+
+function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
+  return {
+    id: 'order-invoice',
+    label: 'Order Invoice',
+    description: 'Invoice for an order',
+    module: 'sales',
+    resourceKind: 'sales.order',
+    documentType: 'invoice',
+    tags: ['sales', 'invoice'],
+    note: undefined,
+    fromRecord: (data: unknown) => data as Record<string, unknown>,
+    filename: () => 'invoice.pdf',
+    load: async () => ({ type: 'react-pdf', component: FakeComponent }),
+    ...overrides,
+  }
+}
+
+// The registry is a singleton — reset both lists before each test so cases don't leak.
+const ctx = { container: {} as AppContainer, auth: null as AuthContext | null, locale: 'en' }
+
+beforeEach(() => {
+  templateRegistry.registerInternal([])
+  templateRegistry.registerExternal([])
+})
+
+describe('templateRegistry.listTemplates', () => {
+  it('groups templates by source and strips runtime handlers to metadata only', () => {
+    templateRegistry.registerInternal([makeEntry({ id: 'internal-1' })])
+    templateRegistry.registerExternal([makeEntry({ id: 'external-1', module: 'custom' })])
+
+    const { internal, external } = templateRegistry.listTemplates()
+
+    expect(internal.map((t) => t.id)).toEqual(['internal-1'])
+    expect(external.map((t) => t.id)).toEqual(['external-1'])
+    // Runtime handlers must not leak into the UI-facing metadata.
+    expect(internal[0]).not.toHaveProperty('fromRecord')
+    expect(internal[0]).not.toHaveProperty('filename')
+    expect(internal[0]).not.toHaveProperty('resourceId')
+    expect(internal[0]).not.toHaveProperty('resourceLabel')
+    expect(internal[0]).not.toHaveProperty('load')
+    expect(internal[0]).not.toHaveProperty('fetchData')
+    expect(internal[0]).toMatchObject({
+      id: 'internal-1',
+      label: 'Order Invoice',
+      module: 'sales',
+      resourceKind: 'sales.order',
+      documentType: 'invoice',
+    })
+  })
+
+  it('returns empty groups when nothing is registered', () => {
+    expect(templateRegistry.listTemplates()).toEqual({ internal: [], external: [] })
+  })
+
+  it('replaces (not appends) entries on re-registration', () => {
+    templateRegistry.registerInternal([makeEntry({ id: 'first' })])
+    templateRegistry.registerInternal([makeEntry({ id: 'second' })])
+
+    expect(templateRegistry.listTemplates().internal.map((t) => t.id)).toEqual(['second'])
+  })
+})
+
+describe('templateRegistry.load', () => {
+  it('runs fetchData, normalization and derived metadata and returns the resolved template', async () => {
+    const calls: string[] = []
+    const fetchData = jest.fn(async ({ data }: { data: unknown }) => {
+      calls.push('fetchData')
+      return { ...(data as object), enriched: true }
+    })
+    const fromRecord = jest.fn((data: unknown, { locale }: { locale: string }) => {
+      calls.push('fromRecord')
+      return { normalized: true, locale, ...(data as object) }
+    })
+    const filename = jest.fn(() => {
+      calls.push('filename')
+      return 'invoice-42.pdf'
+    })
+    const resourceId = jest.fn(() => {
+      calls.push('resourceId')
+      return 'ord-42'
+    })
+    const resourceLabel = jest.fn(() => {
+      calls.push('resourceLabel')
+      return 'ORD-42'
+    })
+    const load = jest.fn(async () => {
+      calls.push('load')
+      return { type: 'react-pdf' as const, component: FakeComponent }
+    })
+    templateRegistry.registerInternal([makeEntry({ fetchData, fromRecord, filename, resourceId, resourceLabel, load })])
+
+    const result = await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, ctx)
+
+    expect(calls).toEqual(['fetchData', 'load', 'fromRecord', 'filename', 'resourceId', 'resourceLabel'])
+    expect(result.source).toEqual({ type: 'react-pdf', component: FakeComponent })
+    expect(result.data).toMatchObject({ normalized: true, locale: 'en', id: 'abc', enriched: true })
+    expect(fromRecord).toHaveBeenCalledWith(expect.anything(), { locale: 'en' })
+    expect(result.filename).toBe('invoice-42.pdf')
+    expect(result.template).toEqual({ id: 'order-invoice', label: 'Order Invoice' })
+    expect(result.resource).toEqual({ kind: 'sales.order', id: 'ord-42', label: 'ORD-42' })
+  })
+
+  it('passes the request-scoped container and auth context to fetchData', async () => {
+    const fetchData = jest.fn(async ({ data }: { data: unknown }) => data)
+    const auth = { tenantId: 't1', orgId: 'o1' } as unknown as AuthContext
+    const container = { resolve: () => undefined } as unknown as AppContainer
+    templateRegistry.registerInternal([makeEntry({ fetchData })])
+
+    await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, { container, auth, locale: 'de' })
+
+    expect(fetchData).toHaveBeenCalledWith({ data: { id: 'abc' } }, { container, auth })
+  })
+
+  it('passes raw data straight to fromRecord when the template has no fetchData', async () => {
+    const fromRecord = jest.fn((data: unknown) => data as Record<string, unknown>)
+    templateRegistry.registerInternal([makeEntry({ fetchData: undefined, fromRecord })])
+
+    await templateRegistry.load({ id: 'order-invoice', data: { id: 'raw' } }, ctx)
+
+    expect(fromRecord).toHaveBeenCalledWith({ id: 'raw' }, { locale: 'en' })
+  })
+
+  it('stops loading and normalization when fetchData rejects', async () => {
+    const failure = new Error('record not accessible')
+    const fetchData = jest.fn(async () => Promise.reject(failure))
+    const load = jest.fn(async () => ({ type: 'react-pdf' as const, component: FakeComponent }))
+    const fromRecord = jest.fn((data: unknown) => data as Record<string, unknown>)
+    templateRegistry.registerInternal([makeEntry({ fetchData, load, fromRecord })])
+
+    await expect(
+      templateRegistry.load({ id: 'order-invoice', data: { id: 'untrusted' } }, ctx),
+    ).rejects.toBe(failure)
+
+    expect(load).not.toHaveBeenCalled()
+    expect(fromRecord).not.toHaveBeenCalled()
+  })
+
+  it('resolves templates registered by external modules', async () => {
+    templateRegistry.registerExternal([makeEntry({ id: 'custom-doc', module: 'my_module' })])
+
+    const result = await templateRegistry.load({ id: 'custom-doc', data: {} }, ctx)
+
+    expect(result.source).toEqual({ type: 'react-pdf', component: FakeComponent })
+  })
+
+  it('throws "Unknown template" for an unregistered id', async () => {
+    templateRegistry.registerInternal([makeEntry({ id: 'order-invoice' })])
+
+    await expect(
+      templateRegistry.load({ id: 'does-not-exist', data: {} }, ctx),
+    ).rejects.toBeInstanceOf(UnknownTemplateError)
+  })
+})

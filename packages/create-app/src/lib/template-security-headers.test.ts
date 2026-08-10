@@ -30,6 +30,7 @@ test('standalone template keeps integration and attachment security policies', a
   const globalCsp = globalRule?.headers.find(
     (header) => header.key === 'Content-Security-Policy',
   )?.value
+  assert.match(globalCsp ?? '', /frame-src[^;]*blob:/)
   assert.match(globalCsp ?? '', /frame-src[^;]*https:\/\/js\.stripe\.com/)
   assert.match(globalCsp ?? '', /frame-src[^;]*https:\/\/hooks\.stripe\.com/)
   assert.match(globalCsp ?? '', /script-src[^;]*https:\/\/js\.stripe\.com/)

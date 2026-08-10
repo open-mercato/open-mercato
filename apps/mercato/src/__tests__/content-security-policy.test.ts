@@ -30,9 +30,10 @@ describe('apps/mercato next.config CSP', () => {
     expect(scriptSrc).toContain('https://js.stripe.com')
   })
 
-  it('exposes a frame-src directive that allows Stripe.js and Stripe hooks', () => {
+  it('allows local Blob previews and Stripe frames in frame-src', () => {
     const frameSrc = findDirective('frame-src')
     expect(frameSrc).toBeDefined()
+    expect(frameSrc).toContain('blob:')
     expect(frameSrc).toContain('https://js.stripe.com')
     expect(frameSrc).toContain('https://hooks.stripe.com')
   })

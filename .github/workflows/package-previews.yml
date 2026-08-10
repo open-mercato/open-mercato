@@ -101,6 +101,7 @@ jobs:
           './packages/content'
           './packages/core'
           './packages/create-app'
+          './packages/document-generators'
           './packages/enterprise'
           './packages/events'
           './packages/gateway-stripe'

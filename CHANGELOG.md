@@ -11,6 +11,7 @@ Operationally, this release is about **daemons that stay up and builds that stay
 Day to day, the product surface gets noticeably nicer: **DataTable columns resize and remember their widths**, custom fields pick up a **phone type with a complete country calling-code dictionary**, honor their declared priority and order, and render multiline values as a plain textarea when you ask for it. Workflows stop losing code-defined triggers in the CLI and worker bootstrap, order approval auto-starts on `sales.order.created`, and sales math gets stricter — operator-defined adjustments count toward the grand total, order lines cannot drop below the shipped quantity, saved addresses survive a re-save, and payment sessions are concurrency-safe. Polish translations are complete, the permission catalogs are localized, DS Guardian v2 lands with a structural lint and Figma canon, and the project itself grows up a little: community labels, a certified-partner registry gating `/label`, Enterprise License Agreement Terms v2.2, and the move to Open Mercato sp. z o.o. as the legal entity. Enjoy!
 
 ## ✨ Features
+- ✨ Add the extensible Document Generators package with PDF templates, previews, downloads, and scoped generation history.
 - ✨ Add community labels. (#4740) *(@MStaniaszek1998)*
 - ✨ WMS phase 1 — core inventory module (#388). (#4566, #1701) *(@mkadziolka)*
 - ✨ Add initialValues prop to CreateDealForm (supersedes #3729). (#4485) *(@jakubsobczak-syhi, via @pkarw)*

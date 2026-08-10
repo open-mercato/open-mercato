@@ -39,6 +39,7 @@
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
     "@open-mercato/core": "workspace:*",
+    "@open-mercato/document-generators": "workspace:*",
     "@open-mercato/enterprise": "workspace:*",
     "@open-mercato/events": "workspace:*",
     "@open-mercato/gateway-stripe": "workspace:*",
