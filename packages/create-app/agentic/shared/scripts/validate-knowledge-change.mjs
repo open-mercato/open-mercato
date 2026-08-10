@@ -49,6 +49,21 @@ const EXAMPLE_AUTHORING_ROOT = 'apps/mercato/src/modules/example'
 const EXAMPLE_TEMPLATE_ROOT = 'packages/create-app/template/src/modules/example'
 const EXAMPLE_QA_ONLY_SEGMENTS = Object.freeze(['__tests__', '__integration__'])
 
+/**
+ * Pinned exactly the way `SOURCE_LINK_INVENTORY_PATH` is. The capability inventory is an asset the
+ * same author edits, so no string in the manifest — or inside the inventory itself — may decide
+ * which file this gate reads.
+ */
+const EXAMPLE_SURFACE_INVENTORY_PATH = `${EXAMPLE_AUTHORING_ROOT}/references/surface-inventory.json`
+
+/**
+ * Inventory rows address files the way the emitted app sees them (`src/modules/example/...`), not
+ * the way the monorepo does, so every path out of that asset resolves against the owning app root
+ * rather than the repository root. Resolving from the repository root instead makes all 66 shipped
+ * declarations look missing.
+ */
+const EXAMPLE_APP_ROOT = EXAMPLE_AUTHORING_ROOT.slice(0, EXAMPLE_AUTHORING_ROOT.indexOf('/src/'))
+
 const FOCUSED_TEST_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/
 
 // One argv token may not carry a shell metacharacter. The controller never interpolates a shell,
@@ -656,6 +671,95 @@ function checkSourceLinkInventory(root, declared, errors, derived) {
   }
 }
 
+/**
+ * Reads the capability rows out of the canonical example's `surface-inventory.json`. Returns
+ * `null` — never an empty list — when the asset is unreadable or misshapen, so a caller cannot
+ * mistake "could not read it" for "it declares nothing" and pass a change that should fail closed.
+ */
+export function readExampleCapabilityRows(inventory) {
+  if (!isPlainObject(inventory) || !Array.isArray(inventory.capabilities)) return null
+  return inventory.capabilities.filter(isPlainObject)
+}
+
+/**
+ * The CANON gate, derived rather than declared — spec
+ * `.ai/specs/2026-07-31-standalone-canonical-example-module.md`: "Any future added/materially
+ * changed runtime or discovery surface with `coverageKind: "example"` is rejected unless it
+ * declares its focused integration-test paths and dependency modules."
+ *
+ * The manifest deliberately carries no field for this. A declared field would be a waiver surface,
+ * and the spec is explicit that a manifest cannot waive a required surface — so the rows are read
+ * from the pinned inventory and compared against the same inventory at the base commit.
+ *
+ * Three separable failures, because they rot in different ways:
+ *   1. a declared path that is not a test file, or does not exist (declaration decays into fiction);
+ *   2. a NEW example capability row that declares no integration coverage (the gate itself);
+ *   3. a row that HAD coverage and dropped it (the ratchet — silent coverage loss).
+ *
+ * `baseRows` of `null` means the inventory did not exist at the base commit, so every row is new.
+ */
+export function exampleCoverageErrors(headRows, baseRows, options = {}) {
+  const errors = []
+  const pathExists = options.pathExists ?? (() => true)
+  if (headRows === null) {
+    errors.push(
+      `${EXAMPLE_SURFACE_INVENTORY_PATH} is missing or carries no "capabilities" array, so declared ` +
+      'integration coverage for the canonical example cannot be verified and fails closed',
+    )
+    return errors
+  }
+
+  const baseCoverage = new Map()
+  for (const row of baseRows ?? []) {
+    if (typeof row.capabilityId !== 'string') continue
+    baseCoverage.set(row.capabilityId, Array.isArray(row.integrationTestPaths) ? row.integrationTestPaths.length : 0)
+  }
+
+  for (const row of headRows) {
+    const id = typeof row.capabilityId === 'string' ? row.capabilityId : '(unnamed row)'
+    if (row.coverageKind !== 'example') continue
+
+    if (!Array.isArray(row.integrationTestPaths)) {
+      errors.push(`surface-inventory ${id} has no integrationTestPaths array`)
+      continue
+    }
+    if (!Array.isArray(row.dependencyModules)) {
+      errors.push(`surface-inventory ${id} has no dependencyModules array`)
+    }
+
+    for (const testPath of row.integrationTestPaths) {
+      const normalized = normalizeRelativePath(String(testPath))
+      if (!isFocusedTestPath(normalized)) {
+        errors.push(`surface-inventory ${id} declares ${normalized}, which is not a focused test file`)
+        continue
+      }
+      if (!pathExists(normalized)) {
+        errors.push(`surface-inventory ${id} declares ${normalized}, which is not a file in the working tree`)
+      }
+    }
+
+    const declaredNow = row.integrationTestPaths.length
+    const hasSource = Array.isArray(row.sourcePaths) && row.sourcePaths.length > 0
+    if (!baseCoverage.has(id)) {
+      if (hasSource && declaredNow === 0) {
+        errors.push(
+          `surface-inventory ${id} is a new coverageKind:"example" capability with source paths but ` +
+          'declares no integrationTestPaths; a new example surface must name its own integration coverage',
+        )
+      }
+      continue
+    }
+    const declaredBefore = baseCoverage.get(id)
+    if (declaredBefore > 0 && declaredNow === 0) {
+      errors.push(
+        `surface-inventory ${id} declared ${declaredBefore} integration test(s) at the base commit and now ` +
+        'declares none; declared coverage may not be dropped',
+      )
+    }
+  }
+  return errors
+}
+
 function baseFileHash(root, baseSha, relativePath) {
   const result = spawnSync('git', ['-C', root, 'show', `${baseSha}:${relativePath}`], { encoding: 'buffer' })
   if (result.status !== 0) return null
@@ -945,6 +1049,34 @@ export function validateKnowledgeChange(input) {
     if (!isRegularFile(path.join(root, documentationPath))) {
       errors.push(`documentationFiles ${documentationPath} is not an exact regular file in the working tree`)
     }
+  }
+
+  // Declared-integration-test check. Applies whenever the diff touches the canonical example or its
+  // inventory, independently of change class: a coverage declaration that has rotted is a failure in
+  // an asset-sync run exactly as much as in a knowledge-contract one.
+  const touchesExample = (input.changedPaths ?? []).some((changedPath) => {
+    const normalized = normalizeRelativePath(changedPath)
+    return normalized.startsWith(`${EXAMPLE_AUTHORING_ROOT}/`) || normalized.startsWith(`${EXAMPLE_TEMPLATE_ROOT}/`)
+  })
+  if (touchesExample) {
+    const headRows = readExampleCapabilityRows(readJsonIfPresent(path.join(root, EXAMPLE_SURFACE_INVENTORY_PATH)))
+    let baseRows = null
+    if (input.baseSha) {
+      const buffer = baseFileBuffer(root, input.baseSha, EXAMPLE_SURFACE_INVENTORY_PATH)
+      if (buffer) {
+        try {
+          baseRows = readExampleCapabilityRows(JSON.parse(buffer.toString('utf8')))
+        } catch {
+          baseRows = null
+        }
+      }
+    }
+    const coverageErrors = exampleCoverageErrors(headRows, baseRows, {
+      pathExists: (relativePath) => isRegularFile(path.join(root, EXAMPLE_APP_ROOT, relativePath)),
+    })
+    derived.exampleCapabilityCount = headRows?.length ?? 0
+    derived.exampleCoverageErrorCount = coverageErrors.length
+    errors.push(...coverageErrors)
   }
 
   if (classification.changeClass === 'asset-sync' || manifest.changeClass === 'asset-sync') {

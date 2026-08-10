@@ -1226,3 +1226,49 @@ tests); the sole failure is `create-mercato-app`'s `template-dev-log-files.test.
 host's inotify limits (`max_user_watches` 253174, `max_user_instances` 128 against the required
 4194304/4096) — the documented host-environment class, unreachable from a transitive patch bump or
 a CI script.
+
+## Session 7b — GOV declared-integration-test check, and the sequenced plan for what remains
+
+- [x] GOV Phase 2: declared-integration-test check — `exampleCoverageErrors` /
+  `readExampleCapabilityRows` in `validate-knowledge-change.mjs`, +9 tests (57 total). Details and the
+  app-relative path defect it uncovered are in the GOV spec's 2026-08-10 changelog entry.
+
+Chosen first because it is the gate that *mechanically* prevents the failure mode this session nearly
+walked into: the Milestone B matrix names one exact file per row, so a partial spec written at a
+spec-reserved `TC-EXAMPLE-0NN` path reads as completion to every downstream reader. The check refuses a
+new `coverageKind: "example"` surface that declares no integration coverage, and ratchets so declared
+coverage can never quietly drop to zero.
+
+### Verified state of the four specs (checked against the tree, not against this plan's older sections)
+
+Several rows in the Deferred Backlog above are **stale** and should not be re-worked: CANON-C's
+source-link assets have landed (inventory 126 records all `readable`, baseline with 8 assets and 136
+fence dispositions, plus `source-link-baseline.schema.json`), READ Phase 1 is fully closed including
+the broad-glob migration (0 cases still carry `node_modules/@open-mercato/*/src/**`) and
+`context.sourceReferenceIds`, and SPEC's `reuse-spec` row now has its case.
+
+### Sequenced plan for the remainder
+
+Ordered by unblocked-ness, not by spec order. Every row states its blocker honestly.
+
+| # | Work | Blocker | Notes |
+|---|---|---|---|
+| 1 | GOV: per-case-mode oracle-membership check | none | Same shape as the check that just landed: derive required validators/oracles per case `mode`, compare against `validators.json` + the oracle modules. Fully unit-testable. |
+| 2 | GOV: packed-target hash check | none | Spec line 97: compare every generated/template/packed-target hash with its authoritative source. `checkFileRecords` already models the generated/authoritative pair. |
+| 3 | `TC-EXAMPLE-012` | none — wave-sized | The static half largely exists in `module-facts.example-fact-coverage.test.ts` (30 tests). The new value is the **live call site** proof: the enricher really enriching `customers` responses (assert `_example.priority` equal to a created priority row — the declared `fallback` is `normal`, so a non-fallback value cannot be faked), the guard really refusing in its own words, the command callers, cross-module incoming indexes, portal reaction. Needs the ephemeral env. |
+| 4 | SPEC Phase 2 | none | Remaining routing cases + writable ordering proofs. |
+| 5 | READ Phase 2 | none for the phase | Families 8/9 stay partial on their own missing surfaces; do not claim them. |
+| 6 | `TC-EXAMPLE-015` | **module surfaces absent** | The vector, workflow and currency provider identities it asserts do not exist in the example module. Build those first; the spec is downstream of that, not of the test lane. |
+| 7 | `TC-EXAMPLE-016` | **wrong harness** | Needs a disposable *activated* app, which is `test:create-app`, not the Playwright integration lane. |
+| 8 | Two-boot create-app integration harness | architecture | `scripts/test-create-app-integration.ts` boots one ephemeral app and cannot host two mutually-exclusive module sets, so the 22 example specs currently run against an app registering neither `example` nor `design_system`. Until this is fixed those specs are not trustworthy as standalone coverage. |
+| 9 | GOV: certified-release-lane run | depends on 1, 2 | No synthetic end-to-end change has been driven through a real certified lane yet. |
+| 10 | Milestone D certification | depends on 3, 6, 7 | Deliberately unclaimed while B's gate is 12/15. |
+
+The last `qa-only` row in the example inventory (`testing.integration-coverage`, 65 of 66 rows are
+`canonical`/`readable`) clears on its own when row 3, 6 and 7 land — it is qa-only *because* B is 12/15.
+
+### Test environment for rows 3 and 8
+
+`om-prepare-test-env` compiled `.ai/scripts/test-env-up.sh` / `test-env-down.sh` on this machine
+(gitignored, machine-local, regenerate per checkout). Cold 186s, warm reuse 1s, descriptor
+`.ai/qa/test-env.json`. Any run after a source change needs `--force-rebuild`, not `--force`.

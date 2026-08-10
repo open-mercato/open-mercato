@@ -85,6 +85,12 @@ type Validator = {
   }
   expandCaseRange: (rangeId: string) => string[] | null
   exampleReadStatus: (relativePath: string) => string
+  readExampleCapabilityRows: (inventory: unknown) => Array<Record<string, unknown>> | null
+  exampleCoverageErrors: (
+    headRows: Array<Record<string, unknown>> | null,
+    baseRows: Array<Record<string, unknown>> | null,
+    options?: { pathExists?: (relativePath: string) => boolean },
+  ) => string[]
   validateJsonSchema: (value: unknown, schema: unknown, location?: string, rootSchema?: unknown) => string[]
   validateKnowledgeChange: (input: Record<string, unknown>) => ValidationResult
 }
@@ -1620,4 +1626,114 @@ test('the topic registry the inventory derives from carries the source-link cont
     assert.equal(record.contract, 'source-link', relativePath)
     assert.equal(record.rule, 'source-link-inventory', relativePath)
   }
+})
+
+// ── Declared-integration-test check (CANON gate, GOV Phase 2) ────────────────────────────────────
+//
+// The rule these pin: "Any future added/materially changed runtime or discovery surface with
+// coverageKind: 'example' is rejected unless it declares its focused integration-test paths and
+// dependency modules." It is derived from the pinned inventory, never declared in the manifest,
+// because a manifest field would be exactly the waiver surface the spec forbids.
+
+const exampleRow = (overrides: Record<string, unknown> = {}) => ({
+  capabilityId: 'api.crud-factory',
+  coverageKind: 'example',
+  sourcePaths: ['src/modules/example/api/todos/route.ts'],
+  integrationTestPaths: ['src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts'],
+  dependencyModules: ['example'],
+  ...overrides,
+})
+
+test('an unreadable capability inventory fails closed rather than waiving every row', () => {
+  assert.equal(validator.readExampleCapabilityRows(null), null)
+  assert.equal(validator.readExampleCapabilityRows({}), null)
+  assert.equal(validator.readExampleCapabilityRows({ capabilities: 'many' }), null)
+  assert.deepEqual(validator.readExampleCapabilityRows({ capabilities: [] }), [])
+
+  const errors = validator.exampleCoverageErrors(null, null)
+  assert.equal(errors.length, 1)
+  assert.match(errors[0], /fails closed/)
+})
+
+test('a new example capability with source but no integration coverage is rejected', () => {
+  const errors = validator.exampleCoverageErrors([exampleRow({ integrationTestPaths: [] })], [])
+  assert.equal(errors.length, 1)
+  assert.match(errors[0], /new coverageKind:"example" capability/)
+})
+
+test('a new capability that ships no source of its own is not forced to declare coverage', () => {
+  const errors = validator.exampleCoverageErrors(
+    [exampleRow({ capabilityId: 'module.metadata', sourcePaths: [], integrationTestPaths: [] })],
+    [],
+  )
+  assert.deepEqual(errors, [])
+})
+
+test('a non-example capability is outside this gate', () => {
+  const errors = validator.exampleCoverageErrors(
+    [exampleRow({ coverageKind: 'framework', integrationTestPaths: [] })],
+    [],
+  )
+  assert.deepEqual(errors, [])
+})
+
+test('declared coverage may not be dropped once a row has it', () => {
+  const base = [exampleRow()]
+  const head = [exampleRow({ integrationTestPaths: [] })]
+  const errors = validator.exampleCoverageErrors(head, base)
+  assert.equal(errors.length, 1)
+  assert.match(errors[0], /declared 1 integration test\(s\) at the base commit and now declares none/)
+})
+
+test('an unchanged row that never declared coverage stays passing, so the ratchet only tightens', () => {
+  const row = exampleRow({ capabilityId: 'module.metadata', sourcePaths: [], integrationTestPaths: [] })
+  assert.deepEqual(validator.exampleCoverageErrors([row], [row]), [])
+})
+
+test('a declared path that is not a test file, or does not exist, is a failure', () => {
+  const notATest = validator.exampleCoverageErrors(
+    [exampleRow({ integrationTestPaths: ['src/modules/example/README.md'] })],
+    [exampleRow()],
+  )
+  assert.equal(notATest.length, 1)
+  assert.match(notATest[0], /is not a focused test file/)
+
+  const missing = validator.exampleCoverageErrors([exampleRow()], [exampleRow()], { pathExists: () => false })
+  assert.equal(missing.length, 1)
+  assert.match(missing[0], /is not a file in the working tree/)
+})
+
+test('a row missing either declaration array is reported on its own terms', () => {
+  const noTests = validator.exampleCoverageErrors([exampleRow({ integrationTestPaths: undefined })], [])
+  assert.equal(noTests.length, 1)
+  assert.match(noTests[0], /no integrationTestPaths array/)
+
+  const noModules = validator.exampleCoverageErrors([exampleRow({ dependencyModules: undefined })], [exampleRow()])
+  assert.equal(noModules.length, 1)
+  assert.match(noModules[0], /no dependencyModules array/)
+})
+
+test('the shipped canonical-example inventory satisfies the gate, with paths resolved app-relative', () => {
+  const repoRoot = path.resolve(fileURLToPath(new URL('../../../../', import.meta.url)))
+  const inventoryPath = path.join(repoRoot, 'apps/mercato/src/modules/example/references/surface-inventory.json')
+  if (!fs.existsSync(inventoryPath)) return
+
+  const rows = validator.readExampleCapabilityRows(JSON.parse(fs.readFileSync(inventoryPath, 'utf8')))
+  assert.ok(rows && rows.length > 0)
+
+  // Inventory rows address files the way the emitted app sees them, so they resolve under the app
+  // root. Resolving them from the repository root instead makes every declaration look missing —
+  // this assertion is what pins that, and it is the whole reason the check takes a pathExists hook.
+  const appRelative = validator.exampleCoverageErrors(rows, rows, {
+    pathExists: (relativePath) => fs.existsSync(path.join(repoRoot, 'apps/mercato', relativePath)),
+  })
+  assert.deepEqual(appRelative, [])
+
+  const declared = rows.flatMap((row) => (row.integrationTestPaths as string[]) ?? [])
+  assert.ok(declared.length > 0, 'the shipped inventory declares at least one integration test')
+  const repoRelative = validator.exampleCoverageErrors(rows, rows, {
+    pathExists: (relativePath) => fs.existsSync(path.join(repoRoot, relativePath)),
+  })
+  assert.ok(repoRelative.length > 0, 'repo-relative resolution must not silently pass')
+  for (const error of repoRelative) assert.match(error, /is not a file in the working tree/)
 })
