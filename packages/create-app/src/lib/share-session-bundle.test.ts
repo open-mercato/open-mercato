@@ -356,6 +356,41 @@ test('session-share preparer accepts migration timestamps without weakening phon
   }
 })
 
+test('session-share preparer redacts unrelated browser tab listings without dropping the tool call', () => {
+  const fixture = createFixture()
+  try {
+    fs.writeFileSync(
+      fixture.sessionPath,
+      JSON.stringify({
+        turns: [
+          {
+            items: [
+              { type: 'userMessage', content: [{ type: 'text', text: 'Inspect the app' }] },
+              {
+                type: 'mcpToolCall',
+                arguments: { code: 'const tabs = await browser.user.openTabs(); nodeRepl.write(tabs)' },
+                result: { content: [{ type: 'text', text: 'Private document at https://private.example.test' }] },
+              },
+              { type: 'agentMessage', text: 'Inspection complete' },
+            ],
+          },
+        ],
+      }),
+    )
+    fs.writeFileSync(path.join(fixture.root, 'src', 'generated.ts'), 'export {}\n')
+    fs.writeFileSync(fixture.manifestPath, 'src/generated.ts\n')
+
+    const result = runPreparer(fixture)
+    assert.equal(result.status, 0, result.stderr)
+    const sanitized = fs.readFileSync(path.join(fixture.outputPath, 'session.json'), 'utf8')
+    assert.doesNotMatch(sanitized, /Private document|private\.example\.test/)
+    assert.match(sanitized, /"redacted": "browser-tab-list"/)
+    assert.match(sanitized, /browser\.user\.openTabs/)
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true })
+  }
+})
+
 test('session-share preparer fails closed for incomplete sessions and unsafe file inputs', async (t) => {
   await t.test('missing assistant turn', () => {
     const fixture = createFixture()

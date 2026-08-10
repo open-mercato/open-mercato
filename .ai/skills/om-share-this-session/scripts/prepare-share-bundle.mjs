@@ -186,6 +186,10 @@ function sanitizeNode(value, key, state) {
   if (Array.isArray(value)) return value.map((item) => sanitizeNode(item, '', state))
   if (!value || typeof value !== 'object') return value
 
+  const redactsBrowserTabListing = value.type === 'mcpToolCall'
+    && typeof value.arguments?.code === 'string'
+    && /\.user\.openTabs\s*\(/.test(value.arguments.code)
+
   for (const [candidateKey, candidateValue] of Object.entries(value)) {
     if (pathKeyPattern.test(candidateKey) && typeof candidateValue === 'string' && isDangerousPath(candidateValue)) {
       countReplacement(state, 'dangerous')
@@ -197,6 +201,11 @@ function sanitizeNode(value, key, state) {
   for (const [childKey, childValue] of Object.entries(value)) {
     const sanitizedKey = sanitizeString(childKey, 'object-key', state)
     if (Object.hasOwn(output, sanitizedKey)) fail('Sanitization produced duplicate object keys.')
+    if (redactsBrowserTabListing && childKey === 'result') {
+      countReplacement(state, 'pii')
+      output[sanitizedKey] = { redacted: 'browser-tab-list' }
+      continue
+    }
     output[sanitizedKey] = sanitizeNode(childValue, childKey, state)
   }
   return output
