@@ -39,8 +39,8 @@ Allow `om-share-this-session` to obtain a complete native Codex session export w
 
 ### Phase 1: Native retrieval and parsing
 
-- [ ] 1.1 Add a fail-closed native Codex thread exporter
-- [ ] 1.2 Support and test Codex thread-shaped session JSON
+- [x] 1.1 Add a fail-closed native Codex thread exporter — 291027bc7
+- [x] 1.2 Support and test Codex thread-shaped session JSON — 291027bc7
 
 ### Phase 2: Distribution and guidance
 
