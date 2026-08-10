@@ -13725,9 +13725,6 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
       ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -13807,9 +13804,6 @@
         ".ai/guides/contracts.md",
         ".ai/guides/extensions.md",
         ".ai/skills/om-system-extension/SKILL.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",
@@ -13892,9 +13886,6 @@
         ".ai/skills/om-system-extension/SKILL.md",
         ".ai/guides/modules/perspectives.md"
       ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -13973,9 +13964,6 @@
       "allowedExtra": [
         ".ai/guides/contracts.md",
         ".ai/skills/om-system-extension/SKILL.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",
@@ -14057,9 +14045,6 @@
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/guides/modules/query_index.md"
       ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -14138,9 +14123,6 @@
       "allowedExtra": [
         ".ai/guides/ai-workflows.md",
         ".ai/guides/integrations.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",
@@ -14222,9 +14204,6 @@
         ".ai/guides/modules/notifications.md",
         ".ai/guides/modules/attachments.md"
       ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
@@ -14300,9 +14279,6 @@
       "allowedExtra": [
         ".ai/guides/contracts.md",
         ".ai/guides/modules/directory.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",
@@ -14380,9 +14356,6 @@
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-data-model-design/SKILL.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",
@@ -14462,9 +14435,6 @@
       "allowedExtra": [
         ".ai/guides/contracts.md",
         ".ai/guides/extensions.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",

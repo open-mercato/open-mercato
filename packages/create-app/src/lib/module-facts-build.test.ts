@@ -136,12 +136,15 @@ test('build does not emit unreachable package-level standalone guides', () => {
 // still passes. This guard therefore demands `context.required`, the reference that actually fails
 // a run (#4603, tightened from the weaker "routed by some case" predicate #4565 shipped).
 //
-// The two exemptions own no duplicable surface. `api_docs` ships no entity, no migration, and an
-// empty `features` array; `design_system` is an in-app component gallery with one view-only feature
-// and no data directory. Neither has a schema an agent could re-create or an access-control posture
-// it could get wrong, so requiring the read would assert nothing. They stay reachable through
+// The exemption owns no duplicable surface: `api_docs` ships no entity, no migration, and an empty
+// `features` array, so it has no schema an agent could re-create and no access-control posture it
+// could get wrong — requiring the read would assert nothing. It stays reachable through
 // `allowedExtra` without being asserted.
-const FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE = ['api_docs', 'design_system']
+//
+// `design_system` was exempt for the same reason until fresh standalone registries stopped enabling
+// it; the scaffold no longer ships its fact-sheet at all, so the exemption has nothing left to
+// excuse and the stale-exemption guard below rejects it.
+const FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE = ['api_docs']
 
 test('every module fact-sheet a scaffold ships is required by at least one catalog case', () => {
   ensureBuilt()
