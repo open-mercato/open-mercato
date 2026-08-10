@@ -633,6 +633,7 @@
         "umes.component-replacement"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts",
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
         "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
         "src/modules/example/widgets/__tests__/components.test.ts"
@@ -2217,6 +2218,7 @@
         "umes.extension-points"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts",
         "src/modules/example/__tests__/extension-points.test.ts"
       ],
       "affectedCaseIds": [
@@ -2854,6 +2856,7 @@
         "umes.extension-points"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts",
         "src/modules/example/__tests__/extension-points.test.ts"
       ],
       "affectedCaseIds": [
@@ -3075,6 +3078,7 @@
         "umes.component-replacement"
       ],
       "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts",
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
         "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
         "src/modules/example/widgets/__tests__/components.test.ts"

@@ -950,7 +950,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/extension-points.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/extension-points.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/extension-points.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
     },
@@ -1114,7 +1117,8 @@
       "integrationTestPaths": [
         "src/modules/example/widgets/__tests__/components.test.ts",
         "src/modules/example/widgets/__tests__/component-override-modes.test.ts",
-        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts"
       ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
@@ -1245,7 +1249,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/ai-tools.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/ai-tools.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/ai-tools.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
+      ],
       "dependencyModules": ["ai_assistant"],
       "ruleOwner": "om-create-ai-agent"
     },
@@ -1257,7 +1264,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/ai-agents.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/ai-agents.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/ai-agents.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
+      ],
       "dependencyModules": ["ai_assistant"],
       "ruleOwner": "om-create-ai-agent"
     },
@@ -1269,7 +1279,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/ai-agents.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/ai-agents.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/ai-agents.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
+      ],
       "dependencyModules": ["ai_assistant", "customers"],
       "ruleOwner": "om-create-ai-agent"
     },
@@ -1281,7 +1294,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/ai-tools.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/ai-overrides.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/ai-overrides.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
+      ],
       "dependencyModules": ["ai_assistant"],
       "ruleOwner": "om-create-ai-agent"
     },
@@ -1293,7 +1309,10 @@
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": ["src/modules/example/ai-agents.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/ai-overrides.test.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/ai-overrides.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
+      ],
       "dependencyModules": ["ai_assistant"],
       "ruleOwner": "om-create-ai-agent"
     },
