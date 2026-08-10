@@ -965,6 +965,20 @@ test('om-evolve-harness routes to the nine mandatory knowledge-change steps', ()
   assert.doesNotMatch(reference, /emits an empty `focusedExecutions` today/)
 })
 
+test('om-refresh-standalone-harness cannot bypass the machine-governed knowledge-change workflow', () => {
+  const refreshSkill = fs.readFileSync(
+    path.join(sharedRoot, '..', '..', '..', '..', '.ai', 'skills', 'om-refresh-standalone-harness', 'SKILL.md'),
+    'utf8',
+  )
+
+  assert.match(refreshSkill, /packages\/create-app\/agentic\/shared\/ai\/skills\/om-evolve-harness\/references\/knowledge-change\.md/)
+  assert.match(refreshSkill, /all nine mandatory steps/)
+  assert.match(refreshSkill, /knowledge-change manifest/)
+  assert.match(refreshSkill, /harness:validate-knowledge-change --manifest <path> --base <ref>/)
+  assert.match(refreshSkill, /affected certified lane/)
+  assert.match(refreshSkill, /sanitized result/)
+})
+
 test('both package manifests expose the knowledge-change validator under the spec-named script', () => {
   const createApp = JSON.parse(
     fs.readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),

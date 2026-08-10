@@ -1283,3 +1283,21 @@ The last `qa-only` row in the example inventory (`testing.integration-coverage`,
   template stub pair is a deliberate non-mirror. **All three pending GOV Phase 2 checks are now done**;
   the remaining GOV item is the certified-release-lane run (row 9), which needs a real lane execution
   rather than more validator code.
+
+## Session 8 — canonical gap-completion audit and implementation
+
+Re-entered through `om-auto-continue-pr` after auditing the canonical, READ, SPEC, and GOV contracts
+against the branch itself. The PR description's prior completion claim was incorrect: the acceptance
+matrix remained 12/15 and Milestone D had not been certified. Work resumes from the executable gaps,
+not from the stale deferred/blocker labels above.
+
+- [x] GOV: make the repo-local `om-refresh-standalone-harness` workflow explicitly enter the bundled
+  nine-step knowledge-change contract, require the machine manifest and affected certified lane, and
+  retain only sanitized evidence. Added a focused guard in
+  `agent-harness-knowledge-change.test.ts`; fail-before and pass-after were both observed.
+- [ ] TC-EXAMPLE-012 and complete topology/fact enumeration.
+- [ ] TC-EXAMPLE-015 and the missing vector/integration/workflow/currency identities.
+- [ ] TC-EXAMPLE-016, deterministic generator plugin, and activated disposable create-app lane.
+- [ ] READ/SPEC design-gallery, foundation, topology-routing, preset/tier, and connected-progress proofs.
+- [ ] Milestone D: 15/15 isolated/repeated/randomized, activated standalone, packed-link/fact/design,
+  certified harness, and full validation evidence.
