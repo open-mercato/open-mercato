@@ -133,12 +133,11 @@ must repin. The same applies to the sibling `page`/`region` formulas.
 
 **2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
 The component-override reader used to discriminate `mode` on an `entry.props` property that the
-`ComponentOverride` union has no member for, and it could not see a `wrapper` supplied as an
-identifier reference. It now discriminates on the real members (`wrapper` / `propsTransform` /
-`replacement`). Measured across a 55-module corpus, `section:auth.login.form` (enterprise
-`security`) is the only leaf whose value changes; every other contribution keeps the mode it
-published. `wrapper` is what that entry has always done at runtime — the fact sheet was wrong,
-not the module.
+`ComponentOverride` union has no member for; together with the other reader fixes in this change it
+now discriminates on the union's real members (`wrapper` / `propsTransform` / `replacement`).
+Measured across a 55-module corpus, `section:auth.login.form` (enterprise `security`) is the only
+leaf whose value changes; every other contribution keeps the mode it published. `wrapper` is what
+that entry has always done at runtime — the fact sheet was wrong, not the module.
 
 **3. Recovered injection-table contributions (additive).** The extractor silently dropped every
 string-form and single-object-form slot declaration, hiding twelve real contributions across six

@@ -384,8 +384,21 @@ export type CompileAppSourceOptions = {
  * The artifact is cached against the content of the entry, its whole bundled
  * dependency graph, and the tsconfig chain, so an edit anywhere in the graph
  * invalidates it.
+ *
+ * The build runs inside the shared esbuild lifecycle. Callers outside a
+ * bootstrap load — the generated-registry loader compiling an `@app` module —
+ * would otherwise hold a build on a service another scope is entitled to
+ * `stop()`, and would leave the helper process running afterwards. Nesting is
+ * safe: the scope only releases the service when the last participant exits.
  */
 export async function compileAppSourceFile(
+  tsPath: string,
+  options: CompileAppSourceOptions,
+): Promise<string> {
+  return withEsbuildLifecycle(() => compileAppSourceFileWithActiveEsbuild(tsPath, options))
+}
+
+async function compileAppSourceFileWithActiveEsbuild(
   tsPath: string,
   options: CompileAppSourceOptions,
 ): Promise<string> {
