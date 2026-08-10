@@ -82,15 +82,28 @@ The module currently distinguishes agents by `resultKind: 'informative' | 'actio
 
 ### W3 — Settings, information architecture and surface trimming · **S–M** · independent
 
-- Web Search moves from `backend/web-search/` into the settings area, and its two save affordances collapse to one.
-- Playground: Output moves below the agent/input section at full width.
-- Traces: decide what a reader needs and hide the rest.
+- Web Search moves from `backend/web-search/` into the settings area, and its two save affordances collapse to one. ✅ shipped
+- Playground: Output moves below the agent/input section at full width. ✅ shipped
+- Traces: five specific fixes, below.
 
 Fold in, since these files are being opened anyway:
 
-- The Traces detail view renders raw tool arguments, and the model is instructed to pass `_sessionToken` on every call — so a live credential can reach a surface `trace.view` grants to `employee` by default. Key-level redaction belongs in this pass.
 - Web Search carries `allowPrivateHosts` as a tenant-writable setting and stores adapter API keys unencrypted in `module_configs`. Moving the surface is the moment to fix both.
 - The module's UI accounts for the bulk of the repo's outstanding design-system warnings (raw `<table>` markup, missing loading/empty states). A DS pass on the touched pages is cheap here and expensive later.
+
+#### Traces — targeted fixes, not a redesign
+
+An earlier draft of this plan claimed the trace detail was "seven equal-weight cards in storage order" and proposed three competing redesigns. **That was wrong**, and the mistake is worth recording: the page structure was inferred by grepping i18n keys and section names out of the source instead of rendering it. The real page already leads with a verdict (status, `Gated to human`, confidence), carries an 8-tile KPI grid, an execution timeline, evaluation results, collapsible per-call tool rows with copy, a JSON tree for the output, and honest empty states. Two of the three proposed "directions" were largely already built. The prototype was deleted rather than left to mislead.
+
+What the rendered page actually needs, each observed directly:
+
+1. **The execution timeline axis is linear.** `buildTimeline` (`backend/traces/[id]/page.tsx`) computes one `startMs`/`totalMs` and positions every bar as a fraction of it, so on a 463s run seven of eight spans collapse into sub-pixel dots at the left edge and the timeline shows nothing. `workflows` already solved exactly this with a **piecewise-linear** axis (`lib/run-gantt.ts`: a slice past a derived threshold renders at threshold width and is flagged, while `durationMs` keeps its true value). Adopt that, do not re-invent it.
+2. **Span labels truncate at the wrong end.** Rows read `open-mercato_lighthou…` six times over; the distinguishing part of a tool span is its suffix (`bos_cumulation`, `vademecum`, `deductible_config`), which is precisely what is cut. Truncate the middle or the prefix.
+3. **The rationale renders twice, verbatim.** The Reasoning card and `proposal.rationale` inside Output are the same text. Pick one home.
+4. **Empty cards cost a full row.** Guardrails and Context assembled each render a card to say nothing was recorded. Collapse or omit when empty — the honest-degradation copy is right, the footprint is not.
+5. **Two of eight KPI tiles are dead on the OpenCode runtime.** `TOKENS` and `COST (EST.)` both show `—`. Either derive them for that runtime or drop the tiles when the runtime cannot supply them.
+
+The session-token leak that was also on this list is **fixed** (redacted at trace ingestion, so the credential reaches neither the row nor the artifact store). Note it is ingestion-time only: traces captured before the fix still render the token.
 
 ### W4 — Evals usability · **M** · independent
 
@@ -141,5 +154,6 @@ The gate is closed, so W1 and W2 are specifiable now.
 ## Changelog
 
 - **2026-08-10**: Umbrella created from the pilot field notes; seventeen findings mapped to seven workstreams.
+- **2026-08-10**: Traces item rewritten against the rendered page after the maintainer showed screenshots. The earlier reading was derived from source greps rather than the running UI and was wrong on nearly every point — the page already leads with a verdict, has an execution timeline and collapsible tool calls, and two of the three proposed redesigns were largely shipped. The exploratory prototype was deleted; W3 now carries five specific, observed fixes (linear timeline axis, label truncation, duplicated rationale, empty cards, dead KPI tiles). W3's Web Search and Playground items shipped in `c7c117715`; the session-token leak is fixed at ingestion in the same commit.
 - **2026-08-10**: Gate closed. Q1 milestones = stored on the process definition (against the drafted recommendation — the maintainer wants business names independent of step labels; a drift warning becomes load-bearing as a result). Q2 outcome = optional reference mirroring `subject*`. Q3 action agent = propose-only, executing through the existing safe-command and activity gates so no new effect surface is created. Q4 = leave the Studio fully visible; Agent Orchestrator is enterprise and flag-gated, so hiding workflows inside it would add an ACL axis for no audience, and finding 6 is satisfied by the milestone view instead. W1 resized upward for the milestone editor; the "hide workflows" sub-item dropped.
 - **2026-08-10**: Maintainer correction — Agent Orchestrator has never been released, so no deprecation protocol applies to its own surfaces. Verified against `origin/develop`: the module, `INVOKE_AGENT`, `SET_VARIABLE` and the disposition kinds are all absent there; only core `workflows`' `/backend/tasks` and `workflows.tasks.list` are genuinely shipped. W1 resized from a compatibility migration to a straight refactor (plus a migration squash); the two BC-driven gate questions dropped; the release-gating argument restated as "free now, expensive after release".
