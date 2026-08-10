@@ -183,3 +183,30 @@ PR: #5064
       is byte-identical to `develop`, and the advisories are already tracked repo-wide by the
       auto-refreshed issue #5111 (`security: high-severity dependency advisories on develop`).
       No duplicate follow-up filed; no dependency bump attempted from this branch
+
+### Phase 7: Unblock the skipped checks — refresh against the `develop` tip that fixed `audit`
+
+- [x] 7.1 Merge the current `develop` tip (`560e304de`) into the branch — no conflict this time.
+      Ten commits had landed since the Phase 6 merge base (`2968c89bd`), among them `4792c7717`
+      (`fix(ci): unblock the dependency audit gate`, #5157) which added `scripts/audit-ci-allowlist.json`
+      and the narrow-exception path in `scripts/audit-ci.mjs`. This is the only thing that could
+      clear the red `audit` check on this PR: the check failed on base-branch breakage tracked as
+      #5111, and `ci.yml` gates `test`, `ephemeral-integration`, `merge-coverage` and `docker-build`
+      on `audit` being success-or-skipped, so on the Phase 6 head those four never ran at all — the
+      review's earlier reading (that the skips came from the merge conflict) was wrong, and Phase 6
+      had already corrected it publicly
+- [x] 7.2 Verify the gate locally rather than assume the merge fixed it — `node scripts/audit-ci.mjs`
+      on the merged head with a fresh advisory database: 2416 packages scanned, threshold `high+`,
+      two `image-size` advisories consumed by the new allowlist, **no advisory at or above the
+      threshold**, exit 0
+- [x] 7.3 Re-run the full validation gate on the merged head — eight configured commands, local
+      runner (no Docker `app` container present). Seven green. `yarn test` exits 1 on a single
+      assertion in `@open-mercato/telemetry` `pg-instrumentation.test.ts`, a package this branch
+      leaves byte-identical to `develop` (`git diff upstream/develop HEAD -- packages/telemetry`
+      is empty) and whose test landed long before this branch (`e76f4b8cb`, #4475). It fails the
+      same way when run alone, so it is not parallel-load contention; it is the local host — the
+      probe spawns a child process and asserts on OpenTelemetry's `require-in-the-middle` patch of
+      `pg`, and `develop`'s own CI run on `4792c7717` (the tip merged here) went green including
+      that job. `yarn build:app` ✅ after it. The changed package's suite was run directly and is
+      green: **478 tests, 473 pass, 0 fail, 5 skipped**
+- [x] 7.4 Push, report on the PR, and request the re-review
