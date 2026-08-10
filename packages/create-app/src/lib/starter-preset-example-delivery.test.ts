@@ -102,6 +102,16 @@ for (const presetId of PRESET_IDS) {
         existsSync(join(exampleDir, 'README.md')),
         `preset ${presetId} routes the spec gate at src/modules/example/README.md, which must exist`,
       )
+      const exampleReadme = readFileSync(join(exampleDir, 'README.md'), 'utf8')
+      assert.match(
+        exampleReadme,
+        /yarn generate[\s\S]*yarn db:migrate/,
+        `preset ${presetId} must tell operators to migrate after enabling the inert example module`,
+      )
+      assert.match(
+        exampleReadme,
+        /skipping `yarn db:migrate` leaves the Todo routes active without their `todos` table/,
+      )
       assert.ok(
         existsSync(join(exampleDir, 'references', 'surface-inventory.json')),
         `preset ${presetId} must emit the capability inventory om-module-scaffold resolves against`,

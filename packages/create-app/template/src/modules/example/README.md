@@ -11,7 +11,14 @@ export default [
 ]
 ```
 
-Then run `yarn generate`. Migrations are not applied automatically.
+Then generate the runtime registries and apply this module's committed migrations before starting the app:
+
+```bash
+yarn generate
+yarn db:migrate
+```
+
+`yarn generate` never applies migrations automatically. If the app was initialized before you enabled `example`, skipping `yarn db:migrate` leaves the Todo routes active without their `todos` table.
 
 ## Do not copy this tree
 
