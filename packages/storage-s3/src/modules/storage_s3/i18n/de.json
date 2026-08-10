@@ -12,6 +12,8 @@
   "storage_s3.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
   "storage_s3.errors.multipartRequired": "multipart/form-data wurde erwartet",
   "storage_s3.errors.prefixAccessDenied": "Zugriff verweigert: Das Präfix ist nicht auf diesen Tenant beschränkt.",
-  "storage_s3.errors.quotaExceeded": "Das Speicherlimit für Anhänge dieses Tenants wurde überschritten.",
+  "storage_s3.errors.quotaExceeded": "Das Speicherkontingent für Anhänge dieses Mandanten ist erschöpft.",
+  "storage_s3.errors.quotaTargetExists": "Der Ziel-Speicherschlüssel existiert bereits.",
+  "storage_s3.errors.quotaUnavailable": "Die Kontingentabrechnung des Speichers ist nicht verfügbar.",
   "storage_s3.errors.unauthorized": "Nicht autorisiert"
 }

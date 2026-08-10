@@ -116,6 +116,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live packages/core/src/modules sources — module-facts local-reference resolution',
+      },
+      {
         path: 'src/lib/generators/__tests__/example-public-route-safety.test.ts',
         scans: 'apps/mercato and packages/create-app/template — example route safety (#3864)',
       },
@@ -244,6 +248,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   },
   {
     path: 'packages/create-app/src/lib/template-example-module-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {

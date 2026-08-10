@@ -22,7 +22,7 @@ export async function lookupPhoneDuplicate(
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     try {
       const url = `/api/customers/people?hasPhone=true&page=${page}&pageSize=${PAGE_SIZE}&sortField=createdAt&sortDir=desc`
-      const call = await apiCall<{ items?: unknown[]; total?: number }>(url)
+      const call = await apiCall<{ items?: unknown[] }>(url)
       if (!call.ok) continue
       const payload = call.result ?? {}
       const items = Array.isArray(payload?.items) ? payload.items : []
@@ -45,8 +45,11 @@ export async function lookupPhoneDuplicate(
           }
         }
       }
-      const total = typeof payload?.total === 'number' ? payload.total : null
-      if (total !== null && page * PAGE_SIZE >= total) {
+      // Short-page termination: a page shorter than requested is the end of the result
+      // set. `total` is a display value and may under-report (capped counts), so it is
+      // no longer consulted. MAX_PAGES stays as the deliberate best-effort bound — this
+      // is a duplicate hint, not an exhaustive check.
+      if (items.length < PAGE_SIZE) {
         break
       }
     } catch {

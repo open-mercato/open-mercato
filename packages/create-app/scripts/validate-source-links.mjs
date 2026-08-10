@@ -121,7 +121,45 @@ export function blockId(asset, ordinal) {
   return `main:${asset}#fence:${ordinal}`
 }
 
+const fetchedPinnedCommits = new Set()
+
+/**
+ * Make the pinned baseline commit readable, fetching it once when the local
+ * object store does not have it.
+ *
+ * CI checks out with `actions/checkout`'s default `fetch-depth: 1`, so the
+ * clone holds exactly one commit and every `git cat-file blob <pinned>:<path>`
+ * fails — with git's "exists on disk, but not in <rev>" message, which reads
+ * like a stale pin rather than a missing object. A full clone (any ordinary
+ * developer checkout) already has the commit and never reaches the fetch.
+ */
+function ensurePinnedCommit(root, sha) {
+  const runGit = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe' })
+  try {
+    runGit(['cat-file', '-e', `${sha}^{commit}`])
+    return
+  } catch {
+    // Not in the object store yet — fall through to the fetch.
+  }
+  if (fetchedPinnedCommits.has(sha)) {
+    throw new Error(
+      `Pinned baseline commit ${sha} is not available in this checkout and could not be fetched from origin.`,
+    )
+  }
+  fetchedPinnedCommits.add(sha)
+  try {
+    runGit(['fetch', '--no-tags', '--depth=1', 'origin', sha])
+  } catch (error) {
+    throw new Error(
+      `Pinned baseline commit ${sha} is missing from this checkout (a shallow clone does not carry it) and `
+        + `fetching it from origin failed. Run \`git fetch --no-tags --depth=1 origin ${sha}\` and retry. `
+        + `Cause: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
 export function readPinnedBlob(root, sha, relativePath) {
+  ensurePinnedCommit(root, sha)
   return execFileSync('git', ['cat-file', 'blob', `${sha}:${relativePath}`], {
     cwd: root,
     maxBuffer: 256 * 1024 * 1024,

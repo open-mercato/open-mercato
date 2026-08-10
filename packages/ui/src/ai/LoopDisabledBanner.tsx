@@ -19,7 +19,7 @@ export function LoopDisabledBanner({ agentId }: { agentId?: string }) {
   const t = useT()
   return (
     <Alert
-      variant="warning"
+      status="warning"
       icon={<ShieldOff aria-hidden="true" />}
       data-ai-loop-disabled-banner
       data-ai-loop-disabled-agent-id={agentId}
