@@ -5,6 +5,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
   bumpRecordViaApi,
+  clickConflictRefresh,
   expectConflictBanner,
   expectConflictBody,
   expectNoConflictBanner,
@@ -176,6 +177,24 @@ test.describe('TC-EXAMPLE-011: the shared todo form round-trips and refuses stal
       const reread = await apiRequest(request, 'GET', `${TODOS_API}?ids=${encodeURIComponent(todoId!)}&page=1&pageSize=1`, { token })
       const rereadBody = (await reread.json()) as { items?: Array<{ title?: string }> }
       expect(rereadBody.items?.[0]?.title).toBe(`${title} moved`)
+
+      const enterpriseDialog = page.getByTestId('record-lock-conflict-dialog')
+      if (await enterpriseDialog.isVisible().catch(() => false)) {
+        await enterpriseDialog.getByRole('button', { name: /accept incoming/i }).click()
+      } else {
+        await clickConflictRefresh(page)
+      }
+      await expect(titleInput).toHaveValue(`${title} moved`, { timeout: 20_000 })
+
+      const retriedTitle = `${title} retried`
+      await titleInput.fill(retriedTitle)
+      await titleInput.locator('xpath=ancestor::form').first().locator('button[type="submit"]').first().click()
+      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
+      await expectNoConflictBanner(page)
+
+      const afterRetry = await apiRequest(request, 'GET', `${TODOS_API}?ids=${encodeURIComponent(todoId!)}&page=1&pageSize=1`, { token })
+      const afterRetryBody = (await afterRetry.json()) as { items?: Array<{ title?: string }> }
+      expect(afterRetryBody.items?.[0]?.title).toBe(retriedTitle)
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
     }

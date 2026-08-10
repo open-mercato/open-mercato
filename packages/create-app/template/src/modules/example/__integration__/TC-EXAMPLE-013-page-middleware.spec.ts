@@ -3,6 +3,9 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import backendMiddleware from '../backend/middleware'
+import frontendMiddleware from '../frontend/middleware'
+import exampleModuleOverridesReference from '../references/module-overrides.reference'
 
 const TODOS_LIST_PATH = '/backend/todos'
 
@@ -19,6 +22,16 @@ const TODOS_LIST_PATH = '/backend/todos'
  * indistinguishable from outside.
  */
 test.describe('TC-EXAMPLE-013: backend and frontend page middleware redirect their own surfaces only', () => {
+  test('keeps stable middleware identities in the page-guards override domain', () => {
+    const middlewareIds = [...backendMiddleware, ...frontendMiddleware].map((entry) => entry.id).sort()
+    expect(middlewareIds).toEqual([
+      'example.backend.todo-edit-id-guard',
+      'example.frontend.blog-canonical-id',
+    ])
+    expect(Object.keys(exampleModuleOverridesReference.guards ?? {}).sort()).toEqual(middlewareIds)
+    expect('mutationGuards' in exampleModuleOverridesReference).toBe(false)
+  })
+
   test('redirects a structurally impossible todo edit deep link and lets a real one render', async ({ page, request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')

@@ -3,8 +3,13 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   apiRequestWithSelectedOrg,
+  createRoleFixture,
+  createUserFixture,
   createOrganizationFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
   deleteOrganizationIfExists,
+  setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -103,11 +108,17 @@ test.describe('TC-EXAMPLE-005: the customer-priority contributor round-trips aga
     }
   })
 
-  test('accepts a priority for an absent host and refuses an unauthenticated write', async ({ request }) => {
+  test('accepts a priority for an absent host and refuses an authenticated feature-denied write', async ({ request }) => {
     test.slow()
-    const token = await getAuthToken(request, 'admin')
+    const token = await getAuthToken(request, 'superadmin')
+    const { organizationId } = getTokenContext(token)
     const missingCustomerId = randomUUID()
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const deniedEmail = `tc-example-005-${suffix}@test.local`
+    const deniedPassword = 'StrongSecret123!'
     let priorityId: string | null = null
+    let deniedRoleId: string | null = null
+    let deniedUserId: string | null = null
 
     try {
       // There is no join and no foreign key, so a contributor row may name a host that does not
@@ -125,18 +136,33 @@ test.describe('TC-EXAMPLE-005: the customer-priority contributor round-trips aga
       expect(listed).toHaveLength(1)
       expect(listed?.[0]?.customer_id).toBe(missingCustomerId)
 
-      // The write side is feature-gated on the route, not only in the UI that reaches it.
+      deniedRoleId = await createRoleFixture(request, token, { name: `TC-EXAMPLE-005 denied ${suffix}` })
+      await setRoleAclFeatures(request, token, {
+        roleId: deniedRoleId,
+        features: ['example.todos.view'],
+      })
+      deniedUserId = await createUserFixture(request, token, {
+        email: deniedEmail,
+        password: deniedPassword,
+        organizationId,
+        roles: [deniedRoleId],
+      })
+      const deniedToken = await getAuthToken(request, deniedEmail, deniedPassword)
+
+      // The write side is feature-gated for an authenticated user, not only protected by login.
       const denied = await apiRequest(request, 'POST', PRIORITIES_API, {
-        token: 'not-a-real-token',
+        token: deniedToken,
         data: { customerId: missingCustomerId, priority: 'low' },
       })
-      expect(denied.ok(), 'an unauthenticated contributor write must be refused').toBeFalsy()
-      expect([401, 403]).toContain(denied.status())
+      expect(denied.ok(), 'an authenticated contributor without manage permission must be refused').toBeFalsy()
+      expect(denied.status()).toBe(403)
     } finally {
       if (priorityId) {
         await apiRequest(request, 'DELETE', PRIORITIES_API, { token, data: { id: priorityId } })
           .catch(() => undefined)
       }
+      await deleteUserIfExists(request, token, deniedUserId)
+      await deleteRoleIfExists(request, token, deniedRoleId)
     }
   })
 })
