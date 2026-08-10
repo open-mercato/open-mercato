@@ -1,8 +1,8 @@
 # Standalone Harness Example and Linked-Source Read Policy
 
-- **Status:** Partially implemented — Phase 1 complete; Phase 2 linked-source routing in progress
+- **Status:** Implemented — all twelve evaluator oracle families covered; PR-wide certified lane pending
 - **Date:** 2026-08-01
-- **Revised:** 2026-08-03
+- **Revised:** 2026-08-10
 - **Scope:** OSS standalone harness context/evaluator semantics for capability-scoped canonical-example and declared installed-source reads
 - **Related:** [Standalone Canonical Example Module](./2026-07-31-standalone-canonical-example-module.md), [Standalone Harness Knowledge Governance](./2026-08-01-standalone-harness-knowledge-governance.md), [Standalone AI Development Harness](./2026-07-24-standalone-ai-development-harness.md), design-foundation [PR #4277](https://github.com/open-mercato/open-mercato/pull/4277) (merged 2026-08-03 as [PR #4891](https://github.com/open-mercato/open-mercato/pull/4891)), design-system gallery [PR #4301](https://github.com/open-mercato/open-mercato/pull/4301)
 
@@ -155,7 +155,7 @@ The schema is additive, but installed-source permissions are intentionally tight
 | Finite oracle | One schema and twelve enumerated evaluator fixture families plus whole-harness packed-link/local-fact/design-gallery/foundation validation. |
 | Compatibility | Non-installed behavior stays identical; every prior broad installed-source reliance receives an explicit migration disposition and an exact declared reference or reason-gated fallback before permission removal. |
 
-**Verdict: Fully specified and ready for implementation after design review.**
+**Verdict: Implemented with focused deterministic coverage; awaiting the PR-wide certified lane and final review.**
 
 ## Changelog
 
@@ -177,6 +177,7 @@ The schema is additive, but installed-source permissions are intentionally tight
 
 - 2026-08-10: Made the reason-gated installed-version fallback reachable from a shipped lane. The live prompt now documents bounded `reason` and specialist `capabilityId` arguments, and `OMH-203` first reads the canonical example injection table before permitting only `INSTALLED_VERSION_CONTRACT_MISMATCH` against an exact installed source. Focused fixtures prove the prompt/declaration pairing, refusal outside the enum, capability propagation, read-only precedence, and calibrated budgets. The same pass routes `.ai/guides/reference-modules/example.md` from the module-shaped `OMH-223` planning case, closing oracle family 10's generated-reference-sheet routing gap; the ledger is now eight covered, two partial, and two uncovered families.
 - 2026-08-10: Closed oracle family 9 without adding a synthetic case. Existing writable case `OMH-181` now reads both independently asserted canonical seams (`umes.injection.datatable-bulk-action` and `runtime.bulk-operation-progress`), requires the connected `progressJobId` lifecycle, and its trusted behavior oracle proves the job ID returned by the bulk execution is handed once to the operation-progress observer and returned unchanged. The ledger is now nine covered, one partial, and two uncovered families.
+- 2026-08-10: Closed oracle families 8, 11, and 12. The generated source-link projection now carries real `classic`/`crm`/`empty` preset applicability and skill tiers derived from the emitted standalone manifest; wrong-preset and wrong-tier fixtures fail before reads. The derived 113-item PR #4301 / PR #4277 inventory is summarized in both canonical example surface inventories and joined into exact source-link records. `OMH-221` routes the exact Button gallery entry and installed implementation, while distinct `OMH-228` routes app-local tokens plus the role-gated packed `figma/button.figma.tsx` auxiliary and preserves packed/export/runtime, node-authority, publication, source-only activation, unavailable-skill, and real coverage-gap distinctions. The source-link validator accepts no other non-`src` package shape, verifies every target through `npm pack`, and all twelve oracle families are now covered.
 
 ### Review — 2026-08-03
 

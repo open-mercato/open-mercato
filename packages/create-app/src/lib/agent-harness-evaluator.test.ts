@@ -119,6 +119,24 @@ function stageApp(): string {
   // cases that declare `context.exampleRoots` resolve their capability IDs against its emitted
   // `references/surface-inventory.json`. Staging it keeps this fixture a faithful fresh scaffold.
   fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'src', 'app'), { recursive: true })
+  fs.copyFileSync(
+    path.join(fileURLToPath(new URL('../../template/', import.meta.url)), 'src', 'app', 'globals.css'),
+    path.join(root, 'src', 'app', 'globals.css'),
+  )
+  for (const [packageName, relativePaths] of Object.entries({
+    core: ['src/modules/design_system/gallery/entries/buttons.tsx'],
+    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+  })) {
+    const sourcePackage = fileURLToPath(new URL(`../../../${packageName}/`, import.meta.url))
+    const installedPackage = path.join(root, 'node_modules', '@open-mercato', packageName)
+    fs.mkdirSync(installedPackage, { recursive: true })
+    fs.copyFileSync(path.join(sourcePackage, 'package.json'), path.join(installedPackage, 'package.json'))
+    for (const relativePath of relativePaths) {
+      fs.mkdirSync(path.dirname(path.join(installedPackage, relativePath)), { recursive: true })
+      fs.copyFileSync(path.join(sourcePackage, relativePath), path.join(installedPackage, relativePath))
+    }
+  }
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-evaluator-fixture","private":true}\n')
   fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
@@ -620,12 +638,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-227', () => {
+test('deterministic evaluation enforces the case schema through OMH-228', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-227')
+    assert.equal(cases.at(-1)?.id, 'OMH-228')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3798,7 +3816,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 227)
+  assert.equal(cases.length, 228)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

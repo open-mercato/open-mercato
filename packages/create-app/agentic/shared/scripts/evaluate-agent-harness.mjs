@@ -277,13 +277,20 @@ function isSafeRelative(pattern) {
 
 function isInstalledSourceRelative(relative) {
   const segments = relative.replaceAll('\\', '/').split('/')
-  return segments.length >= 5
+  const packageSource = segments.length >= 5
     && segments[0] === 'node_modules'
     && segments[1] === '@open-mercato'
     && Boolean(segments[2])
     && segments[3] === 'src'
     && !relative.includes('*')
     && !relative.includes('?')
+  const codeConnectAuxiliary = segments.length === 5
+    && segments[0] === 'node_modules'
+    && segments[1] === '@open-mercato'
+    && segments[2] === 'ui'
+    && segments[3] === 'figma'
+    && /^[a-z0-9-]+\.figma\.tsx$/.test(segments[4])
+  return packageSource || codeConnectAuxiliary
 }
 
 function installedSourceRelativeFromResolved(root, absolute, real) {
@@ -522,6 +529,26 @@ function readSourceLinkInventory(appRoot) {
   return { byId }
 }
 
+function selectedStarterPreset(appRoot) {
+  try {
+    const marker = readJson(path.join(appRoot, '.mercato', 'starter-preset.json'))
+    if (typeof marker?.preset === 'string' && marker.preset) return marker.preset
+  } catch {}
+  return 'classic'
+}
+
+function selectedSkillTiers(appRoot) {
+  let manifest
+  try { manifest = readJson(path.join(appRoot, '.ai', 'skills', 'tiers.json')) } catch { return [] }
+  const declared = Object.entries(manifest?.tiers ?? {})
+  const installedRoot = path.join(appRoot, '.agents', 'skills')
+  const selected = declared.filter(([, tier]) => {
+    const skills = Array.isArray(tier?.skills) ? tier.skills : []
+    return skills.length > 0 && skills.every((skill) => fs.existsSync(path.join(installedRoot, skill)))
+  }).map(([tierId]) => tierId)
+  return selected.length > 0 ? selected.sort() : [...(manifest?.default ?? [])].sort()
+}
+
 /**
  * Resolve one declared reference to its exact target, or explain why it cannot be followed.
  *
@@ -529,7 +556,7 @@ function readSourceLinkInventory(appRoot) {
  * with no target file, a qa-only target, a wildcard or directory target, and a dead path all
  * fail here rather than at read time.
  */
-export function resolveSourceReference({ referenceId, inventory, appRoot, routedOwners }) {
+export function resolveSourceReference({ referenceId, inventory, appRoot, routedOwners, preset, tiers }) {
   const record = inventory.byId.get(referenceId)
   if (!record) return { violation: `source reference is unknown or orphaned: ${referenceId}` }
   if (record.requirement !== 'source-required') {
@@ -549,6 +576,32 @@ export function resolveSourceReference({ referenceId, inventory, appRoot, routed
   if (!originAsset) return { violation: `source reference declares no origin owner: ${referenceId}` }
   if (routedOwners && !routedOwners.has(originAsset)) {
     return { violation: `source reference origin owner is not routed to this case: ${referenceId} (${originAsset})` }
+  }
+  const activePreset = preset ?? (appRoot ? selectedStarterPreset(appRoot) : null)
+  const activeTiers = tiers ?? (appRoot ? selectedSkillTiers(appRoot) : [])
+  if (record.presets !== undefined && !isUniqueStringArray(record.presets, { min: 1 })) {
+    return { violation: `source reference declares malformed preset applicability: ${referenceId}` }
+  }
+  if (record.tiers !== undefined && !isUniqueStringArray(record.tiers, { min: 1 })) {
+    return { violation: `source reference declares malformed skill-tier applicability: ${referenceId}` }
+  }
+  if (Array.isArray(record.presets) && activePreset && !record.presets.includes(activePreset)) {
+    return { violation: `source reference is not applicable to starter preset ${activePreset}: ${referenceId}` }
+  }
+  if (Array.isArray(record.tiers)
+    && (activeTiers.length === 0 || !record.tiers.some((tierId) => activeTiers.includes(tierId)))) {
+    return { violation: `source reference is not applicable to selected skill tiers ${activeTiers.join(',')}: ${referenceId}` }
+  }
+  const isCodeConnectAuxiliary = /^node_modules\/@open-mercato\/ui\/figma\/[a-z0-9-]+\.figma\.tsx$/.test(normalized.relative)
+  if (isCodeConnectAuxiliary) {
+    const foundations = Array.isArray(record.visualReferences)
+      ? record.visualReferences.map((reference) => reference?.designFoundation).filter(isPlainObject)
+      : []
+    if (record.referenceRole !== 'figma-code-connect'
+      || foundations.length === 0
+      || foundations.some((foundation) => foundation.codeConnectArtifactAvailability !== 'installed-packed-auxiliary')) {
+      return { violation: `source reference lacks the exact packed Code Connect role and design-foundation envelope: ${referenceId}` }
+    }
   }
   if (!appRoot) return { referenceId, originAsset, resolvedPath: normalized.relative, targetKind: record.targetKind }
   const resolved = isInstalledSourceRelative(normalized.relative)

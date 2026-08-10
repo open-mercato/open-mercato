@@ -60,6 +60,10 @@ const EXIT_INVALID = 2
 export const INVENTORY_RELATIVE_PATH = 'packages/create-app/scripts/design-system/design-system-inventory.json'
 export const PROJECTION_RELATIVE_PATH =
   'packages/create-app/agentic/shared/ai/harness/design-system-inventory.json'
+export const SURFACE_PROJECTION_RELATIVE_PATHS = Object.freeze([
+  'apps/mercato/src/modules/example/references/surface-inventory.json',
+  'packages/create-app/template/src/modules/example/references/surface-inventory.json',
+])
 
 /** The gallery implementation chain. */
 export const GALLERY_PR_URL = 'https://github.com/open-mercato/open-mercato/pull/4301'
@@ -789,6 +793,49 @@ export function projectInventory(inventory) {
   }
 }
 
+export function projectSurfaceInventory(surfaceInventory, inventory) {
+  const projection = projectInventory(inventory)
+  const canonicalSurface = { ...surfaceInventory }
+  for (const generatedField of [
+    'designSystemInventoryPath',
+    'designSystemGallery',
+    'designSystemGalleryItems',
+    'designFoundation',
+    'designSystemReferences',
+    'designSystemCoverageGaps',
+  ]) delete canonicalSurface[generatedField]
+  return {
+    ...canonicalSurface,
+    designSystemInventoryPath: '.ai/harness/design-system-inventory.json',
+    designSystemGallery: {
+      itemCount: projection.derived.itemCount,
+      familyIds: projection.derived.familyIds,
+      referenceCount: projection.derived.referenceCount,
+      rowsWithoutVisualCoverage: projection.derived.rowsWithoutVisualCoverage,
+      coverageGapCount: projection.derived.coverageGapCount,
+    },
+    designFoundation: {
+      mappedItemCount: projection.derived.mappedItemCount,
+      nodeComparisonCounts: projection.derived.nodeComparisonCounts,
+      designSkillAvailability: projection.derived.designSkillAvailability,
+      publicationStatus: 'not-evidenced',
+      codeConnectArtifactAvailability: 'installed-packed-auxiliary',
+      codeConnectExportStatus: 'not-exported',
+    },
+    designSystemReferences: projection.designSystemReferences.map((reference) => ({
+      capabilityId: reference.capabilityId,
+      galleryCoverage: reference.galleryCoverage,
+      galleryItemIds: reference.galleryEntries.map((entry) => `${entry.familyId}/${entry.entryId}`),
+      implementationSource: reference.implementationSource,
+    })),
+    designSystemCoverageGaps: projection.designSystemCoverageGaps.map((gap) => ({
+      capabilityId: gap.capabilityId,
+      publicImportPath: gap.publicImportPath,
+      reason: gap.reason,
+    })),
+  }
+}
+
 function serialize(value) {
   return `${JSON.stringify(value, null, 2)}\n`
 }
@@ -871,6 +918,10 @@ export function main(argv = process.argv.slice(2)) {
     [INVENTORY_RELATIVE_PATH, serialize(built.inventory)],
     [PROJECTION_RELATIVE_PATH, serialize(projectInventory(built.inventory))],
   ]
+  for (const relative of SURFACE_PROJECTION_RELATIVE_PATHS) {
+    const current = readJson(path.join(root, relative))
+    outputs.push([relative, serialize(projectSurfaceInventory(current, built.inventory))])
+  }
   const provenanceDrift = []
   for (const [relative, serialized] of outputs) {
     const absolute = path.join(root, relative)

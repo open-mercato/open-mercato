@@ -85,6 +85,8 @@ The release gate wraps this in a larger ordered sequence.
     refuses either case a write inside the reference root regardless.
     `OMH-225` selects the operation-progress sources and `OMH-226` the AI tool-pack and
     agent sources, both separately from the DataTable injection seams `OMH-220` selects.
+   `OMH-228` does not declare the example root; it follows four explicit source-reference IDs
+   that keep the gallery, installed implementation, local token, and Code Connect sources distinct.
    The optional `context.installedVersionFallback` sibling is schema- and
    evaluator-complete. `OMH-203` is its one shipped declarer and the live tool instruction
    documents both its bounded `reason` and specialist `capabilityId` arguments.

@@ -69,11 +69,19 @@ export const PROJECTED_RECORD_FIELDS = Object.freeze([
   'capabilityIds',
   'packageName',
   'packageRelativePath',
+  'referenceRole',
+  'presets',
+  'tiers',
+  'galleryItemIds',
+  'visualReferences',
 ])
 
 export const SURFACE_INVENTORY_RELATIVE_PATH =
   'packages/create-app/template/src/modules/example/references/surface-inventory.json'
 export const CASES_RELATIVE_PATH = 'packages/create-app/agentic/shared/ai/harness/cases.json'
+export const DESIGN_SYSTEM_INVENTORY_RELATIVE_PATH =
+  'packages/create-app/agentic/shared/ai/harness/design-system-inventory.json'
+export const SKILL_TIERS_RELATIVE_PATH = 'packages/create-app/agentic/shared/ai/skills/tiers.json'
 
 export const INVENTORY_VERSION = 1
 
@@ -124,6 +132,35 @@ export function moduleIdOf(resolvedPath) {
 
 function sortedUnique(values) {
   return [...new Set(values)].sort()
+}
+
+function ownerSkillId(originAsset) {
+  return /^\.ai\/skills\/([^/]+)\//.exec(originAsset)?.[1] ?? null
+}
+
+function applicableTiers(originAsset, skillTiers) {
+  const allTiers = Object.keys(skillTiers?.tiers ?? {}).sort()
+  const skillId = ownerSkillId(originAsset)
+  if (skillId === null) return allTiers
+  return allTiers.filter((tierId) => skillTiers.tiers[tierId]?.skills?.includes(skillId))
+}
+
+function visualReferencesForTarget(resolvedPath, designSystemInventory) {
+  const matches = (designSystemInventory?.items ?? []).filter((item) =>
+    item.entrySource === resolvedPath
+      || item.implementationSource === resolvedPath
+      || item.localTokenSource === resolvedPath
+      || item.designFoundation?.codeConnectSourceReferenceId === resolvedPath)
+  return matches.map((item) => ({
+    galleryItemId: item.galleryItemId,
+    familyId: item.familyId,
+    entryId: item.entryId,
+    importPath: item.importPath,
+    route: item.route,
+    availabilityByPreset: item.availabilityByPreset,
+    featureId: item.featureId,
+    designFoundation: item.designFoundation,
+  }))
 }
 
 /**
@@ -211,7 +248,7 @@ function baselineIndex(baseline) {
  * Returns `{ errors, inventory }`; `inventory` is null whenever `errors` is non-empty, so a
  * drifted registry can never produce a silently regenerated manifest.
  */
-export function buildInventory({ packageRoot, registry, baseline, surfaceInventory, cases }) {
+export function buildInventory({ packageRoot, registry, baseline, surfaceInventory, cases, designSystemInventory, skillTiers }) {
   const errors = []
   const registryTopics = Array.isArray(registry?.topics) ? registry.topics : null
   if (registryTopics === null || registryTopics.length === 0) {
@@ -321,6 +358,14 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
     if (isSourceRequired) {
       record.href = topic.href
       record.renderedLinkCount = renderedLinkCount(source, topic.href)
+      record.presets = Object.keys(designSystemInventory?.derived?.availabilityByPreset ?? {}).sort()
+      record.tiers = applicableTiers(topic.owner, skillTiers)
+      if (typeof topic.referenceRole === 'string') record.referenceRole = topic.referenceRole
+      const visualReferences = visualReferencesForTarget(resolvedPath, designSystemInventory)
+      if (visualReferences.length > 0) {
+        record.galleryItemIds = sortedUnique(visualReferences.map((reference) => reference.galleryItemId))
+        record.visualReferences = visualReferences
+      }
     } else {
       record.evidence = topic.evidence
     }
@@ -355,8 +400,7 @@ export function buildInventory({ packageRoot, registry, baseline, surfaceInvento
     },
     notCovered: [
       'installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.',
-      'design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.',
-      'preset and tier applicability: every emitted owner ships in every preset, so no record narrows it.',
+      'External Figma publication remains not-evidenced; packed Code Connect source proves neither publication nor runtime export.',
     ],
     records,
   }
@@ -414,6 +458,8 @@ export function loadInputs(root) {
     baseline: readJson(path.join(root, BASELINE_RELATIVE_PATH)),
     surfaceInventory: readJson(path.join(root, SURFACE_INVENTORY_RELATIVE_PATH)),
     cases: readJson(path.join(root, CASES_RELATIVE_PATH)),
+    designSystemInventory: readJson(path.join(root, DESIGN_SYSTEM_INVENTORY_RELATIVE_PATH)),
+    skillTiers: readJson(path.join(root, SKILL_TIERS_RELATIVE_PATH)),
   }
 }
 
