@@ -76,8 +76,8 @@ export async function GET(
     ? statement.referencedStatements
     : []
   const [submissions, latestAssessment] = await Promise.all([
-    loadStatementSubmissionsForGate(em, statement),
-    loadLatestAssessmentForGate(em, statement),
+    loadStatementSubmissionsForGate(em.fork(), statement),
+    loadLatestAssessmentForGate(em.fork(), statement),
   ])
   const gate = evaluateSubmissionGate({
     actorRole: statement.actorRole ?? null,

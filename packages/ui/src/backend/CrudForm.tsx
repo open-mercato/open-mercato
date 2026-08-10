@@ -1857,6 +1857,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
     if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
+    if (!everEditedFieldIdsRef.current.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
     const nextFieldErrors: Record<string, string> = {}
@@ -1871,10 +1872,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       (isArray && value.length === 0) ||
       (field.type === 'checkbox' && value !== true)
 
-    // Only flag a missing required value on blur once the user has actually
-    // edited the field — an untouched tab-through must not read as an error.
-    // Submit-time validation still covers never-edited required fields.
-    if (field.required && empty && everEditedFieldIdsRef.current.has(fieldId)) {
+    if (field.required && empty) {
       nextFieldErrors[fieldId] = requiredMessage
     }
 

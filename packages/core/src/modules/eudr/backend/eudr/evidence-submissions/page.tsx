@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -22,6 +23,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { resolveCountryName } from '@open-mercato/shared/lib/location/countries'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { EudrCommodity, EudrSubmissionStatus } from '../../../data/validators'
 import { commodityOptions, statusBadgeVariant, submissionStatusOptions, type CompanySnapshot } from '../../../components/formConfig'
 
@@ -78,6 +80,11 @@ export default function EudrEvidenceSubmissionsPage() {
   const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canManageSubmissions = backendChromeReady && hasFeature(
+    backendChromePayload?.grantedFeatures,
+    'eudr.submissions.manage',
+  )
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<EvidenceSubmissionRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -303,14 +310,14 @@ export default function EudrEvidenceSubmissionsPage() {
             setFilters({})
             setPage(1)
           }}
-          actions={(
+          actions={canManageSubmissions ? (
             <Button asChild>
               <Link href="/backend/eudr/evidence-submissions/create">
                 <Plus className="mr-2 h-4 w-4" aria-hidden />
                 {translate('eudr.evidenceSubmissions.list.actions.create')}
               </Link>
             </Button>
-          )}
+          ) : undefined}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -335,8 +342,10 @@ export default function EudrEvidenceSubmissionsPage() {
           emptyState={(
             <ListEmptyState
               entityName={translate('eudr.evidenceSubmissions.list.entityName')}
-              createHref="/backend/eudr/evidence-submissions/create"
-              createLabel={translate('eudr.evidenceSubmissions.list.actions.create')}
+              createHref={canManageSubmissions ? '/backend/eudr/evidence-submissions/create' : undefined}
+              createLabel={canManageSubmissions
+                ? translate('eudr.evidenceSubmissions.list.actions.create')
+                : undefined}
             />
           )}
           sortable

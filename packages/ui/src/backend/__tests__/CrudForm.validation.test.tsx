@@ -163,6 +163,43 @@ describe('CrudForm validation state', () => {
     expect(await findByText('This field is required')).toBeInTheDocument()
   })
 
+  it('does not run schema validation when an untouched required field blurs', async () => {
+    const fields: CrudField[] = [
+      { id: 'firstName', label: 'First name', type: 'text', required: true },
+    ]
+    const schema = z.object({
+      firstName: z.string().trim().min(1),
+    })
+
+    const { container, findByText, queryByText } = renderWithProviders(
+      <CrudForm title="Form" schema={schema} fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.required': 'This field is required',
+        },
+      },
+    )
+
+    const firstNameInput = container.querySelector('[data-crud-field-id="firstName"] input[type="text"]')
+    expect(firstNameInput).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.blur(firstNameInput as HTMLInputElement)
+    })
+
+    expect(queryByText('Invalid input: expected string, received undefined')).toBeNull()
+    expect(queryByText('This field is required')).toBeNull()
+
+    await act(async () => {
+      fireEvent.change(firstNameInput as HTMLInputElement, { target: { value: 'Jane' } })
+      fireEvent.change(firstNameInput as HTMLInputElement, { target: { value: '' } })
+      fireEvent.blur(firstNameInput as HTMLInputElement)
+    })
+
+    expect(await findByText('This field is required')).toBeInTheDocument()
+  })
+
   it('does not validate date picker fields when the trigger blurs', async () => {
     const fields: CrudField[] = [
       { id: 'dueDate', label: 'Due date', type: 'datepicker', required: true },
