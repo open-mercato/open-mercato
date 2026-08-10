@@ -27,7 +27,7 @@
     "refusedContextReads": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "exampleReadPolicy": {
       "type": "object",
-      "description": "Sanitized accounting of the case's canonical-example and reason-gated installed-source reads. Present only when the case declared context.exampleRoots. Carries no file content.",
+      "description": "Sanitized accounting of the case's canonical-example, declared source-reference, and reason-gated installed-source reads. Present when the case declares context.exampleRoots or context.sourceReferenceIds. Carries no file content.",
       "additionalProperties": false,
       "required": ["roots", "fallback", "references"],
       "properties": {

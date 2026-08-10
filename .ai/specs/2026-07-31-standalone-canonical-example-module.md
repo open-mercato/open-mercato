@@ -538,16 +538,21 @@ Run the affected harness lane and its knowledge-change manifest through the owni
 
 ## Backward Compatibility
 
-- No framework API, import, event, widget, CLI, or database contract is removed or renamed. Four
-  **value** changes do ship against the STABLE generated-facts surface of `BACKWARD_COMPATIBILITY.md`
+- No framework API, import, event, widget, CLI, or database contract is removed or renamed. The
+  added `ExtractAllModuleFactsResult` observability fields remain optional at the exported type
+  boundary and are always populated by the implementation. Four **value** changes are proposed
+  against the STABLE generated-facts surface of `BACKWARD_COMPATIBILITY.md`
   §14 and against the shared query engine, all corrections rather than removals: contribution IDs
   built from `ComponentReplacementHandles` gain their component segment (`ui.detail` →
   `section:ui.detail.NotesSection`), one published `mode` changes (`section:auth.login.form`,
   `replace` → `wrapper`), twelve previously dropped injection-table contributions start being
   published, and `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`
   (`companys` → `companies`). Each is documented with migration guidance in `UPGRADE_NOTES.md`
-  under `0.6.7 → 0.6.8 (unreleased)`; none needs a compatibility bridge, because every superseded
-  value named something that did not exist.
+  under `0.6.7 → 0.6.8 (unreleased)`. They are not compatibility-complete merely because every
+  superseded value named something that did not exist: the unversioned scalar `mode` cannot carry
+  both values without ambiguity, while publishing the truncated IDs as normal contributions would
+  falsely assert correlation. Release is blocked until a versioned generated-facts boundary lands
+  or those stable-value changes are reverted.
 - Existing `example` identifiers and paths remain stable; the design eliminates the proposed, unshipped duplicate identifiers.
 - Existing repositories are not modified. The observable behavior change applies only to newly generated `classic` apps, where `example` becomes source-present but runtime-disabled.
 - Lean presets gain additive source files and stop deleting `example`; their runtime remains unchanged because registration stays absent.

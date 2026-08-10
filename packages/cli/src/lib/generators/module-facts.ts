@@ -2925,18 +2925,19 @@ function sha256Hex(value: string | Buffer): string {
 
 /**
  * Canonical form used by both reference fingerprints: object keys are recursively sorted
- * and arrays are sorted by their own canonical text. Every array a fact entry emits is
- * set-valued (capabilities, phases, operations, modes, per-section fact lists), so a
- * single ordering rule keeps the fingerprint stable against extractor iteration order
- * without inventing per-field exceptions.
+ * and set-valued arrays are sorted by their own canonical text. Structured `path` arrays
+ * are ordered tuples whose segment order is part of the public target identity, so they
+ * retain their declared order.
  */
-function canonicalizeFingerprintValue(value: unknown): unknown {
+function canonicalizeFingerprintValue(value: unknown, propertyName?: string): unknown {
   if (Array.isArray(value)) {
-    return value
+    const items = value
       .map((item) => {
         const canonical = canonicalizeFingerprintValue(item)
         return { canonical, text: JSON.stringify(canonical) ?? '' }
       })
+    if (propertyName === 'path') return items.map((item) => item.canonical)
+    return items
       .sort((left, right) => (left.text < right.text ? -1 : left.text > right.text ? 1 : 0))
       .map((item) => item.canonical)
   }
@@ -2945,7 +2946,7 @@ function canonicalizeFingerprintValue(value: unknown): unknown {
     const result: Record<string, unknown> = {}
     for (const key of Object.keys(record).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
       if (record[key] === undefined) continue
-      result[key] = canonicalizeFingerprintValue(record[key])
+      result[key] = canonicalizeFingerprintValue(record[key], key)
     }
     return result
   }
@@ -3159,12 +3160,12 @@ export function extractLocalReferenceModuleFacts(
       sourceKind: 'local-reference',
       runtimeSelected: false,
       ...fingerprints,
-      factCoverage: activated.factCoverage,
+      factCoverage: activated.factCoverage ?? buildModuleFactCoverageLedger(),
       facts: jsonEntry,
     },
     markdown: renderModuleFactsMarkdown(facts, fingerprints),
     warnings: activated.warnings,
-    unresolvedTargets: activated.unresolvedFirstPartyTargets,
+    unresolvedTargets: activated.unresolvedFirstPartyTargets ?? [],
   }
 }
 
@@ -3196,13 +3197,13 @@ export interface ExtractAllModuleFactsResult {
   warnings: string[]
   frameworkMarkdown: string
   /** Always empty under the default `throw` policy, which aborts before returning. */
-  unresolvedFirstPartyTargets: string[]
+  unresolvedFirstPartyTargets?: string[]
   /**
    * The enum-derived coverage ledger for the taxonomies these facts are expressed
    * in, built during generation so an enum value with no classification aborts the
    * run instead of shipping an unclassified public value.
    */
-  factCoverage: ModuleFactCoverageFamily[]
+  factCoverage?: ModuleFactCoverageFamily[]
 }
 
 /**

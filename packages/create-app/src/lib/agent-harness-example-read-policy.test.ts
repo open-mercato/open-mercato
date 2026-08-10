@@ -30,6 +30,11 @@ type PolicyTrace = {
   reads: Array<{ path: string; root: string | null; capabilityId: string | null; entrypoint?: boolean; fallbackReason?: string }>
   roots: Array<{ root: string; entrypoints: string[]; capabilities: string[]; files: number; bytes: number }>
   fallback: { reason: string | null; files: number; bytes: number }
+  references: {
+    declared: string[]
+    owners: string[]
+    followed: Array<{ referenceId: string; originAsset: string; resolvedPath: string; targetKind: string | null }>
+  }
   firstViolation: string | null
 }
 
@@ -44,6 +49,7 @@ type Evaluator = {
   evaluateExampleReadPolicy: (input: { caseRecord: unknown; appRoot: string; reads: PolicyRead[] }) => PolicyTrace
   validateExampleReadPolicyDeclaration: (caseRecord: unknown, appRoot?: string) => string[]
   exampleReadAllowlist: (caseRecord: unknown, appRoot?: string) => string[]
+  caseReadAllowlist: (caseRecord: unknown, writable: boolean, appRoot: string) => string[]
   immutableExampleRoots: (caseRecord: unknown) => string[]
   normalizeExampleReadPath: (value: unknown) => { relative?: string; violation?: string }
   resolveSourceReference: (input: {
@@ -920,6 +926,7 @@ test('family 7: an ordinary example surface is never a specialist-route fallback
 // ---------------------------------------------------------------------------------------------
 
 const INSTALLED_SOURCE = 'node_modules/@open-mercato/core/src/modules/customers/api/route.ts'
+const OMH_203_FALLBACK_SOURCE = 'node_modules/@open-mercato/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx'
 
 function readEvent(pathValue: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ type: 'mcp_tool_call', name: 'harness__read', arguments: { path: pathValue, ...extra } })
@@ -1158,13 +1165,11 @@ test('reachability: exactly the pinned shipped cases declare an example root, an
   }
 })
 
-/**
- * `installedVersionFallback` is schema- and evaluator-complete, but the runner-facing tool
- * instruction still describes a read tool that takes only a path. A shipped case that declared the
- * fallback would therefore be unpassable in the live lane: the model has no documented way to send
- * the reason code the evaluator demands. This fixture keeps that pairing honest in both directions.
+/** The shipped fallback is useful only when its reason channel and one exact installed target are
+ * both present in the real tool-server allowlist. This fixture exercises those two enforcement
+ * layers together rather than proving the declaration and trace parser separately.
  */
-test('reachability: the specialist routing case can use the documented reason-gated fallback channel', () => {
+test('reachability: the specialist routing case can use the documented reason-gated fallback channel', async () => {
   const toolInstruction = /const toolInstruction = `([^`]*)`/.exec(evaluatorSource())
   assert.ok(toolInstruction, 'the runner tool instruction must still be a single template literal')
   assert.match(toolInstruction[1], /"reason"/)
@@ -1178,6 +1183,36 @@ test('reachability: the specialist routing case can use the documented reason-ga
     maxFiles: 4,
     maxBytes: 65536,
   })
+  assert.ok((declaring[0].context.allowedExtra as string[]).includes(OMH_203_FALLBACK_SOURCE))
+
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    const absolute = path.join(root, OMH_203_FALLBACK_SOURCE)
+    fs.mkdirSync(path.dirname(absolute), { recursive: true })
+    fs.writeFileSync(absolute, 'export const injectedTabWidgets = true\n')
+    const allowlist = evaluator.caseReadAllowlist(declaring[0], false, root)
+    assert.ok(allowlist.includes(OMH_203_FALLBACK_SOURCE))
+    assert.ok(!allowlist.includes('node_modules/@open-mercato/core/src/modules/customers/backend/customers/people-v2/[id]/**'))
+    const replies = callToolServer(root, 'read-only', allowlist, [], evaluator.immutableExampleRoots(declaring[0]), [
+      { name: 'read', arguments: { path: OMH_203_FALLBACK_SOURCE, reason: 'INSTALLED_VERSION_CONTRACT_MISMATCH' } },
+    ])
+    assert.equal(replies[1].result.isError, undefined)
+
+    const trace = evaluator.evaluateExampleReadPolicy({
+      caseRecord: declaring[0],
+      appRoot: root,
+      reads: [...entrypointReads(), {
+        path: OMH_203_FALLBACK_SOURCE,
+        fallbackReason: 'INSTALLED_VERSION_CONTRACT_MISMATCH',
+      }],
+    })
+    assert.equal(trace.firstViolation, null)
+    assert.equal(trace.fallback.reason, 'INSTALLED_VERSION_CONTRACT_MISMATCH')
+    assert.equal(trace.fallback.files, 1)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
@@ -2406,6 +2441,42 @@ test('family 12: the distinct design-foundation case has exact token and role-ga
     corruptEnvelope(figma, 'designFoundation.codeConnectSourceReferenceId', 'node_modules/@open-mercato/ui/figma/wrong.figma.tsx')
     corruptEnvelope(figma, 'designFoundation.publicationStatus', 'published')
     corruptEnvelope(designRecords[3], 'designFoundation.tokenApplicability', 'not-applicable')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: a reference-only shipped case enforces owner-first ordering and records every followed target', async () => {
+  const evaluator = await loadEvaluator()
+  const foundationCase = shippedCases().find((entry) => entry.id === 'OMH-228')
+  assert.ok(foundationCase)
+  assert.equal(foundationCase.context.exampleRoots, undefined)
+  const referenceIds = foundationCase.context.sourceReferenceIds as string[]
+  const records = projectedInventory().records
+  const targets = referenceIds.map((referenceId) => recordIn(records, referenceId).resolvedPath)
+  const owners = [...new Set(referenceIds.map((referenceId) => recordIn(records, referenceId).originAsset))]
+  assert.deepEqual(owners, ['.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md'])
+
+  const root = stageExampleApp()
+  try {
+    const beforeOwner = evaluator.evaluateExampleReadPolicy({
+      caseRecord: foundationCase,
+      appRoot: root,
+      reads: [{ path: targets[0] }],
+    })
+    assert.match(beforeOwner.firstViolation ?? '', /source reference followed before its origin owner was read/)
+    assert.deepEqual(beforeOwner.references.followed, [])
+
+    const followed = evaluator.evaluateExampleReadPolicy({
+      caseRecord: foundationCase,
+      appRoot: root,
+      reads: [{ path: owners[0] }, ...targets.map((target) => ({ path: target }))],
+    })
+    assert.equal(followed.firstViolation, null)
+    assert.deepEqual(followed.roots, [])
+    assert.deepEqual(followed.references.owners, owners)
+    assert.deepEqual(followed.references.followed.map((entry) => entry.referenceId), referenceIds)
+    assert.deepEqual(followed.references.followed.map((entry) => entry.resolvedPath), targets)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

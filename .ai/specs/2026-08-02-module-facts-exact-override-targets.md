@@ -1,6 +1,6 @@
 # Module Facts Exact Unified Override Targets
 
-- **Status:** Proposed — implementation-ready
+- **Status:** Implemented
 - **Date:** 2026-08-02
 - **Parent:** [Complete Source-Linked Module Extension Contracts](2026-08-02-module-facts-extension-surface-completeness.md)
 - **Depends on:** [Source Provenance and Contract Inventory](2026-08-02-module-facts-source-provenance-and-contract-inventory.md)
@@ -449,7 +449,7 @@ No non-compliant item or required human confirmation was identified.
 - **Performance:** Passed; adapters consume existing normalized facts.
 - **Compatibility:** Passed; generated target facts are additive and runtime behavior is unchanged.
 - **Scope:** Cohesive; framework semantics and topology remain linked dependencies.
-- **Verdict:** Ready for implementation after the provenance prerequisite.
+- **Verdict:** Implemented after the provenance prerequisite; later corrections are recorded below.
 
 ### 2026-08-03 — Code-review corrections
 

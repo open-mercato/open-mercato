@@ -363,6 +363,16 @@ describe('local-reference module fact emission', () => {
     }
     expect(computeModuleTaxonomyFingerprint(methodRemoved)).not.toBe(computeModuleTaxonomyFingerprint(baseline))
 
+    const orderedTarget = entry.facts.overrideTargets.find((target) => target.path.length > 1)
+    expect(orderedTarget).toBeDefined()
+    const pathReordered = {
+      ...entry.facts,
+      overrideTargets: entry.facts.overrideTargets.map((target) => target === orderedTarget
+        ? { ...target, path: [...target.path].reverse() }
+        : target),
+    }
+    expect(computeModuleTaxonomyFingerprint(pathReordered)).not.toBe(entry.taxonomyFingerprint)
+
     const movedBetweenSets = { ...entry.facts, aclFeatures: [], notifications: [...entry.facts.aclFeatures] }
     expect(computeModuleTaxonomyFingerprint(movedBetweenSets)).not.toBe(entry.taxonomyFingerprint)
   })

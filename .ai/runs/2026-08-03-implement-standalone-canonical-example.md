@@ -3,8 +3,8 @@
 - **Branch:** `feat/implement-standalone-canonical-example`
 - **Base:** `develop`
 - **Started:** 2026-08-03
-- **Status:** in progress
-- **Resume with:** `/om-auto-continue-pr-loop <PR#>` or by reading the Tasks table below and continuing from the first non-`done` row.
+- **Status:** local implementation complete; provider-certified release lane pending
+- **Resume with:** the provider-backed Milestone D lane recorded in [`2026-08-05-canonical-example-milestones-bcd.md`](2026-08-05-canonical-example-milestones-bcd.md#gap-completion-and-final-local-gate--2026-08-10-session-5).
 
 ## Source Specifications
 
@@ -87,16 +87,17 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 39 | **Wave 8 E6** — ai-tools/ai-agents/page-middleware/portal-broadcast + 2 vacuous tests fixed | CANON-B fact families | done | `fef7fc4b1` |
 | 40 | Resolve a DI token declared as a computed property key (silent-zero fix) | CANON-B / reader | done | `00cba7f17` |
 | 41 | **Wave 9 C6** — fix the `search` silent zero + add the missing diagnostic (0 → 6 ids) | CANON-B / reader | done | (merge) |
-| 42 | **Wave 9 E7 (PARTIAL)** — durable Todo bulk-complete: outbox, CAS worker, progress route, bulk widget | CANON-B bulk/progress | partial | `d5fa51253` |
+| 42 | **Wave 9 E7** — durable Todo bulk-complete: outbox, CAS worker, progress route, bulk widget | CANON-B bulk/progress | done | `d5fa51253` + follow-up run |
 | 43 | **Wave 9 H7** — GOV-P2 controller-owned base/head evidence contract | GOV-P2 | done | `e8eb259b0` |
 | 44 | **Wave 10 H8** — harness source-selection assertions (family 11, OMH-225/216) | CANON-C harness cases | done | `34b199657` |
 | 45 | **Wave 10 C5** — derived source-link inventory + D4 equality + drift gate + anti-staleness fix | CANON-C keystone | done | `c5db477fa` |
-| 46 | **Wave 11 E8 (PARTIAL)** — additive `EntityExtension.table` + engine preference; declaration-only example | CANON-B entity extensions | partial | `0f2ecf729` |
+| 46 | **Wave 11 E8** — additive `EntityExtension.table` + engine preference; declaration-only example | CANON-B entity extensions | done | `0f2ecf729` + follow-up run |
 | 47 | **Wave 12 S12** — blocked-backlog sweep: oracle-family re-derivation, enricher decryption reads | CANON-C / cleanup | done | `e610c3e9a` |
 
-## Deferred Backlog (not in this PR)
+## Historical Deferred Backlog (completed later in this PR)
 
-Each row keeps its dependency edge so a follow-up run can start immediately.
+This table records the scope split made on 2026-08-03. The work was subsequently completed in the
+Milestones B-D run linked above; it is retained as decision history, not as a current resume queue.
 
 | Deferred work | Depends on | Why deferred |
 |---|---|---|

@@ -166,10 +166,17 @@ plain literals. Gate behavior *inside* a widget or wrapper, or declare
 `BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
 generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
 exact public IDs, as STABLE once published. Four changes land against that surface and the
-adjacent generator/query types. None of them is a removal and none needs a compatibility bridge —
-three correct values that named something nonexistent, and the fourth fixes a join that resolved
-to a table that does not exist — but each is a visible value change for anyone who reads the
-generated facts or extends an entity, so they are listed here rather than only in the PR.
+adjacent generator/query types. Three correct values that named something nonexistent, and the
+fourth fixes a join that resolved to a table that does not exist, but correctness does not erase
+the published contract: each is a visible value change for anyone who reads the generated facts
+or extends an entity.
+
+**Release blocker:** the current unversioned fact leaf cannot represent both `replace` and
+`wrapper` for one contribution without becoming ambiguous, and dual-emitting the old truncated
+component IDs as ordinary contributions would falsely claim that those nonexistent handles
+correlate. This change therefore has no truthful in-band compatibility bridge. Before release,
+the generated-facts contract must gain an explicitly versioned compatibility boundary (or the
+stable-value changes must be reverted). Merely listing the migration below is not a bridge.
 
 **1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
 `packages/cli/src/lib/generators/module-extension-facts.ts` now folds
@@ -208,10 +215,10 @@ you worked around the old derivation by adding a `y`-ending entity's real table 
 derived name. Behavior is unchanged for every entity segment that does not end in `y`.
 
 **Type-surface note (#4897).** `ExtractAllModuleFactsResult`
-(`packages/cli/src/lib/generators/module-facts.ts`) gains a **required**
-`unresolvedFirstPartyTargets: string[]`. It is a return type, so readers are unaffected; anything
-that *constructs* or mocks the interface — a generator test double, a wrapper that rebuilds the
-result — must add the field. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
+(`packages/cli/src/lib/generators/module-facts.ts`) gains optional
+`unresolvedFirstPartyTargets?: string[]` and `factCoverage?: ModuleFactCoverageFamily[]` fields.
+The implementation always populates both, while optionality preserves source compatibility for
+existing constructors, mocks, and wrappers. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
 in the other direction and needs no action: `headers` accepts a function in addition to
 `string[]`, and `row` gains a second `ctx` parameter, so every existing `(item) => …`
 implementation stays assignable.

@@ -737,6 +737,7 @@ export function validateExampleReadPolicyDeclaration(caseRecord, appRoot) {
 // never records file contents or secret values.
 export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
   const declarations = exampleRootDeclarations(caseRecord)
+  const referenceIds = declaredSourceReferenceIds(caseRecord)
   const trace = {
     reads: [],
     roots: declarations.map((declaration) => ({
@@ -747,10 +748,10 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
       bytes: 0,
     })),
     fallback: { reason: null, files: 0, bytes: 0 },
-    references: { declared: declaredSourceReferenceIds(caseRecord), owners: [], followed: [] },
+    references: { declared: referenceIds, owners: [], followed: [] },
     firstViolation: null,
   }
-  if (!declarations.length) return trace
+  if (!declarations.length && !referenceIds.length) return trace
   const fallbackPolicy = isPlainObject(caseRecord?.context?.installedVersionFallback)
     ? caseRecord.context.installedVersionFallback
     : null
@@ -764,7 +765,6 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
 
   // Resolve the declared references once. A reference that cannot be resolved is a violation the
   // moment the case tries to follow it, not a silent downgrade to ordinary traversal.
-  const referenceIds = declaredSourceReferenceIds(caseRecord)
   const referenceInventory = referenceIds.length ? readSourceLinkInventory(appRoot) : null
   const routedOwners = new Set([
     ...(caseRecord?.context?.required ?? []),
@@ -819,12 +819,13 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
       break
     }
     // A declared reference outside the canonical root is first-class context, not fallback: it
-    // needs no reason code, but it is charged against the declaring root's normal budgets and
-    // its package identity is recorded so the trace says exactly what was followed.
+    // needs no reason code and its package identity is recorded so the trace says exactly what
+    // was followed. When the case also declares the canonical root it is charged to that root;
+    // reference-only cases remain bounded by the case's total context budget.
     if (reference && index < 0) {
       const rootTrace = trace.roots[0]
       const declaration = declarations[0]
-      if (!chargedByRoot[0].has(relative)) {
+      if (rootTrace && declaration && !chargedByRoot[0].has(relative)) {
         const files = rootTrace.files + 1
         const bytes = rootTrace.bytes + reference.size
         if (files > declaration.maxFiles) { trace.firstViolation = `example root file budget exceeded: ${files}/${declaration.maxFiles}`; break }
@@ -845,7 +846,7 @@ export function evaluateExampleReadPolicy({ caseRecord, appRoot, reads }) {
           ...identity,
         })
       }
-      trace.reads.push({ path: relative, root: rootTrace.root, capabilityId: null, referenceId: reference.referenceId })
+      trace.reads.push({ path: relative, root: rootTrace?.root ?? null, capabilityId: null, referenceId: reference.referenceId })
       continue
     }
     if (index >= 0) {
@@ -2260,7 +2261,7 @@ function prepareCaseFrameworkContext(caseRecord, controllerRoot, runRoot) {
   return { patterns: [...patterns].sort(), entries }
 }
 
-function caseReadAllowlist(caseRecord, writable, appRoot) {
+export function caseReadAllowlist(caseRecord, writable, appRoot) {
   const skillIds = supportingSkillIds(caseRecord)
   return [...new Set([
     'AGENTS.md',
@@ -3804,6 +3805,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         declaredContext: declaredStats,
         ...(trace.refusedPaths?.length ? { refusedContextReads: recursivelySanitize(trace.refusedPaths, runRoot) } : {}),
         ...(trace.exampleReadPolicy?.roots?.length || trace.exampleReadPolicy?.fallback?.reason
+          || trace.exampleReadPolicy?.references?.declared?.length
           ? { exampleReadPolicy: sanitizedExampleReadPolicy(trace.exampleReadPolicy, runRoot) }
           : {}),
         ...(writableResult ? { writable: writableResult } : {}),

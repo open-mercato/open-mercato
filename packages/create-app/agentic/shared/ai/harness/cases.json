@@ -18253,7 +18253,8 @@
       ],
       "allowedExtra": [
         ".ai/skills/om-system-extension/references/extension-branches.md",
-        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        "node_modules/@open-mercato/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx"
       ],
       "forbidden": [
         ".env*",

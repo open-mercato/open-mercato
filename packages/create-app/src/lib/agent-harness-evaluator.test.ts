@@ -129,7 +129,10 @@ function stageApp(): string {
     path.join(root, 'src', 'app', 'globals.css'),
   )
   for (const [packageName, relativePaths] of Object.entries({
-    core: ['src/modules/design_system/gallery/entries/buttons.tsx'],
+    core: [
+      'src/modules/design_system/gallery/entries/buttons.tsx',
+      'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
+    ],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
   })) {
     const sourcePackage = fileURLToPath(new URL(`../../../${packageName}/`, import.meta.url))
@@ -939,7 +942,8 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
   const search = `${materializedRoot}/search.txt`
   const personSource = `${materializedRoot}/source/customers/backend/person-page.tsx`
   const companySource = `${materializedRoot}/source/customers/backend/company-page.tsx`
-  const frameworkEvidence = [manifest, search, companySource, personSource]
+  const fallbackSource = `${materializedRoot}/source/customers/backend/customers/people-v2/[id]/page.tsx`
+  const frameworkEvidence = [manifest, search, companySource, fallbackSource, personSource]
   const decisions = [
     'extension-mechanism',
     'additive-before-replacement',
@@ -988,6 +992,7 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
       const traceOrder = frameworkFirst
         ? ['AGENTS.md', ...frameworkEvidence, ...guidance.slice(1)]
         : [...guidance, ...frameworkEvidence]
+      const traceCommand = `cat ${traceOrder.map((entry) => `'${entry}'`).join(' ')}`
       const bin = installFakeRunner(controller, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
@@ -1009,7 +1014,7 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   decisions: ${JSON.stringify(decisions)},
   violations: [],
 }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat ' + ${JSON.stringify(traceOrder)}.join(' ') } }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ${JSON.stringify(traceCommand)} } }))
 `)
       const run = runEvaluator(controller, ['--runner', 'codex', '--case', 'OMH-203'], {
         ...process.env,
