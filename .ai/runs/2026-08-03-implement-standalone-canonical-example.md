@@ -1178,16 +1178,37 @@ inherits the red. Filed upstream as **#5144**.
 - [x] Post-review fix: pin `nanoid` to 3.3.18, clearing GHSA-2v37-7h3g-55p8 (postcss 8.5.22 is the
   only dependent and requests `^3.3.16`, so the pin stays inside the declared range) — `3e91b0a51`
 - [x] Post-review fix: `.audit-allowlist.json` + waiver support in `scripts/audit-ci.mjs` for the two
-  `image-size` advisories — `9a3b998cb`
+  `image-size` advisories — `9a3b998cb`, **superseded and reverted by the `develop` merge below**
 
-### Why a waiver, when `2026-08-04-audit-gate-transitive-dep-bumps.md` ruled allowlists out
+### Both halves landed independently on `develop` while this session was running
+
+`develop` merged **#5157** (`4792c7717`) about ninety minutes after this session started, carrying the
+same two halves: `dcb670592` pins `nanoid` to 3.3.17, and `1fc0c3527` adds
+`scripts/audit-ci-allowlist.json` plus GHSA-keyed exception partitioning in `scripts/audit-ci.mjs`.
+The merge therefore takes **`develop`'s mechanism wholesale** and drops this branch's parallel
+implementation entirely: `.audit-allowlist.json` deleted, `scripts/audit-ci.mjs` and its test file
+resolved to `origin/develop`, and the `nanoid` pin resolved to their descriptor-keyed
+`"nanoid@npm:^3.3.16": "3.3.17"`. Two allowlist mechanisms in one repository would have been the
+defect, and theirs follows the established `scripts/logger-console-allowlist.json` convention.
+
+`package.json` **auto-merged without a conflict** into two competing `nanoid` resolutions (their
+descriptor-keyed 3.3.17 and this branch's bare 3.3.18). Git could not see it; only reading the merged
+`resolutions` block did. Their justification is also the better one — it records that
+`image-size/image-size` is *archived upstream*, which this session's research had not established.
+
+Two properties of the reverted implementation are **not** in `develop`'s, and belong in a follow-up
+against their file rather than resurrected here: a mandatory expiry (`MAX_WAIVER_DAYS`, so a waiver
+cannot outlive its review) and matching on the exact vulnerable range the registry reports (so a
+re-scoped advisory stops being covered).
+
+### Why a waiver at all, when `2026-08-04-audit-gate-transitive-dep-bumps.md` ruled allowlists out
 
 That run's non-goal ("the gate must go green because the graph is fixed") assumed a fix exists. For
 GHSA-w3rx-r6r6-pgpr and GHSA-5p2g-fcmc-qvqq it does not: 2.0.2 is the newest `image-size` npm has
 ever published, both advisories cover `<=2.0.2`, and the GitHub advisory API reports
 `first_patched_version: null` for both. No bump, resolution or lockfile edit can clear them, so the
 alternative to a waiver is a permanently red gate on an unrepairable graph. Maintainer decision
-taken this session: ship the waiver.
+taken this session: ship the waiver — which `develop` then settled its own way, as recorded above.
 
 The mechanism is built to fail closed rather than to soften the gate. A waiver must name the GHSA
 id, the package, the exact vulnerable range the registry reports, a reason and an expiry no more

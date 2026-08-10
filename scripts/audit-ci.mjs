@@ -13,33 +13,25 @@
 // This script performs the same audit (all resolved packages == `--all
 // --recursive`, fail on `high`+ severity) but decompresses defensively by
 // sniffing the gzip magic bytes, so it works whether or not npm sends the
-// header. It fails closed (exit 2) if advisory data cannot be retrieved, and
-// exits 1 on any advisory at or above the threshold.
-//
-// The one documented escape hatch is `.audit-allowlist.json` next to the
-// lockfile, for an advisory with NO published fix — every version of the
-// package is in the vulnerable range, so no bump can clear it and the gate
-// would otherwise stay red forever on a graph nobody can repair. A waiver is
-// deliberately hard to abuse: it must name the advisory id, the package, the
-// exact vulnerable range the registry reports, a reason, and an expiry no more
-// than MAX_WAIVER_DAYS away. Anything malformed fails the run closed (exit 2),
-// an expired or non-matching waiver suppresses nothing, and every suppression
-// is printed on every run so it stays visible in the job log.
+// header. It NEVER softens the gate: it fails closed (exit 2) if advisory data
+// cannot be retrieved, and exits 1 on any advisory at or above the threshold.
 //
 // Revert to `yarn npm audit --all --recursive --severity high` once the npm
 // registry restores a correct `Content-Encoding` header on that endpoint.
+//
+// A flagged advisory with no upstream fix would otherwise block the gate
+// forever; audit-ci-allowlist.json holds narrowly-scoped, justified
+// exceptions (matched by GHSA id) for exactly that case.
 
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical']
 export const ENDPOINT = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
-export const ALLOWLIST_FILE = '.audit-allowlist.json'
-export const MAX_WAIVER_DAYS = 90
-const WAIVER_FIELDS = ['advisory', 'package', 'vulnerableVersions', 'reason', 'expires']
+export const ALLOWLIST_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'audit-ci-allowlist.json')
 
 export function parseArgs(argv) {
   const inlineSeverity = (argv.find((arg) => arg.startsWith('--severity=')) || '').split('=')[1]
@@ -51,11 +43,9 @@ export function parseArgs(argv) {
   if (!SEVERITY_ORDER.includes(threshold)) {
     throw new Error(`unknown --severity "${threshold}" (expected one of ${SEVERITY_ORDER.join(', ')})`)
   }
-  const lockPath = path.resolve(argv.find((arg) => arg.endsWith('yarn.lock')) || 'yarn.lock')
   return {
     threshold,
-    lockPath,
-    allowlistPath: path.join(path.dirname(lockPath), ALLOWLIST_FILE),
+    lockPath: path.resolve(argv.find((arg) => arg.endsWith('yarn.lock')) || 'yarn.lock'),
   }
 }
 
@@ -138,79 +128,33 @@ export function collectFlaggedAdvisories(advisories, threshold) {
   return flagged
 }
 
-export function today() {
-  return new Date().toISOString().slice(0, 10)
+export function extractGhsaId(url) {
+  const match = typeof url === 'string' ? url.match(/GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}/i) : null
+  return match ? match[0].toUpperCase() : null
 }
 
-function daysBetween(from, to) {
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000)
-}
-
-function normalizeRange(range) {
-  return String(range ?? '').replace(/\s+/g, '')
-}
-
-export function readWaivers(allowlistPath, currentDate = today()) {
-  if (!fs.existsSync(allowlistPath)) return []
-  let parsed
-  try {
-    parsed = JSON.parse(fs.readFileSync(allowlistPath, 'utf8'))
-  } catch (error) {
-    throw new Error(`${allowlistPath} is not valid JSON: ${error.message}`)
+// Advisories with no upstream fix (e.g. an archived package) would otherwise
+// block the gate forever. Each entry needs a recorded reason so the exception
+// stays reviewable — see audit-ci-allowlist.json.
+export function loadAllowlist(filePath = ALLOWLIST_PATH) {
+  if (!fs.existsSync(filePath)) return new Map()
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.advisories !== 'object') {
+    throw new Error(`${filePath} must contain an "advisories" object`)
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.waivers)) {
-    throw new Error(`${allowlistPath} must be an object with a "waivers" array`)
-  }
-  return parsed.waivers.map((waiver, index) => {
-    const label = `${allowlistPath} waiver #${index + 1}`
-    if (!waiver || typeof waiver !== 'object' || Array.isArray(waiver)) {
-      throw new Error(`${label} must be an object`)
-    }
-    for (const field of WAIVER_FIELDS) {
-      if (typeof waiver[field] !== 'string' || waiver[field].trim() === '') {
-        throw new Error(`${label} is missing a non-empty "${field}"`)
-      }
-    }
-    if (!/^GHSA-[\da-z]{4}-[\da-z]{4}-[\da-z]{4}$/i.test(waiver.advisory)) {
-      throw new Error(`${label} has an "advisory" that is not a GHSA id: ${waiver.advisory}`)
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(waiver.expires) || Number.isNaN(Date.parse(`${waiver.expires}T00:00:00Z`))) {
-      throw new Error(`${label} has an "expires" that is not a YYYY-MM-DD date: ${waiver.expires}`)
-    }
-    if (daysBetween(currentDate, waiver.expires) > MAX_WAIVER_DAYS) {
-      throw new Error(`${label} expires more than ${MAX_WAIVER_DAYS} days out (${waiver.expires}); waivers must be re-reviewed`)
-    }
-    return waiver
-  })
+  return new Map(Object.entries(parsed.advisories).map(([ghsaId, entry]) => [ghsaId.toUpperCase(), entry]))
 }
 
-export function applyWaivers(flagged, waivers, currentDate = today()) {
-  // A waiver matches only when the package, the advisory id AND the exact
-  // vulnerable range the registry reports all agree, so a re-scoped advisory
-  // (or a different advisory for the same package) is never silently covered.
-  const matches = (advisory, waiver) => advisory.name === waiver.package
-    && String(advisory.url ?? '').toUpperCase().includes(waiver.advisory.toUpperCase())
-    && normalizeRange(advisory.range) === normalizeRange(waiver.vulnerableVersions)
-
-  const reported = []
+export function partitionAllowlisted(flagged, allowlist) {
+  const blocking = []
   const suppressed = []
-  const expired = []
-  const used = new Set()
   for (const advisory of flagged) {
-    const waiver = waivers.find((candidate) => matches(advisory, candidate))
-    if (!waiver) {
-      reported.push(advisory)
-      continue
-    }
-    used.add(waiver)
-    if (waiver.expires < currentDate) {
-      expired.push({ advisory, waiver })
-      reported.push(advisory)
-      continue
-    }
-    suppressed.push({ advisory, waiver })
+    const ghsaId = extractGhsaId(advisory.url)
+    const exemption = ghsaId ? allowlist.get(ghsaId) : undefined
+    if (exemption) suppressed.push({ ...advisory, ghsaId, reason: exemption.reason })
+    else blocking.push(advisory)
   }
-  return { reported, suppressed, expired, unused: waivers.filter((waiver) => !used.has(waiver)) }
+  return { blocking, suppressed }
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -222,17 +166,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 2
   }
 
-  const { lockPath, allowlistPath, threshold } = options
-  let waivers
-  try {
-    // Read before the scan so a malformed allowlist fails the run closed
-    // rather than after a few minutes of network work.
-    waivers = readWaivers(allowlistPath)
-  } catch (error) {
-    console.error(`audit-ci: ${error.message}`)
-    return 2
-  }
-
+  const { lockPath, threshold } = options
   const packages = readLockPackages(lockPath)
   const names = [...packages.keys()]
   if (names.length === 0) {
@@ -255,26 +189,30 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const flagged = collectFlaggedAdvisories(advisories, threshold)
-  const { reported, suppressed, expired, unused } = applyWaivers(flagged, waivers)
+
+  let allowlist
+  try {
+    allowlist = loadAllowlist()
+  } catch (error) {
+    // Fail closed — a broken allowlist must never silently suppress advisories.
+    console.error(`audit-ci: could not read allowlist: ${error.message}`)
+    return 2
+  }
+  const { blocking, suppressed } = partitionAllowlisted(flagged, allowlist)
 
   console.log(`audit-ci: scanned ${names.length} packages; threshold=${threshold}+`)
-  for (const { advisory, waiver } of suppressed) {
-    console.log(`audit-ci: waived until ${waiver.expires} — [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
-    console.log(`  reason: ${waiver.reason}`)
+  if (suppressed.length > 0) {
+    console.log(`audit-ci: ${suppressed.length} advisory(ies) allowlisted:`)
+    for (const advisory of suppressed) {
+      console.log(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.ghsaId}: ${advisory.reason}`)
+    }
   }
-  for (const { waiver } of expired) {
-    console.error(`audit-ci: the waiver for ${waiver.advisory} (${waiver.package}) expired on ${waiver.expires} — it no longer suppresses anything.`)
-  }
-  for (const waiver of unused) {
-    console.error(`audit-ci: the waiver for ${waiver.advisory} (${waiver.package}) matched no advisory — remove it from ${ALLOWLIST_FILE}.`)
-  }
-  if (reported.length === 0) {
-    const waived = suppressed.length > 0 ? ` (${suppressed.length} waived)` : ''
-    console.log(`audit-ci: no advisories at or above threshold${waived}.`)
+  if (blocking.length === 0) {
+    console.log('audit-ci: no advisories at or above threshold.')
     return 0
   }
-  console.error(`audit-ci: ${reported.length} advisory(ies) at or above ${threshold}:`)
-  for (const advisory of reported) {
+  console.error(`audit-ci: ${blocking.length} advisory(ies) at or above ${threshold}:`)
+  for (const advisory of blocking) {
     console.error(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
   }
   return 1

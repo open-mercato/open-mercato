@@ -6,43 +6,16 @@ import test from 'node:test'
 import zlib from 'node:zlib'
 
 import {
-  ALLOWLIST_FILE,
-  MAX_WAIVER_DAYS,
-  applyWaivers,
+  ALLOWLIST_PATH,
   collectFlaggedAdvisories,
   decodeAdvisoryResponse,
+  extractGhsaId,
   fetchAdvisories,
+  loadAllowlist,
   parseArgs,
+  partitionAllowlisted,
   readLockPackages,
-  readWaivers,
 } from '../audit-ci.mjs'
-
-const imageSizeAdvisory = {
-  name: 'image-size',
-  severity: 'high',
-  range: '<=2.0.2',
-  title: 'infinite loop',
-  url: 'https://github.com/advisories/GHSA-w3rx-r6r6-pgpr',
-}
-
-const imageSizeWaiver = {
-  advisory: 'GHSA-w3rx-r6r6-pgpr',
-  package: 'image-size',
-  vulnerableVersions: '<= 2.0.2',
-  reason: 'no published fix',
-  expires: '2026-11-08',
-}
-
-function withAllowlist(contents, assertions) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-allowlist-'))
-  const allowlistPath = path.join(directory, ALLOWLIST_FILE)
-  try {
-    fs.writeFileSync(allowlistPath, typeof contents === 'string' ? contents : JSON.stringify(contents))
-    assertions(allowlistPath)
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true })
-  }
-}
 
 test('parses npm and patched packages from a Yarn lockfile', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-'))
@@ -144,65 +117,45 @@ test('audit advisory retries abort stalled registry responses before failing clo
   assert.equal(attempts, 3)
 })
 
-test('an absent allowlist waives nothing', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-allowlist-'))
+test('extracts a GHSA id from an advisory url regardless of case', () => {
+  assert.equal(extractGhsaId('https://github.com/advisories/GHSA-w3rx-r6r6-pgpr'), 'GHSA-W3RX-R6R6-PGPR')
+  assert.equal(extractGhsaId('https://github.com/advisories/ghsa-5p2g-fcmc-qvqq'), 'GHSA-5P2G-FCMC-QVQQ')
+  assert.equal(extractGhsaId('https://example.test/not-a-ghsa-link'), null)
+  assert.equal(extractGhsaId(undefined), null)
+})
+
+test('the shipped allowlist parses and covers the documented image-size exceptions', () => {
+  const allowlist = loadAllowlist(ALLOWLIST_PATH)
+  assert.equal(allowlist.get('GHSA-W3RX-R6R6-PGPR')?.package, 'image-size')
+  assert.equal(allowlist.get('GHSA-5P2G-FCMC-QVQQ')?.package, 'image-size')
+})
+
+test('loadAllowlist returns an empty map when the file is missing', () => {
+  const missingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-')), 'missing.json')
+  assert.deepEqual(loadAllowlist(missingPath), new Map())
+})
+
+test('loadAllowlist fails closed on a malformed allowlist file', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-'))
+  const allowlistPath = path.join(directory, 'audit-ci-allowlist.json')
   try {
-    assert.deepEqual(readWaivers(path.join(directory, ALLOWLIST_FILE)), [])
+    fs.writeFileSync(allowlistPath, JSON.stringify({ version: 1 }))
+    assert.throws(() => loadAllowlist(allowlistPath), /must contain an "advisories" object/)
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })
   }
 })
 
-test('a malformed waiver fails the run closed instead of silently waiving', () => {
-  withAllowlist('{', (allowlistPath) => assert.throws(() => readWaivers(allowlistPath), /not valid JSON/))
-  withAllowlist({ entries: [] }, (allowlistPath) => assert.throws(() => readWaivers(allowlistPath), /"waivers" array/))
-  withAllowlist({ waivers: [{ ...imageSizeWaiver, reason: '  ' }] }, (allowlistPath) => {
-    assert.throws(() => readWaivers(allowlistPath), /missing a non-empty "reason"/)
-  })
-  withAllowlist({ waivers: [{ ...imageSizeWaiver, advisory: 'CVE-2026-1' }] }, (allowlistPath) => {
-    assert.throws(() => readWaivers(allowlistPath), /not a GHSA id/)
-  })
-  withAllowlist({ waivers: [{ ...imageSizeWaiver, expires: '08-11-2026' }] }, (allowlistPath) => {
-    assert.throws(() => readWaivers(allowlistPath), /not a YYYY-MM-DD date/)
-  })
-})
-
-test('waivers may not be granted for longer than the review window', () => {
-  withAllowlist({ waivers: [{ ...imageSizeWaiver, expires: '2026-11-08' }] }, (allowlistPath) => {
-    assert.equal(readWaivers(allowlistPath, '2026-08-10').length, 1)
-    assert.throws(() => readWaivers(allowlistPath, '2026-08-09'), new RegExp(`more than ${MAX_WAIVER_DAYS} days out`))
-  })
-})
-
-test('a waiver suppresses only its own advisory, package and reported range', () => {
-  const other = { ...imageSizeAdvisory, name: 'nanoid', range: '<3.3.17', url: 'https://github.com/advisories/GHSA-2v37-7h3g-55p8' }
-  const rescoped = { ...imageSizeAdvisory, range: '<=2.0.3' }
-
-  const matched = applyWaivers([imageSizeAdvisory], [imageSizeWaiver], '2026-08-10')
-  assert.deepEqual(matched.reported, [])
-  assert.deepEqual(matched.suppressed.map(({ advisory }) => advisory.name), ['image-size'])
-  assert.deepEqual(matched.unused, [])
-
-  assert.deepEqual(applyWaivers([other], [imageSizeWaiver], '2026-08-10').reported, [other])
-  assert.deepEqual(applyWaivers([rescoped], [imageSizeWaiver], '2026-08-10').reported, [rescoped])
-  assert.deepEqual(applyWaivers([], [imageSizeWaiver], '2026-08-10').unused, [imageSizeWaiver])
-})
-
-test('an expired waiver stops suppressing and is reported as expired', () => {
-  const result = applyWaivers([imageSizeAdvisory], [imageSizeWaiver], '2026-11-09')
-  assert.deepEqual(result.reported, [imageSizeAdvisory])
-  assert.deepEqual(result.suppressed, [])
-  assert.deepEqual(result.expired.map(({ waiver }) => waiver.advisory), ['GHSA-w3rx-r6r6-pgpr'])
-  assert.deepEqual(result.unused, [])
-})
-
-test('the allowlist checked into this repository is well formed', () => {
-  const repoRoot = path.resolve(import.meta.dirname, '..', '..')
-  const allowlistPath = path.join(repoRoot, ALLOWLIST_FILE)
-  if (!fs.existsSync(allowlistPath)) return
-  for (const waiver of readWaivers(allowlistPath)) {
-    assert.match(waiver.reason, /\S/)
-  }
+test('partitionAllowlisted suppresses only advisories matched by GHSA id', () => {
+  const flagged = [
+    { name: 'image-size', severity: 'high', range: '<=2.0.2', title: 'ICNS DoS', url: 'https://github.com/advisories/GHSA-w3rx-r6r6-pgpr' },
+    { name: 'lodash', severity: 'high', range: '<4.17.21', title: 'prototype pollution', url: 'https://github.com/advisories/GHSA-unrelated-0000-0000' },
+  ]
+  const allowlist = new Map([['GHSA-W3RX-R6R6-PGPR', { package: 'image-size', reason: 'archived, unpatched, build-time only' }]])
+  const { blocking, suppressed } = partitionAllowlisted(flagged, allowlist)
+  assert.deepEqual(blocking.map((advisory) => advisory.name), ['lodash'])
+  assert.deepEqual(suppressed.map((advisory) => advisory.name), ['image-size'])
+  assert.equal(suppressed[0].reason, 'archived, unpatched, build-time only')
 })
 
 test('the change-triggered audit job has a hard workflow timeout', () => {
