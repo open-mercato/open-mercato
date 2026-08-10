@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronDown, ChevronLeft, Home, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
+import { useIsomorphicLayoutEffect } from '../hooks/useIsomorphicLayoutEffect'
 import { Button } from '../primitives/button'
 import {
   Breadcrumb as BreadcrumbNav,
@@ -74,8 +75,6 @@ import {
 // `@open-mercato/shared/lib/browser/versionedPreference`.
 const SIDEBAR_OPEN_GROUPS_KEY = 'om:sidebarOpenGroups'
 const SIDEBAR_OPEN_GROUPS_VERSION = 1
-
-const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect
 
 function isBooleanRecord(value: unknown): value is Record<string, boolean> {
   return (
