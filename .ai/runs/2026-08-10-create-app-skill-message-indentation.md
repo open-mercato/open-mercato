@@ -39,8 +39,8 @@ Make the skill-installation messages emitted during `create-mercato-app` agentic
 
 ### Phase 1: Regression repair
 
-- [ ] 1.1 Add a regression oracle that requires every default standalone skill-installer summary line to start with the wizard's three-space indentation.
-- [ ] 1.2 Apply the minimal indentation fix to the default standalone skill-installer summary.
+- [x] 1.1 Add a regression oracle that requires every default standalone skill-installer summary line to start with the wizard's three-space indentation. — 2535a08d5
+- [x] 1.2 Apply the minimal indentation fix to the default standalone skill-installer summary. — 2535a08d5
 
 ### Phase 2: Verification and delivery
 
