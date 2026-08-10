@@ -164,7 +164,7 @@ Rule owners: `om-backend-ui-design`, `om-system-extension` (page middleware).
 |---|---|---|---|
 | `umes.mutation-guard` | `MutationGuard` bound to an entity kind + operations, returning `{ ok: false, message, status }` | [`../data/guards.ts`](../data/guards.ts) | readable |
 | `umes.response-enricher` | `ResponseEnricher` adding a namespaced `_example` block to another module's list/detail responses, with `enrichMany` batching, `fallback`, timeout, explicit `cacheableOnListHit` | [`../data/enrichers.ts`](../data/enrichers.ts) | readable |
-| `umes.extension-points` | `defineModuleExtensionPoints` declaring the hosts this module exposes: the Todo DataTable and the Todo CrudForm, each consumed by its declared source via `extensionPoints.hosts.<key>`, the form the framework's binding detector requires | [`../extension-points.ts`](../extension-points.ts) | readable |
+| `umes.extension-points` | `defineModuleExtensionPoints` declaring the four hosts this module exposes: the Todo DataTable, Todo CrudForm, phase-C handler injection host, and component-override showcase; each is consumed by its declared source via `extensionPoints.hosts.<key>`, the form the framework's binding detector requires | [`../extension-points.ts`](../extension-points.ts) | readable |
 | `umes.injection-table` | Every supported spot-id shape mapped to widget ids: portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menus, detail spots, tab groups, nested widget addon — exported as one unconditional object literal, the only shape the fact extractor can fold (26 contributions read; 0 while it was an env-flag ternary) | [`../widgets/injection-table.ts`](../widgets/injection-table.ts) | readable |
 | `umes.injection.crud-form-field` | Headless field contribution into another module's CrudForm plus an `onSave` upsert handler | [`../widgets/injection/customer-priority-field/widget.ts`](../widgets/injection/customer-priority-field/widget.ts) | readable |
 | `umes.injection.datatable-column` | Headless column reading an enricher-provided accessor path | [`../widgets/injection/customer-priority-column/widget.ts`](../widgets/injection/customer-priority-column/widget.ts) | readable |
@@ -265,6 +265,8 @@ The following files are present in the tree but are **not** capability rows and 
 ## Outstanding notes on `readable` rows
 
 Recorded so the gate stays honest; none of these demote the row.
+
+**Proven by unit tests only**: `module.acl-features`, `search.encrypted-column-list-filter`, `api.option-source-routes`, `commands.undo-redo`, `module.setup-scheduler-target`, `ui.dashboard-widget`, and `overrides.compileable-reference`. None of the seven has an integration spec; their `integrationTestPaths` entries are repository evidence, not a runtime-coverage claim.
 
 - `commands/todos.ts`, `api/interceptors.ts`, `lib/mock-*-adapter.ts` — several internal `throw new Error('...')` assertions are missing the `[internal]` prefix required by the i18n hardcoded-string convention.
 - `commands/interceptors.ts`, `subscribers/audit-delete.ts` — raw `console.log` behind an eslint disable instead of the `createLogger` facade (advisory `yarn logger:check-console`).

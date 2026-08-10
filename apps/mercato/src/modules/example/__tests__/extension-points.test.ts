@@ -17,7 +17,12 @@ function readModuleSource(relativePath: string): string {
 describe('example extension-points.ts', () => {
   it('declares the module id and exactly the hosts this module renders', () => {
     expect(extensionPoints.moduleId).toBe('example')
-    expect(Object.keys(extensionPoints.hosts).sort()).toEqual(['todoForm', 'todosTable'])
+    expect(Object.keys(extensionPoints.hosts).sort()).toEqual([
+      'handlersForm',
+      'overrideShowcase',
+      'todoForm',
+      'todosTable',
+    ])
   })
 
   it('points every host at a source file that exists in the module', () => {

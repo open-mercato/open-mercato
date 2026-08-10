@@ -1927,7 +1927,7 @@
     {
       "capabilityId": "umes.extension-points",
       "title": "Declared extension hosts (`extension-points.ts`)",
-      "description": "`defineModuleExtensionPoints` declaring the extension hosts this module exposes to others: the Todo DataTable (`dataTableExtensionHost`) and the Todo CrudForm (`crudFormExtensionHost`). Both hosts are consumed by their declared source file via `extensionPoints.hosts.<key>`, which is what the framework's binding detector requires — the extractor reports no `unbound-declaration` for this module.",
+      "description": "`defineModuleExtensionPoints` declaring the four extension hosts this module exposes to others: the Todo DataTable (`dataTableExtensionHost`), Todo CrudForm (`crudFormExtensionHost`), phase-C handler injection host (`injectionExtensionHost`), and component-override showcase (`componentExtensionHost`). Every host is consumed by its declared source file via `extensionPoints.hosts.<key>`, which is what the framework's binding detector requires — the extractor reports no `unbound-declaration` for this module.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
