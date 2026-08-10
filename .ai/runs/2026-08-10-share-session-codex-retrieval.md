@@ -44,4 +44,4 @@ Allow `om-share-this-session` to obtain a complete native Codex session export w
 
 ### Phase 2: Distribution and guidance
 
-- [ ] 2.1 Document, mirror, and record the retrieval workflow
+- [x] 2.1 Document, mirror, and record the retrieval workflow — e33e3ff8a
