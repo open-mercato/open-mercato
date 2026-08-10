@@ -1,0 +1,46 @@
+---
+title: Document Generators
+description: Generate, preview, and extend PDF documents from Open Mercato records.
+---
+
+# Document Generators
+
+`@open-mercato/document-generators` provides server-side PDF rendering, a template registry, preview and download UI, and an extension API for templates contributed by other modules.
+
+The package includes templates for sales orders and quotes. Additional modules can register templates through the `document-generators.ts` convention file and can embed the template picker in their own widget slots.
+
+## What the module provides
+
+- server-side rendering with `@react-pdf/renderer`
+- built-in order invoice and sales offer templates
+- live PDF preview and download
+- generation history scoped by tenant and organization
+- a registry for templates contributed by other modules
+- reusable React-PDF theme and logo components
+
+## Screenshots
+
+### Template registry
+
+![Available templates admin page](/screenshots/document-generators/screen-1.png)
+
+### Order PDF tab
+
+![PDF tab on an order detail page](/screenshots/document-generators/screen-2.png)
+
+### Quote PDF tab
+
+![PDF tab on a quote detail page](/screenshots/document-generators/screen-4.png)
+
+### Document preview
+
+![Document preview dialog](/screenshots/document-generators/screen-3.png)
+
+## Next steps
+
+- [Install the module](./installation)
+- [Register and use templates](./usage)
+- [Follow the complete example](./examples)
+- [Review the API](./api)
+- [Use the service conventions](./service-conventions)
+- [Contribute to the package](./contributing)

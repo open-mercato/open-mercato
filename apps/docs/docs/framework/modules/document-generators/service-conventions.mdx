@@ -1,0 +1,89 @@
+---
+title: Document Generator Service Conventions
+description: Naming and lifecycle conventions for document generator services.
+---
+
+# Service Conventions
+
+Services that manage persisted entities use one predictable CRUD vocabulary. Each data service owns one entity type, so its method names do not repeat the entity name.
+
+For example, an entity data service uses:
+
+```ts
+service.create(input)
+service.retrieve(id, scope)
+service.list(query)
+service.listAndCount(query)
+service.update(id, input)
+service.delete(id, scope)
+```
+
+Optional lifecycle methods are added only when the entity supports them:
+
+```ts
+service.softDelete(id, scope)
+service.restore(id, scope)
+```
+
+## Standard method meanings
+
+| Method | Meaning | Expected result |
+| --- | --- | --- |
+| `create` | Persist one new entity | Created entity |
+| `retrieve` | Load one entity by its identifier | Entity or `null` |
+| `list` | Load a filtered, ordered, or paginated collection | Entity array |
+| `listAndCount` | Load a collection together with the total matching count | `{ items, total }` |
+| `update` | Change one existing entity | Updated entity |
+| `delete` | Permanently remove one entity | `void` |
+| `softDelete` | Mark one entity as deleted without removing its row | Updated entity or `void` |
+| `restore` | Restore a soft-deleted entity | Restored entity |
+
+Batch variants use the same verb with a `Many` suffix when they are actually needed:
+
+```ts
+service.createMany(inputs)
+service.updateMany(updates)
+service.deleteMany(ids, scope)
+```
+
+Do not add batch methods pre-emptively. A service exposes only operations supported by the entity's lifecycle.
+
+## Naming rules
+
+- Use `create`, not `record`, `save`, `insert`, or `add`, when a method creates an entity.
+- Use `retrieve` for one entity identified by ID.
+- Use `list` for a collection. Do not alternate between `list`, `findAll`, `getAll`, and `search` for the same operation.
+- Use `listAndCount` when the caller also needs the total number of matching entities.
+- Use `update`, not `edit`, `change`, or `patch`, for entity updates.
+- Use `delete` only for permanent removal. Use `softDelete` when the row remains stored.
+- Keep filters, sorting, pagination, and scope inside typed input objects rather than expanding method names.
+
+## Data services and domain services
+
+The CRUD vocabulary applies only to services that manage persisted entities. Domain services keep names that describe their actual operation.
+
+Examples of valid domain methods include:
+
+```ts
+documentService.fetchData(input, context)
+documentService.toTemplateData(input)
+documentService.filename(input)
+documentService.resourceId(input)
+documentService.resourceLabel(input)
+pdfRenderingService.render(loadedTemplate)
+templateRegistry.listTemplates()
+templateRegistry.load(input, context)
+```
+
+`templateRegistry.load` requires the active `locale`, and `BaseDocumentService`
+passes it to `toTemplateData({ data, locale })`. Date and number formatting must
+use this request-derived locale; document services must not define a locale
+fallback.
+
+Do not rename domain operations to CRUD verbs when they do not create, retrieve, update, or delete an entity.
+
+## Scope and errors
+
+Every operation that reads or writes tenant-owned data must apply both `tenantId` and `organizationId`. Scope may be supplied in the method input or bound when constructing the service, but it must not be optional for scoped entities.
+
+Data-service methods report persistence errors to their caller. If an operation is intentionally best-effort, that behavior belongs in a domain-level orchestrator that calls the data service and handles the error explicitly.

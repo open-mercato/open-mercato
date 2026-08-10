@@ -1,0 +1,156 @@
+---
+title: Document Generators Usage
+description: Use built-in PDF templates and register templates from another module.
+---
+
+# Usage & Integration
+
+## Built-in templates
+
+The package ships two templates out of the box. They serve as working examples of the extension API and cover the most common sales document use cases.
+
+| Template | ID | Resource | Document type |
+|----------|----|----------|---------------|
+| Order Invoice | `order-invoice` | `sales.order` | invoice |
+| Sales Offer | `sales-offer` | `sales.quote` | offer |
+
+Both templates use the shared Inter font and design tokens from `templates/shared/theme.ts`. The PDF tab that renders them on Order and Quote detail pages is owned by the core sales module — this package only provides the templates and the rendering infrastructure.
+
+To replace or extend them, implement your own `BaseDocumentService` and register it via a `document-generators.ts` convention file. The built-in templates remain available alongside yours unless you explicitly filter them out.
+
+---
+
+## Registering templates from another module
+
+Templates are registered via a **convention file** named `document-generators.ts` at the root of any module (sibling of `index.ts`, `acl.ts`, etc.). The `mercato generate registry` step scans all loaded modules for this file and adds its templates to the global registry automatically.
+
+No widget, no injection-table entry needed — the PDF tab is already rendered by the core sales module for orders and quotes.
+
+> **Shortcut**: use the `scaffold-pdf-templates` Claude Code skill to generate all files below automatically. In Claude Code, type:
+> ```
+> /scaffold-pdf-templates
+> ```
+> The skill will ask for your module ID, resource kind, and template name, then create the DocumentService, template component, and convention file in one step.
+
+A fully working implementation is available in the [Document Generators examples](./examples).
+
+---
+
+### Step 1 — Create a `DocumentService`
+
+Place it in `src/modules/<your_module>/pdf-templates/services/`.
+
+```ts
+// src/modules/my_module/pdf-templates/services/my-module-invoice-document-service.ts
+import { BaseDocumentService, formatDate } from '@open-mercato/document-generators'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+
+export class MyModuleInvoiceDocumentService extends BaseDocumentService {
+  readonly id = 'my-module-invoices'    // globally unique — convention: <module>-<category>s
+  readonly label = 'My Module Invoices'
+  readonly module = 'my_module'         // top-level module name — used for grouping in the UI
+  readonly resourceKind = 'sales.order' // must match ctx.resourceKind on the target detail page
+
+  constructor() {
+    super()
+
+    this.registerTemplate({
+      id: 'my-module-invoice',
+      label: 'My Module Invoice',
+      description: 'Standard invoice for my module orders.',
+      documentType: 'invoice',
+      tags: ['invoice', 'my_module'],
+      load: () =>
+        import('../templates/invoice/my-module-invoice').then(
+          (m) => ({
+            type: 'react-pdf' as const,
+            component: m.MyModuleInvoiceDocument as unknown as React.ComponentType<{ data: Record<string, unknown> }>,
+          })
+        ),
+    })
+  }
+
+  override async fetchData({ data }: { data: unknown }, { container }: { container: AppContainer }) {
+    const record = data as { id: string }
+    // const service = container.resolve('myOrderService')
+    // return service.retrieve(record.id)
+    throw new Error(`fetchData not implemented (id: ${record.id})`)
+  }
+
+  toTemplateData({ data, locale }: { data: unknown; locale: string }): Record<string, unknown> {
+    const r = data as { id: string; number: string }
+    return {
+      document: { number: r.number, date: formatDate(new Date().toISOString(), locale) },
+      seller:   { name: '', company: '', email: '' },
+      client:   { name: '' },
+      lines:    [],
+      totals:   { subtotal: 0, tax: 0, total: 0, currency: 'PLN' },
+    }
+  }
+
+  override filename({ data }: { data: Record<string, unknown> }): string {
+    const doc = data.document as { number?: string } | undefined
+    return doc?.number ? `invoice-${doc.number}.pdf` : 'invoice.pdf'
+  }
+}
+```
+
+---
+
+### Step 2 — Create the template component
+
+Place it in `src/modules/<your_module>/pdf-templates/templates/<category>/<template-id>/index.tsx`.
+
+```tsx
+import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+import { OpenMercatoLogo } from '@open-mercato/document-generators'
+import '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
+import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
+
+const s = StyleSheet.create({
+  page:  { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Inter', color: colors.text },
+  title: { fontSize: 28, fontWeight: 600 },
+})
+
+export function MyModuleInvoiceDocument({ data }: { data: Record<string, unknown> }) {
+  const doc = data.document as { number: string; date: string }
+
+  return (
+    <Document>
+      <Page size="A4" style={s.page}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 28 }}>
+          <Text style={s.title}>Invoice {doc.number}</Text>
+          <OpenMercatoLogo />
+        </View>
+        {/* seller, client, line items, totals … */}
+      </Page>
+    </Document>
+  )
+}
+```
+
+> The bare `import '…/theme'` is a **required side-effect** — it registers the Inter font with `@react-pdf/renderer`. Without it, `fontFamily: 'Inter'` silently falls back to the default font.
+
+---
+
+### Step 3 — Create the convention file
+
+```ts
+// src/modules/my_module/document-generators.ts
+import { MyModuleInvoiceDocumentService } from './pdf-templates/services/my-module-invoice-document-service'
+
+const service = new MyModuleInvoiceDocumentService()
+
+export const templates = service.getEntries()
+export default templates
+```
+
+---
+
+### Step 4 — Regenerate
+
+```bash
+yarn generate
+```
+
+The template now appears in the **PDF** tab on all sales order detail pages.
