@@ -2,11 +2,27 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
-import type {
-  ModuleExtensionContributionFact,
-  ModuleExtensionHostFact,
-  ModuleExtensionSurfaceFacts,
-  ModuleExtensionTargetRef,
+import {
+  COMPONENT_OVERRIDE_MODES,
+  CRUD_FORM_EXTENSION_SURFACE_KEYS,
+  CRUD_FORM_LIFECYCLE_PHASES,
+  CRUD_FORM_OPERATIONS,
+  DATA_TABLE_EXTENSION_SURFACE_KEYS,
+  EXTENSION_HOST_ACTIVATIONS,
+  EXTENSION_HOST_CAPABILITIES,
+  EXTENSION_HOST_FAMILIES,
+  MODULE_EXTENSION_ACTIVATION_KINDS,
+  MODULE_EXTENSION_CONTRIBUTION_KINDS,
+  MODULE_EXTENSION_HOST_RESOLUTIONS,
+  MODULE_EXTENSION_RESOLUTIONS,
+  MODULE_EXTENSION_TARGET_KINDS,
+  MODULE_EXTENSION_TARGET_RESOLUTIONS,
+  MODULE_EXTENSION_UNRESOLVED_REASONS,
+  MODULE_SPECIALIZED_REGISTRIES,
+  type ModuleExtensionContributionFact,
+  type ModuleExtensionHostFact,
+  type ModuleExtensionSurfaceFacts,
+  type ModuleExtensionTargetRef,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
 import { extractCommandIdsFromSource } from './module-registry'
@@ -210,8 +226,12 @@ export type ModuleFactSourceEntry = {
   factRef?: ModuleFactIndexRef
 }
 
+export const MODULE_FACT_DIAGNOSTIC_CODES = ['duplicate-source', 'unresolved-static-contract'] as const
+
+export type ModuleFactDiagnosticCode = (typeof MODULE_FACT_DIAGNOSTIC_CODES)[number]
+
 export type ModuleFactDiagnostic = {
-  code: 'duplicate-source' | 'unresolved-static-contract'
+  code: ModuleFactDiagnosticCode
   kind: ModuleFactSourceKind
   id: string
   source?: ModuleFactSourceRef
@@ -1567,6 +1587,42 @@ function readResolvedStringProperty(
   return undefined
 }
 
+function readImportedStringIdentifier(
+  sourceFile: ts.SourceFile,
+  sourcePath: string,
+  identifier: string,
+): string | undefined {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue
+    const importClause = statement.importClause
+    const bindings = importClause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    const imported = bindings.elements.find((element) => element.name.text === identifier)
+    if (!imported) continue
+    const request = statement.moduleSpecifier.text
+    if (!request.startsWith('.')) return undefined
+    const basePath = path.resolve(path.dirname(sourcePath), request)
+    const candidates = [
+      `${basePath}.ts`,
+      `${basePath}.tsx`,
+      path.join(basePath, 'index.ts'),
+      path.join(basePath, 'index.tsx'),
+    ]
+    const importedPath = candidates.find((candidate) => fs.existsSync(candidate))
+    if (!importedPath) return undefined
+    const importedSource = readSourceFile(importedPath)
+    if (!importedSource) return undefined
+    const exportName = imported.propertyName?.text ?? imported.name.text
+    const declaration = importedSource.statements
+      .filter(ts.isVariableStatement)
+      .flatMap((variable) => [...variable.declarationList.declarations])
+      .find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === exportName)
+    const initializer = declaration?.initializer ? unwrapExpression(declaration.initializer) : null
+    return initializer && ts.isStringLiteralLike(initializer) ? initializer.text : undefined
+  }
+  return undefined
+}
+
 function extractWorkerContracts(
   moduleId: string,
   moduleRoot: string,
@@ -1590,7 +1646,11 @@ function extractWorkerContracts(
     // Runtime skips any worker without a queue, so a worker missing the required
     // property is not a contract; a present-but-dynamic queue is reported instead.
     const hasQueueProperty = getObjectPropertyInitializer(metadata, 'queue') !== undefined
+    const queueInitializer = getObjectPropertyInitializer(metadata, 'queue')
     const queue = readResolvedStringProperty(metadata, 'queue', initializers)
+      ?? (queueInitializer && ts.isIdentifier(unwrapExpression(queueInitializer))
+        ? readImportedStringIdentifier(sourceFile, filePath, (unwrapExpression(queueInitializer) as ts.Identifier).text)
+        : undefined)
     if (!hasQueueProperty) {
       unresolved.push({ code: 'unresolved-static-contract', kind: 'worker', id: workerId, source })
       continue
@@ -3465,6 +3525,202 @@ const OVERRIDE_DIAGNOSTIC_COVERAGE: Readonly<Record<string, ModuleFactCoverageRo
   },
 }
 
+const CONTRIBUTION_KIND_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  widget: { value: 'widget', status: 'emitted-example', note: 'example widget injection and dashboard registrations' },
+  'data-table': { value: 'data-table', status: 'emitted-example', note: 'example DataTable extension entries' },
+  'crud-form': { value: 'crud-form', status: 'emitted-example', note: 'example CrudForm field and lifecycle entries' },
+  'component-override': { value: 'component-override', status: 'emitted-example', note: 'example replace, wrapper and props component entries' },
+  'response-enricher': { value: 'response-enricher', status: 'emitted-example', note: 'example customer priority response enricher' },
+  'api-interceptor': { value: 'api-interceptor', status: 'emitted-example', note: 'example CRUD API interceptor entries' },
+  'command-interceptor': { value: 'command-interceptor', status: 'emitted-example', note: 'example command interceptor entries' },
+  'mutation-guard': { value: 'mutation-guard', status: 'emitted-example', note: 'example Todo mutation guard' },
+  'entity-extension': { value: 'entity-extension', status: 'emitted-example', note: 'example customer entity extension' },
+  subscriber: { value: 'subscriber', status: 'emitted-example', note: 'example synchronous and asynchronous subscribers' },
+  'browser-reaction': { value: 'browser-reaction', status: 'emitted-example', note: 'example client, portal and notification reactions' },
+  'specialized-registry': { value: 'specialized-registry', status: 'emitted-example', note: 'example notification, search, AI and mock adapter registries' },
+  'module-override': { value: 'module-override', status: 'catalog-only', note: 'app-owned configuration is not an outgoing module contribution' },
+}
+
+const ACTIVATION_KIND_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'crud-response-enricher': { value: 'crud-response-enricher', status: 'currently-unbound', note: 'example contributes a response enricher but owns no CRUD response call site for its customer target' },
+  'query-enricher': { value: 'query-enricher', status: 'currently-unbound', note: 'example contributes a query enricher but owns no query-engine call site for its customer target' },
+  'mutation-guard': { value: 'mutation-guard', status: 'emitted-example', note: 'Todo mutation-guard route bridge' },
+  'api-interceptor-bridge': { value: 'api-interceptor-bridge', status: 'emitted-example', note: 'CRUD route interceptor pipeline' },
+  'command-interceptor-bridge': { value: 'command-interceptor-bridge', status: 'emitted-example', note: 'exact Todo command bus target' },
+  'widget-injection-consumer': { value: 'widget-injection-consumer', status: 'emitted-example', note: 'bound injection host consumer' },
+  'component-extension-consumer': { value: 'component-extension-consumer', status: 'emitted-example', note: 'bound component handle consumer' },
+  'dashboard-host-consumer': { value: 'dashboard-host-consumer', status: 'emitted-example', note: 'framework dashboard registry consumer' },
+}
+
+const HOST_FAMILY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  generic: { value: 'generic', status: 'emitted-example', note: 'example headless injection host' },
+  menu: { value: 'menu', status: 'framework-only', note: 'framework menu hosts consumed by example widgets' },
+  'data-table': { value: 'data-table', status: 'emitted-example', note: 'example Todo DataTable host' },
+  'crud-form': { value: 'crud-form', status: 'emitted-example', note: 'example Todo CrudForm host' },
+  detail: { value: 'detail', status: 'framework-only', note: 'framework detail hosts consumed by example widgets' },
+  'portal-page': { value: 'portal-page', status: 'framework-only', note: 'framework portal host consumed by example widgets' },
+  'component-handle': { value: 'component-handle', status: 'emitted-example', note: 'example replaceable component host' },
+  entity: { value: 'entity', status: 'emitted-example', note: 'example entity fact-reference hosts' },
+  'api-route': { value: 'api-route', status: 'framework-only', note: 'API route hosts are owned by the target module and consumed by example interceptors' },
+  command: { value: 'command', status: 'framework-only', note: 'command hosts are owned by the target module and consumed by example interceptors' },
+  event: { value: 'event', status: 'emitted-example', note: 'example event fact-reference hosts' },
+  'query-lifecycle': { value: 'query-lifecycle', status: 'emitted-example', note: 'example Todo query lifecycle hosts' },
+  dashboard: { value: 'dashboard', status: 'framework-only', note: 'framework dashboard host consumed by example widgets' },
+  notification: { value: 'notification', status: 'framework-only', note: 'framework notification host consumed by the example registry' },
+  integration: { value: 'integration', status: 'framework-only', note: 'framework integration detail host consumed by example widgets' },
+  'specialized-registry': { value: 'specialized-registry', status: 'framework-only', note: 'framework-owned specialist registries accept example entries' },
+  'module-override': { value: 'module-override', status: 'framework-only', note: 'framework override catalog owns these hosts' },
+}
+
+const HOST_CAPABILITY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'render-widget': { value: 'render-widget', status: 'emitted-example', note: 'example render widget host and contributions' },
+  'headless-widget': { value: 'headless-widget', status: 'currently-unbound', note: 'injection-table facts do not yet distinguish headless widget payloads' },
+  'menu-item': { value: 'menu-item', status: 'currently-unbound', note: 'injection-table facts do not yet distinguish menu item payloads' },
+  'column-widget': { value: 'column-widget', status: 'emitted-example', note: 'example DataTable column host' },
+  'row-action': { value: 'row-action', status: 'emitted-example', note: 'example DataTable row-action host' },
+  'bulk-action': { value: 'bulk-action', status: 'emitted-example', note: 'example DataTable bulk-action host' },
+  'filter-widget': { value: 'filter-widget', status: 'emitted-example', note: 'example DataTable filter host' },
+  'toolbar-widget': { value: 'toolbar-widget', status: 'emitted-example', note: 'example DataTable toolbar host' },
+  'field-widget': { value: 'field-widget', status: 'emitted-example', note: 'example CrudForm field host' },
+  'lifecycle-handler': { value: 'lifecycle-handler', status: 'emitted-example', note: 'example CrudForm lifecycle host' },
+  'component-replacement': { value: 'component-replacement', status: 'emitted-example', note: 'example replaceable DataTable, CrudForm and component hosts' },
+  'response-enricher': { value: 'response-enricher', status: 'emitted-example', note: 'example entity enricher host' },
+  'query-enricher': { value: 'query-enricher', status: 'emitted-example', note: 'example query-enricher host' },
+  'api-interceptor': { value: 'api-interceptor', status: 'emitted-example', note: 'example API interceptor contribution and route bridge' },
+  'command-interceptor': { value: 'command-interceptor', status: 'emitted-example', note: 'example command interceptor and exact command owner' },
+  'mutation-guard': { value: 'mutation-guard', status: 'emitted-example', note: 'example entity mutation guard host' },
+  'entity-extension': { value: 'entity-extension', status: 'emitted-example', note: 'example entity extension host' },
+  'async-subscriber': { value: 'async-subscriber', status: 'emitted-example', note: 'example event subscriber host' },
+  'sync-subscriber': { value: 'sync-subscriber', status: 'emitted-example', note: 'example synchronous event subscriber host' },
+  'browser-client': { value: 'browser-client', status: 'emitted-example', note: 'example client-broadcast event host' },
+  'browser-portal': { value: 'browser-portal', status: 'emitted-example', note: 'example portal-broadcast event host' },
+  'registry-contribution': { value: 'registry-contribution', status: 'emitted-example', note: 'example specialized registry contributions' },
+  'module-override': { value: 'module-override', status: 'framework-only', note: 'framework override hosts; app configuration is not a contribution' },
+}
+
+const HOST_ACTIVATION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  always: { value: 'always', status: 'emitted-example', note: 'always-active example declarations' },
+  'host-opt-in': { value: 'host-opt-in', status: 'emitted-example', note: 'example entity extension and response-enricher hosts' },
+  'caller-opt-in': { value: 'caller-opt-in', status: 'emitted-example', note: 'example query lifecycle and query enricher' },
+  'feature-gated': { value: 'feature-gated', status: 'currently-unbound', note: 'feature requirements are emitted but are not a distinct activation value' },
+}
+
+const TARGET_KIND_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  module: { value: 'module', status: 'emitted-example', note: 'example module-scoped registry target' },
+  entity: { value: 'entity', status: 'emitted-example', note: 'example entity extension, enricher and guard targets' },
+  'api-route': { value: 'api-route', status: 'emitted-example', note: 'example API interceptor targets' },
+  command: { value: 'command', status: 'emitted-example', note: 'example exact and wildcard command targets' },
+  'widget-spot': { value: 'widget-spot', status: 'emitted-example', note: 'example injection targets' },
+  component: { value: 'component', status: 'emitted-example', note: 'example component override targets' },
+  event: { value: 'event', status: 'emitted-example', note: 'example subscriber targets' },
+  notification: { value: 'notification', status: 'emitted-example', note: 'example notification registry target' },
+  wildcard: { value: 'wildcard', status: 'emitted-example', note: 'example wildcard subscriber and interceptor targets' },
+}
+
+const HOST_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  exact: { value: 'exact', status: 'emitted-example', note: 'example exact declared hosts' },
+  pattern: { value: 'pattern', status: 'emitted-example', note: 'example patterned host surfaces' },
+  framework: { value: 'framework', status: 'framework-only', note: 'framework catalog host identity' },
+  'fact-ref': { value: 'fact-ref', status: 'emitted-example', note: 'example entity, event and query fact-reference hosts' },
+}
+
+const TARGET_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  exact: { value: 'exact', status: 'emitted-example', note: 'example exact target correlation' },
+  pattern: { value: 'pattern', status: 'emitted-example', note: 'example wildcard and patterned target correlation' },
+  framework: { value: 'framework', status: 'emitted-example', note: 'example contribution to a framework host' },
+  'fact-ref': { value: 'fact-ref', status: 'emitted-example', note: 'example contribution to a generated fact owner' },
+  'optional-external': { value: 'optional-external', status: 'emitted-example', note: 'example optional module target remains fail-soft' },
+  unresolved: { value: 'unresolved', status: 'negative-fixture', note: 'only malformed targets remain unresolved' },
+}
+
+const TOPOLOGY_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  bound: { value: 'bound', status: 'emitted-example', note: 'example contribution reaches a verified runtime activation' },
+  'capability-only': { value: 'capability-only', status: 'emitted-example', note: 'declaration-backed capability without a separate caller activation' },
+  'optional-target-missing': { value: 'optional-target-missing', status: 'emitted-example', note: 'optional external target absent from the selected module set' },
+  wildcard: { value: 'wildcard', status: 'emitted-example', note: 'wildcard contribution resolves against selected targets' },
+  unresolved: { value: 'unresolved', status: 'negative-fixture', note: 'only malformed first-party targets remain unresolved' },
+}
+
+const SPECIALIZED_REGISTRY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  notification: { value: 'notification', status: 'emitted-example', note: 'example notification type registry' },
+  integration: { value: 'integration', status: 'pending-emission', note: 'REQUIRED: example integration bundle identity', pendingEmission: 'slice-H-specialized-registries' },
+  search: { value: 'search', status: 'emitted-example', note: 'example Todo search registry' },
+  vector: { value: 'vector', status: 'pending-emission', note: 'REQUIRED: example Todo vector registry', pendingEmission: 'slice-H-specialized-registries' },
+  ai: { value: 'ai', status: 'emitted-example', note: 'example AI tool and agent registries' },
+  payment: { value: 'payment', status: 'emitted-example', note: 'example mock payment descriptors' },
+  shipping: { value: 'shipping', status: 'pending-emission', note: 'REQUIRED: example shipping registry identity', pendingEmission: 'slice-H-specialized-registries' },
+  currency: { value: 'currency', status: 'pending-emission', note: 'REQUIRED: example currency provider identity', pendingEmission: 'slice-H-specialized-registries' },
+  workflow: { value: 'workflow', status: 'pending-emission', note: 'REQUIRED: example Todo workflow identity', pendingEmission: 'slice-H-specialized-registries' },
+}
+
+const COMPONENT_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  replace: { value: 'replace', status: 'emitted-example', note: 'example replacement component' },
+  wrapper: { value: 'wrapper', status: 'emitted-example', note: 'example decorating wrapper component' },
+  props: { value: 'props', status: 'emitted-example', note: 'example props-transform component' },
+}
+
+const FACT_DIAGNOSTIC_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'duplicate-source': { value: 'duplicate-source', status: 'negative-fixture', note: 'duplicate provenance fixture; canonical output emits none' },
+  'unresolved-static-contract': { value: 'unresolved-static-contract', status: 'negative-fixture', note: 'dynamic contract fixture; canonical output emits none' },
+}
+
+const UNRESOLVED_REASON_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'unclassified-binding': { value: 'unclassified-binding', status: 'negative-fixture', note: 'malformed extension declaration fixture' },
+  'unbound-declaration': { value: 'unbound-declaration', status: 'negative-fixture', note: 'declared host without a real caller fixture' },
+  'dynamic-without-pattern': { value: 'dynamic-without-pattern', status: 'negative-fixture', note: 'dynamic host without a declared pattern fixture' },
+  'unresolved-first-party-target': { value: 'unresolved-first-party-target', status: 'negative-fixture', note: 'broken first-party target fixture' },
+}
+
+const DATA_TABLE_SURFACE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  header: { value: 'header', status: 'emitted-example', note: 'bound Todo table header' },
+  footer: { value: 'footer', status: 'emitted-example', note: 'bound Todo table footer' },
+  toolbar: { value: 'toolbar', status: 'emitted-example', note: 'bound Todo table toolbar' },
+  searchTrailing: { value: 'searchTrailing', status: 'emitted-example', note: 'bound Todo table search trailing surface' },
+  columns: { value: 'columns', status: 'emitted-example', note: 'bound Todo table columns' },
+  rowActions: { value: 'rowActions', status: 'emitted-example', note: 'bound Todo table row actions' },
+  bulkActions: { value: 'bulkActions', status: 'emitted-example', note: 'bound Todo table bulk actions' },
+  filters: { value: 'filters', status: 'emitted-example', note: 'bound Todo table filters' },
+  replacement: { value: 'replacement', status: 'emitted-example', note: 'bound Todo table replacement' },
+  emptyState: { value: 'emptyState', status: 'currently-unbound', note: 'catalog-declared DataTable surface has no runtime host' },
+}
+
+const CRUD_FORM_SURFACE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  base: { value: 'base', status: 'emitted-example', note: 'bound Todo form base' },
+  header: { value: 'header', status: 'emitted-example', note: 'bound Todo form header' },
+  fields: { value: 'fields', status: 'emitted-example', note: 'bound Todo form fields' },
+  replacement: { value: 'replacement', status: 'emitted-example', note: 'bound Todo form replacement' },
+  beforeFields: { value: 'beforeFields', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  afterFields: { value: 'afterFields', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  footer: { value: 'footer', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  sidebar: { value: 'sidebar', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  group: { value: 'group', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  fieldBefore: { value: 'fieldBefore', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  fieldAfter: { value: 'fieldAfter', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+}
+
+const CRUD_FORM_LIFECYCLE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  transformValidation: { value: 'transformValidation', status: 'emitted-example', note: 'example Todo form lifecycle transformValidation' },
+  transformDisplayData: { value: 'transformDisplayData', status: 'emitted-example', note: 'example Todo form lifecycle transformDisplayData' },
+  onBeforeNavigate: { value: 'onBeforeNavigate', status: 'emitted-example', note: 'example Todo form lifecycle onBeforeNavigate' },
+  onAppEvent: { value: 'onAppEvent', status: 'emitted-example', note: 'example Todo form lifecycle onAppEvent' },
+  onVisibilityChange: { value: 'onVisibilityChange', status: 'emitted-example', note: 'example Todo form lifecycle onVisibilityChange' },
+  onBeforeDelete: { value: 'onBeforeDelete', status: 'emitted-example', note: 'example Todo form lifecycle onBeforeDelete' },
+  onDelete: { value: 'onDelete', status: 'emitted-example', note: 'example Todo form lifecycle onDelete' },
+  onAfterDelete: { value: 'onAfterDelete', status: 'emitted-example', note: 'example Todo form lifecycle onAfterDelete' },
+  onDeleteError: { value: 'onDeleteError', status: 'emitted-example', note: 'example Todo form lifecycle onDeleteError' },
+  onFieldChange: { value: 'onFieldChange', status: 'emitted-example', note: 'example Todo form lifecycle onFieldChange' },
+  transformFormData: { value: 'transformFormData', status: 'emitted-example', note: 'example Todo form lifecycle transformFormData' },
+  onBeforeSave: { value: 'onBeforeSave', status: 'emitted-example', note: 'example Todo form lifecycle onBeforeSave' },
+  onSave: { value: 'onSave', status: 'emitted-example', note: 'example Todo form lifecycle onSave' },
+  onAfterSave: { value: 'onAfterSave', status: 'emitted-example', note: 'example Todo form lifecycle onAfterSave' },
+}
+
+const CRUD_FORM_OPERATION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  create: { value: 'create', status: 'emitted-example', note: 'example Todo create lifecycle' },
+  update: { value: 'update', status: 'currently-unbound', note: 'example lifecycle contribution is currently registered for create only' },
+  delete: { value: 'delete', status: 'currently-unbound', note: 'example lifecycle contribution is currently registered for create only' },
+}
+
 /**
  * One family of the ledger. Both directions are enforced: an enumerated value with
  * no row, and a row classifying a value the enum no longer carries, each throw — so
@@ -3546,6 +3802,108 @@ export function buildModuleFactCoverageLedger(): ModuleFactCoverageFamily[] {
       MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
       OVERRIDE_DIAGNOSTIC_COVERAGE,
     ),
+    buildCoverageFamily(
+      'ModuleExtensionContributionKind',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_CONTRIBUTION_KINDS',
+      MODULE_EXTENSION_CONTRIBUTION_KINDS,
+      CONTRIBUTION_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionActivationKind',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_ACTIVATION_KINDS',
+      MODULE_EXTENSION_ACTIVATION_KINDS,
+      ACTIVATION_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ExtensionHostFamily',
+      'packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_FAMILIES',
+      EXTENSION_HOST_FAMILIES,
+      HOST_FAMILY_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ExtensionHostCapability',
+      'packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_CAPABILITIES',
+      EXTENSION_HOST_CAPABILITIES,
+      HOST_CAPABILITY_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ExtensionHostActivation',
+      'packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_ACTIVATIONS',
+      EXTENSION_HOST_ACTIVATIONS,
+      HOST_ACTIVATION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionTargetKind',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_TARGET_KINDS',
+      MODULE_EXTENSION_TARGET_KINDS,
+      TARGET_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionHostResolution',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_HOST_RESOLUTIONS',
+      MODULE_EXTENSION_HOST_RESOLUTIONS,
+      HOST_RESOLUTION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionTargetResolution',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_TARGET_RESOLUTIONS',
+      MODULE_EXTENSION_TARGET_RESOLUTIONS,
+      TARGET_RESOLUTION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionResolution',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_RESOLUTIONS',
+      MODULE_EXTENSION_RESOLUTIONS,
+      TOPOLOGY_RESOLUTION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'SpecializedRegistry',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_SPECIALIZED_REGISTRIES',
+      MODULE_SPECIALIZED_REGISTRIES,
+      SPECIALIZED_REGISTRY_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ComponentOverrideMode',
+      'packages/shared/src/modules/widgets/extension-points.ts#COMPONENT_OVERRIDE_MODES',
+      COMPONENT_OVERRIDE_MODES,
+      COMPONENT_MODE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleFactDiagnosticCode',
+      'packages/cli/src/lib/generators/module-facts.ts#MODULE_FACT_DIAGNOSTIC_CODES',
+      MODULE_FACT_DIAGNOSTIC_CODES,
+      FACT_DIAGNOSTIC_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionUnresolvedReason',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_UNRESOLVED_REASONS',
+      MODULE_EXTENSION_UNRESOLVED_REASONS,
+      UNRESOLVED_REASON_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'DataTableExtensionSurface',
+      'packages/shared/src/modules/widgets/extension-points.ts#DATA_TABLE_EXTENSION_SURFACE_KEYS',
+      DATA_TABLE_EXTENSION_SURFACE_KEYS,
+      DATA_TABLE_SURFACE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'CrudFormExtensionSurface',
+      'packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_EXTENSION_SURFACE_KEYS',
+      CRUD_FORM_EXTENSION_SURFACE_KEYS,
+      CRUD_FORM_SURFACE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'CrudFormLifecyclePhase',
+      'packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_LIFECYCLE_PHASES',
+      CRUD_FORM_LIFECYCLE_PHASES,
+      CRUD_FORM_LIFECYCLE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'CrudFormOperation',
+      'packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_OPERATIONS',
+      CRUD_FORM_OPERATIONS,
+      CRUD_FORM_OPERATION_COVERAGE,
+    ),
   ]
 }
 
@@ -3555,9 +3913,12 @@ export function buildModuleFactCoverageLedger(): ModuleFactCoverageFamily[] {
  * the extractor actually published, never against a hand-maintained inventory row.
  */
 export function countModuleFactCoverage(facts: ModuleFacts): Record<string, Record<string, number>> {
+  const increment = (counts: Record<string, number>, value: string): void => {
+    counts[value] = (counts[value] ?? 0) + 1
+  }
   const factSourceKind: Record<string, number> = {}
   for (const entry of facts.factSources ?? []) {
-    factSourceKind[entry.kind] = (factSourceKind[entry.kind] ?? 0) + 1
+    increment(factSourceKind, entry.kind)
   }
   const ownedContractKind: Record<string, number> = {}
   for (const [kind, list] of Object.entries(facts.ownedContracts ?? {})) {
@@ -3573,8 +3934,65 @@ export function countModuleFactCoverage(facts: ModuleFacts): Record<string, Reco
   }
   const overrideDiagnosticCode: Record<string, number> = {}
   for (const diagnostic of facts.overrideTargetDiagnostics ?? []) {
-    overrideDiagnosticCode[diagnostic.code] = (overrideDiagnosticCode[diagnostic.code] ?? 0) + 1
+    increment(overrideDiagnosticCode, diagnostic.code)
   }
+  const contributionKind: Record<string, number> = {}
+  const activationKind: Record<string, number> = {}
+  const hostFamily: Record<string, number> = {}
+  const hostCapability: Record<string, number> = {}
+  const hostActivation: Record<string, number> = {}
+  const targetKind: Record<string, number> = {}
+  const hostResolution: Record<string, number> = {}
+  const targetResolution: Record<string, number> = {}
+  const topologyResolution: Record<string, number> = {}
+  const specializedRegistry: Record<string, number> = {}
+  const componentMode: Record<string, number> = {}
+  const factDiagnosticCode: Record<string, number> = {}
+  const unresolvedReason: Record<string, number> = {}
+  const dataTableSurface: Record<string, number> = {}
+  const crudFormSurface: Record<string, number> = {}
+  const crudFormLifecycle: Record<string, number> = {}
+  const crudFormOperation: Record<string, number> = {}
+  const surfaces = facts.extensionSurfaces
+  for (const host of surfaces?.hosts ?? []) {
+    increment(hostFamily, host.family)
+    increment(hostResolution, host.resolution)
+    increment(hostActivation, host.activation ?? 'always')
+    for (const capability of host.capabilities) increment(hostCapability, capability)
+    for (const phase of host.phases ?? []) increment(crudFormLifecycle, phase)
+    for (const operation of host.operations ?? []) increment(crudFormOperation, operation)
+    const [owner, surface] = host.key.split('.')
+    if (owner === 'todosTable' && surface) increment(dataTableSurface, surface)
+    if (owner === 'todoForm' && surface) increment(crudFormSurface, surface)
+  }
+  for (const contribution of surfaces?.contributions ?? []) {
+    increment(contributionKind, contribution.kind)
+    increment(hostActivation, contribution.activation ?? 'always')
+    for (const target of contribution.targets) increment(targetResolution, target.resolution)
+    for (const operation of contribution.operations ?? []) increment(crudFormOperation, operation)
+    if (contribution.kind === 'specialized-registry') increment(specializedRegistry, contribution.details.registry)
+    if (contribution.kind === 'component-override') increment(componentMode, contribution.details.mode)
+    if (contribution.kind === 'widget') {
+      if (contribution.details.payload === 'headless') increment(hostCapability, 'headless-widget')
+      if (contribution.details.payload === 'menu') increment(hostCapability, 'menu-item')
+      if (contribution.details.payload === 'dashboard' || contribution.details.payload === 'notification' || contribution.details.payload === 'integration') {
+        increment(hostCapability, 'registry-contribution')
+      }
+    }
+    if (contribution.kind === 'api-interceptor') increment(hostCapability, 'api-interceptor')
+    if (contribution.kind === 'command-interceptor') increment(hostCapability, 'command-interceptor')
+  }
+  for (const activation of surfaces?.activations ?? []) increment(activationKind, activation.kind)
+  for (const resolution of surfaces?.contributionResolutions ?? []) {
+    increment(targetKind, resolution.target.kind)
+    increment(topologyResolution, resolution.resolution)
+    for (const id of resolution.activationIds) {
+      const kind = MODULE_EXTENSION_ACTIVATION_KINDS.find((candidate) => id.endsWith(`:${candidate}`))
+      if (kind) increment(activationKind, kind)
+    }
+  }
+  for (const diagnostic of facts.factDiagnostics ?? []) increment(factDiagnosticCode, diagnostic.code)
+  for (const unresolved of surfaces?.unresolved ?? []) increment(unresolvedReason, unresolved.reason)
   return {
     ModuleFactSourceKind: factSourceKind,
     ModuleOwnedContractKind: ownedContractKind,
@@ -3582,5 +4000,22 @@ export function countModuleFactCoverage(facts: ModuleFacts): Record<string, Reco
     ModuleOverrideMode: overrideMode,
     ModuleOverrideTargetNote: overrideNote,
     ModuleOverrideTargetDiagnosticCode: overrideDiagnosticCode,
+    ModuleExtensionContributionKind: contributionKind,
+    ModuleExtensionActivationKind: activationKind,
+    ExtensionHostFamily: hostFamily,
+    ExtensionHostCapability: hostCapability,
+    ExtensionHostActivation: hostActivation,
+    ModuleExtensionTargetKind: targetKind,
+    ModuleExtensionHostResolution: hostResolution,
+    ModuleExtensionTargetResolution: targetResolution,
+    ModuleExtensionResolution: topologyResolution,
+    SpecializedRegistry: specializedRegistry,
+    ComponentOverrideMode: componentMode,
+    ModuleFactDiagnosticCode: factDiagnosticCode,
+    ModuleExtensionUnresolvedReason: unresolvedReason,
+    DataTableExtensionSurface: dataTableSurface,
+    CrudFormExtensionSurface: crudFormSurface,
+    CrudFormLifecyclePhase: crudFormLifecycle,
+    CrudFormOperation: crudFormOperation,
   }
 }

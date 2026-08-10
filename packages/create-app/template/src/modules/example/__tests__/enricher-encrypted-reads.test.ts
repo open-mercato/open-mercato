@@ -123,4 +123,13 @@ describe('example customer-todo-count enricher reads Todo through the decryption
       expect(summary).toEqual({ todoCount: 0, openTodoCount: 0, priority: 'normal' })
     }
   })
+
+  it('returns a stored nonfallback customer priority', async () => {
+    const { context, find } = createContext()
+    find.mockResolvedValueOnce([{ customerId: 'person-1', priority: 'critical' }])
+
+    const [record] = await enricher.enrichMany!([{ id: 'person-1' }], context as never)
+
+    expect((record as never as { _example: { priority: string } })._example.priority).toBe('critical')
+  })
 })

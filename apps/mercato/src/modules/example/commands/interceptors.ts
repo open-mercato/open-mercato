@@ -32,4 +32,13 @@ const auditLoggingInterceptor: CommandInterceptor = {
   },
 }
 
-export const interceptors: CommandInterceptor[] = [auditLoggingInterceptor]
+const todoUpdateInterceptor: CommandInterceptor = {
+  id: 'example.todo-update-audit',
+  targetCommand: 'example.todos.update',
+  priority: 60,
+  async beforeExecute() {
+    return { ok: true }
+  },
+}
+
+export const interceptors: CommandInterceptor[] = [auditLoggingInterceptor, todoUpdateInterceptor]

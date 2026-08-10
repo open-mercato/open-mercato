@@ -6,6 +6,7 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  * Declares all events that can be emitted by the example module.
  */
 const events = [
+  { id: 'example.ping', label: 'Example Ping', entity: 'example', category: 'lifecycle' },
   // Todos (clientBroadcast enables real-time UI updates via DOM Event Bridge)
   { id: 'example.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud', clientBroadcast: true },
   { id: 'example.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud', clientBroadcast: true },

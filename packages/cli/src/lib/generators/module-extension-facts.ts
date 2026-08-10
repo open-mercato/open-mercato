@@ -1848,6 +1848,22 @@ function targetModuleId(targetId: string): string | null {
   return match?.[1] ?? null
 }
 
+function normalizedEntityId(value: string): string {
+  return value.replace(/^([a-z][a-z0-9_]*):/, '$1.')
+}
+
+function entityFactKeyForTarget(targetId: string, entityIds: ReadonlySet<string>): string | null {
+  const normalizedTarget = normalizedEntityId(targetId)
+  for (const entityId of entityIds) {
+    const normalizedEntity = normalizedEntityId(entityId)
+    if (normalizedTarget === normalizedEntity) return entityId
+    if (normalizedTarget.startsWith(`${normalizedEntity}.`) && /\.(?:creating|created|updating|updated|deleting|deleted)$/.test(normalizedTarget)) {
+      return entityId
+    }
+  }
+  return null
+}
+
 export function correlateExtensionTarget(
   targetFact: ModuleExtensionTargetFact,
   options: CorrelateExtensionFactsOptions,
@@ -1881,8 +1897,9 @@ export function correlateExtensionTarget(
   const framework = allFrameworkHosts().find((host) => patternMatches(host.id, targetFact.id))
     ?? (FRAMEWORK_PREFIXES.some((prefix) => targetFact.id.startsWith(prefix)) ? FRAMEWORK_HOSTS[0] : undefined)
   if (framework) return { id: targetFact.id, resolution: 'framework' }
-  if (options.entityIds.has(targetFact.id)) {
-    return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: targetFact.id } }
+  const entityFactKey = entityFactKeyForTarget(targetFact.id, options.entityIds)
+  if (entityFactKey) {
+    return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: entityFactKey } }
   }
   if (options.eventIds.has(targetFact.id)) {
     return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'events', factKey: targetFact.id } }

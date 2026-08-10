@@ -35,12 +35,12 @@
  */
 import * as React from 'react'
 import { z } from 'zod'
-import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { extensionPoints } from '../extension-points'
 
 /** Stable handle other modules (and this one) target. Exported so nobody retypes it. */
-export const OVERRIDE_SHOWCASE_HANDLE = ComponentReplacementHandles.section('example.overrides', 'showcase')
+export const OVERRIDE_SHOWCASE_HANDLE = extensionPoints.hosts.overrideShowcase.componentId
 
 /**
  * Props contract of the handle, declared once as a Zod schema because the

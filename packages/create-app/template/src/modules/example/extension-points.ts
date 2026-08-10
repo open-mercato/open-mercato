@@ -1,7 +1,9 @@
 import {
+  componentExtensionHost,
   crudFormExtensionHost,
   dataTableExtensionHost,
   defineModuleExtensionPoints,
+  injectionExtensionHost,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 
 /**
@@ -29,6 +31,17 @@ export const extensionPoints = defineModuleExtensionPoints({
       entityId: 'example.todo',
       spotId: 'crud-form:example.todo',
       source: 'components/TodoForm.tsx',
+    }),
+    handlersForm: injectionExtensionHost({
+      family: 'generic',
+      spotId: 'example:phase-c-handlers',
+      supported: ['render-widget'],
+      source: 'backend/umes-handlers/page.tsx',
+    }),
+    overrideShowcase: componentExtensionHost({
+      componentId: 'section:example.overrides.showcase',
+      propsContract: 'OverrideShowcaseProps',
+      source: 'components/ComponentOverrideShowcase.tsx',
     }),
   },
 })

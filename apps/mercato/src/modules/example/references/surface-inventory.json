@@ -353,6 +353,838 @@
             "note": "the framework catalog describes the host but names an operation that is not a public mode"
           }
         ]
+      },
+      {
+        "family": "ModuleExtensionContributionKind",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_CONTRIBUTION_KINDS",
+        "rows": [
+          {
+            "value": "widget",
+            "status": "emitted-example",
+            "note": "example widget injection and dashboard registrations"
+          },
+          {
+            "value": "data-table",
+            "status": "emitted-example",
+            "note": "example DataTable extension entries"
+          },
+          {
+            "value": "crud-form",
+            "status": "emitted-example",
+            "note": "example CrudForm field and lifecycle entries"
+          },
+          {
+            "value": "component-override",
+            "status": "emitted-example",
+            "note": "example replace, wrapper and props component entries"
+          },
+          {
+            "value": "response-enricher",
+            "status": "emitted-example",
+            "note": "example customer priority response enricher"
+          },
+          {
+            "value": "api-interceptor",
+            "status": "emitted-example",
+            "note": "example CRUD API interceptor entries"
+          },
+          {
+            "value": "command-interceptor",
+            "status": "emitted-example",
+            "note": "example command interceptor entries"
+          },
+          {
+            "value": "mutation-guard",
+            "status": "emitted-example",
+            "note": "example Todo mutation guard"
+          },
+          {
+            "value": "entity-extension",
+            "status": "emitted-example",
+            "note": "example customer entity extension"
+          },
+          {
+            "value": "subscriber",
+            "status": "emitted-example",
+            "note": "example synchronous and asynchronous subscribers"
+          },
+          {
+            "value": "browser-reaction",
+            "status": "emitted-example",
+            "note": "example client, portal and notification reactions"
+          },
+          {
+            "value": "specialized-registry",
+            "status": "emitted-example",
+            "note": "example notification, search, AI and mock adapter registries"
+          },
+          {
+            "value": "module-override",
+            "status": "catalog-only",
+            "note": "app-owned configuration is not an outgoing module contribution"
+          }
+        ]
+      },
+      {
+        "family": "ModuleExtensionActivationKind",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_ACTIVATION_KINDS",
+        "rows": [
+          {
+            "value": "crud-response-enricher",
+            "status": "currently-unbound",
+            "note": "example contributes a response enricher but owns no CRUD response call site for its customer target"
+          },
+          {
+            "value": "query-enricher",
+            "status": "currently-unbound",
+            "note": "example contributes a query enricher but owns no query-engine call site for its customer target"
+          },
+          {
+            "value": "mutation-guard",
+            "status": "emitted-example",
+            "note": "Todo mutation-guard route bridge"
+          },
+          {
+            "value": "api-interceptor-bridge",
+            "status": "emitted-example",
+            "note": "CRUD route interceptor pipeline"
+          },
+          {
+            "value": "command-interceptor-bridge",
+            "status": "emitted-example",
+            "note": "exact Todo command bus target"
+          },
+          {
+            "value": "widget-injection-consumer",
+            "status": "emitted-example",
+            "note": "bound injection host consumer"
+          },
+          {
+            "value": "component-extension-consumer",
+            "status": "emitted-example",
+            "note": "bound component handle consumer"
+          },
+          {
+            "value": "dashboard-host-consumer",
+            "status": "emitted-example",
+            "note": "framework dashboard registry consumer"
+          }
+        ]
+      },
+      {
+        "family": "ExtensionHostFamily",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_FAMILIES",
+        "rows": [
+          {
+            "value": "generic",
+            "status": "emitted-example",
+            "note": "example headless injection host"
+          },
+          {
+            "value": "menu",
+            "status": "framework-only",
+            "note": "framework menu hosts consumed by example widgets"
+          },
+          {
+            "value": "data-table",
+            "status": "emitted-example",
+            "note": "example Todo DataTable host"
+          },
+          {
+            "value": "crud-form",
+            "status": "emitted-example",
+            "note": "example Todo CrudForm host"
+          },
+          {
+            "value": "detail",
+            "status": "framework-only",
+            "note": "framework detail hosts consumed by example widgets"
+          },
+          {
+            "value": "portal-page",
+            "status": "framework-only",
+            "note": "framework portal host consumed by example widgets"
+          },
+          {
+            "value": "component-handle",
+            "status": "emitted-example",
+            "note": "example replaceable component host"
+          },
+          {
+            "value": "entity",
+            "status": "emitted-example",
+            "note": "example entity fact-reference hosts"
+          },
+          {
+            "value": "api-route",
+            "status": "framework-only",
+            "note": "API route hosts are owned by the target module and consumed by example interceptors"
+          },
+          {
+            "value": "command",
+            "status": "framework-only",
+            "note": "command hosts are owned by the target module and consumed by example interceptors"
+          },
+          {
+            "value": "event",
+            "status": "emitted-example",
+            "note": "example event fact-reference hosts"
+          },
+          {
+            "value": "query-lifecycle",
+            "status": "emitted-example",
+            "note": "example Todo query lifecycle hosts"
+          },
+          {
+            "value": "dashboard",
+            "status": "framework-only",
+            "note": "framework dashboard host consumed by example widgets"
+          },
+          {
+            "value": "notification",
+            "status": "framework-only",
+            "note": "framework notification host consumed by the example registry"
+          },
+          {
+            "value": "integration",
+            "status": "framework-only",
+            "note": "framework integration detail host consumed by example widgets"
+          },
+          {
+            "value": "specialized-registry",
+            "status": "framework-only",
+            "note": "framework-owned specialist registries accept example entries"
+          },
+          {
+            "value": "module-override",
+            "status": "framework-only",
+            "note": "framework override catalog owns these hosts"
+          }
+        ]
+      },
+      {
+        "family": "ExtensionHostCapability",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_CAPABILITIES",
+        "rows": [
+          {
+            "value": "render-widget",
+            "status": "emitted-example",
+            "note": "example render widget host and contributions"
+          },
+          {
+            "value": "headless-widget",
+            "status": "currently-unbound",
+            "note": "injection-table facts do not yet distinguish headless widget payloads"
+          },
+          {
+            "value": "menu-item",
+            "status": "currently-unbound",
+            "note": "injection-table facts do not yet distinguish menu item payloads"
+          },
+          {
+            "value": "column-widget",
+            "status": "emitted-example",
+            "note": "example DataTable column host"
+          },
+          {
+            "value": "row-action",
+            "status": "emitted-example",
+            "note": "example DataTable row-action host"
+          },
+          {
+            "value": "bulk-action",
+            "status": "emitted-example",
+            "note": "example DataTable bulk-action host"
+          },
+          {
+            "value": "filter-widget",
+            "status": "emitted-example",
+            "note": "example DataTable filter host"
+          },
+          {
+            "value": "toolbar-widget",
+            "status": "emitted-example",
+            "note": "example DataTable toolbar host"
+          },
+          {
+            "value": "field-widget",
+            "status": "emitted-example",
+            "note": "example CrudForm field host"
+          },
+          {
+            "value": "lifecycle-handler",
+            "status": "emitted-example",
+            "note": "example CrudForm lifecycle host"
+          },
+          {
+            "value": "component-replacement",
+            "status": "emitted-example",
+            "note": "example replaceable DataTable, CrudForm and component hosts"
+          },
+          {
+            "value": "response-enricher",
+            "status": "emitted-example",
+            "note": "example entity enricher host"
+          },
+          {
+            "value": "query-enricher",
+            "status": "emitted-example",
+            "note": "example query-enricher host"
+          },
+          {
+            "value": "api-interceptor",
+            "status": "emitted-example",
+            "note": "example API interceptor contribution and route bridge"
+          },
+          {
+            "value": "command-interceptor",
+            "status": "emitted-example",
+            "note": "example command interceptor and exact command owner"
+          },
+          {
+            "value": "mutation-guard",
+            "status": "emitted-example",
+            "note": "example entity mutation guard host"
+          },
+          {
+            "value": "entity-extension",
+            "status": "emitted-example",
+            "note": "example entity extension host"
+          },
+          {
+            "value": "async-subscriber",
+            "status": "emitted-example",
+            "note": "example event subscriber host"
+          },
+          {
+            "value": "sync-subscriber",
+            "status": "emitted-example",
+            "note": "example synchronous event subscriber host"
+          },
+          {
+            "value": "browser-client",
+            "status": "emitted-example",
+            "note": "example client-broadcast event host"
+          },
+          {
+            "value": "browser-portal",
+            "status": "emitted-example",
+            "note": "example portal-broadcast event host"
+          },
+          {
+            "value": "registry-contribution",
+            "status": "emitted-example",
+            "note": "example specialized registry contributions"
+          },
+          {
+            "value": "module-override",
+            "status": "framework-only",
+            "note": "framework override hosts; app configuration is not a contribution"
+          }
+        ]
+      },
+      {
+        "family": "ExtensionHostActivation",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_ACTIVATIONS",
+        "rows": [
+          {
+            "value": "always",
+            "status": "emitted-example",
+            "note": "always-active example declarations"
+          },
+          {
+            "value": "host-opt-in",
+            "status": "emitted-example",
+            "note": "example entity extension and response-enricher hosts"
+          },
+          {
+            "value": "caller-opt-in",
+            "status": "emitted-example",
+            "note": "example query lifecycle and query enricher"
+          },
+          {
+            "value": "feature-gated",
+            "status": "currently-unbound",
+            "note": "feature requirements are emitted but are not a distinct activation value"
+          }
+        ]
+      },
+      {
+        "family": "ModuleExtensionTargetKind",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_TARGET_KINDS",
+        "rows": [
+          {
+            "value": "module",
+            "status": "emitted-example",
+            "note": "example module-scoped registry target"
+          },
+          {
+            "value": "entity",
+            "status": "emitted-example",
+            "note": "example entity extension, enricher and guard targets"
+          },
+          {
+            "value": "api-route",
+            "status": "emitted-example",
+            "note": "example API interceptor targets"
+          },
+          {
+            "value": "command",
+            "status": "emitted-example",
+            "note": "example exact and wildcard command targets"
+          },
+          {
+            "value": "widget-spot",
+            "status": "emitted-example",
+            "note": "example injection targets"
+          },
+          {
+            "value": "component",
+            "status": "emitted-example",
+            "note": "example component override targets"
+          },
+          {
+            "value": "event",
+            "status": "emitted-example",
+            "note": "example subscriber targets"
+          },
+          {
+            "value": "notification",
+            "status": "emitted-example",
+            "note": "example notification registry target"
+          },
+          {
+            "value": "wildcard",
+            "status": "emitted-example",
+            "note": "example wildcard subscriber and interceptor targets"
+          }
+        ]
+      },
+      {
+        "family": "ModuleExtensionHostResolution",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_HOST_RESOLUTIONS",
+        "rows": [
+          {
+            "value": "exact",
+            "status": "emitted-example",
+            "note": "example exact declared hosts"
+          },
+          {
+            "value": "pattern",
+            "status": "emitted-example",
+            "note": "example patterned host surfaces"
+          },
+          {
+            "value": "framework",
+            "status": "framework-only",
+            "note": "framework catalog host identity"
+          },
+          {
+            "value": "fact-ref",
+            "status": "emitted-example",
+            "note": "example entity, event and query fact-reference hosts"
+          }
+        ]
+      },
+      {
+        "family": "ModuleExtensionTargetResolution",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_TARGET_RESOLUTIONS",
+        "rows": [
+          {
+            "value": "exact",
+            "status": "emitted-example",
+            "note": "example exact target correlation"
+          },
+          {
+            "value": "pattern",
+            "status": "emitted-example",
+            "note": "example wildcard and patterned target correlation"
+          },
+          {
+            "value": "framework",
+            "status": "emitted-example",
+            "note": "example contribution to a framework host"
+          },
+          {
+            "value": "fact-ref",
+            "status": "emitted-example",
+            "note": "example contribution to a generated fact owner"
+          },
+          {
+            "value": "optional-external",
+            "status": "emitted-example",
+            "note": "example optional module target remains fail-soft"
+          },
+          {
+            "value": "unresolved",
+            "status": "negative-fixture",
+            "note": "only malformed targets remain unresolved"
+          }
+        ]
+      },
+      {
+        "family": "ModuleExtensionResolution",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_RESOLUTIONS",
+        "rows": [
+          {
+            "value": "bound",
+            "status": "emitted-example",
+            "note": "example contribution reaches a verified runtime activation"
+          },
+          {
+            "value": "capability-only",
+            "status": "emitted-example",
+            "note": "declaration-backed capability without a separate caller activation"
+          },
+          {
+            "value": "optional-target-missing",
+            "status": "emitted-example",
+            "note": "optional external target absent from the selected module set"
+          },
+          {
+            "value": "wildcard",
+            "status": "emitted-example",
+            "note": "wildcard contribution resolves against selected targets"
+          },
+          {
+            "value": "unresolved",
+            "status": "negative-fixture",
+            "note": "only malformed first-party targets remain unresolved"
+          }
+        ]
+      },
+      {
+        "family": "SpecializedRegistry",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_SPECIALIZED_REGISTRIES",
+        "rows": [
+          {
+            "value": "notification",
+            "status": "emitted-example",
+            "note": "example notification type registry"
+          },
+          {
+            "value": "integration",
+            "status": "pending-emission",
+            "note": "REQUIRED: example integration bundle identity",
+            "pendingEmission": "slice-H-specialized-registries"
+          },
+          {
+            "value": "search",
+            "status": "emitted-example",
+            "note": "example Todo search registry"
+          },
+          {
+            "value": "vector",
+            "status": "pending-emission",
+            "note": "REQUIRED: example Todo vector registry",
+            "pendingEmission": "slice-H-specialized-registries"
+          },
+          {
+            "value": "ai",
+            "status": "emitted-example",
+            "note": "example AI tool and agent registries"
+          },
+          {
+            "value": "payment",
+            "status": "emitted-example",
+            "note": "example mock payment descriptors"
+          },
+          {
+            "value": "shipping",
+            "status": "pending-emission",
+            "note": "REQUIRED: example shipping registry identity",
+            "pendingEmission": "slice-H-specialized-registries"
+          },
+          {
+            "value": "currency",
+            "status": "pending-emission",
+            "note": "REQUIRED: example currency provider identity",
+            "pendingEmission": "slice-H-specialized-registries"
+          },
+          {
+            "value": "workflow",
+            "status": "pending-emission",
+            "note": "REQUIRED: example Todo workflow identity",
+            "pendingEmission": "slice-H-specialized-registries"
+          }
+        ]
+      },
+      {
+        "family": "ComponentOverrideMode",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#COMPONENT_OVERRIDE_MODES",
+        "rows": [
+          {
+            "value": "replace",
+            "status": "emitted-example",
+            "note": "example replacement component"
+          },
+          {
+            "value": "wrapper",
+            "status": "emitted-example",
+            "note": "example decorating wrapper component"
+          },
+          {
+            "value": "props",
+            "status": "emitted-example",
+            "note": "example props-transform component"
+          }
+        ]
+      },
+      {
+        "family": "ModuleFactDiagnosticCode",
+        "enumSource": "packages/cli/src/lib/generators/module-facts.ts#MODULE_FACT_DIAGNOSTIC_CODES",
+        "rows": [
+          {
+            "value": "duplicate-source",
+            "status": "negative-fixture",
+            "note": "duplicate provenance fixture; canonical output emits none"
+          },
+          {
+            "value": "unresolved-static-contract",
+            "status": "negative-fixture",
+            "note": "dynamic contract fixture; canonical output emits none"
+          }
+        ]
+      },
+      {
+        "family": "ModuleExtensionUnresolvedReason",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_UNRESOLVED_REASONS",
+        "rows": [
+          {
+            "value": "unclassified-binding",
+            "status": "negative-fixture",
+            "note": "malformed extension declaration fixture"
+          },
+          {
+            "value": "unbound-declaration",
+            "status": "negative-fixture",
+            "note": "declared host without a real caller fixture"
+          },
+          {
+            "value": "dynamic-without-pattern",
+            "status": "negative-fixture",
+            "note": "dynamic host without a declared pattern fixture"
+          },
+          {
+            "value": "unresolved-first-party-target",
+            "status": "negative-fixture",
+            "note": "broken first-party target fixture"
+          }
+        ]
+      },
+      {
+        "family": "DataTableExtensionSurface",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#DATA_TABLE_EXTENSION_SURFACE_KEYS",
+        "rows": [
+          {
+            "value": "header",
+            "status": "emitted-example",
+            "note": "bound Todo table header"
+          },
+          {
+            "value": "footer",
+            "status": "emitted-example",
+            "note": "bound Todo table footer"
+          },
+          {
+            "value": "toolbar",
+            "status": "emitted-example",
+            "note": "bound Todo table toolbar"
+          },
+          {
+            "value": "searchTrailing",
+            "status": "emitted-example",
+            "note": "bound Todo table search trailing surface"
+          },
+          {
+            "value": "columns",
+            "status": "emitted-example",
+            "note": "bound Todo table columns"
+          },
+          {
+            "value": "rowActions",
+            "status": "emitted-example",
+            "note": "bound Todo table row actions"
+          },
+          {
+            "value": "bulkActions",
+            "status": "emitted-example",
+            "note": "bound Todo table bulk actions"
+          },
+          {
+            "value": "filters",
+            "status": "emitted-example",
+            "note": "bound Todo table filters"
+          },
+          {
+            "value": "replacement",
+            "status": "emitted-example",
+            "note": "bound Todo table replacement"
+          },
+          {
+            "value": "emptyState",
+            "status": "currently-unbound",
+            "note": "catalog-declared DataTable surface has no runtime host"
+          }
+        ]
+      },
+      {
+        "family": "CrudFormExtensionSurface",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_EXTENSION_SURFACE_KEYS",
+        "rows": [
+          {
+            "value": "base",
+            "status": "emitted-example",
+            "note": "bound Todo form base"
+          },
+          {
+            "value": "header",
+            "status": "emitted-example",
+            "note": "bound Todo form header"
+          },
+          {
+            "value": "fields",
+            "status": "emitted-example",
+            "note": "bound Todo form fields"
+          },
+          {
+            "value": "replacement",
+            "status": "emitted-example",
+            "note": "bound Todo form replacement"
+          },
+          {
+            "value": "beforeFields",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          },
+          {
+            "value": "afterFields",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          },
+          {
+            "value": "footer",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          },
+          {
+            "value": "sidebar",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          },
+          {
+            "value": "group",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          },
+          {
+            "value": "fieldBefore",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          },
+          {
+            "value": "fieldAfter",
+            "status": "currently-unbound",
+            "note": "catalog-declared CrudForm surface has no runtime host"
+          }
+        ]
+      },
+      {
+        "family": "CrudFormLifecyclePhase",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_LIFECYCLE_PHASES",
+        "rows": [
+          {
+            "value": "transformValidation",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle transformValidation"
+          },
+          {
+            "value": "transformDisplayData",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle transformDisplayData"
+          },
+          {
+            "value": "onBeforeNavigate",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onBeforeNavigate"
+          },
+          {
+            "value": "onAppEvent",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onAppEvent"
+          },
+          {
+            "value": "onVisibilityChange",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onVisibilityChange"
+          },
+          {
+            "value": "onBeforeDelete",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onBeforeDelete"
+          },
+          {
+            "value": "onDelete",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onDelete"
+          },
+          {
+            "value": "onAfterDelete",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onAfterDelete"
+          },
+          {
+            "value": "onDeleteError",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onDeleteError"
+          },
+          {
+            "value": "onFieldChange",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onFieldChange"
+          },
+          {
+            "value": "transformFormData",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle transformFormData"
+          },
+          {
+            "value": "onBeforeSave",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onBeforeSave"
+          },
+          {
+            "value": "onSave",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onSave"
+          },
+          {
+            "value": "onAfterSave",
+            "status": "emitted-example",
+            "note": "example Todo form lifecycle onAfterSave"
+          }
+        ]
+      },
+      {
+        "family": "CrudFormOperation",
+        "enumSource": "packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_OPERATIONS",
+        "rows": [
+          {
+            "value": "create",
+            "status": "emitted-example",
+            "note": "example Todo create lifecycle"
+          },
+          {
+            "value": "update",
+            "status": "currently-unbound",
+            "note": "example lifecycle contribution is currently registered for create only"
+          },
+          {
+            "value": "delete",
+            "status": "currently-unbound",
+            "note": "example lifecycle contribution is currently registered for create only"
+          }
+        ]
       }
     ]
   },
@@ -364,7 +1196,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/index.ts"],
+      "sourcePaths": [
+        "src/modules/example/index.ts"
+      ],
       "integrationTestPaths": [],
       "dependencyModules": [],
       "ruleOwner": "om-module-scaffold"
@@ -376,8 +1210,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/acl.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/acl-dependencies.test.ts"],
+      "sourcePaths": [
+        "src/modules/example/acl.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/acl-dependencies.test.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-module-scaffold"
     },
@@ -388,12 +1226,17 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/setup.ts", "src/modules/example/lib/exampleSeeds.ts"],
+      "sourcePaths": [
+        "src/modules/example/setup.ts",
+        "src/modules/example/lib/exampleSeeds.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/setup-seeding.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-010-setup-seeding.spec.ts"
       ],
-      "dependencyModules": ["entities"],
+      "dependencyModules": [
+        "entities"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -403,14 +1246,21 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/di.ts", "src/modules/example/lib/todoSummaryService.ts"],
+      "sourcePaths": [
+        "src/modules/example/di.ts",
+        "src/modules/example/lib/todoSummaryService.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/di-registration.test.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts"
       ],
-      "dependencyModules": ["payment_gateways", "shipping_carriers", "webhooks"],
+      "dependencyModules": [
+        "payment_gateways",
+        "shipping_carriers",
+        "webhooks"
+      ],
       "ruleOwner": "om-integration-builder"
     },
     {
@@ -442,9 +1292,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/cli.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-011.spec.ts"],
-      "dependencyModules": ["entities"],
+      "sourcePaths": [
+        "src/modules/example/cli.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-011.spec.ts"
+      ],
+      "dependencyModules": [
+        "entities"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -460,7 +1316,9 @@
         "src/modules/example/i18n/es.json",
         "src/modules/example/i18n/pl.json"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-APP-001-metadata.spec.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-APP-001-metadata.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-module-scaffold"
     },
@@ -471,12 +1329,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/translations.ts"],
+      "sourcePaths": [
+        "src/modules/example/translations.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/translations.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-009-translations.spec.ts"
       ],
-      "dependencyModules": ["translations"],
+      "dependencyModules": [
+        "translations"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -486,7 +1348,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/data/entities.ts"],
+      "sourcePaths": [
+        "src/modules/example/data/entities.ts"
+      ],
       "integrationTestPaths": [],
       "dependencyModules": [],
       "ruleOwner": "om-data-model-design"
@@ -498,8 +1362,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/data/validators.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/todo-priority-validation.spec.ts"],
+      "sourcePaths": [
+        "src/modules/example/data/validators.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-data-model-design"
     },
@@ -510,12 +1378,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/ce.ts"],
+      "sourcePaths": [
+        "src/modules/example/ce.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/todo-priority-validation.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
       ],
-      "dependencyModules": ["entities"],
+      "dependencyModules": [
+        "entities"
+      ],
       "ruleOwner": "om-data-model-design"
     },
     {
@@ -552,7 +1424,9 @@
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts"
       ],
-      "dependencyModules": ["entities"],
+      "dependencyModules": [
+        "entities"
+      ],
       "ruleOwner": "om-data-model-design"
     },
     {
@@ -562,12 +1436,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/data/extensions.ts"],
+      "sourcePaths": [
+        "src/modules/example/data/extensions.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/entity-extensions.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-005-extension-links.spec.ts"
       ],
-      "dependencyModules": ["customers"],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -577,12 +1455,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/search.ts"],
+      "sourcePaths": [
+        "src/modules/example/search.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/encryption-search-contract.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-006-search.spec.ts"
       ],
-      "dependencyModules": ["query_index"],
+      "dependencyModules": [
+        "query_index"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -603,15 +1485,19 @@
     {
       "capabilityId": "search.encrypted-column-list-filter",
       "title": "List filtering over an encrypted column through the token index",
-      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` \u2192 `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column \u2014 that duplicates platform behaviour and re-derives a scope the platform already applies. When search is off the engine warns via `warnOnCiphertextLikeFallback` rather than silently matching nothing.",
+      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` → `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column — that duplicates platform behaviour and re-derives a scope the platform already applies. When search is off the engine warns via `warnOnCiphertextLikeFallback` rather than silently matching nothing.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/api/todos/route.ts"],
+      "sourcePaths": [
+        "src/modules/example/api/todos/route.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/api/__tests__/todos.encrypted-search.test.ts"
       ],
-      "dependencyModules": ["query_index"],
+      "dependencyModules": [
+        "query_index"
+      ],
       "ruleOwner": "om-data-model-design"
     },
     {
@@ -621,12 +1507,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/api/customer-priorities/route.ts"],
+      "sourcePaths": [
+        "src/modules/example/api/customer-priorities/route.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-004.spec.ts",
         "src/modules/example/__integration__/TC-UMES-021.spec.ts"
       ],
-      "dependencyModules": ["customers"],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -636,14 +1526,19 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/api/todos/route.ts"],
+      "sourcePaths": [
+        "src/modules/example/api/todos/route.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
         "src/modules/example/__integration__/todo-priority-validation.spec.ts",
         "src/modules/example/api/__tests__/todos.request-scope.test.ts"
       ],
-      "dependencyModules": ["entities", "query_index"],
+      "dependencyModules": [
+        "entities",
+        "query_index"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -653,7 +1548,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/api/openapi.ts"],
+      "sourcePaths": [
+        "src/modules/example/api/openapi.ts"
+      ],
       "integrationTestPaths": [],
       "dependencyModules": [],
       "ruleOwner": "om-module-scaffold"
@@ -665,9 +1562,13 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/api/organizations/route.ts"],
+      "sourcePaths": [
+        "src/modules/example/api/organizations/route.ts"
+      ],
       "integrationTestPaths": [],
-      "dependencyModules": ["directory"],
+      "dependencyModules": [
+        "directory"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -682,8 +1583,12 @@
         "src/modules/example/api/assignees/route.ts",
         "src/modules/example/api/notifications/route.ts"
       ],
-      "integrationTestPaths": ["src/modules/example/api/__tests__/tags.tenant-scope.test.ts"],
-      "dependencyModules": ["entities"],
+      "integrationTestPaths": [
+        "src/modules/example/api/__tests__/tags.tenant-scope.test.ts"
+      ],
+      "dependencyModules": [
+        "entities"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -693,9 +1598,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/api/interceptors.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/api/interceptors.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -705,7 +1616,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/commands/todos.ts"],
+      "sourcePaths": [
+        "src/modules/example/commands/todos.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/commands/__tests__/todos.update.test.ts",
         "src/modules/example/commands/__tests__/todos.prepare-scope.test.ts",
@@ -721,8 +1634,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/commands/todos.ts"],
-      "integrationTestPaths": ["src/modules/example/commands/__tests__/todos.undo.test.ts"],
+      "sourcePaths": [
+        "src/modules/example/commands/todos.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/commands/__tests__/todos.undo.test.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-data-model-design"
     },
@@ -733,9 +1650,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/commands/interceptors.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/commands/interceptors.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -745,9 +1668,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/events.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-003.spec.ts"],
-      "dependencyModules": ["events"],
+      "sourcePaths": [
+        "src/modules/example/events.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts"
+      ],
+      "dependencyModules": [
+        "events"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -757,9 +1686,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/commands/todos.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts"],
-      "dependencyModules": ["query_index", "events"],
+      "sourcePaths": [
+        "src/modules/example/commands/todos.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts"
+      ],
+      "dependencyModules": [
+        "query_index",
+        "events"
+      ],
       "ruleOwner": "om-data-model-design"
     },
     {
@@ -774,8 +1710,12 @@
         "src/modules/example/subscribers/prevent-uncomplete.ts",
         "src/modules/example/subscribers/audit-delete.ts"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"],
-      "dependencyModules": ["events"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
+      "dependencyModules": [
+        "events"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -785,9 +1725,13 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/subscribers/example-event.ts"],
+      "sourcePaths": [
+        "src/modules/example/subscribers/example-event.ts"
+      ],
       "integrationTestPaths": [],
-      "dependencyModules": ["events"],
+      "dependencyModules": [
+        "events"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -801,8 +1745,13 @@
         "src/modules/example/events.ts",
         "src/modules/example/subscribers/announce-todo-to-portal.ts"
       ],
-      "integrationTestPaths": ["src/modules/example/__tests__/announce-todo-to-portal.test.ts"],
-      "dependencyModules": ["events", "customer_accounts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/announce-todo-to-portal.test.ts"
+      ],
+      "dependencyModules": [
+        "events",
+        "customer_accounts"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -833,7 +1782,9 @@
         "src/modules/example/components/TodosTable.tsx",
         "src/modules/example/types.ts"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-backend-ui-design"
     },
@@ -844,8 +1795,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/components/TodosTable.tsx"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"],
+      "sourcePaths": [
+        "src/modules/example/components/TodosTable.tsx"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-backend-ui-design"
     },
@@ -894,7 +1849,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/frontend/example.tsx"],
+      "sourcePaths": [
+        "src/modules/example/frontend/example.tsx"
+      ],
       "integrationTestPaths": [],
       "dependencyModules": [],
       "ruleOwner": "om-backend-ui-design"
@@ -906,7 +1863,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/backend/middleware.ts"],
+      "sourcePaths": [
+        "src/modules/example/backend/middleware.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/backend-middleware.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-013-page-middleware.spec.ts"
@@ -921,7 +1880,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/frontend/middleware.ts"],
+      "sourcePaths": [
+        "src/modules/example/frontend/middleware.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/frontend-middleware.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-013-page-middleware.spec.ts"
@@ -936,8 +1897,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/data/guards.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"],
+      "sourcePaths": [
+        "src/modules/example/data/guards.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-006-mutation-lifecycle.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
     },
@@ -948,12 +1913,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/data/enrichers.ts"],
+      "sourcePaths": [
+        "src/modules/example/data/enrichers.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-002.spec.ts",
         "src/modules/example/__integration__/TC-UMES-012.spec.ts"
       ],
-      "dependencyModules": ["customers"],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -963,7 +1932,9 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/extension-points.ts"],
+      "sourcePaths": [
+        "src/modules/example/extension-points.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/extension-points.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-017-bound-extension-ui.spec.ts"
@@ -978,12 +1949,19 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/widgets/injection-table.ts"],
+      "sourcePaths": [
+        "src/modules/example/widgets/injection-table.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/widgets/__tests__/injection-table.test.ts",
         "src/modules/example/__integration__/TC-UMES-001.spec.ts"
       ],
-      "dependencyModules": ["customers", "catalog", "sales", "customer_accounts"],
+      "dependencyModules": [
+        "customers",
+        "catalog",
+        "sales",
+        "customer_accounts"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -993,9 +1971,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-field/widget.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/customer-priority-field/widget.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1005,9 +1989,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-column/widget.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/customer-priority-column/widget.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1017,9 +2007,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-filter/widget.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/customer-priority-filter/widget.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1029,9 +2025,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-row-action/widget.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/customer-priority-row-action/widget.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1041,9 +2043,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1067,7 +2075,12 @@
         "src/modules/example/widgets/__tests__/todo-bulk-complete.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts"
       ],
-      "dependencyModules": ["progress", "queue", "scheduler", "events"],
+      "dependencyModules": [
+        "progress",
+        "queue",
+        "scheduler",
+        "events"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1077,9 +2090,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/setup.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts"],
-      "dependencyModules": ["scheduler"],
+      "sourcePaths": [
+        "src/modules/example/setup.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/setup-bulk-dispatch-schedule.test.ts"
+      ],
+      "dependencyModules": [
+        "scheduler"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -1111,14 +2130,18 @@
         "src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
         "src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-004.spec.ts"],
-      "dependencyModules": ["customers"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-004.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
       "ruleOwner": "om-backend-ui-design"
     },
     {
       "capabilityId": "umes.component-replacement",
       "title": "Component replacement, wrapping and props transform (`widgets/components.ts`)",
-      "description": "`ComponentOverride` entries covering all three modes the union defines, exported as one unconditional array literal. `wrapper` decorates three handles other modules expose, with a pass-through gate that returns the original component BY IDENTITY for the demo-only checkout entries. `replacement` (plus the `propsSchema` the union requires alongside it) and `propsTransform` target a handle this module hosts itself in `components/ComponentOverrideShowcase.tsx`, rendered by `/backend/component-overrides`, so the two non-composing modes have a live call site without rewriting a screen that belongs to another module. Ordering is load-bearing, but only on one of the two resolvers: `useRegisteredComponent` \u2014 the client hook this host calls \u2014 buckets the modes, so a props transform reaches the render wherever it sorted and the highest-priority replacement wins; `resolveRegisteredComponent`, the server fold behind `page:` handles, walks in one pass and assigns `resolved = override.replacement`, discarding everything composed before it. The replacement takes the lowest number on the handle so both resolvers produce the same tree. Every value the fact extractor must read \u2014 the handle constant and the `propsTransform` callable \u2014 is declared in `widgets/components.ts` itself, because `staticValue` resolves an identifier only against initializers in the file it parses; a cross-file import publishes zero contributions for the handle and misclassifies the transform as `replace`.",
+      "description": "`ComponentOverride` entries covering all three modes the union defines, exported as one unconditional array literal. `wrapper` decorates three handles other modules expose, with a pass-through gate that returns the original component BY IDENTITY for the demo-only checkout entries. `replacement` (plus the `propsSchema` the union requires alongside it) and `propsTransform` target a handle this module hosts itself in `components/ComponentOverrideShowcase.tsx`, rendered by `/backend/component-overrides`, so the two non-composing modes have a live call site without rewriting a screen that belongs to another module. Ordering is load-bearing, but only on one of the two resolvers: `useRegisteredComponent` — the client hook this host calls — buckets the modes, so a props transform reaches the render wherever it sorted and the highest-priority replacement wins; `resolveRegisteredComponent`, the server fold behind `page:` handles, walks in one pass and assigns `resolved = override.replacement`, discarding everything composed before it. The replacement takes the lowest number on the handle so both resolvers produce the same tree. Every value the fact extractor must read — the handle constant and the `propsTransform` callable — is declared in `widgets/components.ts` itself, because `staticValue` resolves an identifier only against initializers in the file it parses; a cross-file import publishes zero contributions for the handle and misclassifies the transform as `replace`.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1148,8 +2171,12 @@
         "src/modules/example/widgets/dashboard/todos/widget.ts",
         "src/modules/example/widgets/dashboard/todos/config.ts"
       ],
-      "integrationTestPaths": ["src/modules/example/widgets/dashboard/__tests__/config.test.ts"],
-      "dependencyModules": ["dashboards"],
+      "integrationTestPaths": [
+        "src/modules/example/widgets/dashboard/__tests__/config.test.ts"
+      ],
+      "dependencyModules": [
+        "dashboards"
+      ],
       "ruleOwner": "om-backend-ui-design"
     },
     {
@@ -1159,12 +2186,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/notifications.ts"],
+      "sourcePaths": [
+        "src/modules/example/notifications.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-UMES-008.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts"
       ],
-      "dependencyModules": ["notifications"],
+      "dependencyModules": [
+        "notifications"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1174,9 +2205,15 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/notifications.handlers.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-008.spec.ts"],
-      "dependencyModules": ["notifications"],
+      "sourcePaths": [
+        "src/modules/example/notifications.handlers.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-008.spec.ts"
+      ],
+      "dependencyModules": [
+        "notifications"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1186,12 +2223,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/notifications.client.ts"],
+      "sourcePaths": [
+        "src/modules/example/notifications.client.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/notifications.client.test.tsx",
         "src/modules/example/__integration__/TC-EXAMPLE-008-notification-renderer.spec.ts"
       ],
-      "dependencyModules": ["notifications"],
+      "dependencyModules": [
+        "notifications"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1205,8 +2246,12 @@
         "src/modules/example/message-objects.ts",
         "src/modules/example/lib/messageObjectPreviews.ts"
       ],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-003.spec.ts"],
-      "dependencyModules": ["messages"],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-003.spec.ts"
+      ],
+      "dependencyModules": [
+        "messages"
+      ],
       "ruleOwner": "om-system-extension"
     },
     {
@@ -1228,7 +2273,11 @@
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts"
       ],
-      "dependencyModules": ["payment_gateways", "shipping_carriers", "webhooks"],
+      "dependencyModules": [
+        "payment_gateways",
+        "shipping_carriers",
+        "webhooks"
+      ],
       "ruleOwner": "om-integration-builder"
     },
     {
@@ -1277,8 +2326,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules.ts"],
-      "integrationTestPaths": ["src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"],
+      "sourcePaths": [
+        "src/modules.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
     },
@@ -1289,8 +2342,12 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/references/module-overrides.reference.ts"],
-      "integrationTestPaths": ["src/modules/example/__tests__/module-overrides-reference.test.ts"],
+      "sourcePaths": [
+        "src/modules/example/references/module-overrides.reference.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/module-overrides-reference.test.ts"
+      ],
       "dependencyModules": [],
       "ruleOwner": "om-system-extension"
     },
@@ -1301,27 +2358,35 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/ai-tools.ts"],
+      "sourcePaths": [
+        "src/modules/example/ai-tools.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/ai-tools.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
       ],
-      "dependencyModules": ["ai_assistant"],
+      "dependencyModules": [
+        "ai_assistant"
+      ],
       "ruleOwner": "om-create-ai-agent"
     },
     {
       "capabilityId": "ai.agent",
       "title": "AI agent definition (`ai-agents.ts`)",
-      "description": "One read-only chat agent over this module's own tool pack. `readOnly: true` and `mutationPolicy: 'read-only'` agree because every declared tool is `isMutation: false`; `allowedTools` is a closed whitelist, so adding a tool to `ai-tools.ts` does not silently widen the agent. `systemPrompt` is assembled from named LOCAL sections for authoring clarity only \u2014 `AiAgentDefinition.systemPrompt` is a plain string and the override path wraps it as a single `role` section, so those names are NOT addressable by the prompt-override system.",
+      "description": "One read-only chat agent over this module's own tool pack. `readOnly: true` and `mutationPolicy: 'read-only'` agree because every declared tool is `isMutation: false`; `allowedTools` is a closed whitelist, so adding a tool to `ai-tools.ts` does not silently widen the agent. `systemPrompt` is assembled from named LOCAL sections for authoring clarity only — `AiAgentDefinition.systemPrompt` is a plain string and the override path wraps it as a single `role` section, so those names are NOT addressable by the prompt-override system.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/ai-agents.ts"],
+      "sourcePaths": [
+        "src/modules/example/ai-agents.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/ai-agents.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
       ],
-      "dependencyModules": ["ai_assistant"],
+      "dependencyModules": [
+        "ai_assistant"
+      ],
       "ruleOwner": "om-create-ai-agent"
     },
     {
@@ -1331,12 +2396,17 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/ai-agents.ts"],
+      "sourcePaths": [
+        "src/modules/example/ai-agents.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/ai-agents.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
       ],
-      "dependencyModules": ["ai_assistant", "customers"],
+      "dependencyModules": [
+        "ai_assistant",
+        "customers"
+      ],
       "ruleOwner": "om-create-ai-agent"
     },
     {
@@ -1346,12 +2416,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/ai-tools.ts"],
+      "sourcePaths": [
+        "src/modules/example/ai-tools.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/ai-overrides.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
       ],
-      "dependencyModules": ["ai_assistant"],
+      "dependencyModules": [
+        "ai_assistant"
+      ],
       "ruleOwner": "om-create-ai-agent"
     },
     {
@@ -1361,12 +2435,16 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/ai-agents.ts"],
+      "sourcePaths": [
+        "src/modules/example/ai-agents.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/ai-overrides.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-014-ai-contracts.spec.ts"
       ],
-      "dependencyModules": ["ai_assistant"],
+      "dependencyModules": [
+        "ai_assistant"
+      ],
       "ruleOwner": "om-create-ai-agent"
     },
     {

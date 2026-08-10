@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   MODULE_FACT_SOURCE_KINDS,
+  MODULE_FACT_DIAGNOSTIC_CODES,
   MODULE_OWNED_CONTRACT_KINDS,
   buildCoverageFamily,
   buildModuleFactCoverageLedger,
@@ -13,12 +14,32 @@ import {
   type ModuleFacts,
 } from '../module-facts'
 import {
+  COMPONENT_OVERRIDE_MODES,
+  CRUD_FORM_EXTENSION_SURFACE_KEYS,
+  CRUD_FORM_LIFECYCLE_PHASES,
+  CRUD_FORM_OPERATIONS,
+  DATA_TABLE_EXTENSION_SURFACE_KEYS,
+  EXTENSION_HOST_ACTIVATIONS,
+  EXTENSION_HOST_CAPABILITIES,
+  EXTENSION_HOST_FAMILIES,
+  MODULE_EXTENSION_ACTIVATION_KINDS,
+  MODULE_EXTENSION_CONTRIBUTION_KINDS,
+  MODULE_EXTENSION_HOST_RESOLUTIONS,
+  MODULE_EXTENSION_RESOLUTIONS,
+  MODULE_EXTENSION_TARGET_KINDS,
+  MODULE_EXTENSION_TARGET_RESOLUTIONS,
+  MODULE_EXTENSION_UNRESOLVED_REASONS,
+  MODULE_SPECIALIZED_REGISTRIES,
+} from '@open-mercato/shared/modules/widgets/extension-points'
+import {
   ALL_OVERRIDE_DOMAINS,
   MODULE_OVERRIDE_MODES,
   MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
   MODULE_OVERRIDE_TARGET_NOTES,
 } from '../module-override-targets'
 import { OVERRIDE_TARGET_DIAGNOSTIC_FIXTURES } from './helpers/override-target-diagnostic-fixtures'
+import { discoverPackageModuleSources } from '../module-facts-discovery'
+import { createResolver } from '../../resolver'
 
 function findRepoRoot(): string {
   let dir = __dirname
@@ -86,13 +107,30 @@ describe('factCoverage ledger — enum derivation', () => {
       ModuleOverrideMode: MODULE_OVERRIDE_MODES.length,
       ModuleOverrideTargetNote: MODULE_OVERRIDE_TARGET_NOTES.length,
       ModuleOverrideTargetDiagnosticCode: MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES.length,
+      ModuleExtensionContributionKind: MODULE_EXTENSION_CONTRIBUTION_KINDS.length,
+      ModuleExtensionActivationKind: MODULE_EXTENSION_ACTIVATION_KINDS.length,
+      ExtensionHostFamily: EXTENSION_HOST_FAMILIES.length,
+      ExtensionHostCapability: EXTENSION_HOST_CAPABILITIES.length,
+      ExtensionHostActivation: EXTENSION_HOST_ACTIVATIONS.length,
+      ModuleExtensionTargetKind: MODULE_EXTENSION_TARGET_KINDS.length,
+      ModuleExtensionHostResolution: MODULE_EXTENSION_HOST_RESOLUTIONS.length,
+      ModuleExtensionTargetResolution: MODULE_EXTENSION_TARGET_RESOLUTIONS.length,
+      ModuleExtensionResolution: MODULE_EXTENSION_RESOLUTIONS.length,
+      SpecializedRegistry: MODULE_SPECIALIZED_REGISTRIES.length,
+      ComponentOverrideMode: COMPONENT_OVERRIDE_MODES.length,
+      ModuleFactDiagnosticCode: MODULE_FACT_DIAGNOSTIC_CODES.length,
+      ModuleExtensionUnresolvedReason: MODULE_EXTENSION_UNRESOLVED_REASONS.length,
+      DataTableExtensionSurface: DATA_TABLE_EXTENSION_SURFACE_KEYS.length,
+      CrudFormExtensionSurface: CRUD_FORM_EXTENSION_SURFACE_KEYS.length,
+      CrudFormLifecyclePhase: CRUD_FORM_LIFECYCLE_PHASES.length,
+      CrudFormOperation: CRUD_FORM_OPERATIONS.length,
     }
     expect(ledger.map((family) => family.family).sort()).toEqual(Object.keys(expectedSizes).sort())
     for (const family of ledger) {
       expect(family.rows).toHaveLength(expectedSizes[family.family])
       const values = family.rows.map((row) => row.value)
       expect(new Set(values).size).toBe(values.length)
-      expect(family.enumSource).toMatch(/^packages\/cli\/src\/lib\/generators\/.+#[A-Z_]+$/)
+      expect(family.enumSource).toMatch(/^packages\/(?:cli\/src\/lib\/generators|shared\/src\/modules\/widgets)\/.+#[A-Z_]+$/)
     }
   })
 
@@ -194,12 +232,70 @@ describe('factCoverage ledger — built by fact generation, not only by this tes
 
 describe('factCoverage ledger — checked against the real example extraction', () => {
   const ledger = buildModuleFactCoverageLedger()
-  const facts = extractExampleFacts()
+  const repoRoot = findRepoRoot()
+  const facts = extractAllModuleFacts({
+    sources: [...discoverPackageModuleSources(createResolver(repoRoot)), {
+      moduleId: 'example',
+      moduleRoot: path.join(repoRoot, 'apps', 'mercato', 'src', 'modules', 'example'),
+      portableSourceRoot: 'src/modules/example',
+      sourceKind: 'local-reference' as const,
+    }],
+  }).factsByModule.example
   const counts = countModuleFactCoverage(facts)
 
   it('extracts the real canonical example module', () => {
     expect(facts.module).toBe('example')
     expect(facts.sourceRoot).toBe('src/modules/example')
+  })
+
+  it('emits a clean, portable extension graph for the canonical example', () => {
+    expect(facts.diagnostics ?? []).toEqual([])
+    expect(facts.extensionSurfaces?.unresolved ?? []).toEqual([])
+    for (const source of facts.factSources) {
+      if (!source.source) continue
+      expect(source.source.sourcePath).toMatch(/^src\/modules\/example\//)
+      expect(path.isAbsolute(source.source.sourcePath)).toBe(false)
+    }
+  })
+
+  it('resolves lifecycle, guard, event and declared injection targets without fallbacks', () => {
+    const targets = facts.extensionSurfaces?.contributions.flatMap((contribution) => contribution.targets) ?? []
+    for (const id of [
+      'example.todo.creating',
+      'example.todo.updating',
+      'example.todo',
+      'example.ping',
+      'example:phase-c-handlers',
+    ]) {
+      expect(targets).toContainEqual(expect.objectContaining({ id }))
+      expect(targets.find((target) => target.id === id)?.resolution).not.toBe('unresolved')
+    }
+  })
+
+  it('emits exact command and component caller activations', () => {
+    const activations = facts.extensionSurfaces?.activations ?? []
+    expect(activations).toContainEqual(expect.objectContaining({
+      kind: 'command-interceptor-bridge',
+      host: expect.objectContaining({ id: 'example.todos.update' }),
+    }))
+    expect(activations).toContainEqual(expect.objectContaining({
+      kind: 'component-extension-consumer',
+      host: expect.objectContaining({ id: 'section:example.overrides.showcase' }),
+    }))
+  })
+
+  it('connects the Todo subscriber to the portal broadcast reaction', () => {
+    const contributions = facts.extensionSurfaces?.contributions ?? []
+    expect(contributions).toContainEqual(expect.objectContaining({
+      id: 'example:announce-todo-to-portal',
+      kind: 'subscriber',
+      targets: [expect.objectContaining({ id: 'example.todo.*', resolution: 'pattern' })],
+    }))
+    expect(contributions).toContainEqual(expect.objectContaining({
+      id: 'example.todo_announcement.published.browser',
+      kind: 'browser-reaction',
+      details: expect.objectContaining({ transports: ['portal'] }),
+    }))
   })
 
   it('proves a non-zero real count for every emitted-example row', () => {
@@ -234,6 +330,11 @@ describe('factCoverage ledger — checked against the real example extraction', 
     expect(pending).toEqual([
       'ModuleFactSourceKind.generator-plugin',
       'ModuleOwnedContractKind.generator-plugin',
+      'SpecializedRegistry.integration',
+      'SpecializedRegistry.vector',
+      'SpecializedRegistry.shipping',
+      'SpecializedRegistry.currency',
+      'SpecializedRegistry.workflow',
     ])
   })
 

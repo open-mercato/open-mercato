@@ -176,6 +176,17 @@ describe('local-reference module fact emission', () => {
     expect(normalAlpha.extensionSurfaces?.incoming ?? []).toEqual([])
   })
 
+  it('matches the disabled reference projection to a fresh activated extraction', () => {
+    const { entry } = extractLocalReferenceModuleFacts({ packageSources, reference })
+    const activated = extractAllModuleFacts({
+      sources: appendLocalReferenceModuleSource(packageSources, reference),
+    }).factsByModule.demo_local
+
+    expect(renderModuleFactsJson({ demo_local: activated }))
+      .toBe(renderModuleFactsJson({ demo_local: entry.facts }))
+    expect(extractAllModuleFacts({ sources: packageSources }).factsByModule.demo_local).toBeUndefined()
+  })
+
   it('emits the reference bundle discriminators and never a node_modules path', () => {
     const { entry, markdown } = extractLocalReferenceModuleFacts({ packageSources, reference })
     expect(entry.moduleId).toBe('demo_local')
