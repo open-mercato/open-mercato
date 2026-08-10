@@ -7,7 +7,7 @@ Make the skill-installation messages emitted during `create-mercato-app` agentic
 ## Scope
 
 - Add a regression assertion for the default standalone skill-installer summary.
-- Indent the summary lines that report installed local skills, external skills, layout, and the opt-in tier tip.
+- Indent standalone installer output only when it is embedded by create-app or `mercato agentic:init`, including success and failure messages.
 - Preserve all message wording, install behavior, flags, and direct invocation semantics.
 
 ## Non-goals
