@@ -233,4 +233,36 @@ describe('SalesDocumentAddressesSection', () => {
     expect(payload).not.toHaveProperty('shippingAddressSnapshot')
     expect(payload).not.toHaveProperty('billingAddressSnapshot')
   })
+
+  it('keeps snapshot keys the editor has no field for when the address is saved', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+          taxId: 'PL1234567890',
+          phone: '+48 600 100 200',
+        }}
+      />,
+    )
+
+    await screen.findByRole('button', { name: 'Update addresses' })
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, request] = mockApiCallOrThrow.mock.calls[0]
+    const payload = JSON.parse(request.body)
+    expect(payload.shippingAddressSnapshot).toMatchObject({
+      addressLine1: '12 Market Street',
+      taxId: 'PL1234567890',
+      phone: '+48 600 100 200',
+    })
+  })
 })
