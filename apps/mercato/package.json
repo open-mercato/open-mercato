@@ -58,7 +58,7 @@
     "@stripe/react-stripe-js": "^6.7.0",
     "@stripe/stripe-js": "^9.9.0",
     "@tanstack/react-query": "^5.101.2",
-    "@tanstack/react-table": "^8.20.5",
+    "@tanstack/react-table": "^9.0.0",
     "@uiw/react-markdown-preview": "^5.2.1",
     "ai": "^7.0.4",
     "awilix": "^13.0.5",
@@ -84,14 +84,14 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
     "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.2.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "cross-spawn": "^7.0.6",
-    "eslint": "^9.39.4",
+    "eslint": "^10.8.0",
     "eslint-config-next": "16.2.11",
     "jest": "^30.4.2",
     "tailwindcss": "^4.3.2",
@@ -101,8 +101,8 @@
     "typescript-native": "npm:typescript@7.0.2"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^12.11.1",
-    "bullmq": "^5.80.2",
-    "ioredis": "^5.11.1"
+    "better-sqlite3": "^13.0.3",
+    "bullmq": "^6.0.9",
+    "ioredis": "^6.0.0"
   }
 }
