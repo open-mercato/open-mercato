@@ -27,7 +27,12 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { validateCronExpression } from '@open-mercato/scheduler'
+// Deep import, NOT the package root: `@open-mercato/scheduler`'s index also
+// exports `SchedulerService`, which reaches `shared/lib/i18n/server` and its
+// `require('server-only')`. Pulling that into a "use client" module breaks the
+// build with 'server-only' cannot be imported from a Client Component module.
+// `lib/cronParser` depends on `cron-parser` alone and is safe in the browser.
+import { validateCronExpression } from '@open-mercato/scheduler/modules/scheduler/lib/cronParser'
 import { formatDateTime } from '../../../components/types'
 import { isValidIanaTimeZone } from '../../../data/validators'
 

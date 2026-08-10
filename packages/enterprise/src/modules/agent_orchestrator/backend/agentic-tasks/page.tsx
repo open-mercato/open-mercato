@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { z } from 'zod'
 import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, X, TriangleAlert } from 'lucide-react'
-import { validateCronExpression } from '@open-mercato/scheduler'
+// Deep import, NOT the package root: `@open-mercato/scheduler`'s index also
+// exports `SchedulerService`, which reaches `shared/lib/i18n/server` and its
+// `require('server-only')`. Pulling that into a "use client" module breaks the
+// build with 'server-only' cannot be imported from a Client Component module.
+// `lib/cronParser` depends on `cron-parser` alone and is safe in the browser.
+import { validateCronExpression } from '@open-mercato/scheduler/modules/scheduler/lib/cronParser'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
