@@ -60,7 +60,7 @@ None (`--skill-url` not supplied).
 
 - **`@tanstack/react-table` v9 (high).** DataTable is the single most widely used backend component in the repo. Mitigation: the legacy shim keeps the v8 semantics, and `packages/ui` has six DataTable test suites plus consumer tests across `core` that exercise render, sticky/responsive layout, column metadata, virtualization and extensions.
 - **`ioredis` v6 (medium).** Redis is optional at runtime and reached through `import('ioredis')`; a constructor/option change would only surface with a live Redis. Mitigation: read the v6 changelog, check `packages/shared/src/lib/redis/connection.ts` and `packages/cache/src/strategies/redis.ts` against it, and keep the existing unit mocks green.
-- **`eslint` v10 (medium).** Plugin peer compatibility (`eslint-config-next`, `eslint-plugin-react`, `eslint-plugin-react-hooks`, `@typescript-eslint`, the workspace-local `@open-mercato/eslint-plugin-ds`) is the usual failure mode, plus rules removed in v10.
+- **`eslint` v10 — realised, and blocked upstream.** `eslint-plugin-react@7.37.5` (latest stable) calls the `context.getFilename()` shim that eslint 10 removed, so the run aborts before linting anything. Its peer range stops at `^9.7`, `eslint-plugin-import@2.32.0` stops at `^9`, and `eslint-config-next@16.3.0` depends on both — so nothing in this repo can unblock it. eslint stays on `^9.39.4`; see Phase 3 in Progress.
 - **`framer-motion` v13 (low).** No source imports; the dependency may simply be stale in `packages/ai-assistant`.
 - Relocking against `develop` can move transitive versions relative to `main`'s lockfile — expected, and gated by `yarn audit`/CI.
 
@@ -118,9 +118,9 @@ None (`--skill-url` not supplied).
 
 ### Phase 3: eslint 9 to 10
 
-- [ ] 3.1 Bump eslint in root, app and eslint-plugin-ds; relock
-- [ ] 3.2 Fix flat-config and plugin-peer fallout
-- [ ] 3.3 Run yarn lint and eslint-plugin-ds tests until green
+- [x] 3.1 Bump eslint in root, app and eslint-plugin-ds; relock — **reverted, blocked upstream** (see 3.2)
+- [x] 3.2 Fix flat-config and plugin-peer fallout — **not fixable in this repo.** On eslint 10.8.1 the whole lint run aborts before reporting a single file: `TypeError: Error while loading rule 'react/no-direct-mutation-state': contextOrFilename.getFilename is not a function` (`eslint-plugin-react/lib/util/version.js:31`). eslint 10 removed the `context.getFilename()` shim that `eslint-plugin-react` still calls. The plugin's latest stable release, 7.37.5, declares `eslint: "… || ^9.7"` and has no eslint-10 build (only a `next`-tagged `7.8.0-rc.0` prerelease). `eslint-plugin-import@2.32.0` caps at `^9` for the same reason, and `eslint-config-next@16.3.0` — already the latest — depends on both. eslint stays at `^9.39.4` until that chain ships eslint-10 support.
+- [x] 3.3 Run yarn lint and eslint-plugin-ds tests until green — `yarn lint` green on the retained eslint 9; the lockfile was restored so the reverted experiment leaves no drift (`yarn install --immutable` clean)
 
 ### Phase 4: tanstack react-table 8 to 9
 
