@@ -1489,9 +1489,9 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 **Backward compatibility**: additive. With `MCP_SERVER_API_KEY_FILE` unset the OpenCode entrypoint behaves byte-for-byte as before; host-MCP mode (`yarn mcp:serve` + `MCP_SERVER_API_KEY`) is unchanged. Spec: `.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md`.
 
-### 2026-08-05 - @app module entries are compiled, not loaded as raw TS
+### 2026-08-05 - @app module entries are compiled, not raw TS
 
-`compileAndImportGenerated` (`lib/generated-registry-loader.ts`) now compiles every `@app` local module entry a generated registry references into `<appRoot>/.mercato/generated/app-modules/`, via the new exported `compileAppSourceFile` in `@open-mercato/shared/lib/bootstrap/dynamicLoader` (the esbuild bundle + dependency cache `loadBootstrapData` already used; packages stay external). The 2026-06-24 fix below only rewrote the specifier to an absolute `.ts` path, which holds while the target's whole graph stays inside what Node's type stripping accepts — a real module's does not (`./di` is extensionless, `./data/entities` carries decorators), so the first app-local `ai-tools.ts` killed the whole tool registry. Uncompilable modules log and fall back to the raw path. Additive: the artifact map is an optional third `rewriteGeneratedAliasImports` arg.
+`compileAndImportGenerated` (`lib/generated-registry-loader.ts`) compiles every `@app` module entry a generated registry references into `<appRoot>/.mercato/generated/app-modules/`, via the new `compileAppSourceFile` in `shared/lib/bootstrap/dynamicLoader` (reuses `loadBootstrapData`'s esbuild bundle and dep cache; packages stay external). The 2026-06-24 fix below only rewrote the specifier to an absolute `.ts` path, which holds only while the target's graph stays inside Node's type stripping — a real module's does not (`./di` is extensionless, `./data/entities` has decorators), so the first app-local `ai-tools.ts` killed the tool registry. Uncompilable modules log and fall back to the raw path. Additive: the artifact map is an optional third `rewriteGeneratedAliasImports` arg.
 
 ### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
 
