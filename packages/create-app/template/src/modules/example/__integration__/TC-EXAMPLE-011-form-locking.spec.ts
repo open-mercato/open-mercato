@@ -40,12 +40,13 @@ test.describe('TC-EXAMPLE-011: the shared todo form round-trips and refuses stal
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       await expect(titleInput).toBeVisible()
-      await titleInput.fill(title)
       const priorityInput = page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first()
       await priorityInput.fill('3')
       const severitySelect = page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first()
       await severitySelect.click()
       await page.getByRole('option', { name: 'Medium' }).click()
+      await titleInput.fill(title)
+      await expect(titleInput).toHaveValue(title)
 
       const form = titleInput.locator('xpath=ancestor::form').first()
       await form.locator('button[type="submit"]').first().click()
