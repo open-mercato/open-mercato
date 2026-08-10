@@ -1,5 +1,6 @@
 import { themes as prismThemes } from 'prism-react-renderer';
 import type { Config } from '@docusaurus/types';
+import remarkRawSource from './plugins/remark-raw-source';
 
 const config: Config = {
   title: 'Open Mercato Docs',
@@ -55,6 +56,7 @@ const config: Config = {
           editUrl: 'https://github.com/open-mercato/open-mercato/tree/main/docs',
           showLastUpdateAuthor: true,
           showLastUpdateTime: true,
+          remarkPlugins: [remarkRawSource],
         },
         blog: false,
         theme: {
