@@ -1086,18 +1086,12 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   ],
   'OMH-221': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
   'OMH-222': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
-  // The one writable declaring case: its plan must name exact reference sources, so it reads the
-  // module-shaped capability set a stock-transfer module would adapt. Its write allowlist is
-  // `.ai/specs/**`, and root immutability rejects a write here regardless.
+  // The one writable declaring case reads only the core data/command sources it adapts directly;
+  // generated reference facts and declared source links carry its specialist, progress, and design
+  // identities without widening the example root. Root immutability still rejects every write here.
   'OMH-223': [
-    'api.crud-factory',
     'commands.write',
     'data.entities',
-    'data.validators',
-    'events.typed-definitions',
-    'runtime.bulk-operation-progress',
-    'umes.injection.datatable-bulk-action',
-    'workflows.code-definition',
   ],
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],

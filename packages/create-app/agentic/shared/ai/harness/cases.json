@@ -20103,7 +20103,6 @@
       ],
       "allowedExtra": [
         ".ai/specs/SPEC-000-template.md",
-        ".ai/agentic.config.json",
         ".ai/guides/reference-modules/example.md"
       ],
       "forbidden": [
@@ -20119,16 +20118,10 @@
             "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
-            "api.crud-factory",
             "commands.write",
-            "data.entities",
-            "data.validators",
-            "events.typed-definitions",
-            "umes.injection.datatable-bulk-action",
-            "runtime.bulk-operation-progress",
-            "workflows.code-definition"
+            "data.entities"
           ],
-          "maxFiles": 16,
+          "maxFiles": 10,
           "maxBytes": 229376
         }
       ],
