@@ -97,16 +97,28 @@ Provider modules implement `DataSyncAdapter`:
 
 ```typescript
 interface DataSyncAdapter {
-  providerKey: string
-  direction: 'import' | 'export' | 'bidirectional'
-  supportedEntities: string[]
-  streamImport(entityType: string, cursor: string | null, config: SyncConfig): AsyncIterable<ImportBatch>
-  streamExport?(entityType: string, cursor: string | null, config: SyncConfig): AsyncIterable<ExportBatch>
-  getInitialCursor?(entityType: string): Promise<string | null>
-  getMapping?(entityType: string): Promise<FieldMapping[]>
-  validateConnection?(credentials: Record<string, unknown>): Promise<{ valid: boolean; message?: string }>
+  readonly providerKey: string
+  readonly direction: 'import' | 'export' | 'bidirectional'
+  readonly supportedEntities: string[]
+  readonly runMode?: 'generic' | 'provider'
+  readonly operationalTelemetry?: boolean
+  readonly runParameters?: RunParameter[]
+
+  streamImport?(input: StreamImportInput): AsyncIterable<ImportBatch>
+  streamExport?(input: StreamExportInput): AsyncIterable<ExportBatch>
+  getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
+  getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
+  validateConnection?(input: {
+    entityType: string
+    credentials: Record<string, unknown>
+    mapping: DataMapping
+    scope: TenantScope
+  }): Promise<ValidationResult>
 }
 ```
+
+All hooks take a single input object — see `lib/adapter.ts` for the authoritative
+shapes.
 
 Register adapters in your provider module's `di.ts`:
 ```typescript
@@ -140,6 +152,17 @@ Supported types: `boolean`, `string`, `number`, `select`. A parameter may set
 entity is selected — use it when a knob only makes sense for one entity's run.
 Params without `direction` / `entityType` apply to every run. Blank values fall
 back to `defaultValue`; values are retained across retries.
+
+Run parameters are **operator-visible and stored in clear text** on
+`sync_runs.parameters`, and rendered read-only on the run detail page. Never
+declare a parameter that carries a secret — credentials belong in
+`integrationCredentialsService`.
+
+The integration detail page's schedule table also starts runs, but has no room
+for a parameter form: it submits the declared defaults and refuses the run when
+an applicable parameter is `required` with no `defaultValue`, pointing the
+operator at the Data Sync dashboard. Declare a `defaultValue` for anything that
+should stay launchable from that table.
 
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 

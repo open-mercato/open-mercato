@@ -43,6 +43,14 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
+import type { RunParameter } from '../../lib/adapter'
+import { getApplicableRunParameters } from '../../lib/run-parameters'
+import {
+  RunParameterFields,
+  buildDefaultRunParameterValues,
+  buildRunParametersPayload,
+  type RunParameterFormValue,
+} from '../../components/RunParameterFields'
 
 type SyncRunRow = {
   id: string
@@ -62,25 +70,6 @@ type ResponsePayload = {
   page: number
   totalPages: number
 }
-
-type RunParameterType = 'boolean' | 'string' | 'number' | 'select'
-
-type RunParameter = {
-  key: string
-  label: string
-  type: RunParameterType
-  description?: string
-  required?: boolean
-  defaultValue?: string | number | boolean
-  placeholder?: string
-  options?: { value: string; label?: string }[]
-  min?: number
-  max?: number
-  direction?: 'import' | 'export'
-  entityType?: string | string[]
-}
-
-type RunParameterValue = string | boolean
 
 type SyncOption = {
   integrationId: string
@@ -138,35 +127,6 @@ function formatEntityTypeLabel(entityType: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function getApplicableRunParameters(
-  option: SyncOption | null,
-  direction: 'import' | 'export',
-  entityType: string | null,
-): RunParameter[] {
-  const declared = option?.runParameters ?? []
-  return declared.filter((param) => {
-    if (param.direction && param.direction !== direction) return false
-    if (param.entityType !== undefined && entityType) {
-      const allowed = Array.isArray(param.entityType) ? param.entityType : [param.entityType]
-      if (!allowed.includes(entityType)) return false
-    }
-    return true
-  })
-}
-
-function buildDefaultRunParameterValues(params: RunParameter[]): Record<string, RunParameterValue> {
-  const values: Record<string, RunParameterValue> = {}
-  for (const param of params) {
-    if (param.type === 'boolean') {
-      values[param.key] = param.defaultValue === true
-    } else {
-      values[param.key] = param.defaultValue !== undefined && param.defaultValue !== null
-        ? String(param.defaultValue)
-        : ''
-    }
-  }
-  return values
-}
 
 function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState {
   const normalized = entityType.trim().toLowerCase()
@@ -198,7 +158,7 @@ export default function SyncRunsDashboardPage() {
   const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
   const [batchSize, setBatchSize] = React.useState('100')
   const [fullSync, setFullSync] = React.useState(false)
-  const [paramValues, setParamValues] = React.useState<Record<string, RunParameterValue>>({})
+  const [paramValues, setParamValues] = React.useState<Record<string, RunParameterFormValue>>({})
   const [scheduleEditor, setScheduleEditor] = React.useState<SyncScheduleEditorState>(() => buildDefaultScheduleState(''))
   const [isLoadingSchedule, setIsLoadingSchedule] = React.useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
@@ -282,7 +242,11 @@ export default function SyncRunsDashboardPage() {
   )
 
   const runParameters = React.useMemo(
-    () => getApplicableRunParameters(selectedIntegration, selectedDirection, selectedEntityType),
+    () => getApplicableRunParameters(
+      selectedIntegration?.runParameters,
+      selectedDirection,
+      selectedEntityType ?? undefined,
+    ),
     [selectedIntegration, selectedDirection, selectedEntityType],
   )
 
@@ -290,7 +254,7 @@ export default function SyncRunsDashboardPage() {
     setParamValues(buildDefaultRunParameterValues(runParameters))
   }, [runParameters])
 
-  const updateParamValue = React.useCallback((key: string, value: RunParameterValue) => {
+  const updateParamValue = React.useCallback((key: string, value: RunParameterFormValue) => {
     setParamValues((current) => ({ ...current, [key]: value }))
   }, [])
 
@@ -415,10 +379,7 @@ export default function SyncRunsDashboardPage() {
       return
     }
 
-    const parameters: Record<string, RunParameterValue> = {}
-    for (const param of runParameters) {
-      if (param.key in paramValues) parameters[param.key] = paramValues[param.key]
-    }
+    const parameters = buildRunParametersPayload(runParameters, paramValues)
     const requestBody: Record<string, unknown> = {
       integrationId: selectedIntegration.integrationId,
       entityType: selectedEntityType,
@@ -859,64 +820,11 @@ export default function SyncRunsDashboardPage() {
                     <p className="text-xs text-muted-foreground">
                       {t('data_sync.dashboard.start.parametersHelp', 'Optional values this integration accepts for the manual run.')}
                     </p>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {runParameters.map((param) => {
-                        const value = paramValues[param.key]
-                        if (param.type === 'boolean') {
-                          return (
-                            <div key={param.key} className="rounded-lg border bg-background p-3 sm:col-span-2">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="space-y-1">
-                                  <Label className="text-sm font-medium">{param.label}</Label>
-                                  {param.description ? (
-                                    <p className="text-xs text-muted-foreground">{param.description}</p>
-                                  ) : null}
-                                </div>
-                                <Switch
-                                  checked={value === true}
-                                  onCheckedChange={(checked) => updateParamValue(param.key, checked)}
-                                />
-                              </div>
-                            </div>
-                          )
-                        }
-                        return (
-                          <div key={param.key} className="space-y-2">
-                            <Label className="text-sm font-medium">
-                              {param.label}
-                              {param.required ? <span className="text-destructive"> *</span> : null}
-                            </Label>
-                            {param.type === 'select' ? (
-                              <Select
-                                value={typeof value === 'string' && value.length > 0 ? value : undefined}
-                                onValueChange={(next) => updateParamValue(param.key, next ?? '')}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder={param.placeholder ?? undefined} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(param.options ?? []).map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      {option.label ?? option.value}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Input
-                                value={typeof value === 'string' ? value : ''}
-                                onChange={(event) => updateParamValue(param.key, event.target.value)}
-                                placeholder={param.placeholder ?? undefined}
-                                inputMode={param.type === 'number' ? 'numeric' : undefined}
-                              />
-                            )}
-                            {param.description ? (
-                              <p className="text-xs text-muted-foreground">{param.description}</p>
-                            ) : null}
-                          </div>
-                        )
-                      })}
-                    </div>
+                    <RunParameterFields
+                      params={runParameters}
+                      values={paramValues}
+                      onChange={updateParamValue}
+                    />
                   </div>
                 ) : null}
 

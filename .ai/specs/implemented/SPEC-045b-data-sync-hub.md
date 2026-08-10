@@ -2563,6 +2563,7 @@ interface RunParameter {
   options?: { value: string; label?: string }[]   // select
   min?: number; max?: number                        // number
   direction?: 'import' | 'export'                   // omit = both
+  entityType?: string | string[]                    // omit = every entity
 }
 
 interface DataSyncAdapter {
@@ -2582,7 +2583,9 @@ interface DataSyncAdapter {
    - blank values fall back to `defaultValue`; a blank **required** value → `422`,
    - values are coerced to the declared type, with `min`/`max` and `select`
      option enforcement,
-   - parameters not matching the run `direction` are ignored.
+   - parameters not matching the run `direction` are ignored,
+   - parameters scoped to a different `entityType` are dropped and never
+     enforced, even when declared `required`.
 4. Normalized values are persisted on `SyncRun.parameters` (JSONB, nullable) and
    handed to the adapter on `StreamImportInput.parameters` /
    `StreamExportInput.parameters` for the whole duration of the run.
@@ -2593,6 +2596,43 @@ interface DataSyncAdapter {
 methods (and the persisted record), not `getMapping` / `getInitialCursor` /
 `validateConnection`; values are set once at run start and are immutable for the
 duration of the run. These are additive extension points if richer needs arise.
+
+**Not covered (declared follow-up)**: recurring runs. `sync_schedules` carries
+`full_sync` but no `parameters` column, so a scheduled run cannot yet supply
+declared parameters — scheduled runs behave exactly as before. The integration
+detail page's schedule table starts one-off runs from a table row with no space
+for a parameter form; it submits the adapter's declared defaults and refuses the
+run when an applicable parameter is `required` with no `defaultValue`, directing
+the operator to the Data Sync dashboard.
+
+**Secrets**: parameter values are operator-visible — persisted in clear text on
+`sync_runs.parameters` and rendered on the run detail page. Adapters MUST NOT
+declare a parameter that carries a secret; credentials belong in
+`integrationCredentialsService`.
+
+### 11b.1 Migration & Backward Compatibility
+
+Additive only — no existing type, signature, route, schema, column, or default
+behaviour changes.
+
+| Surface | Change | Classification |
+|---|---|---|
+| `DataSyncAdapter` | new optional `runParameters?: RunParameter[]` | additive optional field |
+| `StreamImportInput` / `StreamExportInput` | new optional `parameters?` | additive optional field |
+| `lib/adapter.ts` | new exported `RunParameter`, `RunParameterType`, `RunParameterValue`, `RunParameterOption` | new exports |
+| `lib/run-parameters.ts` | new module (`normalizeRunParameters`, `getApplicableRunParameters`) | new file |
+| `runSyncSchema` | new optional `parameters` record | widened, not narrowed |
+| `POST /api/data_sync/run` | new `422` for invalid parameters | only reachable once an adapter declares parameters |
+| `GET /api/data_sync/options` | new `runParameters` array per item | additive response field |
+| `GET /api/data_sync/runs/[id]` | new `parameters` field | additive response field |
+| `sync_runs` | new nullable `parameters` jsonb column | additive, nullable, no default |
+
+An adapter that declares no `runParameters` is unaffected: the normalized object
+is empty, `parameters` stays `null` on the run, and the dashboard renders exactly
+as before. Existing rows need no backfill — `NULL` is the correct value for every
+run started before this change. Deployment order is unconstrained: the column is
+nullable and every read path uses `?? null`, so the migration may be applied
+before or after the code rolls out.
 
 ---
 
@@ -2605,7 +2645,7 @@ duration of the run. These are additive extension points if richer needs arise.
 | 2026-02-24 | Added `sync_excel` reference implementation |
 | 2026-03-04 | Clarified canonical ownership of `sync_external_id_mappings` and added migration/BC + compliance sections |
 | 2026-04-15 | Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs). |
-| 2026-06-29 | Added generic adapter-declared run parameters: `RunParameter` contract, `normalizeRunParameters` validation/coercion, `SyncRun.parameters` (JSONB) persistence, pass-through to import/export streams, dashboard inputs + read-only run-detail surfacing, retry carry-forward (see §11b). |
+| 2026-08-10 | Added generic adapter-declared run parameters: `RunParameter` contract (direction- and entity-scoped), `normalizeRunParameters` validation/coercion, `SyncRun.parameters` (JSONB) persistence, pass-through to import/export streams, dashboard inputs + read-only run-detail surfacing, retry carry-forward, and the additive-only BC analysis (see §11b). |
 
 ## Implementation Status
 

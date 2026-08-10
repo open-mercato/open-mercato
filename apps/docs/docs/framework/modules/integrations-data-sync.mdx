@@ -143,6 +143,27 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `getMapping(...)`
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
+- optional `runParameters` — see below
+
+## Run parameters
+
+An adapter can declare operator-facing parameters that the Data Sync dashboard renders as inputs on the "Run once now" card, in the spirit of a GitHub Actions `workflow_dispatch` input:
+
+```ts
+runParameters: [
+  { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: false },
+  { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+  { key: 'mode', label: 'Mode', type: 'select', options: [{ value: 'fast' }, { value: 'thorough' }] },
+  // Offered only for this entity's run:
+  { key: 'bulk', label: 'Bulk reindex', type: 'boolean', entityType: 'sales_orders' },
+]
+```
+
+Types are `boolean`, `string`, `number` and `select`. A parameter may be scoped with `direction` (`import`/`export`) and/or `entityType` (a `supportedEntities` value or an array); unscoped parameters apply to every run.
+
+`POST /api/data_sync/run` validates and coerces the submitted `parameters` object against the declaration — undeclared keys are dropped, blanks fall back to `defaultValue`, a required blank returns `422`, and numbers respect `min`/`max` while `select` values must be members. The normalized values are persisted on `sync_runs.parameters`, shown read-only on the run detail page, retained across retries, and handed to the adapter on `StreamImportInput.parameters` / `StreamExportInput.parameters`.
+
+Run parameters are operator-visible and stored in clear text, so they must never carry secrets — use the integration's credentials service for those.
 
 ## Provider-owned environment preconfiguration
 
