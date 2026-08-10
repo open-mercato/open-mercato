@@ -9,7 +9,7 @@
 
 import * as React from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import ProfileCommunicationChannelsPage from '../page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 

@@ -1,4 +1,5 @@
-import type { ColumnDef } from '@tanstack/react-table'
+import type { RowData } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { CustomFieldDefDto, CustomFieldVisibility } from './customFieldDefs'
 import { isDefVisible } from './customFieldDefs'
@@ -51,7 +52,7 @@ export function normalizeCustomFieldFilterOptions(options?: RawCustomFieldOption
 // Filters and annotates columns with custom-field definitions:
 // - Drops cf_* columns when no definition exists or listVisible === false
 // - Uses definition label as header when header is missing
-export function applyCustomFieldVisibility<T>(columns: ColumnDef<T, any>[], defs: CustomFieldDefDto[], mode: CustomFieldVisibility = 'list'): ColumnDef<T, any>[] {
+export function applyCustomFieldVisibility<T extends RowData>(columns: ColumnDef<T, any>[], defs: CustomFieldDefDto[], mode: CustomFieldVisibility = 'list'): ColumnDef<T, any>[] {
   const byKey = new Map(defs.map((d) => [d.key, d]))
   // First, filter and annotate headers
   const filtered = columns.filter((c) => {

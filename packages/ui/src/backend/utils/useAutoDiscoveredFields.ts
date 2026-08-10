@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { RowData } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { FilterFieldDef as AdvancedFilterFieldDef, FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { ColumnChooserField } from '../columns/ColumnChooserPanel'
 import type { CustomFieldDefDto } from './customFieldDefs'
@@ -27,7 +28,7 @@ type ColumnMeta = {
   tooltipContent?: (row: unknown) => string | undefined
 }
 
-function resolveHeaderLabel(column: ColumnDef<any, any>): string {
+function resolveHeaderLabel<T extends RowData>(column: ColumnDef<T, unknown>): string {
   const header = (column as any).header
   if (typeof header === 'string') return header
   const accessorKey = (column as any).accessorKey as string | undefined
@@ -46,8 +47,8 @@ function inferFilterType(accessorKey: string, meta?: ColumnMeta): FilterFieldTyp
   return 'text'
 }
 
-export type UseAutoDiscoveredFieldsInput = {
-  columns: ColumnDef<any, any>[]
+export type UseAutoDiscoveredFieldsInput<T extends RowData> = {
+  columns: ColumnDef<T, unknown>[]
   customFieldDefs: CustomFieldDefDto[]
 }
 
@@ -56,10 +57,10 @@ export type UseAutoDiscoveredFieldsResult = {
   columnChooserFields: ColumnChooserField[]
 }
 
-export function useAutoDiscoveredFields({
+export function useAutoDiscoveredFields<T extends RowData>({
   columns,
   customFieldDefs,
-}: UseAutoDiscoveredFieldsInput): UseAutoDiscoveredFieldsResult {
+}: UseAutoDiscoveredFieldsInput<T>): UseAutoDiscoveredFieldsResult {
   return React.useMemo(() => {
     const filterFields: AdvancedFilterFieldDef[] = []
     const chooserFields: ColumnChooserField[] = []
