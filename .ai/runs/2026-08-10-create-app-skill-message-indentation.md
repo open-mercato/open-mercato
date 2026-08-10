@@ -35,6 +35,8 @@ Make the skill-installation messages emitted during `create-mercato-app` agentic
 
 ## Progress
 
+PR: #5158
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Regression repair
@@ -44,5 +46,5 @@ Make the skill-installation messages emitted during `create-mercato-app` agentic
 
 ### Phase 2: Verification and delivery
 
-- [ ] 2.1 Run the focused create-app tests and the configured full validation gate.
+- [x] 2.1 Run the focused create-app tests and the configured full validation gate. — 2535a08d5
 - [ ] 2.2 Run the authoritative automated PR review/autofix pass and finalize the PR metadata and summary.
