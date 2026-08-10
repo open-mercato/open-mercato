@@ -6,10 +6,14 @@ import test from 'node:test'
 import zlib from 'node:zlib'
 
 import {
+  ALLOWLIST_PATH,
   collectFlaggedAdvisories,
   decodeAdvisoryResponse,
+  extractGhsaId,
   fetchAdvisories,
+  loadAllowlist,
   parseArgs,
+  partitionAllowlisted,
   readLockPackages,
 } from '../audit-ci.mjs'
 
@@ -111,6 +115,47 @@ test('audit advisory retries abort stalled registry responses before failing clo
     (error) => error?.name === 'TimeoutError',
   )
   assert.equal(attempts, 3)
+})
+
+test('extracts a GHSA id from an advisory url regardless of case', () => {
+  assert.equal(extractGhsaId('https://github.com/advisories/GHSA-w3rx-r6r6-pgpr'), 'GHSA-W3RX-R6R6-PGPR')
+  assert.equal(extractGhsaId('https://github.com/advisories/ghsa-5p2g-fcmc-qvqq'), 'GHSA-5P2G-FCMC-QVQQ')
+  assert.equal(extractGhsaId('https://example.test/not-a-ghsa-link'), null)
+  assert.equal(extractGhsaId(undefined), null)
+})
+
+test('the shipped allowlist parses and covers the documented image-size exceptions', () => {
+  const allowlist = loadAllowlist(ALLOWLIST_PATH)
+  assert.equal(allowlist.get('GHSA-W3RX-R6R6-PGPR')?.package, 'image-size')
+  assert.equal(allowlist.get('GHSA-5P2G-FCMC-QVQQ')?.package, 'image-size')
+})
+
+test('loadAllowlist returns an empty map when the file is missing', () => {
+  const missingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-')), 'missing.json')
+  assert.deepEqual(loadAllowlist(missingPath), new Map())
+})
+
+test('loadAllowlist fails closed on a malformed allowlist file', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-'))
+  const allowlistPath = path.join(directory, 'audit-ci-allowlist.json')
+  try {
+    fs.writeFileSync(allowlistPath, JSON.stringify({ version: 1 }))
+    assert.throws(() => loadAllowlist(allowlistPath), /must contain an "advisories" object/)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('partitionAllowlisted suppresses only advisories matched by GHSA id', () => {
+  const flagged = [
+    { name: 'image-size', severity: 'high', range: '<=2.0.2', title: 'ICNS DoS', url: 'https://github.com/advisories/GHSA-w3rx-r6r6-pgpr' },
+    { name: 'lodash', severity: 'high', range: '<4.17.21', title: 'prototype pollution', url: 'https://github.com/advisories/GHSA-unrelated-0000-0000' },
+  ]
+  const allowlist = new Map([['GHSA-W3RX-R6R6-PGPR', { package: 'image-size', reason: 'archived, unpatched, build-time only' }]])
+  const { blocking, suppressed } = partitionAllowlisted(flagged, allowlist)
+  assert.deepEqual(blocking.map((advisory) => advisory.name), ['lodash'])
+  assert.deepEqual(suppressed.map((advisory) => advisory.name), ['image-size'])
+  assert.equal(suppressed[0].reason, 'archived, unpatched, build-time only')
 })
 
 test('the change-triggered audit job has a hard workflow timeout', () => {
