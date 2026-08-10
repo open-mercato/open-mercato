@@ -5,7 +5,7 @@ Load this reference for entity shape and relationship decisions.
 - Put entities in one `data/entities.ts`; use legacy decorators and explicit DB column names.
 - Prefer UUID primary keys and module-prefixed plural table/index names.
 - Tenant-owned rows require tenant/org IDs and an index beginning with the fields used by common scoped queries.
-- Editable rows require create/update timestamps and `updated_at`; append-only logs and pure junction rows may be exempt when justified.
+- Editable rows require create/update timestamps and `updated_at`; append-only logs and pure junction rows may be exempt when justified. Declare them with a property initializer (`createdAt: Date = new Date()`), not definite assignment (`createdAt!: Date`): the initializer is what keeps the column optional in the data type `createOrmEntity` derives. The same holds for every other non-nullable column with a fixed default (counters, status enums); declared with `!` they become required in each create payload, so callers end up passing values the entity already owns.
 - Represent money as the installed monetary contract, not floating point; represent timestamps/timezones explicitly.
 - Make nullable/optional/default semantics deliberate. A clearable field accepts explicit null through validator and command.
 - Same-module relations may use ORM relations with owned/inverse sides defined. Cross-module records use scalar IDs, snapshots, events/enrichers, or `data/extensions.ts`.

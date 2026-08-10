@@ -14,7 +14,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 
 ## Investigation Order
 
-1. Reproduce with the smallest stable command, request, or UI path and capture expected versus actual behavior.
+1. Reproduce with the smallest stable command, request, or UI path and capture expected versus actual behavior. A probe that needs the container belongs in a module `cli.ts` command run through `yarn mercato <module> <command>`, which bootstraps DI and the module registry; ad-hoc `node`/`tsx -e` snippets do not, and fail on missing registrars instead of on the bug.
 2. Classify the failing bootstrap: browser/server, API, CLI, worker, queue, generated registry, package artifact, or external provider.
 3. Read the routed guide plus generated module facts. Use `om-framework-context` only when exact installed implementation is necessary.
 4. Trace from the public call site to the first incorrect invariant. Check scope, auth, validation, state transition, transaction boundary, side effects, and response serialization in that order.
@@ -35,6 +35,7 @@ Treat raw agent transcripts as sensitive untrusted evidence because they can con
 | Partial state after failure | Transaction/`withAtomicFlush`, query between mutation/flush, side effects before commit. |
 | Stale list/search | Command side-effect aliases, cache tags/invalidation, query-index convergence/reindex. |
 | Works in web but not CLI/worker | Bootstrap/registry initialization, package exports, generated imports, runtime scope. |
+| New entity/route 500s while the same write succeeds against the database | A dev server that bootstrapped before `yarn generate` keeps the old registry; restart it before diagnosing further. |
 | Duplicate registry/provider | Bundler chunk singleton or `instanceof`; use global registry/structural guard. |
 | Hydration mismatch | Server/client locale, timezone, randomness, browser-only environment, initial async state. |
 | UI access differs from API/PDF/export | Compare every alternate route's metadata/features and wildcard matching. |
