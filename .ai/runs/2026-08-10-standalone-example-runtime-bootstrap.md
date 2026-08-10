@@ -41,14 +41,16 @@ Source doc: `.ai/specs/2026-07-31-standalone-canonical-example-module.md`
 
 ## Progress
 
+PR: #5159
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Runtime and activation fixes
 
-- [ ] 1.1 Make `loadAllModuleTools` share one in-flight/completed load and apply intentional tool replacements without duplicate warnings.
-- [ ] 1.2 Add focused AI-assistant regression tests for sequential and concurrent loader calls plus the override replacement path.
-- [ ] 1.3 Add the explicit migration command to the mirrored example activation guide and pin it in create-app delivery coverage.
+- [x] 1.1 Make `loadAllModuleTools` share one in-flight/completed load and apply intentional tool replacements without duplicate warnings. — b0a26b75d
+- [x] 1.2 Add focused AI-assistant regression tests for sequential and concurrent loader calls plus the override replacement path. — b0a26b75d
+- [x] 1.3 Add the explicit migration command to the mirrored example activation guide and pin it in create-app delivery coverage. — 670901e72
 
 ### Phase 2: Knowledge and verification
 
-- [ ] 2.1 Update the matching migration/runtime-startup lesson and run the targeted package tests before the full configured validation gate.
+- [x] 2.1 Update the matching migration/runtime-startup lesson and run the targeted package tests before the full configured validation gate. — ff7f925f3
