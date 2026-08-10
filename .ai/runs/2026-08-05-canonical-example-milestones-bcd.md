@@ -606,3 +606,108 @@ Four API facts that cost a cycle each: the summary route authenticates from **co
 optimistic-lock header is `x-om-ext-optimistic-lock-expected-updated-at`; the todos list projection
 returns `notes: null` rather than omitting the key; and the search envelope echoes the caller's own
 query string, so never assert "the body does not contain <search term>" against the whole response.
+
+## Review response + slice B to twelve-of-fifteen — 2026-08-10 session 4
+
+Commits: `58bee928a` (release-version decoupling), `eb6c17512` (override-rule exception),
+`d0f36a0f2`-equivalent deprecation nit, `43d835c33` (TC-EXAMPLE-003), `de28cdeec`
+(TC-EXAMPLE-010 + a role-ACL fix), `35eefb97e` (TC-EXAMPLE-014 + TC-EXAMPLE-017 + an AI
+tool-schema fix).
+
+### The 20:58Z re-review, finding by finding
+
+- **Blocker 2 (CI failed on the merge commit).** The base was ~20 commits ahead and had shipped
+  `v0.6.7`; the checked design-system inventory pins `packageVersion` on 106 items, so the release
+  alone made it stale. The base is merged and the asset regenerated — **and the coupling is gone**,
+  which the reviewer rightly said would outlive this PR. `--check` now compares
+  provenance-normalized documents, so a release bump on a base branch can never again invalidate
+  the asset on every open branch with a message that points at the author's own reader changes.
+  Generation still writes the real versions; a drifted checked asset is a NOTE, not a failure.
+  Five mutation probes hold the guard's strength over real content.
+- **Major (the version pin).** Same change. No follow-up issue is needed because it is fixed here.
+- **Minor (the ungated notes wrapper).** Kept ungated and documented as the deliberate exception,
+  which was the second option offered. The rule the file states is about **replacement**: `replace`
+  discards the host's markup, a `wrapper` renders it inside a frame. Gating it would falsify two
+  live statements — Phase H of the UMES demo sends the reader to find that border, and
+  `TC-UMES-004` asserts it. Both halves are now *asserted*: the wrapper must keep the host
+  rendered, and no override may carry a `replacement` for a handle this module does not host.
+- **Nits.** `getFrameworkOverrideModes` carries `@deprecated` naming its successor and the reason.
+  The run log's duplicated wave-state table was already collapsed in the previous session.
+- **Blocker 1 (the title).** Not closed by landing everything — see below. The PR is retitled to
+  what the branch contains, which was the reviewer's other stated resolution.
+
+### Slice B: eight → twelve of fifteen, every one executed
+
+| Spec | Tests | What it proves that no unit test could |
+|---|---|---|
+| `TC-EXAMPLE-003` | 7 | The DataTable selection reaches the route as the exact filtered id set; the 202/`progressJobId` contract; crash-before-publication recovered by a real dispatcher tick; resume-from-checkpoint counting the finished item once; mixed failure COMPLETING with a bounded `not_found` summary; a real DELETE cancellation stopping before the first item; a sibling-organization id refused with no durable row |
+| `TC-EXAMPLE-010` | 5 | The three setup hooks against a tenant nobody initialized — definitions-only, deterministic record identities on re-run, opt-in demo rows, `--no-examples`, and role features merged into real ACLs |
+| `TC-EXAMPLE-014` | 6 | Tool/agent discovery, both keyed file-tier overrides published, the unkeyed extension patching a `customers` agent, organization isolation through the real executor, and the ACL gate at both listing and dispatch |
+| `TC-EXAMPLE-017` | 5 | Both declared hosts actually render their spots; recursive injection; all ten CrudForm payload categories; `replace` vs `props` vs `wrapper` separated by what only the rendered tree shows; an unkeyed spot staying empty |
+
+**Crash, interruption and cancellation are reached by rewinding the durable rows**, then letting
+the real dispatcher and worker recover them. The ephemeral stack's own workers consume the queue
+the instant the 202 lands, so an unrewound cancel always hits `cancelJob`'s benign terminal-state
+return and asserts nothing. Only the clock is faked; every code path under assertion is real.
+
+### Two platform defects the new lanes found, both fixed here
+
+1. **Role ACLs stored duplicate grants on a first init.** `ensureRoleAclFor` deduplicated on merge
+   but not on create, and `ensureDefaultRoleAcls` concatenates every module's declared features —
+   two modules legitimately declare the same grant (`example` asks for `payment_gateways.view`, and
+   so does that module). So a fresh tenant stored it twice and a second `mercato init` silently
+   collapsed it: the same list took two shapes depending only on how often setup had run.
+2. **Every AI tool published an EMPTY input schema.** The MCP `tools/list` handler, the in-process
+   client and `GET /api/ai_assistant/tools` all called `zod-to-json-schema` — a Zod **3** converter —
+   on Zod **4** schemas. It did not throw; it returned `{"$schema": …}` with no `properties` and no
+   `required`, so an argument-free tool and one with three required fields serialized identically
+   and a model was never told that `example.get_customer_priority` takes a `customerId`. This is
+   the most consequential finding of the programme so far: it silently degraded tool calling for
+   every module, not only this one. Fixed at all three call sites through one helper using Zod 4's
+   own converter, with `io: 'input'` and `unrepresentable: 'any'`, and five unit tests that fail if
+   the schema ever goes contentless again.
+
+A third, smaller correction: `withClient`'s exported parameter type named `pg`'s `Client`, which
+that package merges as a class **and** a namespace; the app project picked the namespace half, so
+every caller outside `packages/core` failed to typecheck. It is declared structurally now.
+
+### Why 012, 015 and 016 are NOT in this instalment
+
+Stated plainly rather than left as an empty row, because each is blocked on real work and not on
+effort:
+
+- **`TC-EXAMPLE-015` (specialized registries)** asks for "all nine registry kinds" including the
+  vector, workflow and currency provider identities. The canonical spec's own "what Milestone B
+  still lacks" list names those three surfaces as **absent from the module**. The spec cannot be
+  written honestly until they exist; writing one that asserts the six that do exist and calls
+  itself `015` would be the vacuous-test failure mode this programme exists to catch.
+- **`TC-EXAMPLE-016` (generator plugin)** requires "a disposable activated app" — a Verdaccio
+  publish plus a scaffold, i.e. the `test:create-app` lane, not the `test:integration` lane. It is
+  a different harness, not a longer test.
+- **`TC-EXAMPLE-012` (extension facts and topology)** is the largest of the three: it asserts every
+  emitted contribution, activation, target, policy, resolution-set, host-family, capability,
+  override-domain/mode/note/diagnostic, lifecycle and operation row, plus a fixture activation
+  compared against a fresh app-local extraction. It is a wave of its own.
+
+### Slice C and slice I
+
+- **Slice C, family 8** stays `partial` for the reason recorded in the previous session, which is
+  structural rather than unfinished: every emitted owner ships in every preset, so no record
+  narrows to one and "wrong preset" has nothing to be wrong about. Closing it needs a preset-narrowed
+  owner — a product decision about the harness, not a test.
+- **Slice I** is a certification of Milestone D, and Milestone B's gate is 12/15. Certifying now
+  would assert completion the tree does not hold. What this session did instead is the honest
+  half: the surface map's "proven by unit tests only" paragraph is rewritten (its own guard test
+  caught the drift the moment the new specs landed), and the canonical spec's changelog records
+  exactly what remains.
+
+### Wave state
+
+| Wave | Slices | Status |
+|---|---|---|
+| 1 | A, E, H | **INTEGRATED** `3e27096ca` |
+| 2 | C | mostly integrated; family 8's preset/tier applicability blocked on a preset-narrowed owner |
+| 2 | F, G | **INTEGRATED** `b34f5bb98`, `11e84e4d2`, `f34827af6` |
+| 3 | D | **INTEGRATED** `3167576ba`, `9e803f5b0` |
+| 4 | B | **12 of 15 integrated and run** `b17d06306`, `43d835c33`, `de28cdeec`, `35eefb97e`. Remaining: `012`, `015`, `016` — each blocked as described above |
+| 5 | I + spec changelogs | spec changelog + surface-map honesty done; the aggregate certification deliberately NOT claimed while B is 12/15 |
