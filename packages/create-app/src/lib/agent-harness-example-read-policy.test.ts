@@ -1023,7 +1023,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226']
+const DECLARING_CASE_IDS = ['OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1036,6 +1036,7 @@ const DECLARING_CASE_IDS = ['OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223
  * explicit, reviewable edit rather than a silent one.
  */
 const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
+  'OMH-203': ['umes.injection-table'],
   'OMH-219': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
   'OMH-220': [
     'umes.injection.datatable-bulk-action',
@@ -1122,21 +1123,28 @@ test('reachability: exactly the pinned shipped cases declare an example root, an
  * fallback would therefore be unpassable in the live lane: the model has no documented way to send
  * the reason code the evaluator demands. This fixture keeps that pairing honest in both directions.
  */
-test('reachability: no shipped case declares the reason-gated fallback while the runner prompt has no reason channel', () => {
+test('reachability: the specialist routing case can use the documented reason-gated fallback channel', () => {
   const toolInstruction = /const toolInstruction = `([^`]*)`/.exec(evaluatorSource())
   assert.ok(toolInstruction, 'the runner tool instruction must still be a single template literal')
-  assert.equal(/\breason\b/.test(toolInstruction[1]), false, 'the prompt now offers a reason channel, so a case may declare the fallback')
-  for (const entry of shippedCases()) {
-    assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback`)
-  }
+  assert.match(toolInstruction[1], /"reason"/)
+  assert.match(toolInstruction[1], /"capabilityId"/)
+
+  const declaring = shippedCases().filter((entry) => entry.context.installedVersionFallback !== undefined)
+  assert.deepEqual(declaring.map((entry) => entry.id), ['OMH-203'])
+  assert.deepEqual(declaring[0].context.installedVersionFallback, {
+    allowed: true,
+    reasonCodes: ['INSTALLED_VERSION_CONTRACT_MISMATCH'],
+    maxFiles: 4,
+    maxBytes: 65536,
+  })
 })
 
 test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
   const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
   const stated = /(\w+) cases,\s+`(OMH-\d{3})`…`(OMH-\d{3})`, declare it today/.exec(doc)
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Seven')
-  assert.equal(DECLARING_CASE_IDS.length, 7)
+  assert.equal(stated[1], 'Eight')
+  assert.equal(DECLARING_CASE_IDS.length, 8)
   assert.deepEqual([stated[2], stated[3]], [DECLARING_CASE_IDS[0], DECLARING_CASE_IDS.at(-1)])
   // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
   // exactly what immutability precedence has to defend against, so the doc names it by ID.
@@ -2226,6 +2234,17 @@ test('family 12: an installed reference whose packed target is missing from the 
   }
 })
 
+test('family 12: the module-shaped planning case routes the generated local example reference sheet', () => {
+  const planningCase = shippedCases().find((entry) => entry.id === 'OMH-223')
+  assert.ok(planningCase, 'OMH-223 must remain the module-shaped planning proof')
+  const routed = [
+    ...((planningCase.context.required as string[] | undefined) ?? []),
+    ...((planningCase.context.allowedExtra as string[] | undefined) ?? []),
+  ]
+  assert.ok(routed.includes(REFERENCE_SHEET))
+  assert.match(JSON.stringify(planningCase), /contribution, activation, and override-target IDs/)
+})
+
 function recordIn(records: InventoryRecord[], referenceId: string): InventoryRecord {
   const found = records.find((entry) => entry.referenceId === referenceId)
   assert.ok(found, `the shipped projection must still carry ${referenceId}`)
@@ -2266,7 +2285,7 @@ const FIXTURE_FAMILY_TO_SPEC_FAMILIES: Record<number, number[]> = {
   11: [1, 9],
   // Declared source references: spec family 4 (the installed-package lane) plus the visible-link
   // half of families 6 and 8.
-  12: [4, 6, 8],
+  12: [4, 6, 8, 10],
 }
 
 const COVERAGE_LEDGER: LedgerRow[] = [
@@ -2376,10 +2395,10 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 10,
-    status: 'uncovered',
-    fixtures: [],
-    blockedBy: ['a shipped case routing the generated local example reference sheet'],
-    note: 'Corrected on 2026-08-04: the PR #4883 sheet IS emitted — `build.mjs` writes `dist/agentic/guides/reference-modules/example.md` and `reference-module-facts.json` with the specified `projectionKind: "activated-reference"` envelope. The previous blocker probed `agentic/shared/ai/guides/reference-modules/example.md`, a path that exists in neither the source tree (guides live in `agentic/guides/`) nor the build output, so it was tautologically true and proved nothing. What is genuinely missing is the topology CASE: no shipped case routes that sheet, and the emitted facts still carry no `negative-fixture` enum-ledger classification for the activated-row negative to bite on.',
+    status: 'covered',
+    fixtures: ['family 12: the module-shaped planning case routes the generated local example reference sheet'],
+    blockedBy: [],
+    note: 'Closed on 2026-08-10. OMH-223 routes the generated activated-reference sheet alongside the canonical source inventory, so its planning oracle can bind capability choices to generated contribution, activation and override-target identities.',
   },
   {
     specFamily: 11,
@@ -2417,10 +2436,6 @@ const MISSING_SURFACES: Record<string, () => boolean> = {
     .every((entry) => !JSON.stringify(entry).toLowerCase().includes('progressjobid')),
   'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
   'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
-  'a shipped case routing the generated local example reference sheet': () => shippedCases().every((entry) => {
-    const contract = entry.context as { required?: string[]; allowedExtra?: string[] }
-    return ![...(contract.required ?? []), ...(contract.allowedExtra ?? [])].includes(REFERENCE_SHEET)
-  }),
 }
 
 test('ledger: the spec still enumerates exactly twelve oracle families', () => {
@@ -2490,14 +2505,14 @@ test('ledger: every gap the ledger claims is a surface that is genuinely absent 
   }
 })
 
-test('ledger: the honest coverage count is seven covered, two partial, and three uncovered of twelve', () => {
+test('ledger: the honest coverage count is eight covered, two partial, and two uncovered of twelve', () => {
   // Moved on 2026-08-05: family 6 closed when the declared-link negative half landed, family 4
   // closed when the installed-package lane landed, and family 8 kept only its preset/tier
   // remainder. Families 10, 11 and 12 are untouched — this work did not reach any of them.
   const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
-  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7])
+  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7, 10])
   assert.deepEqual(tally('partial'), [8, 9])
-  assert.deepEqual(tally('uncovered'), [10, 11, 12])
+  assert.deepEqual(tally('uncovered'), [11, 12])
   assert.equal(COVERAGE_LEDGER.length, 12)
 })
 

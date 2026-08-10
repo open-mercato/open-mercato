@@ -77,8 +77,8 @@ The release gate wraps this in a larger ordered sequence.
    file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
-    `src/modules/**` grant can never reach inside it. Seven cases,
-    `OMH-219`…`OMH-226`, declare it today; every other case is byte-identical to before.
+    `src/modules/**` grant can never reach inside it. Eight cases,
+    `OMH-203`…`OMH-226`, declare it today; every other case is byte-identical to before.
     Six are read-only. `OMH-223`, the module-shaped planning proof, is the one writable
     declarer: it reads the reference sources its plan has to name, its write allowlist is
     `.ai/specs/**`, and immutability refuses a write inside the root regardless.

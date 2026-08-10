@@ -1299,5 +1299,7 @@ not from the stale deferred/blocker labels above.
 - [ ] TC-EXAMPLE-015 and the missing vector/integration/workflow/currency identities.
 - [ ] TC-EXAMPLE-016, deterministic generator plugin, and activated disposable create-app lane.
 - [ ] READ/SPEC design-gallery, foundation, topology-routing, preset/tier, and connected-progress proofs.
+- [x] READ: document the live fallback reason/capability channel and adopt it in the bounded OMH-203
+  installed-version-mismatch lane; route the generated local example reference sheet from OMH-223.
 - [ ] Milestone D: 15/15 isolated/repeated/randomized, activated standalone, packed-link/fact/design,
   certified harness, and full validation evidence.

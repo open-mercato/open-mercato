@@ -18203,7 +18203,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "How can I add a tab to the customer page?",
+    "prompt": "How can I add a tab to the customer page? Start with the source-present canonical example's injection table and its visible inventory entry to identify the declared customer-detail target. If the exact installed customers contract differs from that local example after inspection, follow only the one exact installed source file the routed facts name and label that read with the declared installed-version contract-mismatch reason. Never enumerate or traverse installed packages.",
     "tags": [
       "umes",
       "backend-ui",
@@ -18244,9 +18244,30 @@
       ],
       "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
-      ]
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.injection-table"
+          ],
+          "maxFiles": 6,
+          "maxBytes": 131072
+        }
+      ],
+      "installedVersionFallback": {
+        "allowed": true,
+        "reasonCodes": [
+          "INSTALLED_VERSION_CONTRACT_MISMATCH"
+        ],
+        "maxFiles": 4,
+        "maxBytes": 65536
+      }
     },
     "requiredDecisions": [
       "extension-mechanism",
@@ -18278,9 +18299,9 @@
         "query": "detail:customers."
       }
     ],
-    "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 131072,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 180224,
     "relatedCases": [
       "OMH-026",
       "OMH-027"
@@ -20013,7 +20034,7 @@
     "mode": "spec",
     "evaluationKind": "implementation",
     "risk": "medium",
-    "prompt": "Branch managers want warehouse stock transfers in this app: a manager raises a transfer request for named stock, the sending warehouse packs and dispatches it, the receiving warehouse confirms what actually arrived, stock levels move only on that confirmation, and both warehouses are told when a transfer is short or refused. Nobody has said to skip the specification. Produce the covering specification for this capability and nothing else: one new correctly named file under .ai/specs, carrying the problem, the contracts, the self-contained integration coverage, and the dependency-ordered implementation phases. Ground the implementation section in the reference module this app already ships in source: route module work to the scaffold skill, begin at the reference module's entry document and its surface index, and name the exact capability IDs and exact reference source files you will adapt, stating the reference module's real runtime status rather than describing it as already live. Give every extension surface you propose its own requirement traceability row naming the requirement, the phase, its self-contained integration test, and the one mechanism classification the routed guide defines. Do not create the module, the entities, the migrations, the routes, the registry entry, or any other source file \u2014 writing the specification is the whole deliverable and the only thing this task authorizes. Do not write anything inside the reference module, and do not list or glob its directories.",
+    "prompt": "Branch managers want warehouse stock transfers in this app: a manager raises a transfer request for named stock, the sending warehouse packs and dispatches it, the receiving warehouse confirms what actually arrived, stock levels move only on that confirmation, and both warehouses are told when a transfer is short or refused. Nobody has said to skip the specification. Produce the covering specification for this capability and nothing else: one new correctly named file under .ai/specs, carrying the problem, the contracts, the self-contained integration coverage, and the dependency-ordered implementation phases. Ground the implementation section in the reference module this app already ships in source: route module work to the scaffold skill, begin at the reference module's entry document and its surface index, then read the generated local reference sheet and name the exact capability, contribution, activation, and override-target IDs plus exact reference source files you will adapt, stating the reference module's real runtime status rather than describing it as already live. Give every extension surface you propose its own requirement traceability row naming the requirement, the phase, its self-contained integration test, and the one mechanism classification the routed guide defines. Do not create the module, the entities, the migrations, the routes, the registry entry, or any other source file \u2014 writing the specification is the whole deliverable and the only thing this task authorizes. Do not write anything inside the reference module, and do not list or glob its directories.",
     "tags": [
       "spec-gate",
       "planning-proof",
@@ -20050,7 +20071,8 @@
       ],
       "allowedExtra": [
         ".ai/specs/SPEC-000-template.md",
-        ".ai/agentic.config.json"
+        ".ai/agentic.config.json",
+        ".ai/guides/reference-modules/example.md"
       ],
       "forbidden": [
         ".env*",

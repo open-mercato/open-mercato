@@ -98,6 +98,11 @@ function stageApp(): string {
     path.join(root, '.ai', 'guides', 'framework-extension-points.md'),
     '# Framework extension points\nGenerated framework extension facts.\n',
   )
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+    '# Local reference module: example\nGenerated contribution, activation, and override-target facts.\n',
+  )
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'upstream'), { recursive: true })
   fs.writeFileSync(path.join(root, '.ai', 'guides', 'upstream', 'BACKWARD_COMPATIBILITY.md'), '# Backward compatibility\nPreserve public contracts.\n')
   fs.copyFileSync(path.join(sharedRoot, 'AGENTS.md.template'), path.join(root, 'AGENTS.md'))
