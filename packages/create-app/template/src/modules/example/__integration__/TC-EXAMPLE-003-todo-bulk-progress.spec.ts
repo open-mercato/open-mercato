@@ -14,6 +14,10 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
+export const integrationMeta = {
+  dependsOnModules: ['example', 'progress', 'events', 'scheduler'],
+}
+
 const TODOS_API = '/api/example/todos'
 const BULK_API = '/api/example/todos/bulk-complete'
 const PROGRESS_JOB_API = '/api/progress/jobs'

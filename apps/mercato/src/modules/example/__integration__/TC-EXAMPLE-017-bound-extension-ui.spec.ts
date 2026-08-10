@@ -4,6 +4,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
+export const integrationMeta = {
+  dependsOnModules: ['example', 'customers', 'events'],
+}
+
 const TODOS_API = '/api/example/todos'
 const TODOS_LIST_PATH = '/backend/todos'
 const COMPONENT_OVERRIDES_PATH = '/backend/component-overrides'

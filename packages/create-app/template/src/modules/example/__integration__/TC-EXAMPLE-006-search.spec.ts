@@ -9,6 +9,10 @@ import {
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
+export const integrationMeta = {
+  dependsOnModules: ['example', 'search', 'query_index'],
+}
+
 type SearchResponse = { results?: Array<{ entityId?: unknown; recordId?: unknown }> }
 
 async function searchRaw(

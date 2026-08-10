@@ -14,6 +14,10 @@ import {
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 
+export const integrationMeta = {
+  dependsOnModules: ['example', 'ai_assistant', 'customers'],
+}
+
 const TODOS_API = '/api/example/todos'
 const TOOLS_API = '/api/ai_assistant/tools'
 const TOOLS_EXECUTE_API = '/api/ai_assistant/tools/execute'

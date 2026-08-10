@@ -68,7 +68,12 @@ export function ExampleActionableRenderer({
 
   return React.createElement(
     'div',
-    { className: view.isUnread ? 'px-4 py-3 bg-status-info-bg' : 'px-4 py-3' },
+    {
+      className: view.isUnread ? 'px-4 py-3 bg-status-info-bg' : 'px-4 py-3',
+      'data-testid': 'example-actionable-notification-renderer',
+      'data-notification-id': notification.id,
+      'data-severity': notification.severity,
+    },
     React.createElement('h4', { className: 'text-sm font-medium' }, notification.title),
     notification.body
       ? React.createElement('p', { className: 'mt-1 text-xs text-muted-foreground' }, notification.body)

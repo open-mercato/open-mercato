@@ -1,13 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
   dismissNotificationIfExists,
-  dismissNotificationsByType,
   listNotifications,
 } from '@open-mercato/core/helpers/integration/notificationsFixtures'
 
 const EXAMPLE_NOTIFICATION_TYPE = 'example.umes.actionable'
+
+export const integrationMeta = {
+  dependsOnModules: ['example', 'notifications', 'events'],
+}
 
 async function listExampleNotifications(
   request: APIRequestContext,
@@ -28,11 +32,11 @@ async function listExampleNotifications(
  * can leave the recipient's tray as it found it.
  */
 test.describe('TC-EXAMPLE-008: the example notification type renders for its own audience', () => {
-  test('emits a registered actionable notification to the requesting user and dismisses it', async ({ request }) => {
+  test('renders deduped success and failure notifications for the requesting user and cleans them up', async ({ page, request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
-    let emittedId: string | null = null
+    const emittedIds = new Set<string>()
 
     try {
       const before = await listExampleNotifications(request, token)
@@ -40,7 +44,11 @@ test.describe('TC-EXAMPLE-008: the example notification type renders for its own
 
       const emitted = await apiRequest(request, 'POST', '/api/example/notifications', {
         token,
-        data: { linkHref: `/backend/umes-next-phases?allowed=1&run=${suffix}` },
+        data: {
+          linkHref: `/backend/umes-next-phases?allowed=1&run=${suffix}`,
+          outcome: 'success',
+          dedupeKey: suffix,
+        },
       })
       expect(emitted.ok(), `emit notification failed: ${emitted.status()}`).toBeTruthy()
 
@@ -49,7 +57,8 @@ test.describe('TC-EXAMPLE-008: the example notification type renders for its own
       expect(fresh.length, 'exactly one new notification must be emitted per request').toBe(1)
 
       const [notification] = fresh
-      emittedId = String(notification.id)
+      const successId = String(notification.id)
+      emittedIds.add(successId)
       expect(notification.type).toBe(EXAMPLE_NOTIFICATION_TYPE)
 
       // The registered shape travels with the record: the type's declared actions and the
@@ -64,28 +73,62 @@ test.describe('TC-EXAMPLE-008: the example notification type renders for its own
       // must not see it in its own tray.
       const otherToken = await getAuthToken(request, 'superadmin')
       const otherTray = await listExampleNotifications(request, otherToken)
-      expect(otherTray.map((item) => String(item.id))).not.toContain(emittedId)
+      expect(otherTray.map((item) => String(item.id))).not.toContain(successId)
 
-      // A second emit is a second notification, not a silently merged one: the module emits an
-      // actionable item per request, and collapsing them would hide work from the recipient.
-      const secondEmit = await apiRequest(request, 'POST', '/api/example/notifications', {
+      // Repeating the same logical success refreshes the existing record rather than adding a
+      // duplicate tray item. The returned identity makes that contract explicit.
+      const duplicateSuccess = await apiRequest(request, 'POST', '/api/example/notifications', {
         token,
-        data: { linkHref: `/backend/umes-next-phases?allowed=1&run=${suffix}-b` },
+        data: {
+          linkHref: `/backend/umes-next-phases?allowed=1&run=${suffix}`,
+          outcome: 'success',
+          dedupeKey: suffix,
+        },
       })
-      expect(secondEmit.ok()).toBeTruthy()
-      const afterSecond = await listExampleNotifications(request, token)
-      expect(afterSecond.filter((item) => !beforeIds.has(String(item.id))).length).toBe(2)
+      expect(duplicateSuccess.ok()).toBeTruthy()
+      expect(String((await duplicateSuccess.json() as { id: string }).id)).toBe(successId)
 
-      await dismissNotificationIfExists(request, token, emittedId)
+      const failed = await apiRequest(request, 'POST', '/api/example/notifications', {
+        token,
+        data: {
+          linkHref: `/backend/umes-next-phases?allowed=1&run=${suffix}-failure`,
+          outcome: 'failure',
+          dedupeKey: suffix,
+        },
+      })
+      expect(failed.ok()).toBeTruthy()
+      const failureId = String((await failed.json() as { id: string }).id)
+      emittedIds.add(failureId)
+
+      const afterOutcomes = await listExampleNotifications(request, token)
+      const outcomeRows = afterOutcomes.filter((item) => emittedIds.has(String(item.id)))
+      expect(outcomeRows).toHaveLength(2)
+      expect(outcomeRows.map((item) => item.severity).sort()).toEqual(['error', 'success'])
+
+      // Opening the real notification panel proves discovery attached the module's client
+      // renderer. The marker lives inside that renderer, not the generic NotificationItem.
+      await login(page, 'admin')
+      await page.goto('/backend/umes-next-phases', { waitUntil: 'domcontentloaded' })
+      const bell = page.getByRole('button', { name: /notifications/i }).first()
+      await expect(bell).toBeVisible({ timeout: 30_000 })
+      await bell.click()
+      for (const notificationId of emittedIds) {
+        await expect(
+          page.locator(`[data-testid="example-actionable-notification-renderer"][data-notification-id="${notificationId}"]`),
+        ).toBeVisible({ timeout: 30_000 })
+      }
+
+      await dismissNotificationIfExists(request, token, successId)
       const afterDismiss = await listExampleNotifications(request, token)
-      const dismissed = afterDismiss.find((item) => String(item.id) === emittedId)
+      const dismissed = afterDismiss.find((item) => String(item.id) === successId)
       // Dismissal either removes the row from the tray or marks it dismissed; both are a
       // cleared tray from the recipient's point of view, and neither leaves it unread.
       expect(dismissed === undefined || Boolean(dismissed.dismissedAt ?? dismissed.dismissed_at)).toBe(true)
-      emittedId = null
+      emittedIds.delete(successId)
     } finally {
-      await dismissNotificationIfExists(request, token, emittedId)
-      await dismissNotificationsByType(request, token, EXAMPLE_NOTIFICATION_TYPE)
+      for (const notificationId of emittedIds) {
+        await dismissNotificationIfExists(request, token, notificationId)
+      }
     }
   })
 

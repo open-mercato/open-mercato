@@ -3,6 +3,10 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
+export const integrationMeta = {
+  dependsOnModules: ['example', 'translations'],
+}
+
 const ENTITY_TYPE = 'example:todo'
 
 type TranslationsResponse = { translations?: Record<string, Record<string, string>> }
@@ -144,7 +148,7 @@ test.describe('TC-EXAMPLE-009: the example todo title is translatable across con
           .catch(() => undefined)
       }
       await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId)
-      if (originalLocales && originalLocales.length > 0) {
+      if (originalLocales) {
         await writeLocales(request, superToken, originalLocales).catch(() => undefined)
       }
     }

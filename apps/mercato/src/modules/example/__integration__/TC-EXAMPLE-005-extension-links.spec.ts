@@ -9,6 +9,10 @@ import {
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
+export const integrationMeta = {
+  dependsOnModules: ['example', 'customers'],
+}
+
 const PRIORITIES_API = '/api/example/customer-priorities'
 const PEOPLE_API = '/api/customers/people'
 

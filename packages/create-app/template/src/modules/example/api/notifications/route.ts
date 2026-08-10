@@ -6,6 +6,8 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 const emitNotificationSchema = z.object({
   linkHref: z.string().optional(),
+  outcome: z.enum(['success', 'failure']).default('success'),
+  dedupeKey: z.string().trim().min(1).max(120).optional(),
 })
 
 export const metadata = {
@@ -25,6 +27,7 @@ export async function POST(request: Request) {
     typeof input.linkHref === 'string' && input.linkHref.startsWith('/backend/')
       ? input.linkHref
       : '/backend/umes-next-phases?allowed=1'
+  const groupKey = `example.umes.actionable:${input.outcome}:${input.dedupeKey ?? targetHref}`
 
   const notification = await service.create(
     {
@@ -37,7 +40,7 @@ export async function POST(request: Request) {
         'example.notifications.umesActionable.body',
         'Open the UMES next phases page to verify reactive notification handlers.',
       ),
-      severity: 'info',
+      severity: input.outcome === 'success' ? 'success' : 'error',
       actions: [
         {
           id: 'open',
@@ -57,8 +60,10 @@ export async function POST(request: Request) {
       linkHref: targetHref,
       sourceModule: 'example',
       sourceEntityType: 'example.todo',
+      groupKey,
       bodyVariables: {
         href: targetHref,
+        outcome: input.outcome,
       },
     },
     scope,

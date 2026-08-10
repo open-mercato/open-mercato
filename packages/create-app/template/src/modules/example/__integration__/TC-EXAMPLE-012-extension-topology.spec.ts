@@ -9,7 +9,15 @@ import {
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 
 export const integrationMeta = {
-  dependsOnModules: ['example', 'customers', 'customer_accounts', 'events'],
+  dependsOnModules: [
+    'example',
+    'customers',
+    'dashboards',
+    'events',
+    'notifications',
+    'integrations',
+    'customer_accounts',
+  ],
 }
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
