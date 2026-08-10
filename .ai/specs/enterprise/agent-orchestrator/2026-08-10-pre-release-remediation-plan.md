@@ -4,7 +4,7 @@
 
 The notes hold seventeen findings across two horizons: defects observed while the module was driven in anger during the pilot, and a set of **model-level changes the maintainer wants settled before Agent Orchestrator is released**. They are not one backlog. The model-level items (W1, W2) rewrite what a process *is*, so they should land before release; the rest are independent and can ship in any order beside them.
 
-This umbrella sequences the work and names the questions that must be answered before W1 can start. It commissions no implementation on its own — each workstream lands as its own spec and PR, per the precedent set by [`2026-07-12-ux-remediation-plan.md`](./2026-07-12-ux-remediation-plan.md).
+This umbrella sequences the work and records the design decisions taken at the gate. It commissions no implementation on its own — each workstream lands as its own spec and PR, per the precedent set by [`2026-07-12-ux-remediation-plan.md`](./2026-07-12-ux-remediation-plan.md).
 
 ## The module is unreleased — reorganize freely
 
@@ -29,12 +29,12 @@ This is also the argument for doing W1 and W2 **now** rather than after release.
 | 2 | A trigger may be external; retire the "tasks" vocabulary in favour of triggers | W1 |
 | 3 | A process triggers internally, manually, or externally | W1 |
 | 4 | A process may carry an agent **or** a workflow | W1 |
-| 5 | A process declares milestones mapped onto workflow elements, rendered for a business reader | W1 |
-| 6 | Workflows need not be displayed at all | W1 |
-| 7 | A process should resolve to an object it produces — **unresolved** | W1 · gate **Q2** |
+| 5 | A process declares milestones mapped onto workflow elements, rendered for a business reader | W1 · **resolved** (Q1, stored) |
+| 6 | Workflows need not be displayed at all | W1 · **resolved as no change** (Q4) |
+| 7 | A process should resolve to an object it produces | W1 · **resolved** (Q2, optional) |
 | 8 | Three agent types: Researcher (rename "Informative"), Decision-maker, Action agent | **W2** Agent taxonomy |
 | 9 | The decision agent knows the statuses it may propose, bound to an entity, fetched via a tool | W2 |
-| 10 | How an action agent actually executes — agent tool vs workflow-invoked — **unresolved** | W2 · gate **Q3** |
+| 10 | How an action agent actually executes | W2 · **resolved** (Q3, propose-only) |
 | 11 | Web Search settings expose two save buttons; one save point only | **W3** Settings & IA |
 | 12 | Web Search belongs in Settings, not under Agents | W3 |
 | 13 | Traces carries good information but shows more than a reader needs | W3 |
@@ -57,9 +57,14 @@ Because nothing here has shipped, this is a rename-and-merge rather than a migra
 - `AgentTaskDefinition` / `AgentTaskRun` merge into the process entities. Squash the module's migrations rather than stacking an alter-heavy chain on tables no deployment holds — see the snapshot note under W4 before touching this module's migrations.
 - Task queues and `agent_orchestrator.task_run.*` events rename with everything else.
 
-**Also in scope:** milestone declarations mapped onto workflow elements, with a business-reader view; and hiding the workflow surface behind that view rather than deleting it (finding 6 is a display decision, not a capability removal — the engine still needs the definition).
+**Milestones (Q1 — stored).** An ordered `milestones` declaration on the process definition, each entry carrying its own id, business-facing label and the workflow step it maps to, plus an editor to manage them. Two consequences to design for:
 
-**Explicitly parked:** what object a process resolves to (gate **Q2**). W1 cannot close the model while that is open, so the first spec carries the structure and leaves the binding as a follow-up field.
+- A milestone pointing at a step the workflow no longer declares must surface as a Problems-panel warning, not a silent gap. The workflows module already has this shape for unknown outcome kinds and quarantined step config — reuse it rather than inventing a new diagnostic.
+- Because the label is authored on the process rather than read from the step, renaming a step no longer changes what the business reader sees. That is the point of the decision, and it is also the maintenance cost: the mapping is now a thing that can drift, so the warning above is load-bearing.
+
+**Outcome (Q2 — optional).** A nullable outcome reference written when the process completes, mirroring the existing `subject*` shape (`outcomeType` / `outcomeId` / `outcomeLabel`). Optional by decision, so a process that produces nothing stays valid. Additive and free to tighten later.
+
+**Workflow visibility (Q4 — unchanged).** W1 does not hide or gate any workflow surface. The milestone view is what a business reader gets; everyone with the module keeps the Studio exactly as it is today.
 
 **The one thing not to break:** core `workflows` keeps `/backend/tasks`, its bridge redirect and the frozen `workflows.tasks.list` tableId. W1 renames the *enterprise* task concept, not the core user-task one.
 
@@ -69,7 +74,11 @@ The module currently distinguishes agents by `resultKind: 'informative' | 'actio
 
 - **Researcher** — rename `informative` throughout: disposition kind, `resultKind`, i18n labels, and the outcome-routing handle in core workflows (`lib/outcome-routing.ts`, also branch-only).
 - **Decision-maker** — new. Needs the entity binding and status list the notes describe, fetched through a read-only tool so the option set is proven rather than prompted. The proposal names a target status; the deterministic application stays server-side, which is the existing propose-only contract rather than an exception to it.
-- **Action agent** — new, and the one that genuinely changes the module's security posture: it is the first agent type whose purpose is to cause an effect. Gate **Q3** decides the mechanism, and the answer must hold the propose-only line — see the cross-cutting rules below.
+- **Action agent** — new, and the one that genuinely changes the module's security posture: it is the first agent type whose purpose is to cause an effect. **Per Q3 it stays propose-only:** the agent emits a proposal naming the action and its arguments, disposition approves it (auto-threshold or human), and the workflow performs the effect deterministically.
+
+  The action vocabulary should be the effects the platform can already run under its own gates — the safe-command catalogue behind `UPDATE_ENTITY` (declared in code, switched on per tenant, checked against the actor's features) and the existing workflow activity types such as `SEND_EMAIL` and `EMIT_EVENT`. Reusing them means an action agent introduces **no new effect surface**: everything it can cause was already reachable, already gated, and already tested. Inventing a separate effect registry for agents would recreate those gates in a second place, which is how they drift apart.
+
+  The model never receives a mutating tool, so this decision does not depend on the missing server-side non-mutating check — but it does not fix that gap either; see the cross-cutting rules.
 
 ### W3 — Settings, information architecture and surface trimming · **S–M** · independent
 
@@ -101,20 +110,20 @@ The file-defined agent browser renders a flat list on Windows with no folder dri
 
 A guided path to a process definition. Cannot be specified before W1 fixes what a process is, so this trails the model change deliberately.
 
-## Open questions — resolve before W1/W2 specs are written
+## Decisions locked at the gate (2026-08-10)
 
-| Q | Question | Why it blocks |
-|---|---|---|
-| **Q1** | Are milestones a first-class stored declaration on the process, or a projection derived from workflow steps? | Stored means a schema change and an editor; derived means neither. |
-| **Q2** | What object does a process resolve to, and is that binding required or optional? | The notes leave this open. W1's model cannot be closed without it. |
-| **Q3** | Does an action agent get a mutating tool, or does the workflow invoke the action from the run context? | Decides whether the module keeps its propose-only guarantee (see below). Highest-stakes question here. |
-| **Q4** | If workflows are not displayed, is the workflow editor still reachable for authors, or is the process view the only entry? | Determines whether W1 hides a surface or retires one. |
+| Q | Decision |
+|---|----------|
+| **Q1** milestones | **First-class stored declaration on the process definition**, each entry mapped to a workflow step. Costs a field and an editor; buys business-facing names that are independent of step labels and survive a step being renamed. |
+| **Q2** process outcome | **Optional outcome reference** — a nullable type+id (+ label snapshot) the process writes on completion, mirroring the existing `subject*` fields. Not required, so research and monitoring processes stay valid. |
+| **Q3** action agent | **Propose only; the workflow executes.** The agent names the action and its arguments in a proposal; disposition approves (auto-threshold or human); the effect runs deterministically server-side through the existing gated path. No mutating tool reaches the model. |
+| **Q4** workflow visibility | **Leave the Studio fully visible — no gating.** Agent Orchestrator is an enterprise module behind an opt-in flag, so only a subset of tenants ever see any of this surface; hiding workflows inside it would add an ACL axis for no audience. Finding 6 is satisfied by giving the business reader the milestone view, not by removing the workflow view from anyone. |
 
-*(The two questions an earlier draft raised about vocabulary scope and label-vs-wire renaming are closed by the maintainer decision above: rename everything, wire values included.)*
+*(Two questions an earlier draft raised — vocabulary scope, and label-vs-wire renaming — are closed by the unreleased-module decision above: rename everything, wire values included.)*
 
 ## Cross-cutting rules
 
-- **Q3 must not be answered by giving the model a mutating tool.** The module's propose-only guarantee currently rests on a generated read-only allowlist plus the per-run session-token ACL; it is not enforced by an independent server-side check, so a mutating tool in the allowlist is the whole boundary. Whichever mechanism wins, the effect should be executed deterministically server-side from a proposal, with the model naming the action and never invoking it. If W2 lands before that enforcement gap is closed, it widens a hole rather than adding a feature. Being unreleased removes the compatibility cost of this decision — it does not remove the security cost.
+- **The propose-only enforcement gap is still open, and Q3 does not close it.** The guarantee rests on a generated read-only allowlist plus the per-run session-token ACL, with no independent server-side check that a running agent can only call non-mutating tools. Q3 keeps mutating tools away from the model, so W2 does not *widen* that gap — but a file-defined agent declaring a mutating tool remains bounded only by the allowlist. Closing it (blocker B1 in the PR risk review) stays required before release, independently of this plan.
 - Every workstream lists integration coverage for its affected API and UI paths and ships those tests in the same change (root `AGENTS.md`).
 - Renames are free **within** `agent_orchestrator` and the branch-only workflow surfaces (`INVOKE_AGENT`, `SET_VARIABLE`, disposition kinds, outcome routing). They are not free in core `workflows` surfaces that predate this branch — `/backend/tasks`, its bridge redirect and the `workflows.tasks.list` tableId stay as they are.
 - Copy changes land in all four locales; the neutral-vocabulary contract from the July consistency pass stays in force — the new type names must not reintroduce domain-specific language.
@@ -122,12 +131,15 @@ A guided path to a process definition. Cannot be specified before W1 fixes what 
 
 ## Suggested order
 
-1. **Run the gate** (Q1–Q4). Nothing in W1/W2 is specifiable until Q2 and Q3 have answers.
-2. **W6**, then **W3** — smallest, independent, and W3 carries three security/DS fixes that are cheap while those files are open.
-3. **W4** (audit first, then rework) and **W5** (measure first) in parallel with the gate.
-4. **W1** — including the migration squash — then **W2**, then **W7**.
+The gate is closed, so W1 and W2 are specifiable now.
+
+1. **W6**, then **W3** — smallest and independent, and W3 carries three security/DS fixes that are cheap while those files are open.
+2. **W4** (audit first, then rework) and **W5** (measure first) — independent, run in parallel.
+3. **W1** — including the milestone declaration, the optional outcome reference and the migration squash — then **W2**, then **W7**.
+4. Close the propose-only enforcement gap (B1) before release, on its own track.
 
 ## Changelog
 
 - **2026-08-10**: Umbrella created from the pilot field notes; seventeen findings mapped to seven workstreams.
+- **2026-08-10**: Gate closed. Q1 milestones = stored on the process definition (against the drafted recommendation — the maintainer wants business names independent of step labels; a drift warning becomes load-bearing as a result). Q2 outcome = optional reference mirroring `subject*`. Q3 action agent = propose-only, executing through the existing safe-command and activity gates so no new effect surface is created. Q4 = leave the Studio fully visible; Agent Orchestrator is enterprise and flag-gated, so hiding workflows inside it would add an ACL axis for no audience, and finding 6 is satisfied by the milestone view instead. W1 resized upward for the milestone editor; the "hide workflows" sub-item dropped.
 - **2026-08-10**: Maintainer correction — Agent Orchestrator has never been released, so no deprecation protocol applies to its own surfaces. Verified against `origin/develop`: the module, `INVOKE_AGENT`, `SET_VARIABLE` and the disposition kinds are all absent there; only core `workflows`' `/backend/tasks` and `workflows.tasks.list` are genuinely shipped. W1 resized from a compatibility migration to a straight refactor (plus a migration squash); the two BC-driven gate questions dropped; the release-gating argument restated as "free now, expensive after release".
