@@ -344,6 +344,18 @@ test('source-link generation rejects a corrupted design-foundation envelope', ()
   assert.ok(errors.some((error) => error.includes('codeConnectExportStatus "not-exported"')))
 })
 
+test('source-link generation rejects stale gallery provenance in a visual envelope', () => {
+  const inputs = freshInputs()
+  const designSystemInventory = cloneJson(inputs.designSystemInventory) as {
+    items: Array<{ baselineSha: string }>
+  }
+  designSystemInventory.items[0].baselineSha = '0000000000000000000000000000000000000000'
+
+  const { errors, inventory } = generator.buildInventory({ ...inputs, designSystemInventory })
+  assert.equal(inventory, null)
+  assert.ok(errors.some((error) => error.includes('gallery baselineSha')))
+})
+
 test('rendered link counts distinguish a once-rendered link from a twice-rendered one', () => {
   const inventory = checkedInventory()
   const twice = recordFor(inventory, 'om-backend-ui-design/crud-surfaces:components/TodosTable.tsx')

@@ -2530,7 +2530,10 @@
     "rowsWithoutVisualCoverage": [
       "ui.frontend-page"
     ],
-    "coverageGapCount": 4
+    "coverageGapCount": 4,
+    "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+    "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+    "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
   },
   "designFoundation": {
     "mappedItemCount": 18,
@@ -2551,7 +2554,10 @@
       "galleryItemIds": [
         "scaffolding/page"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.page-shell",
@@ -2559,7 +2565,10 @@
       "galleryItemIds": [
         "scaffolding/page"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.datatable",
@@ -2582,7 +2591,10 @@
         "filters/search-empty-results",
         "banners/flash-messages"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.datatable",
@@ -2591,7 +2603,10 @@
         "buttons/button",
         "buttons/icon-button"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.datatable",
@@ -2599,7 +2614,10 @@
       "galleryItemIds": [
         "buttons/button"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.datatable-perspectives-filters",
@@ -2622,7 +2640,10 @@
         "filters/search-empty-results",
         "banners/flash-messages"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.datatable-perspectives-filters",
@@ -2631,7 +2652,10 @@
         "buttons/button",
         "buttons/icon-button"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.datatable-perspectives-filters",
@@ -2639,7 +2663,10 @@
       "galleryItemIds": [
         "buttons/button"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.form-create",
@@ -2647,7 +2674,10 @@
       "galleryItemIds": [
         "scaffolding/page"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.form-create",
@@ -2664,7 +2694,10 @@
         "overlays/dialog",
         "banners/flash-messages"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.form-create",
@@ -2672,7 +2705,10 @@
       "galleryItemIds": [
         "detail/error-message"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.form-edit",
@@ -2680,7 +2716,10 @@
       "galleryItemIds": [
         "scaffolding/page"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.form-edit",
@@ -2697,7 +2736,10 @@
         "overlays/dialog",
         "banners/flash-messages"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "ui.form-edit",
@@ -2705,7 +2747,10 @@
       "galleryItemIds": [
         "detail/error-message"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "umes.injection.rendered-widget",
@@ -2713,7 +2758,10 @@
       "galleryItemIds": [
         "inputs/select"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/select.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/select.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     },
     {
       "capabilityId": "umes.component-replacement",
@@ -2721,7 +2769,10 @@
       "galleryItemIds": [
         "scaffolding/page"
       ],
-      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
     }
   ],
   "designSystemCoverageGaps": [

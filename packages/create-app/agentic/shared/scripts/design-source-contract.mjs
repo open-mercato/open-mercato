@@ -5,6 +5,10 @@ const DESIGN_SOURCE_TARGETS = Object.freeze({
   'design-foundation-token': /^src\/app\/globals\.css$/,
 })
 
+const GALLERY_PR_URL = 'https://github.com/open-mercato/open-mercato/pull/4301'
+const GALLERY_PROVENANCE_HEAD_SHA = '186af58044c7530885a889c41f53bb36a5093d82'
+const GALLERY_BASELINE_SHA = 'bf25803d7a8c85c8552db9e76c7cc4398d1768be'
+
 export const DESIGN_SOURCE_ROLES = Object.freeze(Object.keys(DESIGN_SOURCE_TARGETS))
 
 function isPlainObject(value) {
@@ -23,6 +27,15 @@ function foundationEnvelopeErrors(role, resolvedPath, reference) {
   }
   if (typeof reference.galleryItemId !== 'string' || reference.galleryItemId.length === 0) {
     errors.push('must carry a galleryItemId on every visual reference')
+  }
+  if (reference.baselinePrUrl !== GALLERY_PR_URL) {
+    errors.push(`must carry gallery baselinePrUrl "${GALLERY_PR_URL}"`)
+  }
+  if (reference.provenanceHeadSha !== GALLERY_PROVENANCE_HEAD_SHA) {
+    errors.push(`must carry gallery provenanceHeadSha "${GALLERY_PROVENANCE_HEAD_SHA}"`)
+  }
+  if (reference.baselineSha !== GALLERY_BASELINE_SHA) {
+    errors.push(`must carry gallery baselineSha "${GALLERY_BASELINE_SHA}"`)
   }
   if (foundation.publicationStatus !== 'not-evidenced') {
     errors.push('must keep publicationStatus "not-evidenced"')

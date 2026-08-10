@@ -13,11 +13,12 @@
  *   mapping coverage, the two independent node authorities and their comparison, publication
  *   status, and design-skill availability.
  *
- * Everything is derived. Family counts, entry counts, mapping counts and coverage sets are
- * computed from the real registry, the real `figma.connect` calls and the real `npm pack` file
- * lists — never copied from the spec's prose. The one thing that cannot be derived from this
- * repository is external Figma publication, so `publicationStatus` is closed at
- * `not-evidenced` and adding a published state needs a spec amendment.
+ * Every mutable surface fact is derived. Family counts, entry counts, mapping counts and coverage
+ * sets are computed from the real registry, the real `figma.connect` calls and the real `npm pack`
+ * file lists — never copied from the spec's prose. Immutable PR provenance is fixed here and its
+ * merged baselines must be ancestors of HEAD. External Figma publication cannot be derived from
+ * this repository, so `publicationStatus` is closed at `not-evidenced` and adding a published state
+ * needs a spec amendment.
  *
  * Usage:
  *   node scripts/generate-design-system-inventory.mjs           # write the inventory
@@ -67,6 +68,8 @@ export const SURFACE_PROJECTION_RELATIVE_PATHS = Object.freeze([
 
 /** The gallery implementation chain. */
 export const GALLERY_PR_URL = 'https://github.com/open-mercato/open-mercato/pull/4301'
+export const GALLERY_PROVENANCE_HEAD_SHA = '186af58044c7530885a889c41f53bb36a5093d82'
+export const GALLERY_BASELINE_SHA = 'bf25803d7a8c85c8552db9e76c7cc4398d1768be'
 
 /**
  * The design-foundation sidecar's provenance.
@@ -107,6 +110,23 @@ function isAncestor(root, sha) {
   } catch {
     return false
   }
+}
+
+export function provenanceAncestorErrors(root) {
+  const errors = []
+  if (!isAncestor(root, GALLERY_BASELINE_SHA)) {
+    errors.push(
+      `the design-system gallery baseline ${GALLERY_BASELINE_SHA} is not an ancestor of HEAD; `
+      + 'the inventory cannot claim a baseline this tree does not contain',
+    )
+  }
+  if (!isAncestor(root, FOUNDATION_BASELINE_SHA)) {
+    errors.push(
+      `the design-foundation baseline ${FOUNDATION_BASELINE_SHA} is not an ancestor of HEAD; `
+      + 'the sidecar cannot claim a baseline this tree does not contain',
+    )
+  }
+  return errors
 }
 
 function readJson(absolute) {
@@ -550,6 +570,8 @@ function buildReferencesForRow({ root, row, entriesByImport, galleryItemsById, a
           availabilityByPreset,
           featureId: GALLERY_FEATURE_ID,
           baselinePrUrl: GALLERY_PR_URL,
+          provenanceHeadSha: GALLERY_PROVENANCE_HEAD_SHA,
+          baselineSha: GALLERY_BASELINE_SHA,
         })
         continue
       }
@@ -599,6 +621,8 @@ function buildReferencesForRow({ root, row, entriesByImport, galleryItemsById, a
         availabilityByPreset,
         featureId: GALLERY_FEATURE_ID,
         baselinePrUrl: GALLERY_PR_URL,
+        provenanceHeadSha: GALLERY_PROVENANCE_HEAD_SHA,
+        baselineSha: GALLERY_BASELINE_SHA,
       })
     }
   }
@@ -610,12 +634,7 @@ function buildInventory(root) {
   const gallery = readGallery(root)
   const mappings = readCodeConnectMappings(root)
 
-  if (!isAncestor(root, FOUNDATION_BASELINE_SHA)) {
-    errors.push(
-      `the design-foundation baseline ${FOUNDATION_BASELINE_SHA} is not an ancestor of HEAD; `
-      + 'the sidecar cannot claim a baseline this tree does not contain',
-    )
-  }
+  errors.push(...provenanceAncestorErrors(root))
 
   const packageVersions = {
     [GALLERY_PACKAGE]: readJson(path.join(root, GALLERY_WORKSPACE_DIR, 'package.json')).version,
@@ -678,6 +697,8 @@ function buildInventory(root) {
       availabilityByPreset,
       featureId: GALLERY_FEATURE_ID,
       baselinePrUrl: GALLERY_PR_URL,
+      provenanceHeadSha: GALLERY_PROVENANCE_HEAD_SHA,
+      baselineSha: GALLERY_BASELINE_SHA,
       designFoundation,
     })
   }
@@ -722,9 +743,10 @@ function buildInventory(root) {
     generatedNote:
       'Derived design-system reference inventory for the PR #4301 gallery and its PR #4891 design '
       + 'foundation sidecar. Never hand-edit: regenerate with '
-      + '`yarn workspace create-mercato-app harness:generate-design-system-inventory`. Every field is '
-      + 'computed from the packed registry, the real `figma.connect` calls and the real `npm pack` '
-      + 'file lists. `entrySource` and `implementationSource` are installed, app-relative, read-only '
+      + '`yarn workspace create-mercato-app harness:generate-design-system-inventory`. Mutable surface '
+      + 'facts are computed from the packed registry, the real `figma.connect` calls and the real '
+      + '`npm pack` file lists; immutable PR baselines are verified as ancestors of HEAD. `entrySource` '
+      + 'and `implementationSource` are installed, app-relative, read-only '
       + 'paths. `codeConnectExportStatus` answers importability, which is NOT implied by being '
       + 'packed. `publicationStatus` is closed at `not-evidenced`: nothing in this repository can '
       + 'evidence an external Figma publication.',
@@ -732,6 +754,8 @@ function buildInventory(root) {
       galleryRegistry: installedPathOf(GALLERY_PACKAGE, `${GALLERY_DIR}/registry.ts`),
       galleryTypes: installedPathOf(GALLERY_PACKAGE, `${GALLERY_DIR}/types.ts`),
       galleryPrUrl: GALLERY_PR_URL,
+      galleryProvenanceHeadSha: GALLERY_PROVENANCE_HEAD_SHA,
+      galleryBaselineSha: GALLERY_BASELINE_SHA,
       foundationPrUrl: FOUNDATION_PR_URL,
       foundationLandedPrUrl: FOUNDATION_LANDED_PR_URL,
       foundationBaselineSha: FOUNDATION_BASELINE_SHA,
@@ -783,13 +807,14 @@ function buildInventory(root) {
 /**
  * The app-facing projection.
  *
- * A scaffolded app has no use for monorepo provenance or repository-only counts, and a blanked
- * field reads as a real empty one, so repository-only fields are dropped rather than emptied.
+ * A scaffolded app retains the immutable gallery provenance needed by the routing oracle while
+ * repository-only counts are dropped rather than blanked.
  */
 export const PROJECTED_ITEM_FIELDS = Object.freeze([
   'galleryItemId', 'familyId', 'entryId', 'title', 'importPath', 'entrySource',
   'implementationKind', 'implementationSource', 'localTokenSource', 'variantIds', 'route',
-  'availabilityByPreset', 'featureId', 'designFoundation',
+  'availabilityByPreset', 'featureId', 'baselinePrUrl', 'provenanceHeadSha', 'baselineSha',
+  'designFoundation',
 ])
 
 export function projectInventory(inventory) {
@@ -828,6 +853,9 @@ export function projectSurfaceInventory(surfaceInventory, inventory) {
       referenceCount: projection.derived.referenceCount,
       rowsWithoutVisualCoverage: projection.derived.rowsWithoutVisualCoverage,
       coverageGapCount: projection.derived.coverageGapCount,
+      baselinePrUrl: GALLERY_PR_URL,
+      provenanceHeadSha: GALLERY_PROVENANCE_HEAD_SHA,
+      baselineSha: GALLERY_BASELINE_SHA,
     },
     designFoundation: {
       mappedItemCount: projection.derived.mappedItemCount,
@@ -842,6 +870,9 @@ export function projectSurfaceInventory(surfaceInventory, inventory) {
       galleryCoverage: reference.galleryCoverage,
       galleryItemIds: reference.galleryEntries.map((entry) => `${entry.familyId}/${entry.entryId}`),
       implementationSource: reference.implementationSource,
+      baselinePrUrl: reference.baselinePrUrl,
+      provenanceHeadSha: reference.provenanceHeadSha,
+      baselineSha: reference.baselineSha,
     })),
     designSystemCoverageGaps: projection.designSystemCoverageGaps.map((gap) => ({
       capabilityId: gap.capabilityId,

@@ -266,7 +266,7 @@ The following files are present in the tree but are **not** capability rows and 
 
 Recorded so the gate stays honest; none of these demote the row.
 
-**Proven by unit tests only**: `module.acl-features`, `search.encrypted-column-list-filter`, `api.option-source-routes`, `commands.undo-redo`, `module.setup-scheduler-target`, `ui.dashboard-widget`, and `overrides.compileable-reference`. None of the seven has an integration spec; their `integrationTestPaths` entries are repository evidence, not a runtime-coverage claim.
+**Proven by unit tests only**: `module.acl-features`, `search.encrypted-column-list-filter`, `api.option-source-routes`, `commands.undo-redo`, `ui.dashboard-widget`, and `overrides.compileable-reference`. None of these six has a dedicated integration spec; their `integrationTestPaths` entries are repository evidence, not a runtime-coverage claim.
 
 - `commands/todos.ts`, `api/interceptors.ts`, `lib/mock-*-adapter.ts` — several internal `throw new Error('...')` assertions are missing the `[internal]` prefix required by the i18n hardcoded-string convention.
 - `commands/interceptors.ts`, `subscribers/audit-delete.ts` — raw `console.log` behind an eslint disable instead of the `createLogger` facade (advisory `yarn logger:check-console`).

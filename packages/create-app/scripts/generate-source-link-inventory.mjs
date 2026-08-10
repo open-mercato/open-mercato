@@ -161,6 +161,9 @@ function visualReferencesForTarget(resolvedPath, designSystemInventory) {
     route: item.route,
     availabilityByPreset: item.availabilityByPreset,
     featureId: item.featureId,
+    baselinePrUrl: item.baselinePrUrl,
+    provenanceHeadSha: item.provenanceHeadSha,
+    baselineSha: item.baselineSha,
     designFoundation: item.designFoundation,
   }))
 }

@@ -37,7 +37,7 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 |---|---|
 | "20 paths differ between the two example trees" | **0.** `diff -rq` is clean; reconciliation landed in `c2a1520a3`, keeping the monorepo side (redo handler + `ensureScope` in `commands/todos.ts`, string icon tokens in `backend/**/page.meta.ts`). |
 | "136 files / 746,030 bytes; 104 / 555,327 emitted" | **137 files / 747,826 bytes; 104 / 552,409** excluding `__tests__` + `__integration__`. |
-| PR #4277 "open, changes-requested, conflicting" | **Merged** as #4891 = `b2d26489c`, ancestor of HEAD. The design-foundation certification gate is now satisfiable. |
+| PR #4277 "open, changes-requested, conflicting" | **Closed without merging.** Equivalent content landed separately as #4891 = `b2d26489c`, ancestor of HEAD. The design-foundation certification gate is now satisfiable. |
 | PR #4301 baseline `bf25803d7a…` | Present, ancestor of HEAD. |
 | PR #4883 baseline `092e56572c…` | SHA resolvable, but **PR #4883 is still OPEN/BLOCKED** — `packages/cli/src/lib/generators/module-override-targets.ts` does not exist on `develop`. The override-target fact family is upstream-blocked. |
 | 8 pinned `main` baseline assets @ `f7c941570…` | Hashes **verified** correct. |
@@ -93,6 +93,12 @@ The specs' own baselines were stale at `68b544764`. Verified facts:
 | 45 | **Wave 10 C5** — derived source-link inventory + D4 equality + drift gate + anti-staleness fix | CANON-C keystone | done | `c5db477fa` |
 | 46 | **Wave 11 E8** — additive `EntityExtension.table` + engine preference; declaration-only example | CANON-B entity extensions | done | `0f2ecf729` + follow-up run |
 | 47 | **Wave 12 S12** — blocked-backlog sweep: oracle-family re-derivation, enricher decryption reads | CANON-C / cleanup | done | `e610c3e9a` |
+| 48 | Complete READ families 8, 11, and 12 with real preset/tier applicability, distinct gallery/implementation/Figma/token routing, OMH-228, and fail-closed role/target envelopes | READ-P2 / CANON-C | done | integrated by final gap pass |
+| 49 | Close the runtime matrix with `TC-EXAMPLE-012`, `TC-EXAMPLE-015`, and `TC-EXAMPLE-016`; rerun all 15 lanes | CANON-B / D | done | integrated by final gap pass |
+| 50 | Emit and hash-own fresh-scaffold reference facts; recalibrate bounded case budgets; prove 228/228 | CANON-C / READ-P2 | done | integrated by final gap pass |
+| 51 | Run the real knowledge-change base-fail/head-pass controller and the complete ordered local validation gate | GOV-P2 / CANON-D | done | integrated by final gap pass |
+| 52 | Ground PR #4301 provenance head and merged/package SHA in generated design and source-link projections; reconcile final spec/surface/run truth | CANON-C / READ-P2 | done | final truth-up |
+| 53 | Run the trusted provider-backed harness lane on Linux/Bubblewrap and settle hosted PR CI | CANON-D / GOV-P2 | pending | — |
 
 ## Historical Deferred Backlog (completed later in this PR)
 
@@ -153,15 +159,19 @@ shaping, raw `Response`, raw `console.error`), `api/assignees/route.ts` + `api/n
   pollution: `git ls-tree -r origin/develop` has zero entries under that path, and git does not track
   empty directories. No fix was required and none is claimed. Anyone seeing it locally can simply delete it.
 
-## Open Decisions Carried Forward
+## Decisions Resolved Later in This PR
 
-- Whether `example_customers_sync` registration in the template registry is deleted or left inert
-  (it self-disables via its `some(id === 'example')` guard).
-- Whether `/blog/123` and the four `app.page.quickLinks.example*` i18n keys are pruned or retained.
-- Whether the PR #4883 reader-gap work ships inside this program or as its own reviewed PR
-  (recommendation: its own PR, given `packages/cli` blast radius).
+- `example_customers_sync` remains in both registries behind `some(id === 'example')`; it is inert in
+  every fresh preset and activates only with the example module.
+- `/blog/123` and the four `app.page.quickLinks.example*` keys remain, but `buildHomeQuickLinks()` now
+  returns those links only when the example module is registered, so no fresh preset exposes dead links.
+- The PR #4883 reader-gap work shipped inside this program and is covered by the final fact/topology
+  and activated-extractor proofs.
 
-## Validation
+## Initial Milestone A Validation — Superseded
+
+This section records the first 2026-08-03 handoff. The final local gate and remaining external
+release work are recorded in Session 8 below and in the Milestones B-D run linked at the top.
 
 Runner: **local** (Docker unavailable in WSL).
 
@@ -208,29 +218,14 @@ reaching any new code). The activation fixtures they host were instead exercised
 `yarn workspace create-mercato-app test`. The untested residue is the Verdaccio publish, the
 `yarn install`, and the `yarn generate` shell wrapper.
 
-## Known Gaps Introduced by This Change
+## Historical Gaps from the Initial Milestone A Handoff — Closed
 
-- **Example integration specs now run against an app where the module is unregistered.** With every
-  preset shipping `example` disabled, the 22 specs under `apps/mercato/src/modules/example/__integration__/`
-  (and `packages/core/src/modules/design_system/__integration__/design-system-gallery.spec.ts`) execute
-  against a standalone app that registers neither module. `scripts/test-create-app-integration.ts` boots
-  a single ephemeral app and cannot host two mutually-exclusive module sets, so covering this needs two
-  boots — an architecture change to that harness. **Not addressed here; must be resolved before those
-  specs can be trusted as standalone coverage.**
-- `OMH-018` has **3 bytes** of `maxInitialContextBytes` slack left (measured 2026-08-03 session 3: the five initial-context files total 40,957 of 40,960 — `AGENTS.md.template` 10,987 + `contracts.md` 8,357 + `om-module-scaffold/SKILL.md` 4,557 + `extensions.md` 12,305 + `om-system-extension/SKILL.md` 4,751; `.ai/guides/modules/**` is excluded from the initial budget by `isInitialContextPath`). The earlier "49 bytes" figure was wrong. Anyone growing
-  `om-module-scaffold/SKILL.md`, its `contracts.md`/`extensions.md`, or `om-system-extension/SKILL.md`
-  will hit it. This, not the root instruction budget, is now the binding constraint on that skill.
-- The `installedVersionFallback` schema field is implemented and fixture-covered, but the live-runner
-  trace has no reason-code channel yet, so live installed reads fail closed. Wiring that channel is
-  READ-P2.
-- **Read-policy Phase 1 is not fully closed.** The spec's Phase 1 has three steps and step 2 *is* the
-  broad-glob audit/migration, which the user scoped out. All 202 cases still carry
-  `node_modules/@open-mercato/*/src/**` in their context. The schema, evaluator and fixtures landed;
-  the migration did not.
-- **Oracle-family coverage is partial.** The read-policy spec enumerates twelve oracle families; the
-  new `agent-harness-example-read-policy.test.ts` covers seven (its own `family 1`–`family 7`
-  numbering is a subset, not the spec's list). The remainder depend on PR #4883/#4301/#4277 surfaces
-  that are not yet consumable.
+The initial handoff gaps are retained in the timestamped session entries below. They are no longer a
+resume queue: the activated standalone controller now exercises the disabled and enabled module states;
+case budgets were remeasured and ratcheted; the live fallback reason/capability channel is wired; the
+broad installed-source glob is gone; all twelve read-policy families are covered; and the final runtime
+matrix is 15/15. The only remaining release work is the trusted Linux/Bubblewrap provider lane followed
+by hosted PR CI.
 
 ## Handoff Log
 

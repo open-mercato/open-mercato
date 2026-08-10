@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -7,12 +8,16 @@ import { fileURLToPath } from 'node:url'
 // @ts-expect-error - plain ESM script, deliberately outside the published `src` tree
 import {
   INVENTORY_RELATIVE_PATH,
+  GALLERY_BASELINE_SHA,
+  GALLERY_PR_URL,
+  GALLERY_PROVENANCE_HEAD_SHA,
   PROJECTED_ITEM_FIELDS,
   PROJECTION_RELATIVE_PATH,
   availabilityFromResolvedPresets,
   foundationTupleErrors,
   main,
   normalizeProvenanceVersions,
+  provenanceAncestorErrors,
 } from '../../scripts/generate-design-system-inventory.mjs'
 // @ts-expect-error - see above
 import {
@@ -39,6 +44,9 @@ type Item = {
   route: string
   availabilityByPreset: Record<string, string>
   featureId: string
+  baselinePrUrl: string
+  provenanceHeadSha: string
+  baselineSha: string
   designFoundation: Foundation
 }
 
@@ -75,6 +83,19 @@ test('the checked design-system inventory is exactly what the generator derives'
     'the checked inventory is stale — regenerate with '
       + '`yarn workspace create-mercato-app harness:generate-design-system-inventory`',
   )
+})
+
+test('gallery and foundation baselines must be ancestors of the generated inventory', () => {
+  assert.deepEqual(provenanceAncestorErrors(REPO_ROOT), [])
+  const nonRepository = fs.mkdtempSync(path.join(os.tmpdir(), 'om-design-provenance-'))
+  try {
+    assert.ok(
+      provenanceAncestorErrors(nonRepository).some((error: string) => error.includes(GALLERY_BASELINE_SHA)),
+      'a tree without the merged gallery baseline must fail closed',
+    )
+  } finally {
+    fs.rmSync(nonRepository, { recursive: true, force: true })
+  }
 })
 
 test('a release bump alone never makes the checked inventory stale, but any other edit does', () => {
@@ -337,15 +358,34 @@ test('the design skill stays unavailable while no portable copy is emitted', () 
   }
 })
 
-test('the app projection drops repository-only fields instead of blanking them', () => {
+test('the app projection retains immutable gallery provenance and drops repository-only fields', () => {
   const full = readInventory(INVENTORY_RELATIVE_PATH)
   const projection = readInventory(PROJECTION_RELATIVE_PATH)
   assert.equal(projection.items.length, full.items.length)
 
   for (const item of projection.items) {
     assert.deepEqual(Object.keys(item), [...PROJECTED_ITEM_FIELDS])
-    // A blanked field reads as a real empty one; dropped is the only honest projection.
-    assert.ok(!('baselinePrUrl' in item), 'repository-only provenance must be dropped, not blanked')
+    assert.equal(item.baselinePrUrl, GALLERY_PR_URL)
+    assert.equal(item.provenanceHeadSha, GALLERY_PROVENANCE_HEAD_SHA)
+    assert.equal(item.baselineSha, GALLERY_BASELINE_SHA)
+  }
+})
+
+test('every gallery item and canonical reference carries the audited and merged provenance', () => {
+  const inventory = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, INVENTORY_RELATIVE_PATH), 'utf8'),
+  ) as {
+    inputs: Record<string, string>
+    items: Item[]
+    designSystemReferences: Array<Record<string, unknown>>
+  }
+  assert.equal(inventory.inputs.galleryPrUrl, GALLERY_PR_URL)
+  assert.equal(inventory.inputs.galleryProvenanceHeadSha, GALLERY_PROVENANCE_HEAD_SHA)
+  assert.equal(inventory.inputs.galleryBaselineSha, GALLERY_BASELINE_SHA)
+  for (const record of [...inventory.items, ...inventory.designSystemReferences]) {
+    assert.equal(record.baselinePrUrl, GALLERY_PR_URL)
+    assert.equal(record.provenanceHeadSha, GALLERY_PROVENANCE_HEAD_SHA)
+    assert.equal(record.baselineSha, GALLERY_BASELINE_SHA)
   }
 })
 
