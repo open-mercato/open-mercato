@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "shareName": "agreements-signing-session",
+  "createdAt": "2026-08-10T15:04:06.254Z",
+  "session": {
+    "collection": "turns",
+    "entries": 12,
+    "recognizedTurns": 24,
+    "userTurns": 12,
+    "assistantTurns": 12,
+    "firstRecognizedRole": "user",
+    "lastRecognizedRole": "assistant",
+    "bytes": 4946509,
+    "sha256": "46b8ea2500c6964dc7da8a96bc0ab03b4fc6aa337fb2120e991aaa367e8f5039"
+  },
+  "generatedFiles": [
+    {
+      "path": ".ai/specs/2026-08-10-agreement-signing-module.md",
+      "mode": "644",
+      "originalBytes": 69511,
+      "sanitizedBytes": 69496,
+      "sha256": "67e03fc224bdecdee9dc337c96318ae845bae61a096ac969bbedc431079e52fe"
+    },
+    {
+      "path": "package.json",
+      "mode": "644",
+      "originalBytes": 7039,
+      "sanitizedBytes": 6942,
+      "sha256": "1c3949b424dcf079f240f5dafed3770d4a3ce52f78203770e0244010f00fd4a7"
+    },
+    {
+      "path": "src/modules.ts",
+      "mode": "644",
+      "originalBytes": 2100,
+      "sanitizedBytes": 2100,
+      "sha256": "00df8685274d3fce77fe87581062c01a30e9b6dc90ce24fbc4c2b3d32080cb89"
+    },
+    {
+      "path": "src/modules/agreements/acl.ts",
+      "mode": "644",
+      "originalBytes": 262,
+      "sanitizedBytes": 262,
+      "sha256": "7489a09cfbf777795c49b60f19fbf28ba3f93b555e36864ca7aab52c37e7c880"
+    },
+    {
+      "path": "src/modules/agreements/api/agreements/[id]/envelopes/[envelopeId]/artifacts/[kind]/route.ts",
+      "mode": "644",
+      "originalBytes": 2111,
+      "sanitizedBytes": 2111,
+      "sha256": "926b7ca6f56f583c928f4be3c1fbca0e2d5adf4f8f855d260e22d59220065d0e"
+    },
+    {
+      "path": "src/modules/agreements/api/agreements/[id]/envelopes/route.ts",
+      "mode": "644",
+      "originalBytes": 2704,
+      "sanitizedBytes": 2704,
+      "sha256": "7c962e4668b46723ced146ffbfd908f930a0a6453f96607432caa39d93a82e19"
+    },
+    {
+      "path": "src/modules/agreements/api/agreements/[id]/publish/route.ts",
+      "mode": "644",
+      "originalBytes": 2272,
+      "sanitizedBytes": 2272,
+      "sha256": "455d7da89ba5ccc8eb77ca08beeeef45ead08cf5527e293b10866eabeac98e3c"
+    },
+    {
+      "path": "src/modules/agreements/api/agreements/route.ts",
+      "mode": "644",
+      "originalBytes": 4524,
+      "sanitizedBytes": 4524,
+      "sha256": "68247864decd481568bef288ef8b15f48b3ed33b2340c9ad1c8b4aa929519eff"
+    },
+    {
+      "path": "src/modules/agreements/api/helpers.ts",
+      "mode": "644",
+      "originalBytes": 1661,
+      "sanitizedBytes": 1661,
+      "sha256": "f3a6a637475ad16abd2bbc1b3ec640d146b7cbbc021d89f374face7eb64c6218"
+    },
+    {
+      "path": "src/modules/agreements/api/openapi.ts",
+      "mode": "644",
+      "originalBytes": 2990,
+      "sanitizedBytes": 2990,
+      "sha256": "0a189503882dbbaa93efa8c72a90fc46c6514c2ff6ffc0569c325db3aacf9cf9"
+    },
+    {
+      "path": "src/modules/agreements/api/public/agreement-signing/[token]/decline/route.ts",
+      "mode": "644",
+      "originalBytes": 2842,
+      "sanitizedBytes": 2842,
+      "sha256": "7966261e0eaacf7781c7b055ab4c8ad02dbc1d128907a9b89b4c8fc658e4304b"
+    },
+    {
+      "path": "src/modules/agreements/api/public/agreement-signing/[token]/document/route.ts",
+      "mode": "644",
+      "originalBytes": 1843,
+      "sanitizedBytes": 1843,
+      "sha256": "4e320aae327499269351459618208963b4e6de58e8622fcba409df473f4debd4"
+    },
+    {
+      "path": "src/modules/agreements/api/public/agreement-signing/[token]/route.ts",
+      "mode": "644",
+      "originalBytes": 7178,
+      "sanitizedBytes": 7178,
+      "sha256": "19d1afa8c910f984333dab378873371ee7368ede76c404022c10ce76ce88dbaa"
+    },
+    {
+      "path": "src/modules/agreements/api/public/agreement-signing/[token]/verification/confirm/route.ts",
+      "mode": "644",
+      "originalBytes": 1887,
+      "sanitizedBytes": 1887,
+      "sha256": "fa4e9fc6a5ce2c6303b76088d77bf3171e396e227bc6cb86f54b427943634018"
+    },
+    {
+      "path": "src/modules/agreements/api/public/agreement-signing/[token]/verification/request/route.ts",
+      "mode": "644",
+      "originalBytes": 1577,
+      "sanitizedBytes": 1577,
+      "sha256": "95dd0725eb9282478ca177136e4dae9a38a6536d1aa2012ac2409864803c5ab2"
+    },
+    {
+      "path": "src/modules/agreements/backend/agreements/[id]/edit/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 464,
+      "sanitizedBytes": 464,
+      "sha256": "998a932e13f261e07fc6c0aaf8d061f44bc7e9de5526056d9b124e421aa7d707"
+    },
+    {
+      "path": "src/modules/agreements/backend/agreements/[id]/edit/page.tsx",
+      "mode": "644",
+      "originalBytes": 206,
+      "sanitizedBytes": 206,
+      "sha256": "4bc231bd00661d15dc0e48200880af141aa5c61ce238c6d88433d0d29a90a260"
+    },
+    {
+      "path": "src/modules/agreements/backend/agreements/create/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 466,
+      "sanitizedBytes": 466,
+      "sha256": "018a9c0d24d5a47c9605241d6ddca2c191203cb605f402d9a8016c33b78b2b20"
+    },
+    {
+      "path": "src/modules/agreements/backend/agreements/create/page.tsx",
+      "mode": "644",
+      "originalBytes": 156,
+      "sanitizedBytes": 156,
+      "sha256": "11f08c20d4394bef4b4b9085260c5e17e37bc389a72d6834ccc1c04d7b658f31"
+    },
+    {
+      "path": "src/modules/agreements/backend/agreements/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 340,
+      "sanitizedBytes": 340,
+      "sha256": "8e2ce53ebb3cd82f628e8c705e8c90ba475275b0e24098d6e8ca4fa538c95e1d"
+    },
+    {
+      "path": "src/modules/agreements/backend/agreements/page.tsx",
+      "mode": "644",
+      "originalBytes": 138,
+      "sanitizedBytes": 138,
+      "sha256": "184085daca98f49b2526cdbf7bbc69eb7b36b2087d5d0197e7f900ba7896896e"
+    },
+    {
+      "path": "src/modules/agreements/commands/__tests__/agreements.test.ts",
+      "mode": "644",
+      "originalBytes": 1183,
+      "sanitizedBytes": 1183,
+      "sha256": "87ee309871458144085ba1b13030f4323901957fd05bbd18133ccebb1a25f54a"
+    },
+    {
+      "path": "src/modules/agreements/commands/agreements.ts",
+      "mode": "644",
+      "originalBytes": 42737,
+      "sanitizedBytes": 42737,
+      "sha256": "70164b44cfe27dbe5efe47469d2ab495dcd9f1ca741187a5ffb28a09fd3dbaa5"
+    },
+    {
+      "path": "src/modules/agreements/components/AgreementForm.tsx",
+      "mode": "644",
+      "originalBytes": 6991,
+      "sanitizedBytes": 6980,
+      "sha256": "0ccb9290d81a30e3b6507cc17ec12ef070b248f2feb0c9b1598ef5197baeca32"
+    },
+    {
+      "path": "src/modules/agreements/components/AgreementSigningPanel.tsx",
+      "mode": "644",
+      "originalBytes": 9536,
+      "sanitizedBytes": 9525,
+      "sha256": "ee5168f904d6fb790c6cf568bcfb5fecf0b6d076fe6c5a68730de7f6ca7c2a17"
+    },
+    {
+      "path": "src/modules/agreements/components/AgreementsTable.tsx",
+      "mode": "644",
+      "originalBytes": 4857,
+      "sanitizedBytes": 4846,
+      "sha256": "d0286cfa7eae627c9979c0145d71d41711f9fd648e9cefaed52cfa5295e88f3c"
+    },
+    {
+      "path": "src/modules/agreements/components/SignerCeremony.tsx",
+      "mode": "644",
+      "originalBytes": 14421,
+      "sanitizedBytes": 14410,
+      "sha256": "64d9d0d7360927a6a90aa78a78464687c2bcf633934f051ec6e6f698cab09752"
+    },
+    {
+      "path": "src/modules/agreements/data/entities.ts",
+      "mode": "644",
+      "originalBytes": 12202,
+      "sanitizedBytes": 12202,
+      "sha256": "eea3a6c876bd74d74aa2a6d16f9dd30c73f942d6e756beacf394ecc6701dacb6"
+    },
+    {
+      "path": "src/modules/agreements/data/validators.ts",
+      "mode": "644",
+      "originalBytes": 3970,
+      "sanitizedBytes": 3970,
+      "sha256": "d366ecdd0d6e8639479923ad43208ac8d9346dee8b3211a9f0bdc4d5ac3de35e"
+    },
+    {
+      "path": "src/modules/agreements/encryption.ts",
+      "mode": "644",
+      "originalBytes": 675,
+      "sanitizedBytes": 675,
+      "sha256": "39851ba6efd5887deea095b1d967a1b4fd9fb13e4f901ba00719bede52b4af71"
+    },
+    {
+      "path": "src/modules/agreements/events.ts",
+      "mode": "644",
+      "originalBytes": 1881,
+      "sanitizedBytes": 1881,
+      "sha256": "206a9af5faef6b0753ea991ec898f35679385191aaaa611dda06680c602e8d9c"
+    },
+    {
+      "path": "src/modules/agreements/frontend/agreements/sign/[token]/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 123,
+      "sanitizedBytes": 123,
+      "sha256": "ae5e999e35a9a420660ba10d9dc9f1a391165a9a711d0d1248d8641c2061a057"
+    },
+    {
+      "path": "src/modules/agreements/frontend/agreements/sign/[token]/page.tsx",
+      "mode": "644",
+      "originalBytes": 209,
+      "sanitizedBytes": 209,
+      "sha256": "cc01fbd2987af6948786a7640aabe703228b33503b6f2eed58fbc9fb757d9753"
+    },
+    {
+      "path": "src/modules/agreements/i18n/de.json",
+      "mode": "644",
+      "originalBytes": 155,
+      "sanitizedBytes": 155,
+      "sha256": "e53ec438c5769586d8a68125bce3b40b97e5dcbf1c75e991d88a83dcd1554503"
+    },
+    {
+      "path": "src/modules/agreements/i18n/en.json",
+      "mode": "644",
+      "originalBytes": 5560,
+      "sanitizedBytes": 5560,
+      "sha256": "366a05b0e1084fad760b75046934920e31db668467f6d3d74c2172afbc1df0a5"
+    },
+    {
+      "path": "src/modules/agreements/i18n/es.json",
+      "mode": "644",
+      "originalBytes": 130,
+      "sanitizedBytes": 130,
+      "sha256": "1ce593a634abb6759455b499e723cc18df36a22363882d08c2a70de4892e30ce"
+    },
+    {
+      "path": "src/modules/agreements/i18n/ko.json",
+      "mode": "644",
+      "originalBytes": 125,
+      "sanitizedBytes": 125,
+      "sha256": "f2d2889eee26e5aa15427ff4e481e9a728972f862de2849fdeb0802017c38839"
+    },
+    {
+      "path": "src/modules/agreements/i18n/pl.json",
+      "mode": "644",
+      "originalBytes": 5754,
+      "sanitizedBytes": 5754,
+      "sha256": "9d4fc39d1aa1d04d91f08ee686c3f1c30a35a4fe69f91612c04ab22232b3a9d7"
+    },
+    {
+      "path": "src/modules/agreements/index.ts",
+      "mode": "644",
+      "originalBytes": 326,
+      "sanitizedBytes": 347,
+      "sha256": "3ccdb311602474ca1bfd67c000c57857148b84ca747ed3f9f3420bef1939cebc"
+    },
+    {
+      "path": "src/modules/agreements/lib/artifacts.ts",
+      "mode": "644",
+      "originalBytes": 7594,
+      "sanitizedBytes": 7594,
+      "sha256": "1bb25b02701d343c2308b42a141236fa959f47bf4db03d52e365023bbfa48a82"
+    },
+    {
+      "path": "src/modules/agreements/lib/routing.ts",
+      "mode": "644",
+      "originalBytes": 375,
+      "sanitizedBytes": 375,
+      "sha256": "8312de923050585ad81b823d203e5a3709573dafdd37f8b65676fb5484340370"
+    },
+    {
+      "path": "src/modules/agreements/lib/tokens.ts",
+      "mode": "644",
+      "originalBytes": 426,
+      "sanitizedBytes": 426,
+      "sha256": "f26a4d0258e7eae118735a821fb8b425ddbf694fe37d4927d4097bf26f13138c"
+    },
+    {
+      "path": "src/modules/agreements/migrations/.snapshot-open-mercato.json",
+      "mode": "644",
+      "originalBytes": 61134,
+      "sanitizedBytes": 61134,
+      "sha256": "d8a97de649467ae5e93a2609ada75a2e66158e7844c62bad57ec147453681fc8"
+    },
+    {
+      "path": "src/modules/agreements/migrations/Migration20260810130011_agreements.ts",
+      "mode": "644",
+      "originalBytes": 4729,
+      "sanitizedBytes": 4737,
+      "sha256": "a1ffa6b68b75f0a688ade116e2c033894332fa4ccd411e9ce189a8707806497a"
+    },
+    {
+      "path": "src/modules/agreements/migrations/Migration20260810134017_agreements.ts",
+      "mode": "644",
+      "originalBytes": 3083,
+      "sanitizedBytes": 3078,
+      "sha256": "1f7aceb9708339f37e124a2e756a9aa9b972c6950969d0172d394bb775c6db95"
+    },
+    {
+      "path": "src/modules/agreements/setup.ts",
+      "mode": "644",
+      "originalBytes": 271,
+      "sanitizedBytes": 271,
+      "sha256": "2c32138c31ab31a55780de8150a2fb667541a040bb9bdc2627a9ed510eeef370"
+    },
+    {
+      "path": "yarn.lock",
+      "mode": "644",
+      "originalBytes": 702098,
+      "sanitizedBytes": 531736,
+      "sha256": "74264116dcf9dc45c1abebd5856fe6dedb6bfa38d0068ec9c4405a6c4a5975a1"
+    }
+  ],
+  "artifacts": {
+    "generated-files.zip": {
+      "bytes": 149108,
+      "sha256": "33fd5ab01b8a4a02784c10c56c9d180b28ad2673be9e21f65a1799da2f7cb783"
+    },
+    "privacy-report.json": {
+      "bytes": 481,
+      "sha256": "5538393daaecb3420181c1c87f3213f4254b5c5ffaaef63e2e90c2fd7444e2f8"
+    }
+  }
+}
