@@ -38,6 +38,11 @@ type SearchResponse = {
   results?: Array<{ entityId?: unknown; recordId?: unknown }>
 }
 
+type IntegrationListResponse = {
+  items?: Array<{ id?: string; providerKey?: string; bundleId?: string }>
+  bundles?: Array<{ id?: string; integrationCount?: number }>
+}
+
 
 async function readWorkflowInstances(
   request: APIRequestContext,
@@ -105,6 +110,89 @@ async function deleteWorkflowInstances(instanceIds: string[]): Promise<void> {
 }
 
 test.describe('TC-EXAMPLE-015: the nine specialized registries have real local callers', () => {
+  test('resolves and executes the credential-free integration, payment, shipping, and currency identities', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenScope(token)
+    const dateOffsetMs = Number.parseInt(randomUUID().slice(0, 8), 16)
+    const fetchDate = new Date(Date.UTC(2090, 0, 1) + dateOffsetMs).toISOString()
+    let transactionId: string | null = null
+
+    try {
+      const integrationsResponse = await apiRequest(
+        request,
+        'GET',
+        '/api/integrations?page=1&pageSize=100&bundleId=example_reference_bundle',
+        { token },
+      )
+      expect(integrationsResponse.ok(), `integration list failed: ${integrationsResponse.status()}`).toBeTruthy()
+      const integrationList = await integrationsResponse.json() as IntegrationListResponse
+      expect((integrationList.items ?? []).map((item) => ({
+        id: item.id,
+        providerKey: item.providerKey,
+        bundleId: item.bundleId,
+      })).sort((left, right) => String(left.id).localeCompare(String(right.id)))).toEqual([
+        { id: 'example_fixed_currency', providerKey: 'example_fixed_rates', bundleId: 'example_reference_bundle' },
+        { id: 'example_mock_payment', providerKey: 'mock', bundleId: 'example_reference_bundle' },
+        { id: 'example_mock_shipping', providerKey: 'mock_carrier', bundleId: 'example_reference_bundle' },
+      ])
+      expect(integrationList.bundles).toContainEqual(expect.objectContaining({
+        id: 'example_reference_bundle',
+        integrationCount: 3,
+      }))
+
+      const paymentProviders = await apiRequest(request, 'GET', '/api/payment_gateways/providers', { token })
+      expect(paymentProviders.ok()).toBeTruthy()
+      expect(JSON.stringify(await paymentProviders.json())).toContain('mock')
+
+      const paymentSession = await apiRequest(request, 'POST', '/api/payment_gateways/sessions', {
+        token,
+        data: { providerKey: 'mock', amount: 12.34, currencyCode: 'USD' },
+      })
+      expect(paymentSession.status()).toBe(201)
+      const paymentBody = await paymentSession.json() as { transactionId?: string; status?: string; providerKey?: string }
+      transactionId = paymentBody.transactionId ?? null
+      expect(paymentBody).toMatchObject({ providerKey: 'mock', status: 'captured' })
+      expect(transactionId).toBeTruthy()
+
+      const shippingProviders = await apiRequest(request, 'GET', '/api/shipping-carriers/providers', { token })
+      expect(shippingProviders.ok()).toBeTruthy()
+      expect(JSON.stringify(await shippingProviders.json())).toContain('mock_carrier')
+      const shippingRates = await apiRequest(request, 'POST', '/api/shipping-carriers/rates', {
+        token,
+        data: {
+          providerKey: 'mock_carrier',
+          origin: { countryCode: 'US', city: 'New York', postalCode: '10001', line1: '1 Main St' },
+          destination: { countryCode: 'US', city: 'Boston', postalCode: '02108', line1: '1 Beacon St' },
+          packages: [{ weightKg: 1, lengthCm: 10, widthCm: 10, heightCm: 10 }],
+        },
+      })
+      expect(shippingRates.ok(), `shipping rates failed: ${shippingRates.status()}`).toBeTruthy()
+      const shippingBody = await shippingRates.json() as { rates?: Array<{ serviceCode?: string }> }
+      expect((shippingBody.rates ?? []).map((rate) => rate.serviceCode)).toEqual(['standard', 'express'])
+
+      const currencyRates = await apiRequest(request, 'POST', '/api/currencies/fetch-rates', {
+        token,
+        data: { date: fetchDate, providers: ['example_fixed_rates'] },
+      })
+      expect(currencyRates.ok(), `currency fetch failed: ${currencyRates.status()}`).toBeTruthy()
+      expect(await currencyRates.json()).toMatchObject({
+        totalFetched: 2,
+        byProvider: { example_fixed_rates: { count: 2 } },
+        errors: [],
+      })
+    } finally {
+      await withClient(async (client) => {
+        if (transactionId) {
+          await client.query('DELETE FROM gateway_transactions WHERE id = $1', [transactionId])
+        }
+        await client.query(
+          'DELETE FROM exchange_rates WHERE tenant_id = $1 AND organization_id = $2 AND source = $3 AND date = $4',
+          [tenantId, organizationId, 'example_fixed_rates', fetchDate],
+        )
+      })
+    }
+  })
+
   test('token search indexes a real Todo and preserves organization scope', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
