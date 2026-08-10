@@ -202,3 +202,41 @@ When the sandbox has no network, `npx playwright install chromium` exits 0 and d
 it cannot repair a mismatch between the checkout's Playwright version and the browsers already in
 `~/Library/Caches/ms-playwright`. Check what is actually cached, and launch that build directly via
 `chromium.launch({ executablePath })` — the CDP protocol spans neighbouring builds.
+
+## A fresh worktree needs the full prepare chain before the CLI — 2026-08-10
+
+`yarn install` alone is not enough to boot the ephemeral env in a newly created worktree, and both
+failures present as something other than their cause:
+
+- **`packages/cli/dist/bin.js` is a build artifact.** Without it `yarn test:integration:ephemeral:start`
+  dies with a bare `MODULE_NOT_FOUND` Node stack that never names the CLI, so the boot log looks like
+  a broken script rather than an unbuilt workspace.
+- **One `build:packages` pass is not enough.** The root `build` script is
+  `build:packages && generate && build:packages` in that order for a reason: the first pass produces
+  the compilers, `generate` writes `packages/core/dist/generated/entities.ids.generated.js`, and the
+  second pass links it. Stopping after one pass boots an app that gets all the way to init and then
+  fails with `ERR_MODULE_NOT_FOUND` on that generated file — after several minutes of apparently
+  healthy progress output.
+
+So an entrypoint compiled on a fresh checkout must gate on **both** artifacts and run all three steps:
+
+```sh
+if [ ! -f packages/cli/dist/bin.js ] || [ ! -f packages/core/dist/generated/entities.ids.generated.js ]; then
+  for step in build:packages generate build:packages; do yarn "$step" || exit 1; done
+fi
+```
+
+An entrypoint generated in a worktree that had already run the full validation gate will not reveal
+either problem — the tree was already prepared — which is why this is a checkout-shaped trap rather
+than a machine-shaped one.
+
+## Keep generated artifacts on the names .gitignore already covers — 2026-08-10
+
+`.gitignore` covers `.ai/qa/ephemeral*`, `.ai/qa/test-env.json`, `.ai/qa/test-env.lock/` and
+`.ai/qa/test-env-boot.log`, but not arbitrary neighbours. An entrypoint that invents
+`test-env-up.log` or `.test-env-cli.pid` leaves untracked files a careless `git add -A` will commit.
+Write the boot log to `test-env-boot.log` and keep pid files inside `test-env.lock/`.
+
+Related trap in the lock itself: if the bootstrap lock **is** the `test-env.lock` directory, the
+`trap 'rm -rf "$LOCK_DIR"' EXIT` that releases it also deletes the `cli.pid` teardown needs. Make the
+lock a *file inside* the directory (`test-env.lock/bootstrap.pid`) and remove only that file on exit.
