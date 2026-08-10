@@ -65,24 +65,24 @@ is a real tooling defect. Findings 7–8 are the harness's own reported weakness
 
 ### Phase 1: Plan
 
-- [ ] 1.1 Record the session analysis and the change set as this execution plan
+- [x] 1.1 Record the session analysis and the change set as this execution plan — c0850c4ae
 
 ### Phase 2: Knowledge fixes
 
-- [ ] 2.1 Icon strings must resolve in the shipped registry (backend-ui guide + page-and-navigation)
-- [ ] 2.2 `commandBus.execute()` returns `{ result, logEntry }` (api-and-domain)
-- [ ] 2.3 Entity timestamp columns need initializers so `createOrmEntity` stays assignable (schema-design)
-- [ ] 2.4 Stale-registry restart rule and the bootstrap-safe probe path (testing-debugging)
+- [x] 2.1 Icon strings must resolve in the shipped registry (backend-ui guide + page-and-navigation) — 6c9075122
+- [x] 2.2 `commandBus.execute()` returns `{ result, logEntry }` (api-and-domain) — 6c9075122
+- [x] 2.3 Entity timestamp columns need initializers so `createOrmEntity` stays assignable (schema-design) — 6c9075122
+- [x] 2.4 Stale-registry restart rule and the bootstrap-safe probe path (testing-debugging) — 6c9075122
 
 ### Phase 3: Scaffold test runner
 
-- [ ] 3.1 Ship the `import.meta` Jest transformer in the template and point `jest.config.cjs` at it
-- [ ] 3.2 Regression test pinning the transformer wiring and its sanitization
+- [x] 3.1 Ship the `import.meta` Jest transformer in the template and point `jest.config.cjs` at it — adccccb0c
+- [x] 3.2 Regression test pinning the transformer wiring and its sanitization — adccccb0c
 
 ### Phase 4: Session sharing
 
-- [ ] 4.1 Document the Codex `app-server` `thread/read` export path in bundle-preparation
-- [ ] 4.2 Bound the phone rule so identifiers are not redacted as phone numbers, with a test
+- [x] 4.1 Document the Codex `app-server` `thread/read` export path in bundle-preparation — b2857fc51
+- [x] 4.2 Bound the phone rule so identifiers are not redacted as phone numbers, with a test — b2857fc51
 
 ### Phase 5: Validation and delivery
 
