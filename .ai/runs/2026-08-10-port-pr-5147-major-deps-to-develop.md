@@ -106,9 +106,9 @@ None (`--skill-url` not supplied).
 
 ### Phase 1: Low-risk range bumps
 
-- [ ] 1.1 Bump better-sqlite3 and bullmq ranges; verify jest-dom already ported
-- [ ] 1.2 Bump framer-motion to ^13.0.0; verify no source imports
-- [ ] 1.3 Relock and run targeted build/typecheck
+- [x] 1.1 Bump better-sqlite3 and bullmq ranges; verify jest-dom already ported — 929f41955
+- [x] 1.2 Bump framer-motion to ^13.0.0; verify no source imports — 929f41955 (repo-wide grep for `framer-motion` / `from 'motion` in `.ts`/`.tsx` returns nothing; the dependency is declared but unused)
+- [x] 1.3 Relock and run targeted build/typecheck — 929f41955 (`yarn build:packages` 22/22, `yarn generate`, `yarn typecheck` 22/22, cache 68/68, queue 66/66, scheduler 365/365; lock diff scoped to the three packages plus motion-dom/motion-utils)
 
 ### Phase 2: ioredis 5 to 6
 
