@@ -47,3 +47,4 @@ PR: #5162
 ### Phase 2: Distribution and guidance
 
 - [x] 2.1 Document, mirror, and record the retrieval workflow — e33e3ff8a
+- [x] 2.2 Accept timestamped migration filenames without weakening phone detection — ca5e198eb
