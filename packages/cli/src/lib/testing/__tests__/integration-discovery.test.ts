@@ -183,7 +183,7 @@ describe('integration discovery', () => {
     await writeTestFile(
       tempRoot,
       'standalone-app/src/modules.ts',
-      "export const enabledModules = [{ id: 'example', from: '@app' }]\n",
+      `const moduleOverrideExamples = [{ id: 'design_system', from: '@open-mercato/core' }]\n\nexport const enabledModules = [{\n  id: 'example',\n  from: '@app',\n  overrides: { routes: { api: { 'GET /api/example/probe': null } } },\n}]\n`,
     )
     await writeTestFile(tempRoot, 'standalone-app/src/modules/design_system/.gitkeep')
     process.env.OM_TEST_APP_ROOT = standaloneRoot

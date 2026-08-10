@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
-import { readEnabledModulesFromConfig } from '../resolver'
+import ts from 'typescript-js'
 
 export type IntegrationSpecDiscoveryItem = {
   path: string
@@ -107,12 +107,53 @@ function collectModuleIdsFromModulesRoot(modulesRoot: string, enabledModules: Se
   }
 }
 
+function readDeclaredModuleIdsFromConfig(registryPath: string): string[] {
+  const source = readFileSync(registryPath, 'utf8')
+  const sourceFile = ts.createSourceFile(
+    registryPath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !ts.isIdentifier(declaration.name)
+        || declaration.name.text !== 'enabledModules'
+        || !declaration.initializer
+        || !ts.isArrayLiteralExpression(declaration.initializer)
+      ) {
+        continue
+      }
+
+      return declaration.initializer.elements.flatMap((element) => {
+        if (!ts.isObjectLiteralExpression(element)) return []
+        const idProperty = element.properties.find((property): property is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(property)
+          && (
+            (ts.isIdentifier(property.name) && property.name.text === 'id')
+            || (ts.isStringLiteralLike(property.name) && property.name.text === 'id')
+          ),
+        )
+        return idProperty && ts.isStringLiteralLike(idProperty.initializer)
+          ? [idProperty.initializer.text]
+          : []
+      })
+    }
+  }
+
+  return []
+}
+
 function resolveEnabledModuleIds(projectRoot: string): Set<string> {
   const configuredTestAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
   if (configuredTestAppRoot) {
     const registryPath = path.join(path.resolve(configuredTestAppRoot), 'src', 'modules.ts')
     return new Set(
-      readEnabledModulesFromConfig(registryPath).map((entry) => normalizeModuleId(entry.id)),
+      readDeclaredModuleIdsFromConfig(registryPath).map(normalizeModuleId),
     )
   }
 
