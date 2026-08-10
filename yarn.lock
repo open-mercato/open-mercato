@@ -7487,7 +7487,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.3"
     ai: "npm:^7.0.4"
     cmdk: "npm:^1.0.0"
-    framer-motion: "npm:^12.43.0"
+    framer-motion: "npm:^13.0.0"
     isolated-vm: "npm:^7.0.0"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -7556,8 +7556,8 @@ __metadata:
     ai: "npm:^7.0.4"
     awilix: "npm:^13.0.5"
     bcryptjs: "npm:^3.0.3"
-    better-sqlite3: "npm:^13.0.2"
-    bullmq: "npm:^6.0.2"
+    better-sqlite3: "npm:^13.0.3"
+    bullmq: "npm:^6.0.9"
     bullmq-otel: "npm:^1.3.1"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
@@ -14995,13 +14995,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"better-sqlite3@npm:^13.0.2":
-  version: 13.0.2
-  resolution: "better-sqlite3@npm:13.0.2"
+"better-sqlite3@npm:^13.0.3":
+  version: 13.0.3
+  resolution: "better-sqlite3@npm:13.0.3"
   dependencies:
     node-addon-api: "npm:^8.0.0"
     node-gyp: "npm:latest"
-  checksum: 10/80c7a0929128b5e897c8e3692d1d455d5229a597ea0397c45d6f296aa5e318b1faf43cd406de480ebfce896308c64b7abb93c977a0928e5a3ec9a27ea62c7a75
+  checksum: 10/035f8fa70784762fd73e1dbeb6f157186abb97705ff759b312cfb0dc1c675fd1c6b5378d2c036758000ce9da1d49bf61689531aa2718a7e32dc272c114a4c71f
   languageName: node
   linkType: hard
 
@@ -15275,9 +15275,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bullmq@npm:^6.0.2":
-  version: 6.0.6
-  resolution: "bullmq@npm:6.0.6"
+"bullmq@npm:^6.0.9":
+  version: 6.0.9
+  resolution: "bullmq@npm:6.0.9"
   dependencies:
     cron-parser: "npm:5.7.0"
     msgpackr: "npm:2.0.5"
@@ -15298,7 +15298,7 @@ __metadata:
       optional: true
     redis:
       optional: true
-  checksum: 10/1579ed9f894771a162fbb46f337f038719cc7568f834ed2c3a2d3d89ed01eaf6c7d4bbbd6fe1e83f58410c9bec6e393306a53007e9f54aedb05e13d4018eb36f
+  checksum: 10/bddc23f7f310931a5d06ce06b8dfbda213effde60838c6f2177276a24cb702c482a263cc78821a8fe894f6df01c6f01caca002869b3f868265a2acd4e4c384c8
   languageName: node
   linkType: hard
 
@@ -19476,25 +19476,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"framer-motion@npm:^12.43.0":
-  version: 12.43.0
-  resolution: "framer-motion@npm:12.43.0"
+"framer-motion@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "framer-motion@npm:13.0.0"
   dependencies:
-    motion-dom: "npm:^12.43.0"
-    motion-utils: "npm:^12.39.0"
+    motion-dom: "npm:^13.0.0"
+    motion-utils: "npm:^13.0.0"
     tslib: "npm:^2.4.0"
   peerDependencies:
-    "@emotion/is-prop-valid": "*"
     react: ^18.0.0 || ^19.0.0
     react-dom: ^18.0.0 || ^19.0.0
   peerDependenciesMeta:
-    "@emotion/is-prop-valid":
-      optional: true
     react:
       optional: true
     react-dom:
       optional: true
-  checksum: 10/c8013cae9f1eec14af4fa769c6589a3af08ad7b4e7e0e9b67010d4a75ca12c347b8c735750ba798f6c5df09251e4c1f60c7650d24fb6fddc6328d022cdd7f11d
+  checksum: 10/9456065a16a18c5fdf048b9580c3a22bb93a457b777d234bc6eaaf70e66fa046a4af0ae7502a2c08389f911e7bb1482db2c83a1d3529300b0ac67baf92dedb51
   languageName: node
   linkType: hard
 
@@ -24508,19 +24505,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"motion-dom@npm:^12.43.0":
-  version: 12.43.0
-  resolution: "motion-dom@npm:12.43.0"
+"motion-dom@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "motion-dom@npm:13.0.0"
   dependencies:
-    motion-utils: "npm:^12.39.0"
-  checksum: 10/ac5f7164b77e317f265bf1382156e4a106a1091b442dc1c546f9b565c119baa9e139abec2c2c55ad710ad9d69c02c1c8b96a6932b1904726b64137e7c443f82d
+    motion-utils: "npm:^13.0.0"
+  checksum: 10/d6df40c87c7ee5a70dc4dd9baa314f04c7576e889486660b2343445363def897f5d7aa7efe27c0693b0e050def8976895fb51af443b579b4434968afc3a9d60d
   languageName: node
   linkType: hard
 
-"motion-utils@npm:^12.39.0":
-  version: 12.39.0
-  resolution: "motion-utils@npm:12.39.0"
-  checksum: 10/5aa2972bf38c44e44e0a39a70202ce69d585d88d28b37975ca0849756b8614e28d5ebd263ed806e94886b1fe684ce28ee630c4556c465581eaa6dca420249486
+"motion-utils@npm:^13.0.0":
+  version: 13.0.0
+  resolution: "motion-utils@npm:13.0.0"
+  checksum: 10/ee6296263ed6fd16a46eced143446e9335facdf72d1922ecdcfb945fb498d3723e9c94f3036fed4cc3cda7fca59de9b2971c11496fdfb8511cefb70eb2ec2da3
   languageName: node
   linkType: hard
 
