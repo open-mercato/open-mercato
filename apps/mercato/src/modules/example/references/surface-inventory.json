@@ -1044,9 +1044,10 @@
         "src/modules/example/lib/__tests__/todoBulkComplete.test.ts",
         "src/modules/example/lib/__tests__/todoBulkComplete.loop.test.ts",
         "src/modules/example/api/__tests__/todos.bulk-complete.test.ts",
-        "src/modules/example/widgets/__tests__/todo-bulk-complete.test.ts"
+        "src/modules/example/widgets/__tests__/todo-bulk-complete.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts"
       ],
-      "dependencyModules": ["progress", "queue", "scheduler"],
+      "dependencyModules": ["progress", "queue", "scheduler", "events"],
       "ruleOwner": "om-system-extension"
     },
     {
