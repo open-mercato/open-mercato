@@ -1,4 +1,4 @@
-import { asFunction } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerGatewayAdapter,
@@ -11,6 +11,7 @@ import { registerWebhookEndpointAdapter } from '@open-mercato/webhooks/modules/w
 import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
 import { mockWebhookEndpointAdapter } from './lib/mock-webhook-endpoint-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
+import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -21,6 +22,7 @@ function readMockWebhookSessionId(payload: Record<string, unknown> | null): stri
 
 /** DI token this module owns. Exported so callers and tests name it once. */
 export const EXAMPLE_TODO_SUMMARY_SERVICE = 'exampleTodoSummaryService' as const
+export const EXAMPLE_CURRENCY_RATE_PROVIDER = 'exampleCurrencyRateProvider' as const
 
 // Example DI registrar; modules can register their own services/components
 export function register(container: AppContainer) {
@@ -32,6 +34,7 @@ export function register(container: AppContainer) {
   // one request's tenant — for the life of the process.
   container.register({
     [EXAMPLE_TODO_SUMMARY_SERVICE]: asFunction(createExampleTodoSummaryService).scoped(),
+    [EXAMPLE_CURRENCY_RATE_PROVIDER]: asValue(exampleCurrencyRateProvider),
   })
 
   // Register mock gateway adapter for payment testing (no real credentials needed)

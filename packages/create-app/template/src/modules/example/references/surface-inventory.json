@@ -47,9 +47,8 @@
           },
           {
             "value": "vector",
-            "status": "pending-emission",
-            "note": "REQUIRED: a vector-search identity for the Todo entity; the example declares none today",
-            "pendingEmission": "slice-H-missing-example-surfaces"
+            "status": "emitted-example",
+            "note": "example/vector.ts deterministic Todo vector declaration"
           },
           {
             "value": "notification",
@@ -584,6 +583,21 @@
         "src/modules/example/__integration__/TC-EXAMPLE-006-search.spec.ts"
       ],
       "dependencyModules": ["query_index"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
+      "capabilityId": "search.vector-config",
+      "title": "Deterministic Todo vector configuration",
+      "description": "`VectorModuleConfig` for the Todo entity with deterministic source and checksum builders, a translated presenter and deep link, and an explicit plaintext-only policy that excludes encrypted notes from embeddings.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/vector.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/specialized-registries.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts"
+      ],
+      "dependencyModules": ["search", "query_index"],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -1218,6 +1232,45 @@
       "ruleOwner": "om-integration-builder"
     },
     {
+      "capabilityId": "integrations.local-bundle",
+      "title": "Credential-free local integration bundle",
+      "description": "A discoverable integration bundle that reuses the module's payment and shipping mocks and adds a deterministic currency-rate provider. The provider is registered through DI and all three identities require neither credentials nor network access.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/integration.ts",
+        "src/modules/example/di.ts",
+        "src/modules/example/lib/mock-currency-rate-provider.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/specialized-registries.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts"
+      ],
+      "dependencyModules": [
+        "integrations",
+        "payment_gateways",
+        "shipping_carriers",
+        "currencies"
+      ],
+      "ruleOwner": "om-integration-builder"
+    },
+    {
+      "capabilityId": "workflows.code-definition",
+      "title": "Event-triggered code workflow",
+      "description": "A minimal code workflow whose trigger consumes the existing typed `example.todo.created` event, maps the Todo id into workflow context, and reaches an end node without activities, credentials, or external side effects.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": ["src/modules/example/workflows.ts"],
+      "integrationTestPaths": [
+        "src/modules/example/__tests__/specialized-registries.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts"
+      ],
+      "dependencyModules": ["workflows", "events"],
+      "ruleOwner": "om-module-scaffold"
+    },
+    {
       "capabilityId": "overrides.unified-registry",
       "title": "Unified module overrides in the app registry",
       "description": "Typed, inactive `entry.overrides` examples for every wired override domain (routes, events, workers, widgets, notifications, interceptors, command interceptors, enrichers, guards, cli, setup, acl, di, encryption, nav). Lives in the app registry, not in the module.",
@@ -1328,6 +1381,7 @@
         "src/modules/example/__integration__/meta.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
         "src/modules/example/__integration__/TC-UMES-001.spec.ts",
         "src/modules/example/__integration__/TC-UMES-002.spec.ts",
         "src/modules/example/__integration__/TC-UMES-003.spec.ts",

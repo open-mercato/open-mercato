@@ -232,7 +232,6 @@ describe('factCoverage ledger — checked against the real example extraction', 
     }
     expect(wronglyPending).toEqual([])
     expect(pending).toEqual([
-      'ModuleFactSourceKind.vector',
       'ModuleFactSourceKind.generator-plugin',
       'ModuleOwnedContractKind.generator-plugin',
     ])

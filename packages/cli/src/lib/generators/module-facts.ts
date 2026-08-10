@@ -3331,9 +3331,8 @@ const FACT_SOURCE_KIND_COVERAGE: Record<ModuleFactSourceKind, ModuleFactCoverage
   search: { value: 'search', status: 'emitted-example', note: 'example/search.ts indexed entity declaration' },
   vector: {
     value: 'vector',
-    status: 'pending-emission',
-    note: 'REQUIRED: a vector-search identity for the Todo entity; the example declares none today',
-    pendingEmission: 'slice-H-missing-example-surfaces',
+    status: 'emitted-example',
+    note: 'example/vector.ts deterministic Todo vector declaration',
   },
   notification: { value: 'notification', status: 'emitted-example', note: 'example/notifications.ts notification types' },
   'cli-command': { value: 'cli-command', status: 'emitted-example', note: 'example/cli.ts module commands' },
