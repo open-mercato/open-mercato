@@ -112,6 +112,63 @@ plain literals. Gate behavior *inside* a widget or wrapper, or declare
 `metadata.requiredModules` on the widget; do not branch the exported registry value itself.
 
 
+### Generated `module-facts.json` values change, and extension joins now derive irregular plurals (#4897)
+
+`BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
+generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
+exact public IDs, as STABLE once published. Four changes land against that surface and the
+adjacent generator/query types. None of them is a removal and none needs a compatibility bridge —
+three correct values that named something nonexistent, and the fourth fixes a join that resolved
+to a table that does not exist — but each is a visible value change for anyone who reads the
+generated facts or extends an entity, so they are listed here rather than only in the PR.
+
+**1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
+`packages/cli/src/lib/generators/module-extension-facts.ts` now folds
+`ComponentReplacementHandles.section('ui.detail', 'NotesSection')` into the handle the runtime
+actually registers, so the contribution publishes `section:ui.detail.NotesSection` where it
+previously published `ui.detail`. The old value named no component — `ui.detail` is the section
+namespace, not a component id — so nothing could have correlated against it successfully. Still,
+it is an exact public ID changing: a scaffolded app or downstream tool that pinned the old string
+must repin. The same applies to the sibling `page`/`region` formulas.
+
+**2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
+The component-override reader used to discriminate `mode` on an `entry.props` property that the
+`ComponentOverride` union has no member for, and it could not see a `wrapper` supplied as an
+identifier reference. It now discriminates on the real members (`wrapper` / `propsTransform` /
+`replacement`). Measured across a 55-module corpus, `section:auth.login.form` (enterprise
+`security`) is the only leaf whose value changes; every other contribution keeps the mode it
+published. `wrapper` is what that entry has always done at runtime — the fact sheet was wrong,
+not the module.
+
+**3. Recovered injection-table contributions (additive).** The extractor silently dropped every
+string-form and single-object-form slot declaration, hiding twelve real contributions across six
+modules — `integrations` published none at all. Those contributions now appear. This is additive:
+no previously published ID disappears or changes. If you diff generated facts between releases,
+expect new entries; the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold them.
+
+**4. `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`.**
+`packages/shared/src/lib/query/engine.ts` derived an extension's physical table by appending an
+`s` to the entity segment, while the same file already used `pluralizeBaseName` for every other
+table-name fallback. Any third-party extension whose entity segment ends in `y` therefore joined
+a table that does not exist: `foo:company` derived `companys`. It now derives `companies`.
+
+**Action for module authors:** this is a runtime behavior change in the shared query engine. If
+you worked around the old derivation by adding a `y`-ending entity's real table under
+`EntityExtension.table`, that declaration is now redundant but still honored — an explicit
+`table` always wins, so nothing breaks either way. Keep `table` for plurals no guesser can win
+(`person` → `people`) and for any entity whose `@Entity({ tableName })` simply does not match the
+derived name. Behavior is unchanged for every entity segment that does not end in `y`.
+
+**Type-surface note (#4897).** `ExtractAllModuleFactsResult`
+(`packages/cli/src/lib/generators/module-facts.ts`) gains a **required**
+`unresolvedFirstPartyTargets: string[]`. It is a return type, so readers are unaffected; anything
+that *constructs* or mocks the interface — a generator test double, a wrapper that rebuilds the
+result — must add the field. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
+in the other direction and needs no action: `headers` accepts a function in addition to
+`string[]`, and `row` gains a second `ctx` parameter, so every existing `(item) => …`
+implementation stays assignable.
+
+
 ### Settings sections are identified by their untranslated group id (#4843)
 
 `buildSettingsSections` used to identify each settings section by slugging the **rendered** group label, so `SettingsSection.id` was locale-dependent — `module-configs` in one deployment, `konfiguracja-modu` in another. Sections now carry the untranslated group id instead: the `pageGroupKey` a settings page declares (for example `settings.sections.moduleConfigs`), falling back to its raw `pageGroup` label when it declares no key. This matches how the main sidebar already identifies its nav groups, and it is what makes the ordering in `settingsSectionOrder` locale-independent.
