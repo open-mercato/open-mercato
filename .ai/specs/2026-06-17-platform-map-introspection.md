@@ -93,6 +93,11 @@ relationship views (event flow) are the highest-value differentiator over raw li
                     └──────────────────────┘   └─────────────────────────────┘
 ```
 
+> **Third consumer (planned, separate spec):** a dev-only, local **Developer MCP Server**
+> exposes selected surfaces as MCP tools for coding agents (e.g. Claude Code) —
+> `.ai/specs/2026-08-10-developer-mcp-server.md`. It wraps `collectPlatformMap()` exactly like
+> the CLI does and does not change any decision (Q1–Q5) locked in this spec.
+
 The core is **isomorphic** and takes its inputs by injection — it never imports
 `apps/mercato/.mercato/generated/*` directly (that path is app-specific and off-limits to a
 package). Consumers supply a `IntrospectionContext`:
