@@ -16048,7 +16048,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ],
       "forbidden": [
@@ -18273,7 +18273,7 @@
             "umes.injection-table"
           ],
           "maxFiles": 6,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ],
       "installedVersionFallback": {
@@ -19638,7 +19638,7 @@
             "data.custom-fields"
           ],
           "maxFiles": 10,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ]
     },
@@ -19755,7 +19755,7 @@
             "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ]
     },
@@ -19797,7 +19797,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 163840,
+    "maxTotalContextBytes": 180224,
     "relatedCases": [
       "OMH-026",
       "OMH-027",
@@ -19816,7 +19816,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "An app needs a backend list screen with filters and export, plus create and edit screens for the same record, including the concurrent-edit conflict path on update and delete. Decide which routed instructions own that screen work and name the exact example sources you would open for the DataTable client island, the create form, and the edit form. Begin at the example entry document and its surface index and open only those rows. The example public frontend page and its module landing shell are out of scope for this request. Do not list or glob the example component or backend directories, and do not change anything inside the example root.",
+    "prompt": "An app needs a backend list screen with filters and export, plus create and edit screens for the same record, including the concurrent-edit conflict path on update and delete. Decide which routed instructions own that screen work and name the exact example sources you would open for the DataTable client island, the create form, and the edit form. Begin at the example entry document and its surface index and open only those rows. For the screen's primary action, follow the routed design-system owner to the exact packed Button gallery entry and exact installed Button implementation; report that the gallery route stays source-only until explicitly activated. The example public frontend page and its module landing shell are out of scope for this request. Do not list or glob the example, gallery, or installed package directories, and do not change anything inside the example root or node_modules.",
     "tags": [
       "backend-ui",
       "canonical-example",
@@ -19849,7 +19849,8 @@
         "AGENTS.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
-        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md"
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-backend-ui-design/references/page-and-navigation.md"
@@ -19860,7 +19861,9 @@
       ],
       "sourceReferenceIds": [
         "guides/backend-ui:components/TodoForm.tsx",
-        "guides/backend-ui:components/TodosTable.tsx"
+        "guides/backend-ui:components/TodosTable.tsx",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx"
       ],
       "exampleRoots": [
         {
@@ -19875,7 +19878,7 @@
             "ui.form-edit"
           ],
           "maxFiles": 12,
-          "maxBytes": 131072
+          "maxBytes": 196608
         }
       ]
     },
@@ -19885,6 +19888,9 @@
       "datatable-island-reference-source",
       "create-form-reference-source",
       "edit-form-reference-source",
+      "design-system-gallery-reference-source",
+      "design-system-implementation-reference-source",
+      "design-system-source-only-activation",
       "example-root-read-only",
       "frontend-page-reference-source",
       "whole-example-tree-read"
@@ -19895,6 +19901,9 @@
       "datatable-island-reference-source",
       "create-form-reference-source",
       "edit-form-reference-source",
+      "design-system-gallery-reference-source",
+      "design-system-implementation-reference-source",
+      "design-system-source-only-activation",
       "example-root-read-only"
     ],
     "forbiddenPatterns": [
@@ -19912,8 +19921,8 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 14,
-    "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 196608,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 212992,
     "relatedCases": [
       "OMH-026",
       "OMH-220"
@@ -19992,7 +20001,7 @@
             "events.crud-indexer-bridge"
           ],
           "maxFiles": 8,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ]
     },
@@ -20364,7 +20373,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ]
     },
@@ -20478,7 +20487,7 @@
             "ai.agent-extension"
           ],
           "maxFiles": 6,
-          "maxBytes": 131072
+          "maxBytes": 180224
         }
       ]
     },
@@ -20628,6 +20637,109 @@
     "source": {
       "paths": [
         ".ai/specs/2026-08-01-standalone-agent-spec-first-routing.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-228",
+    "title": "Trace a Button and token decision through gallery and design-foundation evidence",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "A designer asks whether the app's primary action can use the shared Button, which semantic tokens own its colors, and whether the matching Figma component is already published. Route the request to the UI design owner and follow only its exact visible links: the packed Button gallery entry, the installed Button implementation, the app-local token stylesheet, and the exact packed Button Code Connect auxiliary file. Report the gallery route as source-only until explicit design_system activation, distinguish packed auxiliary evidence from an exported/runtime module, preserve the placeholder Code Connect node and absent gallery node as independent authorities, and state that repository parse evidence does not prove Figma publication. Do not list or glob node_modules or figma, read a sibling mapping, use network credentials, invoke Figma operations, or modify any source.",
+    "tags": [
+      "backend-ui",
+      "design-system-gallery",
+      "design-foundation",
+      "figma-code-connect",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "backend-ui"
+      ],
+      "allowedExtra": [
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
+      ],
+      "allowedExtra": [],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+        "om-backend-ui-design/frontend-and-design-system:src/app/globals.css"
+      ]
+    },
+    "decisionVocabulary": [
+      "design-system-gallery-reference-source",
+      "design-system-implementation-reference-source",
+      "design-foundation-token-reference-source",
+      "figma-code-connect-auxiliary-reference-source",
+      "design-system-source-only-activation",
+      "code-connect-not-exported-runtime",
+      "figma-node-authorities-independent",
+      "figma-publication-not-evidenced",
+      "whole-figma-tree-read",
+      "figma-network-operation"
+    ],
+    "requiredDecisions": [
+      "design-system-gallery-reference-source",
+      "design-system-implementation-reference-source",
+      "design-foundation-token-reference-source",
+      "figma-code-connect-auxiliary-reference-source",
+      "design-system-source-only-activation",
+      "code-connect-not-exported-runtime",
+      "figma-node-authorities-independent",
+      "figma-publication-not-evidenced"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "figma/.{0,40}(?:glob|list|directory|sibling)",
+      "(?:published|runtime export).{0,40}(?:parse|packed)",
+      "(?:token|figma).{0,30}(?:secret|credential|api key)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-227"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-08-01-standalone-harness-example-read-policy.md"
       ]
     }
   }

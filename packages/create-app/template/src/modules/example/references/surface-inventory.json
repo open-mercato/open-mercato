@@ -1467,12 +1467,17 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/vector.ts"],
+      "sourcePaths": [
+        "src/modules/example/vector.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/specialized-registries.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts"
       ],
-      "dependencyModules": ["search", "query_index"],
+      "dependencyModules": [
+        "search",
+        "query_index"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -2304,12 +2309,17 @@
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
-      "sourcePaths": ["src/modules/example/workflows.ts"],
+      "sourcePaths": [
+        "src/modules/example/workflows.ts"
+      ],
       "integrationTestPaths": [
         "src/modules/example/__tests__/specialized-registries.test.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts"
       ],
-      "dependencyModules": ["workflows", "events"],
+      "dependencyModules": [
+        "workflows",
+        "events"
+      ],
       "ruleOwner": "om-module-scaffold"
     },
     {
@@ -2491,6 +2501,248 @@
       ],
       "dependencyModules": [],
       "ruleOwner": "om-integration-tests"
+    }
+  ],
+  "designSystemInventoryPath": ".ai/harness/design-system-inventory.json",
+  "designSystemGallery": {
+    "itemCount": 113,
+    "familyIds": [
+      "foundations",
+      "icons",
+      "buttons",
+      "inputs",
+      "dates",
+      "feedback",
+      "overlays",
+      "navigation",
+      "display",
+      "charts",
+      "filters",
+      "detail",
+      "scaffolding",
+      "banners",
+      "notifications",
+      "schedule",
+      "messages"
+    ],
+    "referenceCount": 16,
+    "rowsWithoutVisualCoverage": [
+      "ui.frontend-page"
+    ],
+    "coverageGapCount": 4
+  },
+  "designFoundation": {
+    "mappedItemCount": 18,
+    "nodeComparisonCounts": {
+      "match": 1,
+      "mismatch": 0,
+      "not-comparable": 112
+    },
+    "designSkillAvailability": "unavailable",
+    "publicationStatus": "not-evidenced",
+    "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+    "codeConnectExportStatus": "not-exported"
+  },
+  "designSystemReferences": [
+    {
+      "capabilityId": "ui.page-shell",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+    },
+    {
+      "capabilityId": "ui.page-shell",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "inputs/select",
+        "inputs/compact-select",
+        "inputs/checkbox",
+        "feedback/empty-state",
+        "feedback/spinner",
+        "overlays/dialog",
+        "overlays/popover",
+        "overlays/tooltip",
+        "navigation/pagination",
+        "display/table",
+        "filters/filter-bar",
+        "filters/advanced-filter-builder",
+        "filters/filtered-empty-results",
+        "filters/search-empty-results",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx"
+    },
+    {
+      "capabilityId": "ui.datatable",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "inputs/select",
+        "inputs/compact-select",
+        "inputs/checkbox",
+        "feedback/empty-state",
+        "feedback/spinner",
+        "overlays/dialog",
+        "overlays/popover",
+        "overlays/tooltip",
+        "navigation/pagination",
+        "display/table",
+        "filters/filter-bar",
+        "filters/advanced-filter-builder",
+        "filters/filtered-empty-results",
+        "filters/search-empty-results",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/RowActions.tsx"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts"
+    },
+    {
+      "capabilityId": "umes.injection.rendered-widget",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "inputs/select"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/select.tsx"
+    },
+    {
+      "capabilityId": "umes.component-replacement",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx"
+    }
+  ],
+  "designSystemCoverageGaps": [
+    {
+      "capabilityId": "ui.datatable",
+      "publicImportPath": "@open-mercato/ui/backend/ValueIcons",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
+    {
+      "capabilityId": "ui.datatable-perspectives-filters",
+      "publicImportPath": "@open-mercato/ui/backend/ValueIcons",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
+    {
+      "capabilityId": "ui.form-create",
+      "publicImportPath": "@open-mercato/ui/backend/messages",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
+    {
+      "capabilityId": "ui.form-edit",
+      "publicImportPath": "@open-mercato/ui/backend/messages",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
     }
   ]
 }

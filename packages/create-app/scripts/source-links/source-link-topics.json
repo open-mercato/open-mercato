@@ -93,6 +93,38 @@
       "resolvedPath": "src/modules/example/widgets/components.ts"
     },
     {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "referenceRole": "design-system-gallery"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "referenceRole": "design-system-implementation"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "referenceRole": "figma-code-connect"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:src/app/globals.css",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../src/app/globals.css",
+      "resolvedPath": "src/app/globals.css",
+      "referenceRole": "design-foundation-token"
+    },
+    {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
       "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "requirement": "source-required",

@@ -46,6 +46,14 @@ type Evaluator = {
   exampleReadAllowlist: (caseRecord: unknown, appRoot?: string) => string[]
   immutableExampleRoots: (caseRecord: unknown) => string[]
   normalizeExampleReadPath: (value: unknown) => { relative?: string; violation?: string }
+  resolveSourceReference: (input: {
+    referenceId: string
+    inventory: { byId: Map<string, InventoryRecord> }
+    appRoot: string
+    routedOwners: Set<string>
+    preset?: string
+    tiers?: string[]
+  }) => { violation?: string; resolvedPath?: string }
   sanitizedExampleReadPolicy: (trace: unknown, root: string) => {
     roots: Array<{ root: string; entrypoints: string[]; capabilities: string[]; files: number; bytes: number }>
     fallback: { reason: string | null; files: number; bytes: number }
@@ -109,6 +117,11 @@ function stageExampleApp(mutateInventory?: (records: InventoryRecord[]) => void)
   const inventory = projectedInventory()
   if (mutateInventory) mutateInventory(inventory.records)
   fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.ai', 'skills'), { recursive: true })
+  fs.copyFileSync(
+    path.join(sharedRoot, 'ai', 'skills', 'tiers.json'),
+    path.join(root, '.ai', 'skills', 'tiers.json'),
+  )
   fs.writeFileSync(
     path.join(root, '.ai', 'harness', 'source-link-inventory.json'),
     `${JSON.stringify(inventory, null, 2)}\n`,
@@ -118,6 +131,25 @@ function stageExampleApp(mutateInventory?: (records: InventoryRecord[]) => void)
     fs.mkdirSync(path.dirname(absolute), { recursive: true })
     if (!fs.existsSync(absolute)) fs.writeFileSync(absolute, `# staged owner ${owner}\n`)
   }
+  for (const record of inventory.records.filter((entry) => entry.targetKind === 'installed-package')) {
+    if (!record.packageName || !record.packageRelativePath) continue
+    const packageId = record.packageName.replace('@open-mercato/', '')
+    const packageRoot = fileURLToPath(new URL(`../../../../packages/${packageId}/`, import.meta.url))
+    const installedRoot = path.join(root, 'node_modules', '@open-mercato', packageId)
+    fs.mkdirSync(path.dirname(path.join(installedRoot, record.packageRelativePath)), { recursive: true })
+    fs.copyFileSync(
+      path.join(packageRoot, record.packageRelativePath),
+      path.join(installedRoot, record.packageRelativePath),
+    )
+    if (!fs.existsSync(path.join(installedRoot, 'package.json'))) {
+      fs.copyFileSync(path.join(packageRoot, 'package.json'), path.join(installedRoot, 'package.json'))
+    }
+  }
+  fs.mkdirSync(path.join(root, 'src', 'app'), { recursive: true })
+  fs.copyFileSync(
+    fileURLToPath(new URL('../../template/src/app/globals.css', import.meta.url)),
+    path.join(root, 'src', 'app', 'globals.css'),
+  )
   return root
 }
 
@@ -148,6 +180,13 @@ type InventoryRecord = {
   readStatus: string
   resolvedPath: string
   capabilityIds: string[]
+  packageName?: string
+  packageRelativePath?: string
+  referenceRole?: string
+  presets?: string[]
+  tiers?: string[]
+  galleryItemIds?: string[]
+  visualReferences?: Array<{ galleryItemId: string; designFoundation: Record<string, unknown> }>
 }
 
 /** The app-facing projection the harness ships; `context.sourceReferenceIds` resolves against it. */
@@ -1079,7 +1118,9 @@ function declaringShippedCases() {
 }
 
 function undeclaringShippedCases() {
-  return shippedCases().filter((entry) => entry.context.exampleRoots === undefined)
+  return shippedCases().filter((entry) => entry.context.exampleRoots === undefined
+    && entry.context.sourceReferenceIds === undefined
+    && entry.context.installedVersionFallback === undefined)
 }
 
 function declaredCapabilityIds(entry: { context: Record<string, unknown> }): string[] {
@@ -1107,6 +1148,8 @@ test('reachability: exactly the pinned shipped cases declare an example root, an
         `${EXAMPLE_ROOT}/references/surface-inventory.json`,
         ...ENTRYPOINTS.map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
         ...declaredCapabilityIds(entry).flatMap((id) => capability(id).sourcePaths),
+        ...((entry.context.sourceReferenceIds as string[] | undefined) ?? [])
+          .map((referenceId) => recordIn(projectedInventory().records, referenceId).resolvedPath),
       ]
       assert.deepEqual([...new Set(allowlist)].sort(), [...new Set(expected)].sort(), `${entry.id} allowlist must be its own exact files`)
       for (const relative of allowlist) {
@@ -1261,7 +1304,10 @@ test('compatibility: every shipped case that does not declare the fields keeps b
   const root = stageExampleApp()
   try {
     const undeclaring = undeclaringShippedCases()
-    assert.equal(undeclaring.length, shippedCases().length - DECLARING_CASE_IDS.length)
+    const policyDeclaringCount = shippedCases().filter((entry) => entry.context.exampleRoots !== undefined
+      || entry.context.sourceReferenceIds !== undefined
+      || entry.context.installedVersionFallback !== undefined).length
+    assert.equal(undeclaring.length, shippedCases().length - policyDeclaringCount)
     for (const entry of undeclaring) {
       assert.equal(entry.context.installedVersionFallback, undefined, `${entry.id} must not declare installedVersionFallback`)
       assert.deepEqual(evaluator.exampleReadAllowlist(entry, root), [], `${entry.id} read allowlist must be unchanged`)
@@ -2237,6 +2283,7 @@ test('family 12: an installed reference whose packed target is missing from the 
   const root = stageExampleApp()
   try {
     // The app never installed the package, so the declared link is dead in THIS app.
+    fs.rmSync(path.join(root, 'node_modules', '@open-mercato', 'ui'), { recursive: true, force: true })
     const caseRecord = installedReferenceCase()
     assert.ok(
       evaluator.validateExampleReadPolicyDeclaration(caseRecord, root)
@@ -2246,6 +2293,115 @@ test('family 12: an installed reference whose packed target is missing from the 
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+const DESIGN_OWNER = '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md'
+const DESIGN_GALLERY_REFERENCE = 'om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx'
+const DESIGN_IMPLEMENTATION_REFERENCE = 'om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx'
+const DESIGN_FIGMA_REFERENCE = 'om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx'
+const DESIGN_TOKEN_REFERENCE = 'om-backend-ui-design/frontend-and-design-system:src/app/globals.css'
+
+test('family 12: source-reference applicability follows real starter presets and emitted skill tiers', async () => {
+  const evaluator = await loadEvaluator()
+  const records = projectedInventory().records
+  const byId = new Map(records.map((record) => [record.referenceId, record]))
+  const record = recordIn(records, DESIGN_IMPLEMENTATION_REFERENCE)
+  assert.deepEqual(record.presets, ['classic', 'crm', 'empty'])
+  assert.deepEqual(record.tiers, ['core'])
+
+  const root = stageExampleApp()
+  try {
+    const common = {
+      referenceId: DESIGN_IMPLEMENTATION_REFERENCE,
+      inventory: { byId },
+      appRoot: root,
+      routedOwners: new Set([DESIGN_OWNER]),
+    }
+    assert.equal(evaluator.resolveSourceReference({ ...common, preset: 'classic', tiers: ['core'] }).violation, undefined)
+
+    const presetNarrowed = { ...record, presets: ['crm'] }
+    const wrongPreset = evaluator.resolveSourceReference({
+      ...common,
+      inventory: { byId: new Map([[DESIGN_IMPLEMENTATION_REFERENCE, presetNarrowed]]) },
+      preset: 'classic',
+      tiers: ['core'],
+    })
+    assert.match(wrongPreset.violation ?? '', /not applicable to starter preset classic/)
+    const wrongTier = evaluator.resolveSourceReference({ ...common, preset: 'classic', tiers: ['automation'] })
+    assert.match(wrongTier.violation ?? '', /not applicable to selected skill tiers automation/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: the UI gallery case routes exact gallery and installed implementation records', () => {
+  const uiCase = shippedCases().find((entry) => entry.id === 'OMH-221')
+  assert.ok(uiCase)
+  const ids = uiCase.context.sourceReferenceIds as string[]
+  assert.ok(ids.includes(DESIGN_GALLERY_REFERENCE))
+  assert.ok(ids.includes(DESIGN_IMPLEMENTATION_REFERENCE))
+  const records = projectedInventory().records
+  assert.equal(recordIn(records, DESIGN_GALLERY_REFERENCE).referenceRole, 'design-system-gallery')
+  assert.equal(recordIn(records, DESIGN_IMPLEMENTATION_REFERENCE).referenceRole, 'design-system-implementation')
+})
+
+test('family 12: the distinct design-foundation case has exact token and role-gated Code Connect records', async () => {
+  const foundationCase = shippedCases().find((entry) => entry.id === 'OMH-228')
+  assert.ok(foundationCase)
+  assert.deepEqual(foundationCase.context.sourceReferenceIds, [
+    DESIGN_GALLERY_REFERENCE,
+    DESIGN_IMPLEMENTATION_REFERENCE,
+    DESIGN_FIGMA_REFERENCE,
+    DESIGN_TOKEN_REFERENCE,
+  ])
+  const records = projectedInventory().records
+  const figma = recordIn(records, DESIGN_FIGMA_REFERENCE)
+  assert.equal(figma.referenceRole, 'figma-code-connect')
+  assert.deepEqual(figma.galleryItemIds, ['buttons/button'])
+  assert.equal(figma.visualReferences?.[0]?.designFoundation.codeConnectArtifactAvailability, 'installed-packed-auxiliary')
+  assert.equal(figma.visualReferences?.[0]?.designFoundation.codeConnectExportStatus, 'not-exported')
+  assert.equal(recordIn(records, DESIGN_TOKEN_REFERENCE).referenceRole, 'design-foundation-token')
+
+  const evaluator = await loadEvaluator()
+  const root = stageExampleApp()
+  try {
+    assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(foundationCase, root), [])
+    const malformed = { ...figma, referenceRole: 'design-system-implementation' }
+    const rejected = evaluator.resolveSourceReference({
+      referenceId: DESIGN_FIGMA_REFERENCE,
+      inventory: { byId: new Map([[DESIGN_FIGMA_REFERENCE, malformed]]) },
+      appRoot: root,
+      routedOwners: new Set([DESIGN_OWNER]),
+      preset: 'classic',
+      tiers: ['core'],
+    })
+    assert.match(rejected.violation ?? '', /lacks the exact packed Code Connect role/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('family 12: canonical surface projection carries every gallery item and reports visual gaps honestly', () => {
+  const surface = JSON.parse(
+    fs.readFileSync(path.join(canonicalReferences, 'surface-inventory.json'), 'utf8'),
+  ) as {
+    designSystemInventoryPath: string
+    designSystemGallery: { itemCount: number; rowsWithoutVisualCoverage: string[]; coverageGapCount: number }
+    designFoundation: { publicationStatus: string; codeConnectArtifactAvailability: string }
+    designSystemReferences: unknown[]
+    designSystemCoverageGaps: Array<{ capabilityId: string }>
+  }
+  const designInventory = JSON.parse(
+    fs.readFileSync(path.join(sourceHarness, 'design-system-inventory.json'), 'utf8'),
+  ) as { items: Array<{ galleryItemId: string }>; derived: { rowsWithoutVisualCoverage: string[] } }
+  assert.equal(surface.designSystemInventoryPath, '.ai/harness/design-system-inventory.json')
+  assert.equal(surface.designSystemGallery.itemCount, designInventory.items.length)
+  assert.deepEqual(surface.designSystemGallery.rowsWithoutVisualCoverage, ['ui.frontend-page'])
+  assert.equal(surface.designFoundation.publicationStatus, 'not-evidenced')
+  assert.equal(surface.designFoundation.codeConnectArtifactAvailability, 'installed-packed-auxiliary')
+  assert.ok(surface.designSystemReferences.length > 0)
+  assert.deepEqual(designInventory.derived.rowsWithoutVisualCoverage, ['ui.frontend-page'])
+  assert.ok(surface.designSystemCoverageGaps.length > 0, 'real missing gallery coverage must remain explicit')
 })
 
 test('family 12: the module-shaped planning case routes the generated local example reference sheet', () => {
@@ -2267,7 +2423,7 @@ function recordIn(records: InventoryRecord[], referenceId: string): InventoryRec
 
 // ---------------------------------------------------------------------------------------------
 // Coverage ledger — the spec enumerates TWELVE oracle families; this file labels its fixtures
-// `family 1`..`family 11` in implementation order, and the two numbering schemes are NOT the
+// `family 1`..`family 12` in implementation order, and the two numbering schemes are NOT the
 // same. The ledger states which spec family each fixture family serves, which spec families are
 // covered today, and which are not. Every "uncovered" claim names a surface whose absence is
 // checked here, so implementing that surface fails this test until the ledger is updated.
@@ -2299,7 +2455,7 @@ const FIXTURE_FAMILY_TO_SPEC_FAMILIES: Record<number, number[]> = {
   11: [1, 9],
   // Declared source references: spec family 4 (the installed-package lane) plus the visible-link
   // half of families 6 and 8.
-  12: [4, 6, 8, 10],
+  12: [4, 6, 8, 10, 11, 12],
 }
 
 const COVERAGE_LEDGER: LedgerRow[] = [
@@ -2336,7 +2492,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 12: an installed reference whose packed target is missing from the app fails closed',
     ],
     blockedBy: [],
-    note: 'Closed on 2026-08-05. The canonical spec deferred this family claiming no gate in the batch could verify a packed artifact; `npm pack --dry-run --json` IS that gate, so the deferral rationale was falsifiable and is now falsified. `.ai/guides/backend-ui.md` renders a visible link to `node_modules/@open-mercato/ui/src/backend/DataTable.tsx`, the link validator resolves it against the publishing workspace package AND its packed file list, and the trace records reference id, package, version and content hash from the app`s own install rather than freezing them at derivation. Historical note, since it explains the shape of the fixtures: the blocker used to be that the field itself did not exist — `context.sourceReferenceIds` exists — schema field, evaluator resolution, allowlist widening, and a trace that records the reference id plus package/version/hash for an installed target (`installedTargetIdentity`). What this family still cannot prove is the INSTALLED half: every one of the 125 inventory records is `canonical-example` or `local-owner`, because no emitted Markdown owner renders a link into `node_modules/@open-mercato/*/src/**` yet. Rendering one requires `validate-source-links.mjs` to resolve an installed target against its workspace package and prove packed presence, which does not exist. Until then a fixture could only assert package/version/hash against a hand-written inventory the harness does not ship — exactly the vacuous shape this file exists to reject.',
+    note: 'Closed on 2026-08-05 and extended on 2026-08-10. Visible owners render four exact installed-package references: DataTable, the Button gallery entry, the Button implementation, and the role-gated Button Code Connect auxiliary. The validator proves every path through `npm pack`, and the evaluator records package version plus the installed file hash at read time instead of freezing app-specific identity into the derived inventory.',
   },
   {
     specFamily: 5,
@@ -2383,7 +2539,7 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 8,
-    status: 'partial',
+    status: 'covered',
     fixtures: [
       'family 7: the published schema rejects legacy roots, duplicates, missing entrypoints, bad budgets, unsafe paths, and unknown reasons',
       'family 7: the published schema rejects every malformed declaration it must reject',
@@ -2392,9 +2548,10 @@ const COVERAGE_LEDGER: LedgerRow[] = [
       'family 12: a declared reference is followed only after its origin owner is read, and the trace records it',
       'family 12: a reference whose origin owner is not routed to the case is refused',
       'family 12: a declared reference widens the read allowlist by exactly one exact file',
+      'family 12: source-reference applicability follows real starter presets and emitted skill tiers',
     ],
-    blockedBy: ['a preset-narrowed or tier-narrowed inventory record'],
-    note: 'Updated on 2026-08-05. Legacy root, stale mapping, qa-only status, ordinary-surface fallback, the declared-reference half — orphan ID, qa-only target, unrouted origin owner, and following a link before reading the owner that renders it — are covered. and the installed-package half — an unpublished path is rejected by the packed-file gate, and a target the app never installed fails closed — are covered. What remains is preset/tier applicability: every emitted owner ships in every preset today, so no record narrows to one, and `wrong preset` and `wrong tier` have nothing to be wrong about yet.',
+    blockedBy: [],
+    note: 'Closed on 2026-08-10. Source records carry the real classic/crm/empty preset set and the tier membership derived from the emitted standalone skills manifest. The backend UI references are genuinely core-tier-only; wrong-preset and automation-only fixtures fail before a target read.',
   },
   {
     specFamily: 9,
@@ -2417,33 +2574,27 @@ const COVERAGE_LEDGER: LedgerRow[] = [
   },
   {
     specFamily: 11,
-    status: 'uncovered',
-    fixtures: [],
-    blockedBy: ['a design-system gallery record in surface-inventory.json'],
-    note: 'The PR #4301 gallery surfaces are not emitted.',
+    status: 'covered',
+    fixtures: [
+      'family 12: the UI gallery case routes exact gallery and installed implementation records',
+      'family 12: canonical surface projection carries every gallery item and reports visual gaps honestly',
+    ],
+    blockedBy: [],
+    note: 'Closed on 2026-08-10. OMH-221 now follows exact visible links to the packed Button gallery entry and installed implementation. The canonical surface projection carries all 113 derived gallery items while retaining real coverage gaps.',
   },
   {
     specFamily: 12,
-    status: 'uncovered',
-    fixtures: [],
-    blockedBy: [
-      'a PR #4277 designFoundation record in surface-inventory.json',
-      'a design-system gallery record in surface-inventory.json',
+    status: 'covered',
+    fixtures: [
+      'family 12: the distinct design-foundation case has exact token and role-gated Code Connect records',
+      'family 12: canonical surface projection carries every gallery item and reports visual gaps honestly',
     ],
-    note: 'The PR #4277 design-foundation surfaces are not emitted.',
+    blockedBy: [],
+    note: 'Closed on 2026-08-10. Distinct case OMH-228 follows app-local tokens and one exact packed Code Connect auxiliary file under a role and design-foundation envelope; it keeps auxiliary/export/runtime and independent node authorities separate.',
   },
 ]
 
-const MISSING_SURFACES: Record<string, () => boolean> = {
-  // The declared-reference field exists now, so the remaining gap is the INSTALLED half: an
-  // inventory record whose target is a packed package file rather than app-local source.
-  // Every emitted owner ships in every preset today, so no inventory record narrows to one.
-  'a preset-narrowed or tier-narrowed inventory record': () => projectedInventory().records
-    .every((record) => (record as unknown as Record<string, unknown>).presets === undefined
-      && (record as unknown as Record<string, unknown>).tiers === undefined),
-  'a design-system gallery record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('gallery'),
-  'a PR #4277 designFoundation record in surface-inventory.json': () => !JSON.stringify(inventoryCapabilities()).includes('designFoundation'),
-}
+const MISSING_SURFACES: Record<string, () => boolean> = {}
 
 test('ledger: the spec still enumerates exactly twelve oracle families', () => {
   const specText = fs.readFileSync(specPath, 'utf8')
@@ -2512,14 +2663,14 @@ test('ledger: every gap the ledger claims is a surface that is genuinely absent 
   }
 })
 
-test('ledger: the honest coverage count is nine covered, one partial, and two uncovered of twelve', () => {
+test('ledger: all twelve oracle families are covered', () => {
   // Moved on 2026-08-10: family 9 closed when the existing writable DataTable extension lane
   // began selecting both canonical seams and its trusted behavior oracle proved the shared
   // progressJobId is handed to the operation-progress observer.
   const tally = (status: LedgerRow['status']) => COVERAGE_LEDGER.filter((row) => row.status === status).map((row) => row.specFamily)
-  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7, 9, 10])
-  assert.deepEqual(tally('partial'), [8])
-  assert.deepEqual(tally('uncovered'), [11, 12])
+  assert.deepEqual(tally('covered'), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  assert.deepEqual(tally('partial'), [])
+  assert.deepEqual(tally('uncovered'), [])
   assert.equal(COVERAGE_LEDGER.length, 12)
 })
 

@@ -2,16 +2,15 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 28,
-    "recordCount": 126,
-    "sourceRequiredCount": 101,
-    "readableCount": 126,
+    "ownerCount": 29,
+    "recordCount": 130,
+    "sourceRequiredCount": 105,
+    "readableCount": 130,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
     "installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.",
-    "design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.",
-    "preset and tier applicability: every emitted owner ships in every preset, so no record narrows it."
+    "External Figma publication remains not-evidenced; packed Code Connect source proves neither publication nor runtime export."
   ],
   "records": [
     {
@@ -27,6 +26,16 @@
       "capabilityIds": [
         "ui.form-create",
         "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
       ]
     },
     {
@@ -42,6 +51,16 @@
       "capabilityIds": [
         "ui.datatable",
         "ui.datatable-perspectives-filters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
       ]
     },
     {
@@ -56,7 +75,17 @@
       "moduleId": null,
       "capabilityIds": [],
       "packageName": "@open-mercato/ui",
-      "packageRelativePath": "src/backend/DataTable.tsx"
+      "packageRelativePath": "src/backend/DataTable.tsx",
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
     },
     {
       "referenceId": "guides/backend-ui:references/surface-map.md",
@@ -68,7 +97,17 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
     },
     {
       "referenceId": "om-backend-ui-design/crud-surfaces:README.md",
@@ -80,7 +119,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/README.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
@@ -94,6 +141,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -108,6 +163,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.form-create"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -123,6 +186,14 @@
       "capabilityIds": [
         "ui.form-create",
         "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -138,6 +209,14 @@
       "capabilityIds": [
         "ui.datatable",
         "ui.datatable-perspectives-filters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -152,6 +231,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.component-replacement"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -166,6 +253,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.datatable-bulk-action"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -180,6 +275,680 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.rendered-widget"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/design_system/gallery/entries/buttons.tsx",
+      "referenceRole": "design-system-gallery",
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/button-group",
+        "buttons/fancy-button",
+        "buttons/icon-button",
+        "buttons/link-button",
+        "buttons/social-button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/icon-button",
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "route": "/backend/design-system?family=buttons&entry=icon-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/link-button",
+          "familyId": "buttons",
+          "entryId": "link-button",
+          "importPath": "@open-mercato/ui/primitives/link-button",
+          "route": "/backend/design-system?family=buttons&entry=link-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/social-button",
+          "familyId": "buttons",
+          "entryId": "social-button",
+          "importPath": "@open-mercato/ui/primitives/social-button",
+          "route": "/backend/design-system?family=buttons&entry=social-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/fancy-button",
+          "familyId": "buttons",
+          "entryId": "fancy-button",
+          "importPath": "@open-mercato/ui/primitives/fancy-button",
+          "route": "/backend/design-system?family=buttons&entry=fancy-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/button-group",
+          "familyId": "buttons",
+          "entryId": "button-group",
+          "importPath": "@open-mercato/ui/primitives/button-group",
+          "route": "/backend/design-system?family=buttons&entry=button-group",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "figma/button.figma.tsx",
+      "referenceRole": "figma-code-connect",
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/primitives/button.tsx",
+      "referenceRole": "design-system-implementation",
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:src/app/globals.css",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../src/app/globals.css",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/app/globals.css",
+      "moduleId": null,
+      "capabilityIds": [],
+      "referenceRole": "design-foundation-token",
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "foundations/brand-colors",
+        "foundations/chart-palette",
+        "foundations/color-roles",
+        "foundations/color-tokens",
+        "foundations/corner-radius",
+        "foundations/state-tokens"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "foundations/brand-colors",
+          "familyId": "foundations",
+          "entryId": "brand-colors",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=brand-colors",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/color-roles",
+          "familyId": "foundations",
+          "entryId": "color-roles",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=color-roles",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/color-tokens",
+          "familyId": "foundations",
+          "entryId": "color-tokens",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=color-tokens",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/state-tokens",
+          "familyId": "foundations",
+          "entryId": "state-tokens",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=state-tokens",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/chart-palette",
+          "familyId": "foundations",
+          "entryId": "chart-palette",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=chart-palette",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/corner-radius",
+          "familyId": "foundations",
+          "entryId": "corner-radius",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=corner-radius",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
       ]
     },
     {
@@ -194,6 +963,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -208,6 +985,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -222,6 +1007,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -236,6 +1029,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -250,6 +1051,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.frontend-page"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -262,7 +1071,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
@@ -276,6 +1093,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -290,6 +1115,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "commands.interceptors"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -307,6 +1140,14 @@
         "commands.write",
         "data.encryption-map",
         "events.crud-indexer-bridge"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -321,6 +1162,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -335,6 +1184,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -349,6 +1206,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -363,6 +1228,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.custom-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -378,6 +1251,14 @@
       "capabilityIds": [
         "data.encryption-map",
         "data.entities"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -392,6 +1273,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -404,7 +1293,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-eject-and-customize/decision-and-procedure:acl.ts",
@@ -418,6 +1315,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.acl-features"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -433,6 +1338,14 @@
       "capabilityIds": [
         "data.encryption-map",
         "data.entities"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -447,6 +1360,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.metadata"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -461,6 +1382,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -476,6 +1405,14 @@
       "capabilityIds": [
         "module.setup-role-features",
         "module.setup-scheduler-target"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -490,6 +1427,14 @@
       "moduleId": null,
       "capabilityIds": [
         "overrides.unified-registry"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -502,7 +1447,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-integration-builder/provider-families:di.ts",
@@ -515,7 +1468,16 @@
       "resolvedPath": "src/modules/example/di.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "integrations.local-bundle",
         "module.di-registration"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -530,6 +1492,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.mock-adapters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -544,6 +1514,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.mock-adapters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -558,6 +1536,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.mock-adapters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -570,7 +1556,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/README.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
@@ -584,6 +1578,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.option-source-routes"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -598,6 +1600,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.crud-factory"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -612,6 +1622,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.openapi"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -626,6 +1644,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.custom-route"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -640,6 +1666,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.option-source-routes"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -655,6 +1689,14 @@
       "capabilityIds": [
         "api.crud-query-engine-custom-fields",
         "search.encrypted-column-list-filter"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -672,6 +1714,14 @@
         "commands.write",
         "data.encryption-map",
         "events.crud-indexer-bridge"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -686,6 +1736,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.custom-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -701,6 +1759,14 @@
       "capabilityIds": [
         "data.encryption-map",
         "data.entities"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -715,6 +1781,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -729,6 +1803,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -743,6 +1825,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -757,6 +1847,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.acl-features"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -771,6 +1869,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.custom-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -785,6 +1891,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.cli-command"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -798,7 +1912,16 @@
       "resolvedPath": "src/modules/example/di.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "integrations.local-bundle",
         "module.di-registration"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -814,6 +1937,14 @@
       "capabilityIds": [
         "events.portal-broadcast",
         "events.typed-definitions"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -828,6 +1959,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.extension-points"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -842,6 +1981,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.i18n-catalogs"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -856,6 +2003,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.metadata"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -870,6 +2025,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "notifications.client-renderer"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -884,6 +2047,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "notifications.reactive-handler"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -898,6 +2069,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "notifications.type"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -910,7 +2089,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-module-scaffold/module-surfaces:setup.ts",
@@ -925,6 +2112,14 @@
       "capabilityIds": [
         "module.setup-role-features",
         "module.setup-scheduler-target"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -939,6 +2134,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.translatable-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -951,7 +2154,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/README.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-module-scaffold:references/surface-inventory.json",
@@ -963,7 +2174,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-inventory.json",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-system-extension/extension-branches:api/interceptors.ts",
@@ -977,6 +2196,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.interceptors"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -991,6 +2218,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "commands.interceptors"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1005,6 +2240,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.response-enricher"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1019,6 +2262,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.mutation-guard"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1033,6 +2284,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.extension-points"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1047,6 +2306,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "notifications.client-renderer"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1061,6 +2328,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "notifications.reactive-handler"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1075,6 +2350,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "events.sync-subscribers"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1089,6 +2372,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "events.sync-subscribers"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1103,6 +2394,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "events.ephemeral-subscriber"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1117,6 +2416,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "events.sync-subscribers"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1131,6 +2438,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.component-replacement"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1145,6 +2460,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection-table"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1159,6 +2482,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.datatable-bulk-action"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1173,6 +2504,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.datatable-column"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1187,6 +2526,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.rendered-widget"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1201,6 +2548,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.crud-form-field"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1215,6 +2570,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.datatable-filter"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1229,6 +2592,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.datatable-row-action"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1243,6 +2614,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.menu-items"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1257,6 +2636,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection.menu-items"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1271,6 +2658,14 @@
       "moduleId": null,
       "capabilityIds": [
         "overrides.unified-registry"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1283,7 +2678,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
@@ -1297,6 +2700,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.crud-factory"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1311,6 +2722,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1325,6 +2744,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1342,6 +2769,14 @@
         "commands.write",
         "data.encryption-map",
         "events.crud-indexer-bridge"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1357,6 +2792,14 @@
       "capabilityIds": [
         "ui.datatable",
         "ui.datatable-perspectives-filters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1371,6 +2814,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1385,6 +2836,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "module.metadata"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1399,6 +2858,14 @@
       "moduleId": null,
       "capabilityIds": [
         "overrides.unified-registry"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1413,6 +2880,14 @@
       "moduleId": "example",
       "capabilityIds": [
         "umes.injection-table"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -1425,7 +2900,15 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
-      "capabilityIds": []
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "referenceId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",

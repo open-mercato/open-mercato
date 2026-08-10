@@ -8,16 +8,15 @@
     "cases": "packages/create-app/agentic/shared/ai/harness/cases.json"
   },
   "derived": {
-    "ownerCount": 28,
-    "recordCount": 126,
-    "sourceRequiredCount": 101,
-    "renderedLinkCount": 103,
+    "ownerCount": 29,
+    "recordCount": 130,
+    "sourceRequiredCount": 105,
+    "renderedLinkCount": 107,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
     "installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.",
-    "design-system gallery and Code Connect envelopes: PR #4301 / #4277 assets are not packed in this repository.",
-    "preset and tier applicability: every emitted owner ships in every preset, so no record narrows it."
+    "External Figma publication remains not-evidenced; packed Code Connect source proves neither publication nor runtime export."
   ],
   "records": [
     {
@@ -119,12 +118,23 @@
         "OMH-193",
         "OMH-203",
         "OMH-217",
-        "OMH-221"
+        "OMH-221",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../src/modules/example/components/TodoForm.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
     },
     {
       "topicId": "guides/backend-ui:components/TodosTable.tsx",
@@ -224,12 +234,23 @@
         "OMH-193",
         "OMH-203",
         "OMH-217",
-        "OMH-221"
+        "OMH-221",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../src/modules/example/components/TodosTable.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
     },
     {
       "topicId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
@@ -324,12 +345,23 @@
         "OMH-193",
         "OMH-203",
         "OMH-217",
-        "OMH-221"
+        "OMH-221",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
       "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
       "packageName": "@open-mercato/ui",
       "packageRelativePath": "src/backend/DataTable.tsx"
     },
@@ -426,12 +458,23 @@
         "OMH-193",
         "OMH-203",
         "OMH-217",
-        "OMH-221"
+        "OMH-221",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:README.md",
@@ -456,7 +499,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/README.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
@@ -490,7 +541,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:8"
       ],
       "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx",
@@ -524,7 +583,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:7"
       ],
       "href": "../../../../src/modules/example/backend/todos/create/page.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
@@ -569,7 +636,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:7"
       ],
       "href": "../../../../src/modules/example/components/TodoForm.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
@@ -615,7 +690,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6"
       ],
       "href": "../../../../src/modules/example/components/TodosTable.tsx",
-      "renderedLinkCount": 2
+      "renderedLinkCount": 2,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:widgets/components.ts",
@@ -647,7 +730,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/widgets/components.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
@@ -676,7 +767,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx",
@@ -713,7 +812,765 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:10"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-228"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "referenceRole": "design-system-gallery",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/button-group",
+        "buttons/fancy-button",
+        "buttons/icon-button",
+        "buttons/link-button",
+        "buttons/social-button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/icon-button",
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "route": "/backend/design-system?family=buttons&entry=icon-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/link-button",
+          "familyId": "buttons",
+          "entryId": "link-button",
+          "importPath": "@open-mercato/ui/primitives/link-button",
+          "route": "/backend/design-system?family=buttons&entry=link-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/social-button",
+          "familyId": "buttons",
+          "entryId": "social-button",
+          "importPath": "@open-mercato/ui/primitives/social-button",
+          "route": "/backend/design-system?family=buttons&entry=social-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/fancy-button",
+          "familyId": "buttons",
+          "entryId": "fancy-button",
+          "importPath": "@open-mercato/ui/primitives/fancy-button",
+          "route": "/backend/design-system?family=buttons&entry=fancy-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/button-group",
+          "familyId": "buttons",
+          "entryId": "button-group",
+          "importPath": "@open-mercato/ui/primitives/button-group",
+          "route": "/backend/design-system?family=buttons&entry=button-group",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/design_system/gallery/entries/buttons.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-228"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "referenceRole": "figma-code-connect",
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "figma/button.figma.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-228"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "referenceRole": "design-system-implementation",
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/primitives/button.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:src/app/globals.css",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:src/app/globals.css",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/app/globals.css",
+      "targetAuthoringPath": "template/src/app/globals.css",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-228"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/app/globals.css",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "referenceRole": "design-foundation-token",
+      "galleryItemIds": [
+        "foundations/brand-colors",
+        "foundations/chart-palette",
+        "foundations/color-roles",
+        "foundations/color-tokens",
+        "foundations/corner-radius",
+        "foundations/state-tokens"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "foundations/brand-colors",
+          "familyId": "foundations",
+          "entryId": "brand-colors",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=brand-colors",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/color-roles",
+          "familyId": "foundations",
+          "entryId": "color-roles",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=color-roles",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/color-tokens",
+          "familyId": "foundations",
+          "entryId": "color-tokens",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=color-tokens",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/state-tokens",
+          "familyId": "foundations",
+          "entryId": "state-tokens",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=state-tokens",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/chart-palette",
+          "familyId": "foundations",
+          "entryId": "chart-palette",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=chart-palette",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/corner-radius",
+          "familyId": "foundations",
+          "entryId": "corner-radius",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=corner-radius",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only"
+          },
+          "featureId": "design_system.view",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/page.meta.ts",
@@ -738,7 +1595,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/backend/page.meta.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/page.tsx",
@@ -763,7 +1628,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/backend/page.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts",
@@ -792,7 +1665,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
@@ -823,7 +1704,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6"
       ],
       "href": "../../../../src/modules/example/backend/todos/page.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design/page-and-navigation:frontend/example.tsx",
@@ -848,7 +1737,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/frontend/example.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-backend-ui-design:references/surface-map.md",
@@ -933,12 +1830,21 @@
         "OMH-193",
         "OMH-203",
         "OMH-217",
-        "OMH-221"
+        "OMH-221",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
@@ -968,7 +1874,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/integrity-and-concurrency:commands/interceptors.ts",
@@ -997,7 +1911,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/commands/interceptors.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/integrity-and-concurrency:commands/todos.ts",
@@ -1040,7 +1962,15 @@
         "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:2"
       ],
       "href": "../../../../src/modules/example/commands/todos.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json",
@@ -1064,7 +1994,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/migration-workflow:migrations/Migration20251030150038.ts",
@@ -1088,7 +2026,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/migrations/Migration20251030150038.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/migration-workflow:migrations/Migration20260226161000_example.ts",
@@ -1112,7 +2058,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/schema-design:ce.ts",
@@ -1144,7 +2098,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13"
       ],
       "href": "../../../../src/modules/example/ce.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/schema-design:data/entities.ts",
@@ -1202,7 +2164,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:8"
       ],
       "href": "../../../../src/modules/example/data/entities.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design/schema-design:data/validators.ts",
@@ -1233,7 +2203,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
       ],
       "href": "../../../../src/modules/example/data/validators.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-data-model-design:references/surface-map.md",
@@ -1305,7 +2283,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:acl.ts",
@@ -1333,7 +2319,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules/example/acl.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:data/entities.ts",
@@ -1366,7 +2360,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
       ],
       "href": "../../../../src/modules/example/data/entities.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:index.ts",
@@ -1392,7 +2394,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules/example/index.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
@@ -1418,7 +2428,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:setup.ts",
@@ -1449,7 +2467,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules/example/setup.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize/decision-and-procedure:src/modules.ts",
@@ -1477,7 +2503,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-eject-and-customize:references/surface-map.md",
@@ -1497,7 +2531,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-integration-builder/provider-families:di.ts",
@@ -1512,13 +2554,16 @@
       "targetAuthoringPath": "template/src/modules/example/di.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "integrations.local-bundle",
         "module.di-registration"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
-        "src/modules/example/__tests__/di-registration.test.ts"
+        "src/modules/example/__tests__/di-registration.test.ts",
+        "src/modules/example/__tests__/specialized-registries.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-189"
@@ -1534,7 +2579,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13"
       ],
       "href": "../../../../src/modules/example/di.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
@@ -1570,7 +2623,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13"
       ],
       "href": "../../../../src/modules/example/lib/mock-gateway-adapter.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts",
@@ -1604,7 +2665,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:14"
       ],
       "href": "../../../../src/modules/example/lib/mock-shipping-adapter.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts",
@@ -1638,7 +2707,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:18"
       ],
       "href": "../../../../src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:README.md",
@@ -1665,7 +2742,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/README.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
@@ -1696,7 +2781,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/api/assignees/route.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts",
@@ -1728,7 +2821,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/openapi.ts",
@@ -1763,7 +2864,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:10"
       ],
       "href": "../../../../src/modules/example/api/openapi.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/organizations/route.ts",
@@ -1792,7 +2901,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/api/organizations/route.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
@@ -1823,7 +2940,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/api/tags/route.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:api/todos/route.ts",
@@ -1865,7 +2990,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:4"
       ],
       "href": "../../../../src/modules/example/api/todos/route.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/api-and-domain:commands/todos.ts",
@@ -1906,7 +3039,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/commands/todos.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:ce.ts",
@@ -1931,7 +3072,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/ce.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:data/entities.ts",
@@ -1962,7 +3111,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:2"
       ],
       "href": "../../../../src/modules/example/data/entities.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:data/validators.ts",
@@ -1990,7 +3147,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:3"
       ],
       "href": "../../../../src/modules/example/data/validators.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:migrations/.snapshot-open-mercato.json",
@@ -2012,7 +3177,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/data-and-migrations:migrations/Migration20260226161000_example.ts",
@@ -2034,7 +3207,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:acl.ts",
@@ -2068,7 +3249,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:10"
       ],
       "href": "../../../../src/modules/example/acl.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:ce.ts",
@@ -2097,7 +3286,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/ce.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:cli.ts",
@@ -2129,7 +3326,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:16"
       ],
       "href": "../../../../src/modules/example/cli.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:di.ts",
@@ -2144,13 +3349,16 @@
       "targetAuthoringPath": "template/src/modules/example/di.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "integrations.local-bundle",
         "module.di-registration"
       ],
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-007-cache.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts",
         "src/modules/example/__integration__/TC-UMES-005.spec.ts",
         "src/modules/example/__integration__/TC-UMES-020.spec.ts",
-        "src/modules/example/__tests__/di-registration.test.ts"
+        "src/modules/example/__tests__/di-registration.test.ts",
+        "src/modules/example/__tests__/specialized-registries.test.ts"
       ],
       "affectedCaseIds": [
         "OMH-185",
@@ -2164,7 +3372,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:12"
       ],
       "href": "../../../../src/modules/example/di.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:events.ts",
@@ -2200,7 +3416,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:13"
       ],
       "href": "../../../../src/modules/example/events.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:extension-points.ts",
@@ -2229,7 +3453,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/extension-points.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:i18n/en.json",
@@ -2263,7 +3495,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15"
       ],
       "href": "../../../../src/modules/example/i18n/en.json",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:index.ts",
@@ -2295,7 +3535,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:9"
       ],
       "href": "../../../../src/modules/example/index.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:notifications.client.ts",
@@ -2324,7 +3572,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/notifications.client.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:notifications.handlers.ts",
@@ -2352,7 +3608,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/notifications.handlers.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:notifications.ts",
@@ -2381,7 +3645,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/notifications.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:references/surface-map.md",
@@ -2411,7 +3683,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1"
       ],
       "href": "../../../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:setup.ts",
@@ -2448,7 +3728,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:11"
       ],
       "href": "../../../../src/modules/example/setup.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold/module-surfaces:translations.ts",
@@ -2483,7 +3771,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15"
       ],
       "href": "../../../../src/modules/example/translations.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold:README.md",
@@ -2589,7 +3885,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1"
       ],
       "href": "../../../src/modules/example/README.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-module-scaffold:references/surface-inventory.json",
@@ -2689,7 +3993,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../src/modules/example/references/surface-inventory.json",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:api/interceptors.ts",
@@ -2727,7 +4039,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:15"
       ],
       "href": "../../../../src/modules/example/api/interceptors.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:commands/interceptors.ts",
@@ -2757,7 +4077,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/commands/interceptors.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:data/enrichers.ts",
@@ -2804,7 +4132,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:12"
       ],
       "href": "../../../../src/modules/example/data/enrichers.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:data/guards.ts",
@@ -2838,7 +4174,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:13"
       ],
       "href": "../../../../src/modules/example/data/guards.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:extension-points.ts",
@@ -2869,7 +4213,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/extension-points.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:notifications.client.ts",
@@ -2900,7 +4252,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/notifications.client.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:notifications.handlers.ts",
@@ -2930,7 +4290,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/notifications.handlers.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/audit-delete.ts",
@@ -2964,7 +4332,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:16"
       ],
       "href": "../../../../src/modules/example/subscribers/audit-delete.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/auto-default-priority.ts",
@@ -2998,7 +4374,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:15"
       ],
       "href": "../../../../src/modules/example/subscribers/auto-default-priority.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/example-event.ts",
@@ -3026,7 +4410,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/subscribers/example-event.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts",
@@ -3060,7 +4452,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:16"
       ],
       "href": "../../../../src/modules/example/subscribers/prevent-uncomplete.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/components.ts",
@@ -3097,7 +4497,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:14"
       ],
       "href": "../../../../src/modules/example/widgets/components.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection-table.ts",
@@ -3136,7 +4544,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:20"
       ],
       "href": "../../../../src/modules/example/widgets/injection-table.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
@@ -3170,7 +4586,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:8"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
@@ -3204,7 +4628,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:4"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts",
@@ -3240,7 +4672,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:9"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
@@ -3282,7 +4722,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:14"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
@@ -3318,7 +4766,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:6"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
@@ -3352,7 +4808,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:7"
       ],
       "href": "../../../../src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts",
@@ -3387,7 +4851,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:11"
       ],
       "href": "../../../../src/modules/example/widgets/injection/example-menus/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/extension-branches:widgets/injection/example-profile-menu/widget.ts",
@@ -3418,7 +4890,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/widgets/injection/example-profile-menu/widget.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension/unified-overrides:src/modules.ts",
@@ -3450,7 +4930,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:21"
       ],
       "href": "../../../../src/modules.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-system-extension:references/surface-map.md",
@@ -3560,7 +5048,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
@@ -3591,7 +5087,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:9"
       ],
       "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:backend/todos/[id]/edit/page.tsx",
@@ -3616,7 +5120,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts",
@@ -3644,7 +5156,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:5"
       ],
       "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:commands/todos.ts",
@@ -3678,7 +5198,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/commands/todos.ts",
-      "renderedLinkCount": 2
+      "renderedLinkCount": 2,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:components/TodosTable.tsx",
@@ -3703,7 +5231,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/components/TodosTable.tsx",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:data/validators.ts",
@@ -3727,7 +5263,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/data/validators.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:index.ts",
@@ -3753,7 +5297,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:4"
       ],
       "href": "../../../../src/modules/example/index.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:src/modules.ts",
@@ -3781,7 +5333,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:3"
       ],
       "href": "../../../../src/modules.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter/diagnosis-map:widgets/injection-table.ts",
@@ -3810,7 +5370,15 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:13"
       ],
       "href": "../../../../src/modules/example/widgets/injection-table.ts",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "om-troubleshooter:references/surface-map.md",
@@ -3854,7 +5422,15 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../src/modules/example/references/surface-map.md",
-      "renderedLinkCount": 1
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "core"
+      ]
     },
     {
       "topicId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
@@ -4724,7 +6300,8 @@
         "OMH-224",
         "OMH-225",
         "OMH-226",
-        "OMH-227"
+        "OMH-227",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -4973,7 +6550,8 @@
         "OMH-224",
         "OMH-225",
         "OMH-226",
-        "OMH-227"
+        "OMH-227",
+        "OMH-228"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

@@ -11,6 +11,7 @@ const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const generatorPath = path.join(packageRoot, 'scripts/generate-source-link-inventory.mjs')
 const knowledgeValidatorPath = path.join(packageRoot, 'agentic/shared/scripts/validate-knowledge-change.mjs')
+const sourceLinkValidatorPath = path.join(packageRoot, 'scripts/validate-source-links.mjs')
 
 type Record_ = {
   topicId: string
@@ -86,6 +87,10 @@ type KnowledgeValidator = {
 
 const generator = (await import(pathToFileURL(generatorPath).href)) as unknown as Generator
 const knowledgeValidator = (await import(pathToFileURL(knowledgeValidatorPath).href)) as unknown as KnowledgeValidator
+const sourceLinkValidator = (await import(pathToFileURL(sourceLinkValidatorPath).href)) as unknown as {
+  installedPackageTarget: (resolvedPath: string) => { packageName: string; packageRelativePath: string } | null
+  validateTopicRegistry: (input: { registry: unknown; packageRoot: string }) => { errors: string[] }
+}
 
 const inventoryAbsolutePath = path.join(repoRoot, generator.INVENTORY_RELATIVE_PATH)
 
@@ -229,17 +234,17 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  // 101 source-required of 126: the extra one over the canonical-example set is the single
-  // installed-package link `.ai/guides/backend-ui.md` renders into `@open-mercato/ui`.
-  assert.equal(inventory.derived.sourceRequiredCount, 101)
-  assert.equal(inventory.records.length, 126)
-  assert.equal(inventory.derived.renderedLinkCount, 103)
+  // 105 source-required of 130: four exact packed-package links plus the app-local token link
+  // are visible through the UI owners without granting any directory-shaped source access.
+  assert.equal(inventory.derived.sourceRequiredCount, 105)
+  assert.equal(inventory.records.length, 130)
+  assert.equal(inventory.derived.renderedLinkCount, 107)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 101)
+  assert.equal(sourceRequired.length, 105)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -278,6 +283,29 @@ test('every source-required record resolves to a file a generated app really con
     )
     assert.equal(record.readStatus, 'readable')
   }
+})
+
+test('the only installed non-src shape is an exact role-gated UI Code Connect auxiliary', () => {
+  const exact = sourceLinkValidator.installedPackageTarget(
+    'node_modules/@open-mercato/ui/figma/button.figma.tsx',
+  )
+  assert.deepEqual(exact && { packageName: exact.packageName, packageRelativePath: exact.packageRelativePath }, {
+    packageName: '@open-mercato/ui',
+    packageRelativePath: 'figma/button.figma.tsx',
+  })
+  for (const invalid of [
+    'node_modules/@open-mercato/ui/figma',
+    'node_modules/@open-mercato/ui/figma/*.tsx',
+    'node_modules/@open-mercato/ui/figma/button.tsx',
+    'node_modules/@open-mercato/core/figma/button.figma.tsx',
+  ]) assert.equal(sourceLinkValidator.installedPackageTarget(invalid), null, invalid)
+
+  const registry = readJson<{ topics: Array<Record<string, unknown>> }>(generator.TOPICS_RELATIVE_PATH)
+  const figma = registry.topics.find((topic) => topic.referenceRole === 'figma-code-connect')
+  assert.ok(figma)
+  delete figma.referenceRole
+  const result = sourceLinkValidator.validateTopicRegistry({ registry, packageRoot })
+  assert.ok(result.errors.some((error) => /must declare referenceRole "figma-code-connect"/.test(error)))
 })
 
 test('rendered link counts distinguish a once-rendered link from a twice-rendered one', () => {
@@ -364,7 +392,11 @@ test('capability joins come from the example surface inventory, not from the top
     [
       // The installed UI implementation joins no example capability: it is the framework's own
       // component, not a canonical-example surface.
+      'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+      'node_modules/@open-mercato/ui/figma/button.figma.tsx',
       'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
+      'node_modules/@open-mercato/ui/src/primitives/button.tsx',
+      'src/app/globals.css',
       'src/modules/example/README.md',
       'src/modules/example/references/surface-inventory.json',
       'src/modules/example/references/surface-map.md',

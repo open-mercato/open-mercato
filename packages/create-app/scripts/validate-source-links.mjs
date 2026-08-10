@@ -196,16 +196,18 @@ export function authoringPathOfEmittedPath(appRelativePath) {
 // tree: it lives in a package the app installs. It is validated against the workspace package
 // that publishes it, and — decisively — against what that package actually PACKS. A file present
 // in the workspace but excluded from the tarball would be a dead link in every real app.
-const INSTALLED_PACKAGE_TARGET = /^node_modules\/(@open-mercato\/[a-z0-9][a-z0-9._-]*)\/(src\/.+)$/
+const INSTALLED_PACKAGE_TARGET = /^(?:node_modules\/(@open-mercato\/[a-z0-9][a-z0-9._-]*)\/(src\/.+)|node_modules\/(@open-mercato\/ui)\/(figma\/[a-z0-9-]+\.figma\.tsx))$/
 
 /** Split an installed-package target into its package name and package-relative path. */
 export function installedPackageTarget(resolvedPath) {
   const match = INSTALLED_PACKAGE_TARGET.exec(resolvedPath)
   if (!match) return null
+  const packageName = match[1] ?? match[3]
+  const packageRelativePath = match[2] ?? match[4]
   return {
-    packageName: match[1],
-    packageRelativePath: match[2],
-    workspaceDir: `packages/${match[1].slice('@open-mercato/'.length)}`,
+    packageName,
+    packageRelativePath,
+    workspaceDir: `packages/${packageName.slice('@open-mercato/'.length)}`,
   }
 }
 
@@ -240,7 +242,7 @@ export function packedFilesOf(repoRootPath, workspaceDir) {
 function installedTargetErrors(repoRootPath, href, resolved) {
   const target = installedPackageTarget(resolved)
   if (target === null) {
-    return [`link "${href}" resolves to "${resolved}", which is not an exact @open-mercato package src file`]
+    return [`link "${href}" resolves to "${resolved}", which is neither an exact @open-mercato package src file nor the exact role-gated UI Code Connect auxiliary shape`]
   }
   const absolute = path.join(repoRootPath, target.workspaceDir, target.packageRelativePath)
   try {
@@ -388,6 +390,13 @@ export function validateTopicRegistry({ registry, packageRoot }) {
     const derived = deriveTopicId(owner, resolved)
     if (derived !== topicId) {
       errors.push(`topic "${topicId}" does not match its derived ID "${String(derived)}"`)
+    }
+    const isCodeConnectAuxiliary = /^node_modules\/@open-mercato\/ui\/figma\/[a-z0-9-]+\.figma\.tsx$/.test(resolved)
+    if (isCodeConnectAuxiliary && topic.referenceRole !== 'figma-code-connect') {
+      errors.push(`topic "${topicId}" must declare referenceRole "figma-code-connect" for an auxiliary Code Connect file`)
+    }
+    if (!isCodeConnectAuxiliary && topic.referenceRole === 'figma-code-connect') {
+      errors.push(`topic "${topicId}" declares the Code Connect role for a non-Code-Connect target`)
     }
     for (const error of targetResolutionErrors(packageRoot, owner, href, resolved)) errors.push(`topic "${topicId}": ${error}`)
     declaredLinks.add(`${owner} ${resolved}`)
