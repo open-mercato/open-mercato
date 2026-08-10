@@ -122,11 +122,15 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
-  // but stays disabled by default: enabling it adds a 49th entry to the Codex
-  // root's enabled-module fact index, which pushes the generated AGENTS.md past
-  // its 12 KiB `project_doc_max_bytes` budget. Tracked in #4986 — uncomment once
-  // that budget is resolved there
-  // (see packages/create-app/src/lib/agent-instruction-budget.test.ts).
+  // but stays disabled by default. #4989 removed the hard overflow this used to
+  // cause (the generated root now sheds its module-fact index instead), but the
+  // headroom is still gone: enabling it puts the generated root at 12,275 of the
+  // 12,288-byte target, so the next module enabled after it drops the inline
+  // index to pointer form. Enabling is therefore a maintainer call about that
+  // budget, not a one-line edit — see
+  // packages/create-app/src/lib/agent-instruction-budget.test.ts
+  // ('one more template module still fits the root budget with its inline index
+  // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
