@@ -4,7 +4,7 @@ import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronDown, ChevronLeft, Home, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
-import { useIsomorphicLayoutEffect } from '../hooks/useIsomorphicLayoutEffect'
+import { useIsomorphicLayoutEffect } from '@open-mercato/ui/hooks/useIsomorphicLayoutEffect'
 import { Button } from '../primitives/button'
 import {
   Breadcrumb as BreadcrumbNav,
