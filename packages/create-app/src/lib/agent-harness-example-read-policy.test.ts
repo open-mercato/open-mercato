@@ -1095,6 +1095,9 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
     'data.entities',
     'data.validators',
     'events.typed-definitions',
+    'runtime.bulk-operation-progress',
+    'umes.injection.datatable-bulk-action',
+    'workflows.code-definition',
   ],
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
@@ -2412,7 +2415,9 @@ test('family 12: the module-shaped planning case routes the generated local exam
     ...((planningCase.context.allowedExtra as string[] | undefined) ?? []),
   ]
   assert.ok(routed.includes(REFERENCE_SHEET))
-  assert.match(JSON.stringify(planningCase), /contribution, activation, and override-target IDs/)
+  assert.match(JSON.stringify(planningCase), /capability, contribution, activation, override-target, worker, specialist-route/)
+  assert.match(JSON.stringify(planningCase), /connected-bulk-progress-traceability/)
+  assert.match(JSON.stringify(planningCase), /design-gallery-foundation-identities/)
 })
 
 function recordIn(records: InventoryRecord[], referenceId: string): InventoryRecord {
