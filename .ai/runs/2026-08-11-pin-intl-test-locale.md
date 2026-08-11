@@ -24,6 +24,18 @@ Run in an isolated worktree on `upstream/develop`:
 
 All nine pass under `LC_ALL=en_US.UTF-8`.
 
+A repo-wide sweep (every package's jest suite run under `pl_PL.UTF-8` and `en_US.UTF-8`, results
+diffed) found a **tenth** case the issue did not list, in a package the reporter had not run:
+
+| Suite | Failures under `LC_ALL=pl_PL.UTF-8` |
+|---|---|
+| `packages/core/src/modules/sales/components/documents/__tests__/ItemsSection.discountColumn.test.tsx` | 2 — `−4,50 USD` / `−15,00 USD` not rendered |
+
+Its `money()` helper built `new Intl.NumberFormat(undefined, …)`, so outside en-US it produced a
+string containing a non-breaking space that never matched the normalized DOM text. Acceptance
+criterion 3 (`yarn test` green under a non-English locale) cannot hold without it, so it is fixed
+here too. No other package showed a locale-dependent difference.
+
 ## Root cause
 
 Two distinct shapes:
@@ -58,6 +70,9 @@ locale per assertion. No assertion is weakened, and nothing is pinned in the glo
 - [x] `packages/core/src/modules/customers/components/detail/CompanyKpiBar.tsx` — pass `useLocale()`
 - [x] `packages/core/src/modules/customers/components/DealsKpiStrip.tsx` — locale-aware compact formatter
 - [x] Pin the locale in all four test suites, adding non-English cases as regression guards
+- [x] Sweep every package under `pl_PL.UTF-8` vs `en_US.UTF-8` to find cases the issue missed
+- [x] `sales/components/documents/lineItemUtils.ts` — `formatMoney` takes an optional `locale`
+- [x] `sales/components/documents/ItemsSection.tsx` — pass `useLocale()`; pin it in both ItemsSection suites
 - [x] Verify green under both `LC_ALL=pl_PL.UTF-8` and `LC_ALL=en_US.UTF-8`
 - [x] Run the configured validation gate
 - [x] Open the PR, apply labels, post the summary comment
@@ -65,6 +80,15 @@ locale per assertion. No assertion is weakened, and nothing is pinned in the glo
 ## Notes / follow-ups
 
 - `detail/utils.formatCurrency` has four other call sites (`ActiveDealCard`, `ActiveDealWidget`,
-  `DealsLocationPanel`, `DealsMapCanvasImpl`) that still format without a locale. They are
-  behaviour-unchanged here (the parameter is optional) and are worth a separate follow-up so the
-  whole customers surface honours the app locale.
+  `DealsLocationPanel`, `DealsMapCanvasImpl`) and `sales`' `formatMoney` has seven
+  (`ShipmentDialog`, `LineItemDialog`, `PaymentsSection`, `ReturnsSection`,
+  `SalesOrderDraftLines`, and the two notification renderers) that still format without a locale.
+  They are behaviour-unchanged here (the parameter is optional) and are worth a separate follow-up
+  so the whole customers/sales surface honours the app locale.
+- Threading `useLocale()` into a widely-rendered component breaks any test whose `i18n/context`
+  mock only stubs `useT`. One such suite (`ItemsSection.description.test.tsx`) needed its mock
+  extended. Worth remembering before wiring the remaining call sites above.
+- Pre-existing local failures unrelated to this change, reproduced in **both** locales and in
+  packages this diff does not touch: `packages/cli` `generateOpenApi` cache tests (flaky, 2 vs 4
+  failures across runs), `@open-mercato/telemetry` pg-instrumentation (spawns a child process),
+  and `create-mercato-app` harness tests (40 s event-loop timeouts).
