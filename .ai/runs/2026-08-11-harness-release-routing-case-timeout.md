@@ -93,8 +93,9 @@ closes.
 
 ## Risks
 
-- The routing step's worst-case wall clock rises with the ceiling: the primary lane's process budget grows
-  from roughly 7 h 37 min to roughly 33 h 50 min. That is a cap on a hung run, not an expected duration, but a
+- The routing step's worst-case wall clock rises with the ceiling: over the shipped catalog the primary lane's
+  process budget grows from 28620000 ms to 127860000 ms, roughly 7.9 h to roughly 35.5 h. That is a cap on a
+  hung run, not an expected duration — a healthy pass at the audited per-case durations lands far below it — but a
   genuinely stuck case now burns ten minutes before failing instead of two. The `RELEASE.md` note tells an
   operator to lower `--case-timeout` when they want a faster failure.
 - Extracting `routingInvocation` touches a live release path; the extraction must be behavior-preserving and
@@ -108,14 +109,14 @@ closes.
 
 ### Phase 1: Raise the release routing budget
 
-- [ ] 1.1 Raise the release case-timeout default and its help text
-- [ ] 1.2 Update the existing help-text assertion for the new default
+- [x] 1.1 Raise the release case-timeout default and its help text — 49b686f42
+- [x] 1.2 Update the existing help-text assertion for the new default — 49b686f42
 
 ### Phase 2: Pin the routing step's argv contract
 
-- [ ] 2.1 Extract an exported routingInvocation helper at the routing call site
-- [ ] 2.2 Add the routing argv and process-budget regression test
+- [x] 2.1 Extract an exported routingInvocation helper at the routing call site — 49b686f42
+- [x] 2.2 Add the routing argv and process-budget regression test — 49b686f42
 
 ### Phase 3: Documentation
 
-- [ ] 3.1 Restate the RELEASE.md duration-budget paragraph and record the deviation
+- [x] 3.1 Restate the RELEASE.md duration-budget paragraph and record the deviation — 935c02616
