@@ -3,6 +3,8 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { BaseDocumentService } from '../base-document-service'
 import { formatDate } from '../../utils/formatDate'
+import { buildSalesOfferLabels } from '../../templates/sales/quotes/sales-offer/labels'
+import type { TemplateDataContext } from '../../lib/interfaces'
 import { quoteDocumentInputSchema } from './validators'
 import {
   documentNumber,
@@ -136,7 +138,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     return (data.document as { id?: string } | undefined)?.id
   }
 
-  toTemplateData({ data, locale }: { data: unknown; locale: string }): Record<string, unknown> {
+  toTemplateData({ data, locale, translate }: { data: unknown } & TemplateDataContext): Record<string, unknown> {
     const r = data as QuoteRecord
     const customer = parseSnapshot<CustomerSnapshot>(r.customerSnapshot)
     const billing = parseSnapshot<BillingAddressSnapshot>(r.billingAddressSnapshot)
@@ -159,6 +161,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     }))
 
     return {
+      labels: buildSalesOfferLabels(translate),
       document: {
         id: r.id,
         number: r.quoteNumber,

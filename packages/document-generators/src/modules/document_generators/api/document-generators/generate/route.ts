@@ -47,8 +47,8 @@ export async function POST(request: Request) {
 
   let rendered: RenderedDocument
   try {
-    const { locale } = await resolveTranslations()
-    const template = await templateRegistry.load({ id: template_id, data }, { container, auth, locale })
+    const { locale, t } = await resolveTranslations()
+    const template = await templateRegistry.load({ id: template_id, data }, { container, auth, locale, translate: t })
     const output = await documentRenderer.render(template.render)
     rendered = {
       ...output,

@@ -158,21 +158,21 @@ function formatMoney(amount: number, currency: string) {
 export function QuotePage({ data }: { data: PdfDocumentData }) {
   return (
     <Page size="A4" style={styles.page}>
-      <Text style={styles.pageTitle}>Wycena</Text>
+      <Text style={styles.pageTitle}>{data.labels.quote}</Text>
 
       <View style={styles.meta}>
         <View style={styles.metaItem}>
-          <Text style={styles.metaLabel}>Klient</Text>
+          <Text style={styles.metaLabel}>{data.labels.client}</Text>
           <Text style={styles.metaValue}>{data.client.company ?? data.client.name}</Text>
         </View>
         {data.client.email ? (
           <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Email</Text>
+            <Text style={styles.metaLabel}>{data.labels.email}</Text>
             <Text style={styles.metaValue}>{data.client.email}</Text>
           </View>
         ) : null}
         <View style={styles.metaItem}>
-          <Text style={styles.metaLabel}>Data ważności</Text>
+          <Text style={styles.metaLabel}>{data.labels.validUntil}</Text>
           <Text style={styles.metaValue}>{data.document.validUntil ?? '—'}</Text>
         </View>
       </View>
@@ -180,10 +180,10 @@ export function QuotePage({ data }: { data: PdfDocumentData }) {
       <View style={styles.divider} />
 
       <View style={styles.tableHeader}>
-        <Text style={[styles.tableHeaderCell, styles.colTitle]}>Pozycja</Text>
-        <Text style={[styles.tableHeaderCell, styles.colQty]}>Ilość</Text>
-        <Text style={[styles.tableHeaderCell, styles.colUnit]}>Cena jedn.</Text>
-        <Text style={[styles.tableHeaderCell, styles.colTotal]}>Razem</Text>
+        <Text style={[styles.tableHeaderCell, styles.colTitle]}>{data.labels.item}</Text>
+        <Text style={[styles.tableHeaderCell, styles.colQty]}>{data.labels.quantity}</Text>
+        <Text style={[styles.tableHeaderCell, styles.colUnit]}>{data.labels.unitPrice}</Text>
+        <Text style={[styles.tableHeaderCell, styles.colTotal]}>{data.labels.total}</Text>
       </View>
 
       {data.lines.map((line, i) => (
@@ -206,20 +206,20 @@ export function QuotePage({ data }: { data: PdfDocumentData }) {
 
       <View style={styles.totalsSection}>
         <View style={styles.totalsRow}>
-          <Text style={styles.totalsLabel}>Netto</Text>
+          <Text style={styles.totalsLabel}>{data.labels.net}</Text>
           <Text style={styles.totalsValue}>
             {formatMoney(data.totals.subtotal, data.totals.currency)}
           </Text>
         </View>
         <View style={styles.totalsRow}>
-          <Text style={styles.totalsLabel}>VAT</Text>
+          <Text style={styles.totalsLabel}>{data.labels.tax}</Text>
           <Text style={styles.totalsValue}>
             {formatMoney(data.totals.tax, data.totals.currency)}
           </Text>
         </View>
         <View style={styles.totalsDivider} />
         <View style={styles.totalsRow}>
-          <Text style={styles.totalLabel}>Do zapłaty</Text>
+          <Text style={styles.totalLabel}>{data.labels.amountDue}</Text>
           <Text style={styles.totalValue}>
             {formatMoney(data.totals.total, data.totals.currency)}
           </Text>
@@ -228,7 +228,7 @@ export function QuotePage({ data }: { data: PdfDocumentData }) {
 
       {data.notes ? (
         <View style={styles.notes}>
-          <Text style={styles.notesLabel}>Uwagi</Text>
+          <Text style={styles.notesLabel}>{data.labels.notes}</Text>
           <Text style={styles.notesText}>{data.notes}</Text>
         </View>
       ) : null}

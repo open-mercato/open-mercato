@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { templateRegistry, UnknownTemplateError } from '../template-registry'
 import type { TemplateEntry } from '../interfaces'
 
@@ -26,7 +27,8 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
 }
 
 // The registry is a singleton — reset both lists before each test so cases don't leak.
-const ctx = { container: {} as AppContainer, auth: null as AuthContext | null, locale: 'en' }
+const translate = ((key: string) => `translated:${key}`) as TranslateFn
+const ctx = { container: {} as AppContainer, auth: null as AuthContext | null, locale: 'en', translate }
 
 beforeEach(() => {
   templateRegistry.registerInternal([])
@@ -78,9 +80,9 @@ describe('templateRegistry.load', () => {
       calls.push('fetchData')
       return { ...(data as object), enriched: true }
     })
-    const fromRecord = jest.fn((data: unknown, { locale }: { locale: string }) => {
+    const fromRecord = jest.fn((data: unknown, { locale, translate: contextTranslate }: { locale: string; translate: TranslateFn }) => {
       calls.push('fromRecord')
-      return { normalized: true, locale, ...(data as object) }
+      return { normalized: true, locale, label: contextTranslate('document.label'), ...(data as object) }
     })
     const filename = jest.fn(() => {
       calls.push('filename')
@@ -105,8 +107,8 @@ describe('templateRegistry.load', () => {
     expect(calls).toEqual(['fetchData', 'load', 'fromRecord', 'filename', 'resourceId', 'resourceLabel'])
     expect(result.render.source).toEqual({ type: 'react-pdf', component: FakeComponent })
     expect(result.render.format).toBe('pdf')
-    expect(result.render.data).toMatchObject({ normalized: true, locale: 'en', id: 'abc', enriched: true })
-    expect(fromRecord).toHaveBeenCalledWith(expect.anything(), { locale: 'en' })
+    expect(result.render.data).toMatchObject({ normalized: true, locale: 'en', label: 'translated:document.label', id: 'abc', enriched: true })
+    expect(fromRecord).toHaveBeenCalledWith(expect.anything(), { locale: 'en', translate })
     expect(result.filename).toBe('invoice-42.pdf')
     expect(result.template).toEqual({ id: 'order-invoice', label: 'Order Invoice' })
     expect(result.resource).toEqual({ kind: 'sales.order', id: 'ord-42', label: 'ORD-42' })
@@ -118,7 +120,7 @@ describe('templateRegistry.load', () => {
     const container = { resolve: () => undefined } as unknown as AppContainer
     templateRegistry.registerInternal([makeEntry({ fetchData })])
 
-    await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, { container, auth, locale: 'de' })
+    await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, { container, auth, locale: 'de', translate })
 
     expect(fetchData).toHaveBeenCalledWith({ data: { id: 'abc' } }, { container, auth })
   })
@@ -129,7 +131,7 @@ describe('templateRegistry.load', () => {
 
     await templateRegistry.load({ id: 'order-invoice', data: { id: 'raw' } }, ctx)
 
-    expect(fromRecord).toHaveBeenCalledWith({ id: 'raw' }, { locale: 'en' })
+    expect(fromRecord).toHaveBeenCalledWith({ id: 'raw' }, { locale: 'en', translate })
   })
 
   it('stops loading and normalization when fetchData rejects', async () => {

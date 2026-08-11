@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { BaseDocumentService, type DocumentTemplateEntry } from '../base-document-service'
 
 const FakeComponent: ComponentType<{ data: Record<string, unknown> }> = () => null
@@ -25,9 +26,9 @@ class TestDocumentService extends BaseDocumentService {
   readonly module = 'sales'
   readonly resourceKind = 'sales.quote'
 
-  toTemplateData({ data, locale }: { data: unknown; locale: string }): Record<string, unknown> {
+  toTemplateData({ data, locale, translate }: { data: unknown; locale: string; translate: TranslateFn }): Record<string, unknown> {
     const { id } = data as { id: string }
-    return { document: { number: id }, locale }
+    return { document: { number: id }, locale, label: translate('test.label') }
   }
 
   // Reads the *unwrapped* normalized data — this is exactly what C4 broke.
@@ -46,6 +47,7 @@ class TestDocumentService extends BaseDocumentService {
 }
 
 const ctx = { container: {} as AppContainer, auth: null as AuthContext | null }
+const translate = ((key: string) => `translated:${key}`) as TranslateFn
 
 describe('BaseDocumentService.getEntries', () => {
   it('maps registered templates to registry entries with module and resourceKind bound', () => {
@@ -137,9 +139,10 @@ describe('BaseDocumentService.getEntries', () => {
 
     const [entry] = service.getEntries()
 
-    expect(entry.fromRecord({ id: '7' }, { locale: 'de' })).toEqual({
+    expect(entry.fromRecord({ id: '7' }, { locale: 'de', translate })).toEqual({
       document: { number: '7' },
       locale: 'de',
+      label: 'translated:test.label',
     })
   })
 
@@ -161,7 +164,7 @@ describe('BaseDocumentService defaults', () => {
     readonly label = 'Minimal'
     readonly module = 'sales'
     readonly resourceKind = 'sales.order'
-    toTemplateData({ data }: { data: unknown; locale: string }): Record<string, unknown> {
+    toTemplateData({ data }: { data: unknown; locale: string; translate: TranslateFn }): Record<string, unknown> {
       return data as Record<string, unknown>
     }
   }

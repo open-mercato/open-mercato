@@ -3,6 +3,8 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { TemplateEntry, TemplateDataContext } from '../lib/interfaces'
 import type { DocumentTemplateEntry } from './types'
 
+const untranslated: NonNullable<TemplateDataContext['translate']> = (key) => key
+
 export type { DocumentTemplateEntry } from './types'
 
 /**
@@ -28,7 +30,7 @@ export abstract class BaseDocumentService {
    * @param input - Enriched record plus the required active locale
    * @returns Normalized data object passed to the template component
    */
-  abstract toTemplateData(input: { data: unknown; locale: string }): Record<string, unknown>
+  abstract toTemplateData(input: { data: unknown } & TemplateDataContext): Record<string, unknown>
 
   /**
    * Returns the filename for the generated PDF.
@@ -99,7 +101,7 @@ export abstract class BaseDocumentService {
       format: template.format ?? 'pdf',
       tags: template.tags,
       note: template.note,
-      fromRecord: (data: unknown, { locale }: TemplateDataContext) => this.toTemplateData({ data, locale }),
+      fromRecord: (data: unknown, { locale, translate }: TemplateDataContext) => this.toTemplateData({ data, locale, translate: translate ?? untranslated }),
       filename: template.filename ?? ((input: { data: Record<string, unknown> }) => this.filename(input)),
       resourceId: (input: { data: Record<string, unknown> }) => this.resourceId(input),
       resourceLabel: (input: { data: Record<string, unknown> }) => this.resourceLabel(input),

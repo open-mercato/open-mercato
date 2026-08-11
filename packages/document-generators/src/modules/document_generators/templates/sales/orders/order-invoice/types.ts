@@ -1,4 +1,34 @@
+export type OrderInvoiceLabels = {
+  invoice: string
+  invoiceNumber: string
+  date: string
+  dueDate: string
+  billTo: string
+  seller: string
+  company: string
+  email: string
+  address: string
+  items: string
+  description: string
+  details: string
+  quantity: string
+  unitPrice: string
+  amount: string
+  subtotal: string
+  tax: string
+  amountDue: string
+  notes: string
+  due: string
+  payByBankTransfer: string
+  paymentInstructions: string
+  bankName: string
+  routingNumber: string
+  accountNumber: string
+  swiftCode: string
+}
+
 export interface OrderInvoiceData {
+  labels: OrderInvoiceLabels
   document: {
     number: string
     date: string

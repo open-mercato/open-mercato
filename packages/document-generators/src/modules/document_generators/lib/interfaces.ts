@@ -1,5 +1,6 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 export type DocumentFormat = 'pdf' | 'md'
 
@@ -34,6 +35,7 @@ export type DocumentTemplateSource = ReactPdfTemplateSource | MarkdownTemplateSo
 /** Request-derived context available while normalizing a record for a template. */
 export interface TemplateDataContext {
   locale: string
+  translate?: TranslateFn
 }
 
 /** Context required to fetch, normalize, and load a template. */
@@ -41,6 +43,7 @@ export interface TemplateLoadContext {
   container: AppContainer
   auth: AuthContext | null
   locale: string
+  translate?: TranslateFn
 }
 
 /** Runtime handlers for a document template — normalization, lazy loading, and optional server-side data fetching. */

@@ -61,22 +61,22 @@ export function OrderInvoiceDocument({ data }: { data: OrderInvoiceData }) {
       <Page size="A4" style={s.page}>
 
         <View style={s.header}>
-          <Text style={s.title}>Invoice</Text>
+          <Text style={s.title}>{data.labels.invoice}</Text>
           <OpenMercatoLogo />
         </View>
 
         <View style={s.metaRow}>
           <View>
-            <Text style={s.metaLabel}>Invoice number</Text>
+            <Text style={s.metaLabel}>{data.labels.invoiceNumber}</Text>
             <Text style={s.metaValue}>{data.document.number}</Text>
           </View>
           <View>
-            <Text style={s.metaLabel}>Date</Text>
+            <Text style={s.metaLabel}>{data.labels.date}</Text>
             <Text style={s.metaValue}>{data.document.date}</Text>
           </View>
           {data.document.dueDate && (
             <View>
-              <Text style={s.metaLabel}>Date due</Text>
+              <Text style={s.metaLabel}>{data.labels.dueDate}</Text>
               <Text style={s.metaValue}>{data.document.dueDate}</Text>
             </View>
           )}
@@ -85,7 +85,7 @@ export function OrderInvoiceDocument({ data }: { data: OrderInvoiceData }) {
         <View style={s.parties}>
           <Text style={s.sellerName}>{data.seller.company || data.seller.name}</Text>
           <View>
-            <Text style={s.billToLabel}>Bill to</Text>
+            <Text style={s.billToLabel}>{data.labels.billTo}</Text>
             <Text style={s.clientName}>{data.client.name}</Text>
             {data.client.company && <Text style={s.clientDetail}>{data.client.company}</Text>}
             {data.client.email && <Text style={s.clientDetail}>{data.client.email}</Text>}
@@ -94,17 +94,17 @@ export function OrderInvoiceDocument({ data }: { data: OrderInvoiceData }) {
         </View>
 
         <Text style={s.amountText}>
-          {fmt(data.totals.total)}{data.document.dueDate ? ` due ${data.document.dueDate}` : ''}
+          {fmt(data.totals.total)}{data.document.dueDate ? ` ${data.labels.due} ${data.document.dueDate}` : ''}
         </Text>
         {data.notes && <Text style={s.notesText}>{data.notes}</Text>}
 
         <View style={s.divider} />
 
         <View style={s.tableHeader}>
-          <Text style={[s.colDesc, s.tableHeaderText]}>Description</Text>
-          <Text style={[s.colQty, s.tableHeaderText]}>Qty</Text>
-          <Text style={[s.colUnit, s.tableHeaderText]}>Unit price</Text>
-          <Text style={[s.colAmount, s.tableHeaderText]}>Amount</Text>
+          <Text style={[s.colDesc, s.tableHeaderText]}>{data.labels.description}</Text>
+          <Text style={[s.colQty, s.tableHeaderText]}>{data.labels.quantity}</Text>
+          <Text style={[s.colUnit, s.tableHeaderText]}>{data.labels.unitPrice}</Text>
+          <Text style={[s.colAmount, s.tableHeaderText]}>{data.labels.amount}</Text>
         </View>
 
         {data.lines.map((line, i) => (
@@ -121,49 +121,49 @@ export function OrderInvoiceDocument({ data }: { data: OrderInvoiceData }) {
 
         <View style={s.totalsBlock}>
           <View style={s.totalsRow}>
-            <Text style={s.totalsLabel}>Subtotal</Text>
+            <Text style={s.totalsLabel}>{data.labels.subtotal}</Text>
             <Text style={s.totalsValue}>{fmt(data.totals.subtotal)}</Text>
           </View>
           {data.totals.tax > 0 && (
             <View style={s.totalsRow}>
-              <Text style={s.totalsLabel}>Tax</Text>
+              <Text style={s.totalsLabel}>{data.labels.tax}</Text>
               <Text style={s.totalsValue}>{fmt(data.totals.tax)}</Text>
             </View>
           )}
           <View style={s.totalDivider} />
           <View style={s.totalsRow}>
-            <Text style={s.amountDueLabel}>Amount due</Text>
+            <Text style={s.amountDueLabel}>{data.labels.amountDue}</Text>
             <Text style={s.amountDueValue}>{fmt(data.totals.total)}</Text>
           </View>
         </View>
 
         {data.paymentDetails && (
           <View style={s.footer}>
-            <Text style={s.footerTitle}>Pay with ACH or wire transfer</Text>
+            <Text style={s.footerTitle}>{data.labels.payByBankTransfer}</Text>
             <Text style={s.footerBody}>
-              A routing number, account number, and SWIFT code will be provided upon request.
+              {data.labels.paymentInstructions}
             </Text>
             {data.paymentDetails.bankName && (
               <View style={s.payRow}>
-                <Text style={s.payLabel}>Bank name</Text>
+                <Text style={s.payLabel}>{data.labels.bankName}</Text>
                 <Text>{data.paymentDetails.bankName}</Text>
               </View>
             )}
             {data.paymentDetails.routingNumber && (
               <View style={s.payRow}>
-                <Text style={s.payLabel}>Routing number</Text>
+                <Text style={s.payLabel}>{data.labels.routingNumber}</Text>
                 <Text>{data.paymentDetails.routingNumber}</Text>
               </View>
             )}
             {data.paymentDetails.accountNumber && (
               <View style={s.payRow}>
-                <Text style={s.payLabel}>Account number</Text>
+                <Text style={s.payLabel}>{data.labels.accountNumber}</Text>
                 <Text>{data.paymentDetails.accountNumber}</Text>
               </View>
             )}
             {data.paymentDetails.swiftCode && (
               <View style={s.payRow}>
-                <Text style={s.payLabel}>SWIFT code</Text>
+                <Text style={s.payLabel}>{data.labels.swiftCode}</Text>
                 <Text>{data.paymentDetails.swiftCode}</Text>
               </View>
             )}
@@ -171,7 +171,7 @@ export function OrderInvoiceDocument({ data }: { data: OrderInvoiceData }) {
         )}
 
         <Text style={s.strip}>
-          {data.document.number} · {fmt(data.totals.total)}{data.document.dueDate ? ` due ${data.document.dueDate}` : ''}
+          {data.document.number} · {fmt(data.totals.total)}{data.document.dueDate ? ` ${data.labels.due} ${data.document.dueDate}` : ''}
         </Text>
 
       </Page>

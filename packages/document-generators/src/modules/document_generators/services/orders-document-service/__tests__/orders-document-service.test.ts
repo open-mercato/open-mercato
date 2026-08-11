@@ -1,5 +1,8 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import en from '../../../i18n/en.json'
+import pl from '../../../i18n/pl.json'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -13,6 +16,10 @@ const mockedFind = findOneWithDecryption as jest.Mock
 const auth = { tenantId: 't-1', orgId: 'o-1' } as unknown as AuthContext
 const container = { resolve: jest.fn(() => ({})) } as unknown as AppContainer
 const orderId = '11111111-1111-4111-8111-111111111111'
+const templateContext = {
+  en: { locale: 'en', translate: createTranslator(en) },
+  pl: { locale: 'pl', translate: createTranslator(pl) },
+}
 
 function makeOrderRecord(overrides: Partial<OrderRecord> = {}): OrderRecord {
   return {
@@ -113,7 +120,7 @@ describe('OrdersDocumentService.fetchData', () => {
 describe('OrdersDocumentService.toTemplateData', () => {
   it('normalizes a record with object snapshots', () => {
     const service = new OrdersDocumentService()
-    const out = service.toTemplateData({ data: makeOrderRecord(), locale: 'pl' })
+    const out = service.toTemplateData({ data: makeOrderRecord(), ...templateContext.pl })
 
     expect(out.document).toMatchObject({ id: 'ord-1', number: 'ORD-2026-0007' })
     expect((out.document as Record<string, string>).date).toMatch(/^\d{2}\.\d{2}\.\d{4}$/)
@@ -130,7 +137,7 @@ describe('OrdersDocumentService.toTemplateData', () => {
       billingAddressSnapshot: JSON.stringify({ addressLine1: 'Hauptstr. 5', city: 'Berlin', postalCode: '10115', country: 'DE' }) as unknown as OrderRecord['billingAddressSnapshot'],
     })
 
-    const out = service.toTemplateData({ data: record, locale: 'pl' })
+    const out = service.toTemplateData({ data: record, ...templateContext.pl })
 
     expect(out.client).toMatchObject({ name: 'Beta GmbH', email: 'buyer@beta.test' })
     expect((out.client as Record<string, string>).address).toContain('Berlin')
@@ -139,9 +146,19 @@ describe('OrdersDocumentService.toTemplateData', () => {
   it('formats document dates using the required locale', () => {
     const service = new OrdersDocumentService()
 
-    const out = service.toTemplateData({ data: makeOrderRecord(), locale: 'en' })
+    const out = service.toTemplateData({ data: makeOrderRecord(), ...templateContext.en })
 
     expect(out.document).toMatchObject({ date: '05/09/2026', dueDate: '05/16/2026' })
+  })
+
+  it('builds invoice labels using the active translator', () => {
+    const service = new OrdersDocumentService()
+
+    const english = service.toTemplateData({ data: makeOrderRecord(), ...templateContext.en })
+    const polish = service.toTemplateData({ data: makeOrderRecord(), ...templateContext.pl })
+
+    expect(english.labels).toMatchObject({ invoice: 'Invoice', amountDue: 'Amount due', notes: 'Notes' })
+    expect(polish.labels).toMatchObject({ invoice: 'Faktura', amountDue: 'Do zapłaty', notes: 'Uwagi' })
   })
 })
 

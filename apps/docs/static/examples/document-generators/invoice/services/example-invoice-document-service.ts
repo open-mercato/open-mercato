@@ -1,6 +1,6 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { BaseDocumentService, formatDate } from '@open-mercato/document-generators'
+import { BaseDocumentService, formatDate, type TemplateDataContext } from '@open-mercato/document-generators'
 import { z } from 'zod'
 
 const logger = createLogger('example').child({ component: 'example-invoice-document-service' })
@@ -207,7 +207,7 @@ export class ExampleInvoicesDocumentService extends BaseDocumentService {
     return (data.document as { number?: string } | undefined)?.number
   }
 
-  toTemplateData({ data, locale }: { data: unknown; locale: string }): Record<string, unknown> {
+  toTemplateData({ data, locale }: { data: unknown } & TemplateDataContext): Record<string, unknown> {
     const r = data as OrderRecord
     const customer = parseSnapshot<CustomerSnapshot>(r.customerSnapshot)
     const billing = parseSnapshot<BillingAddressSnapshot>(r.billingAddressSnapshot)

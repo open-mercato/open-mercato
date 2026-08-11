@@ -92,7 +92,7 @@ class TemplateRegistry implements TemplateRegistryInterface {
    * @param context - Request-scoped DI/auth context plus the required active locale
    * @throws Error if template ID is not registered
    */
-  async load({ id, data: rawData }: { id: string; data: unknown }, { container, auth, locale }: TemplateLoadContext): Promise<LoadedTemplate> {
+  async load({ id, data: rawData }: { id: string; data: unknown }, { container, auth, locale, translate }: TemplateLoadContext): Promise<LoadedTemplate> {
     const entry = this.findTemplate(id)
     const enriched = await this.enrich({ id, data: rawData }, { container, auth })
     const source = await entry.load()
@@ -101,7 +101,7 @@ class TemplateRegistry implements TemplateRegistryInterface {
     if (declaredFormat !== sourceFormat) {
       throw new Error(`[internal] Template ${entry.id} declares ${declaredFormat} but loads ${sourceFormat}`)
     }
-    const data = entry.fromRecord(enriched, { locale })
+    const data = entry.fromRecord(enriched, { locale, translate })
     const filename = entry.filename({ data })
     const resourceId = entry.resourceId?.({ data })
     const resourceLabel = entry.resourceLabel?.({ data })

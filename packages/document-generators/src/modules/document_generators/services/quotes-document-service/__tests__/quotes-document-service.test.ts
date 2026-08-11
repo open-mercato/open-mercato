@@ -1,5 +1,8 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import en from '../../../i18n/en.json'
+import pl from '../../../i18n/pl.json'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -15,6 +18,10 @@ const auth = { tenantId: 't-1', orgId: 'o-1' } as unknown as AuthContext
 // because findOneWithDecryption is mocked.
 const container = { resolve: jest.fn(() => ({})) } as unknown as AppContainer
 const quoteId = '22222222-2222-4222-8222-222222222222'
+const templateContext = {
+  en: { locale: 'en', translate: createTranslator(en) },
+  pl: { locale: 'pl', translate: createTranslator(pl) },
+}
 
 function makeQuoteRecord(overrides: Partial<QuoteRecord> = {}): QuoteRecord {
   return {
@@ -115,7 +122,7 @@ describe('QuotesDocumentService.fetchData', () => {
 describe('QuotesDocumentService.toTemplateData', () => {
   it('normalizes a record with object snapshots', () => {
     const service = new QuotesDocumentService()
-    const out = service.toTemplateData({ data: makeQuoteRecord(), locale: 'pl' })
+    const out = service.toTemplateData({ data: makeQuoteRecord(), ...templateContext.pl })
 
     expect(out.document).toMatchObject({ id: 'q-1', number: 'Q-2026-0007' })
     expect((out.document as Record<string, string>).date).toMatch(/^\d{2}\.\d{2}\.\d{4}$/)
@@ -132,7 +139,7 @@ describe('QuotesDocumentService.toTemplateData', () => {
       billingAddressSnapshot: JSON.stringify({ addressLine1: 'ul. Testowa 1', city: 'Warszawa', postalCode: '00-001', country: 'PL' }) as unknown as QuoteRecord['billingAddressSnapshot'],
     })
 
-    const out = service.toTemplateData({ data: record, locale: 'pl' })
+    const out = service.toTemplateData({ data: record, ...templateContext.pl })
 
     expect(out.client).toMatchObject({ name: 'Acme Sp. z o.o.', email: 'buyer@acme.test' })
     expect((out.client as Record<string, string>).address).toContain('Warszawa')
@@ -141,9 +148,19 @@ describe('QuotesDocumentService.toTemplateData', () => {
   it('formats document dates using the required locale', () => {
     const service = new QuotesDocumentService()
 
-    const out = service.toTemplateData({ data: makeQuoteRecord(), locale: 'en' })
+    const out = service.toTemplateData({ data: makeQuoteRecord(), ...templateContext.en })
 
     expect(out.document).toMatchObject({ date: '05/09/2026', validUntil: '06/09/2026' })
+  })
+
+  it('builds sales-offer labels using the active translator', () => {
+    const service = new QuotesDocumentService()
+
+    const english = service.toTemplateData({ data: makeQuoteRecord(), ...templateContext.en })
+    const polish = service.toTemplateData({ data: makeQuoteRecord(), ...templateContext.pl })
+
+    expect(english.labels).toMatchObject({ salesOffer: 'Sales offer', quote: 'Quote', notes: 'Notes' })
+    expect(polish.labels).toMatchObject({ salesOffer: 'Oferta handlowa', quote: 'Wycena', notes: 'Uwagi' })
   })
 })
 

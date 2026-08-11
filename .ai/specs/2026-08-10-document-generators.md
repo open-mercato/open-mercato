@@ -252,16 +252,18 @@ interface TemplateMeta {
 
 interface TemplateDataContext {
   locale: string
+  translate?: TranslateFn
 }
 
 interface TemplateLoadContext {
   container: AppContainer
   auth: AuthContext | null
   locale: string
+  translate?: TranslateFn
 }
 
 interface TemplateRegistryEntry {
-  fromRecord: (data: unknown, context: TemplateDataContext) => Record<string, unknown>  // locale-aware mapping of enriched server data
+  fromRecord: (data: unknown, context: TemplateDataContext) => Record<string, unknown>  // locale- and translation-aware mapping of enriched server data
   filename: (input: { data: Record<string, unknown> }) => string
   resourceId?: (input: { data: Record<string, unknown> }) => string | undefined
   resourceLabel?: (input: { data: Record<string, unknown> }) => string | undefined
@@ -367,7 +369,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     ...
   }
 
-  toTemplateData({ data, locale }: { data: unknown; locale: string }): Record<string, unknown> { ... }
+  toTemplateData({ data, locale, translate }: { data: unknown; locale: string; translate: TranslateFn }): Record<string, unknown> { ... }
 }
 ```
 
@@ -375,11 +377,11 @@ export class QuotesDocumentService extends BaseDocumentService {
 - `registerTemplate(entry)` — registers a lazy-loaded template
 - `getEntries()` — returns entries with `module`, `resourceKind`, normalization, output metadata, and fetching bound to the service
 - `fetchData({ data }, { container, auth })` — default no-op; override to enrich data before normalization with request scope available
-- `toTemplateData({ data, locale })` — **abstract**; override to map enriched data using the required request locale
+- `toTemplateData({ data, locale, translate })` — **abstract**; override to map enriched data using the required request locale and translator
 - `filename({ data })` — returns `'document.pdf'` by default; override for document-specific names
 - a registered template may provide its own `filename({ data })` when its extension differs from the service default
 
-`formatDate(iso, locale)` remains a standalone utility with no default locale. Both render routes resolve the active locale server-side and thread it through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. PDF and Markdown variants within one service therefore share request-scoped fetching and normalization.
+`formatDate(iso, locale)` remains a standalone utility with no default locale. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
 
 ---
 
@@ -727,6 +729,12 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 
 ---
 
+## Migration & Backward Compatibility
+
+`TemplateLoadContext.translate` and `TemplateDataContext.translate` are additive optional fields. Existing external template registrations and direct `TemplateRegistry.load` callers that provide only `locale` continue to compile and run. The built-in preview and generate routes always provide the request translator returned by `resolveTranslations()`. `BaseDocumentService` retains a key-returning compatibility fallback only for legacy callers that omit the translator; it does not select a locale or load a second dictionary. New document services should build user-facing labels with the supplied translator and include them in normalized template data.
+
+No template ID, route, import path, renderer contract, or existing normalized business-data field is removed or renamed. Built-in `OrderInvoiceData` and `PdfDocumentData` gain the required `labels` field because their bundled renderers now consume localized labels from normalized data.
+
 ## Final Compliance Report — 2026-08-10
 
 ### Compliance Matrix
@@ -788,3 +796,4 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 | 2026-08-10 | Codex | Made locale a required breaking contract across render routes, `TemplateRegistry.load`, `fromRecord`, `BaseDocumentService.toTemplateData`, and `formatDate`; built-in and example documents now format every date with the active request locale and cannot silently fall back to Polish formatting. |
 | 2026-08-11 | Codex | Split the combined backend screen into flat Overview, Available templates, and Generation history sidebar pages. The navigation-hidden base route redirects to Overview, which provides cards to both functional pages; history uses the existing paginated API. |
 | 2026-08-11 | Codex | Added Markdown as the second output format for `OrdersDocumentService`: `order-invoice-markdown` shares order fetching and normalization with the PDF invoice, renders through `MarkdownRenderingService`, previews as text, downloads as `.md`, and records `format: md` history. Reorganized built-in templates to `<logical-template>/<format>/` while retaining the optional `templates/shared` library for reusable template assets. |
+| 2026-08-11 | Codex | Localized built-in Order Invoice and Sales Offer documents through the standard module dictionaries. Render routes now pass the request translator through `TemplateRegistry.load` and `BaseDocumentService`; services build typed `data.labels`, with PDF and Markdown invoice variants sharing the exact same label object. Added optional translator context fields for external-call compatibility and en/pl regression coverage. |

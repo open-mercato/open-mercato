@@ -1,4 +1,22 @@
+export type SalesOfferLabels = {
+  salesOffer: string
+  cooperationProposal: string
+  quote: string
+  client: string
+  email: string
+  validUntil: string
+  item: string
+  quantity: string
+  unitPrice: string
+  total: string
+  net: string
+  tax: string
+  amountDue: string
+  notes: string
+}
+
 export interface PdfDocumentData {
+  labels: SalesOfferLabels
   document: {
     number: string
     date: string

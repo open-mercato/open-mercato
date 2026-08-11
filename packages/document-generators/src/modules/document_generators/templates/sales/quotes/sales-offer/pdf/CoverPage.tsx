@@ -92,9 +92,9 @@ export function CoverPage({ data }: { data: PdfDocumentData }) {
       <Text style={styles.header}>{data.seller.company.toUpperCase()}</Text>
 
       <View style={styles.centerContent}>
-        <Text style={styles.label}>Oferta handlowa · {data.document.number}</Text>
+        <Text style={styles.label}>{data.labels.salesOffer} · {data.document.number}</Text>
         <Text style={styles.clientName}>{data.client.company ?? data.client.name}</Text>
-        <Text style={styles.subtitle}>Propozycja współpracy</Text>
+        <Text style={styles.subtitle}>{data.labels.cooperationProposal}</Text>
       </View>
 
       <View style={styles.footer}>

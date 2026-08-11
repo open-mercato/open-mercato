@@ -42,7 +42,7 @@ Place it in `src/modules/<your_module>/pdf-templates/services/`.
 
 ```ts
 // src/modules/my_module/pdf-templates/services/my-module-invoice-document-service.ts
-import { BaseDocumentService, formatDate } from '@open-mercato/document-generators'
+import { BaseDocumentService, formatDate, type TemplateDataContext } from '@open-mercato/document-generators'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export class MyModuleInvoiceDocumentService extends BaseDocumentService {
@@ -77,9 +77,10 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
     throw new Error(`fetchData not implemented (id: ${record.id})`)
   }
 
-  toTemplateData({ data, locale }: { data: unknown; locale: string }): Record<string, unknown> {
+  toTemplateData({ data, locale, translate }: { data: unknown } & TemplateDataContext): Record<string, unknown> {
     const r = data as { id: string; number: string }
     return {
+      labels: { invoice: translate?.('my_module.documents.invoice.invoice') ?? 'my_module.documents.invoice.invoice' },
       document: { number: r.number, date: formatDate(new Date().toISOString(), locale) },
       seller:   { name: '', company: '', email: '' },
       client:   { name: '' },
