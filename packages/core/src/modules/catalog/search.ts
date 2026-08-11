@@ -390,7 +390,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'catalog:catalog_offer',
-      aclFeatures: ['catalog.products.view'],
+      aclFeatures: ['sales.channels.manage'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {

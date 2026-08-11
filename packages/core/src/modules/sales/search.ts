@@ -753,7 +753,7 @@ export const searchConfig: SearchModuleConfig = {
     {
       entityId: 'sales:sales_note',
       aclFeatures: ['sales.orders.view'],
-      enabled: true,
+      enabled: false,
       priority: 7,
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
@@ -777,7 +777,7 @@ export const searchConfig: SearchModuleConfig = {
     {
       entityId: 'sales:sales_document_address',
       aclFeatures: ['sales.orders.view'],
-      enabled: true,
+      enabled: false,
       priority: 7,
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()

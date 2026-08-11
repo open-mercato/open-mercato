@@ -43,6 +43,14 @@ describe('global search ACL contract', () => {
 describe('searchable entity ACL coverage', () => {
   const repoRoot = join(__dirname, '..', '..', '..', '..', '..', '..')
 
+  function readEntityBlock(file: string, entityId: string): string {
+    const source = readFileSync(file, 'utf8')
+    const start = source.indexOf(`      entityId: '${entityId}',`)
+    expect(start).toBeGreaterThan(-1)
+    const nextEntity = source.indexOf('\n    {', start + 1)
+    return source.slice(start, nextEntity === -1 ? undefined : nextEntity)
+  }
+
   function findSearchConfigFiles(): string[] {
     const roots = [
       join(repoRoot, 'packages', 'core', 'src', 'modules'),
@@ -77,5 +85,28 @@ describe('searchable entity ACL coverage', () => {
 
     expect(declaredEntities.length).toBeGreaterThan(0)
     expect(declaredAclFeatures).toBe(declaredEntities.length)
+  })
+
+  it('uses the offer read-route feature for catalog offer results', () => {
+    const offer = readEntityBlock(
+      join(repoRoot, 'packages', 'core', 'src', 'modules', 'catalog', 'search.ts'),
+      'catalog:catalog_offer',
+    )
+
+    expect(offer).toContain("aclFeatures: ['sales.channels.manage']")
+  })
+
+  it('keeps record-scoped and polymorphic entities disabled until search can enforce their row access', () => {
+    const messages = join(repoRoot, 'packages', 'core', 'src', 'modules', 'messages', 'search.ts')
+    const sales = join(repoRoot, 'packages', 'core', 'src', 'modules', 'sales', 'search.ts')
+    const unsafeEntities = [
+      readEntityBlock(messages, 'messages:message'),
+      readEntityBlock(sales, 'sales:sales_note'),
+      readEntityBlock(sales, 'sales:sales_document_address'),
+    ]
+
+    for (const entity of unsafeEntities) {
+      expect(entity).toContain('enabled: false')
+    }
   })
 })
