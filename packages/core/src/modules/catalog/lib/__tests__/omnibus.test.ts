@@ -191,10 +191,14 @@ describe('invalidateOmnibusCache', () => {
     ])
   })
 
-  it('does nothing when there is no scope to invalidate', async () => {
+  // Review finding 11: a scope with neither id used to filter every tag away and return
+  // silently, so entries written under the tenant/org prefix survived a price write until the
+  // TTL expired. Falling back to the prefix keeps "tagged" and "invalidated" in step.
+  it('falls back to the tenant/org prefix when no product or variant is given', async () => {
     const cache = { deleteByTags: jest.fn() }
     await invalidateOmnibusCache(cache, { tenantId: 'tenant-1', organizationId: 'org-1' })
-    expect(cache.deleteByTags).not.toHaveBeenCalled()
+
+    expect(cache.deleteByTags).toHaveBeenCalledWith(['omnibus:tenant-1:org-1'])
   })
 
   it('tolerates an absent cache', async () => {

@@ -73,7 +73,7 @@ export class Migration20260721120100 extends Migration {
     // `yarn db:generate` does not try to diff it away. An ORM lifecycle hook would not do: a
     // legal log must resist nativeUpdate, QueryBuilder, and raw SQL alike.
     this.addSql(`
-      create or replace function prevent_history_modification()
+      create or replace function catalog_prevent_price_history_modification()
       returns trigger as $$
       begin
         raise exception 'catalog_price_history_entries is immutable';
@@ -85,7 +85,7 @@ export class Migration20260721120100 extends Migration {
       create or replace trigger history_immutable
         before update or delete
         on "catalog_price_history_entries"
-        for each row execute function prevent_history_modification();
+        for each row execute function catalog_prevent_price_history_modification();
     `)
     // DEPLOY RUNBOOK (production): grant the app role INSERT/SELECT only, as a second line of
     // defence behind the trigger. Apply per environment with the real role name:
@@ -94,7 +94,7 @@ export class Migration20260721120100 extends Migration {
 
   override async down(): Promise<void> {
     this.addSql('drop trigger if exists history_immutable on "catalog_price_history_entries";')
-    this.addSql('drop function if exists prevent_history_modification();')
+    this.addSql('drop function if exists catalog_prevent_price_history_modification();')
     this.addSql('drop table if exists "catalog_price_history_entries" cascade;')
   }
 

@@ -67,6 +67,7 @@ import {
   applyOmnibusSnapshotToLine,
   resolveOmnibusService,
 } from "../lib/omnibusSnapshot";
+import type { CatalogOmnibusService } from "../../catalog/services/catalogOmnibusService";
 import { Dictionary, DictionaryEntry } from "../../dictionaries/data/entities";
 import { CustomFieldValue } from "@open-mercato/core/modules/entities/data/entities";
 import {

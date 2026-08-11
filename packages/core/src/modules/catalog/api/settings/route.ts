@@ -177,6 +177,15 @@ async function PUT(req: Request) {
     const storedOmnibus = await readOmnibusConfig(context)
     const mergedOmnibus = body.omnibus !== undefined ? mergeOmnibusConfig(storedOmnibus, body.omnibus) : storedOmnibus
 
+    // A role holding `manage` but not `view` could otherwise write an omnibus config it can
+    // never read back. The write needs at least as much authority as the read.
+    if (body.omnibus !== undefined && !(await canViewOmnibusConfig(context))) {
+      return NextResponse.json(
+        { error: 'Forbidden', details: { field: 'omnibus', error: 'catalog_settings_view_required' } },
+        { status: 403 },
+      )
+    }
+
     if (body.omnibus !== undefined && mergedOmnibus.enabled === true) {
       const inScopeChannelIds = collectInScopeChannelIds(mergedOmnibus)
       const channelsWithoutPriceKind = findChannelsWithoutPresentedPriceKind(mergedOmnibus, inScopeChannelIds)

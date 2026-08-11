@@ -32,6 +32,8 @@ const logger = createLogger('catalog')
 
 const CACHE_TTL_MS = 5 * 60 * 1000
 const IN_WINDOW_ROW_CAP = 1000
+// Only these two state a price that was actually on offer; see isOfferedPrice.
+const OFFERED_CHANGE_TYPES = ['create', 'update']
 const DEFAULT_PROGRESSIVE_MAX_GAP_DAYS = 7
 
 export interface BackfillChannelResult {
@@ -188,12 +190,32 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     if (cached) return cached
 
     const baseline = await this.fetchBaseline(em, ctx, windowStart)
-    const inWindow = await this.fetchInWindow(em, ctx, windowStart, windowEnd)
+    const { rows: inWindow, truncated } = await this.fetchInWindow(em, ctx, windowStart, windowEnd, axis)
+    if (truncated) {
+      // The minimum itself survives the cap because the scan is ordered by the axis, but the
+      // window is no longer fully represented, so `coverageStartAt` and `previousRow` are
+      // approximate. Say so rather than presenting a complete-looking block.
+      logger.warn('Omnibus in-window scan hit the row cap', {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        productId: ctx.productId,
+        variantId: ctx.variantId,
+        channelId: ctx.channelId,
+        cap: IN_WINDOW_ROW_CAP,
+      })
+    }
 
     // EC-7: the announced reduction must not become its own reference. Both filters are
     // needed — identity catches a non-anchored promotion, the anchor bound catches the rest.
+    // The change_type filter is separate and just as load-bearing: `delete` records the value a
+    // price held as it was withdrawn, and the undo of a `create` records the value being removed,
+    // so both describe prices that were never on offer at that point. Counting them lets a
+    // fat-fingered price that was immediately undone become the legal reference for ever.
     const candidates = [...(baseline ? [baseline] : []), ...inWindow].filter(
-      (row) => !isPresentedReduction(row, presentedPriceEntry) && (anchor === null || new Date(row.recordedAt) < anchor),
+      (row) =>
+        isOfferedPrice(row) &&
+        !isPresentedReduction(row, presentedPriceEntry) &&
+        (anchor === null || new Date(row.recordedAt) < anchor),
     )
 
     let lowestRow = pickLowestRow(candidates, axis)
@@ -203,7 +225,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     if (lowestRow) {
       const baselineKept = baseline != null && candidates.some((row) => row.id === baseline.id)
-      if (baselineKept) {
+      if (baselineKept && !truncated) {
         previousRow = baseline
       } else {
         previousRow = pickOldestRow(candidates)
@@ -363,6 +385,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   ): Promise<OmnibusHistoryRow | null> {
     const filters = buildScopeFilters(ctx)
     filters.recordedAt = { $lte: windowStart }
+    filters.changeType = { $in: OFFERED_CHANGE_TYPES }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
@@ -378,18 +401,26 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     windowStart: Date,
     windowEnd: Date,
-  ): Promise<OmnibusHistoryRow[]> {
+    axis: OmnibusMinimizationAxis,
+  ): Promise<{ rows: OmnibusHistoryRow[]; truncated: boolean }> {
     const filters = buildScopeFilters(ctx)
     // Inclusive upper bound; the EC-7 filter drops rows at or after the anchor.
     filters.recordedAt = { $gt: windowStart, $lte: windowEnd }
+    filters.changeType = { $in: OFFERED_CHANGE_TYPES }
+    // Ordered by the minimisation axis, NOT by time. The cap has to drop something once a
+    // scope exceeds it, and dropping the most expensive rows is harmless — dropping the
+    // oldest, as a recordedAt ordering does, throws away exactly the rows most likely to
+    // hold the minimum and yields a reference price that is too high. Postgres sorts NULLs
+    // last on ASC, so rows with no value on the axis are shed first.
+    const axisColumn = axis === 'net' ? 'unitPriceNet' : 'unitPriceGross'
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
       filters,
-      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: IN_WINDOW_ROW_CAP },
+      { orderBy: [{ [axisColumn]: 'ASC' }, { recordedAt: 'DESC' }, { id: 'DESC' }], limit: IN_WINDOW_ROW_CAP },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
-    return rows.map(mapRow)
+    return { rows: rows.map(mapRow), truncated: rows.length >= IN_WINDOW_ROW_CAP }
   }
 
   private async fetchFirstOfferEntry(
@@ -427,7 +458,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       em,
       CatalogPriceHistoryEntry,
       buildScopeFilters({ ...ctx, offerId }),
-      { orderBy: { recordedAt: 'ASC', id: 'ASC' } },
+      // Bounded like every other history read: a long campaign on a busy offer would otherwise
+      // materialise its whole log on a request path.
+      { orderBy: { recordedAt: 'ASC', id: 'ASC' }, limit: IN_WINDOW_ROW_CAP },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const entries = rows.map(mapRow)
@@ -630,6 +663,12 @@ function resolvePriceProductId(price: CatalogProductPrice): string | null {
     return typeof price.variant.product === 'string' ? price.variant.product : price.variant.product.id
   }
   return null
+}
+
+// Only `create` and `update` state a price that was actually on offer. Excluding `undo` loses
+// nothing: an undo restores a value that its own earlier create/update row already records.
+function isOfferedPrice(row: OmnibusHistoryRow): boolean {
+  return row.changeType === 'create' || row.changeType === 'update'
 }
 
 function isPresentedReduction(row: OmnibusHistoryRow, presented: OmnibusHistoryRow | null): boolean {

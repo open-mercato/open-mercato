@@ -39,8 +39,10 @@ import {
   type PricingContext,
   type PriceRow,
 } from "../../lib/pricing";
-import { resolvePresentedPrice } from "../../lib/omnibusPresentation";
-import type { PriceKindPromotionCache } from "../../lib/omnibusPresentation";
+import {
+  resolvePresentedPriceKindId,
+  resolvePresentedPricesForProducts,
+} from "../../lib/omnibusPresentation";
 import type { CatalogOmnibusService } from "../../services/catalogOmnibusService";
 import type { OmnibusResolutionContext } from "../../lib/omnibusTypes";
 import type { CatalogPricingService } from "../../services/catalogPricingService";
@@ -434,7 +436,24 @@ async function decorateProductsWithOmnibus(
 
     if (!targets.length) return;
 
-    const priceKindCache: PriceKindPromotionCache = new Map();
+    // One query set for the whole page instead of two per row.
+    const presentedByProduct = await resolvePresentedPricesForProducts(
+      em,
+      { tenantId, organizationId },
+      channelId,
+      targets.map((target) => ({
+        productId: target.productId,
+        priceKindId: resolvePresentedPriceKindId(config, {
+          tenantId,
+          organizationId,
+          productId: target.productId,
+          priceKindId: target.priceKindId,
+          currencyCode: target.currencyCode,
+          channelId,
+        }),
+        currencyCode: target.currencyCode,
+      })),
+    );
 
     const results = await Promise.all(
       targets.map(async (target) => {
@@ -451,12 +470,12 @@ async function decorateProductsWithOmnibus(
           firstListedAt: toOptionalDate(target.item.first_listed_at),
           omnibusExempt: target.item.omnibus_exempt === true ? true : null,
         };
-        const presented = await resolvePresentedPrice(em, resolutionCtx, config, priceKindCache);
+        const presented = presentedByProduct.get(target.productId);
         const block = await omnibusService.resolveOmnibusBlock(
           em,
           resolutionCtx,
-          presented.presentedEntry,
-          presented.priceKindIsPromotion,
+          presented?.presentedEntry ?? null,
+          presented?.priceKindIsPromotion ?? false,
         );
         return { item: target.item, block };
       }),

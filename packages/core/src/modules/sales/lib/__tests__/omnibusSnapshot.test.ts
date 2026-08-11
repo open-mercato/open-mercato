@@ -2,8 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   applyOmnibusSnapshotToLine,
-  readOmnibusPersonalization,
   readOmnibusSourcePriceId,
+  readPricePersonalization,
   resolveOmnibusService,
   type OmnibusDocumentScope,
   type OmnibusSnapshotTarget,
@@ -115,39 +115,51 @@ describe('resolveOmnibusService', () => {
   })
 })
 
-describe('readOmnibusPersonalization', () => {
-  it('reads the flags off a resolved block', () => {
-    expect(readOmnibusPersonalization({ isPersonalized: true, personalizationReason: 'customer_group_price' })).toEqual({
+// Art. 6(1)(ea). Derived from the price row that was applied, because OmnibusBlock carries no
+// personalization — reading it off the block returned null on every real call and left both
+// sales-line columns permanently empty.
+describe('readPricePersonalization', () => {
+  it('flags a customer-specific price', () => {
+    expect(readPricePersonalization({ customerId: 'cust-1' })).toEqual({
+      isPersonalized: true,
+      personalizationReason: 'customer_specific_price',
+    })
+  })
+
+  it('flags a customer-group price', () => {
+    expect(readPricePersonalization({ customerGroupId: 'grp-1' })).toEqual({
       isPersonalized: true,
       personalizationReason: 'customer_group_price',
     })
   })
 
-  it('normalises a missing reason to null', () => {
-    expect(readOmnibusPersonalization({ isPersonalized: false })).toEqual({
-      isPersonalized: false,
-      personalizationReason: null,
-    })
+  it('flags user and user-group scoped prices', () => {
+    expect(readPricePersonalization({ userId: 'u-1' }).personalizationReason).toBe('user_specific_price')
+    expect(readPricePersonalization({ userGroupId: 'ug-1' }).personalizationReason).toBe('user_group_price')
   })
 
-  it('ignores a block that carries no personalization signal', () => {
-    expect(readOmnibusPersonalization({})).toBeNull()
-    expect(readOmnibusPersonalization(null)).toBeNull()
-    expect(readOmnibusPersonalization('nope')).toBeNull()
+  it('reports a public price as not personalized', () => {
+    expect(readPricePersonalization({})).toEqual({ isPersonalized: false, personalizationReason: null })
+    expect(
+      readPricePersonalization({ customerId: null, customerGroupId: null, userId: null, userGroupId: null }),
+    ).toEqual({ isPersonalized: false, personalizationReason: null })
+  })
+
+  it('prefers the narrowest scope when several are set', () => {
+    expect(
+      readPricePersonalization({ customerId: 'cust-1', customerGroupId: 'grp-1', userId: 'u-1' })
+        .personalizationReason,
+    ).toBe('customer_specific_price')
   })
 })
 
 // Compliance case C14: the six columns are the shop's proof of what the buyer was shown.
 describe('applyOmnibusSnapshotToLine', () => {
-  it('writes all six snapshot fields from the resolved block', async () => {
-    const service = makeService({
-      resolveOmnibusBlock: jest.fn(async () => ({
-        ...block,
-        isPersonalized: true,
-        personalizationReason: 'customer_specific_price',
-      })),
-    })
-    const { em } = makeEm(priceRow)
+  it('writes all six snapshot fields', async () => {
+    const service = makeService()
+    // A customer-scoped price row is what makes the line personalized — the resolved block
+    // never carries that information.
+    const { em } = makeEm({ ...priceRow, customerId: 'cust-1' })
     const line = makeLine()
 
     await applyOmnibusSnapshotToLine({
@@ -288,7 +300,7 @@ describe('applyOmnibusSnapshotToLine', () => {
     expect(line).toEqual({})
   })
 
-  it('omits the personalization flags when the block carries no signal', async () => {
+  it('records a public price as not personalized rather than leaving the columns unset', async () => {
     const service = makeService()
     const { em } = makeEm(priceRow)
     const line = makeLine()
@@ -302,8 +314,8 @@ describe('applyOmnibusSnapshotToLine', () => {
       documentKind: 'order',
     })
 
-    expect(line.isPersonalized).toBeUndefined()
-    expect(line.personalizationReason).toBeUndefined()
+    expect(line.isPersonalized).toBe(false)
+    expect(line.personalizationReason).toBeNull()
     expect(line.omnibusReferenceGross).toBe('100.0000')
   })
 

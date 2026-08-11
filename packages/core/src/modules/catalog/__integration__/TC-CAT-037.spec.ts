@@ -9,7 +9,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 
 /**
  * TC-CAT-037: Omnibus — `isPersonalized` on the products response.
- * Source: .ai/specs/2026-06-30-omnibus-price-tracking.md (Gap 7, Art. 6(1)(ea) disclosure).
+ * Source: .ai/specs/implemented/2026-06-30-omnibus-price-tracking.md (Gap 7, Art. 6(1)(ea) disclosure).
  *
  * The personalized-pricing disclosure is an API contract, not an implementation detail:
  * `GET /api/catalog/products` items expose `isPersonalized` and `personalizationReason`

@@ -28,7 +28,7 @@ import {
 
 /**
  * TC-CAT-038: Omnibus price history — `GET /api/catalog/prices/history`.
- * Source: .ai/specs/2026-06-30-omnibus-price-tracking.md ("Integration tests (shipped)").
+ * Source: .ai/specs/implemented/2026-06-30-omnibus-price-tracking.md ("Integration tests (shipped)").
  *
  * The append-only price-history log is the evidence base for the Omnibus reference price, so
  * this spec covers the properties a compliance log must hold end-to-end:

@@ -121,7 +121,13 @@ type CacheLike = { deleteByTags(tags: string[]): Promise<number> }
 export async function invalidateOmnibusCache(cache: CacheLike | null | undefined, scope: OmnibusCacheScope): Promise<void> {
   if (!cache) return
   const tags = buildOmnibusCacheTags(scope).filter((tag) => tag.includes(':product:') || tag.includes(':variant:'))
-  if (!tags.length) return
+  if (!tags.length) {
+    // A scope with neither id cannot target anything narrower, so fall back to the tenant/org
+    // prefix rather than returning silently — entries written under it would otherwise survive
+    // a price write until the TTL expired.
+    await cache.deleteByTags(buildOmnibusCacheTags(scope))
+    return
+  }
   await cache.deleteByTags(tags)
 }
 

@@ -53,15 +53,26 @@ export function resolveOmnibusService(ctx: CommandRuntimeContext): CatalogOmnibu
   }
 }
 
-export function readOmnibusPersonalization(block: unknown): OmnibusPersonalization | null {
-  if (!block || typeof block !== 'object') return null
-  const record = block as Record<string, unknown>
-  if (typeof record.isPersonalized !== 'boolean') return null
-  const reason = record.personalizationReason
-  return {
-    isPersonalized: record.isPersonalized,
-    personalizationReason: typeof reason === 'string' ? reason : null,
-  }
+/**
+ * Art. 6(1)(ea) disclosure for a sold line.
+ *
+ * Derived from the price row that was actually applied, not from the resolved block:
+ * `OmnibusBlock` carries no personalization, so reading it off there silently produced
+ * `null` on every real call and left both columns permanently empty. The price row is
+ * also the better source — it answers "was the price this buyer paid selected for them",
+ * which is exactly what the disclosure is about.
+ */
+export function readPricePersonalization(price: {
+  customerId?: string | null
+  customerGroupId?: string | null
+  userId?: string | null
+  userGroupId?: string | null
+}): OmnibusPersonalization {
+  if (price.customerId) return { isPersonalized: true, personalizationReason: 'customer_specific_price' }
+  if (price.customerGroupId) return { isPersonalized: true, personalizationReason: 'customer_group_price' }
+  if (price.userId) return { isPersonalized: true, personalizationReason: 'user_specific_price' }
+  if (price.userGroupId) return { isPersonalized: true, personalizationReason: 'user_group_price' }
+  return { isPersonalized: false, personalizationReason: null }
 }
 
 /**
@@ -121,11 +132,9 @@ export async function applyOmnibusSnapshotToLine(params: {
     line.omnibusReferenceGross = block.lowestPriceGross ?? null
     line.omnibusPromotionAnchorAt = block.promotionAnchorAt ? new Date(block.promotionAnchorAt) : null
     line.omnibusApplicabilityReason = block.applicabilityReason ?? null
-    const personalization = readOmnibusPersonalization(block)
-    if (personalization) {
-      line.isPersonalized = personalization.isPersonalized
-      line.personalizationReason = personalization.personalizationReason
-    }
+    const personalization = readPricePersonalization(price)
+    line.isPersonalized = personalization.isPersonalized
+    line.personalizationReason = personalization.personalizationReason
   } catch (err) {
     logger.error('sales.lines omnibus snapshot capture failed', {
       documentKind,

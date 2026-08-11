@@ -143,7 +143,10 @@ describe('catalog settings route', () => {
 describe('catalog settings route — omnibus block', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    canViewSettings = false
+    // Writing the omnibus block requires `catalog.settings.view` on top of `manage`, so the
+    // gate/persistence tests below run as a caller that holds it. The GET-gating block flips
+    // it back to false where that is the point of the test.
+    canViewSettings = true
     authValue = { tenantId, sub: userId, orgId: organizationId }
     validateCrudMutationGuardMock.mockResolvedValue({
       ok: true,
@@ -157,6 +160,7 @@ describe('catalog settings route — omnibus block', () => {
 
   describe('GET gating', () => {
     it('omits the omnibus key entirely for a caller without catalog.settings.view', async () => {
+      canViewSettings = false
       stubStoredConfig({ unitPriceDisplayEnabled: true, omnibus: { enabled: true } })
 
       const response = await GET(new Request('http://localhost/api/catalog/settings'))
@@ -314,6 +318,29 @@ describe('catalog settings route — omnibus block', () => {
       )
 
       expect(response.status).toBe(200)
+    })
+  })
+
+  describe('write authority', () => {
+    it('refuses an omnibus write from a caller that cannot read it back', async () => {
+      canViewSettings = false
+      stubStoredConfig({ unitPriceDisplayEnabled: true, omnibus: {} })
+
+      const response = await PUT(makeOmnibusPutRequest({ lookbackDays: 45 }))
+
+      expect(response.status).toBe(403)
+      expect(setValueMock).not.toHaveBeenCalled()
+      expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    })
+
+    it('still allows a unitPriceDisplayEnabled write without the omnibus view feature', async () => {
+      canViewSettings = false
+      stubStoredConfig({ unitPriceDisplayEnabled: true, omnibus: {} })
+
+      const response = await PUT(makePutRequest(false))
+
+      expect(response.status).toBe(200)
+      expect(setValueMock).toHaveBeenCalledWith('catalog', 'unit_price_display_enabled', false, { tenantId })
     })
   })
 

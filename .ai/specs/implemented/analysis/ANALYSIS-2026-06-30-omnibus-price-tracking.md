@@ -1,6 +1,6 @@
 # Pre-Implementation Analysis: Omnibus Price Tracking (EU Directive 2019/2161)
 
-- **Spec:** [`.ai/specs/2026-06-30-omnibus-price-tracking.md`](../2026-06-30-omnibus-price-tracking.md) (merged to `develop` in PR #3723, commit `c078d218f`)
+- **Spec:** [`.ai/specs/implemented/2026-06-30-omnibus-price-tracking.md`](../2026-06-30-omnibus-price-tracking.md) (merged to `develop` in PR #3723, commit `c078d218f`)
 - **Target branch:** `feat/omnibus-price-tracking` (branched from `origin/develop` @ `3d8e83062`)
 - **Existing implementation:** local branch `feat/omnibus-rebased` (5 commits, ~5 770 insertions across 41 files), unpushed
 - **Analysis date:** 2026-07-21

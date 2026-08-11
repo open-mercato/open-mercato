@@ -983,3 +983,84 @@ describe('DefaultCatalogOmnibusService — tax-only change (C2)', () => {
     expect(block?.applicabilityReason).toBe('announced_promotion')
   })
 })
+
+// Review finding 3. `delete` records the value a price held as it was withdrawn, and the undo of
+// a `create` records the value being removed. Neither was ever on offer at that point, so neither
+// may become the legal reference — a fat-fingered price that is immediately undone would otherwise
+// be a permanent candidate.
+describe('DefaultCatalogOmnibusService — withdrawn prices are not reference candidates', () => {
+  it('excludes delete and undo rows from the SQL candidate query', async () => {
+    const { service } = makeService(euConfig)
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    for (const call of findMock.mock.calls) {
+      expect(call[2]).toMatchObject({ changeType: { $in: ['create', 'update'] } })
+    }
+  })
+
+  it('ignores a stray withdrawn row that reaches the candidate set', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([row({ id: 'base', recordedAt: '2026-05-01T00:00:00.000Z', gross: '100' })])
+      .mockResolvedValueOnce([
+        { ...row({ id: 'undone', recordedAt: '2026-06-02T00:00:00.000Z', gross: '1' }), changeType: 'undo' },
+        { ...row({ id: 'removed', recordedAt: '2026-06-03T00:00:00.000Z', gross: '2' }), changeType: 'delete' },
+      ])
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    // The 1.00 typo and the 2.00 withdrawal must not win over the genuine 100.00 baseline.
+    expect(block?.lowestPriceGross).toBe('100')
+  })
+})
+
+// Review finding 2. The cap has to shed rows once a scope exceeds it. Shedding the oldest — what a
+// recordedAt ordering does — throws away the rows most likely to hold the minimum and yields a
+// reference price that is too high, with nothing to signal it.
+describe('DefaultCatalogOmnibusService — in-window row cap', () => {
+  it('orders the scan by the minimisation axis so the cap sheds the most expensive rows', async () => {
+    const { service } = makeService(euConfig)
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    const inWindowCall = findMock.mock.calls.find((call) => {
+      const where = call[2] as { recordedAt?: Record<string, unknown> }
+      return Boolean(where.recordedAt && '$gt' in where.recordedAt)
+    })
+    expect(inWindowCall).toBeDefined()
+    expect((inWindowCall![3] as { orderBy: unknown[] }).orderBy[0]).toEqual({ unitPriceGross: 'ASC' })
+  })
+
+  it('orders by net when that is the configured axis', async () => {
+    const { service } = makeService({ ...euConfig, minimizationAxis: 'net' })
+    findMock.mockResolvedValue([])
+
+    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    const inWindowCall = findMock.mock.calls.find((call) => {
+      const where = call[2] as { recordedAt?: Record<string, unknown> }
+      return Boolean(where.recordedAt && '$gt' in where.recordedAt)
+    })
+    expect((inWindowCall![3] as { orderBy: unknown[] }).orderBy[0]).toEqual({ unitPriceNet: 'ASC' })
+  })
+
+  it('reports insufficient history when the scan is truncated', async () => {
+    const { service } = makeService(euConfig)
+    const full = Array.from({ length: 1000 }, (_, index) =>
+      row({ id: `r${index}`, recordedAt: '2026-06-02T00:00:00.000Z', gross: String(50 + index) }),
+    )
+    findMock
+      .mockResolvedValueOnce([row({ id: 'base', recordedAt: '2026-05-01T00:00:00.000Z', gross: '100' })])
+      .mockResolvedValueOnce(full)
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    // The minimum is still trustworthy — it survives the cap by construction — but the window is
+    // no longer fully represented, so the block must not look complete.
+    expect(block?.lowestPriceGross).toBe('50')
+    expect(block?.applicabilityReason).toBe('insufficient_history')
+  })
+})
