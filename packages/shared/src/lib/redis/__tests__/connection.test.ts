@@ -1,4 +1,4 @@
-import { parseRedisUrl } from '../connection'
+import { parseRedisUrl, REDIS_WIRE_PROTOCOL } from '../connection'
 
 describe('parseRedisUrl', () => {
   it('adds tls config for rediss URLs', () => {
@@ -10,6 +10,7 @@ describe('parseRedisUrl', () => {
       db: 2,
       tls: {},
       family: undefined,
+      protocol: 2,
     })
   })
 
@@ -22,6 +23,7 @@ describe('parseRedisUrl', () => {
       db: 0,
       tls: undefined,
       family: undefined,
+      protocol: 2,
     })
   })
 
@@ -34,6 +36,21 @@ describe('parseRedisUrl', () => {
       db: 4,
       tls: {},
       family: 6,
+      protocol: 2,
     })
+  })
+
+  it('pins the wire protocol to RESP2 even on the malformed-URL fallback', () => {
+    expect(parseRedisUrl('not a url')).toEqual({
+      host: 'localhost',
+      port: 6379,
+      protocol: 2,
+    })
+  })
+})
+
+describe('REDIS_WIRE_PROTOCOL', () => {
+  it('stays on RESP2 so ioredis 6 does not silently negotiate RESP3', () => {
+    expect(REDIS_WIRE_PROTOCOL).toBe(2)
   })
 })

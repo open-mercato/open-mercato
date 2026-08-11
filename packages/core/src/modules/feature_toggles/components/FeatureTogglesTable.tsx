@@ -6,7 +6,8 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import * as React from 'react'
 import type { FilterDef, FilterValues } from "@open-mercato/ui/backend/FilterBar"
 import { useMutation } from '@tanstack/react-query'

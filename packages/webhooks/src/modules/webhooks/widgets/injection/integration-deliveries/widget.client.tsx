@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
 import Link from 'next/link'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'

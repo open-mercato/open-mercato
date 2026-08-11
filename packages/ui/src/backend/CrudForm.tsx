@@ -279,6 +279,7 @@ export type CrudCustomFieldRenderProps = {
 export type CrudCustomField = CrudFieldBase & {
   type: 'custom'
   component: (props: CrudCustomFieldRenderProps) => React.ReactNode
+  rendersOwnError?: boolean
 }
 
 export type CrudField = CrudBuiltinField | CrudCustomField
@@ -4599,7 +4600,9 @@ const FieldControl = React.memo(function FieldControlImpl({
           <div>{field.description}</div>
         </div>
       ) : null}
-      {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
+      {error && !(field.type === 'custom' && field.rendersOwnError) ? (
+        <div className="text-xs text-status-error-text">{error}</div>
+      ) : null}
     </div>
   )
 },
@@ -4623,5 +4626,6 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.recordId === next.recordId &&
   (prev.field.type !== 'custom' ||
     (prev.values === next.values &&
-      prev.field.component === (next.field as CrudCustomField).component))
+      prev.field.component === (next.field as CrudCustomField).component &&
+      prev.field.rendersOwnError === (next.field as CrudCustomField).rendersOwnError))
 )

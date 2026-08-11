@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 122 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 123 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -38,7 +38,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Hand-written custom routes resolve org scope via `resolveOrganizationScopeForRequest`, not `auth.orgId`](lessons/custom-routes-resolve-org-scope-via-the-directory-helper.md) — area:architecture,module-data; module:eudr,directory,customers; topic:data-scoping,access-control
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui; module:create_app,ui; topic:template-sync,ui-components
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
-- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,events,cli; topic:events,generated-files,package-runtime
+- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,events,cli; topic:events,generated-files,package-runtime,session-export
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
@@ -154,6 +154,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 - [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
 - [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
+- [Embedded CLI output must inherit its caller's presentation margin](lessons/embedded-cli-output-must-inherit-its-callers-presentation.md) — area:debugging; module:create_app,cli; topic:runtime-startup,testing
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
 - [Stale package dist and cached RBAC make a correct fix look broken in dev](lessons/stale-dist-and-cached-rbac-hide-code-changes-in-dev.md) — area:debugging,ai-workflow; module:eudr,auth; topic:build-output,access-control,spec-pr
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
@@ -167,7 +168,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
-- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform; topic:testing,node-runtime
+- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
 
 ### framework-context

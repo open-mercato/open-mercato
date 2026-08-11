@@ -25,6 +25,58 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { CrudForm, type CrudField } from '../CrudForm'
 
 describe('CrudForm validation state', () => {
+  it('renders each custom field error through exactly one declared owner', async () => {
+    const fields: CrudField[] = [
+      {
+        id: 'wrapperOwned',
+        label: 'Wrapper owned',
+        type: 'custom',
+        required: true,
+        component: () => <input aria-label="Wrapper owned" />,
+      },
+      {
+        id: 'componentOwned',
+        label: 'Component owned',
+        type: 'custom',
+        required: true,
+        rendersOwnError: true,
+        component: ({ error }) => (
+          <div>{error ? <span data-testid="component-owned-error">{error}</span> : null}</div>
+        ),
+      },
+    ]
+
+    const { container, getByTestId } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.highlighted': 'Please fix the highlighted errors.',
+          'ui.forms.errors.required': 'This field is required',
+        },
+      },
+    )
+
+    const form = container.querySelector('form')
+    const wrapperOwnedField = container.querySelector('[data-crud-field-id="wrapperOwned"]')
+    const componentOwnedField = container.querySelector('[data-crud-field-id="componentOwned"]')
+
+    expect(form).not.toBeNull()
+    expect(wrapperOwnedField).not.toBeNull()
+    expect(componentOwnedField).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.submit(form as HTMLFormElement)
+    })
+
+    await waitFor(() => {
+      expect(wrapperOwnedField?.querySelector('.text-xs.text-status-error-text')).toHaveTextContent('This field is required')
+      expect(getByTestId('component-owned-error')).toHaveTextContent('This field is required')
+    })
+
+    expect(componentOwnedField?.querySelector('.text-xs.text-status-error-text')).toBeNull()
+  })
+
   it('clears corrected field errors immediately without dropping unrelated errors', async () => {
     const fields: CrudField[] = [
       { id: 'name', label: 'Name', type: 'text', required: true },

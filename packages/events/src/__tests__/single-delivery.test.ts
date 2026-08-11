@@ -13,6 +13,7 @@ import type { SubscriberDescriptor } from '@open-mercato/events/types'
 describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
   const origCwd = process.cwd()
   const origFlag = process.env.OM_EVENTS_SINGLE_DELIVERY
+  const origAutoSpawn = process.env.AUTO_SPAWN_WORKERS
   let tmp: string
 
   beforeEach(() => {
@@ -20,12 +21,21 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     process.chdir(tmp)
     delete process.env.QUEUE_STRATEGY
     delete process.env.EVENTS_STRATEGY
+    delete process.env.AUTO_SPAWN_WORKERS
   })
+
+  function restoreEnv(name: string, original: string | undefined): void {
+    if (original === undefined) {
+      delete process.env[name]
+      return
+    }
+    process.env[name] = original
+  }
 
   afterEach(() => {
     process.chdir(origCwd)
-    if (origFlag === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
-    else process.env.OM_EVENTS_SINGLE_DELIVERY = origFlag
+    restoreEnv('OM_EVENTS_SINGLE_DELIVERY', origFlag)
+    restoreEnv('AUTO_SPAWN_WORKERS', origAutoSpawn)
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
   })
 
@@ -38,7 +48,12 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     return { id, event, persistent, handler: () => { sink.push(id) } }
   }
 
-  test('default (unset): a persistent subscriber is skipped inline (single-delivery is default-on)', async () => {
+  function readQueuedJobs(): Array<Record<string, unknown>> {
+    const queuePath = path.join(path.resolve('.mercato/queue', 'events'), 'queue.json')
+    return JSON.parse(fs.readFileSync(queuePath, 'utf8')) as Array<Record<string, unknown>>
+  }
+
+  test('flag unset (default on): a persistent subscriber is skipped inline', async () => {
     delete process.env.OM_EVENTS_SINGLE_DELIVERY
     const calls: string[] = []
     const bus = createEventBus({ resolve: ((name: string) => name) as never })
@@ -52,6 +67,7 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     // Default-on: the persistent subscriber is deferred to the worker; only the
     // ephemeral subscriber runs inline.
     expect(calls).toEqual(['ephemeral-sub'])
+    expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: false })
   })
 
   test('flag explicitly OFF (legacy opt-out): a persistent subscriber still runs inline', async () => {
@@ -62,8 +78,44 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
 
     await bus.emit('demo', { a: 1 }, { persistent: true })
 
-    // Legacy dual-dispatch: inline delivery is preserved when explicitly opted out.
+    // Explicit opt-out: subscribers run inline. Not dual-dispatch - the queued job
+    // carries the stamp, so a worker draining the queue skips it.
     expect(calls).toEqual(['persistent-sub'])
+    expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: true })
+  })
+
+  test('flag OFF: a failed inline persistent subscriber leaves the job unstamped for the worker', async () => {
+    // Inline delivery logs-and-continues, so a persistent subscriber that throws
+    // there gets no retry of its own. Stamping the job would strand it: the
+    // worker would skip a job whose only run failed, silently downgrading
+    // persistent delivery to at-most-once. Leaving it unstamped hands the retry
+    // back to the queue.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([
+      { id: 'boom', event: 'demo', persistent: true, handler: () => { throw new Error('downstream down') } },
+    ])
+
+    await bus.emit('demo', { a: 1 }, { persistent: true })
+
+    expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: false })
+  })
+
+  test('flag OFF: a failed EPHEMERAL subscriber does not unstamp the job', async () => {
+    // Ephemeral subscribers are never worker-dispatched, so their failure must
+    // not hand the job to the worker - that would re-run the persistent ones.
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    const calls: string[] = []
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([
+      { id: 'ephemeral-boom', event: 'demo', persistent: false, handler: () => { throw new Error('nope') } },
+      makeSub('persistent-ok', 'demo', true, calls),
+    ])
+
+    await bus.emit('demo', { a: 1 }, { persistent: true })
+
+    expect(calls).toEqual(['persistent-ok'])
+    expect(readQueuedJobs()[0].payload).toMatchObject({ persistentDeliveredInline: true })
   })
 
   test('flag ON: a persistent subscriber is skipped inline (deferred to the worker)', async () => {
@@ -96,7 +148,6 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
 
   test('flag ON: persistent emit is still enqueued for the worker', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
-    const queuePath = path.join(path.resolve('.mercato/queue', 'events'), 'queue.json')
     const calls: string[] = []
     const bus = createEventBus({ resolve: ((name: string) => name) as never })
     bus.registerModuleSubscribers([makeSub('persistent-sub', 'demo', true, calls)])
@@ -104,9 +155,10 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     await bus.emit('demo', { a: 1 }, { persistent: true })
 
     expect(calls).toEqual([])
-    const list = JSON.parse(fs.readFileSync(queuePath, 'utf8'))
+    const list = readQueuedJobs()
     expect(Array.isArray(list)).toBe(true)
     expect(list.length).toBeGreaterThanOrEqual(1)
+    expect(list[0].payload).toMatchObject({ persistentDeliveredInline: false })
   })
 
   test('flag ON: the queued job keeps the trusted scope from the emit options', async () => {
@@ -178,6 +230,9 @@ describe('Event bus enqueue-only persistent emit (deliverInline: false)', () => 
     const list = JSON.parse(fs.readFileSync(queuePath, 'utf8'))
     expect(Array.isArray(list)).toBe(true)
     expect(list.length).toBeGreaterThanOrEqual(1)
+    // Enqueue-only never delivers inline, so the worker must still dispatch it
+    // even though this process has no worker-availability signal.
+    expect(list[0].payload).toMatchObject({ persistentDeliveredInline: false })
   })
 
   test('deliverInline: false has no effect on a non-persistent emit', async () => {
@@ -191,10 +246,10 @@ describe('Event bus enqueue-only persistent emit (deliverInline: false)', () => 
     expect(calls).toEqual(['sub'])
   })
 
-  test('deliverInline unset under legacy opt-out preserves inline dual-dispatch', async () => {
+  test('deliverInline unset under explicit opt-out preserves inline delivery', async () => {
     // Isolate the deliverInline default from the single-delivery default by
     // explicitly opting out: a persistent emit with deliverInline unset still
-    // runs inline (legacy dual-dispatch).
+    // runs inline.
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
     const calls: string[] = []
     const bus = createEventBus({ resolve: ((name: string) => name) as never })

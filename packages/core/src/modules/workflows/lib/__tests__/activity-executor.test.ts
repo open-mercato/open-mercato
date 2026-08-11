@@ -2577,3 +2577,32 @@ describe('Activity Executor (Unit Tests)', () => {
     })
   })
 })
+
+describe('resolveActivityTimeoutMs', () => {
+  const resolve = activityExecutor.resolveActivityTimeoutMs
+
+  test('prefers the canonical timeoutMs over the deprecated alias', () => {
+    expect(resolve({ timeoutMs: 5000, timeout: 'PT30S' })).toBe(5000)
+  })
+
+  test('reads a plain millisecond string from the deprecated alias', () => {
+    expect(resolve({ timeout: '30000' })).toBe(30000)
+  })
+
+  test('reads a duration string from the deprecated alias', () => {
+    expect(resolve({ timeout: 'PT30S' })).toBe(30 * 1000)
+    expect(resolve({ timeout: '5m' })).toBe(5 * 60 * 1000)
+  })
+
+  test('falls back to the alias when timeoutMs is not a usable value', () => {
+    expect(resolve({ timeoutMs: 0, timeout: '30000' })).toBe(30000)
+  })
+
+  test('ignores a malformed alias rather than throwing mid-execution', () => {
+    expect(resolve({ timeout: 'not-a-duration' })).toBeUndefined()
+  })
+
+  test('returns undefined when no timeout is configured', () => {
+    expect(resolve({})).toBeUndefined()
+  })
+})
