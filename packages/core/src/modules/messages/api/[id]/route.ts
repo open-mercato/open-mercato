@@ -21,6 +21,7 @@ import {
   updateDraftSchema as updateDraftOpenApiSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('messages').child({ component: 'api' })
 
@@ -367,6 +368,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (error instanceof Error) {
       if (error.message === 'Message type cannot be created by users') {
         return Response.json({ error: error.message }, { status: 400 })
@@ -491,6 +496,10 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   } catch (error) {
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (error instanceof Error && error.message === 'Access denied') {
       return Response.json({ error: 'Access denied' }, { status: 403 })

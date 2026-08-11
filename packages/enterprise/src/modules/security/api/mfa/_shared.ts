@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
@@ -117,6 +118,10 @@ export function readString(value: unknown): string | null {
 export async function mapMfaError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   if (isMfaServiceError(error) || isMfaVerificationServiceError(error)) {
     return securityApiError(error.statusCode, error.message)

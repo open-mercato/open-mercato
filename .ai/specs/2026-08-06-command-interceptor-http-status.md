@@ -1,7 +1,7 @@
 # Command interceptor rejections carry an HTTP status
 
 **Status:** implemented
-**Issue:** #5045
+**Issue:** #5045 (transport rollout: #5097)
 **PR:** #5067
 **Extends:** [`SPEC-041m4-command-interceptors.md`](implemented/SPEC-041m4-command-interceptors.md)
 
@@ -71,8 +71,12 @@ interceptor rejection carrying an **integer status in 400–599**. The bound is 
 |---|---|---|
 | `makeCrudRoute` handlers (`POST`/`PUT`/`PATCH`/`DELETE`) | ✅ via `handleError` | The `beforeExecute` path. |
 | `POST /api/audit_logs/audit-logs/actions/undo` | ✅ | The only route in the repository that undoes a command — the `beforeUndo` path. |
-| Routes calling `commandBus.execute` with their own `catch` (~40) | ❌ | They map `isCrudHttpError` and fall back to a generic answer. Out of scope here; see Non-goals. |
+| Routes calling `commandBus.execute` with their own `catch` | ✅ (#5097) | 51 core routes map the rejection inline, ahead of their generic fallback; the 5 checkout routes and 7 enterprise-security routes inherit it from their module-level error mappers (`handleCheckoutRouteError`, `mapSudoError`, `mapMfaError`, `mapEnforcementError`, `mapSecurityUsersError`). |
+| Routes calling `commandBus.execute` **without** their own `catch` (12) | ❌ | The rejection propagates out of the handler, so there is no `catch` to map it in — they answer with the framework's unhandled-error response. Listed in `ROUTES_WITHOUT_OWN_ERROR_HANDLING` in `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`; giving them error handling is a behavior change of its own. |
 | App catch-all (`apps/mercato/src/app/api/[...slug]/route.ts`) | ❌ | Keeps its narrow tenant-guard mapping; it is not a general error handler. |
+
+Adoption is pinned by `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`: every core route that calls
+the command bus and catches its own failures must consult the mapper, and the exemption lists must stay free of stale entries.
 
 ## Non-goals
 
@@ -83,10 +87,15 @@ interceptor rejection carrying an **integer status in 400–599**. The bound is 
   start matching interceptor rejections, including behavioral checks such as checkout's
   `const isConflict = isCrudHttpError(error)`. A distinct marker keeps the blast radius at the
   handlers that opt in.
-- **Direct-`execute` routes are not migrated.** Roughly forty API routes call `commandBus.execute`
-  inside their own `try/catch` and map only `isCrudHttpError`. Migrating them is mechanical but
-  touches many modules; each can adopt `getCommandInterceptorHttpRejection` when it next changes, and
-  the mapper exists precisely so that adoption is a two-line edit rather than a re-derivation.
+- **No shared route wrapper.** #5097 migrated the direct-`execute` routes by adopting
+  `getCommandInterceptorHttpRejection` at each call site, exactly as the undo transport does. A wrapper
+  returning the `Response` was considered and rejected: the mapper already *is* the shared helper, and a
+  wrapper would only inline the `NextResponse.json(...)` call while splitting the idiom away from the two
+  transports that shipped first. Where a module already funnels route errors through one mapper
+  (checkout, enterprise security), the branch went into that mapper instead of into each route.
+- **Routes without their own error handling keep the framework response.** The twelve routes that call
+  the bus outside any `try/catch` still surface an unhandled error; adding a `catch` to them changes how
+  every other failure is answered, which is out of scope for a status-mapping change.
 
 ## Migration & Backward Compatibility
 
@@ -144,3 +153,6 @@ instead of a generic 500. Omitting `status` keeps the historical behaviour.
 | Bus forwarding | `packages/shared/src/lib/commands/__tests__/command-bus.test.ts` | A registered interceptor blocking a real `commandBus.execute` — status and derived body forwarded, explicit body forwarded verbatim, no status leaves both undefined, and the command never executes. |
 | CRUD transport | `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts` | A real `makeCrudRoute` POST returning 500 (no status), 422 (status), the explicit body, and 500 again for an out-of-range status. |
 | Undo transport | `packages/core/src/modules/audit_logs/api/__tests__/undo.route.test.ts` | 409 with the message, 422 with an explicit body, generic 400 without a status, generic 400 for an unrelated failure. |
+| Direct-`execute` adoption (#5097) | `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts` | Static guard: every core command-bus route that catches its own failures consults the mapper; exemption lists carry no stale entries. |
+| Direct-`execute` behavior (#5097) | `staff/api/leave-requests/accept`, `customers/api/todos`, `directory/api/organization-branding`, `feature_toggles/api/overrides` route tests | Per response shape: 422 with the explicit body, and the route's historical generic answer (400 / 500, adapter headers preserved) for a statusless rejection. |
+| Module-level mappers (#5097) | `packages/checkout/src/modules/checkout/api/__tests__/helpers.error-mapping.test.ts`, `packages/enterprise/src/modules/security/api/__tests__/error-mapping.interceptor.test.ts` | Status-carrying rejection, message-derived body, statusless rejection keeping the generic 500, and `CrudHttpError` still mapped first. |

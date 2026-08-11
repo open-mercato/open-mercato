@@ -12,6 +12,7 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('audit_logs').child({ component: 'redo' })
 
@@ -160,6 +161,10 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     logger.error('Redo failed', { err })
     return NextResponse.json({ error: 'Redo failed' }, { status: 400 })
   }
