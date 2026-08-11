@@ -5,6 +5,11 @@ import type {
   SearchStrategyId,
 } from '@open-mercato/shared/modules/search'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import {
+  filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
+  type SearchEntityConfigLookup,
+} from './lib/entity-access'
 
 /**
  * AI Tools definitions for the Search module.
@@ -54,12 +59,11 @@ type AiToolDefinition = {
 
 /**
  * Minimal shape of the `searchIndexer` DI service consumed by the per-entity
- * ACL / field-policy resolution below. Kept local to avoid importing the full
- * `SearchIndexer` class into the tool module.
+ * ACL / field-policy resolution below. Aliased rather than redeclared so the
+ * tools and the global-search route cannot drift apart, and still narrow enough
+ * to avoid importing the full `SearchIndexer` class into the tool module.
  */
-type SearchIndexerLike = {
-  getEntityConfig: (entityId: string) => SearchEntityConfig | undefined
-}
+type SearchIndexerLike = SearchEntityConfigLookup
 
 class SearchToolAuthorizationError extends Error {
   constructor(message: string) {
@@ -187,13 +191,26 @@ Searches customers, products, orders, deals, and more in one call.`,
       search: (query: string, options: any) => Promise<SearchResult[]>
     }>('searchService')
 
-    const results = await searchService.search(input.query, {
+    // Same rule the HTTP palette applies: `search.global` authorizes using search,
+    // not reading every indexed entity type. The query is narrowed to the readable
+    // types so `limit` is not spent on records that would be filtered out, and the
+    // results are filtered afterwards as defense in depth.
+    const searchIndexer = ctx.container.resolve<SearchIndexerLike>('searchIndexer')
+    const subject = { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin }
+    const readableEntityTypes = resolveReadableEntityTypes(searchIndexer, subject, input.entityTypes)
+    if (readableEntityTypes && readableEntityTypes.length === 0) {
+      return { query: input.query, totalResults: 0, results: [] }
+    }
+
+    const rawResults = await searchService.search(input.query, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      entityTypes: input.entityTypes,
+      entityTypes: readableEntityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
     })
+
+    const results = filterSearchResultsByEntityAccess(rawResults, searchIndexer, subject)
 
     return {
       query: input.query,

@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronDown, ChevronLeft, Home, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
+import { useIsomorphicLayoutEffect } from '@open-mercato/ui/hooks/useIsomorphicLayoutEffect'
 import { Button } from '../primitives/button'
 import {
   Breadcrumb as BreadcrumbNav,
@@ -775,7 +776,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   // page's passive ApplyBreadcrumb effect. The ordering matters for layouts
   // that persist across client-side navigation.
   const prevPathname = React.useRef(pathname)
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (pathname !== prevPathname.current) {
       prevPathname.current = pathname
       setHeaderTitle(undefined)
@@ -784,7 +785,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [pathname])
   // Keep header state in sync with props (server-side updates). A child page's
   // ApplyBreadcrumb effect runs afterward and may refine this static trail.
-  React.useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     setHeaderTitle(currentTitle)
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])

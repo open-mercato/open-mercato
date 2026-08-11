@@ -1,13 +1,13 @@
 # Lessons
 
-This catalog indexes 119 focused lessons without loading their full text. Route first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 120 focused lessons. Route by **modules**, standalone-harness **areas**, and **topics**; open only matching records.
 
 ## How to use this catalog
 
-1. Start with the exact module ID when one is named by the task.
-2. Add every matching area from the standalone harness router: `architecture`, `module-data`, `umes`, `backend-ui`, `integration`, `ai-workflow`, `debugging`, `testing`, `framework-context`, or `spec-pr`.
-3. Use topics to narrow concerns such as `data-scoping`, `optimistic-locking`, `query-index`, or `generated-files`.
-4. Open only the linked lesson records that match; do not bulk-read `.ai/lessons/`.
+1. Start with the named module ID.
+2. Add matching router areas: `architecture`, `module-data`, `umes`, `backend-ui`, `integration`, `ai-workflow`, `debugging`, `testing`, `framework-context`, or `spec-pr`.
+3. Narrow with topics such as `data-scoping`, `optimistic-locking`, `query-index`, or `generated-files`.
+4. Open only matching records; never bulk-read `.ai/lessons/`.
 
 Useful searches:
 
@@ -18,9 +18,9 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ## Adding or updating a lesson
 
-- Keep one reusable lesson per `.ai/lessons/<kebab-case-slug>.md`; update an existing record instead of duplicating it.
-- Preserve the front matter keys `title`, `modules`, `areas`, and `topics`. Use `platform` only when no module or package owns the lesson, and put the primary area first.
-- Add or update exactly one catalog row below. Keep the title stable when existing code/specs cite it.
+- Keep one reusable lesson per `.ai/lessons/<kebab-case-slug>.md`; update instead of duplicating.
+- Preserve `title`, `modules`, `areas`, and `topics`. Use `platform` only without a module/package owner; put the primary area first.
+- Add or update one catalog row. Keep cited titles stable.
 - Put hard boundaries in the closest `AGENTS.md`; lessons explain recurring evidence and the durable rule.
 - Run `yarn lessons:check` before committing.
 
@@ -37,7 +37,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui; module:create_app,ui; topic:template-sync,ui-components
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
-- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,events,generated-files,package-runtime,testing
+- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,events,generated-files,package-runtime,session-export,testing
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
@@ -152,6 +152,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 - [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
 - [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
+- [Embedded CLI output must inherit its caller's presentation margin](lessons/embedded-cli-output-must-inherit-its-callers-presentation.md) — area:debugging; module:create_app,cli; topic:runtime-startup,testing
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
 
@@ -164,7 +165,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
-- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform; topic:testing,node-runtime
+- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
 
 ### framework-context

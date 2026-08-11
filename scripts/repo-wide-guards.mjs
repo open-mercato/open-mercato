@@ -134,6 +134,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/lib/db/__tests__/escapeLikePattern.test.ts',
         scans: 'packages/ and apps/ — unescaped LIKE patterns in query builders',
       },
+      {
+        path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
+        scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
+      },
     ],
   },
   {
@@ -144,6 +148,17 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/__tests__/legal-entity.test.tsx',
         scans: 'repo-root legal documents — superseded operator identity',
+      },
+    ],
+  },
+  {
+    workspace: '@open-mercato/search',
+    workspaceDir: 'packages/search',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/search/__tests__/global-search-acl.test.ts',
+        scans: 'every packages/core and packages/checkout module search.ts — searchable entities declare the view feature the global-search route filters on (#5163)',
       },
     ],
   },

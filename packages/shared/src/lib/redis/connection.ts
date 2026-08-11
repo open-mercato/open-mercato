@@ -26,7 +26,28 @@ export type ParsedRedisConnection = {
   db?: number
   tls?: Record<string, unknown>
   family?: number
+  protocol?: RedisProtocolVersion
 }
+
+/**
+ * RESP wire protocol version, mirroring ioredis' own `ProtocolVersion` union.
+ * Declared locally because ioredis is an optional peer of the packages that
+ * consume these options.
+ */
+export type RedisProtocolVersion = 2 | 3
+
+/**
+ * Wire protocol every Redis client in the monorepo negotiates.
+ *
+ * ioredis 6 switched its default from RESP2 to RESP3. RESP3 changes the reply
+ * shape of map-style commands and delivers pub/sub over push frames instead of
+ * ordinary replies, which neither BullMQ nor rate-limiter-flexible declare
+ * support for. Pinning the protocol keeps the client byte-compatible with the
+ * ioredis 5 behaviour the rest of the stack was built and tested against.
+ * Adopting RESP3 is a deliberate, separately testable change — not a side
+ * effect of a version bump.
+ */
+export const REDIS_WIRE_PROTOCOL: RedisProtocolVersion = 2
 
 /**
  * Resolve a Redis URL from environment variables.
@@ -81,11 +102,12 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
       db,
       tls: parsed.protocol === 'rediss:' ? {} : undefined,
       family,
+      protocol: REDIS_WIRE_PROTOCOL,
     }
   } catch {
     const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')
     logger.warn('Failed to parse Redis URL, falling back to localhost:6379', { url: safeUrl })
-    return { host: 'localhost', port: 6379 }
+    return { host: 'localhost', port: 6379, protocol: REDIS_WIRE_PROTOCOL }
   }
 }
 

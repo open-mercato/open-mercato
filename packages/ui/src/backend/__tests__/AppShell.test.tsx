@@ -207,6 +207,27 @@ describe('AppShell', () => {
     )
   })
 
+  it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
+    const { rerender } = renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Users List' }]} />
+      </AppShell>,
+      { dict },
+    )
+
+    mockPathname = '/backend/roles'
+    rerender(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Roles' }]} />
+      </AppShell>,
+    )
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
+    expect(activePage).toHaveTextContent('Roles')
+    expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
   it('hides the backend footer status bar when requested', () => {
     renderWithProviders(
       <AppShell
