@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bot, Copy, Hand, Play, Save, Workflow as WorkflowIcon } from 'lucide-react'
+import { Bot, Copy, Flag, Hand, Play, Save, Workflow as WorkflowIcon } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -27,9 +27,11 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../../components/types'
-import type { ProcessRunTriggeredBy, ProcessTrigger } from '../../../../data/validators'
+import type { ProcessMilestone, ProcessRunTriggeredBy, ProcessTrigger } from '../../../../data/validators'
 import { manualTrigger, parseProcessTriggers, scheduleTriggers } from '../../../../lib/tasks/triggers'
+import { parseProcessMilestones } from '../../../../lib/tasks/milestones'
 import { TriggerEditor, invalidScheduleIndexes } from '../TriggerEditor'
+import { MilestoneEditor } from '../MilestoneEditor'
 
 type ProcessRunStatus = 'running' | 'completed' | 'failed'
 
@@ -43,6 +45,7 @@ type ProcessDefinitionDetail = {
   inputDefaults: unknown
   grantedFeatures: string[]
   triggers: ProcessTrigger[]
+  milestones: ProcessMilestone[]
   enabled: boolean
   updatedAt: string | null
 }
@@ -84,6 +87,7 @@ function mapDetail(raw: Record<string, unknown>): ProcessDefinitionDetail | null
       ? granted.filter((value): value is string => typeof value === 'string')
       : [],
     triggers: parseProcessTriggers(raw.triggers),
+    milestones: parseProcessMilestones(raw.milestones),
     enabled: (raw.enabled ?? true) !== false,
     updatedAt: asString(raw.updatedAt) ?? asString(raw.updated_at),
   }
@@ -123,6 +127,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
 
   const [task, setTask] = React.useState<ProcessDefinitionDetail | null>(null)
   const [triggerDraft, setTriggerDraft] = React.useState<ProcessTrigger[]>([])
+  const [milestoneDraft, setMilestoneDraft] = React.useState<ProcessMilestone[]>([])
   const [runs, setRuns] = React.useState<ProcessRunRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -130,6 +135,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
   const [runInput, setRunInput] = React.useState('')
   const [runBusy, setRunBusy] = React.useState(false)
   const [triggerBusy, setTriggerBusy] = React.useState(false)
+  const [milestoneBusy, setMilestoneBusy] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.processDefinitions',
@@ -149,6 +155,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     const detail = mapDetail(call.result.task)
     setTask(detail)
     setTriggerDraft(detail?.triggers ?? [])
+    setMilestoneDraft(detail?.milestones ?? [])
     return true
   }, [taskId, t])
 
@@ -270,6 +277,45 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
       setTriggerBusy(false)
     }
   }, [triggerBusy, task, triggerDraft, runMutation, retryLastMutation, taskId, t, loadDetail])
+
+  /**
+   * Milestone rows mutate the PARENT definition, so the parent's
+   * optimistic-lock header is the one that applies — no per-child override,
+   * because there is no child record.
+   */
+  const saveMilestones = React.useCallback(async () => {
+    if (milestoneBusy || !task) return
+    setMilestoneBusy(true)
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(task.updatedAt),
+            () =>
+              updateCrud('agent_orchestrator/process-definitions', {
+                id: task.id,
+                name: task.name,
+                targetType: task.targetType,
+                targetAgentId: task.targetAgentId ?? undefined,
+                targetWorkflowId: task.targetWorkflowId ?? undefined,
+                milestones: milestoneDraft,
+              }),
+          ),
+        context: { retryLastMutation },
+        mutationPayload: { taskId },
+      })
+      flash(t('agent_orchestrator.processDefinitions.milestones.saved'), 'success')
+      await loadDetail()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        await loadDetail()
+        return
+      }
+      flash(err instanceof Error ? err.message : t('agent_orchestrator.processDefinitions.milestones.error'), 'error')
+    } finally {
+      setMilestoneBusy(false)
+    }
+  }, [milestoneBusy, task, milestoneDraft, runMutation, retryLastMutation, taskId, t, loadDetail])
 
   const runColumns = React.useMemo<ColumnDef<ProcessRunRow>[]>(
     () => [
@@ -539,6 +585,48 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
             />
           </div>
         </section>
+
+        {task.targetType === 'workflow' ? (
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="inline-flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Flag className="size-4 shrink-0 text-muted-foreground" />
+                  {t('agent_orchestrator.processDefinitions.milestones.title')}
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {t('agent_orchestrator.processDefinitions.milestones.description')}
+                </p>
+              </div>
+              <Button size="sm" onClick={() => { void saveMilestones() }} disabled={milestoneBusy}>
+                <Save className="mr-2 size-4" />
+                {t('agent_orchestrator.processDefinitions.milestones.save')}
+              </Button>
+            </div>
+            <div
+              className="mt-3"
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  void saveMilestones()
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setMilestoneDraft(task.milestones)
+                }
+              }}
+            >
+              <MilestoneEditor
+                value={milestoneDraft}
+                onChange={setMilestoneDraft}
+                targetType={task.targetType}
+                workflowId={task.targetWorkflowId}
+                disabled={milestoneBusy}
+                t={t}
+              />
+            </div>
+          </section>
+        ) : null}
 
         <section className="space-y-3">
           <h2 className="text-base font-semibold text-foreground">{t('agent_orchestrator.processDefinitions.runs.title')}</h2>

@@ -1172,6 +1172,46 @@ export const PROCESS_TRIGGERS_MAX = 20
 export const processTriggersSchema = z.array(processTriggerSchema).max(PROCESS_TRIGGERS_MAX)
 
 /**
+ * A business-facing stage of a process — `agent_process_definitions.milestones`
+ * jsonb. The `label` is AUTHORED here rather than read from the workflow step,
+ * so renaming a step no longer changes what a business reader sees. The cost of
+ * that is drift: `stepId` can name a step the workflow no longer declares, which
+ * `collectMilestoneIssues` reports as a WARNING (never an error — a definition
+ * mid-edit must stay saveable).
+ */
+export const processMilestoneSchema = z.object({
+  id: z.string().min(1).max(100),
+  /** Business-facing, authored here — never read from the step. */
+  label: z.string().min(1).max(200),
+  /** The workflow step it maps to (`WorkflowStep.stepId`). */
+  stepId: z.string().min(1).max(150),
+  order: z.number().int().min(0).max(1000),
+})
+export type ProcessMilestone = z.infer<typeof processMilestoneSchema>
+
+/** Storage bound on the authored stage list (spec §Data models). */
+export const PROCESS_MILESTONES_MAX = 50
+
+export const processMilestonesSchema = z
+  .array(processMilestoneSchema)
+  .max(PROCESS_MILESTONES_MAX)
+  .superRefine((milestones, ctx) => {
+    // Two milestones sharing an id collapse into one row in every keyed
+    // renderer and make a reorder ambiguous — reject rather than silently drop.
+    const seen = new Set<string>()
+    milestones.forEach((milestone, index) => {
+      if (seen.has(milestone.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, 'id'],
+          message: 'Duplicate milestone id',
+        })
+      }
+      seen.add(milestone.id)
+    })
+  })
+
+/**
  * Why a run happened — `agent_process_runs.triggered_by` jsonb. `ref` is the
  * user id (manual), the event name (event), or absent (schedule).
  */
@@ -1195,6 +1235,7 @@ const taskTargetShape = {
   inputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
   grantedFeatures: z.array(z.string().min(1).max(200)).max(200).optional(),
   triggers: processTriggersSchema.optional(),
+  milestones: processMilestonesSchema.optional(),
   enabled: z.boolean().optional(),
 }
 
@@ -1202,11 +1243,30 @@ function requireTargetPointer(data: { targetType: 'agent' | 'workflow'; targetAg
   return data.targetType === 'agent' ? !!data.targetAgentId : !!data.targetWorkflowId
 }
 
+/**
+ * Milestones map to workflow steps, and an agent-targeted process has no steps
+ * to map. Declaring them there is a VALIDATION ERROR rather than a silent
+ * no-op — a stage list nobody can ever reach reads as a configured one.
+ */
+function milestonesRequireWorkflowTarget(data: {
+  targetType: 'agent' | 'workflow'
+  milestones?: ProcessMilestone[]
+}): boolean {
+  return data.targetType === 'workflow' || (data.milestones?.length ?? 0) === 0
+}
+
+const MILESTONES_ON_AGENT_TARGET_MESSAGE =
+  'Milestones map to workflow steps and cannot be declared on an agent-targeted process'
+
 export const agentProcessDefinitionCreateSchema = z
   .object(taskTargetShape)
   .refine(requireTargetPointer, {
     message: 'Target id is required for the selected target type',
     path: ['targetAgentId'],
+  })
+  .refine(milestonesRequireWorkflowTarget, {
+    message: MILESTONES_ON_AGENT_TARGET_MESSAGE,
+    path: ['milestones'],
   })
 export type AgentProcessDefinitionCreateInput = z.infer<typeof agentProcessDefinitionCreateSchema>
 
@@ -1216,12 +1276,18 @@ export const agentProcessDefinitionUpdateSchema = z
     message: 'Target id is required for the selected target type',
     path: ['targetAgentId'],
   })
+  .refine(milestonesRequireWorkflowTarget, {
+    message: MILESTONES_ON_AGENT_TARGET_MESSAGE,
+    path: ['milestones'],
+  })
 export type AgentProcessDefinitionUpdateInput = z.infer<typeof agentProcessDefinitionUpdateSchema>
 
 export const agentProcessDefinitionListQuerySchema = z
   .object({
     id: z.string().uuid().optional(),
     targetType: agentProcessTargetType.optional(),
+    /** Narrows to the definitions authored for one workflow — the milestone lookup the process detail page makes. */
+    targetWorkflowId: z.string().min(1).max(150).optional(),
     enabled: z.coerce.boolean().optional(),
     search: z.string().max(200).optional(),
     page: z.coerce.number().int().min(1).default(1),

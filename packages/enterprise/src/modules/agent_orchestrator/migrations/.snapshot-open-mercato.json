@@ -3673,6 +3673,23 @@
           "enumItems": [],
           "mappedType": "json"
         },
+        "milestones": {
+          "name": "milestones",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'[]'",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "name": {
           "name": "name",
           "type": "varchar(255)",

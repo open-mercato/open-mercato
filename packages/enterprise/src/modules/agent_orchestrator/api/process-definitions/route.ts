@@ -9,6 +9,7 @@ import {
   agentProcessDefinitionCreateSchema,
   agentProcessDefinitionListQuerySchema,
   agentProcessDefinitionUpdateSchema,
+  processMilestoneSchema,
   processTriggerSchema,
   type AgentProcessDefinitionCreateInput,
   type AgentProcessDefinitionUpdateInput,
@@ -159,6 +160,7 @@ const crud = makeCrudRoute<
       'execution_principal_id',
       'granted_features',
       'triggers',
+      'milestones',
       'enabled',
       'organization_id',
       'tenant_id',
@@ -176,6 +178,7 @@ const crud = makeCrudRoute<
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.targetType) filters.target_type = { $eq: query.targetType }
+      if (query.targetWorkflowId) filters.target_workflow_id = { $eq: query.targetWorkflowId }
       if (typeof query.enabled === 'boolean') filters.enabled = { $eq: query.enabled }
       return filters
     },
@@ -196,6 +199,7 @@ const crud = makeCrudRoute<
         inputSchema: input.inputSchema ?? null,
         grantedFeatures: input.grantedFeatures ?? [],
         triggers: input.triggers ?? [],
+        milestones: input.milestones ?? [],
         enabled: input.enabled ?? true,
         createdBy: ctx.auth?.sub ?? null,
       }
@@ -218,6 +222,11 @@ const crud = makeCrudRoute<
       if (input.inputSchema !== undefined) row.inputSchema = input.inputSchema ?? null
       if (input.grantedFeatures !== undefined) row.grantedFeatures = input.grantedFeatures
       if (input.triggers !== undefined) row.triggers = input.triggers
+      if (input.milestones !== undefined) row.milestones = input.milestones
+      // An agent target has no steps to map, so a target switched to `agent`
+      // drops its stages rather than keeping an unreachable list the create /
+      // update validator would refuse on the next save.
+      if (row.targetType === 'agent') row.milestones = []
       if (input.enabled !== undefined) row.enabled = input.enabled
     },
     response: (entity) => {
@@ -294,6 +303,7 @@ const taskListItemSchema = z.object({
   execution_principal_id: z.string().uuid().nullable().optional(),
   granted_features: z.array(z.string()).nullable().optional(),
   triggers: z.array(processTriggerSchema).nullable().optional(),
+  milestones: z.array(processMilestoneSchema).nullable().optional(),
   enabled: z.boolean().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),

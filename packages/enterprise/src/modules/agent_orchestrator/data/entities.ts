@@ -1,6 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
-import type { AgentType, ProcessRunTriggeredBy, ProcessTrigger } from './validators'
+import type { AgentType, ProcessMilestone, ProcessRunTriggeredBy, ProcessTrigger } from './validators'
 
 export type AgentRunStatus = 'running' | 'ok' | 'error' | 'cancelled'
 
@@ -1227,6 +1227,7 @@ export class AgentProcessDefinition {
     | 'executionPrincipalId'
     | 'grantedFeatures'
     | 'triggers'
+    | 'milestones'
     | 'enabled'
     | 'createdBy'
     | 'createdAt'
@@ -1292,6 +1293,17 @@ export class AgentProcessDefinition {
    */
   @Property({ name: 'triggers', type: 'jsonb', nullable: true, default: '[]' })
   triggers?: ProcessTrigger[] | null
+
+  /**
+   * The authored, ordered business stages (`ProcessMilestone[]`, `.max(50)`):
+   * what a business reader sees instead of the Studio's step graph. Each entry
+   * maps a `label` authored HERE onto a workflow `stepId`, so renaming a step
+   * does not change the reader's vocabulary — and the mapping can drift, which
+   * `collectMilestoneIssues` surfaces as a warning. WORKFLOW targets only: an
+   * agent-targeted definition has no steps to map and the validator rejects it.
+   */
+  @Property({ name: 'milestones', type: 'jsonb', nullable: true, default: '[]' })
+  milestones?: ProcessMilestone[] | null
 
   @Property({ name: 'enabled', type: 'boolean', default: true })
   enabled: boolean = true

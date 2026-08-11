@@ -33,11 +33,15 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeAge } from '../../../components/types'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import {
+  processMilestonesSchema,
   processTriggersSchema,
+  type ProcessMilestone,
   type ProcessTrigger,
 } from '../../../data/validators'
 import { parseProcessTriggers, scheduleTriggers, eventTriggers, manualTrigger } from '../../../lib/tasks/triggers'
+import { parseProcessMilestones } from '../../../lib/tasks/milestones'
 import { TriggerEditor, invalidScheduleIndexes } from './TriggerEditor'
+import { MilestoneEditor } from './MilestoneEditor'
 import {
   parseGrantedFeaturesText,
   resolveFeaturePrefill,
@@ -76,6 +80,7 @@ type ProcessDefinitionRow = {
   inputSchema: unknown
   grantedFeatures: string[]
   triggers: ProcessTrigger[]
+  milestones: ProcessMilestone[]
   enabled: boolean
   lastRun: ProcessLastRun | null
   updatedAt: string | null
@@ -92,6 +97,7 @@ type FormValues = {
   inputSchemaJson?: string
   grantedFeaturesText?: string
   triggers: ProcessTrigger[]
+  milestones: ProcessMilestone[]
   enabled: boolean
   updatedAt?: string | null
 }
@@ -121,6 +127,7 @@ function mapRow(item: Record<string, unknown>): ProcessDefinitionRow | null {
       ? grantedRaw.filter((value): value is string => typeof value === 'string')
       : [],
     triggers: parseProcessTriggers(item.triggers),
+    milestones: parseProcessMilestones(item.milestones),
     enabled: (item.enabled ?? true) !== false,
     lastRun: mapLastRun(item.last_run ?? item.lastRun),
     updatedAt: readString(item, 'updated_at', 'updatedAt') || null,
@@ -452,9 +459,20 @@ export default function ProcessDefinitionsPage() {
           inputSchemaJson: z.string().optional(),
           grantedFeaturesText: z.string().optional(),
           triggers: processTriggersSchema,
+          milestones: processMilestonesSchema,
           enabled: z.boolean(),
         })
         .superRefine((data, ctx) => {
+          // Milestones map to workflow steps, so declaring them on an
+          // agent-targeted definition is an ERROR, not a silent no-op - the
+          // same rule the server-side create/update schemas enforce.
+          if (data.targetType !== 'workflow' && data.milestones.length > 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['milestones'],
+              message: 'agent_orchestrator.processDefinitions.form.errors.milestonesAgentTarget',
+            })
+          }
           // Invalid cron is rejected AT SAVE, not discovered at fire time. The
           // same parser the server-side `withScheduleSemanticChecks` runs.
           for (const index of invalidScheduleIndexes(data.triggers)) {
@@ -530,6 +548,22 @@ export default function ProcessDefinitionsPage() {
             value={Array.isArray(value) ? (value as ProcessTrigger[]) : []}
             onChange={(next) => setValue(next)}
             locale={locale}
+            t={t}
+          />
+        ),
+      },
+      {
+        id: 'milestones',
+        label: t('agent_orchestrator.processDefinitions.milestones.title'),
+        type: 'custom',
+        description: t('agent_orchestrator.processDefinitions.milestones.description'),
+        visibleWhen: { field: 'targetType', equals: 'workflow' },
+        component: ({ value, values, setValue }) => (
+          <MilestoneEditor
+            value={Array.isArray(value) ? (value as ProcessMilestone[]) : []}
+            onChange={(next) => setValue(next)}
+            targetType={values?.targetType === 'workflow' ? 'workflow' : 'agent'}
+            workflowId={typeof values?.targetWorkflowId === 'string' ? values.targetWorkflowId : null}
             t={t}
           />
         ),
@@ -630,6 +664,8 @@ export default function ProcessDefinitionsPage() {
       inputSchema,
       grantedFeatures,
       triggers: values.triggers ?? [],
+      // An agent target has no steps to map, so the list is never sent for one.
+      milestones: values.targetType === 'workflow' ? values.milestones ?? [] : [],
       enabled: values.enabled,
     }
   }
@@ -648,6 +684,7 @@ export default function ProcessDefinitionsPage() {
           inputSchemaJson: editing!.inputSchema ? JSON.stringify(editing!.inputSchema, null, 2) : '',
           grantedFeaturesText: editing!.grantedFeatures.join('\n'),
           triggers: editing!.triggers,
+          milestones: editing!.milestones,
           enabled: editing!.enabled,
           updatedAt: editing!.updatedAt,
         }
@@ -657,6 +694,7 @@ export default function ProcessDefinitionsPage() {
           // otherwise — the same default the manual-trigger backfill gives every
           // definition that predates this phase.
           triggers: [{ kind: 'manual', requireFeatures: [] }],
+          milestones: [],
           enabled: true,
         }
 

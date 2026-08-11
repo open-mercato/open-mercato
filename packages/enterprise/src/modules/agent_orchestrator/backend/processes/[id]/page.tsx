@@ -32,6 +32,8 @@ import {
   type ProposalView,
   type RunView,
 } from '../../../components/types'
+import type { ProcessMilestone } from '../../../data/validators'
+import { buildMilestoneStages, parseProcessMilestones } from '../../../lib/tasks/milestones'
 import {
   mapProcessProjection,
   type AgentProcessStatus,
@@ -195,7 +197,12 @@ function buildSteps(
   return steps
 }
 
-/** Ordered distinct workflow step ids observed on the process's activity. */
+/**
+ * Ordered distinct workflow step ids observed on the process's activity — the
+ * fallback when the process's definition declares no milestones. Raw step ids
+ * are the Studio's vocabulary, not a business reader's; the milestone list
+ * above replaces them whenever one is authored.
+ */
 function buildStages(proposals: ProposalView[], currentStage: string | null): ProcessStage[] {
   const seen = new Set<string>()
   const stages: ProcessStage[] = []
@@ -364,6 +371,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const processId = params?.id ?? ''
 
   const [projection, setProjection] = React.useState<ProcessProjection | null>(null)
+  const [milestones, setMilestones] = React.useState<ProcessMilestone[]>([])
   const [degraded, setDegraded] = React.useState(false)
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
@@ -432,6 +440,24 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
       setProjection(header ?? fallbackHeader)
       setDegraded(!header)
       setProposals(proposalRows)
+
+      // The business-facing stage names: authored on the process definition for
+      // this workflow, so they survive a step being renamed in the Studio. No
+      // definition, or none carrying milestones, keeps the observed-step-id
+      // stepper below.
+      const workflowId = (header ?? fallbackHeader).workflowId
+      if (workflowId) {
+        const definitionsCall = await apiCall<ListResponse>(
+          `/api/agent_orchestrator/process-definitions?targetWorkflowId=${encodeURIComponent(workflowId)}&pageSize=5`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        if (cancelled) return
+        const authored = (definitionsCall.ok ? definitionsCall.result?.items ?? [] : [])
+          .map((row) => parseProcessMilestones(row.milestones))
+          .find((list) => list.length > 0)
+        setMilestones(authored ?? [])
+      }
 
       const runIds = Array.from(new Set(proposalRows.map((p) => p.runId))).filter(Boolean)
       if (runIds.length > 0) {
@@ -522,6 +548,29 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const currentStageIndex = stages.findIndex(
     (stage) => stage.key === process.currentStage || stage.label === process.currentStage,
   )
+  // Terminal processes render every stage as done — no phantom "current" stage
+  // on a completed/failed/cancelled case.
+  const isTerminal = ['auto_completed', 'completed', 'failed', 'cancelled'].includes(process.status)
+  /**
+   * The business-facing milestone view: named stages in authored order. Falls
+   * back to the raw step ids the activity observed when no milestone is
+   * declared, so a process without them reads exactly as it did before.
+   */
+  const stageRows: Array<{ key: string; label: string; state: StageState }> =
+    milestones.length > 0
+      ? buildMilestoneStages(milestones, process.currentStage, { terminal: isTerminal })
+      : stages.map((stage, index) => ({
+          ...stage,
+          state: isTerminal
+            ? 'done'
+            : currentStageIndex < 0
+              ? 'upcoming'
+              : index < currentStageIndex
+                ? 'done'
+                : index === currentStageIndex
+                  ? 'current'
+                  : 'upcoming',
+        }))
   const claimedValue = formatSubjectValue(process.subjectValueMinor, process.currency, locale)
   const openedAge = formatAge(process.openedAt, t)
 
@@ -627,30 +676,25 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             </div>
           </div>
 
-          {stages.length > 0 ? (
-            <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-3 border-t border-border pt-4">
-              {stages.map((stage, index) => {
-                // Terminal processes render every stage as done — no phantom
-                // "current" stage on a completed/failed/cancelled case.
-                const isTerminal = ['auto_completed', 'completed', 'failed', 'cancelled'].includes(process.status)
-                const state: StageState = isTerminal
-                  ? 'done'
-                  : currentStageIndex < 0
-                    ? 'upcoming'
-                    : index < currentStageIndex
-                      ? 'done'
-                      : index === currentStageIndex
-                        ? 'current'
-                        : 'upcoming'
-                return (
+          {stageRows.length > 0 ? (
+            <div className="mt-5 border-t border-border pt-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t(
+                  milestones.length > 0
+                    ? 'agent_orchestrator.process.milestonesTitle'
+                    : 'agent_orchestrator.process.stagesObservedTitle',
+                )}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-3">
+                {stageRows.map((stage, index) => (
                   <React.Fragment key={stage.key}>
                     <div className="flex items-center gap-2">
-                      <StageNode state={state} position={index + 1} />
+                      <StageNode state={stage.state} position={index + 1} />
                       <span
                         className={
-                          state === 'upcoming'
+                          stage.state === 'upcoming'
                             ? 'text-sm text-muted-foreground'
-                            : state === 'current'
+                            : stage.state === 'current'
                               ? 'text-sm font-semibold text-foreground'
                               : 'text-sm text-foreground'
                         }
@@ -658,12 +702,12 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                         {stage.label}
                       </span>
                     </div>
-                    {index < stages.length - 1 ? (
+                    {index < stageRows.length - 1 ? (
                       <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                     ) : null}
                   </React.Fragment>
-                )
-              })}
+                ))}
+              </div>
             </div>
           ) : null}
         </section>
