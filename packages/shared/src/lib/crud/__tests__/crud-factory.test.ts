@@ -268,6 +268,28 @@ describe('CRUD Factory', () => {
     }))
   })
 
+  it('GET spreads totalIsCapped only when the engine reports a capped count', async () => {
+    queryEngine.query.mockResolvedValueOnce({
+      items: [{ id: 'id-1', title: 'A', is_done: false }],
+      total: 10_000,
+      page: 1,
+      pageSize: 10,
+      meta: { listCountCapWarning: { entity: 'example.todo', cap: 10_000 } },
+    })
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.total).toBe(10_000)
+    expect(body.totalIsCapped).toBe(true)
+    expect(body.meta.listCountCapWarning).toEqual({ entity: 'example.todo', cap: 10_000 })
+  })
+
+  it('GET omits totalIsCapped entirely for exact totals', async () => {
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    const body = await res.json()
+    expect('totalIsCapped' in body).toBe(false)
+  })
+
   const makeDecoratedRoute = () => makeCrudRoute({
     metadata: { GET: { requireAuth: true } },
     orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
