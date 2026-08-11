@@ -71,6 +71,12 @@ answered, which is a behavior change of its own. They are pinned in
 - [x] Static coverage guard — `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`
 - [x] Behavioral tests per response shape — staff accept, customers todos (adapter headers), directory
       branding, feature_toggles overrides, checkout mapper, all four security mappers
+- [x] Behavioral tests extended to **every** module family with an edited route, at the maintainer's
+      request: audit_logs (redo), auth (profile PUT — new file), dictionaries (entries reorder), messages
+      (reply — asserts the rethrow for a statusless rejection), resources (tags assign), sales (quotes
+      accept — the issue's representative route), translations (entity PUT), wms (warehouse-assignment
+      DELETE — new file). `communication_channels` has no edited route; all seven of its call sites are
+      catch-less and exempt.
 - [x] Spec transport-coverage table and Non-goals updated; the migrated row is now ✅
 - [x] Full validation gate — 7/8 green locally; `yarn test` red only on unrelated flakes (see the PR body)
 - [x] PR opened with the full label set and a summary comment — #5181
