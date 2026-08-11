@@ -1,0 +1,16 @@
+---
+title: "Destination authorization must use expanded scopes and atomic reconciliation"
+modules: ["auth","directory"]
+areas: ["module-data","testing"]
+topics: ["access-control","command-pattern","data-integrity","data-scoping"]
+---
+
+# Destination authorization must use expanded scopes and atomic reconciliation
+
+**Context**: A staff-user move checked raw ACL organization IDs and updated the user before synchronizing destination roles.
+
+**Problem**: Raw grants omit allowed descendants, while separate commits can leave a moved identity linked to roles from the wrong tenant after a sync failure.
+
+**Rule**: Authorize destination records against the canonical descendant-expanded `OrganizationScope`, validate retained and explicit grants, and commit the scope move plus relation reconciliation in one transaction with rollback coverage.
+
+**Applies to**: Commands and routes that relocate identities or other permission-bearing records between organizations or tenants.

@@ -15,9 +15,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import {
   assertActorCanAccessUserTarget,
+  assertActorCanAssignUserDestination,
   assertActorCanGrantRoleTokens,
   assertActorCanModifySuperAdminUserTarget,
   listSuperAdminUserIds,
+  resolveUserDestinationRoles,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -168,7 +170,14 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
             await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
             await assertCanAccessUserTarget(ctx.request, parsed.id)
           }
-          await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+          if (typeof parsed.organizationId === 'string' && parsed.organizationId.length) {
+            const destinationChanged = await assertCanAssignUserDestination(ctx.request, parsed)
+            if (!destinationChanged) {
+              await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+            }
+          } else {
+            await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
+          }
         }
         return parsed
       },
@@ -596,6 +605,65 @@ async function assertCanAssignRoles(req: Request, roles: unknown, payload: Recor
     organizationId: auth.orgId ?? null,
     roleTokens: roles,
   })
+}
+
+async function assertCanAssignUserDestination(req: Request, payload: Record<string, unknown>): Promise<boolean> {
+  const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
+  const targetUserId = typeof payload.id === 'string' ? payload.id : null
+  if (!organizationId || !targetUserId) return false
+
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const targetUser = await findOneWithDecryption(
+    em,
+    User,
+    { id: targetUserId, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  if (!targetUser) return false
+  const organization = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: organizationId },
+    { populate: ['tenant'] },
+    { tenantId: null, organizationId },
+  )
+  if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+  const destinationTenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+  if (!destinationTenantId) throw new CrudHttpError(400, { error: 'Organization not found' })
+  const currentOrganizationId = targetUser.organizationId ? String(targetUser.organizationId) : null
+  const currentTenantId = targetUser.tenantId ? String(targetUser.tenantId) : null
+  if (currentOrganizationId === organizationId && currentTenantId === destinationTenantId) {
+    return false
+  }
+  const roles = await resolveUserDestinationRoles({
+    em,
+    targetUserId,
+    destinationTenantId,
+    roleTokens: payload.roles,
+  })
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: destinationTenantId,
+  })
+  await assertActorCanAssignUserDestination({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    actorIsSuperAdmin: auth.isSuperAdmin === true,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    allowedOrganizationIds: organizationScope.allowedIds,
+    destinationTenantId,
+    destinationOrganizationId: organizationId,
+    roles,
+  })
+  return true
 }
 
 async function resolveTargetTenantIdForRoleGrant(

@@ -27,6 +27,21 @@ type RoleTokenGrantCheckInput = GrantCheckContext & {
   roleTokens: unknown
 }
 
+type UserDestinationRolesInput = {
+  em: EntityManager
+  targetUserId: string
+  destinationTenantId: string | null | undefined
+  roleTokens: unknown
+}
+
+type UserDestinationScopeCheckInput = GrantCheckContext & {
+  actorIsSuperAdmin?: boolean
+  allowedOrganizationIds?: string[] | null
+  destinationTenantId: string | null | undefined
+  destinationOrganizationId: string | null | undefined
+  roles: Role[]
+}
+
 type FeatureGrantCheckInput = GrantCheckContext & {
   features: unknown
   isSuperAdmin?: boolean
@@ -53,6 +68,79 @@ export async function assertActorCanGrantRoleTokens(input: RoleTokenGrantCheckIn
   const roles = await resolveRolesForGrant(input.em, tokens, tenantId)
   await assertActorCanGrantRoles({ ...input, tenantId, roles })
   return roles
+}
+
+export async function resolveUserDestinationRoles(input: UserDestinationRolesInput): Promise<Role[]> {
+  const destinationTenantId = normalizeNullableString(input.destinationTenantId)
+  if (Array.isArray(input.roleTokens)) {
+    return resolveRolesForGrant(input.em, normalizeStringList(input.roleTokens), destinationTenantId)
+  }
+
+  const links = await findWithDecryption(
+    input.em,
+    UserRole,
+    { user: input.targetUserId as unknown as User } as FilterQuery<UserRole>,
+    { populate: ['role'] },
+    { tenantId: null, organizationId: null },
+  )
+  const roles: Role[] = []
+  for (const link of links) {
+    const linkedRole = (link as { role?: Role | string | null }).role
+    if (linkedRole && typeof linkedRole === 'object') {
+      roles.push(linkedRole)
+      continue
+    }
+    if (typeof linkedRole === 'string') {
+      const resolvedRole = await resolveRoleForGrant(input.em, linkedRole, null)
+      if (resolvedRole) {
+        roles.push(resolvedRole)
+        continue
+      }
+    }
+    throw new CrudHttpError(400, { error: 'User has an invalid role assignment' })
+  }
+  return roles
+}
+
+export async function assertActorCanAssignUserDestination(
+  input: UserDestinationScopeCheckInput,
+): Promise<void> {
+  const destinationTenantId = normalizeNullableString(input.destinationTenantId)
+  const destinationOrganizationId = normalizeNullableString(input.destinationOrganizationId)
+  if (!destinationTenantId || !destinationOrganizationId) {
+    throw new CrudHttpError(400, { error: 'Organization not found' })
+  }
+
+  for (const role of input.roles) {
+    if (normalizeNullableString(role.tenantId) !== destinationTenantId) {
+      throw forbidden('Cannot retain or assign a role outside the destination tenant.')
+    }
+  }
+
+  if (await resolveActorIsSuperAdmin(input)) return
+
+  const actorTenantId = normalizeNullableString(input.tenantId)
+  if (!actorTenantId || actorTenantId !== destinationTenantId) {
+    throw new CrudHttpError(404, { error: 'Organization not found' })
+  }
+
+  const actorAcl = await loadActorAcl(input)
+  const allowedOrganizationIds = input.allowedOrganizationIds === undefined
+    ? actorAcl.organizations
+    : input.allowedOrganizationIds
+  if (
+    allowedOrganizationIds !== null
+    && !allowedOrganizationIds.includes('__all__')
+    && !allowedOrganizationIds.includes(destinationOrganizationId)
+  ) {
+    throw forbidden('Cannot assign user to a destination organization outside actor scope.')
+  }
+
+  await assertActorCanGrantRoles({
+    ...input,
+    tenantId: destinationTenantId,
+    roles: input.roles,
+  })
 }
 
 export async function assertActorCanGrantRoles(input: RoleGrantCheckInput): Promise<void> {

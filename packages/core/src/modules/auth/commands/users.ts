@@ -17,6 +17,7 @@ import { UniqueConstraintViolationException, LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { E } from '#generated/entities.ids.generated'
 import { z } from 'zod'
 import {
@@ -41,6 +42,11 @@ import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  assertActorCanAssignUserDestination,
+  resolveUserDestinationRoles,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 
@@ -548,6 +554,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       : null
 
     let tenantId: string | null | undefined
+    let destinationChanged = false
     if (parsed.organizationId !== undefined) {
       const organization = await findOneWithDecryption(
         em,
@@ -558,6 +565,50 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       )
       if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+      if (!tenantId) throw new CrudHttpError(400, { error: 'Organization not found' })
+      const currentUser = await findOneWithDecryption(
+        em,
+        User,
+        { id: parsed.id, deletedAt: null },
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (!currentUser) throw new CrudHttpError(404, { error: 'User not found' })
+      const currentOrganizationId = currentUser.organizationId ? String(currentUser.organizationId) : null
+      const currentTenantId = currentUser.tenantId ? String(currentUser.tenantId) : null
+      destinationChanged = currentOrganizationId !== parsed.organizationId || currentTenantId !== tenantId
+      if (destinationChanged) {
+        const rbacService = ctx.container.resolve('rbacService') as RbacService
+        const destinationRoles = await resolveUserDestinationRoles({
+          em,
+          targetUserId: parsed.id,
+          destinationTenantId: tenantId,
+          roleTokens: parsed.roles,
+        })
+        const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
+        const organizationScope = ctx.organizationScope?.tenantId === tenantId
+          ? ctx.organizationScope
+          : !actorIsSuperAdmin && ctx.auth?.sub
+            ? await resolveOrganizationScope({
+                em,
+                rbac: rbacService,
+                auth: ctx.auth,
+                tenantId,
+              })
+            : null
+        await assertActorCanAssignUserDestination({
+          em,
+          rbacService,
+          actorUserId: ctx.auth?.sub,
+          actorIsSuperAdmin,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.auth?.orgId ?? null,
+          allowedOrganizationIds: organizationScope?.allowedIds,
+          destinationTenantId: tenantId,
+          destinationOrganizationId: parsed.organizationId,
+          roles: destinationRoles,
+        })
+      }
     }
 
     const userTenantId = existing.tenantId ? String(existing.tenantId) : null
@@ -655,7 +706,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           values: custom,
         })
       }
-    ], { transaction: true })
+    ], { transaction: true, label: destinationChanged ? 'auth.users.update.destination' : 'auth.users.update' })
 
     const identifiers = {
       id: String(user.id),

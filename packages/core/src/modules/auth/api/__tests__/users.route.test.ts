@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { DELETE, GET, POST, PUT } from '@open-mercato/core/modules/auth/api/users/route'
-import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
@@ -1280,6 +1280,198 @@ describe('GET /api/auth/users', () => {
 
     expect(response.status).toBe(403)
     expect(body.error).toContain('Cannot grant feature api_keys.create')
+  })
+
+  test('allows moving an existing user to an allowed destination organization when roles are omitted', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174502'
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: [organizationId, secondaryOrganizationId],
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: [organizationId, secondaryOrganizationId],
+      tenantId,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Organization && (where as { id?: unknown }).id === secondaryOrganizationId) {
+        return { id: secondaryOrganizationId, tenant: { id: tenantId } }
+      }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        organizationId: secondaryOrganizationId,
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+  })
+
+  test('allows updating a user when the supplied organization is unchanged', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174505'
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Organization) return { id: organizationId, tenant: { id: tenantId } }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        organizationId,
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+  })
+
+  test('allows moving a user to a descendant organization in the canonical actor scope', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174506'
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: [organizationId],
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: [organizationId, descendantOrganizationId],
+      tenantId,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Organization && (where as { id?: unknown }).id === descendantOrganizationId) {
+        return { id: descendantOrganizationId, tenant: { id: tenantId } }
+      }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        organizationId: descendantOrganizationId,
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+  })
+
+  test('rejects moving a user with an omitted retained role the actor cannot grant', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174507'
+    const privilegedRoleId = '323e4567-e89b-12d3-a456-426614174779'
+    const retainedRole = { id: privilegedRoleId, tenantId } as Role
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: [organizationId, secondaryOrganizationId],
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: [organizationId, secondaryOrganizationId],
+      tenantId,
+    })
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === UserRole) return [{ role: retainedRole }]
+      return []
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Organization && (where as { id?: unknown }).id === secondaryOrganizationId) {
+        return { id: secondaryOrganizationId, tenant: { id: tenantId } }
+      }
+      if (entity === RoleAcl) {
+        return { isSuperAdmin: false, featuresJson: ['api_keys.create'], organizationsJson: null }
+      }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        organizationId: secondaryOrganizationId,
+      }),
+    }))
+
+    expect(response.status).toBe(403)
+  })
+
+  test('rejects moving an existing user to a forbidden same-tenant organization when roles are omitted', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174503'
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: [organizationId],
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: [organizationId],
+      tenantId,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Organization && (where as { id?: unknown }).id === secondaryOrganizationId) {
+        return { id: secondaryOrganizationId, tenant: { id: tenantId } }
+      }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        organizationId: secondaryOrganizationId,
+      }),
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(body.error).toContain('destination organization')
+  })
+
+  test('rejects moving an existing user to a foreign-tenant organization when roles are omitted', async () => {
+    const userId = '523e4567-e89b-12d3-a456-426614174504'
+    const foreignTenantId = '123e4567-e89b-12d3-a456-426614174099'
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['auth.users.edit'],
+      organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: unknown) => {
+      if (entity === User) return { id: userId, tenantId, organizationId }
+      if (entity === Organization && (where as { id?: unknown }).id === secondaryOrganizationId) {
+        return { id: secondaryOrganizationId, tenant: { id: foreignTenantId } }
+      }
+      return null
+    })
+
+    const response = await PUT(new Request('http://localhost/api/auth/users', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: userId,
+        organizationId: secondaryOrganizationId,
+      }),
+    }))
+
+    expect(response.status).toBe(404)
   })
 
   test('rejects non-super admin actors editing a super admin target user', async () => {
