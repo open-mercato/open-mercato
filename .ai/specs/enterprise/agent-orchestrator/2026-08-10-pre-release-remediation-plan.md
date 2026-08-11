@@ -148,17 +148,17 @@ The gate is closed, so W1 and W2 are specifiable now.
 
 1. **W6**, then **W3** — smallest and independent, and W3 carries three security/DS fixes that are cheap while those files are open.
 2. **W4** (audit first, then rework) and **W5** (measure first) — independent, run in parallel.
-3. **W1** — including the milestone declaration, the optional outcome reference and the migration squash — then **W2**, then **W7**.
+3. **W1** — including the milestone declaration, the optional outcome reference and the migration squash — and **W2** in either order or in parallel; specifying them showed they are independent, so the "W2 follows W1" sequencing above no longer holds. **W7** still trails W1.
 4. Close the propose-only enforcement gap (B1) before release, on its own track.
 
 ## Status at 2026-08-11
 
 | Workstream | State |
 |---|---|
-| **W1** process/trigger model | not started — specifiable now, gate closed |
-| **W2** agent taxonomy | not started — follows W1 |
-| **W3** settings & IA | Web Search move, single save point, Playground layout and the five Traces fixes **shipped**. **Open:** `allowPrivateHosts` as a tenant-writable setting, adapter API keys stored unencrypted in `module_configs`, and the DS pass on the touched pages. |
-| **W4** evals usability | not started — audit first. Carries the migration-snapshot defect. |
+| **W1** process/trigger model | **specced** — [`2026-08-11-triggered-process-model.md`](./2026-08-11-triggered-process-model.md) |
+| **W2** agent taxonomy | **specced** — [`2026-08-11-agent-taxonomy.md`](./2026-08-11-agent-taxonomy.md). Independent of W1, not sequenced behind it. |
+| **W3** settings & IA | **shipped** — Web Search move, single save point, Playground layout, the five Traces fixes, `allowPrivateHosts` made instance-only, adapter credentials encrypted at rest, and the DS pass. |
+| **W4** evals usability | **audited** — [`../../../analysis/2026-08-11-agent-orchestrator-evals-audit.md`](../../../analysis/2026-08-11-agent-orchestrator-evals-audit.md). Two P0s; rework not started. The migration-snapshot defect is absorbed by W1's squash. |
 | **W5** runtime footprint | not started — measure first |
 | **W6** Windows file tree | **shipped** |
 | **W7** authoring wizard | not started — blocked on W1 |
@@ -173,3 +173,4 @@ Two fixes landed on this branch that were NOT plan items — both came from main
 - **2026-08-10**: Gate closed. Q1 milestones = stored on the process definition (against the drafted recommendation — the maintainer wants business names independent of step labels; a drift warning becomes load-bearing as a result). Q2 outcome = optional reference mirroring `subject*`. Q3 action agent = propose-only, executing through the existing safe-command and activity gates so no new effect surface is created. Q4 = leave the Studio fully visible; Agent Orchestrator is enterprise and flag-gated, so hiding workflows inside it would add an ACL axis for no audience, and finding 6 is satisfied by the milestone view instead. W1 resized upward for the milestone editor; the "hide workflows" sub-item dropped.
 - **2026-08-10**: Maintainer correction — Agent Orchestrator has never been released, so no deprecation protocol applies to its own surfaces. Verified against `origin/develop`: the module, `INVOKE_AGENT`, `SET_VARIABLE` and the disposition kinds are all absent there; only core `workflows`' `/backend/tasks` and `workflows.tasks.list` are genuinely shipped. W1 resized from a compatibility migration to a straight refactor (plus a migration squash); the two BC-driven gate questions dropped; the release-gating argument restated as "free now, expensive after release".
 - **2026-08-11**: W6 marked shipped and its root cause recorded (two producers emitting native separators, not one). W3's Traces item marked shipped. Status table added — W3 retains three open items (tenant-writable `allowPrivateHosts`, unencrypted adapter keys, DS pass); W1, W2, W4, W5, W7 and B1 are untouched.
+- **2026-08-11**: W3 closed (egress made instance-only, adapter credentials encrypted at rest, DS pass). W4 audited. W1 and W2 specced as **two independent** documents rather than the sequence this plan assumed — W2 needs nothing from W1. Two corrections to this plan came out of the specs: (a) "merge `AgentTaskDefinition`/`AgentTaskRun` into the process entities" cannot be done as written, because `agent_processes` is an event-rebuilt projection with no authored fields — a definition and a projection do not merge, so W1 keeps three records and renames two; (b) the proposal envelope is a conjunction (`actions[]`, one confidence, one disposition) and cannot express the alternatives a Decision-maker needs, so W2 generalizes it to ranked options each carrying an action plan, and auto-approval gains a margin rule so a near-tie stops reading as certainty.
