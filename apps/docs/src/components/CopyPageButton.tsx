@@ -10,15 +10,19 @@ export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React
     const sourcePath = metadata.source?.replace('@site/docs/', '') || '';
     if (!sourcePath) return;
 
-    const response = await fetch(`/raw/${sourcePath}`);
-    if (!response.ok) {
-      flashState('error');
-      return;
-    }
+    try {
+      const response = await fetch(`/raw/${sourcePath}`);
+      if (!response.ok) {
+        flashState('error');
+        return;
+      }
 
-    const mdxContent = await response.text();
-    await navigator.clipboard.writeText(mdxContent);
-    flashState('copied');
+      const mdxContent = await response.text();
+      await navigator.clipboard.writeText(mdxContent);
+      flashState('copied');
+    } catch {
+      flashState('error');
+    }
   }
 
   function flashState(next: 'copied' | 'error') {
