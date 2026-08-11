@@ -1352,6 +1352,9 @@ export class AgentProcessRun {
     | 'startedAt'
     | 'completedAt'
     | 'failureReason'
+    | 'outcomeType'
+    | 'outcomeId'
+    | 'outcomeLabel'
     | 'createdAt'
     | 'updatedAt'
 
@@ -1421,6 +1424,31 @@ export class AgentProcessRun {
   /** May echo malformed input on validation failure; encrypted (encryption.ts). */
   @Property({ name: 'failure_reason', type: 'text', nullable: true })
   failureReason?: string | null
+
+  /**
+   * WHAT the run produced, written on completion — entity id of the resulting
+   * record (`claims:claim`), its id, and a LABEL SNAPSHOT.
+   *
+   * Nullable BY DECISION, not by omission: a research or monitoring process
+   * produces nothing and stays valid, so an absent outcome is a normal
+   * completion rather than a missing write.
+   *
+   * FK-id + snapshot per `packages/core/AGENTS.md` § Cross-Module Coupling —
+   * `outcome_label` keeps the reference readable when the module that owns the
+   * record is absent, and this is NEVER a cross-module ORM relation. Read
+   * through `lib/tasks/outcome.ts`, never by touching the columns by hand.
+   *
+   * Plaintext, mirroring `agent_processes.subject_label`: this is a record
+   * reference, not the free-text `subject_title` that entry encrypts.
+   */
+  @Property({ name: 'outcome_type', type: 'varchar', length: 150, nullable: true })
+  outcomeType?: string | null
+
+  @Property({ name: 'outcome_id', type: 'varchar', length: 200, nullable: true })
+  outcomeId?: string | null
+
+  @Property({ name: 'outcome_label', type: 'varchar', length: 200, nullable: true })
+  outcomeLabel?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

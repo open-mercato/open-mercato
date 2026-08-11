@@ -8,6 +8,7 @@ import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE } from '../lib/queue'
 import { isAgentCapacityError } from '../lib/runtime/admission'
 import { parseProcessTriggers, scheduleTriggers } from '../lib/tasks/triggers'
+import { declaredOutcomeOf, type ProcessRunOutcome } from '../lib/tasks/outcome'
 import type { AgentRunCtx, AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -59,11 +60,26 @@ function parseTriggeredByUser(triggeredBy: AgentProcessRun['triggeredBy']): stri
 async function finishTaskRun(
   em: EntityManager,
   taskRun: AgentProcessRun,
-  outcome: { status: 'completed' | 'failed'; agentRunId?: string | null; failureReason?: string | null },
+  outcome: {
+    status: 'completed' | 'failed'
+    agentRunId?: string | null
+    failureReason?: string | null
+    /**
+     * What the run PRODUCED, when its result declared one. Optional by
+     * decision — a research or monitoring process produces nothing and
+     * completes perfectly validly with the columns left null.
+     */
+    produced?: ProcessRunOutcome | null
+  },
 ): Promise<void> {
   taskRun.status = outcome.status
   if (outcome.agentRunId !== undefined) taskRun.agentRunId = outcome.agentRunId
   if (outcome.failureReason !== undefined) taskRun.failureReason = outcome.failureReason
+  if (outcome.status === 'completed' && outcome.produced) {
+    taskRun.outcomeType = outcome.produced.type
+    taskRun.outcomeId = outcome.produced.id
+    taskRun.outcomeLabel = outcome.produced.label ?? null
+  }
   taskRun.completedAt = new Date()
   await em.flush()
   await emitAgentOrchestratorEvent(
@@ -167,9 +183,14 @@ async function executeAgentTarget(
   }
 
   const startedBefore = new Date()
+  let produced: ProcessRunOutcome | null = null
   try {
     const agentRuntime = container.resolve('agentRuntime') as AgentRuntimeService
-    await agentRuntime.run(taskRun.targetAgentId, taskRun.input, runCtx)
+    const result = await agentRuntime.run(taskRun.targetAgentId, taskRun.input, runCtx)
+    // A researcher result may DECLARE what it produced under `data.outcome`. A
+    // proposal result never does: nothing exists yet — the effector creates the
+    // record after disposition, long after this run completed.
+    produced = result.kind === 'researcher' ? declaredOutcomeOf(result.data) : null
   } catch (error) {
     if (isRetryable(error)) throw error
     const created = await em.find(
@@ -193,7 +214,7 @@ async function executeAgentTarget(
     { organizationId: taskRun.organizationId, agentId: taskRun.targetAgentId, createdAt: { $gte: startedBefore } },
     { orderBy: { createdAt: 'desc' }, limit: 1 },
   )
-  await finishTaskRun(em, taskRun, { status: 'completed', agentRunId: created[0]?.id ?? null })
+  await finishTaskRun(em, taskRun, { status: 'completed', agentRunId: created[0]?.id ?? null, produced })
 }
 
 type WorkflowExecutorLike = {

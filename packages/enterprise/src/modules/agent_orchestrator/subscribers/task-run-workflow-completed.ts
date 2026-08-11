@@ -16,5 +16,7 @@ export default async function handle(
   ctx: { resolve: <T = unknown>(name: string) => T },
 ): Promise<void> {
   const em = (ctx.resolve('em') as EntityManager).fork()
-  await resolveWorkflowProcessRun(em, (payload ?? {}) as WorkflowInstanceLifecyclePayload, 'completed')
+  // `ctx` doubles as the soft-optional resolver for the `workflows` peer the
+  // outcome read needs — see resolveWorkflowProcessRun's tryResolve.
+  await resolveWorkflowProcessRun(em, (payload ?? {}) as WorkflowInstanceLifecyclePayload, 'completed', undefined, ctx)
 }

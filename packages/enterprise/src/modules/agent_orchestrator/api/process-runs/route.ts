@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { AgentProcessRun } from '../../data/entities'
 import { agentProcessRunListQuerySchema, processRunTriggeredBySchema } from '../../data/validators'
+import { readProcessRunOutcome, type ProcessRunOutcomeColumns } from '../../lib/tasks/outcome'
+import { resolveOutcomeHref } from '../../lib/tasks/outcomeLink'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -48,6 +50,9 @@ const crud = makeCrudRoute<never, never, z.infer<typeof agentProcessRunListQuery
       'started_at',
       'completed_at',
       'failure_reason',
+      'outcome_type',
+      'outcome_id',
+      'outcome_label',
       'organization_id',
       'tenant_id',
       'created_at',
@@ -64,9 +69,20 @@ const crud = makeCrudRoute<never, never, z.infer<typeof agentProcessRunListQuery
       if (query.id) filters.id = { $eq: query.id }
       if (query.processDefinitionId) filters.process_definition_id = { $eq: query.processDefinitionId }
       if (query.status) filters.status = { $eq: query.status }
+      if (query.workflowInstanceId) filters.workflow_instance_id = { $eq: query.workflowInstanceId }
       if (query.sourceEntityType) filters.source_entity_type = { $eq: query.sourceEntityType }
       if (query.sourceEntityId) filters.source_entity_id = { $eq: query.sourceEntityId }
       return filters
+    },
+    /**
+     * The outcome's owning module is resolved HERE, server-side: the module
+     * registry lives on the server, and the client must never guess a URL for a
+     * module that is not part of the deployment. A null href is the honest
+     * degraded answer — the client falls back to the label snapshot.
+     */
+    transformItem: (item: ProcessRunOutcomeColumns & Record<string, unknown>) => {
+      const outcome = readProcessRunOutcome(item)
+      return { ...item, outcome_href: outcome ? resolveOutcomeHref(outcome) : null }
     },
   },
 })
@@ -88,6 +104,11 @@ const taskRunListItemSchema = z.object({
   started_at: z.string().nullable().optional(),
   completed_at: z.string().nullable().optional(),
   failure_reason: z.string().nullable().optional(),
+  outcome_type: z.string().nullable().optional(),
+  outcome_id: z.string().nullable().optional(),
+  outcome_label: z.string().nullable().optional(),
+  /** Resolved server-side; null when the owning module is absent from this deployment. */
+  outcome_href: z.string().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),

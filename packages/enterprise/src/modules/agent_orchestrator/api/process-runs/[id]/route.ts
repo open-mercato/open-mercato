@@ -6,6 +6,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentProcessRun } from '../../../data/entities'
+import { readProcessRunOutcome } from '../../../lib/tasks/outcome'
+import { resolveOutcomeHref } from '../../../lib/tasks/outcomeLink'
 
 /** What the UI polls (or SSE-refetches) after the async 202 from `/tasks/:id/run`. */
 export const metadata = {
@@ -39,7 +41,13 @@ export async function GET(req: Request, ctx: RouteContext) {
   )
   if (!taskRun) return NextResponse.json({ error: 'Task run not found' }, { status: 404 })
 
-  return NextResponse.json({ taskRun })
+  // The outcome's owning module is resolved server-side and may legitimately be
+  // absent — a null href tells the client to render the label snapshot alone.
+  const outcome = readProcessRunOutcome(taskRun)
+  return NextResponse.json({
+    taskRun,
+    outcomeHref: outcome ? resolveOutcomeHref(outcome) : null,
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {

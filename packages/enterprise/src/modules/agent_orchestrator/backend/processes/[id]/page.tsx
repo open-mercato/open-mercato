@@ -34,6 +34,8 @@ import {
 } from '../../../components/types'
 import type { ProcessMilestone } from '../../../data/validators'
 import { buildMilestoneStages, parseProcessMilestones } from '../../../lib/tasks/milestones'
+import { readProcessRunOutcome, type ProcessRunOutcome } from '../../../lib/tasks/outcome'
+import { ProcessOutcome } from '../../../components/ProcessOutcome'
 import {
   mapProcessProjection,
   type AgentProcessStatus,
@@ -372,6 +374,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
 
   const [projection, setProjection] = React.useState<ProcessProjection | null>(null)
   const [milestones, setMilestones] = React.useState<ProcessMilestone[]>([])
+  const [outcome, setOutcome] = React.useState<{ value: ProcessRunOutcome; href: string | null } | null>(null)
   const [degraded, setDegraded] = React.useState(false)
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
@@ -458,6 +461,25 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           .find((list) => list.length > 0)
         setMilestones(authored ?? [])
       }
+
+      // What this process PRODUCED. Optional by decision — a research or
+      // monitoring process produces nothing — so an empty answer renders
+      // nothing at all rather than an empty row. The href comes resolved from
+      // the server; null means the owning module is absent and the label
+      // snapshot is all a reader gets.
+      const runCall = await apiCall<ListResponse>(
+        `/api/agent_orchestrator/process-runs?workflowInstanceId=${encodeURIComponent(processId)}&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (cancelled) return
+      const runRow = (runCall.ok ? runCall.result?.items ?? [] : [])[0] ?? null
+      const producedOutcome = runRow ? readProcessRunOutcome(runRow) : null
+      setOutcome(
+        producedOutcome
+          ? { value: producedOutcome, href: typeof runRow?.outcome_href === 'string' ? runRow.outcome_href : null }
+          : null,
+      )
 
       const runIds = Array.from(new Set(proposalRows.map((p) => p.runId))).filter(Boolean)
       if (runIds.length > 0) {
@@ -674,6 +696,17 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                 {t(STATUS_LABEL_KEY[process.status])}
               </p>
             </div>
+            {/* Absent by design on a research or monitoring process — nothing renders. */}
+            {outcome ? (
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('agent_orchestrator.process.factOutcome')}
+                </p>
+                <p className="mt-0.5">
+                  <ProcessOutcome outcome={outcome.value} href={outcome.href} t={t} />
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {stageRows.length > 0 ? (

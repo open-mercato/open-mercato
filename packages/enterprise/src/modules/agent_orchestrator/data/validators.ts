@@ -1224,6 +1224,30 @@ export const processRunTriggeredBySchema = z.discriminatedUnion('kind', [
 ])
 export type ProcessRunTriggeredBy = z.infer<typeof processRunTriggeredBySchema>
 
+/**
+ * WHAT a completed run produced — the `agent_process_runs.outcome_*` columns.
+ *
+ * OPTIONAL BY DECISION: a research or monitoring process produces nothing and
+ * stays a perfectly valid process, so the whole outcome is nullable rather than
+ * a required completion field.
+ *
+ * FK-id + snapshot per `packages/core/AGENTS.md` § Cross-Module Coupling: `id`
+ * references the produced record by value, `label` is a SNAPSHOT so the
+ * reference stays readable when the module that owns it is absent, and this is
+ * never a cross-module ORM relation.
+ *
+ * `type` is deliberately only length-bounded, not pattern-bounded: storage must
+ * accept whatever a producing module declares. Link resolution reads the
+ * `<module>:<entity>` prefix and simply declines to link when there is none.
+ */
+export const processRunOutcomeSchema = z.object({
+  /** Entity id of the produced record, e.g. `claims:claim`. */
+  type: z.string().min(1).max(150),
+  id: z.string().min(1).max(200),
+  label: z.string().min(1).max(200).optional(),
+})
+export type ProcessRunOutcome = z.infer<typeof processRunOutcomeSchema>
+
 const taskTargetShape = {
   name: z.string().min(1).max(255),
   description: z.string().max(4000).nullable().optional(),
@@ -1312,6 +1336,8 @@ export const agentProcessRunListQuerySchema = z
     id: z.string().uuid().optional(),
     processDefinitionId: z.string().uuid().optional(),
     status: agentProcessRunStatus.optional(),
+    /** Narrows to the run behind one workflow instance — the outcome lookup the process detail page makes. */
+    workflowInstanceId: z.string().uuid().optional(),
     sourceEntityType: z.string().max(100).optional(),
     sourceEntityId: z.string().uuid().optional(),
     page: z.coerce.number().int().min(1).default(1),

@@ -30,6 +30,8 @@ import { formatDateTime } from '../../../../components/types'
 import type { ProcessMilestone, ProcessRunTriggeredBy, ProcessTrigger } from '../../../../data/validators'
 import { manualTrigger, parseProcessTriggers, scheduleTriggers } from '../../../../lib/tasks/triggers'
 import { parseProcessMilestones } from '../../../../lib/tasks/milestones'
+import { readProcessRunOutcome, type ProcessRunOutcome } from '../../../../lib/tasks/outcome'
+import { ProcessOutcome } from '../../../../components/ProcessOutcome'
 import { TriggerEditor, invalidScheduleIndexes } from '../TriggerEditor'
 import { MilestoneEditor } from '../MilestoneEditor'
 
@@ -57,6 +59,10 @@ type ProcessRunRow = {
   agentRunId: string | null
   workflowInstanceId: string | null
   failureReason: string | null
+  /** What the run produced. Null on a research or monitoring process — optional by decision. */
+  outcome: ProcessRunOutcome | null
+  /** Resolved server-side; null when the owning module is absent from this deployment. */
+  outcomeHref: string | null
   createdAt: string | null
   completedAt: string | null
 }
@@ -114,6 +120,8 @@ function mapRun(raw: Record<string, unknown>): ProcessRunRow | null {
     agentRunId: asString(raw.agent_run_id) ?? asString(raw.agentRunId),
     workflowInstanceId: asString(raw.workflow_instance_id) ?? asString(raw.workflowInstanceId),
     failureReason: asString(raw.failure_reason) ?? asString(raw.failureReason),
+    outcome: readProcessRunOutcome(raw),
+    outcomeHref: asString(raw.outcome_href) ?? asString(raw.outcomeHref),
     createdAt: asString(raw.created_at) ?? asString(raw.createdAt),
     completedAt: asString(raw.completed_at) ?? asString(raw.completedAt),
   }
@@ -355,6 +363,16 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         accessorKey: 'completedAt',
         header: t('agent_orchestrator.processDefinitions.runs.col.completed'),
         cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.completedAt, locale) ?? '—'}</span>,
+      },
+      {
+        id: 'outcome',
+        header: t('agent_orchestrator.processDefinitions.runs.col.outcome'),
+        cell: ({ row }) =>
+          row.original.outcome ? (
+            <ProcessOutcome outcome={row.original.outcome} href={row.original.outcomeHref} t={t} />
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
       },
       {
         id: 'result',
