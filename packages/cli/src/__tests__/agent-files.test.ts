@@ -62,7 +62,7 @@ const PRIMARY_CLAUDE = [
 
 const PRIMARY_OUTCOME = [
   '---',
-  'kind: actionable',
+  'kind: proposal',
   '---',
   '```json',
   JSON.stringify({
@@ -84,7 +84,7 @@ const SUB_CLAUDE = [
 
 const SUB_OUTCOME = [
   '---',
-  'kind: informative',
+  'kind: researcher',
   '---',
   '```json',
   JSON.stringify({
@@ -160,19 +160,19 @@ describe('agent-files generator (Phase 4 sub-agents)', () => {
     expect(manifest).toContain('deals.activity_scan')
   })
 
-  it('fails generation when a sub-agent is actionable (only the primary proposes)', () => {
+  it('fails generation when a sub-agent is proposal (only the primary proposes)', () => {
     const repo = makeRepo()
     created.push(repo.root)
     const agentDir = path.join(repo.appBase, 'agents', 'deals_health_check')
     writeAgent(agentDir, { claude: PRIMARY_CLAUDE, outcome: PRIMARY_OUTCOME })
     writeAgent(path.join(agentDir, 'sub-agents', 'bad'), {
       claude: SUB_CLAUDE,
-      // actionable sub-agent — must be rejected
+      // proposal sub-agent — must be rejected
       outcome: PRIMARY_OUTCOME,
     })
 
     const extension = createAgentFilesExtension()
-    expect(() => extension.scanModule(makeCtx(repo, 'agent_examples'))).toThrow(/informative/i)
+    expect(() => extension.scanModule(makeCtx(repo, 'agent_examples'))).toThrow(/researcher/i)
   })
 
   it('fails generation when a sub-agent declares its own subAgents (depth cap = 1)', () => {

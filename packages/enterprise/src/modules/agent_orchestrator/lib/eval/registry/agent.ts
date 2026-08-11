@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { agentTypeSchema } from '../../../data/validators'
+import { normalizeProposalEnvelope } from '../../../data/proposalEnvelope'
 import type { Json, ScorerDefinition } from '../types'
 import { SKIP_REASON, skipped } from '../types'
 import { baseConfigSchema, directionSchema, toText, verdict } from './shared'
@@ -201,7 +203,7 @@ export const dispositionEquals: ScorerDefinition<DispositionEqualsConfig> = {
     const actual = run.disposition
     if (actual === null) {
       // No proposal on this run — the disposition is unknown, not different. A
-      // run that produced no proposal (informative agents, or a trace ingested
+      // run that produced no proposal (researcher agents, or a trace ingested
       // before the proposal is written) must not read as a failed expectation.
       return skipped(SKIP_REASON.notApplicable, { reason: 'run has no disposition' })
     }
@@ -235,10 +237,98 @@ export const noPii: ScorerDefinition<NoPiiConfig> = {
   },
 }
 
+/**
+ * `allowedActions` is coerced per element for the same reason `required_keys` is: a
+ * whole-array `z.array(z.string())` with `.catch([])` would substitute an EMPTY list on
+ * one bad element, and an empty allowlist here passes VACUOUSLY — a stored gate would
+ * silently flip fail → pass, which is the one direction this assertion must never move.
+ *
+ * `agentType` narrows the assertion to one declared type so a suite can say "a
+ * decision-maker may only propose status changes" without also constraining action
+ * agents. Absent means every type.
+ */
+const actionVocabularyConfig = baseConfigSchema.extend({
+  allowedActions: z
+    .array(z.unknown())
+    .catch([])
+    .transform((entries) => entries.map((entry) => String(entry))),
+  agentType: agentTypeSchema.optional(),
+})
+export type ActionVocabularyConfig = z.infer<typeof actionVocabularyConfig>
+
+/** Every action type the run's proposal offered, across ALL options — a rejected option still proposed it. */
+function proposedActionTypes(output: Json | null): string[] {
+  if (output === null || typeof output !== 'object' || Array.isArray(output)) return []
+  const envelope = normalizeProposalEnvelope(
+    (output as Record<string, Json>).proposal ?? output,
+  )
+  return envelope.options.flatMap((option) => option.actions.map((action) => action.type))
+}
+
+/**
+ * The eval half of the action vocabulary (spec `2026-08-11-agent-taxonomy.md`, step 9).
+ *
+ * The runtime check blocks an out-of-vocabulary effect at disposition time; this makes
+ * the same violation VISIBLE as a failed assertion, because an agent that keeps
+ * proposing actions it may not run is a prompt defect, not an execution one — the
+ * blocked effect leaves no trace an operator would ever look at.
+ *
+ * Deliberately CONFIG-driven rather than reading the live catalogue: a scorer is pure
+ * and must produce the same verdict online, in the replay engine and in the CI gate,
+ * which a deployment-dependent catalogue could not.
+ */
+export const actionVocabulary: ScorerDefinition<ActionVocabularyConfig> = {
+  scorerKey: 'action_vocabulary',
+  labelKey: `${I18N}.action_vocabulary`,
+  group: 'agent',
+  kind: 'deterministic',
+  configSchema: actionVocabularyConfig,
+  fields: [
+    {
+      name: 'allowedActions',
+      kind: 'string-list',
+      labelKey: `${I18N}.action_vocabulary.field.allowedActions`,
+      hintKey: `${I18N}.action_vocabulary.field.allowedActions.hint`,
+      required: true,
+    },
+    {
+      name: 'agentType',
+      kind: 'select',
+      labelKey: `${I18N}.action_vocabulary.field.agentType`,
+      hintKey: `${I18N}.action_vocabulary.field.agentType.hint`,
+      options: [
+        { value: 'researcher', labelKey: `${I18N}.agentType.researcher` },
+        { value: 'decision_maker', labelKey: `${I18N}.agentType.decision_maker` },
+        { value: 'action', labelKey: `${I18N}.agentType.action` },
+      ],
+    },
+  ],
+  needsExpected: () => false,
+  score: (run, _expected, config) => {
+    if (config.agentType && run.agentType !== config.agentType) {
+      return skipped(SKIP_REASON.notApplicable, { reason: 'agent type does not match', agentType: run.agentType })
+    }
+    const proposed = proposedActionTypes(run.output)
+    if (proposed.length === 0) {
+      // A run that proposed nothing cannot have proposed something forbidden. Skipping
+      // rather than passing keeps a researcher run out of the pass aggregate entirely.
+      return skipped(SKIP_REASON.notApplicable, { reason: 'run proposed no action' })
+    }
+    const allowed = new Set(config.allowedActions)
+    const offending = [...new Set(proposed.filter((type) => !allowed.has(type)))]
+    return {
+      passed: offending.length === 0,
+      score: offending.length === 0 ? 1 : 0,
+      evidence: offending.length ? { offending, allowed: config.allowedActions } : undefined,
+    }
+  },
+}
+
 export const agentScorers = [
   outputPresent,
   requiredKeys,
   confidenceThreshold,
   dispositionEquals,
   noPii,
+  actionVocabulary,
 ] as const

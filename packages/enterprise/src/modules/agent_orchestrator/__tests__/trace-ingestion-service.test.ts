@@ -57,7 +57,7 @@ function basePayload() {
     externalRunId: 'run-ext-1',
     agentId: 'deals.health_check',
     status: 'ok' as const,
-    output: { kind: 'informative', data: { ok: true } },
+    output: { kind: 'researcher', data: { ok: true } },
     spans: [
       {
         externalSpanId: 'span-root',
@@ -228,7 +228,7 @@ describe('ingestTrace — artifact offload (F1)', () => {
 
     const run = storeFor(AgentRun)[0]
     expect(run.outputArtifactKey).toBeNull()
-    expect(run.output).toEqual({ kind: 'informative', data: { ok: true } })
+    expect(run.output).toEqual({ kind: 'researcher', data: { ok: true } })
     expect(offloadArtifact).not.toHaveBeenCalled()
   })
 

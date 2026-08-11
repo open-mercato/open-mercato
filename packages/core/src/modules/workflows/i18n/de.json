@@ -1446,7 +1446,7 @@
   "workflows.outcomes.default": "Standard",
   "workflows.outcomes.error": "Fehler",
   "workflows.outcomes.guardrailBlocked": "durch Schutzregel blockiert",
-  "workflows.outcomes.informative": "informativ",
+  "workflows.outcomes.researcher": "recherche",
   "workflows.outcomes.inheritsErrorDirective": "unbehandelt → Fehlerdirektive",
   "workflows.outcomes.rejected": "abgelehnt",
   "workflows.parallel.branch.label": "Zweig",

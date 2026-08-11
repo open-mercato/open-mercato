@@ -141,7 +141,7 @@ describe('deriveProcessStatus — precedence table (first match wins)', () => {
     ).toBe('question_open')
   })
 
-  it('pending actionable proposal → waiting_on_you', () => {
+  it('pending proposal → waiting_on_you', () => {
     expect(deriveProcessStatus({ ...base, pendingProposalCount: 1 })).toBe('waiting_on_you')
   })
 

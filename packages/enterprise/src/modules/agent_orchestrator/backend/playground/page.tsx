@@ -40,8 +40,8 @@ function readEnvelopeRationale(payload: unknown): string | null {
 }
 
 type AgentResult =
-  | { kind: 'informative'; data: unknown }
-  | { kind: 'actionable'; proposal: unknown }
+  | { kind: 'researcher'; data: unknown }
+  | { kind: 'proposal'; proposal: unknown }
 
 type AgentRunResponse = AgentResult & { runId?: string | null; proposalId?: string | null }
 
@@ -524,7 +524,7 @@ export default function AgentPlaygroundPage() {
                 />
               ) : null}
 
-              {result?.kind === 'actionable' ? (
+              {result?.kind === 'proposal' ? (
                 <ProposalCard
                   adHoc={{
                     agentId,
@@ -535,9 +535,9 @@ export default function AgentPlaygroundPage() {
                 />
               ) : null}
 
-              {result?.kind === 'informative' ? (
+              {result?.kind === 'researcher' ? (
                 <section className="space-y-2">
-                  <SectionHeader title={t('agent_orchestrator.playground.result.informative')} />
+                  <SectionHeader title={t('agent_orchestrator.playground.result.researcher')} />
                   <JsonDisplay data={result.data} />
                 </section>
               ) : null}

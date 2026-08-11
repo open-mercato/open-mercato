@@ -600,7 +600,7 @@ function invokeAgentContributions(
     }
 
     // Everything is `maybe`: which keys land depends on the resolution path
-    // (inline auto_approved/informative, parked machine resume, or human
+    // (inline auto_approved/researcher, parked machine resume, or human
     // dispose) and, for mapped keys, on the source path resolving.
     const outputMapping = activity.config?.outputMapping
     const hasMapping = isPlainObject(outputMapping) && Object.keys(outputMapping).length > 0

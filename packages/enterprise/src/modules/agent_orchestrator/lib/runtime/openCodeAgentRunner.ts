@@ -140,7 +140,7 @@ function resolveRunTimeoutMs(overrideMs?: number): number {
  *  5. Idle without a captured outcome → ONE corrective nudge, wait again; still
  *     nothing → fail the run and throw.
  *  6. Re-validate the captured outcome (defense in depth), shape the result,
- *     complete the run (+ create the proposal for actionable), dispose the
+ *     complete the run (+ create the proposal for proposal), dispose the
  *     correlation entry, and best-effort revoke the session token.
  */
 export class OpenCodeAgentRunner {
@@ -182,6 +182,7 @@ export class OpenCodeAgentRunner {
       model: entry.defaultModel ?? null,
       processId: ctx.processId ?? null,
       stepId: ctx.stepId ?? null,
+      agentType: entry.agentType ?? null,
     })
 
     if (ctx.onRunPersisted) {
@@ -350,12 +351,12 @@ export class OpenCodeAgentRunner {
         runId,
         output: result,
         resultKind: entry.resultKind,
-        // Actionable runs surface the proposal's confidence on the run row;
-        // informative runs have no confidence semantics → null (renders `—`).
-        confidence: result.kind === 'actionable' ? deriveEnvelopeConfidence(result.proposal) : null,
+        // Proposal runs surface the proposal's confidence on the run row;
+        // researcher runs have no confidence semantics → null (renders `—`).
+        confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
       })
 
-      if (result.kind === 'actionable') {
+      if (result.kind === 'proposal') {
         await createProposal(this.commandBus, commandCtx, {
           source: ctx.source,
           tenantId: ctx.tenantId,

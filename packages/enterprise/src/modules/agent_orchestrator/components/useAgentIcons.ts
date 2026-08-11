@@ -5,7 +5,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { mapAgent } from './types'
 import type { AgentIconName } from '../data/agentIcons'
 
-export type AgentIconInfo = { icon: AgentIconName | null; resultKind: 'informative' | 'actionable' }
+export type AgentIconInfo = { icon: AgentIconName | null; resultKind: 'researcher' | 'proposal' }
 
 /**
  * Loads the agent registry once and exposes a `agentId → { icon, resultKind }`

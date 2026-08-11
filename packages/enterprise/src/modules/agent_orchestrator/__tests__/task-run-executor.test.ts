@@ -141,7 +141,7 @@ describe('task-run-executor worker', () => {
         agentId: 'deals.health_check',
         createdAt: new Date(),
       })
-      return { kind: 'informative' }
+      return { kind: 'researcher' }
     })
     containerHolder.container = makeContainer(em, { agentRuntime: { run: runMock } })
 

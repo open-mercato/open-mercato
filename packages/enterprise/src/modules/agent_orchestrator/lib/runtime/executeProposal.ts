@@ -21,6 +21,13 @@ export type ExecuteProposalCtx = {
    * omitted, it is read per call. Never widen it — it is the catalogue, not a grant.
    */
   vocabulary?: ActionVocabulary
+  /**
+   * The proposing agent's narrowed vocabulary (`AgentRegistryEntry.allowedActions`).
+   * Omitted/null means the agent declared no narrowing and is bounded by the catalogue
+   * alone; an EMPTY list denies every action, which is what a declaration whose entries
+   * were all dropped at registration must mean.
+   */
+  allowedActions?: readonly string[] | null
 }
 
 export type ExecuteProposalActionResult =
@@ -49,7 +56,7 @@ export async function executeProposal(
       results.push({ type: action.type, status: 'skipped', reason: `no command mapped for action type "${action.type}"` })
       continue
     }
-    if (!isEffectWithinVocabulary(vocabulary, action.type, commandId)) {
+    if (!isEffectWithinVocabulary(vocabulary, action.type, commandId, ctx.allowedActions)) {
       results.push({
         type: action.type,
         status: 'skipped',

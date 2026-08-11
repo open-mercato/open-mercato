@@ -1,6 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { type AgentResult, type AgentProposalPayload, type GuardResults } from '../../data/validators'
+import { type AgentResult, type AgentProposalPayload, type AgentType, type GuardResults } from '../../data/validators'
 import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 
@@ -148,6 +148,8 @@ export async function createRun(
     stepId?: string | null
     /** `eval` marks a replay so it never skews the agent's production metrics. */
     source?: 'runtime' | 'eval'
+    /** The agent's declared type (authoring fact); null when it declares none. */
+    agentType?: AgentType | null
   },
 ): Promise<string> {
   // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
@@ -181,8 +183,8 @@ export async function completeRun(
   input: {
     runId: string
     output: AgentResult
-    resultKind: 'informative' | 'actionable'
-    /** Proposal confidence for actionable results; informative runs have no confidence semantics. */
+    resultKind: 'researcher' | 'proposal'
+    /** Proposal confidence for proposal results; researcher runs have no confidence semantics. */
     confidence?: number | null
   } & RunUsageStamp,
 ): Promise<void> {
@@ -192,7 +194,7 @@ export async function completeRun(
         runId: string
         status: 'ok'
         output: AgentResult
-        resultKind: 'informative' | 'actionable'
+        resultKind: 'researcher' | 'proposal'
         confidence?: number | null
       } & RunUsageStamp,
       { runId: string }
@@ -265,18 +267,18 @@ export async function createProposal(
  * the literal `kind` discriminator.
  */
 export function shapeResult(
-  resultKind: 'informative' | 'actionable',
+  resultKind: 'researcher' | 'proposal',
   data: unknown,
   agentId?: string,
 ): AgentResult {
   const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-  if (resultKind === 'informative') {
-    return { kind: 'informative', data: 'data' in record ? record.data : data }
+  if (resultKind === 'researcher') {
+    return { kind: 'researcher', data: 'data' in record ? record.data : data }
   }
   // An agent's OUTCOME schema is authored per agent and may still declare the
   // pre-envelope `{ actions, confidence, rationale }` shape. Lifting it here — by the
   // SAME rule the backfill migration applies — is what makes the option envelope the
   // one persisted contract without rewriting every agent's declared OUTCOME.
   const proposal = normalizeProposalEnvelope(record.proposal ?? data, agentId)
-  return { kind: 'actionable', proposal }
+  return { kind: 'proposal', proposal }
 }

@@ -4,6 +4,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { AgentRun, type AgentRunStatus } from '../data/entities'
+import { agentTypeSchema } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 import { getRerunOfRunId } from '../lib/runtime/rerunContext'
 
@@ -39,6 +40,12 @@ const createAgentRunSchema = z.object({
   processId: z.string().uuid().nullable().optional(),
   /** Workflow step id this run belongs to. */
   stepId: z.string().min(1).nullable().optional(),
+  /**
+   * The agent's DECLARED type, stamped onto the run record. Nullable + optional: an
+   * agent that declares none, and every caller written before the declaration existed,
+   * leave the column null.
+   */
+  agentType: agentTypeSchema.nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -60,7 +67,7 @@ const completeAgentRunSchema = z
     runId: z.string().uuid(),
     status: z.enum(['ok', 'error']),
     output: z.unknown().optional(),
-    resultKind: z.enum(['informative', 'actionable']).nullable().optional(),
+    resultKind: z.enum(['researcher', 'proposal']).nullable().optional(),
     confidence: z.number().min(0).max(1).nullable().optional(),
   })
   .merge(runUsageStampSchema)
@@ -106,6 +113,7 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
       model: input.model ?? null,
       processId: input.processId ?? null,
       stepId: input.stepId ?? null,
+      agentType: input.agentType ?? null,
     })
     em.persist(run)
     await em.flush()

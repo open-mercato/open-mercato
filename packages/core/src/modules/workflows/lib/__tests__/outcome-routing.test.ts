@@ -86,7 +86,7 @@ describe('agent outcome routing — the vocabulary is spec 7.2, not an OUTCOME e
   test('declares exactly the five fixed disposition kinds', () => {
     expect(AGENT_OUTCOME_KINDS).toEqual([
       'approved',
-      'informative',
+      'researcher',
       'rejected',
       'guardrailBlocked',
       'error',
@@ -97,10 +97,10 @@ describe('agent outcome routing — the vocabulary is spec 7.2, not an OUTCOME e
     expect(mapDispositionToAgentOutcome('auto_approved')).toBe('approved')
     expect(mapDispositionToAgentOutcome('approved')).toBe('approved')
     expect(mapDispositionToAgentOutcome('edited')).toBe('approved')
-    expect(mapDispositionToAgentOutcome('informative')).toBe('informative')
-    // An agent that looked and had nothing to propose takes the informative handle —
+    expect(mapDispositionToAgentOutcome('researcher')).toBe('researcher')
+    // An agent that looked and had nothing to propose takes the researcher handle —
     // NOT `rejected`: nothing was offered for a human to decline.
-    expect(mapDispositionToAgentOutcome('none_proposed')).toBe('informative')
+    expect(mapDispositionToAgentOutcome('none_proposed')).toBe('researcher')
     expect(mapDispositionToAgentOutcome('rejected')).toBe('rejected')
     expect(mapDispositionToAgentOutcome('guardrail_blocked')).toBe('guardrailBlocked')
     expect(mapDispositionToAgentOutcome('pending')).toBeNull()
@@ -172,8 +172,8 @@ describe('agent outcome routing — pure resolver', () => {
   })
 
   test('an unwired non-approved outcome inherits the step error directive', () => {
-    const handling = resolveAgentOutcomeHandling(wired, 'agent', 'informative')
-    expect(handling).toMatchObject({ kind: 'inherit', outcome: 'informative' })
+    const handling = resolveAgentOutcomeHandling(wired, 'agent', 'researcher')
+    expect(handling).toMatchObject({ kind: 'inherit', outcome: 'researcher' })
     if (handling.kind !== 'inherit') return
     expect(handling.handling).toEqual({ kind: 'fail' })
   })
@@ -409,7 +409,7 @@ describe('agent outcome routing — executor', () => {
   test('an outcome on a step declaring none routes exactly as it always did', async () => {
     const definition = makeDefinition(normalRoutes)
     const instance = makeInstance({
-      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'informative'),
+      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'researcher'),
     })
     primeEm(definition, instance)
 
@@ -487,7 +487,7 @@ describe('agent outcome routing — executor', () => {
     }
     agentStep.errorDirective = { mode: 'continueWithFallback', fallbackValue: { reviewed: false } }
     const instance = makeInstance({
-      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'informative'),
+      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'researcher'),
     })
 
     const dispatched = await workflowExecutor.dispatchAgentOutcomeForCurrentStep(
@@ -513,7 +513,7 @@ describe('agent outcome routing — executor', () => {
     }
     agentStep.errorDirective = { mode: 'failureQueue' }
     const instance = makeInstance({
-      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'informative'),
+      [WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY]: buildAgentOutcomeContextEntry('agent', 'researcher'),
     })
 
     const dispatched = await workflowExecutor.dispatchAgentOutcomeForCurrentStep(

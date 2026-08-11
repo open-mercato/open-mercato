@@ -7,7 +7,7 @@ import { captureLogs } from './support/captureLogs'
 // agent must (1) inject the skill's instructions into the system prompt and
 // (2) union the skill's read-only tools into the agent's allowedTools.
 describe('agent_orchestrator skills', () => {
-  const schema = z.object({ kind: z.literal('informative'), data: z.unknown() })
+  const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
 
   it('registers a skill and exposes it via the registry', () => {
     defineSkill({
@@ -60,7 +60,7 @@ describe('agent_orchestrator skills', () => {
       instructions: 'BASE_INSTRUCTIONS',
       tools: ['customers.get_deal'],
       skills: ['test.pipeline_pack'],
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
     // System prompt carries both the base instructions and the skill body.
     expect(def.systemPrompt).toContain('BASE_INSTRUCTIONS')
@@ -80,7 +80,7 @@ describe('agent_orchestrator skills', () => {
       description: 'References a skill that does not exist.',
       instructions: 'BASE',
       skills: ['test.does_not_exist'],
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
     expect(def.allowedTools).toEqual([])
     expect(

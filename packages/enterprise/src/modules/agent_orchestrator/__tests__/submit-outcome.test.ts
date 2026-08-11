@@ -15,7 +15,7 @@ describe('agent_orchestrator.submit_outcome', () => {
 
   const AGENT_ID = 'demo.submit_outcome_test'
   const resultSchema = z.object({
-    kind: z.literal('actionable'),
+    kind: z.literal('proposal'),
     proposal: z.object({ stage: z.string().min(1), confidence: z.number() }),
   })
 
@@ -26,7 +26,7 @@ describe('agent_orchestrator.submit_outcome', () => {
       const entry: AgentRegistryEntry = {
         id: AGENT_ID,
         moduleId: 'agent_examples',
-        resultKind: 'actionable',
+        resultKind: 'proposal',
         schema: resultSchema,
         tools: [],
         skills: [],
@@ -66,7 +66,7 @@ describe('agent_orchestrator.submit_outcome', () => {
     const store = new InMemoryAgentRunSessionStore()
     const key = 'sess_valid_1'
     await openRun(store, key)
-    const outcome = { kind: 'actionable', proposal: { stage: 'won', confidence: 0.9 } }
+    const outcome = { kind: 'proposal', proposal: { stage: 'won', confidence: 0.9 } }
     const result = (await tool.handler!({ outcome }, makeCtx(store, key))) as { ok: boolean }
     expect(result).toEqual({ ok: true })
     expect(await store.readOutcome(key)).toEqual({ done: true, outcome })
@@ -76,7 +76,7 @@ describe('agent_orchestrator.submit_outcome', () => {
     const store = new InMemoryAgentRunSessionStore()
     const key = 'sess_jsonstr'
     await openRun(store, key)
-    const outcome = { kind: 'actionable', proposal: { stage: 'won', confidence: 0.5 } }
+    const outcome = { kind: 'proposal', proposal: { stage: 'won', confidence: 0.5 } }
     const result = (await tool.handler!({ outcome: JSON.stringify(outcome) }, makeCtx(store, key))) as { ok: boolean }
     expect(result).toEqual({ ok: true })
     expect(await store.readOutcome(key)).toEqual({ done: true, outcome })
@@ -87,7 +87,7 @@ describe('agent_orchestrator.submit_outcome', () => {
     const key = 'sess_invalid_1'
     await openRun(store, key)
     const result = (await tool.handler!(
-      { outcome: { kind: 'actionable', proposal: { stage: '', confidence: 'nope' } } },
+      { outcome: { kind: 'proposal', proposal: { stage: '', confidence: 'nope' } } },
       makeCtx(store, key),
     )) as { ok: boolean; code?: string; errors?: unknown[] }
     expect(result.ok).toBe(false)
@@ -112,7 +112,7 @@ describe('agent_orchestrator.submit_outcome', () => {
     const store = new InMemoryAgentRunSessionStore()
     const key = 'sess_twice'
     await openRun(store, key)
-    const outcome = { kind: 'actionable', proposal: { stage: 'won', confidence: 1 } }
+    const outcome = { kind: 'proposal', proposal: { stage: 'won', confidence: 1 } }
     expect(await tool.handler!({ outcome }, makeCtx(store, key))).toEqual({ ok: true })
     const second = (await tool.handler!({ outcome }, makeCtx(store, key))) as { ok: boolean; code?: string }
     expect(second.ok).toBe(false)
@@ -122,7 +122,7 @@ describe('agent_orchestrator.submit_outcome', () => {
   it('fails closed for an unknown/stale correlation key', async () => {
     const store = new InMemoryAgentRunSessionStore()
     const result = (await tool.handler!(
-      { outcome: { kind: 'actionable', proposal: { stage: 'won', confidence: 1 } } },
+      { outcome: { kind: 'proposal', proposal: { stage: 'won', confidence: 1 } } },
       makeCtx(store, 'sess_does_not_exist'),
     )) as { ok: boolean; code?: string }
     expect(result.ok).toBe(false)
@@ -132,7 +132,7 @@ describe('agent_orchestrator.submit_outcome', () => {
   it('fails closed when the context carries no session', async () => {
     const store = new InMemoryAgentRunSessionStore()
     const result = (await tool.handler!(
-      { outcome: { kind: 'actionable', proposal: { stage: 'won', confidence: 1 } } },
+      { outcome: { kind: 'proposal', proposal: { stage: 'won', confidence: 1 } } },
       makeCtx(store, undefined),
     )) as { ok: boolean; code?: string }
     expect(result.ok).toBe(false)

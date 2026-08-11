@@ -284,7 +284,7 @@ export async function sendSignal(
 
   // Outcome routing (spec 7.2). The signal is how EVERY resolved disposition
   // reaches a parked agent step — the activity worker's auto_approved and
-  // informative resumes and the human dispose path alike — so this is the one
+  // researcher resumes and the human dispose path alike — so this is the one
   // place the disposition has to be translated into the engine-owned outcome
   // marker the executor routes on. Recorded regardless of who sent the signal;
   // the author-visible `disposition` key stays untouched and unread by routing.

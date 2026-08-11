@@ -18,7 +18,7 @@ export type AgentFilterableRow = {
   id: string
   label: string
   description: string
-  resultKind: 'informative' | 'actionable'
+  resultKind: 'researcher' | 'proposal'
   runtime: AgentRuntime
   autonomy: string
   status: string

@@ -208,7 +208,7 @@ export type AgentView = {
   id: string
   label: string
   description: string
-  resultKind: 'informative' | 'actionable'
+  resultKind: 'researcher' | 'proposal'
   runtime: AgentRuntime
   /** Tenant-configured presentation icon (lucide name), or null for the fallback glyph. */
   icon: AgentIconName | null
@@ -547,7 +547,7 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {
   const id = asString(item.id)
   if (!id) return null
-  const resultKind = item.resultKind === 'actionable' ? 'actionable' : 'informative'
+  const resultKind = item.resultKind === 'proposal' ? 'proposal' : 'researcher'
   const runtime: AgentRuntime =
     item.runtime === 'opencode'
       ? 'opencode'

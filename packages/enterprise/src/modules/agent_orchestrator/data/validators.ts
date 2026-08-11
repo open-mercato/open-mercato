@@ -3,7 +3,7 @@ import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 
 /**
- * A single proposed action emitted by an actionable agent. `payload` is shaped
+ * A single proposed action emitted by a proposal agent. `payload` is shaped
  * per-agent via the agent's `result.schema`; the generic form keeps it open.
  */
 export const proposedActionSchema = z.object({
@@ -42,7 +42,7 @@ export const proposalOptionSchema = z.object({
 export type ProposalOption = z.infer<typeof proposalOptionSchema>
 
 /**
- * The proposal envelope carried by an actionable AgentResult: N ranked options, of
+ * The proposal envelope carried by a proposal AgentResult: N ranked options, of
  * which the disposition selects AT MOST one. `options` may legally be empty — "I
  * considered this and have nothing to propose" is a real answer, terminated by the
  * `none_proposed` disposition rather than queued for a human.
@@ -62,15 +62,28 @@ export type AgentProposalPayload = z.infer<typeof agentProposalSchema>
  */
 export function agentResultSchema(dataSchema: ZodTypeAny = z.unknown()) {
   return z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('informative'), data: dataSchema }),
-    z.object({ kind: z.literal('actionable'), proposal: agentProposalSchema }),
+    z.object({ kind: z.literal('researcher'), data: dataSchema }),
+    z.object({ kind: z.literal('proposal'), proposal: agentProposalSchema }),
   ])
 }
 
 export const baseAgentResultSchema = agentResultSchema()
 export type AgentResult<T = unknown> =
-  | { kind: 'informative'; data: T }
-  | { kind: 'actionable'; proposal: AgentProposalPayload }
+  | { kind: 'researcher'; data: T }
+  | { kind: 'proposal'; proposal: AgentProposalPayload }
+
+/**
+ * What an agent is FOR. An AUTHORING fact declared on the agent definition —
+ * distinct from `resultKind`, which is the RUNTIME fact of what came back. The two
+ * can disagree (a `decision_maker` that found nothing returns a researcher-shaped
+ * result); that is a finding, not a crash.
+ *
+ * The type is not structural: `decision_maker` and `action` return the SAME proposal
+ * envelope and differ only in the action vocabulary they are narrowed to. What it
+ * buys is a listable, filterable, assertable property an agent has before it has run.
+ */
+export const agentTypeSchema = z.enum(['researcher', 'decision_maker', 'action'])
+export type AgentType = z.infer<typeof agentTypeSchema>
 
 /**
  * Trace-list filter facets (trace-eval overlay). `needs-review` is the union
@@ -127,7 +140,9 @@ export const runListQuerySchema = z
     idPrefix: runIdPrefixSchema.optional(),
     agentId: z.string().optional(),
     status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
-    resultKind: z.enum(['informative', 'actionable']).optional(),
+    resultKind: z.enum(['researcher', 'proposal']).optional(),
+    /** The agent's DECLARED type (`agent_runs.agent_type`); runs without one never match. */
+    agentType: agentTypeSchema.optional(),
     /** Only runs carrying the operator triage flag (`flagged_at` set). */
     flagged: z.coerce.boolean().optional(),
     // Trace facets + window (trace-eval overlay).
@@ -248,7 +263,7 @@ export const proposalListQuerySchema = z
 export type ProposalListQuery = z.infer<typeof proposalListQuerySchema>
 
 // ── Sample / reference result schema ──────────────────────────────────────
-// The real demo agent ships in area 05; this actionable result schema is the
+// The real demo agent ships in area 05; this proposal result schema is the
 // single source for the example `deals.health_check` agent referenced by the
 // area-01 SDK doc and the throwaway smoke-test `ai-agents.ts`.
 // Tightened so object-mode generation always yields a usable proposal: a
@@ -257,7 +272,7 @@ export type ProposalListQuery = z.infer<typeof proposalListQuerySchema>
 // stage (the effector reads the chosen option's `actions[0].payload.stage`). With these
 // required, `generateObject` constrains the model to fill them.
 export const dealHealthCheckResult = z.object({
-  kind: z.literal('actionable'),
+  kind: z.literal('proposal'),
   proposal: z.object({
     actions: z
       .array(

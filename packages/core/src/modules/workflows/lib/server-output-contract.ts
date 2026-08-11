@@ -71,7 +71,7 @@ bindAgentOutcomeSchemaResolver((agentId) => agentOutcomeContracts?.get(agentId) 
 function toAgentOutcomeContract(snapshot: AgentOutcomeContractSnapshot): AgentOutcomeContract | null {
   const { agentId, resultKind, schema } = snapshot
   if (typeof agentId !== 'string' || agentId.length === 0) return null
-  if (resultKind !== 'informative' && resultKind !== 'actionable') return null
+  if (resultKind !== 'researcher' && resultKind !== 'proposal') return null
   if (!(schema instanceof ZodType)) return null
   return { resultKind, schema }
 }

@@ -19,7 +19,7 @@ export const LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
 export const RUN_SKILL_SCRIPT_TOOL_ID = 'agent_orchestrator.run_skill_script'
 
 const delegateInput = z.object({
-  agentId: z.string().min(1).describe('Id of the sub-agent to run (must be an informative agent).'),
+  agentId: z.string().min(1).describe('Id of the sub-agent to run (must be a researcher agent).'),
   input: z.unknown().describe('Input payload passed to the sub-agent (shape is sub-agent specific).'),
 })
 
@@ -66,7 +66,7 @@ async function resolveParentRunIdFromSession(ctx: McpToolContext): Promise<strin
  * one step; the SDK runs them concurrently). Propose-only is preserved:
  *
  *  - the tool is `isMutation: false` — never gated, never a write;
- *  - the target MUST be an `informative` agent (sub-agents inform; only the
+ *  - the target MUST be an `researcher` agent (sub-agents inform; only the
  *    parent proposes), so no nested proposals are created;
  *  - the target may NOT itself delegate (no `subAgents`), which caps tree depth
  *    at one and prevents cycles;
@@ -79,7 +79,7 @@ const delegateAgentTool: AiToolDefinition = {
   name: DELEGATE_TOOL_ID,
   displayName: 'Delegate to sub-agent',
   description:
-    'Run another agent as a read-only sub-agent and return its result. Only informative, non-delegating agents may be targeted. Call multiple times in one step to fan out in parallel.',
+    'Run another agent as a read-only sub-agent and return its result. Only researcher, non-delegating agents may be targeted. Call multiple times in one step to fan out in parallel.',
   inputSchema: delegateInput,
   requiredFeatures: ['agent_orchestrator.agents.run'],
   isMutation: false,
@@ -95,8 +95,8 @@ const delegateAgentTool: AiToolDefinition = {
     if (!entry) {
       return { ok: false as const, agentId, error: `unknown sub-agent "${agentId}"` }
     }
-    if (entry.resultKind !== 'informative') {
-      return { ok: false as const, agentId, error: 'only informative sub-agents may be delegated to' }
+    if (entry.resultKind !== 'researcher') {
+      return { ok: false as const, agentId, error: 'only researcher sub-agents may be delegated to' }
     }
     if (entry.subAgents.length > 0) {
       return { ok: false as const, agentId, error: 'sub-agents may not delegate further (depth capped at 1)' }
@@ -126,7 +126,7 @@ const delegateAgentTool: AiToolDefinition = {
         // counted as production traffic in the agent's metric rollups.
         ...(delegatedSource ? { source: delegatedSource } : {}),
       })
-      const data = result.kind === 'informative' ? result.data : result.proposal
+      const data = result.kind === 'researcher' ? result.data : result.proposal
       return { ok: true as const, agentId, data }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

@@ -167,7 +167,7 @@ export function listProposalOptionIds(payload: unknown): string[] {
  *
  * A payload carrying no option confidence at all falls back to a numeric top-level
  * `confidence` — the shape a pre-envelope agent OUTCOME declares — so lifting an
- * actionable result that proposes no concrete action does not silently null the
+ * proposal result that proposes no concrete action does not silently null the
  * column the facet reads.
  */
 export function deriveEnvelopeConfidence(payload: unknown, selectedOptionId?: string | null): number | null {

@@ -1446,7 +1446,7 @@
   "workflows.outcomes.default": "por defecto",
   "workflows.outcomes.error": "error",
   "workflows.outcomes.guardrailBlocked": "bloqueado por salvaguarda",
-  "workflows.outcomes.informative": "informativo",
+  "workflows.outcomes.researcher": "investigador",
   "workflows.outcomes.inheritsErrorDirective": "sin gestionar → directiva de error",
   "workflows.outcomes.rejected": "rechazado",
   "workflows.parallel.branch.label": "Rama",

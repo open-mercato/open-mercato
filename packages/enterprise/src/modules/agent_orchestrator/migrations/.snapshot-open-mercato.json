@@ -4196,6 +4196,23 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "agent_type": {
+          "name": "agent_type",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 20,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "agent_version": {
           "name": "agent_version",
           "type": "varchar(50)",

@@ -59,7 +59,7 @@ type DiscoveredAgent = {
   label: string
   description: string
   instructions: string
-  resultKind: 'informative' | 'actionable'
+  resultKind: 'researcher' | 'proposal'
   outcomeSchema: Record<string, unknown>
   /** OUTCOME.md prose after the JSON-Schema fence — injected into the agent prompt. */
   outcomeProse: string
@@ -72,7 +72,7 @@ type DiscoveredAgent = {
   skillsContent: DiscoveredSkill[]
   /**
    * Resolved sub-agents under `sub-agents/<subid>/` (Phase 4). Each is a full
-   * file agent, constrained to informative + non-delegating. Empty for a
+   * file agent, constrained to researcher + non-delegating. Empty for a
    * sub-agent itself (depth cap = 1) and for primaries with no sub-agents.
    */
   subAgentsContent: DiscoveredAgent[]
@@ -213,12 +213,12 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
   return meta
 }
 
-function parseOutcomeKind(frontmatterBlock: string): 'informative' | 'actionable' | null {
+function parseOutcomeKind(frontmatterBlock: string): 'researcher' | 'proposal' | null {
   for (const line of frontmatterBlock.split('\n')) {
     const match = /^kind:\s*(.*)$/.exec(line.trim())
     if (!match) continue
     const value = stripQuotes(match[1])
-    if (value === 'informative' || value === 'actionable') return value
+    if (value === 'researcher' || value === 'proposal') return value
     return null
   }
   return null
@@ -226,7 +226,7 @@ function parseOutcomeKind(frontmatterBlock: string): 'informative' | 'actionable
 
 function parseOutcomeMarkdown(
   raw: string,
-): { kind: 'informative' | 'actionable'; schema: Record<string, unknown>; prose: string } | null {
+): { kind: 'researcher' | 'proposal'; schema: Record<string, unknown>; prose: string } | null {
   const frontmatterMatch = FRONTMATTER_RE.exec(raw)
   if (!frontmatterMatch) return null
   const [, frontmatterBlock, body] = frontmatterMatch
@@ -571,7 +571,7 @@ function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSk
 /**
  * Discover and validate the sub-agents under `agents/<id>/sub-agents/<subid>/`
  * (Phase 4). Each is a full file agent (AGENT.md + OUTCOME.md) constrained to:
- *   1. OUTCOME `kind: informative` (sub-agents inform; only the primary proposes);
+ *   1. OUTCOME `kind: researcher` (sub-agents inform; only the primary proposes);
  *   2. NO `subAgents` of its own (depth cap = 1).
  * FAILS generation (throws, naming the dir) on a malformed sub-agent OR a
  * constraint violation — in sync with `lib/sdk/defineFileAgent.ts` `loadSubAgentDir`.
@@ -599,9 +599,9 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
     }
     assertOutcomeSchemaSupported(outcome.schema, dir)
-    if (outcome.kind !== 'informative') {
+    if (outcome.kind !== 'researcher') {
       throw new Error(
-        `[internal] sub-agent at ${dir} must be informative (kind: informative); only the primary proposes`,
+        `[internal] sub-agent at ${dir} must be researcher (kind: researcher); only the primary proposes`,
       )
     }
     if (agent.subAgents.length > 0) {
@@ -918,7 +918,7 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
   // Inject the OUTCOME contract so the agent SEES the exact shape it must submit
   // (otherwise it guesses and learns the shape only from validation errors). Keep
   // in sync with lib/sdk/defineFileAgent.ts renderOutcomeSection.
-  const outcomeTarget = agent.resultKind === 'actionable' ? 'the `proposal` object' : 'the `data` object'
+  const outcomeTarget = agent.resultKind === 'proposal' ? 'the `proposal` object' : 'the `data` object'
   const outcomeSection = [
     '## Outcome contract',
     `Your result MUST match this JSON Schema (${outcomeTarget}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
@@ -943,7 +943,7 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
  * Render one agent descriptor as a key-per-line object literal at `indent`.
  * Used for both top-level agents and nested sub-agents (Phase 4). A primary that
  * declares sub-agents emits them as a nested `subAgentDescriptors` array so
- * `ensureAgentsLoaded` can register each sub-agent too (informative, individually
+ * `ensureAgentsLoaded` can register each sub-agent too (researcher, individually
  * runnable file agents). A nested sub-agent carries no `subAgentDescriptors`
  * (depth cap = 1).
  */
@@ -1069,7 +1069,7 @@ export type FileAgentDescriptor = {
   sourceFiles?: FileAgentFile[]
   /**
    * Nested descriptors for this agent's sub-agents (Phase 4). Each is an
-   * informative, non-delegating file agent registered individually (depth cap =
+   * researcher, non-delegating file agent registered individually (depth cap =
    * 1). Absent for agents without sub-agents and for sub-agents themselves.
    */
   subAgentDescriptors?: FileAgentDescriptor[]
@@ -1161,7 +1161,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
       const effectiveTools = Array.from(
         new Set([...agent.tools, ...skillTools, ...toolFiles.refs]),
       )
-      // Phase 4: discover + validate sub-agents (throws on a malformed/actionable/
+      // Phase 4: discover + validate sub-agents (throws on a malformed/proposal/
       // self-delegating sub-agent).
       const subAgentsContent = discoverSubAgents(dir)
       discovered.push({

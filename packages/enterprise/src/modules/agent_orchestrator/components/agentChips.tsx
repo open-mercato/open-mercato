@@ -31,8 +31,8 @@ import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
  * reads identically across cockpit surfaces.
  */
 export const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  actionable: Zap,
-  informative: Info,
+  proposal: Zap,
+  researcher: Info,
 }
 
 export const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -73,13 +73,13 @@ export const AGENT_ICON: Record<AgentIconName, React.ComponentType<{ className?:
 
 /**
  * Resolve the glyph for an agent avatar. Prefers the tenant's configured icon;
- * otherwise falls back to the result-kind type glyph (actionable/informative)
+ * otherwise falls back to the result-kind type glyph (proposal/researcher)
  * so an unconfigured agent still reads as an icon rather than initials. Returns
  * `null` only when neither is known, letting the caller keep initials.
  */
 export function resolveAgentIcon(
   icon: string | null | undefined,
-  resultKind?: 'actionable' | 'informative' | null,
+  resultKind?: 'proposal' | 'researcher' | null,
 ): React.ComponentType<{ className?: string }> | null {
   if (isAgentIconName(icon)) return AGENT_ICON[icon]
   if (resultKind && TYPE_ICON[resultKind]) return TYPE_ICON[resultKind]
@@ -93,7 +93,7 @@ export function resolveAgentIcon(
  */
 export function agentAvatarIcon(
   icon: string | null | undefined,
-  resultKind?: 'actionable' | 'informative' | null,
+  resultKind?: 'proposal' | 'researcher' | null,
 ): React.ReactElement | undefined {
   const Icon = resolveAgentIcon(icon, resultKind)
   return Icon ? <Icon /> : undefined

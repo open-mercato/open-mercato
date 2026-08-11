@@ -91,14 +91,14 @@ type DemoAgentSpec = {
   id: string
   runtime: string
   model: string
-  kind: 'actionable' | 'informative'
+  kind: 'proposal' | 'researcher'
   runCount: number
   actionType: string
   subjects: string[]
   rationales: string[]
   buildInput: (subject: string) => Record<string, unknown>
   buildActionPayload: (subject: string) => Record<string, unknown>
-  buildInformativeOutput: (subject: string) => Record<string, unknown>
+  buildResearcherOutput: (subject: string) => Record<string, unknown>
   stageByRationale?: string[]
   withProcess?: boolean
 }
@@ -138,7 +138,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
     id: 'deals.health_check',
     runtime: 'in-process',
     model: 'claude-haiku-4-5',
-    kind: 'actionable',
+    kind: 'proposal',
     runCount: 18,
     actionType: 'set_stage',
     subjects: DEMO_DEAL_SUBJECTS,
@@ -151,14 +151,14 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
     stageByRationale: ['negotiation', 'nurture', 'negotiation', 'proposal'],
     buildInput: (subject) => ({ deal: { name: subject, pipelineStage: 'qualification', amount: 25000 + Math.floor(Math.random() * 90000) } }),
     buildActionPayload: (subject) => ({ stage: DEMO_STAGES[Math.floor(Math.random() * 3) + 1], dealName: subject }),
-    buildInformativeOutput: (subject) => ({ summary: `Deal ${subject} reviewed` }),
+    buildResearcherOutput: (subject) => ({ summary: `Deal ${subject} reviewed` }),
     withProcess: true,
   },
   {
     id: 'deals.health_check_file',
     runtime: 'opencode',
     model: 'claude-sonnet-4-5',
-    kind: 'actionable',
+    kind: 'proposal',
     runCount: 12,
     actionType: 'set_stage',
     subjects: DEMO_DEAL_SUBJECTS,
@@ -170,21 +170,21 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
     stageByRationale: ['negotiation', 'nurture', 'qualification'],
     buildInput: (subject) => ({ deal: { name: subject, pipelineStage: 'proposal', amount: 40000 + Math.floor(Math.random() * 120000) } }),
     buildActionPayload: (subject) => ({ stage: DEMO_STAGES[Math.floor(Math.random() * DEMO_STAGES.length)], dealName: subject }),
-    buildInformativeOutput: (subject) => ({ summary: `Deal ${subject} reviewed` }),
+    buildResearcherOutput: (subject) => ({ summary: `Deal ${subject} reviewed` }),
     withProcess: true,
   },
   {
     id: 'support.ticket_triage',
     runtime: 'in-process',
     model: 'claude-haiku-4-5',
-    kind: 'informative',
+    kind: 'researcher',
     runCount: 16,
     actionType: 'classify_ticket',
     subjects: DEMO_TICKET_SUBJECTS,
     rationales: [],
     buildInput: (subject) => ({ ticket: { subject, channel: 'email' } }),
     buildActionPayload: (subject) => ({ subject }),
-    buildInformativeOutput: (subject) => ({
+    buildResearcherOutput: (subject) => ({
       category: ['billing', 'shipping', 'account', 'technical'][Math.floor(Math.random() * 4)],
       priority: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
       summary: `Triage for: ${subject}`,
@@ -194,7 +194,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
     id: 'support.resolution_advisor',
     runtime: 'opencode',
     model: 'claude-sonnet-4-5',
-    kind: 'actionable',
+    kind: 'proposal',
     runCount: 14,
     actionType: 'suggest_reply',
     subjects: DEMO_TICKET_SUBJECTS,
@@ -208,20 +208,20 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
       reply: `Draft reply for "${subject}" based on the resolution playbook and matching historical tickets.`,
       nextStatus: 'pending_customer',
     }),
-    buildInformativeOutput: (subject) => ({ summary: `Advice for ${subject}` }),
+    buildResearcherOutput: (subject) => ({ summary: `Advice for ${subject}` }),
   },
   {
     id: 'deals.web_researcher',
     runtime: 'opencode',
     model: 'claude-sonnet-4-5',
-    kind: 'informative',
+    kind: 'researcher',
     runCount: 8,
     actionType: 'research',
     subjects: DEMO_DEAL_SUBJECTS,
     rationales: [],
     buildInput: (subject) => ({ deal: { name: subject } }),
     buildActionPayload: (subject) => ({ subject }),
-    buildInformativeOutput: (subject) => ({
+    buildResearcherOutput: (subject) => ({
       company: subject.split(' ')[0],
       headlines: ['Announced new funding round', 'Opened second EU warehouse'],
       riskSignals: [],
@@ -305,7 +305,7 @@ const seedDemo: ModuleCli = {
     for (const spec of DEMO_AGENTS) {
       for (let index = 0; index < spec.runCount; index += 1) {
         const subject = pick(spec.subjects, index)
-        const isPending = spec.kind === 'actionable' && pendingBudget > 0 && index < 3
+        const isPending = spec.kind === 'proposal' && pendingBudget > 0 && index < 3
         const isRunning = !isPending && runningBudget > 0 && index === spec.runCount - 1
         const isError = !isPending && !isRunning && index % 9 === 8
         // Pending rows land in the last 30h so the caseload "waiting" sort has
@@ -318,7 +318,7 @@ const seedDemo: ModuleCli = {
         const createdAt = new Date(now - ageMs)
         const latencyMs = randomBetween(1800, 24000)
         const completedAt = isRunning ? null : new Date(createdAt.getTime() + latencyMs)
-        const confidence = spec.kind === 'actionable' ? randomBetween(55, 97) / 100 : null
+        const confidence = spec.kind === 'proposal' ? randomBetween(55, 97) / 100 : null
         const evalScore = isError || isRunning ? null : randomBetween(72, 99) / 100
         const processId = spec.withProcess && !isRunning ? randomUUID() : null
         if (processId) processIds.add(processId)
@@ -351,10 +351,10 @@ const seedDemo: ModuleCli = {
           input: { ...spec.buildInput(subject), demo: { seed: true } },
           output: isRunning || isError
             ? null
-            : spec.kind === 'informative'
-              ? { kind: 'informative', data: spec.buildInformativeOutput(subject) }
+            : spec.kind === 'researcher'
+              ? { kind: 'researcher', data: spec.buildResearcherOutput(subject) }
               : {
-                  kind: 'actionable',
+                  kind: 'proposal',
                   proposal: {
                     actions: [{ type: spec.actionType, payload: actionPayload }],
                     confidence,
@@ -368,7 +368,7 @@ const seedDemo: ModuleCli = {
         runTotal += 1
         backdates.push({ table: 'agent_runs', id: run.id, createdAt, completedAt })
 
-        if (spec.kind === 'actionable' && !isRunning && !isError) {
+        if (spec.kind === 'proposal' && !isRunning && !isError) {
           let disposition: AgentProposalDisposition
           let dispositionBy: string | null = null
           let dispositionReason: string | null = null

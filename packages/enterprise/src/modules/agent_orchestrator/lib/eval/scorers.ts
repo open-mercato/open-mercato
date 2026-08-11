@@ -49,6 +49,7 @@ function toRunView(input: ScorerInput): ScorerRunView {
     input: null,
     output: (input.output ?? null) as Json | null,
     resultKind: null,
+    agentType: null,
     confidence: input.run.confidence ?? null,
     status: input.run.status ?? 'unknown',
     latencyMs: null,

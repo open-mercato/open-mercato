@@ -90,7 +90,7 @@ describe('runs.complete / runs.fail — forensic completed_at stamping', () => {
     const { em, storeFor } = createFakeEm()
     const row = seedRunningRun(storeFor)
     await completeAgentRunCommand.execute(
-      { runId: RUN_ID, status: 'ok', output: { kind: 'informative', data: {} }, resultKind: 'informative' },
+      { runId: RUN_ID, status: 'ok', output: { kind: 'researcher', data: {} }, resultKind: 'researcher' },
       makeCtx(em),
     )
     expect(row.status).toBe('ok')
@@ -110,7 +110,7 @@ describe('runs.complete / runs.fail — forensic completed_at stamping', () => {
     const original = new Date('2026-07-01T10:00:00Z')
     const row = seedRunningRun(storeFor, { completedAt: original })
     await completeAgentRunCommand.execute(
-      { runId: RUN_ID, status: 'ok', output: { kind: 'informative', data: {} }, resultKind: 'informative' },
+      { runId: RUN_ID, status: 'ok', output: { kind: 'researcher', data: {} }, resultKind: 'researcher' },
       makeCtx(em),
     )
     expect(row.completedAt).toBe(original)

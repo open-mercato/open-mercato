@@ -84,7 +84,7 @@ const DEMO_DHC_ASSERTIONS: Array<{
 
 /** Strong golden output for the healthy demo deal (should auto-approve; confidence >= 0.8). */
 const DEMO_HEALTHY_EXPECTED = {
-  kind: 'actionable',
+  kind: 'proposal',
   proposal: {
     options: [
       {

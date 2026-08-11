@@ -34,11 +34,11 @@ jest.mock('../lib/runtime/persistence', () => ({
   completeRun: (...args: unknown[]) => completeRunMock(...args),
   failRun: (...args: unknown[]) => failRunMock(...args),
   createProposal: (...args: unknown[]) => createProposalMock(...args),
-  shapeResult: (kind: 'informative' | 'actionable', data: unknown) => {
+  shapeResult: (kind: 'researcher' | 'proposal', data: unknown) => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-    return kind === 'informative'
-      ? { kind: 'informative', data: 'data' in record ? record.data : data }
-      : { kind: 'actionable', proposal: record.proposal ?? data }
+    return kind === 'researcher'
+      ? { kind: 'researcher', data: 'data' in record ? record.data : data }
+      : { kind: 'proposal', proposal: record.proposal ?? data }
   },
 }))
 
@@ -80,13 +80,13 @@ function registerNativeAgent(id: string): AgentRegistryEntry {
   const entry: AgentRegistryEntry = {
     id,
     moduleId: 'agent_orchestrator',
-    resultKind: 'informative',
-    schema: z.object({ kind: z.literal('informative'), data: z.unknown() }),
+    resultKind: 'researcher',
+    schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
     tools: [],
     skills: [],
     subAgents: [],
     label: 'Native wiring test agent',
-    description: 'Informative agent for native-runner wiring tests.',
+    description: 'Researcher agent for native-runner wiring tests.',
     instructions: 'inform',
     runtime: 'native',
   }
@@ -104,7 +104,7 @@ function makeService(): AgentRuntimeService {
   return new AgentRuntimeService({ container: container as never, commandBus: {} as never })
 }
 
-const VALID_MODEL_OUTPUT = { mode: 'generate', object: { kind: 'informative', data: { ok: true } }, usage: { inputTokens: 9, outputTokens: 3 } }
+const VALID_MODEL_OUTPUT = { mode: 'generate', object: { kind: 'researcher', data: { ok: true } }, usage: { inputTokens: 9, outputTokens: 3 } }
 const runCtx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
 
 function flushMicrotasks(): Promise<void> {
@@ -155,7 +155,7 @@ describe('native run stamping', () => {
         observed.push(persistedRunId)
       },
     })
-    expect(result.kind).toBe('informative')
+    expect(result.kind).toBe('researcher')
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatch(/^run-\d+$/)
 
@@ -167,7 +167,7 @@ describe('native run stamping', () => {
           throw new Error('[internal] hook boom')
         },
       })
-      expect(result2.kind).toBe('informative')
+      expect(result2.kind).toBe('researcher')
       expect(logs.at('warn').map((record) => record.message)).toContain('onRunPersisted hook failed')
     } finally {
       logs.restore()
@@ -178,8 +178,8 @@ describe('native run stamping', () => {
     const entry: AgentRegistryEntry = {
       id: 'native.legacy_alias_agent',
       moduleId: 'agent_orchestrator',
-      resultKind: 'informative',
-      schema: z.object({ kind: z.literal('informative'), data: z.unknown() }),
+      resultKind: 'researcher',
+      schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
       tools: [],
       skills: [],
       subAgents: [],
@@ -193,7 +193,7 @@ describe('native run stamping', () => {
 
     const service = makeService()
     const result = await service.run('native.legacy_alias_agent', {}, runCtx)
-    expect(result.kind).toBe('informative')
+    expect(result.kind).toBe('researcher')
     const createInput = createRunMock.mock.calls[0][2] as Record<string, unknown>
     expect(createInput.runtime).toBe('native')
   })
@@ -263,7 +263,7 @@ describe('post-run trace capture', () => {
 
     const service = makeService()
     const result = await service.run('native.capture_failure_agent', {}, runCtx)
-    expect(result.kind).toBe('informative')
+    expect(result.kind).toBe('researcher')
     await flushMicrotasks()
     expect(completeRunMock).toHaveBeenCalledTimes(1)
     expect(failRunMock).not.toHaveBeenCalled()
@@ -324,20 +324,20 @@ describe('provider budget wiring', () => {
 })
 
 describe('confidence + usage/cost stamping (data-honesty §3.2)', () => {
-  it('stamps confidence from the proposal and computed cost on an actionable run', async () => {
+  it('stamps confidence from the proposal and computed cost on a proposal run', async () => {
     const entry: AgentRegistryEntry = {
       id: 'native.cost_stamp_agent',
       moduleId: 'agent_orchestrator',
-      resultKind: 'actionable',
+      resultKind: 'proposal',
       schema: z.object({
-        kind: z.literal('actionable'),
+        kind: z.literal('proposal'),
         proposal: z.object({ confidence: z.number().optional() }).passthrough(),
       }),
       tools: [],
       skills: [],
       subAgents: [],
       label: 'Cost stamp agent',
-      description: 'Actionable agent for stamping tests.',
+      description: 'Proposal agent for stamping tests.',
       instructions: 'propose',
       runtime: 'native',
       defaultModel: 'gpt-5-mini',
@@ -359,7 +359,7 @@ describe('confidence + usage/cost stamping (data-honesty §3.2)', () => {
       })
       return {
         mode: 'generate',
-        object: { kind: 'actionable', proposal: { confidence: 0.83 } },
+        object: { kind: 'proposal', proposal: { confidence: 0.83 } },
         usage: { inputTokens: 1, outputTokens: 1 },
       }
     })
@@ -378,12 +378,12 @@ describe('confidence + usage/cost stamping (data-honesty §3.2)', () => {
     expect(input.currency).toBe('USD')
   })
 
-  it('informative run: null confidence, fallback usage, no cost without a priced model', async () => {
-    registerNativeAgent('native.informative_stamp_agent')
+  it('researcher run: null confidence, fallback usage, no cost without a priced model', async () => {
+    registerNativeAgent('native.researcher_stamp_agent')
     runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
 
     const service = makeService()
-    await service.run('native.informative_stamp_agent', {}, runCtx)
+    await service.run('native.researcher_stamp_agent', {}, runCtx)
 
     const input = completeRunMock.mock.calls[0][2] as Record<string, unknown>
     expect(input.confidence).toBeNull()

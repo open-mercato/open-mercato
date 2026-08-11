@@ -5,7 +5,7 @@ describe('deterministic scorers', () => {
     it('fails on null/empty output, passes on a non-empty object', () => {
       expect(scorers.output_present({ output: null, run: {}, config: {} }).passed).toBe(false)
       expect(scorers.output_present({ output: {}, run: {}, config: {} }).passed).toBe(false)
-      expect(scorers.output_present({ output: { kind: 'informative' }, run: {}, config: {} }).passed).toBe(true)
+      expect(scorers.output_present({ output: { kind: 'researcher' }, run: {}, config: {} }).passed).toBe(true)
     })
   })
 

@@ -235,7 +235,7 @@ describe('POST /api/agent_orchestrator/runs/:id/rerun', () => {
     let rerunIdDuringRun: string | undefined
     const run = jest.fn(async () => {
       rerunIdDuringRun = getRerunOfRunId()
-      return { kind: 'informative', data: { ok: true } }
+      return { kind: 'researcher', data: { ok: true } }
     })
     const findOne = jest.fn(async () => ({ id: NEW_RUN_ID }))
     const em = { fork: () => ({ findOne, fork: () => ({ findOne }) }) }

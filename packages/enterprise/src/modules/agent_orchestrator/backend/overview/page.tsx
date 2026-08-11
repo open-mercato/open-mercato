@@ -37,7 +37,7 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 
 type Sla = 'breach' | 'risk' | 'ok'
 type Verb = 'do' | 'review'
-type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'informative' | 'actionable'; runs: number; overridePct: number | null; status: Health }
+type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'researcher' | 'proposal'; runs: number; overridePct: number | null; status: Health }
 type StuckRow = { id: string; processId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
 
@@ -286,7 +286,7 @@ export default function AgentFleetOverviewPage() {
           else if ((overridePct ?? 0) > 15) status = 'watch'
           else status = 'good'
         }
-        const resultKind: 'informative' | 'actionable' = agentKinds.get(id) === 'actionable' ? 'actionable' : 'informative'
+        const resultKind: 'researcher' | 'proposal' = agentKinds.get(id) === 'proposal' ? 'proposal' : 'researcher'
         return { id, label: agentLabels.get(id) || id, icon: agentIcons.get(id) ?? null, resultKind, runs: runsCount, overridePct, status }
       })
       .sort((a, b) => b.runs - a.runs)
@@ -307,7 +307,7 @@ export default function AgentFleetOverviewPage() {
           claim,
           agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId || '—',
           waitingMin,
-          waitingFor: (agentKinds.get(proposal.agentId) === 'actionable' ? 'do' : 'review') as Verb,
+          waitingFor: (agentKinds.get(proposal.agentId) === 'proposal' ? 'do' : 'review') as Verb,
           sla: slaOf(waitingMin),
         }
       })

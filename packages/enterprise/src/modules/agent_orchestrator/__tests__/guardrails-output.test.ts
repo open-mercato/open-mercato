@@ -46,7 +46,7 @@ function createFakeEm() {
 
 // The per-capability proposal contract (the agent's declared outcome schema).
 const capabilitySchema = z.object({
-  kind: z.literal('actionable'),
+  kind: z.literal('proposal'),
   proposal: z.object({
     actions: z
       .array(z.object({ type: z.literal('set_stage'), payload: z.object({ stage: z.string().min(1) }) }))
@@ -57,7 +57,7 @@ const capabilitySchema = z.object({
 })
 
 const VALID_OUTPUT = {
-  kind: 'actionable',
+  kind: 'proposal',
   proposal: {
     actions: [{ type: 'set_stage', payload: { stage: 'qualified' } }],
     confidence: 0.9,
@@ -67,7 +67,7 @@ const VALID_OUTPUT = {
 
 // Missing required `confidence`/`rationale` and an empty stage → schema violation.
 const INVALID_OUTPUT = {
-  kind: 'actionable',
+  kind: 'proposal',
   proposal: { actions: [{ type: 'set_stage', payload: { stage: '' } }] },
 }
 

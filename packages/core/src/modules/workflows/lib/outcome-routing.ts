@@ -6,7 +6,7 @@
  * and `lib/breach-routing.ts` belong to, and shaped like them on purpose.
  *
  * Spec §7.2: the agent node exposes labelled output handles for a FIXED
- * platform vocabulary of five disposition kinds — `approved`, `informative`,
+ * platform vocabulary of five disposition kinds — `approved`, `researcher`,
  * `rejected`, `guardrailBlocked`, `error` — and branching on a disposition is
  * WIRING. The alternative, enumerating handles from the selected agent's OUTCOME
  * schema, is deliberately NOT built: it would need a per-value condition on each
@@ -27,7 +27,7 @@
  *      ("unhandled → fail instance").
  *
  * Rule 1 is what keeps this additive: without it, adding one `rejected` route
- * to a step would silently change what an `informative` result does.
+ * to a step would silently change what an `researcher` result does.
  *
  * PURE: no ORM, DI, React or registry imports. Engine call sites pass the plain
  * definition JSON.
@@ -47,7 +47,7 @@ export const OUTCOME_TRANSITION_KIND = 'outcome'
  */
 export const AGENT_OUTCOME_KINDS = [
   'approved',
-  'informative',
+  'researcher',
   'rejected',
   'guardrailBlocked',
   'error',
@@ -209,15 +209,15 @@ export function resolveAgentOutcomeHandling(
  * define. `pending` maps to nothing — the step is still parked.
  *
  * `none_proposed` — an agent that looked and had nothing to propose — takes the
- * `informative` handle, which is exactly what that route means. It is NOT
+ * `researcher` handle, which is exactly what that route means. It is NOT
  * `rejected`: nothing was offered for a human to decline.
  */
 const DISPOSITION_TO_OUTCOME: Record<string, AgentOutcomeKind> = {
   auto_approved: 'approved',
   approved: 'approved',
   edited: 'approved',
-  informative: 'informative',
-  none_proposed: 'informative',
+  researcher: 'researcher',
+  none_proposed: 'researcher',
   rejected: 'rejected',
   guardrail_blocked: 'guardrailBlocked',
   guardrailBlocked: 'guardrailBlocked',

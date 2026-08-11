@@ -83,19 +83,19 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     jest.clearAllMocks()
   })
 
-  it('returns runId + proposalId alongside an actionable result, result keys untouched', async () => {
+  it('returns runId + proposalId alongside a proposal result, result keys untouched', async () => {
     await mockAuthAndScope()
-    const actionable = shapeResult('actionable', {
+    const proposal = shapeResult('proposal', {
       proposal: { actions: [{ type: 'set_stage', payload: { stage: 'won' } }], confidence: 0.9 },
     })
-    const { find } = await setupContainer({ result: actionable, proposalRows: [{ id: PROPOSAL_ID }] })
+    const { find } = await setupContainer({ result: proposal, proposalRows: [{ id: PROPOSAL_ID }] })
 
     const res = await POST(makeRequest(), { params })
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.runId).toBe(RUN_ID)
     expect(body.proposalId).toBe(PROPOSAL_ID)
-    expect(body.kind).toBe('actionable')
+    expect(body.kind).toBe('proposal')
     // The envelope lifts a pre-envelope `{ actions, confidence }` OUTCOME onto one
     // implicit option, which is where the confidence now lives.
     expect(body.proposal.options).toHaveLength(1)
@@ -111,10 +111,10 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     expect(options).toMatchObject({ limit: 1, fields: ['id'] })
   })
 
-  it('returns proposalId null for an informative run with no proposal', async () => {
+  it('returns proposalId null for a researcher run with no proposal', async () => {
     await mockAuthAndScope()
     const { } = await setupContainer({
-      result: shapeResult('informative', { data: { ok: true } }),
+      result: shapeResult('researcher', { data: { ok: true } }),
       proposalRows: [],
     })
 
@@ -122,13 +122,13 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     const body = await res.json()
     expect(body.runId).toBe(RUN_ID)
     expect(body.proposalId).toBeNull()
-    expect(body.kind).toBe('informative')
+    expect(body.kind).toBe('researcher')
   })
 
   it('keeps only the FIRST onRunPersisted invocation (nested delegations fire it again)', async () => {
     await mockAuthAndScope()
     const { } = await setupContainer({
-      result: shapeResult('informative', { data: {} }),
+      result: shapeResult('researcher', { data: {} }),
       invokeHook: (ctx) => {
         ctx.onRunPersisted?.(RUN_ID)
         ctx.onRunPersisted?.('99999999-9999-4999-8999-999999999999')
@@ -143,7 +143,7 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
   it('BC: returns runId null without querying proposals when the runtime never fires the hook, and shaped results never define the additive keys', async () => {
     await mockAuthAndScope()
     const { find } = await setupContainer({
-      result: shapeResult('informative', { data: {} }),
+      result: shapeResult('researcher', { data: {} }),
       invokeHook: false,
     })
 
@@ -155,11 +155,11 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
 
     // Collision safety (spec risk table): the AgentResult shape never carries
     // the additive keys itself, so the spread cannot mask agent data.
-    const shapedInformative = shapeResult('informative', { data: { x: 1 } })
-    const shapedActionable = shapeResult('actionable', { proposal: { actions: [] } })
-    expect('runId' in shapedInformative).toBe(false)
-    expect('proposalId' in shapedInformative).toBe(false)
-    expect('runId' in shapedActionable).toBe(false)
-    expect('proposalId' in shapedActionable).toBe(false)
+    const shapedResearcher = shapeResult('researcher', { data: { x: 1 } })
+    const shapedProposal = shapeResult('proposal', { proposal: { actions: [] } })
+    expect('runId' in shapedResearcher).toBe(false)
+    expect('proposalId' in shapedResearcher).toBe(false)
+    expect('runId' in shapedProposal).toBe(false)
+    expect('proposalId' in shapedProposal).toBe(false)
   })
 })

@@ -7,16 +7,16 @@ import { DELEGATE_TOOL_ID, defineAgent } from '../lib/sdk/defineAgent'
 // nested run with a short wall-clock budget so it fails fast and returns an error
 // to the parent instead of blocking it.
 describe('delegate_agent delegated-run wall-clock budget', () => {
-  const schema = z.object({ kind: z.literal('informative'), data: z.unknown() })
+  const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
 
   it('passes a short runTimeoutMs (default 3m, env-overridable) to the delegated run', async () => {
     defineAgent({
       id: 'test.delegate_timeout_target',
       moduleId: 'agent_orchestrator',
       label: 'Timeout target',
-      description: 'Informative sub-agent.',
+      description: 'Researcher sub-agent.',
       instructions: 'BASE',
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
@@ -26,7 +26,7 @@ describe('delegate_agent delegated-run wall-clock budget', () => {
     const agentRuntime = {
       run: async (_agentId: string, _input: unknown, opts: { runTimeoutMs?: number }) => {
         capturedRunTimeoutMs = opts.runTimeoutMs
-        return { kind: 'informative' as const, data: { ok: true } }
+        return { kind: 'researcher' as const, data: { ok: true } }
       },
     }
     const container = {

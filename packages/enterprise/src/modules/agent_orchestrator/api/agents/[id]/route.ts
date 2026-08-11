@@ -37,7 +37,7 @@ const tokenUsageSchema = z.object({
 const agentDetailSchema = z.object({
   id: z.string(),
   moduleId: z.string(),
-  resultKind: z.enum(['informative', 'actionable']),
+  resultKind: z.enum(['researcher', 'proposal']),
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),

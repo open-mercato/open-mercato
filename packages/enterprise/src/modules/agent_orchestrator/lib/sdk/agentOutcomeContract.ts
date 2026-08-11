@@ -5,8 +5,8 @@
  * it was authored: `defineAgent` declares `z.object({ kind, proposal | data })`
  * and `compileOutcome` builds exactly that shape from a file agent's OUTCOME.md.
  * The OUTCOME itself — what an author actually wants to map into a workflow
- * context or read in the Playground — is therefore the inner `data` (informative)
- * or `proposal` (actionable) property of that envelope.
+ * context or read in the Playground — is therefore the inner `data` (researcher)
+ * or `proposal` (proposal) property of that envelope.
  *
  * Two projections of the same thing:
  * - `resolveAgentOutcomeZod` returns the inner Zod schema (consumed in-process,
@@ -25,8 +25,8 @@ import { zodToJsonSchema, type JsonSchema } from '@open-mercato/shared/lib/opena
 import type { AgentRegistryEntry } from './defineAgent'
 
 const OUTCOME_PROPERTY: Record<AgentRegistryEntry['resultKind'], string> = {
-  informative: 'data',
-  actionable: 'proposal',
+  researcher: 'data',
+  proposal: 'proposal',
 }
 
 function shapeOf(schema: unknown): Record<string, ZodTypeAny> | undefined {

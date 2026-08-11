@@ -328,7 +328,7 @@ describe('resolveServerOutputContract for INVOKE_AGENT', () => {
     await serverContractModule.ensureWorkflowAgentOutcomeContracts(
       bridgeContainer({
         listAgentOutcomeContracts: async () => [
-          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+          { agentId: 'risk.scorer', resultKind: 'proposal', schema: riskOutcome },
         ],
       }),
     )
@@ -350,12 +350,12 @@ describe('resolveServerOutputContract for INVOKE_AGENT', () => {
     }
   })
 
-  test('puts an informative agent OUTCOME under the envelope data key', async () => {
+  test('puts a researcher agent OUTCOME under the envelope data key', async () => {
     const { serverContractModule } = loadIsolated()
     await serverContractModule.ensureWorkflowAgentOutcomeContracts(
       bridgeContainer({
         listAgentOutcomeContracts: async () => [
-          { agentId: 'deals.summary', resultKind: 'informative', schema: z.object({ summary: z.string() }) },
+          { agentId: 'deals.summary', resultKind: 'researcher', schema: z.object({ summary: z.string() }) },
         ],
       }),
     )
@@ -390,7 +390,7 @@ describe('resolveServerOutputContract for INVOKE_AGENT', () => {
     await second.ensureWorkflowAgentOutcomeContracts(
       bridgeContainer({
         listAgentOutcomeContracts: async () => [
-          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+          { agentId: 'risk.scorer', resultKind: 'proposal', schema: riskOutcome },
         ],
       }),
     )
@@ -426,7 +426,7 @@ describe('resolveServerOutputContract for INVOKE_AGENT', () => {
     await serverContractModule.ensureWorkflowAgentOutcomeContracts(
       bridgeContainer({
         listAgentOutcomeContracts: async () => [
-          { agentId: 'risk.scorer', resultKind: 'actionable', schema: riskOutcome },
+          { agentId: 'risk.scorer', resultKind: 'proposal', schema: riskOutcome },
         ],
       }),
     )

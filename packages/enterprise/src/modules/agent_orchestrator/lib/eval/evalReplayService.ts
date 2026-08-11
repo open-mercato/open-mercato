@@ -94,7 +94,7 @@ type AgentRuntimeLike = {
  * regressions, which is the entire point of the eval plane.
  *
  * Propose-only by construction: this calls `agentRuntime.run` directly and never
- * `dispositionService.dispose`, so an `actionable` result is recorded as a
+ * `dispositionService.dispose`, so an `proposal` result is recorded as a
  * proposal but never executed. Those proposals are stamped `source: 'eval'` so the
  * operator caseload excludes them.
  */
@@ -177,7 +177,7 @@ async function runCase(
       // `delegate_agent` tool builds a fresh ctx and does not forward `source`
       // (ai-tools.ts). Those child runs are stamped `runtime` and are therefore
       // counted in the agent's production metric rollups. They cannot produce a
-      // disposable proposal (delegation targets are informative-only), so the
+      // disposable proposal (delegation targets are researcher-only), so the
       // propose-only guarantee still holds; the labelling does not.
       source: 'eval',
       onRunPersisted: (runId: string) => {

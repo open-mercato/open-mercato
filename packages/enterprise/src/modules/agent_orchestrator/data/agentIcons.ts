@@ -38,7 +38,7 @@ export function isAgentIconName(value: unknown): value is AgentIconName {
 /**
  * Default icon per known agent definition id, seeded per tenant in `setup.ts`.
  * Unknown / future agents are not seeded — the UI falls back to a type glyph
- * (actionable/informative) and finally to initials, so this map is additive and
+ * (proposal/researcher) and finally to initials, so this map is additive and
  * safe to leave incomplete.
  */
 export const DEFAULT_AGENT_ICONS: Readonly<Record<string, AgentIconName>> = {

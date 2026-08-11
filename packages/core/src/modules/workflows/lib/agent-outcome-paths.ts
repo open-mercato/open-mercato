@@ -7,14 +7,14 @@
  * the dot paths an `outputMapping` row may read from. The vocabulary is the
  * normalized result envelope `mapAgentResultToContext` builds: the platform's
  * own `kind`/`disposition`/`agentId`/`proposalId` keys, plus the agent's OUTCOME
- * under `data` (informative agents) or `proposalPayload` (actionable ones).
+ * under `data` (researcher agents) or `proposalPayload` (proposal ones).
  *
  * No React, no network, no registry — the editor feeds it the fetched schema and
  * gets back plain data, so the same helper backs the source picker, the
  * author-time path check, and the "Insert sample" rows.
  */
 
-export type AgentResultKind = 'informative' | 'actionable'
+export type AgentResultKind = 'researcher' | 'proposal'
 
 export interface AgentOutcomeSchemaNode {
   type?: string
@@ -67,7 +67,7 @@ function labelFor(node: AgentOutcomeSchemaNode | undefined): string {
 }
 
 export function agentOutcomeRootKey(resultKind: AgentResultKind): 'data' | 'proposalPayload' {
-  return resultKind === 'informative' ? 'data' : 'proposalPayload'
+  return resultKind === 'researcher' ? 'data' : 'proposalPayload'
 }
 
 function describesProperties(node: AgentOutcomeSchemaNode): boolean {

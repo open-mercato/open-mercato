@@ -178,7 +178,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Run an agent',
       description:
-        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for actionable results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for informative runs).',
+        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for researcher runs).',
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,

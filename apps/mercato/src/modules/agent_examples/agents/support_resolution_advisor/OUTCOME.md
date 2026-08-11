@@ -1,5 +1,5 @@
 ---
-kind: actionable
+kind: proposal
 ---
 ```json
 {

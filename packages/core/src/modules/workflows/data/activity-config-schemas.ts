@@ -148,7 +148,7 @@ export const agentReviewConfigSchema = z.object({
 export type AgentReviewConfig = z.infer<typeof agentReviewConfigSchema>
 
 // INVOKE_AGENT activity configuration — runs a callable agent (area 02a) and
-// dispositions any actionable proposal. `onResult` is carried verbatim to the
+// dispositions any proposal. `onResult` is carried verbatim to the
 // agent_orchestrator disposition service.
 export const invokeAgentConfigSchema = z.object({
   agentId: z.string().min(1),

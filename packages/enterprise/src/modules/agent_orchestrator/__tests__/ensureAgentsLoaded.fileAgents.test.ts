@@ -34,7 +34,7 @@ jest.mock('../generated/file-agents.generated', () => ({
     {
       id: 'demo.opencode_agent',
       moduleId: 'agent_examples',
-      resultKind: 'informative',
+      resultKind: 'researcher',
       outcomeSchema: { type: 'object', properties: {} },
       tools: [],
       skills: [],
@@ -63,7 +63,7 @@ test('ensureAgentsLoaded registers opencode file agents even when the registry w
   const inProcess: AgentRegistryEntry = {
     id: 'demo.in_process_agent',
     moduleId: 'agent_examples',
-    resultKind: 'informative',
+    resultKind: 'researcher',
     schema: { _stub: true } as never,
     tools: [],
     skills: [],

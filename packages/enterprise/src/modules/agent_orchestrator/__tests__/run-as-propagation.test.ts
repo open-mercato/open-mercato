@@ -69,8 +69,8 @@ describe('runAs propagation (Wave 4 P2)', () => {
       const agentRuntime = {
         run: jest.fn(async (_agentId: string, _input: unknown, ctx: Record<string, unknown>) => {
           runCalls.push(ctx)
-          // Informative result short-circuits before disposition.
-          return { kind: 'informative', data: { ok: true } }
+          // Researcher result short-circuits before disposition.
+          return { kind: 'researcher', data: { ok: true } }
         }),
       }
       const dispositionService = { dispose: jest.fn() }

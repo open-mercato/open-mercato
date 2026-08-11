@@ -22,8 +22,8 @@ const nestedOutcome = {
 }
 
 describe('buildAgentSourcePaths', () => {
-  test('puts an actionable agent OUTCOME under proposalPayload alongside the envelope keys', () => {
-    const paths = buildAgentSourcePaths('actionable', { type: 'object', properties: { score: { type: 'number' } } })
+  test('puts a proposal agent OUTCOME under proposalPayload alongside the envelope keys', () => {
+    const paths = buildAgentSourcePaths('proposal', { type: 'object', properties: { score: { type: 'number' } } })
     expect(paths.map((entry) => entry.path)).toEqual([
       'kind',
       'disposition',
@@ -35,14 +35,14 @@ describe('buildAgentSourcePaths', () => {
     expect(paths.find((entry) => entry.path === 'proposalPayload.score')?.type).toBe('number')
   })
 
-  test('puts an informative agent OUTCOME under data', () => {
-    const paths = buildAgentSourcePaths('informative', { type: 'object', properties: { summary: { type: 'string' } } })
+  test('puts a researcher agent OUTCOME under data', () => {
+    const paths = buildAgentSourcePaths('researcher', { type: 'object', properties: { summary: { type: 'string' } } })
     expect(paths.map((entry) => entry.path)).toContain('data.summary')
     expect(paths.map((entry) => entry.path)).not.toContain('proposalPayload')
   })
 
   test('descends into described objects and marks undescribed ones as open containers', () => {
-    const paths = buildAgentSourcePaths('actionable', nestedOutcome)
+    const paths = buildAgentSourcePaths('proposal', nestedOutcome)
     expect(paths.map((entry) => entry.path)).toEqual(
       expect.arrayContaining([
         'proposalPayload.customer',
@@ -58,13 +58,13 @@ describe('buildAgentSourcePaths', () => {
 
   test('yields nothing without a result kind or a usable schema', () => {
     expect(buildAgentSourcePaths(undefined, nestedOutcome)).toEqual([])
-    expect(buildAgentSourcePaths('actionable', undefined)).toEqual([])
-    expect(buildAgentSourcePaths('actionable', 'not-a-schema')).toEqual([])
+    expect(buildAgentSourcePaths('proposal', undefined)).toEqual([])
+    expect(buildAgentSourcePaths('proposal', 'not-a-schema')).toEqual([])
   })
 })
 
 describe('isKnownAgentSourcePath', () => {
-  const paths = buildAgentSourcePaths('actionable', nestedOutcome)
+  const paths = buildAgentSourcePaths('proposal', nestedOutcome)
 
   test('accepts declared paths and descents into undescribed objects', () => {
     expect(isKnownAgentSourcePath(paths, 'kind')).toBe(true)

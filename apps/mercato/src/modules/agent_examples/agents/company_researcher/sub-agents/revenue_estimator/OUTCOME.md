@@ -1,5 +1,5 @@
 ---
-kind: informative
+kind: researcher
 ---
 ```json
 {

@@ -32,10 +32,10 @@ import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_ass
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
 
-// The example file agent's actionable OUTCOME schema (mirrors the committed
+// The example file agent's proposal OUTCOME schema (mirrors the committed
 // manifest for deals.health_check).
 const { resultSchema } = compileOutcome({
-  kind: 'actionable',
+  kind: 'proposal',
   schema: {
     type: 'object',
     additionalProperties: false,
@@ -74,7 +74,7 @@ function registerExampleFileAgent(): AgentRegistryEntry {
   const entry: AgentRegistryEntry = {
     id: FILE_AGENT_ID,
     moduleId: 'agent_examples',
-    resultKind: 'actionable',
+    resultKind: 'proposal',
     schema: resultSchema,
     tools: [],
     skills: [],
@@ -186,7 +186,7 @@ function makeFakeClient(opts: {
 }
 
 const validOutcome = {
-  kind: 'actionable',
+  kind: 'proposal',
   proposal: {
     actions: [{ type: 'set_stage', payload: { stage: 'negotiation' } }],
     confidence: 0.82,
@@ -212,9 +212,9 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
 
     const result = await runner.run(entry, { dealId: 'deal-1' }, runCtx)
 
-    // The captured outcome was shaped into the typed actionable AgentResult.
-    expect(result.kind).toBe('actionable')
-    if (result.kind === 'actionable') {
+    // The captured outcome was shaped into the typed proposal AgentResult.
+    expect(result.kind).toBe('proposal')
+    if (result.kind === 'proposal') {
       // Lifted onto one implicit option labelled with the agent id.
       expect(result.proposal.options).toHaveLength(1)
       expect(result.proposal.options[0].actions[0]).toEqual({
@@ -303,7 +303,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
         observed.push(persistedRunId)
       },
     })
-    expect(result.kind).toBe('actionable')
+    expect(result.kind).toBe('proposal')
     expect(observed).toEqual(['run-123'])
 
     const logs = captureLogs()
@@ -320,7 +320,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
           throw new Error('[internal] hook boom')
         },
       })
-      expect(result2.kind).toBe('actionable')
+      expect(result2.kind).toBe('proposal')
       expect(logs.at('warn').map((record) => record.message)).toContain('onRunPersisted hook failed')
     } finally {
       logs.restore()
@@ -373,7 +373,7 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
 
     const service = new AgentRuntimeService({ container: container as never, commandBus: commandBus as never })
     const result = await service.run(entry.id, { dealId: 'deal-1' }, runCtx)
-    expect(result.kind).toBe('actionable')
+    expect(result.kind).toBe('proposal')
     expect(agentSentRef.value).toBe(OPENCODE_AGENT_NAME)
   })
 

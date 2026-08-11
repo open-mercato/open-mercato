@@ -9,19 +9,19 @@ const delegateTool = aiTools.find((t) => t.name === DELEGATE_TOOL_ID) as AiToolD
 
 const SUB_AGENT_ID = 'parent_trace.worker'
 
-function registerInformativeSubAgent(): AgentRegistryEntry {
+function registerResearcherSubAgent(): AgentRegistryEntry {
   const existing = getAgentEntry(SUB_AGENT_ID)
   if (existing) return existing
   const entry: AgentRegistryEntry = {
     id: SUB_AGENT_ID,
     moduleId: 'agent_orchestrator',
-    resultKind: 'informative',
-    schema: z.object({ kind: z.literal('informative'), data: z.unknown() }),
+    resultKind: 'researcher',
+    schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
     tools: [],
     skills: [],
     subAgents: [],
     label: 'Worker',
-    description: 'Informative worker.',
+    description: 'Researcher worker.',
     instructions: 'inform',
     runtime: 'in-process',
   }
@@ -53,12 +53,12 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
   })
 
   it('the in-process delegate tool stamps the current run id as the nested run parentRunId', async () => {
-    registerInformativeSubAgent()
+    registerResearcherSubAgent()
     let runCtxSeen: { parentRunId?: string } | undefined
     const agentRuntime = {
       async run(_agentId: string, _input: unknown, ctx: { parentRunId?: string }) {
         runCtxSeen = ctx
-        return { kind: 'informative' as const, data: { ok: true } }
+        return { kind: 'researcher' as const, data: { ok: true } }
       },
     }
     const container = {
@@ -83,12 +83,12 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
   })
 
   it('outside a run context the delegated run carries no parentRunId (top-level)', async () => {
-    registerInformativeSubAgent()
+    registerResearcherSubAgent()
     let runCtxSeen: { parentRunId?: string } | undefined
     const agentRuntime = {
       async run(_agentId: string, _input: unknown, ctx: { parentRunId?: string }) {
         runCtxSeen = ctx
-        return { kind: 'informative' as const, data: {} }
+        return { kind: 'researcher' as const, data: {} }
       },
     }
     const container = {

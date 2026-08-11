@@ -89,24 +89,24 @@ describe('jsonSchemaToZod', () => {
 })
 
 describe('compileOutcome', () => {
-  it('wraps an informative schema under { kind, data }', () => {
+  it('wraps a researcher schema under { kind, data }', () => {
     const { kind, resultSchema } = compileOutcome({
-      kind: 'informative',
+      kind: 'researcher',
       schema: { type: 'object', required: ['summary'], properties: { summary: { type: 'string', minLength: 1 } } },
     })
-    expect(kind).toBe('informative')
-    expect(resultSchema.safeParse({ kind: 'informative', data: { summary: 'ok' } }).success).toBe(true)
-    expect(resultSchema.safeParse({ kind: 'actionable', data: { summary: 'ok' } }).success).toBe(false)
-    expect(resultSchema.safeParse({ kind: 'informative', proposal: { summary: 'ok' } }).success).toBe(false)
+    expect(kind).toBe('researcher')
+    expect(resultSchema.safeParse({ kind: 'researcher', data: { summary: 'ok' } }).success).toBe(true)
+    expect(resultSchema.safeParse({ kind: 'proposal', data: { summary: 'ok' } }).success).toBe(false)
+    expect(resultSchema.safeParse({ kind: 'researcher', proposal: { summary: 'ok' } }).success).toBe(false)
   })
 
-  it('wraps an actionable schema under { kind, proposal }', () => {
+  it('wraps a proposal schema under { kind, proposal }', () => {
     const { kind, resultSchema } = compileOutcome({
-      kind: 'actionable',
+      kind: 'proposal',
       schema: { type: 'object', required: ['rationale'], properties: { rationale: { type: 'string', minLength: 1 } } },
     })
-    expect(kind).toBe('actionable')
-    expect(resultSchema.safeParse({ kind: 'actionable', proposal: { rationale: 'because' } }).success).toBe(true)
-    expect(resultSchema.safeParse({ kind: 'informative', proposal: { rationale: 'because' } }).success).toBe(false)
+    expect(kind).toBe('proposal')
+    expect(resultSchema.safeParse({ kind: 'proposal', proposal: { rationale: 'because' } }).success).toBe(true)
+    expect(resultSchema.safeParse({ kind: 'researcher', proposal: { rationale: 'because' } }).success).toBe(false)
   })
 })

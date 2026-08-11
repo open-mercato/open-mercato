@@ -30,7 +30,7 @@ function makeAgentDir(opts: {
     path.join(dir, 'OUTCOME.md'),
     [
       '---',
-      'kind: actionable',
+      'kind: proposal',
       '---',
       '```json',
       JSON.stringify({

@@ -14,7 +14,7 @@ function runView(overrides: Partial<ScorerRunView> = {}): ScorerRunView {
   return {
     input: null,
     output: { answer: 'ok' },
-    resultKind: 'informative',
+    resultKind: 'researcher',
     confidence: 0.9,
     status: 'completed',
     latencyMs: 1000,
@@ -29,10 +29,10 @@ function runView(overrides: Partial<ScorerRunView> = {}): ScorerRunView {
 }
 
 describe('scorer registry — catalog', () => {
-  it('registers 21 definitions: 20 deterministic + 1 judge', () => {
+  it('registers 22 definitions: 21 deterministic + 1 judge', () => {
     const definitions = listScorerDefinitions()
-    expect(definitions).toHaveLength(21)
-    expect(definitions.filter((definition) => definition.kind === 'deterministic')).toHaveLength(20)
+    expect(definitions).toHaveLength(22)
+    expect(definitions.filter((definition) => definition.kind === 'deterministic')).toHaveLength(21)
     expect(definitions.filter((definition) => definition.kind === 'llm_judge')).toHaveLength(1)
   })
 

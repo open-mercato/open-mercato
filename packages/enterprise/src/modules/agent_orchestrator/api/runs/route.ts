@@ -40,6 +40,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       'agent_id',
       'status',
       'result_kind',
+      'agent_type',
       'input',
       'output',
       'error_message',
@@ -86,6 +87,9 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.status) filters.status = { $eq: query.status }
       if (query.resultKind) filters.result_kind = { $eq: query.resultKind }
+      // The DECLARED type, filterable independently of `resultKind`: the two describe
+      // different facts and a run may legitimately disagree with its agent's declaration.
+      if (query.agentType) filters.agent_type = { $eq: query.agentType }
       if (query.flagged) filters.flagged_at = { $ne: null }
       if (query.window && WINDOW_MS[query.window]) {
         filters.created_at = { $gte: new Date(Date.now() - WINDOW_MS[query.window]).toISOString() }

@@ -36,7 +36,7 @@ const params = Promise.resolve({ id: AGENT_ID })
 
 async function setupContainer() {
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-  const run = jest.fn(async () => ({ kind: 'informative', data: { ok: true } }))
+  const run = jest.fn(async () => ({ kind: 'researcher', data: { ok: true } }))
   ;(createRequestContainer as jest.Mock).mockResolvedValue({
     resolve: (token: string) => {
       if (token === 'agentRuntime') return { run }

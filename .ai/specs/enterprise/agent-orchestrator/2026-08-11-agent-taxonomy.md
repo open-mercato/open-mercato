@@ -314,6 +314,17 @@ Every path below ships tests in the same phase:
 | Renaming the core `workflows` disposition kind breaks a released surface | Medium | `outcome-routing.ts` is branch-only — verified absent from `origin/develop`; core `/backend/tasks` and `workflows.tasks.list` are untouched | Re-verify against `origin/develop` at implementation time, not from this spec |
 
 ## Changelog
+
+### Phase 3 implemented — 2026-08-11
+
+Steps 8–10 landed. Three decisions the spec left to the implementer, recorded because the code now depends on them:
+
+- **`actionable` became ONE result kind, `proposal` — it did not split into `decision_maker`/`action`.** The spec's "replaced by the two proposing types" is not implementable for `resultKind`: that is the RUNTIME fact of what came back, and both proposing types return the identical envelope (this spec says so itself). A runtime value cannot carry an authoring one. So the union is `researcher | proposal`, and the authoring split lives only in `agentType`. Every `resultKind` site moved with it: `AgentResultKind`, `OutcomeKind`, OUTCOME.md `kind:`, `agent_runs.result_kind`, the workflows `AgentOutcomeContract`, and `agentOutcomeRootKey`.
+- **The graph-edge migration rewrites `outcomeKind` as well as the handle id.** The spec named only the `outcome:<kind>` source handle; the value actually persisted on a transition is `"outcomeKind": "informative"` (`graph-utils.ts:565`) — the handle id is derived at render time. Both forms are rewritten, in `workflow_definitions` and `workflow_definition_drafts`, guarded by `to_regclass`.
+- **The `allowedActions` intersection runs at the END of the registry load, not inside `defineAgent`.** `defineAgent` is synchronous; the catalogue lives in core `workflows`, an OPTIONAL peer reachable only through a dynamic import. `ensureAgentsLoaded` is still registration time — no agent is observable before it resolves. An UNAVAILABLE catalogue leaves the declaration untouched instead of emptying it, because emptying destroys the author's list permanently while the disposition-time check already fails closed.
+
+Also shipped beyond the letter of the phase: an `action_vocabulary` eval scorer (the spec's Integration-coverage row "a `decision_maker` proposing an out-of-vocabulary action is a failed assertion" needed a scorer to exist), `ScorerRunView.agentType`, and `agentType` on the `GET /runs` projection + filter.
+
 ### Review — 2026-08-11
 
 Independent fresh-context review (checklist §1 scope cohesion + full compliance gate). Accepted and applied: the `alwaysAsk` short-circuit the replacement `autoApprovable` had dropped — every `alwaysAsk: true` node would have started auto-approving, the worst regression this module can produce; `onResult` being a `z.union` rather than an object; the dispose schema shown as a diff so the existing `payload`/`reason` `superRefine` rules survive; `defineAgent` (enterprise) rather than the released OSS `defineAiAgent`; `autoApproveMargin` defaulting to `0` rather than `0.1`, since a `.default()` changes behaviour *without* anyone asking — the opposite of what the earlier text claimed; the rename's real blast radius (~191 sites, two locale sets) and the graph-edge migration for persisted `outcome:*` handles; the `outputMapping` dot-path rewrite that makes Phase 1 actually green; terminal handling for an empty option set; `auto_disposition_block` rather than overloading the operator's `disposition_reason`; and W2 owning its own migration so the "neither blocks the other" claim is true rather than contradicted four sections later.

@@ -18,7 +18,13 @@ export type Json = string | number | boolean | null | Json[] | { [key: string]: 
 export type ScorerRunView = {
   input: Json | null
   output: Json | null
-  resultKind: 'informative' | 'actionable' | null
+  resultKind: 'researcher' | 'proposal' | null
+  /**
+   * The agent's DECLARED type on this run (`agent_runs.agent_type`). Null for runs that
+   * predate the declaration and for agents that never made one — an assertion narrowed
+   * to a type must SKIP those, never fail them.
+   */
+  agentType: 'researcher' | 'decision_maker' | 'action' | null
   confidence: number | null
   status: string
   latencyMs: number | null

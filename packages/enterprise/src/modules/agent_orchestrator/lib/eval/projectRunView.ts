@@ -39,6 +39,7 @@ export function projectRunView(input: ProjectRunViewInput): ScorerRunView {
     input: (run.input ?? null) as Json | null,
     output: (run.output ?? null) as Json | null,
     resultKind: (run.resultKind ?? null) as ScorerRunView['resultKind'],
+    agentType: (run.agentType ?? null) as ScorerRunView['agentType'],
     confidence: run.confidence ?? null,
     status: run.status,
     latencyMs: run.latencyMs ?? null,

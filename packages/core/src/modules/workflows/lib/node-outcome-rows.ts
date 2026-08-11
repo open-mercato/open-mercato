@@ -52,7 +52,7 @@ const OUTCOME_ROW_PRESENTATION: Record<
   { tone: NodeOutcomeRowTone; glyph: NodeOutcomeRowGlyph; labelFallback: string }
 > = {
   approved: { tone: 'success', glyph: 'check', labelFallback: 'approved' },
-  informative: { tone: 'info', glyph: 'info', labelFallback: 'informative' },
+  researcher: { tone: 'info', glyph: 'info', labelFallback: 'researcher' },
   rejected: { tone: 'error', glyph: 'slash', labelFallback: 'rejected' },
   guardrailBlocked: { tone: 'error', glyph: 'shield', labelFallback: 'guardrail blocked' },
   error: { tone: 'warning', glyph: 'alert', labelFallback: 'error' },
@@ -108,7 +108,7 @@ export function buildAllAgentOutcomeRows(): NodeOutcomeRow[] {
  * and for `approved` whenever `approved` is not separately wired.
  *
  * It is NOT a catch-all, which is why it is named `default` rather than
- * `otherwise`: an unwired `rejected` / `informative` / `guardrailBlocked` /
+ * `otherwise`: an unwired `rejected` / `researcher` / `guardrailBlocked` /
  * `error` inherits the step's error directive instead, exactly as the footer's
  * inheritance note states. A row promising "everything else comes here" would
  * be the one label on this card an author could act on and be wrong.

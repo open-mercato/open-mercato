@@ -168,8 +168,8 @@ describe('GuardrailService.checkInput (prompt-injection, Wave 3 P3)', () => {
 })
 
 describe('GuardrailService.checkOutput tool-scope HARD backstop (Wave 3 P3)', () => {
-  const schema = z.object({ kind: z.literal('informative'), data: z.unknown() })
-  const OUTPUT = { kind: 'informative', data: { ok: true } }
+  const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
+  const OUTPUT = { kind: 'researcher', data: { ok: true } }
 
   it('tool attempt OUTSIDE the allowlist → block (holds even with detection disabled)', async () => {
     const service = new GuardrailService(fakeContainer())

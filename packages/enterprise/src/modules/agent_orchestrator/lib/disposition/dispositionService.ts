@@ -141,7 +141,7 @@ export class DispositionServiceImpl implements DispositionService {
   ): Promise<DispositionOutcome> {
     const { options } = normalizeProposalEnvelope(proposal.payload, proposal.agentId)
     // Nothing proposed: terminal at creation, so there is neither a decision to raise
-    // nor a plan to approve. Routed onto the informative outcome handle downstream.
+    // nor a plan to approve. Routed onto the researcher outcome handle downstream.
     if (options.length === 0) {
       return { kind: 'none_proposed', proposalId: proposal.id }
     }

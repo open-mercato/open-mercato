@@ -78,7 +78,7 @@ describe('agent outcome rows — progressive disclosure', () => {
   it('can reveal every authorable outcome without changing the default rows', () => {
     expect(buildAllAgentOutcomeRows().map((row) => row.labelKey)).toEqual([
       'workflows.outcomes.approved',
-      'workflows.outcomes.informative',
+      'workflows.outcomes.researcher',
       'workflows.outcomes.rejected',
       'workflows.outcomes.guardrailBlocked',
       'workflows.outcomes.error',

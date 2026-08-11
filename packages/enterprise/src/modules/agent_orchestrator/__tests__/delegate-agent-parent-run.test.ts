@@ -8,16 +8,16 @@ import { DELEGATE_TOOL_ID, defineAgent } from '../lib/sdk/defineAgent'
 // parent run id from the caller's run session via `agentRunSessionStore` so the
 // nested sub-agent run still records `parent_run_id`.
 describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
-  const schema = z.object({ kind: z.literal('informative'), data: z.unknown() })
+  const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
 
   it('resolves parentRunId from the caller session when the run context is absent', async () => {
     defineAgent({
       id: 'test.delegate_target',
       moduleId: 'agent_orchestrator',
       label: 'Target',
-      description: 'Informative sub-agent.',
+      description: 'Researcher sub-agent.',
       instructions: 'BASE',
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
@@ -27,7 +27,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     const agentRuntime = {
       run: async (_agentId: string, _input: unknown, opts: { parentRunId?: string }) => {
         capturedParentRunId = opts.parentRunId
-        return { kind: 'informative' as const, data: { ok: true } }
+        return { kind: 'researcher' as const, data: { ok: true } }
       },
     }
     const agentRunSessionStore = {
@@ -65,9 +65,9 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
       id: 'test.delegate_target_2',
       moduleId: 'agent_orchestrator',
       label: 'Target 2',
-      description: 'Informative sub-agent.',
+      description: 'Researcher sub-agent.',
       instructions: 'BASE',
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
@@ -75,7 +75,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     const agentRuntime = {
       run: async (_agentId: string, _input: unknown, opts: Record<string, unknown>) => {
         sawParentRunIdKey = 'parentRunId' in opts
-        return { kind: 'informative' as const, data: { ok: true } }
+        return { kind: 'researcher' as const, data: { ok: true } }
       },
     }
     const agentRunSessionStore = {

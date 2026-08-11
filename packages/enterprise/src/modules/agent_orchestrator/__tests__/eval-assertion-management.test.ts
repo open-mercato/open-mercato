@@ -60,7 +60,7 @@ function createFakeEm(seed: {
 const passingJudge: JudgeFn = async () => ({ passed: true, score: 0.88, feedback: 'helpful and on-task' })
 
 function run() {
-  return { id: 'run-1', ...SCOPE, agentId: 'deals.health_check', output: { kind: 'informative', data: { ok: true } }, evalPassed: true }
+  return { id: 'run-1', ...SCOPE, agentId: 'deals.health_check', output: { kind: 'researcher', data: { ok: true } }, evalPassed: true }
 }
 
 describe('eval assertion management (F9)', () => {

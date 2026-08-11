@@ -6,7 +6,7 @@
  *
  * Opens a right-side sheet that runs the file-defined `deals.company_researcher`
  * agent via `POST /api/agent_orchestrator/agents/deals.company_researcher/run`
- * (synchronous, informative result) and renders the qualified prospect
+ * (synchronous, researcher result) and renders the qualified prospect
  * assessment with cited sources. The write is wrapped in `useGuardedMutation`
  * per the customers-module non-CrudForm contract and is optimistic-lock-exempt
  * (a custom action, not a concurrent record edit).
@@ -60,7 +60,7 @@ interface ResearchResult {
 }
 
 interface RunResponse {
-  kind?: 'informative' | 'actionable'
+  kind?: 'researcher' | 'proposal'
   data?: ResearchResult
   runId?: string | null
 }
@@ -271,7 +271,7 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
             return
           }
           const body = call.result
-          if (body && body.kind === 'informative' && body.data) {
+          if (body && body.kind === 'researcher' && body.data) {
             setResult({ data: body.data, runId: readString(body.runId) })
           } else {
             setError(

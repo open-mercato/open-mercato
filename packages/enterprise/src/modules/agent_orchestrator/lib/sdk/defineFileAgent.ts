@@ -73,7 +73,7 @@ export type LoadedFileAgent = {
  * OUTCOME.md authoring format (Phase 1):
  *
  *   ---
- *   kind: actionable            # informative | actionable
+ *   kind: proposal            # researcher | proposal
  *   ---
  *   ```json
  *   { "type": "object", "required": [...], "properties": { ... } }
@@ -100,7 +100,7 @@ function parseOutcomeKind(frontmatterBlock: string): OutcomeKind | null {
     const match = /^kind:\s*(.*)$/.exec(line.trim())
     if (!match) continue
     const value = match[1].trim().replace(/^['"]/, '').replace(/['"]$/, '').trim()
-    if (value === 'informative' || value === 'actionable') return value
+    if (value === 'researcher' || value === 'proposal') return value
     return null
   }
   return null
@@ -132,7 +132,7 @@ function parseOutcomeMarkdown(raw: string): OutcomeDescriptor | null {
  * submit_outcome's validation errors). Shows the JSON-Schema + the OUTCOME.md prose.
  */
 function renderOutcomeSection(kind: OutcomeKind, schema: JsonSchemaNode, prose: string): string {
-  const target = kind === 'actionable' ? 'the `proposal` object' : 'the `data` object'
+  const target = kind === 'proposal' ? 'the `proposal` object' : 'the `data` object'
   const schemaJson = JSON.stringify(schema, null, 2)
   return [
     '## Outcome contract',
@@ -305,7 +305,7 @@ function renderOpenCodeAgentFile(args: {
   // File plane (#12): a primary that opted in gets sandbox-scoped write/edit/read
   // ONLY when the global kill-switch `OM_OPENCODE_FILES_ENABLED` is on — otherwise
   // it renders the historical deny frontmatter (BC: default off = unchanged). Sub-
-  // agents never get file tools (read-only, informative). Isolation is by per-run
+  // agents never get file tools (read-only, researcher). Isolation is by per-run
   // sandbox subdir + container lease (Phase 0); this static glob only confines the
   // agent to the shared workspace root, away from OpenCode internals.
   const filesActive =
@@ -521,7 +521,7 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
  * `mode: subagent`, read-only, and MUST satisfy two hard rules (matching the
  * in-process `delegate_agent` contract):
  *
- *   1. OUTCOME `kind` MUST be `informative` (sub-agents inform; only the primary
+ *   1. OUTCOME `kind` MUST be `researcher` (sub-agents inform; only the primary
  *      proposes);
  *   2. it MUST NOT itself declare `subAgents` (depth cap = 1).
  *
@@ -544,9 +544,9 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
   if (!outcome) {
     throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
   }
-  if (outcome.kind !== 'informative') {
+  if (outcome.kind !== 'researcher') {
     throw new Error(
-      `[internal] sub-agent at ${dir} must be informative (kind: informative); sub-agents inform, only the primary proposes`,
+      `[internal] sub-agent at ${dir} must be researcher (kind: researcher); sub-agents inform, only the primary proposes`,
     )
   }
   if (agent.subAgents.length > 0) {
@@ -613,7 +613,7 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
 /**
  * Load every sub-agent under `agents/<id>/sub-agents/<subid>/` (Phase 4). Each
  * resolved child carries its own loaded `LoadedFileAgent` (full file agent,
- * constrained to informative + non-delegating). Returns [] when the agent has no
+ * constrained to researcher + non-delegating). Returns [] when the agent has no
  * `sub-agents/` dir.
  */
 function loadSubAgents(agentDir: string): LoadedFileAgent[] {

@@ -10,7 +10,7 @@ import { ticketTriageResult, triageBatchResult } from './data/validators'
 //   3. registering the module in apps/mercato/src/modules.ts,
 //   4. `yarn generate`.
 //
-// It is INFORMATIVE (returns data, proposes nothing) and uses NO tools — it
+// It is RESEARCHER (returns data, proposes nothing) and uses NO tools — it
 // reasons purely over the input it is given. The agent appears in
 // Backend → Agents and can be run from the Playground with input like:
 //   { "subject": "Charged twice this month", "body": "I see two charges ..." }
@@ -23,14 +23,14 @@ export const aiAgents: AiAgentDefinition[] = [
     instructions: [
       'You triage inbound customer support tickets. The input contains the ticket as `subject`',
       'and `body`. Reason ONLY over that text — you have no tools and cannot look anything up.',
-      'Return an informative result with three fields:',
+      'Return a researcher result with three fields:',
       '`category` — one of billing, technical, account, feedback, other;',
       '`priority` — one of low, medium, high, urgent (urgent for outages, data loss, security,',
       'or money problems; low for general questions or praise);',
       'and `summary` — a single concise sentence (max ~20 words) describing the issue.',
       'Every field is REQUIRED. Never invent details that are not in the ticket.',
     ].join(' '),
-    result: { kind: 'informative', schema: ticketTriageResult },
+    result: { kind: 'researcher', schema: ticketTriageResult },
     sampleInput: {
       subject: 'Charged twice this month',
       body: 'Hi, I was billed for two subscriptions this month but I only have one account. Please refund the duplicate charge.',
@@ -59,7 +59,7 @@ export const aiAgents: AiAgentDefinition[] = [
       'priority and summary). Every field is REQUIRED.',
     ].join(' '),
     subAgents: ['support.ticket_triage'],
-    result: { kind: 'informative', schema: triageBatchResult },
+    result: { kind: 'researcher', schema: triageBatchResult },
     sampleInput: {
       tickets: [
         {

@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type { AgentType } from './validators'
 
 export type AgentRunStatus = 'running' | 'ok' | 'error' | 'cancelled'
 
@@ -28,6 +29,7 @@ export class AgentRun {
     | 'status'
     | 'output'
     | 'resultKind'
+    | 'agentType'
     | 'errorMessage'
     | 'parentRunId'
     | 'processId'
@@ -188,7 +190,16 @@ export class AgentRun {
   output?: unknown | null
 
   @Property({ name: 'result_kind', type: 'varchar', length: 20, nullable: true })
-  resultKind?: 'informative' | 'actionable' | null
+  resultKind?: 'researcher' | 'proposal' | null
+
+  /**
+   * The agent's DECLARED type at the time of the run — the authoring fact, stamped so a
+   * run record answers "what was this agent for" without re-reading a registry that may
+   * have changed since. NULLABLE by design: runs that predate the declaration, and agents
+   * that never made one, have none. `resultKind` above stays the runtime fact.
+   */
+  @Property({ name: 'agent_type', type: 'varchar', length: 20, nullable: true })
+  agentType?: AgentType | null
 
   @Property({ name: 'error_message', type: 'text', nullable: true })
   errorMessage?: string | null

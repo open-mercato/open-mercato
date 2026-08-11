@@ -1446,7 +1446,7 @@
   "workflows.outcomes.default": "default",
   "workflows.outcomes.error": "error",
   "workflows.outcomes.guardrailBlocked": "guardrail blocked",
-  "workflows.outcomes.informative": "informative",
+  "workflows.outcomes.researcher": "researcher",
   "workflows.outcomes.inheritsErrorDirective": "unhandled → error directive",
   "workflows.outcomes.rejected": "rejected",
   "workflows.parallel.branch.label": "Branch",

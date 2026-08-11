@@ -90,7 +90,8 @@ describe('online/offline scorer parity', () => {
   const view: ScorerRunView = {
     input: { q: 'shoes' },
     output: { answer: 'ok', count: 2 },
-    resultKind: 'informative',
+    resultKind: 'researcher',
+    agentType: 'researcher',
     confidence: 0.8,
     status: 'ok',
     latencyMs: 900,
@@ -120,6 +121,7 @@ describe('online/offline scorer parity', () => {
     confidence_threshold: { threshold: 0.5 },
     disposition_equals: { expected: 'auto_approved' },
     required_keys: { requiredKeys: ['answer'] },
+    action_vocabulary: { allowedActions: ['set_stage'] },
   }
 
   /**

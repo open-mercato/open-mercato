@@ -52,8 +52,8 @@ test.describe('TC-AGENT-NAV-001: playground response ids + deep links', () => {
 
     expect(typeof run.runId, 'runId must be returned additively next to the result').toBe('string')
     expect(run.runId).toMatch(/^[0-9a-f-]{36}$/)
-    if (run.kind === 'actionable') {
-      expect(typeof run.proposalId, 'actionable runs must return the created proposal id').toBe('string')
+    if (run.kind === 'proposal') {
+      expect(typeof run.proposalId, 'proposal runs must return the created proposal id').toBe('string')
     }
 
     await loginAsAdmin(page)

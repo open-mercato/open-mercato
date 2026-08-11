@@ -59,7 +59,7 @@ confidence always routes to a human (fail-closed).
    `format` (and similar) — they fail generation loudly. Mirror the supported shape used by the
    example (object/array/string/number/boolean, `const`, `enum`, `required`, `properties`,
    `items`, `additionalProperties:false`, `minItems`/`minLength`/`minimum`/`maximum`).
-5. **Sub-agent depth = 1.** A sub-agent is informative-only (no actionable OUTCOME) and may not
+5. **Sub-agent depth = 1.** A sub-agent is researcher-only (no proposal OUTCOME) and may not
    declare its own `subAgents`.
 6. **Generated files.** Never hand-edit `generated/file-agents.generated.ts` or
    `docker/opencode/{agents,skills}/*` — they are `yarn generate` output.
@@ -79,7 +79,7 @@ Pin three things (one agent = one job):
 2. **Inputs/data** it needs and **how it gets them** — inline in the run input, a read-only
    `@ref` package tool, or a local sandboxed tool. There is no run-input schema file: the input
    is free-form JSON, so name the fields you expect in the AGENT.md body (and ship a `SAMPLE.json`).
-3. **Outcome shape** — `informative` (just reports `data`) or `actionable` (proposes `actions` +
+3. **Outcome shape** — `researcher` (just reports `data`) or `proposal` (proposes `actions` +
    `confidence` + `rationale`).
 
 Then pick:
@@ -122,12 +122,12 @@ modify anything — the only way to change state is the proposal it returns.>
 ## Step 3 — Scaffold `agents/<folder>/OUTCOME.md`
 
 Frontmatter carries ONLY `kind`. The result schema is the **FIRST** fenced ` ```json ` block;
-trailing prose is guidance for the model. Actionable example (copy this exact shape, adapt the
+trailing prose is guidance for the model. Proposal example (copy this exact shape, adapt the
 payload):
 
 ```markdown
 ---
-kind: actionable
+kind: proposal
 ---
 ` ` `json
 {
@@ -167,7 +167,7 @@ schema. Say it explicitly.
 `payload` object whose action-specific fields are all OPTIONAL, then pin which `payload` field
 each `type` uses in the prose. (A single fixed action keeps `type: { "const": "<action_type>" }`.)
 
-For an **informative** agent use `kind: informative` and let the schema BE the data object
+For an **researcher** agent use `kind: researcher` and let the schema BE the data object
 itself at the top level — do NOT wrap it in a `data` key (the runtime wraps it as
 `{ kind, data }` for you); there is no `actions`/`confidence` envelope.
 
@@ -179,7 +179,7 @@ itself at the top level — do NOT wrap it in a `data` key (the runtime wraps it
   detaches (load-time warn + skip). SKILL.md frontmatter carries `id`/`label`/`description`
   (+ optional `tools: []`). Optional `TEMPLATE.md`, `examples/*.md`, `scripts/*.ts`
   (sandboxed `run(args)`).
-- **Sub-agent:** `sub-agents/<id>/AGENT.md` + `OUTCOME.md` — informative only, no `subAgents`.
+- **Sub-agent:** `sub-agents/<id>/AGENT.md` + `OUTCOME.md` — researcher only, no `subAgents`.
   Same required AGENT.md frontmatter (`id`/`label`/`description`) as a primary; the parent's
   `subAgents: [<id>]` must equal the sub-agent's frontmatter `id`.
 - **Tool:** `tools/<name>.ts` = either `// @ref <package defineAiTool id>` (read-only, ACL-gated,
@@ -224,7 +224,7 @@ mercato ai_assistant mcp:list-tools   # expect the FULL tool set, not just 3 Cod
 ## Step 6 — Run it + the approval gate (tell the user)
 
 1. Backend → Agent Orchestrator → **Playground**: pick the agent, paste sample input, Run.
-2. An `actionable` result becomes an `AgentProposal`. The disposition gate decides:
+2. An `proposal` result becomes an `AgentProposal`. The disposition gate decides:
    - "always ask" / low confidence → it waits in the **Caseload** for approve/edit/reject;
    - confidence ≥ the node's auto-approve threshold → auto-approved + effected, logged to audit.
 3. Auto-approve is **off by default** — it is set per "Invoke Agent" workflow node, a deliberate
@@ -232,8 +232,8 @@ mercato ai_assistant mcp:list-tools   # expect the FULL tool set, not just 3 Cod
 
 ## Acceptance — self-test the skill ~2×
 
-Run the full flow twice with two DIFFERENT shapes (e.g. one `actionable` with a sub-agent + a
-read tool, one `informative` with no tools):
+Run the full flow twice with two DIFFERENT shapes (e.g. one `proposal` with a sub-agent + a
+read tool, one `researcher` with no tools):
 - files written under `agents/<id>/`,
 - `yarn generate` clean, agent in the manifest, no load-gate warning,
 - a dry-run in the Playground returns a schema-valid outcome.

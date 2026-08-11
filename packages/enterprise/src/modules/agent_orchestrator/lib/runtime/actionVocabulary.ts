@@ -59,17 +59,69 @@ export async function loadActionVocabulary(): Promise<ActionVocabulary> {
   }
 }
 
+/** Every id the catalogue currently declares — commands and activity types alike. */
+export function listVocabularyEntries(vocabulary: ActionVocabulary): string[] {
+  return [...vocabulary.commandIds, ...vocabulary.activityTypeIds]
+}
+
 /**
- * True when the resolved effect is still inside the catalogue: either the command the
- * action maps to is a currently-registered workflow-safe command, or the action type
- * itself names a registered activity type.
+ * The registration-time half of `effective = catalogue ∩ agent.allowedActions`.
+ *
+ * Narrowing only: an entry the catalogue does not declare is DROPPED and warned, never
+ * kept "just in case", because a silently-dropped permission reads as a granted one to
+ * whoever authored it. An UNAVAILABLE catalogue (the `workflows` peer absent, or not yet
+ * loaded in this process) leaves the declaration untouched rather than emptying it —
+ * emptying would destroy the author's list permanently, and the disposition-time check
+ * already fails closed on `available: false`, so nothing executes meanwhile.
+ */
+export function narrowAllowedActions(
+  vocabulary: ActionVocabulary,
+  agentId: string,
+  declared: readonly string[],
+): string[] {
+  if (!vocabulary.available) {
+    logger.warn('action vocabulary unavailable at registration; allowedActions left unnarrowed', {
+      agentId,
+      declaredCount: declared.length,
+    })
+    return [...declared]
+  }
+  const kept: string[] = []
+  const dropped: string[] = []
+  for (const entry of declared) {
+    if (vocabulary.commandIds.has(entry) || vocabulary.activityTypeIds.has(entry)) kept.push(entry)
+    else dropped.push(entry)
+  }
+  if (dropped.length > 0) {
+    logger.warn(
+      'agent declares allowedActions outside the platform action catalogue; dropped (allowedActions narrows, never widens)',
+      { agentId, dropped },
+    )
+  }
+  return kept
+}
+
+/**
+ * True when the resolved effect is still inside the catalogue AND inside the agent's own
+ * narrowing: either the command the action maps to is a currently-registered
+ * workflow-safe command, or the action type itself names a registered activity type.
+ *
+ * `allowedActions` is the per-agent narrowing resolved at registration. `undefined`/`null`
+ * means the agent declared none and is bounded by the catalogue alone; an EMPTY list is
+ * not the same thing — it denies everything, which is what a declaration whose every
+ * entry was dropped must mean.
  */
 export function isEffectWithinVocabulary(
   vocabulary: ActionVocabulary,
   actionType: string,
   commandId: string | null,
+  allowedActions?: readonly string[] | null,
 ): boolean {
   if (!vocabulary.available) return false
+  if (allowedActions) {
+    const allowed = new Set(allowedActions)
+    if (!allowed.has(actionType) && !(commandId && allowed.has(commandId))) return false
+  }
   if (commandId && vocabulary.commandIds.has(commandId)) return true
   return vocabulary.activityTypeIds.has(actionType)
 }

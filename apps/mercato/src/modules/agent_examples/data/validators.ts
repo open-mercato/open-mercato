@@ -3,14 +3,14 @@ import { z } from 'zod'
 /**
  * Result schema for the `support.ticket_triage` example agent.
  *
- * This is an INFORMATIVE agent: it returns structured data (no proposal, no
- * actions). The schema therefore wraps the payload under `kind: 'informative'`
+ * This is an RESEARCHER agent: it returns structured data (no proposal, no
+ * actions). The schema therefore wraps the payload under `kind: 'researcher'`
  * + `data`, which is exactly the AgentResult shape the runtime persists and the
- * cockpit renders. (Contrast with an `actionable` agent, whose schema wraps a
+ * cockpit renders. (Contrast with an `proposal` agent, whose schema wraps a
  * `proposal` instead — see agent_orchestrator's `dealHealthCheckResult`.)
  */
 export const ticketTriageResult = z.object({
-  kind: z.literal('informative'),
+  kind: z.literal('researcher'),
   data: z.object({
     category: z.enum(['billing', 'technical', 'account', 'feedback', 'other']),
     priority: z.enum(['low', 'medium', 'high', 'urgent']),
@@ -23,10 +23,10 @@ export type TicketTriageResult = z.infer<typeof ticketTriageResult>
 /**
  * Result schema for the `support.triage_batch` manager agent. It delegates each
  * ticket to the `support.ticket_triage` sub-agent (in parallel) and aggregates.
- * Informative — it summarizes; it proposes nothing.
+ * Researcher — it summarizes; it proposes nothing.
  */
 export const triageBatchResult = z.object({
-  kind: z.literal('informative'),
+  kind: z.literal('researcher'),
   data: z.object({
     total: z.number().int().min(0),
     urgentCount: z.number().int().min(0),

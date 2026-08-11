@@ -36,7 +36,7 @@ The fastest way to test the agent on sample data. The agent runs in **object-mod
 1. Open **Backend → Agent Orchestrator → Playground** (`/backend/agent_orchestrator/playground`).
 2. Pick agent **`deals.health_check`**.
 3. Paste one of the sample inputs below into the input box and click **Run**.
-4. You get a typed **actionable** result: a `set_stage` action + `confidence` + `rationale`, with a tools/steps trace.
+4. You get a typed **proposal** result: a `set_stage` action + `confidence` + `rationale`, with a tools/steps trace.
 
 ### Sample input 1 — healthy deal (expect high confidence, ≥ 0.8 → would auto-approve)
 ```json
@@ -95,9 +95,9 @@ Instead of passing the deal inline, give the agent only a `dealId`. The agent ca
 }
 ```
 
-*Expect:* a normal `actionable` proposal — but this run exercised the tool loop (`runAiAgentObject({ enableTools })` → `generateText` + `experimental_output`). The agent could **read** the deal but cannot modify it (read-only policy strips every mutation tool). The tool runs under **your** ACL, so you need `customers.deals.view`.
+*Expect:* a normal `proposal` proposal — but this run exercised the tool loop (`runAiAgentObject({ enableTools })` → `generateText` + `experimental_output`). The agent could **read** the deal but cannot modify it (read-only policy strips every mutation tool). The tool runs under **your** ACL, so you need `customers.deals.view`.
 
-> **What this proves:** authoring (`defineAgent`) + the runtime (`agentRuntime.run` over `runAiAgentObject`) + the typed `AgentResult` (`actionable`) + propose-only. Samples 1–3 use object-mode (no tools); sample 4 uses the read-only tool loop. Each run also writes an `AgentRun` (+ `AgentProposal`) — see **Backend → Agent Orchestrator → Overview / Runs**.
+> **What this proves:** authoring (`defineAgent`) + the runtime (`agentRuntime.run` over `runAiAgentObject`) + the typed `AgentResult` (`proposal`) + propose-only. Samples 1–3 use object-mode (no tools); sample 4 uses the read-only tool loop. Each run also writes an `AgentRun` (+ `AgentProposal`) — see **Backend → Agent Orchestrator → Overview / Runs**.
 
 ---
 

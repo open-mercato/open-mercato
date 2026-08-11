@@ -21,8 +21,8 @@ function entry(overrides: Partial<AgentRegistryEntry>): AgentRegistryEntry {
   return {
     id: 'demo.agent',
     moduleId: 'agent_examples',
-    resultKind: 'informative',
-    schema: z.object({ kind: z.literal('informative'), data: z.object({}) }),
+    resultKind: 'researcher',
+    schema: z.object({ kind: z.literal('researcher'), data: z.object({}) }),
     tools: [],
     skills: [],
     subAgents: [],
@@ -57,9 +57,9 @@ describe('agents API outcome schema exposure', () => {
     const items = await listAgents([
       entry({
         id: 'deals.health_check',
-        resultKind: 'actionable',
+        resultKind: 'proposal',
         schema: z.object({
-          kind: z.literal('actionable'),
+          kind: z.literal('proposal'),
           proposal: z.object({ confidence: z.number(), rationale: z.string() }),
         }),
       }),

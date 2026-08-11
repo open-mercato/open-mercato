@@ -5,7 +5,7 @@ import { defineAgent, getAgentEntry, DELEGATE_TOOL_ID } from '../lib/sdk/defineA
 // read-only delegation tool to its allowlist, record the sub-agent ids, and
 // inject a "Sub-agents" prompt section that nudges parallel fan-out.
 describe('agent_orchestrator sub-agents', () => {
-  const schema = z.object({ kind: z.literal('informative'), data: z.unknown() })
+  const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
 
   it('adds the delegate tool, records subAgents, and injects the prompt section', () => {
     const def = defineAgent({
@@ -15,7 +15,7 @@ describe('agent_orchestrator sub-agents', () => {
       description: 'Delegates to workers.',
       instructions: 'BASE',
       subAgents: ['test.worker_a', 'test.worker_b'],
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
     expect(def.allowedTools).toContain(DELEGATE_TOOL_ID)
     expect(def.systemPrompt).toContain('## Sub-agents')
@@ -32,7 +32,7 @@ describe('agent_orchestrator sub-agents', () => {
       label: 'Solo',
       description: 'No delegation.',
       instructions: 'BASE',
-      result: { kind: 'informative', schema },
+      result: { kind: 'researcher', schema },
     })
     expect(def.allowedTools).not.toContain(DELEGATE_TOOL_ID)
     expect(getAgentEntry('test.solo_agent')?.subAgents).toEqual([])

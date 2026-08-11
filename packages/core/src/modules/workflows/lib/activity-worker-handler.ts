@@ -334,10 +334,10 @@ type AgentWorkflowBridgeLike = {
       review?: AgentDispositionReview
     }
   }) => Promise<
-    | { kind: 'informative'; data: unknown }
+    | { kind: 'researcher'; data: unknown }
     | { kind: 'auto_approved'; proposalId: string; payload: unknown }
     | { kind: 'user_task'; proposalId: string }
-    // The agent proposed nothing: terminal like `informative`, never parked.
+    // The agent proposed nothing: terminal like `researcher`, never parked.
     | { kind: 'none_proposed'; proposalId: string; payload: unknown }
   >
 }
@@ -469,22 +469,22 @@ export async function handleInvokeAgentJob(
     return
   }
 
-  // informative / auto_approved: resume the parked step by firing the signal. The
+  // researcher / auto_approved: resume the parked step by firing the signal. The
   // payload is merged into workflow context (top-level), mirroring the prior
   // inline-resolution behavior so the outgoing transition can branch. When the
   // activity declared an outputMapping, route the result into the chosen keys;
   // otherwise fall back to the legacy fixed-key payload.
-  // `auto_approved` and `none_proposed` both carry the proposal; only `informative`
+  // `auto_approved` and `none_proposed` both carry the proposal; only `researcher`
   // carries agent data. Narrowed explicitly rather than through a boolean, which the
   // discriminated union does not follow.
-  const proposalOutcome = outcome.kind === 'informative' ? null : outcome
+  const proposalOutcome = outcome.kind === 'researcher' ? null : outcome
   const mappedPayload = mapAgentResultToContext(
     {
       kind: outcome.kind,
       agentId: payload.agentId,
       proposalId: proposalOutcome?.proposalId,
       proposalPayload: proposalOutcome?.payload,
-      data: outcome.kind === 'informative' ? outcome.data : undefined,
+      data: outcome.kind === 'researcher' ? outcome.data : undefined,
     },
     payload.outputMapping
   )
@@ -498,9 +498,9 @@ export async function handleInvokeAgentJob(
           proposalPayload: proposalOutcome.payload,
         }
       : {
-          disposition: 'informative',
+          disposition: 'researcher',
           agentId: payload.agentId,
-          [`${payload.stepId}_agent`]: outcome.kind === 'informative' ? outcome.data : undefined,
+          [`${payload.stepId}_agent`]: outcome.kind === 'researcher' ? outcome.data : undefined,
         })
 
   try {
@@ -509,9 +509,9 @@ export async function handleInvokeAgentJob(
       instanceId: payload.workflowInstanceId,
       signalName: payload.signalName,
       payload: signalPayload,
-      // `none_proposed` takes the informative handle — the agent looked and reported
+      // `none_proposed` takes the researcher handle — the agent looked and reported
       // nothing, which is what that route means.
-      agentOutcome: outcome.kind === 'auto_approved' ? 'approved' : 'informative',
+      agentOutcome: outcome.kind === 'auto_approved' ? 'approved' : 'researcher',
       agentProposalId: proposalOutcome?.proposalId,
       userId: payload.userId,
       tenantId: payload.tenantId,

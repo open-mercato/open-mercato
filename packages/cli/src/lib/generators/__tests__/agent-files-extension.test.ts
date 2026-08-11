@@ -36,7 +36,7 @@ function makeRepoFixture(): { repoRoot: string; appBase: string; pkgBase: string
     path.join(agentDir, 'OUTCOME.md'),
     [
       '---',
-      'kind: actionable',
+      'kind: proposal',
       '---',
       '```json',
       JSON.stringify({
@@ -111,7 +111,7 @@ describe('createAgentFilesExtension', () => {
     repoRoot = fixture.repoRoot
     const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
 
-    // Declare a sub-agent under sub-agents/<subid>/ (informative + non-delegating).
+    // Declare a sub-agent under sub-agents/<subid>/ (researcher + non-delegating).
     fs.writeFileSync(
       path.join(agentDir, 'AGENT.md'),
       [
@@ -142,7 +142,7 @@ describe('createAgentFilesExtension', () => {
       path.join(subDir, 'OUTCOME.md'),
       [
         '---',
-        'kind: informative',
+        'kind: researcher',
         '---',
         '```json',
         JSON.stringify({ type: 'object', properties: { summary: { type: 'string' } } }),
@@ -376,7 +376,7 @@ describe('createAgentFilesExtension', () => {
       path.join(agentDir, 'OUTCOME.md'),
       [
         '---',
-        'kind: actionable',
+        'kind: proposal',
         '---',
         '```json',
         JSON.stringify({ type: 'object', properties: { x: { oneOf: [{ type: 'string' }] } } }),
@@ -397,7 +397,7 @@ describe('createAgentFilesExtension', () => {
       path.join(agentDir, 'OUTCOME.md'),
       [
         '---',
-        'kind: informative',
+        'kind: researcher',
         '---',
         '```json',
         JSON.stringify({ type: 'object', properties: { x: { minimum: 0 } } }),

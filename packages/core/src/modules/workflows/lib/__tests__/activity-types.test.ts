@@ -140,7 +140,7 @@ describe('built-in activity types', () => {
       const output = mock({ agentId: 'a', onResult: { autoApproveThreshold: 0.9 } }, {} as never) as {
         kind: string
       }
-      expect(['auto_approved', 'informative', 'user_task']).not.toContain(output.kind)
+      expect(['auto_approved', 'researcher', 'user_task']).not.toContain(output.kind)
     })
 
     test('tolerates an unconfigured or still-templated step', () => {

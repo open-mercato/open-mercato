@@ -60,7 +60,7 @@ export type NativeAgentRunnerDeps = {
  * The `native` runtime (lightweight-agent-runtime spec Phase 1) — the extracted
  * in-process engine that runs an agent in object mode under the caller scope,
  * validates the structured output against the agent's result schema, persists a
- * thin AgentRun (and, for actionable results, an AgentProposal) through the
+ * thin AgentRun (and, for proposal results, an AgentProposal) through the
  * audited Command path, and returns the typed AgentResult union. Dispatch
  * target for BOTH `runtime: 'native'` and the legacy `'in-process'` alias.
  *
@@ -111,6 +111,7 @@ export class NativeAgentRunner {
       model: entry.defaultModel ?? null,
       processId: ctx.processId ?? null,
       stepId: ctx.stepId ?? null,
+      agentType: entry.agentType ?? null,
     })
 
     if (ctx.onRunPersisted) {
@@ -519,13 +520,13 @@ export class NativeAgentRunner {
       runId,
       output: result,
       resultKind: entry.resultKind,
-      // Actionable runs surface the proposal's confidence on the run row;
-      // informative runs have no confidence semantics → null (renders `—`).
-      confidence: result.kind === 'actionable' ? deriveEnvelopeConfidence(result.proposal) : null,
+      // Proposal runs surface the proposal's confidence on the run row;
+      // researcher runs have no confidence semantics → null (renders `—`).
+      confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
       ...buildUsageStamp(),
     })
 
-    if (result.kind === 'actionable') {
+    if (result.kind === 'proposal') {
       await createProposal(this.commandBus, commandCtx, {
         source: ctx.source,
         tenantId: ctx.tenantId,

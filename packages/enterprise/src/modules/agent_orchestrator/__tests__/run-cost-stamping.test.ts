@@ -94,8 +94,8 @@ describe('runs.complete / runs.fail — additive confidence + usage/cost stamps'
       {
         runId: RUN_ID,
         status: 'ok',
-        output: { kind: 'actionable', proposal: {} },
-        resultKind: 'actionable',
+        output: { kind: 'proposal', proposal: {} },
+        resultKind: 'proposal',
         confidence: 0.83,
         inputTokens: 1200,
         outputTokens: 340,
@@ -121,7 +121,7 @@ describe('runs.complete / runs.fail — additive confidence + usage/cost stamps'
       currency: 'EUR',
     })
     await completeAgentRunCommand.execute(
-      { runId: RUN_ID, status: 'ok', output: { kind: 'informative', data: {} }, resultKind: 'informative' },
+      { runId: RUN_ID, status: 'ok', output: { kind: 'researcher', data: {} }, resultKind: 'researcher' },
       makeCtx(em),
     )
     expect(row.confidence).toBe(0.5)
@@ -138,8 +138,8 @@ describe('runs.complete / runs.fail — additive confidence + usage/cost stamps'
       {
         runId: RUN_ID,
         status: 'ok',
-        output: { kind: 'informative', data: {} },
-        resultKind: 'informative',
+        output: { kind: 'researcher', data: {} },
+        resultKind: 'researcher',
         confidence: null,
       },
       makeCtx(em),

@@ -65,7 +65,7 @@ function fakeContainer() {
 
 // The factual capability's proposal contract: claims carry citations into the bundle.
 const factualSchema = z.object({
-  kind: z.literal('actionable'),
+  kind: z.literal('proposal'),
   proposal: z.object({
     claims: z.array(
       z.object({
@@ -97,7 +97,7 @@ describe('GuardrailService.checkOutput grounding (Wave 3 P4, cite-or-abstain)', 
     const service = new GuardrailService(fakeContainer())
 
     const output = {
-      kind: 'actionable',
+      kind: 'proposal',
       proposal: { claims: [{ claim: 'deal is at risk', citations: [] }] },
     }
     const verdict = await service.checkOutput({
@@ -143,7 +143,7 @@ describe('GuardrailService.checkOutput grounding (Wave 3 P4, cite-or-abstain)', 
   it('unresolvable citation (resolves to no surfaced source) → block', async () => {
     const service = new GuardrailService(fakeContainer())
     const output = {
-      kind: 'actionable',
+      kind: 'proposal',
       proposal: {
         claims: [
           {
@@ -168,7 +168,7 @@ describe('GuardrailService.checkOutput grounding (Wave 3 P4, cite-or-abstain)', 
   it('grounded factual claim (cited to a surfaced bundle source) → grounding pass', async () => {
     const service = new GuardrailService(fakeContainer())
     const output = {
-      kind: 'actionable',
+      kind: 'proposal',
       proposal: {
         claims: [
           {
@@ -191,11 +191,11 @@ describe('GuardrailService.checkOutput grounding (Wave 3 P4, cite-or-abstain)', 
 
   it('non-factual capability (no grounding set) → no grounding check', async () => {
     const service = new GuardrailService(fakeContainer())
-    const schema = z.object({ kind: z.literal('informative'), data: z.unknown() })
+    const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
     const verdict = await service.checkOutput({
       capability: 'some.toolless_agent',
       schema,
-      output: { kind: 'informative', data: { ok: true } },
+      output: { kind: 'researcher', data: { ok: true } },
       allowedTools: [],
     })
     expect(verdict.result).toBe('pass')

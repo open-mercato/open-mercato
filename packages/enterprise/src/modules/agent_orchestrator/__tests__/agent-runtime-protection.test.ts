@@ -26,11 +26,11 @@ jest.mock('../lib/runtime/persistence', () => ({
   completeRun: (...args: unknown[]) => completeRunMock(...args),
   failRun: (...args: unknown[]) => failRunMock(...args),
   createProposal: (...args: unknown[]) => createProposalMock(...args),
-  shapeResult: (kind: 'informative' | 'actionable', data: unknown) => {
+  shapeResult: (kind: 'researcher' | 'proposal', data: unknown) => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-    return kind === 'informative'
-      ? { kind: 'informative', data: 'data' in record ? record.data : data }
-      : { kind: 'actionable', proposal: record.proposal ?? data }
+    return kind === 'researcher'
+      ? { kind: 'researcher', data: 'data' in record ? record.data : data }
+      : { kind: 'proposal', proposal: record.proposal ?? data }
   },
 }))
 
@@ -69,13 +69,13 @@ function registerInProcessAgent(id: string): AgentRegistryEntry {
   const entry: AgentRegistryEntry = {
     id,
     moduleId: 'agent_orchestrator',
-    resultKind: 'informative',
-    schema: z.object({ kind: z.literal('informative'), data: z.unknown() }),
+    resultKind: 'researcher',
+    schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
     tools: [],
     skills: [],
     subAgents: [],
     label: 'Protection test agent',
-    description: 'Informative agent for runtime-protection tests.',
+    description: 'Researcher agent for runtime-protection tests.',
     instructions: 'inform',
     runtime: 'in-process',
   }
@@ -96,7 +96,7 @@ function makeService(): AgentRuntimeService {
   return new AgentRuntimeService({ container: container as never, commandBus: {} as never })
 }
 
-const VALID_MODEL_OUTPUT = { mode: 'generate', object: { kind: 'informative', data: { ok: true } } }
+const VALID_MODEL_OUTPUT = { mode: 'generate', object: { kind: 'researcher', data: { ok: true } } }
 const runCtx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
 
 function delay(ms: number): Promise<void> {
@@ -153,7 +153,7 @@ describe('in-process wall-clock timeout (OM_AGENT_RUN_TIMEOUT_MS)', () => {
     const service = makeService()
     const result = await service.run('protection.fast_agent', { x: 1 }, runCtx)
 
-    expect(result.kind).toBe('informative')
+    expect(result.kind).toBe('researcher')
     expect(completeRunMock).toHaveBeenCalledTimes(1)
     expect(failRunMock).not.toHaveBeenCalled()
   })
@@ -196,10 +196,10 @@ describe('admission gate in AgentRuntimeService.run', () => {
       ...runCtx,
       parentRunId: 'run-parent',
     })
-    expect(nestedResult.kind).toBe('informative')
+    expect(nestedResult.kind).toBe('researcher')
 
     releaseModel!()
-    await expect(parentRun).resolves.toMatchObject({ kind: 'informative' })
+    await expect(parentRun).resolves.toMatchObject({ kind: 'researcher' })
   })
 
   it('a top-level run releases its slot on success and on error', async () => {
@@ -220,6 +220,6 @@ describe('admission gate in AgentRuntimeService.run', () => {
     // The slot from the failed run is free again too.
     runAiAgentObjectMock.mockResolvedValueOnce(VALID_MODEL_OUTPUT)
     const result = await service.run('protection.release_agent', {}, runCtx)
-    expect(result.kind).toBe('informative')
+    expect(result.kind).toBe('researcher')
   })
 })

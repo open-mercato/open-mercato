@@ -13,7 +13,7 @@ import { dealHealthCheckResult } from './data/validators'
 // INVOKE_AGENT step (`examples/deals-health-check-workflow.json`) and the
 // runbook in mvp/05-seed-and-demo.md.
 //
-// Result: an `actionable` proposal carrying a single `set_stage` action plus a
+// Result: an `proposal` proposal carrying a single `set_stage` action plus a
 // confidence score. The disposition gate (area 03) auto-approves when
 // `confidence >= autoApproveThreshold` (0.8 on the demo node) and otherwise
 // raises a USER_TASK / proposal for an operator. The effector step applies the
@@ -33,7 +33,7 @@ export const aiAgents: AiAgentDefinition[] = [
       'recent activities and notes. This is a READ-only tool — you can look the deal up but you can',
       'never modify it; the only way to change the deal is the proposal you return.',
       'If the deal is already provided inline, use it directly and do not call the tool.',
-      'Always return an actionable proposal with exactly one `set_stage` action whose payload sets',
+      'Always return a proposal with exactly one `set_stage` action whose payload sets',
       'the next pipeline stage, e.g. { "type": "set_stage", "payload": { "stage": "Qualified" } }.',
       'Set `confidence` between 0 and 1: high (>= 0.8) when the next stage is unambiguous (strong',
       'probability, recent activity, healthy time-in-stage); lower (< 0.8) when a human should',
@@ -51,7 +51,7 @@ export const aiAgents: AiAgentDefinition[] = [
     // The skill injects the pipeline-stage playbook into the prompt AND
     // contributes its read-only `customers.analyze_deals` tool to this agent.
     skills: ['deals.stage_playbook'],
-    result: { kind: 'actionable', schema: dealHealthCheckResult },
+    result: { kind: 'proposal', schema: dealHealthCheckResult },
     // Inline `deal` so the Playground runs deterministically (no DB lookup).
     sampleInput: {
       deal: {

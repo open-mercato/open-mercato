@@ -41,7 +41,7 @@ const RISK_AGENT = {
   label: 'Risk scorer',
   description: 'Scores risk',
   runtime: 'native',
-  resultKind: 'actionable',
+  resultKind: 'proposal',
   sampleInput: { dealId: 'deal-1', retries: 2 },
   outcomeSchema: {
     type: 'object',

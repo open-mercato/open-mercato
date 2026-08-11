@@ -57,7 +57,7 @@ export type ProposalCardProps = {
   /** Persisted proposal (caseload detail). */
   proposal?: ProposalView | null
   /**
-   * Ad-hoc proposal payload (playground actionable result). When provided
+   * Ad-hoc proposal payload (playground proposal result). When provided
    * without `proposal`, the card renders read-only with disabled actions.
    */
   adHoc?: {

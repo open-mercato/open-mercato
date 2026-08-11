@@ -10,7 +10,7 @@ import { deleteAgentRunsByIds, insertAgentRunFixtures } from './helpers/agentPer
  *
  * Part A executes a REAL agent run (LLM provider key required — env-gated, same
  * expectation as TC-AGENT-NAV-001) and asserts the run row carries token usage,
- * an estimated cost for the priced model, and — for actionable results — the
+ * an estimated cost for the priced model, and — for proposal results — the
  * proposal's confidence. Part B asserts a run without a priced model keeps
  * cost null (the UI renders `—`): estimates are never invented.
  */
@@ -48,10 +48,10 @@ test.describe('TC-AGENT-HONESTY-002: confidence + estimated cost stamping', () =
     const agentsBody = await readJsonSafe<{ items?: Array<{ id?: string; sampleInput?: unknown; resultKind?: string }> }>(
       agentsRes,
     )
-    // Prefer an actionable agent so the confidence stamp is exercised too.
+    // Prefer a proposal agent so the confidence stamp is exercised too.
     const agents = agentsBody?.items ?? []
     const agent =
-      agents.find((item) => typeof item.id === 'string' && item.sampleInput !== undefined && item.resultKind === 'actionable') ??
+      agents.find((item) => typeof item.id === 'string' && item.sampleInput !== undefined && item.resultKind === 'proposal') ??
       agents.find((item) => typeof item.id === 'string' && item.sampleInput !== undefined)
     expect(agent, 'a registered agent with a declared sampleInput is required').toBeTruthy()
 
@@ -83,9 +83,9 @@ test.describe('TC-AGENT-HONESTY-002: confidence + estimated cost stamping', () =
     expect(Number(costMinor)).toBeGreaterThanOrEqual(0)
     expect(field(row, 'currency', 'currency'), 'the estimate carries its currency').toBeTruthy()
 
-    if (run.kind === 'actionable') {
+    if (run.kind === 'proposal') {
       const confidence = field(row, 'confidence', 'confidence')
-      expect(typeof confidence, 'actionable runs surface the proposal confidence on the run row').toBe('number')
+      expect(typeof confidence, 'proposal runs surface the proposal confidence on the run row').toBe('number')
     }
   })
 

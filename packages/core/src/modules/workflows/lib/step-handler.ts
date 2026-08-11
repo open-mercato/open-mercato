@@ -682,7 +682,7 @@ async function handleAutomatedStep(
       }
     }
 
-    // Inline-resolved agent result (auto_approved / informative): surface the
+    // Inline-resolved agent result (auto_approved / researcher): surface the
     // disposition into context (top-level, matching the human-path signal merge)
     // so the outgoing transition can branch (effector vs skip) uniformly.
     const inlineAgent = results.find(

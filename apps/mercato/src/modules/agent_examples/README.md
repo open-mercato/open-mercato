@@ -2,7 +2,7 @@
 
 This module is a worked example of declaring a propose-only agent from a brand-new
 module. The agent here, `support.ticket_triage`, classifies a support ticket
-(informative result, no tools).
+(researcher result, no tools).
 
 ## What an agent is
 
@@ -10,10 +10,10 @@ An Agent Orchestrator agent is authored in code with `defineAgent(...)`. It runs
 in object mode, validates its output against a Zod schema, and returns a typed
 `AgentResult`:
 
-- **informative** — returns `data` (this example). Nothing is proposed.
-- **actionable** — returns a `proposal` (actions + confidence) that a human or a
+- **researcher** — returns `data` (this example). Nothing is proposed.
+- **proposal** — returns a `proposal` (actions + confidence) that a human or a
   threshold rule disposes, then an effector applies. See
-  `agent_orchestrator/ai-agents.ts` (`deals.health_check`) for the actionable
+  `agent_orchestrator/ai-agents.ts` (`deals.health_check`) for the proposal
   variant.
 
 Propose-only is structural: agents are declared read-only, so the runtime strips
@@ -27,12 +27,12 @@ any mutation tool. An agent can only read and propose — never write directly.
    ```ts
    import { z } from 'zod'
    export const ticketTriageResult = z.object({
-     kind: z.literal('informative'),
+     kind: z.literal('researcher'),
      data: z.object({ /* your fields, all required */ }),
    })
    ```
 
-   For an actionable agent use `kind: z.literal('actionable')` + a `proposal`
+   For a proposal agent use `kind: z.literal('proposal')` + a `proposal`
    object (`actions`, `confidence`, `rationale`).
 
 2. **Declare the agent** — `ai-agents.ts` (this file name is auto-discovered):
@@ -51,7 +51,7 @@ any mutation tool. An agent can only read and propose — never write directly.
        instructions: '…system prompt…',
        // tools: ['customers.get_deal'],   // optional read-only defineAiTool ids
        // skills: ['deals.stage_playbook'], // optional skill ids (see below)
-       result: { kind: 'informative', schema: ticketTriageResult },
+       result: { kind: 'researcher', schema: ticketTriageResult },
      }),
    ]
    export default aiAgents
@@ -100,11 +100,11 @@ defineAgent({
   moduleId: 'agent_examples',
   // …
   subAgents: ['support.ticket_triage'], // ← auto-adds the delegate tool
-  result: { kind: 'informative', schema: triageBatchResult },
+  result: { kind: 'researcher', schema: triageBatchResult },
 })
 ```
 
-Safety (enforced by the delegate tool): sub-agents must be **informative**
+Safety (enforced by the delegate tool): sub-agents must be **researcher**
 (they inform; only the parent proposes), may **not** themselves delegate (depth
 capped at 1, no cycles), and run under the **caller's** ACL — never escalated.
 The whole tree stays propose-only: no agent writes.
@@ -130,5 +130,5 @@ Open **Backend → Agents → Support ticket triage → Open in playground** and
 { "subject": "Charged twice this month", "body": "I see two identical charges on my card." }
 ```
 
-Expect an informative result like
+Expect a researcher result like
 `{ category: "billing", priority: "high", summary: "…" }`.

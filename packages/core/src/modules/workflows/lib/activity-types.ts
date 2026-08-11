@@ -144,7 +144,7 @@ const resolveCallApiOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
  * INVOKE_AGENT's output contract describes the normalized agent-result envelope
  * that `mapAgentResultToContext` reads its `outputMapping` source paths from.
  * The envelope keys are the platform's own contract; the OUTCOME shape under
- * `data` (informative agents) or `proposalPayload` (actionable agents) belongs
+ * `data` (researcher agents) or `proposalPayload` (proposal agents) belongs
  * to the selected agent and lives in the OPTIONAL agent_orchestrator peer, so it
  * arrives through a runtime binding seam — core never imports enterprise.
  * server-output-contract.ts binds a resolver backed by the peer's DI bridge;
@@ -152,7 +152,7 @@ const resolveCallApiOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
  * id, and agents without a declared OUTCOME all degrade honestly to 'unknown'.
  */
 export type AgentOutcomeContract = {
-  resultKind: 'informative' | 'actionable'
+  resultKind: 'researcher' | 'proposal'
   schema: ZodTypeAny
 }
 
@@ -178,7 +178,7 @@ const resolveInvokeAgentOutputContract = (config: unknown): ZodTypeAny | 'unknow
   if (typeof agentId !== 'string' || agentId.length === 0 || agentId.includes('{{')) return 'unknown'
   const outcome = boundAgentOutcomeSchemaResolver(agentId)
   if (outcome === 'unknown') return 'unknown'
-  const outcomeKey = outcome.resultKind === 'informative' ? 'data' : 'proposalPayload'
+  const outcomeKey = outcome.resultKind === 'researcher' ? 'data' : 'proposalPayload'
   return z.object({ ...agentEnvelopeShape, [outcomeKey]: outcome.schema })
 }
 
@@ -199,7 +199,7 @@ const asConfigRecord = (config: unknown): Record<string, unknown> =>
  * confidence, so the honest answer is the one `dispositionService` already
  * gives for a missing confidence: fail closed to human review. The envelope
  * deliberately does NOT reuse the runtime `kind` vocabulary
- * (`auto_approved` / `informative` / `user_task`) so nothing downstream can
+ * (`auto_approved` / `researcher` / `user_task`) so nothing downstream can
  * mistake a simulation for a disposition that actually happened.
  */
 const buildInvokeAgentWouldDo = (config: unknown): Record<string, unknown> => {

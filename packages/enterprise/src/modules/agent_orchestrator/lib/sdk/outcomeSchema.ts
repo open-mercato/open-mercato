@@ -21,7 +21,7 @@ export type JsonSchemaNode = {
   const?: string | number | boolean
 }
 
-export type OutcomeKind = 'informative' | 'actionable'
+export type OutcomeKind = 'researcher' | 'proposal'
 
 /**
  * Thrown when OUTCOME.md declares a JSON-Schema keyword outside the supported
@@ -157,8 +157,8 @@ export function jsonSchemaToZod(schema: JsonSchemaNode): ZodTypeAny {
 /**
  * Compile an OUTCOME.md descriptor into the SAME AgentResult shape `defineAgent`
  * feeds the runtime, so all downstream validation/persistence works unchanged:
- *   informative ⇒ z.object({ kind: z.literal('informative'), data: <schema> })
- *   actionable  ⇒ z.object({ kind: z.literal('actionable'),  proposal: <schema> })
+ *   researcher ⇒ z.object({ kind: z.literal('researcher'), data: <schema> })
+ *   proposal  ⇒ z.object({ kind: z.literal('proposal'),  proposal: <schema> })
  */
 export function compileOutcome(input: { kind: OutcomeKind; schema: JsonSchemaNode }): {
   kind: OutcomeKind
@@ -166,8 +166,8 @@ export function compileOutcome(input: { kind: OutcomeKind; schema: JsonSchemaNod
 } {
   const inner = jsonSchemaToZod(input.schema)
   const resultSchema =
-    input.kind === 'informative'
-      ? z.object({ kind: z.literal('informative'), data: inner })
-      : z.object({ kind: z.literal('actionable'), proposal: inner })
+    input.kind === 'researcher'
+      ? z.object({ kind: z.literal('researcher'), data: inner })
+      : z.object({ kind: z.literal('proposal'), proposal: inner })
   return { kind: input.kind, resultSchema }
 }

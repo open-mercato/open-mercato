@@ -1446,7 +1446,7 @@
   "workflows.outcomes.default": "domyślne",
   "workflows.outcomes.error": "błąd",
   "workflows.outcomes.guardrailBlocked": "zablokowane przez zabezpieczenie",
-  "workflows.outcomes.informative": "informacyjne",
+  "workflows.outcomes.researcher": "badawcze",
   "workflows.outcomes.inheritsErrorDirective": "nieobsłużone → dyrektywa błędu",
   "workflows.outcomes.rejected": "odrzucone",
   "workflows.parallel.branch.label": "Gałąź",

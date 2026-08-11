@@ -4,13 +4,14 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { AgentType } from '../../data/validators'
 import { getSkillEntry } from './defineSkill'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'define-agent' })
 
-export type AgentResultKind = 'actionable' | 'informative'
+export type AgentResultKind = 'proposal' | 'researcher'
 
 /**
  * Where an agent runs. `'native'` agents are authored with `defineAgent` and
@@ -37,7 +38,7 @@ export const NATIVE_RUNTIME_VALUES = ['native', 'in-process'] as const
 /**
  * Tool id of the built-in delegation tool (declared in agent_orchestrator's
  * `ai-tools.ts`). An agent that lists `subAgents` automatically gains this tool,
- * letting it run other (read-only, informative) agents as sub-agents — and fan
+ * letting it run other (read-only, researcher) agents as sub-agents — and fan
  * them out in parallel. Sub-agents stay propose-only: they only inform.
  */
 export const DELEGATE_TOOL_ID = 'agent_orchestrator.delegate_agent'
@@ -69,7 +70,7 @@ export interface DefineAgentInput {
    * Agent ids this agent may delegate to as sub-agents. When non-empty the agent
    * gains the `DELEGATE_TOOL_ID` tool and a prompt section listing the ids; the
    * model calls them (in parallel when independent). Sub-agents MUST be
-   * informative (they inform; only the parent proposes) and may not themselves
+   * researcher (they inform; only the parent proposes) and may not themselves
    * delegate — enforced by the delegate tool, capping the tree depth.
    */
   subAgents?: string[]
@@ -85,6 +86,22 @@ export interface DefineAgentInput {
   runtime?: AgentRuntime
   /** Zod from data/validators.ts; IS the output.schema (single source). */
   result: { kind: AgentResultKind; schema: ZodTypeAny }
+  /**
+   * What this agent is FOR (`researcher` | `decision_maker` | `action`). An AUTHORING
+   * declaration, unlike `result.kind`, which describes the shape that comes back.
+   * Optional and additive: an agent that declares none is listed as untyped and
+   * `agent_runs.agent_type` stays null for its runs.
+   */
+  agentType?: AgentType
+  /**
+   * Per-agent narrowing of the action vocabulary. The catalogue
+   * (`listWorkflowSafeCommands() ∪ workflowActivityTypes()`) is the OUTER limit; this
+   * list only ever INTERSECTS with it and can never widen it. An entry naming
+   * something outside the catalogue is DROPPED with a warning at registration —
+   * fail-closed and loud, because a silently-dropped permission reads as a granted
+   * one. Omitted means "the whole catalogue", which is what every agent had before.
+   */
+  allowedActions?: string[]
   /**
    * Optional example `input` surfaced by the Playground's "Insert sample"
    * button. Co-located with the agent so each agent ships its own runnable
@@ -130,6 +147,14 @@ export interface AgentRegistryEntry {
   id: string
   moduleId: string
   resultKind: AgentResultKind
+  /** Declared agent type (see DefineAgentInput); undefined when the agent declares none. */
+  agentType?: AgentType
+  /**
+   * Effective action vocabulary after the registration-time intersection with the
+   * platform catalogue (see `lib/runtime/actionVocabulary.ts`). `undefined` means the
+   * agent declared no narrowing and is bounded by the catalogue alone.
+   */
+  allowedActions?: string[]
   schema: ZodTypeAny
   tools: string[]
   skills: string[]
@@ -202,6 +227,11 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     id: input.id,
     moduleId: input.moduleId,
     resultKind: input.result.kind,
+    agentType: input.agentType,
+    // Stored as DECLARED here; `narrowRegisteredActionVocabularies` intersects it with
+    // the platform catalogue once every module has registered, because the catalogue
+    // lives behind an OPTIONAL peer that can only be reached asynchronously.
+    allowedActions: input.allowedActions ? [...input.allowedActions] : undefined,
     schema: input.result.schema,
     tools: ownTools,
     skills: skillIds,
@@ -296,6 +326,33 @@ async function loadAllAgentModules(): Promise<void> {
     await import('../../ai-agents')
   }
   await loadFileAgents()
+  await narrowRegisteredActionVocabularies()
+}
+
+/**
+ * Apply `effective = catalogue ∩ agent.allowedActions` to every registered agent.
+ *
+ * It runs HERE, at the end of the registry load, rather than inside `defineAgent`:
+ * `defineAgent` is synchronous and the catalogue lives in core `workflows`, an OPTIONAL
+ * peer reachable only through a dynamic import. This is still registration time — no
+ * agent is observable through `getAgentEntry`/`listAgentEntries` until
+ * `ensureAgentsLoaded` resolves — and the check runs AGAIN before the effect
+ * (`executeProposal`), because a tenant may revoke a safe command after registration.
+ */
+async function narrowRegisteredActionVocabularies(): Promise<void> {
+  const declaring = [...registry.values()].filter((entry) => entry.allowedActions !== undefined)
+  if (declaring.length === 0) return
+  try {
+    const { loadActionVocabulary, narrowAllowedActions } = await import('../runtime/actionVocabulary')
+    const vocabulary = await loadActionVocabulary()
+    for (const entry of declaring) {
+      entry.allowedActions = narrowAllowedActions(vocabulary, entry.id, entry.allowedActions ?? [])
+    }
+  } catch (err) {
+    logger.warn('action vocabulary narrowing skipped', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 /**
@@ -364,7 +421,7 @@ async function loadFileAgents(): Promise<void> {
   const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
   const isMutationTool = await loadMutationToolPredicate()
   // Flatten each descriptor's nested sub-agents (Phase 4) so they register as
-  // individual file agents too: they are informative, individually runnable, and
+  // individual file agents too: they are researcher, individually runnable, and
   // discoverable in the Agents list/detail. A sub-agent flows through the SAME
   // propose-only mutation-tool gate below; the registry dup-id guard prevents a
   // duplicate id (a sub-agent that collides with another agent's id is skipped).

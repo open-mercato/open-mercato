@@ -35,7 +35,7 @@ import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_ass
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
 
 const { resultSchema } = compileOutcome({
-  kind: 'actionable',
+  kind: 'proposal',
   schema: {
     type: 'object',
     additionalProperties: false,
@@ -73,7 +73,7 @@ function registerExampleFileAgent(): AgentRegistryEntry {
   const entry: AgentRegistryEntry = {
     id: FILE_AGENT_ID,
     moduleId: 'agent_examples',
-    resultKind: 'actionable',
+    resultKind: 'proposal',
     schema: resultSchema,
     tools: [],
     skills: [],
@@ -134,7 +134,7 @@ function makeHarness() {
 }
 
 const validOutcome = {
-  kind: 'actionable',
+  kind: 'proposal',
   proposal: {
     actions: [{ type: 'set_stage', payload: { stage: 'resolved' } }],
     confidence: 0.9,
@@ -212,7 +212,7 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     })
 
     const result = await runner.run(entry, { subject: 'payouts stuck' }, runCtx)
-    expect(result.kind).toBe('actionable')
+    expect(result.kind).toBe('proposal')
 
     // Assert the run ingested its trace through the audited command with the
     // correct payload. Ingest is idempotent on (runtime, externalRunId), so we

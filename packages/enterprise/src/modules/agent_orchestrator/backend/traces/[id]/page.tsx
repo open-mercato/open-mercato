@@ -846,7 +846,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 : null
             const tokensLabel = formatTokens(tokensTotal)
             const costLabel = formatCostMinor(run.costMinor, run.currency)
-            const gated = run.humanConfirmedAt == null && run.resultKind === 'actionable'
+            const gated = run.humanConfirmedAt == null && run.resultKind === 'proposal'
             const runLabel = run.externalRunId ?? `RUN-${run.id.slice(0, 8)}`
             const subtitle = [
               run.agentVersion ? `v${run.agentVersion}` : null,

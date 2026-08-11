@@ -51,13 +51,13 @@ export type InvokeAgentForWorkflowArgs = {
 }
 
 export type InvokeAgentForWorkflowOutcome =
-  | { kind: 'informative'; data: unknown }
+  | { kind: 'researcher'; data: unknown }
   | { kind: 'auto_approved'; proposalId: string; payload: unknown }
   | { kind: 'user_task'; proposalId: string }
   /**
    * The agent returned an EMPTY option set — it looked and had nothing to propose.
-   * Terminal like `informative`: the step resumes instead of parking on a decision
-   * nobody can make, and routes onto the informative outcome handle.
+   * Terminal like `researcher`: the step resumes instead of parking on a decision
+   * nobody can make, and routes onto the researcher outcome handle.
    */
   | { kind: 'none_proposed'; proposalId: string; payload: unknown }
 
@@ -68,7 +68,7 @@ export type InvokeAgentForWorkflowOutcome =
  */
 export type AgentOutcomeContractSnapshot = {
   agentId: string
-  resultKind: 'informative' | 'actionable'
+  resultKind: 'researcher' | 'proposal'
   schema: ZodTypeAny
 }
 
@@ -130,8 +130,8 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       }),
     )
 
-    if (result.kind === 'informative') {
-      return { kind: 'informative', data: result.data }
+    if (result.kind === 'researcher') {
+      return { kind: 'researcher', data: result.data }
     }
 
     const em = (this.container.resolve('em') as EntityManager).fork()
