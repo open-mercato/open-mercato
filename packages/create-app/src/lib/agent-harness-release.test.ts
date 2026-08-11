@@ -15,6 +15,14 @@ const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../n
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   effectiveCaseTimeout: (cases: Array<{ id: string; timeoutMs?: number }>, caseId: string, fallback: number) => number
+  routingInvocation: (input: {
+    evaluator: string
+    root: string
+    step: { runner: string; lane: string; modelSelector: string; expectedCaseIds: string[] }
+    cases: Array<{ id: string; timeoutMs?: number }>
+    caseTimeout: number
+  }) => { args: string[]; timeout: number }
+  DEFAULT_CASE_TIMEOUT_MS: number
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
   createMinimalValidationEnvironment: (tempRoot: string, pathValue?: string) => { env: NodeJS.ProcessEnv; toolReadRoots: string[] }
@@ -64,10 +72,43 @@ test('case-local writable timeout raises but never lowers the operator timeout f
 test('the release gate owns --case-timeout and rejects the evaluator flag --timeout (#5057)', () => {
   const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
-  assert.match(help.stdout, /--case-timeout <ms>\s+Per-model invocation timeout floor \(default: 120000/)
+  assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor \\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}`))
+  assert.equal(release.DEFAULT_CASE_TIMEOUT_MS, 600_000)
   const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
   assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)
   assert.match(rejected.stderr, /unknown argument: --timeout/)
+})
+
+// The routing step feeds one operator value into two coupled budgets: the per-case ceiling the
+// evaluator receives as --timeout, and the step's own process budget, which is the sum of those
+// ceilings plus slack. Nothing pinned that pass-through, so RELEASE.md drifted away from it once
+// already; keeping both in one assertion is what makes a future divergence visible (#5078).
+test('the routing step passes the operator case timeout through and budgets its process as the sum of the case ceilings (#5078)', () => {
+  const evaluator = '/controller/evaluate-agent-harness.mjs'
+  const root = '/controller'
+  const cases = [{ id: 'OMH-001' }, { id: 'OMH-185', timeoutMs: 600_000 }]
+  const primary = {
+    runner: 'claude', lane: 'primary', modelSelector: 'sonnet', expectedCaseIds: ['OMH-001', 'OMH-185'],
+  }
+
+  const onDefault = release.routingInvocation({
+    evaluator, root, step: primary, cases, caseTimeout: release.DEFAULT_CASE_TIMEOUT_MS,
+  })
+  assert.deepEqual(onDefault.args, [
+    evaluator, '--root', root, '--runner', 'claude', '--all', '--model', 'sonnet', '--timeout', '600000',
+  ])
+  assert.equal(onDefault.timeout, 60_000 + 600_000 + 600_000)
+
+  const lowered = release.routingInvocation({ evaluator, root, step: primary, cases, caseTimeout: 120_000 })
+  assert.deepEqual(lowered.args.slice(-2), ['--timeout', '120000'])
+  assert.equal(lowered.timeout, 60_000 + 120_000 + 600_000)
+
+  const portability = release.routingInvocation({
+    evaluator, root, cases, caseTimeout: release.DEFAULT_CASE_TIMEOUT_MS,
+    step: { ...primary, lane: 'portability', runner: 'codex', modelSelector: 'default' },
+  })
+  assert.ok(!portability.args.includes('--all'), portability.args.join(' '))
+  assert.deepEqual(portability.args.slice(-2), ['--timeout', '600000'])
 })
 
 // The browser lane needs a launchable Chromium headless shell, which depends on host
