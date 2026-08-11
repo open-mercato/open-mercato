@@ -84,7 +84,7 @@ The module currently distinguishes agents by `resultKind: 'informative' | 'actio
 
 - Web Search moves from `backend/web-search/` into the settings area, and its two save affordances collapse to one. ✅ shipped
 - Playground: Output moves below the agent/input section at full width. ✅ shipped
-- Traces: five specific fixes, below.
+- Traces: five specific fixes, below. ✅ shipped (`e6b6c627b`)
 
 Fold in, since these files are being opened anyway:
 
@@ -115,9 +115,9 @@ Carry one known defect into this workstream: the `agent_orchestrator` migration 
 
 Existing precedent to build on rather than restart: [`2026-05-27-dev-mode-memory-quick-wins.md`](../../2026-05-27-dev-mode-memory-quick-wins.md) and [`2026-05-13-frontend-client-boundary-ram-reduction.md`](../../2026-05-13-frontend-client-boundary-ram-reduction.md), plus `scripts/profile-dev-rss.mjs`. Start by measuring against those baselines and reporting the delta; "RAM is bad" is not yet a scoped task.
 
-### W6 — Windows file-agent directory tree · **S** · independent
+### W6 — Windows file-agent directory tree · **S** · independent · ✅ **shipped** (`c7c117715`)
 
-The file-defined agent browser renders a flat list on Windows with no folder drill-down. Almost certainly a path-separator assumption in the tree builder. Small, self-contained, and worth shipping early because it blocks a whole platform's authors.
+The file-defined agent browser rendered a flat list on Windows with no folder drill-down. It was a path-separator assumption, in two producers rather than one: `computeAgentTokenUsage.ts` and its CLI mirror both emitted native separators, and the tree builder split on `/` only. Both producers now normalize through `toPosixRelativePath`, and the builder splits on `/[\\/]+/` so a path that slipped through either way still nests. Regression coverage: `__tests__/file-tree-separators.test.ts`.
 
 ### W7 — Process authoring wizard · **M** · depends on W1
 
@@ -151,9 +151,25 @@ The gate is closed, so W1 and W2 are specifiable now.
 3. **W1** — including the milestone declaration, the optional outcome reference and the migration squash — then **W2**, then **W7**.
 4. Close the propose-only enforcement gap (B1) before release, on its own track.
 
+## Status at 2026-08-11
+
+| Workstream | State |
+|---|---|
+| **W1** process/trigger model | not started — specifiable now, gate closed |
+| **W2** agent taxonomy | not started — follows W1 |
+| **W3** settings & IA | Web Search move, single save point, Playground layout and the five Traces fixes **shipped**. **Open:** `allowPrivateHosts` as a tenant-writable setting, adapter API keys stored unencrypted in `module_configs`, and the DS pass on the touched pages. |
+| **W4** evals usability | not started — audit first. Carries the migration-snapshot defect. |
+| **W5** runtime footprint | not started — measure first |
+| **W6** Windows file tree | **shipped** |
+| **W7** authoring wizard | not started — blocked on W1 |
+| **B1** propose-only enforcement | not started — **release-gating**, on its own track |
+
+Two fixes landed on this branch that were NOT plan items — both came from maintainer screenshots rather than the pilot notes, and both are recorded here only so the branch's scope is legible: the workflow AI drafter could not reach its own validation tool and had no repair loop (`2aeca0457`), and the overview's web-search card became one system-health tile covering web search, MCP, OpenCode and the OpenCode → MCP binding (same commit).
+
 ## Changelog
 
 - **2026-08-10**: Umbrella created from the pilot field notes; seventeen findings mapped to seven workstreams.
 - **2026-08-10**: Traces item rewritten against the rendered page after the maintainer showed screenshots. The earlier reading was derived from source greps rather than the running UI and was wrong on nearly every point — the page already leads with a verdict, has an execution timeline and collapsible tool calls, and two of the three proposed redesigns were largely shipped. The exploratory prototype was deleted; W3 now carries five specific, observed fixes (linear timeline axis, label truncation, duplicated rationale, empty cards, dead KPI tiles). W3's Web Search and Playground items shipped in `c7c117715`; the session-token leak is fixed at ingestion in the same commit.
 - **2026-08-10**: Gate closed. Q1 milestones = stored on the process definition (against the drafted recommendation — the maintainer wants business names independent of step labels; a drift warning becomes load-bearing as a result). Q2 outcome = optional reference mirroring `subject*`. Q3 action agent = propose-only, executing through the existing safe-command and activity gates so no new effect surface is created. Q4 = leave the Studio fully visible; Agent Orchestrator is enterprise and flag-gated, so hiding workflows inside it would add an ACL axis for no audience, and finding 6 is satisfied by the milestone view instead. W1 resized upward for the milestone editor; the "hide workflows" sub-item dropped.
 - **2026-08-10**: Maintainer correction — Agent Orchestrator has never been released, so no deprecation protocol applies to its own surfaces. Verified against `origin/develop`: the module, `INVOKE_AGENT`, `SET_VARIABLE` and the disposition kinds are all absent there; only core `workflows`' `/backend/tasks` and `workflows.tasks.list` are genuinely shipped. W1 resized from a compatibility migration to a straight refactor (plus a migration squash); the two BC-driven gate questions dropped; the release-gating argument restated as "free now, expensive after release".
+- **2026-08-11**: W6 marked shipped and its root cause recorded (two producers emitting native separators, not one). W3's Traces item marked shipped. Status table added — W3 retains three open items (tenant-writable `allowPrivateHosts`, unencrypted adapter keys, DS pass); W1, W2, W4, W5, W7 and B1 are untouched.
