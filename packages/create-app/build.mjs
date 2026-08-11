@@ -9,12 +9,12 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'fs'
 import { tmpdir } from 'node:os'
 import { join, basename, resolve } from 'path'
 import { pathToFileURL } from 'node:url'
+import { synchronizeDirectory } from './scripts/synchronize-directory.mjs'
 
 const shebang = '#!/usr/bin/env node\n'
 
@@ -219,25 +219,6 @@ if (sources.length > 0) {
   throw new Error(
     '[module-facts] no readable package module sources were discovered; refusing to build an empty knowledge layer',
   )
-}
-
-const synchronizeDirectory = (sourceDir, targetDir) => {
-  mkdirSync(targetDir, { recursive: true })
-  cpSync(sourceDir, targetDir, { recursive: true, force: true })
-
-  const sourceEntries = new Set(readdirSync(sourceDir))
-  for (const targetEntry of readdirSync(targetDir)) {
-    const targetPath = join(targetDir, targetEntry)
-    if (!sourceEntries.has(targetEntry)) {
-      rmSync(targetPath, { recursive: true, force: true })
-      continue
-    }
-
-    const sourcePath = join(sourceDir, targetEntry)
-    if (statSync(sourcePath).isDirectory() && statSync(targetPath).isDirectory()) {
-      synchronizeDirectory(sourcePath, targetPath)
-    }
-  }
 }
 
 synchronizeDirectory(agenticStageDir, agenticTargetDir)
