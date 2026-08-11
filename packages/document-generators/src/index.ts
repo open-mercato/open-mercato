@@ -9,14 +9,26 @@ export type {
   TemplateFilter,
   TemplateLoadContext,
   TemplateDataContext,
+  DocumentFormat,
 } from './modules/document_generators/lib/interfaces'
-export { BaseDocumentService, PdfRenderingService } from './modules/document_generators/services'
+export {
+  BaseDocumentService,
+  DocumentRenderer,
+  MarkdownRenderingService,
+  PdfRenderingService,
+} from './modules/document_generators/services'
 export type { DocumentTemplateEntry } from './modules/document_generators/services'
 export type {
   DocumentTemplateSource,
+  DocumentRenderInput,
+  DocumentRenderOutput,
   LoadedDocumentTemplateBase,
+  LoadedMarkdownTemplate,
   LoadedPdfTemplate,
   LoadedTemplate,
+  MarkdownTemplateSource,
+  MarkdownRenderInput,
+  PdfRenderInput,
   ReactPdfTemplateSource,
   RenderedDocument,
 } from './modules/document_generators/lib/interfaces'

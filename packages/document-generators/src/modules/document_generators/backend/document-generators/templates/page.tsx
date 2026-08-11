@@ -35,6 +35,11 @@ function buildColumns(t: Translator): ColumnDef<TemplateMeta>[] {
       meta: { maxWidth: 140 },
     },
     {
+      accessorKey: 'format',
+      header: t('document_generators.page.columns.format', 'Format'),
+      meta: { maxWidth: 100 },
+    },
+    {
       accessorKey: 'description',
       header: t('document_generators.page.columns.description', 'Description'),
       meta: { truncate: true },

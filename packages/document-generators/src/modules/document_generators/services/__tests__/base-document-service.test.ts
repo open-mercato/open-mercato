@@ -60,6 +60,7 @@ describe('BaseDocumentService.getEntries', () => {
       module: 'sales',
       resourceKind: 'sales.quote',
       documentType: 'offer',
+      format: 'pdf',
       tags: ['sales', 'offer'],
     })
     expect(typeof entry.fromRecord).toBe('function')
@@ -88,6 +89,19 @@ describe('BaseDocumentService.getEntries', () => {
     const [entry] = service.getEntries()
 
     expect(entry.filename({ data: { document: { number: '42' } } })).toBe('offer-42.pdf')
+  })
+
+  it('uses a template-specific filename when one is registered', () => {
+    const service = new TestDocumentService()
+    service.registerTemplate(makeTemplate({
+      format: 'md',
+      filename: ({ data }) => `offer-${String((data.document as { number: string }).number)}.md`,
+    }))
+
+    const [entry] = service.getEntries()
+
+    expect(entry.format).toBe('md')
+    expect(entry.filename({ data: { document: { number: '42' } } })).toBe('offer-42.md')
   })
 
   it('falls back to the default filename only when the number is absent', () => {

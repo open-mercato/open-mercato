@@ -1,6 +1,7 @@
 {
   "document_generators.errors.organization_required": "Selecciona una organización para generar este documento.",
   "document_generators.generate.button": "Descargar PDF",
+  "document_generators.generate.buttonMarkdown": "Descargar Markdown",
   "document_generators.generate.generating": "Generando...",
   "document_generators.generate.open": "Generar PDF",
   "document_generators.history.description": "Consulta el historial de generación de documentos de la organización actual.",
@@ -26,11 +27,12 @@
   "document_generators.page.cardTitle": "El módulo está correctamente conectado",
   "document_generators.page.columns.description": "Descripción",
   "document_generators.page.columns.documentType": "Tipo de documento",
+  "document_generators.page.columns.format": "Formato",
   "document_generators.page.columns.id": "ID",
   "document_generators.page.columns.label": "Etiqueta",
   "document_generators.page.columns.note": "Nota",
   "document_generators.page.columns.resource": "Recurso",
-  "document_generators.page.description": "Plantillas PDF registradas disponibles en esta aplicación.",
+  "document_generators.page.description": "Plantillas de documentos registradas disponibles en esta aplicación.",
   "document_generators.page.error": "No se pudieron cargar las plantillas.",
   "document_generators.page.external": "Externas",
   "document_generators.page.external_empty": "No hay plantillas externas registradas.",
@@ -39,8 +41,9 @@
   "document_generators.page.title": "Plantillas disponibles",
   "document_generators.preview.error": "No se pudo generar el documento.",
   "document_generators.preview.frameTitle": "Vista previa del documento PDF",
+  "document_generators.preview.markdownTitle": "Vista previa del documento Markdown",
   "document_generators.preview.title": "Vista previa del documento",
   "document_generators.template.select": "Seleccionar plantilla",
   "document_generators.templates.loading": "Cargando datos...",
-  "document_generators.templates.title": "Plantillas PDF disponibles"
+  "document_generators.templates.title": "Plantillas de documentos disponibles"
 }

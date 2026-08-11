@@ -19,6 +19,7 @@ function applyFilter(templates: TemplateMeta[], filter?: TemplateFilter): Templa
   return templates.filter((t) => {
     if (filter.resourceKind && t.resourceKind !== filter.resourceKind) return false
     if (filter.documentType && t.documentType !== filter.documentType) return false
+    if (filter.format && (t.format ?? 'pdf') !== filter.format) return false
     if (filter.tags && filter.tags.length > 0 && !filter.tags.some((tag) => t.tags.includes(tag))) return false
     return true
   })
@@ -47,7 +48,7 @@ export function TemplatesList({ record, filter, resource }: TemplatesListProps) 
 
   return (
     <>
-      <h2 className="mb-4 text-sm font-semibold">{t('document_generators.templates.title', 'Available PDF templates')}</h2>
+      <h2 className="mb-4 text-sm font-semibold">{t('document_generators.templates.title', 'Available document templates')}</h2>
       <TemplatesListView templates={templates} onSelect={setSelected} />
 
       {selected && (

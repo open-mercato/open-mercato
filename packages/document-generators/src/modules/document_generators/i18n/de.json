@@ -1,6 +1,7 @@
 {
   "document_generators.errors.organization_required": "Wählen Sie eine Organisation aus, um dieses Dokument zu erstellen.",
   "document_generators.generate.button": "PDF herunterladen",
+  "document_generators.generate.buttonMarkdown": "Markdown herunterladen",
   "document_generators.generate.generating": "Wird generiert...",
   "document_generators.generate.open": "PDF generieren",
   "document_generators.history.description": "Zeigen Sie den Verlauf der Dokumenterstellung für die aktuelle Organisation an.",
@@ -26,11 +27,12 @@
   "document_generators.page.cardTitle": "Modul ist korrekt eingebunden",
   "document_generators.page.columns.description": "Beschreibung",
   "document_generators.page.columns.documentType": "Dokumenttyp",
+  "document_generators.page.columns.format": "Format",
   "document_generators.page.columns.id": "ID",
   "document_generators.page.columns.label": "Bezeichnung",
   "document_generators.page.columns.note": "Hinweis",
   "document_generators.page.columns.resource": "Ressource",
-  "document_generators.page.description": "Registrierte PDF-Vorlagen, die in dieser Anwendung verfügbar sind.",
+  "document_generators.page.description": "Registrierte Dokumentvorlagen, die in dieser Anwendung verfügbar sind.",
   "document_generators.page.error": "Vorlagen konnten nicht geladen werden.",
   "document_generators.page.external": "Extern",
   "document_generators.page.external_empty": "Keine externen Vorlagen registriert.",
@@ -39,8 +41,9 @@
   "document_generators.page.title": "Verfügbare Vorlagen",
   "document_generators.preview.error": "Dokument konnte nicht generiert werden.",
   "document_generators.preview.frameTitle": "PDF-Dokumentvorschau",
+  "document_generators.preview.markdownTitle": "Markdown-Dokumentvorschau",
   "document_generators.preview.title": "Dokumentvorschau",
   "document_generators.template.select": "Vorlage auswählen",
   "document_generators.templates.loading": "Daten werden geladen...",
-  "document_generators.templates.title": "Verfügbare PDF-Vorlagen"
+  "document_generators.templates.title": "Verfügbare Dokumentvorlagen"
 }

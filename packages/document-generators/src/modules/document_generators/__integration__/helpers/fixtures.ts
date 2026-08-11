@@ -9,6 +9,7 @@ export interface TemplateMeta {
   module: string
   resourceKind: string
   documentType: string
+  format?: 'pdf' | 'md'
   tags: string[]
   note?: string
 }

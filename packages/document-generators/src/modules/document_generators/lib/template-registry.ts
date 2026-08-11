@@ -10,7 +10,7 @@ export class UnknownTemplateError extends Error {
 }
 
 /**
- * Holds built-in and externally registered PDF templates.
+ * Holds built-in and externally registered document templates.
  * Orchestrates server-side data fetching, normalization, and component loading via a single load() call.
  */
 class TemplateRegistry implements TemplateRegistryInterface {
@@ -53,8 +53,8 @@ class TemplateRegistry implements TemplateRegistryInterface {
    * @returns Object with `internal` and `external` arrays of TemplateMeta
    */
   listTemplates(): { internal: TemplateMeta[]; external: TemplateMeta[] } {
-    const toMeta = ({ id, label, description, module, resourceKind, documentType, tags, note }: TemplateEntry): TemplateMeta =>
-      ({ id, label, description, module, resourceKind, documentType, tags, note })
+    const toMeta = ({ id, label, description, module, resourceKind, documentType, format, tags, note }: TemplateEntry): TemplateMeta =>
+      ({ id, label, description, module, resourceKind, documentType, format: format ?? 'pdf', tags, note })
     return {
       internal: this.getInternal().map(toMeta),
       external: this.getExternal().map(toMeta),
@@ -96,19 +96,28 @@ class TemplateRegistry implements TemplateRegistryInterface {
     const entry = this.findTemplate(id)
     const enriched = await this.enrich({ id, data: rawData }, { container, auth })
     const source = await entry.load()
+    const sourceFormat = source.type === 'markdown' ? 'md' : 'pdf'
+    const declaredFormat = entry.format ?? 'pdf'
+    if (declaredFormat !== sourceFormat) {
+      throw new Error(`[internal] Template ${entry.id} declares ${declaredFormat} but loads ${sourceFormat}`)
+    }
     const data = entry.fromRecord(enriched, { locale })
     const filename = entry.filename({ data })
     const resourceId = entry.resourceId?.({ data })
     const resourceLabel = entry.resourceLabel?.({ data })
-    return {
-      data,
+    const loadedBase = {
       filename,
-      source,
       template: { id: entry.id, label: entry.label },
       resource: { kind: entry.resourceKind, id: resourceId, label: resourceLabel },
     }
+
+    if (source.type === 'markdown') {
+      return { ...loadedBase, render: { format: 'md', source, data } }
+    }
+
+    return { ...loadedBase, render: { format: 'pdf', source, data } }
   }
 }
 
-/** Singleton registry for PDF templates — use this to register, query, and load templates. */
+/** Singleton registry for document templates — use this to register, query, and load templates. */
 export const templateRegistry = new TemplateRegistry()

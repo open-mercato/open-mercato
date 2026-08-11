@@ -2,7 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { OpenMercatoLogo } from '../../../../shared/components/Logo'
 import '../../../../shared/theme'
 import { colors } from '../../../../shared/theme'
-import type { OrderInvoiceData } from './types'
+import type { OrderInvoiceData } from '../types'
 
 const s = StyleSheet.create({
   page: { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Inter', color: colors.text },

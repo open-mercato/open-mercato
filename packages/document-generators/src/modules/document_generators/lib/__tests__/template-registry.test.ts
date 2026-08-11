@@ -15,6 +15,7 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
     module: 'sales',
     resourceKind: 'sales.order',
     documentType: 'invoice',
+    format: 'pdf',
     tags: ['sales', 'invoice'],
     note: undefined,
     fromRecord: (data: unknown) => data as Record<string, unknown>,
@@ -54,6 +55,7 @@ describe('templateRegistry.listTemplates', () => {
       module: 'sales',
       resourceKind: 'sales.order',
       documentType: 'invoice',
+      format: 'pdf',
     })
   })
 
@@ -101,8 +103,9 @@ describe('templateRegistry.load', () => {
     const result = await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, ctx)
 
     expect(calls).toEqual(['fetchData', 'load', 'fromRecord', 'filename', 'resourceId', 'resourceLabel'])
-    expect(result.source).toEqual({ type: 'react-pdf', component: FakeComponent })
-    expect(result.data).toMatchObject({ normalized: true, locale: 'en', id: 'abc', enriched: true })
+    expect(result.render.source).toEqual({ type: 'react-pdf', component: FakeComponent })
+    expect(result.render.format).toBe('pdf')
+    expect(result.render.data).toMatchObject({ normalized: true, locale: 'en', id: 'abc', enriched: true })
     expect(fromRecord).toHaveBeenCalledWith(expect.anything(), { locale: 'en' })
     expect(result.filename).toBe('invoice-42.pdf')
     expect(result.template).toEqual({ id: 'order-invoice', label: 'Order Invoice' })
@@ -149,7 +152,34 @@ describe('templateRegistry.load', () => {
 
     const result = await templateRegistry.load({ id: 'custom-doc', data: {} }, ctx)
 
-    expect(result.source).toEqual({ type: 'react-pdf', component: FakeComponent })
+    expect(result.render.source).toEqual({ type: 'react-pdf', component: FakeComponent })
+  })
+
+  it('loads a Markdown source as a Markdown template', async () => {
+    const render = jest.fn(() => '# Document')
+    templateRegistry.registerInternal([makeEntry({
+      id: 'order-invoice-markdown',
+      format: 'md',
+      filename: () => 'invoice.md',
+      load: async () => ({ type: 'markdown', render }),
+    })])
+
+    const result = await templateRegistry.load({ id: 'order-invoice-markdown', data: {} }, ctx)
+
+    expect(result.render.format).toBe('md')
+    expect(result.filename).toBe('invoice.md')
+    expect(result.render.source).toEqual({ type: 'markdown', render })
+  })
+
+  it('rejects metadata that disagrees with the loaded source format', async () => {
+    templateRegistry.registerInternal([makeEntry({
+      id: 'invalid-markdown',
+      format: 'pdf',
+      load: async () => ({ type: 'markdown', render: () => '# Document' }),
+    })])
+
+    await expect(templateRegistry.load({ id: 'invalid-markdown', data: {} }, ctx))
+      .rejects.toThrow('declares pdf but loads md')
   })
 
   it('throws "Unknown template" for an unregistered id', async () => {

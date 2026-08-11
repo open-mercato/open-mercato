@@ -35,6 +35,7 @@ interface PreviewPanelProps {
 export function PreviewPanel({ open, onClose, record, template, resource }: PreviewPanelProps) {
   const t = useT()
   const [blobUrl, setBlobUrl] = React.useState<string | null>(null)
+  const [markdown, setMarkdown] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [downloading, setDownloading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -44,18 +45,20 @@ export function PreviewPanel({ open, onClose, record, template, resource }: Prev
 
     setLoading(true)
     setBlobUrl(null)
+    setMarkdown(null)
     setError(null)
 
-    let objectUrl: string
+    let objectUrl: string | undefined
     let cancelled = false
+    const isMarkdown = template.format === 'md'
 
     const run = async () => {
-      const { ok, result, response } = await apiCall('/api/document-generators/preview', {
+      const { ok, result, response } = await apiCall<Blob | string>('/api/document-generators/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: template.id, data: record }),
       }, {
-        parse: (res) => res.blob(),
+        parse: (res) => isMarkdown ? res.text() : res.blob(),
       })
 
       if (cancelled) return
@@ -63,8 +66,12 @@ export function PreviewPanel({ open, onClose, record, template, resource }: Prev
         setError(await resolveErrorMessage(response, t))
         return
       }
-      objectUrl = URL.createObjectURL(result)
-      setBlobUrl(objectUrl)
+      if (typeof result === 'string') {
+        setMarkdown(result)
+      } else {
+        objectUrl = URL.createObjectURL(result)
+        setBlobUrl(objectUrl)
+      }
     }
 
     run().catch(() => {
@@ -75,7 +82,7 @@ export function PreviewPanel({ open, onClose, record, template, resource }: Prev
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [open, template.id])
+  }, [open, template.format, template.id, t])
 
   const handleDownload = async () => {
     setDownloading(true)
@@ -96,7 +103,7 @@ export function PreviewPanel({ open, onClose, record, template, resource }: Prev
       setError(await resolveErrorMessage(response, t))
       return
     }
-    const filename = getFilenameFromResponse(response, `${template.id}.pdf`)
+    const filename = getFilenameFromResponse(response, `${template.id}.${template.format === 'md' ? 'md' : 'pdf'}`)
     const url = URL.createObjectURL(result)
     downloadBlob(url, filename)
     URL.revokeObjectURL(url)
@@ -128,13 +135,23 @@ export function PreviewPanel({ open, onClose, record, template, resource }: Prev
                 title={t('document_generators.preview.frameTitle', 'PDF document preview')}
               />
             )}
+            {markdown !== null && (
+              <pre
+                aria-label={t('document_generators.preview.markdownTitle', 'Markdown document preview')}
+                className="h-full overflow-auto whitespace-pre-wrap p-6 font-mono text-sm"
+              >
+                {markdown}
+              </pre>
+            )}
           </div>
           <div className="border-t bg-background px-6 py-4">
             <Button onClick={handleDownload} disabled={loading || downloading} className="w-full">
               <Download className="mr-2 h-4 w-4" />
               {downloading
                 ? t('document_generators.generate.generating', 'Generating...')
-                : t('document_generators.generate.button', 'Download PDF')}
+                : template.format === 'md'
+                  ? t('document_generators.generate.buttonMarkdown', 'Download Markdown')
+                  : t('document_generators.generate.button', 'Download PDF')}
             </Button>
           </div>
         </div>

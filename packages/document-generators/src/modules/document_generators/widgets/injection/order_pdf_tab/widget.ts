@@ -4,7 +4,7 @@ import OrderPdfTabWidget from './widget.client'
 const widget: InjectionWidgetModule = {
   metadata: {
     id: 'document_generators.injection.order_pdf_tab',
-    title: 'PDF',
+    title: 'Documents',
     features: ['document_generators.view'],
     priority: 10,
   },

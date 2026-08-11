@@ -1,6 +1,7 @@
 {
   "document_generators.errors.organization_required": "Wybierz organizację, aby wygenerować ten dokument.",
   "document_generators.generate.button": "Pobierz PDF",
+  "document_generators.generate.buttonMarkdown": "Pobierz Markdown",
   "document_generators.generate.generating": "Generowanie...",
   "document_generators.generate.open": "Generuj PDF",
   "document_generators.history.description": "Przeglądaj historię generowania dokumentów w bieżącej organizacji.",
@@ -26,11 +27,12 @@
   "document_generators.page.cardTitle": "Moduł jest poprawnie podłączony",
   "document_generators.page.columns.description": "Opis",
   "document_generators.page.columns.documentType": "Typ dokumentu",
+  "document_generators.page.columns.format": "Format",
   "document_generators.page.columns.id": "ID",
   "document_generators.page.columns.label": "Nazwa",
   "document_generators.page.columns.note": "Uwagi",
   "document_generators.page.columns.resource": "Zasób",
-  "document_generators.page.description": "Zarejestrowane szablony PDF dostępne w tej aplikacji.",
+  "document_generators.page.description": "Zarejestrowane szablony dokumentów dostępne w tej aplikacji.",
   "document_generators.page.error": "Nie udało się załadować szablonów.",
   "document_generators.page.external": "Zewnętrzne",
   "document_generators.page.external_empty": "Brak zarejestrowanych zewnętrznych szablonów.",
@@ -39,8 +41,9 @@
   "document_generators.page.title": "Dostępne szablony",
   "document_generators.preview.error": "Nie udało się wygenerować dokumentu.",
   "document_generators.preview.frameTitle": "Podgląd dokumentu PDF",
+  "document_generators.preview.markdownTitle": "Podgląd dokumentu Markdown",
   "document_generators.preview.title": "Podgląd dokumentu",
   "document_generators.template.select": "Wybierz szablon",
   "document_generators.templates.loading": "Ładowanie danych...",
-  "document_generators.templates.title": "Dostępne szablony PDF"
+  "document_generators.templates.title": "Dostępne szablony dokumentów"
 }

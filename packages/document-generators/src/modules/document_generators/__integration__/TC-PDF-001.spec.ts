@@ -20,6 +20,7 @@ test.describe('TC-PDF-001: PDF templates listing', () => {
 
     const internalIds = result.internal.map((t) => t.id)
     expect(internalIds).toContain('order-invoice')
+    expect(internalIds).toContain('order-invoice-markdown')
     expect(internalIds).toContain('sales-offer')
 
     const orderInvoice = result.internal.find((t) => t.id === 'order-invoice')
@@ -28,10 +29,18 @@ test.describe('TC-PDF-001: PDF templates listing', () => {
       module: 'sales',
       resourceKind: 'sales.order',
       documentType: 'invoice',
+      format: 'pdf',
     })
     expect(typeof orderInvoice?.label).toBe('string')
     expect(orderInvoice?.label.length).toBeGreaterThan(0)
     expect(Array.isArray(orderInvoice?.tags)).toBe(true)
+
+    expect(result.internal.find((template) => template.id === 'order-invoice-markdown')).toMatchObject({
+      module: 'sales',
+      resourceKind: 'sales.order',
+      documentType: 'invoice',
+      format: 'md',
+    })
 
     const salesOffer = result.internal.find((t) => t.id === 'sales-offer')
     expect(salesOffer).toMatchObject({

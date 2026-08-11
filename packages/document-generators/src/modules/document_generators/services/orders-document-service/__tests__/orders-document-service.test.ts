@@ -157,6 +157,22 @@ describe('OrdersDocumentService.filename', () => {
   })
 })
 
+describe('OrdersDocumentService templates', () => {
+  it('registers PDF and Markdown variants of the order invoice', async () => {
+    const service = new OrdersDocumentService()
+    const entries = service.getEntries()
+
+    expect(entries.map((entry) => ({ id: entry.id, format: entry.format }))).toEqual([
+      { id: 'order-invoice', format: 'pdf' },
+      { id: 'order-invoice-markdown', format: 'md' },
+    ])
+
+    const markdown = entries.find((entry) => entry.id === 'order-invoice-markdown')
+    expect(markdown?.filename({ data: { document: { number: 'ORD-9' } } })).toBe('invoice-ORD-9.md')
+    await expect(markdown?.load()).resolves.toMatchObject({ type: 'markdown' })
+  })
+})
+
 describe('OrdersDocumentService.resourceLabel', () => {
   it('returns the document number as the history label', () => {
     const service = new OrdersDocumentService()

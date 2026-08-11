@@ -19,7 +19,7 @@ import type {
 } from './types'
 
 /** Template IDs registered by this service — exported for TemplateId type derivation. */
-export const ORDERS_TEMPLATE_IDS = ['order-invoice'] as const
+export const ORDERS_TEMPLATE_IDS = ['order-invoice', 'order-invoice-markdown'] as const
 
 /**
  * Document service for the Orders module.
@@ -41,14 +41,36 @@ export class OrdersDocumentService extends BaseDocumentService {
       label: 'Order Invoice',
       description: 'Standard invoice for a sales order.',
       documentType: 'invoice',
+      format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
-      note: 'Rendered in the PDF tab on the Order detail page (sales.document.detail.order:tabs).',
+      note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
       load: () =>
-        import('../../templates/sales/orders/templates/order-invoice').then(
+        import('../../templates/sales/orders/order-invoice/pdf').then(
           (m) => ({
             type: 'react-pdf' as const,
             component: m.OrderInvoiceDocument as unknown as React.ComponentType<{ data: Record<string, unknown> }>,
           })
+        ),
+    })
+
+    this.registerTemplate({
+      id: 'order-invoice-markdown',
+      label: 'Order Invoice — Markdown',
+      description: 'Markdown invoice for a sales order.',
+      documentType: 'invoice',
+      format: 'md',
+      tags: ['invoice', 'order', 'sales', 'markdown'],
+      note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
+      filename: ({ data }) => {
+        const number = documentNumber(data)
+        return number ? `invoice-${number}.md` : 'invoice.md'
+      },
+      load: () =>
+        import('../../templates/sales/orders/order-invoice/markdown').then(
+          (module) => ({
+            type: 'markdown' as const,
+            render: module.renderOrderInvoiceMarkdown,
+          }),
         ),
     })
   }

@@ -9,12 +9,13 @@ import '../../../config/registry'
 import { templateRegistry, UnknownTemplateError } from '../../../lib/template-registry'
 import type { RenderedDocument } from '../../../lib/interfaces'
 import { GenerationHistoryService } from '../../../services/generation-history-service'
-import { PdfRenderingService } from '../../../services/pdf-rendering-service'
+import { DocumentRenderer } from '../../../services/document-renderer'
 import { generateSchema } from '../../../data/validators'
 import { parseJsonBody, requireOrganization } from '../../_shared/http'
 import { documentResponse } from '../../_shared/document-response'
 
 const logger = createLogger('document_generators').child({ component: 'generate-route' })
+const documentRenderer = new DocumentRenderer()
 
 export const metadata = {
   path: '/document-generators/generate',
@@ -22,11 +23,11 @@ export const metadata = {
 }
 
 /**
- * Generates a PDF document with full side effects — logging, events, Phase 5 history.
+ * Generates a document with full side effects — logging, events, Phase 5 history.
  * For preview-only rendering without side effects use /preview.
  *
  * @param request - `{ template_id, data, resource_kind?, resource_id? }`
- * @returns PDF binary stream
+ * @returns Document binary stream
  */
 export async function POST(request: Request) {
   const container = await createRequestContainer()
@@ -44,18 +45,23 @@ export async function POST(request: Request) {
   const org = requireOrganization(auth)
   if (!org.ok) return org.response
 
-  const rendering = new PdfRenderingService()
   let rendered: RenderedDocument
   try {
     const { locale } = await resolveTranslations()
     const template = await templateRegistry.load({ id: template_id, data }, { container, auth, locale })
-    rendered = await rendering.render(template)
+    const output = await documentRenderer.render(template.render)
+    rendered = {
+      ...output,
+      filename: template.filename,
+      template: template.template,
+      resource: template.resource,
+    }
   } catch (err) {
     if (err instanceof UnknownTemplateError) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
     logger.error('Document render failed', { err })
-    return NextResponse.json({ error: 'Failed to render PDF document' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to render document' }, { status: 500 })
   }
 
   // Best-effort history record — the source resource only needs kind + id.
@@ -95,13 +101,13 @@ export async function POST(request: Request) {
 export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
-      summary: 'Generate PDF document with full side effects',
+      summary: 'Generate document with full side effects',
       responses: [
-        { status: 200, description: 'PDF file stream' },
+        { status: 200, description: 'Generated document stream' },
         { status: 400, description: 'Missing or invalid template_id / data' },
         { status: 401, description: 'Unauthorized' },
         { status: 409, description: 'No active organization (organization_required)' },
-        { status: 500, description: 'PDF rendering failed' },
+        { status: 500, description: 'Document rendering failed' },
       ],
     },
   },

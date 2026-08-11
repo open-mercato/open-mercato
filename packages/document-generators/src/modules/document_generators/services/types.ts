@@ -1,4 +1,4 @@
-import type { DocumentTemplateSource } from '../lib/interfaces'
+import type { DocumentFormat, DocumentTemplateSource } from '../lib/interfaces'
 
 /**
  * Registration shape for a single template within a document service.
@@ -9,7 +9,9 @@ export interface DocumentTemplateEntry {
   label: string
   description: string
   documentType: string
+  format?: DocumentFormat
   tags: string[]
   note?: string
+  filename?: (input: { data: Record<string, unknown> }) => string
   load: () => Promise<DocumentTemplateSource>
 }

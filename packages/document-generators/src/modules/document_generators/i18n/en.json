@@ -1,6 +1,7 @@
 {
   "document_generators.errors.organization_required": "Select an organization to generate this document.",
   "document_generators.generate.button": "Download PDF",
+  "document_generators.generate.buttonMarkdown": "Download Markdown",
   "document_generators.generate.generating": "Generating...",
   "document_generators.generate.open": "Generate PDF",
   "document_generators.history.description": "Browse the document generation history for the current organization.",
@@ -26,11 +27,12 @@
   "document_generators.page.cardTitle": "Module is wired correctly",
   "document_generators.page.columns.description": "Description",
   "document_generators.page.columns.documentType": "Document type",
+  "document_generators.page.columns.format": "Format",
   "document_generators.page.columns.id": "ID",
   "document_generators.page.columns.label": "Label",
   "document_generators.page.columns.note": "Note",
   "document_generators.page.columns.resource": "Resource",
-  "document_generators.page.description": "Registered PDF templates available in this application.",
+  "document_generators.page.description": "Registered document templates available in this application.",
   "document_generators.page.error": "Failed to load templates.",
   "document_generators.page.external": "External",
   "document_generators.page.external_empty": "No external templates registered.",
@@ -39,8 +41,9 @@
   "document_generators.page.title": "Available templates",
   "document_generators.preview.error": "Failed to generate document.",
   "document_generators.preview.frameTitle": "PDF document preview",
+  "document_generators.preview.markdownTitle": "Markdown document preview",
   "document_generators.preview.title": "Document preview",
   "document_generators.template.select": "Select template",
   "document_generators.templates.loading": "Loading data...",
-  "document_generators.templates.title": "Available PDF templates"
+  "document_generators.templates.title": "Available document templates"
 }
