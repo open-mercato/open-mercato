@@ -175,6 +175,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/search',
+    workspaceDir: 'packages/search',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/search/__tests__/global-search-acl.test.ts',
+        scans: 'every packages/core and packages/checkout module search.ts — searchable entities declare the view feature the global-search route filters on (#5163)',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/telemetry',
     workspaceDir: 'packages/telemetry',
     jestConfig: 'jest.config.cjs',

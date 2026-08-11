@@ -18,10 +18,10 @@ test('resolvePreset: classic returns isClassic=true and empty modules', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: empty returns 10-module list', () => {
+test('resolvePreset: empty returns 11-module list', () => {
   const result = resolvePreset('empty')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 10)
+  assert.equal(result.modules.length, 11)
   const ids = result.modules.map((m) => m.id)
   assert.deepEqual(ids, [
     'auth',
@@ -34,19 +34,26 @@ test('resolvePreset: empty returns 10-module list', () => {
     'notifications',
     'dashboards',
     'events',
+    'search',
   ])
   assert.equal(result.modules.find((m) => m.id === 'events')?.from, '@open-mercato/events')
-  assert.ok(result.modules.filter((m) => m.id !== 'events').every((m) => m.from === '@open-mercato/core'))
+  // search backs the Cmd+K palette the app shell renders unconditionally (issue #5164)
+  assert.equal(result.modules.find((m) => m.id === 'search')?.from, '@open-mercato/search')
+  assert.ok(
+    result.modules
+      .filter((m) => m.id !== 'events' && m.id !== 'search')
+      .every((m) => m.from === '@open-mercato/core'),
+  )
   // Example source stays present in every preset; it is disabled through modules.ts only.
   assert.ok(!result.filesToRemove.includes('src/modules/example'))
   assert.ok(!result.filesToRemove.includes('src/modules/example_customers_sync'))
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 16-module list extending empty (includes currencies + communication_channels + ai_assistant)', () => {
+test('resolvePreset: crm returns 17-module list extending empty (includes currencies + communication_channels + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 16)
+  assert.equal(result.modules.length, 17)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -70,7 +77,11 @@ test('resolvePreset: crm returns 16-module list extending empty (includes curren
   assert.ok(ids.includes('ai_assistant'))
   const aiAssistantEntry = result.modules.find((m) => m.id === 'ai_assistant')
   assert.equal(aiAssistantEntry?.from, '@open-mercato/ai-assistant')
-  // Inherits filesToRemove from empty, which no longer removes the example source
+  // search must be inherited from empty so the CRM preset gets Cmd+K next to Cmd+L
+  // (issue #5164 — the palette was absent even for superadmins)
+  assert.ok(ids.includes('search'))
+  assert.equal(result.modules.find((m) => m.id === 'search')?.from, '@open-mercato/search')
+  // Inherits filesToRemove from empty, which no longer removes the example source.
   assert.ok(!result.filesToRemove.includes('src/modules/example'))
   assert.ok(!result.filesToRemove.includes('src/modules/example_customers_sync'))
   assert.deepEqual(result.filesToRemove, [])
@@ -157,7 +168,7 @@ test('applyStarterPreset: classic is a no-op', () => {
   }
 })
 
-test('applyStarterPreset: empty writes 10-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: empty writes 11-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('empty', dir)
@@ -168,6 +179,8 @@ test('applyStarterPreset: empty writes 10-module modules.ts and keeps example so
     assert.ok(content.includes("id: 'notifications'"))
     assert.ok(content.includes("id: 'dashboards'"))
     assert.ok(content.includes("id: 'events'"))
+    assert.ok(content.includes("id: 'search'"))
+    assert.ok(content.includes("from: '@open-mercato/search'"))
     assert.ok(!content.includes("id: 'customers'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
@@ -180,7 +193,7 @@ test('applyStarterPreset: empty writes 10-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 16-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 17-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -198,6 +211,9 @@ test('applyStarterPreset: crm writes 16-module modules.ts and keeps example sour
     // (regression coverage for issue #1849)
     assert.ok(content.includes("id: 'ai_assistant'"))
     assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
+    // search must register so Cmd+K sits beside Cmd+L (regression coverage for issue #5164)
+    assert.ok(content.includes("id: 'search'"))
+    assert.ok(content.includes("from: '@open-mercato/search'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
     assert.ok(existsSync(join(dir, 'src', 'modules', 'example_customers_sync')))
@@ -205,6 +221,59 @@ test('applyStarterPreset: crm writes 16-module modules.ts and keeps example sour
     assert.equal(marker.preset, 'crm')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// Drift guard: the app shell's topbar renders each affordance on an ACL feature, and
+// `filterGrantsByEnabledModules` strips any feature whose owning module is not in the
+// enabled-modules registry — for every role, superadmin included. A preset that omits
+// such a module therefore ships an app where the affordance is silently absent rather
+// than 403-ing, which is exactly how issue #5164 escaped review.
+
+function readTopbarGatedModuleIds(): string[] {
+  const chrome = readFileSync(
+    join(__dirname, '..', '..', 'template', 'src', 'components', 'BackendHeaderChrome.tsx'),
+    'utf-8',
+  )
+  const featureIds = [...chrome.matchAll(/hasFeature\(grantedFeatures,\s*'([^']+)'\)/g)].map((m) => m[1])
+  assert.ok(
+    featureIds.length >= 3,
+    'expected the template topbar to gate at least the AI assistant, global search and notification affordances',
+  )
+  // Every feature id in this codebase is `<moduleId>.<rest>`, so the owning module is
+  // the segment before the first dot.
+  return [...new Set(featureIds.map((featureId) => featureId.split('.')[0]))]
+}
+
+test('every non-classic preset enables the modules the template topbar gates on', () => {
+  const requiredModuleIds = readTopbarGatedModuleIds()
+  assert.ok(requiredModuleIds.includes('search'))
+  assert.ok(requiredModuleIds.includes('notifications'))
+
+  for (const presetId of ['empty', 'crm']) {
+    const enabledIds = new Set(resolvePreset(presetId).modules.map((m) => m.id))
+    for (const moduleId of requiredModuleIds) {
+      // ai_assistant is a CRM capability rather than baseline chrome, so the empty
+      // preset is allowed to omit it; every other gated module must be present.
+      if (moduleId === 'ai_assistant' && presetId === 'empty') continue
+      assert.ok(
+        enabledIds.has(moduleId),
+        `preset "${presetId}" must enable module "${moduleId}" — the topbar gates an affordance on one of its features`,
+      )
+    }
+  }
+})
+
+test('any preset enabling ai_assistant also enables search', () => {
+  for (const presetId of ['classic', 'empty', 'crm']) {
+    const resolved = resolvePreset(presetId)
+    if (resolved.isClassic) continue
+    const ids = new Set(resolved.modules.map((m) => m.id))
+    if (!ids.has('ai_assistant')) continue
+    assert.ok(
+      ids.has('search'),
+      `preset "${presetId}" enables ai_assistant (Cmd+L) but not search (Cmd+K); the two palettes ship as a pair`,
+    )
   }
 })
 
