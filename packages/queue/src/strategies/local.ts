@@ -41,7 +41,9 @@ const RETRY_BACKOFF_BASE_MS = 1000
  * Cross-process lock tuning. A held lock only ever spans local file I/O — job
  * handlers run outside it — so realistic hold times are milliseconds and the
  * stale threshold sits orders of magnitude above them. It exists solely so a
- * process that dies mid-segment cannot wedge the queue forever.
+ * process that dies mid-segment cannot wedge the queue forever. A holder that
+ * was merely suspended rather than dead can still be reclaimed, which is why
+ * every acquisition carries an owner token and releases only its own lock.
  */
 const LOCK_STALE_MS = 15_000
 const LOCK_ACQUIRE_TIMEOUT_MS = 30_000
@@ -113,6 +115,7 @@ export function createLocalQueue<T = unknown>(
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')
   const lockDir = path.join(queueDir, 'queue.lock')
+  const lockOwnerFile = path.join(lockDir, 'owner')
   const logger = packageLogger.child({ queue: name })
   // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
   const concurrency = options?.concurrency ?? 1
@@ -189,26 +192,57 @@ export function createLocalQueue<T = unknown>(
     await fsp.rm(reclaimedPath, { recursive: true, force: true }).catch(() => {})
   }
 
+  async function readLockOwner(): Promise<string | null> {
+    try {
+      return await fsp.readFile(lockOwnerFile, 'utf8')
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Releases the lock only when this acquisition still owns it. A holder that
+   * was suspended past `LOCK_STALE_MS` has had its lock reclaimed *and
+   * replaced* by whoever reclaimed it, so an unconditional removal here would
+   * delete the successor's lock and let a third caller into the critical
+   * section alongside it. A missing or mismatched token means someone else owns
+   * the path now, and the correct action is to leave it alone.
+   */
+  async function releaseDirectoryLock(token: string): Promise<void> {
+    if (await readLockOwner() !== token) return
+    await fsp.rm(lockDir, { recursive: true, force: true }).catch(() => {})
+  }
+
   /**
    * Acquires the cross-process advisory lock for this queue directory.
    * `mkdir` without `recursive` is an atomic exclusive create on every platform
    * Node.js supports, which makes it the portable primitive here — no runtime
-   * dependency, and no reliance on advisory `flock` semantics.
+   * dependency, and no reliance on advisory `flock` semantics. The owner token
+   * written into the directory is what lets the release distinguish this
+   * acquisition from a successor's.
    */
   async function acquireDirectoryLock(): Promise<() => Promise<void>> {
     const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS
 
     for (;;) {
+      let acquired = false
       try {
         await fsp.mkdir(lockDir)
-        return async () => {
-          // Tolerate a missing directory: a peer may already have reclaimed
-          // this lock as stale, and failing to release is not worth throwing.
-          await fsp.rmdir(lockDir).catch(() => {})
-        }
+        acquired = true
       } catch (e: unknown) {
         const error = e as NodeJS.ErrnoException
         if (error.code !== 'EEXIST') throw error
+      }
+
+      if (acquired) {
+        const token = crypto.randomUUID()
+        try {
+          await fsp.writeFile(lockOwnerFile, token, 'utf8')
+        } catch (error: unknown) {
+          await fsp.rm(lockDir, { recursive: true, force: true }).catch(() => {})
+          throw error
+        }
+        return () => releaseDirectoryLock(token)
       }
 
       const heldForMs = await lockHeldForMs()

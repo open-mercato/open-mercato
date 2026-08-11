@@ -22,6 +22,14 @@ const queueLoggerError = createLogger('queue').error as jest.Mock
 
 function readJson(p: string) { return JSON.parse(fs.readFileSync(p, 'utf8')) }
 
+async function waitUntil(condition: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('[internal] Timed out waiting for the expected filesystem state')
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+  }
+}
+
 describe('Queue - local strategy', () => {
   const origCwd = process.cwd()
   let tmp: string
@@ -390,6 +398,52 @@ describe('Queue - local strategy', () => {
     expect(fs.existsSync(lockPath)).toBe(false)
 
     await queue.close()
+  })
+
+  // Regression (#5149): reclaiming a stale lock replaces it, so the holder that
+  // was reclaimed must not remove the replacement on its way out. An
+  // unconditional release deleted the successor's lock and let a third caller
+  // into the critical section beside it — the lost-update window this fix
+  // exists to close.
+  test('a holder whose lock was reclaimed does not delete the lock that replaced it', async () => {
+    const queue = createQueue<{ value: number }>('reclaim-release-queue', 'local')
+    const queueDir = path.join('.mercato', 'queue', 'reclaim-release-queue')
+    const lockPath = path.join(queueDir, 'queue.lock')
+    const ownerPath = path.join(lockPath, 'owner')
+    const successorToken = 'successor-owner-token'
+
+    let releaseStall = () => {}
+    const stalled = new Promise<void>((resolve) => { releaseStall = resolve })
+    const realWriteFile = fs.promises.writeFile
+    const writeFileSpy = jest.spyOn(fs.promises, 'writeFile').mockImplementation(
+      async (target: any, content: any, options: any) => {
+        // Stall inside the critical section: the temp file is only ever written
+        // while this queue holds the lock.
+        if (typeof target === 'string' && target.endsWith('.tmp')) await stalled
+        return realWriteFile(target, content, options)
+      },
+    )
+
+    try {
+      const enqueued = queue.enqueue({ value: 1 })
+      await waitUntil(() => fs.existsSync(ownerPath))
+
+      // Stand in for the peer that found this lock stale: move it aside, drop
+      // it, and take a fresh one of its own.
+      fs.rmSync(lockPath, { recursive: true, force: true })
+      fs.mkdirSync(lockPath, { recursive: true })
+      fs.writeFileSync(ownerPath, successorToken, 'utf8')
+
+      releaseStall()
+      await enqueued
+
+      expect(fs.existsSync(lockPath)).toBe(true)
+      expect(fs.readFileSync(ownerPath, 'utf8')).toBe(successorToken)
+    } finally {
+      writeFileSpy.mockRestore()
+      fs.rmSync(lockPath, { recursive: true, force: true })
+      await queue.close()
+    }
   })
 
   test('failed jobs are retained in queue for retry', async () => {
