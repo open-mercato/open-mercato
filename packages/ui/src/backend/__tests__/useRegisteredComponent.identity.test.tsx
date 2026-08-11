@@ -125,6 +125,52 @@ describe('useRegisteredComponent identity', () => {
     expect(screen.getByTestId('field')).toHaveValue('typed before the registry settled')
   })
 
+  it('keeps a wrapper-wrapped subtree mounted across override re-registrations', async () => {
+    const componentId = 'test.identity.wrapped'
+    registerComponent({ id: componentId, component: StatefulField, metadata: { module: 'test' } })
+
+    const wrapper = (Original: React.ComponentType<FieldProps>) => {
+      const Wrapped = (props: FieldProps) => (
+        <div data-testid="wrapped">
+          <Original {...props} />
+        </div>
+      )
+      Wrapped.displayName = 'Wrapped'
+      return Wrapped
+    }
+
+    const buildOverrides = (): ComponentOverride[] => [
+      { target: { componentId }, priority: 10, metadata: { module: 'test' }, wrapper } as unknown as ComponentOverride,
+    ]
+
+    function Consumer() {
+      const Resolved = useRegisteredComponent<FieldProps>(componentId)
+      return <Resolved />
+    }
+
+    const { rerender } = render(
+      <ComponentOverrideProvider overrides={buildOverrides()}>
+        <Consumer />
+      </ComponentOverrideProvider>,
+    )
+
+    expect(screen.getByTestId('wrapped')).toBeInTheDocument()
+    typeIntoField('typed inside a wrapped section')
+    expect(mounts.count).toBe(1)
+
+    // A new array with the same wrapper function — what a provider re-render looks like.
+    await act(async () => {
+      rerender(
+        <ComponentOverrideProvider overrides={buildOverrides()}>
+          <Consumer />
+        </ComponentOverrideProvider>,
+      )
+    })
+
+    expect(mounts.count).toBe(1)
+    expect(screen.getByTestId('field')).toHaveValue('typed inside a wrapped section')
+  })
+
   it('still applies a replacement that becomes active after the first render', async () => {
     const componentId = 'test.identity.replacement'
     const Original = () => <span data-testid="rendered">original</span>

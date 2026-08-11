@@ -40,6 +40,30 @@ type ResolutionPlan<TProps> = {
   replacementModule: string
 }
 
+/**
+ * Calling a wrapper override returns a fresh component every time, which would
+ * reintroduce the identity churn this hook exists to avoid. Memoizing per
+ * (wrapper, wrapped component) pair keeps the composed component referentially
+ * stable for as long as both inputs are.
+ */
+const composedWrappers = new WeakMap<object, WeakMap<object, unknown>>()
+
+function applyWrapper<TProps>(
+  wrapper: (Original: ComponentType<TProps>) => ComponentType<TProps>,
+  Base: ComponentType<TProps>,
+): ComponentType<TProps> {
+  let byBase = composedWrappers.get(wrapper as unknown as object)
+  if (!byBase) {
+    byBase = new WeakMap<object, unknown>()
+    composedWrappers.set(wrapper as unknown as object, byBase)
+  }
+  const cached = byBase.get(Base as unknown as object)
+  if (cached) return cached as ComponentType<TProps>
+  const composed = wrapper(Base)
+  byBase.set(Base as unknown as object, composed)
+  return composed
+}
+
 function emptyPlan<TProps>(): ResolutionPlan<TProps> {
   return { original: null, wrapped: null, transforms: [], replacementOverride: null, replacementModule: 'unknown' }
 }
@@ -79,7 +103,7 @@ function resolvePlan<TProps>(
   }
 
   const base = replacement ?? original
-  const wrapped = wrappers.reduce<ComponentType<TProps>>((acc, wrapper) => wrapper(acc), base)
+  const wrapped = wrappers.reduce<ComponentType<TProps>>((acc, wrapper) => applyWrapper(wrapper, acc), base)
 
   return {
     original,
