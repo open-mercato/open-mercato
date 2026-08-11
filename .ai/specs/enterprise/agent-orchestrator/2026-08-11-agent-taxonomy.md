@@ -1,6 +1,6 @@
 # Agent Taxonomy and the Proposal Envelope (W2)
 
-**Date:** 2026-08-11 · **Status:** ready to implement
+**Date:** 2026-08-11 · **Status:** implemented (Phases 1–4) — not yet moved to `implemented/`
 **Umbrella:** [`2026-08-10-pre-release-remediation-plan.md`](./2026-08-10-pre-release-remediation-plan.md) — workstream W2
 **Companion:** [`2026-08-11-triggered-process-model.md`](./2026-08-11-triggered-process-model.md) (W1) consumes this envelope.
 **Ordering:** independent in *scope* — W1 needs none of the agent types, W2 needs none of the process model. The one coupling is the migration: this spec owns its own alter for `selected_option_id` and `agent_type` rather than folding into W1's squash, so neither has to wait. If both land in the same release, the squash absorbs them and the alter is deleted.
@@ -314,6 +314,19 @@ Every path below ships tests in the same phase:
 | Renaming the core `workflows` disposition kind breaks a released surface | Medium | `outcome-routing.ts` is branch-only — verified absent from `origin/develop`; core `/backend/tasks` and `workflows.tasks.list` are untouched | Re-verify against `origin/develop` at implementation time, not from this spec |
 
 ## Changelog
+
+### Phase 4 implemented — 2026-08-11
+
+Steps 11–13 landed; all four phases are now implemented. Six things the spec got wrong or left unsaid, recorded because the code now depends on the answers:
+
+- **The leading-option placeholder was real, and removing it needed a rule the spec never states.** Phases 1–2 made both dispose call sites (`backend/caseload/page.tsx`, `backend/caseload/[proposalId]/page.tsx`) send `leadProposalOption(payload).id` automatically, because the endpoint 400s without one. "One selection control" does not say what is selected *initially*, and preselecting the leader would have reinstated the placeholder under a nicer name. The shipped rule: a **disposed** proposal replays the option it actually ran (`selected_option_id`); a **single-option** proposal preselects it, because there is no choice to make; a **multi-option** proposal preselects **nothing** and Approve/Edit stay disabled until a human picks. `leadProposalOption` no longer appears in either page.
+- **The Caseload's `statusOf` mapped ANY unknown disposition to `approved`** — not just `none_proposed`, and `ProposalCard`'s own badge had the same defect. Both now read one shared `components/proposalCaseStatus.ts` whose default arm is `unknown` (neutral), with `noneProposed` as its own neutral badge. `none_proposed` also rejoins the `all` segment: Phase 1–2 hid it only because there was no honest status to give it, and hiding a record is the lesser of two wrongs against mislabelling it, not a destination.
+- **Step 12 was unimplementable as written.** Phase 3 put `agentType` on the registry entry and on `GET /runs`, but `GET /agents` and `GET /agents/:id` projected neither it nor `allowedActions`, and the spec's API-contracts table never lists those routes. Both now emit `agentType: … ?? null` and `allowedActions: … ?? null` — where **null means "no narrowing declared" (the whole catalogue) and an EMPTY array means "nothing survived the intersection"**; collapsing those two would turn a fail-closed agent into a permissive one on screen.
+- **`disposition_by` is not always a person.** An auto-approval writes the sentinel `rule:threshold` (`dispositionService.ts`), so step 13's "and by whom" renders that as *Auto-approval rule* rather than as a user id. Unresolvable user ids render raw — inventing a display name for an id we cannot resolve is worse than showing the id.
+- **`mapProposal` did not carry `selected_option_id` / `auto_disposition_block`** even though `api/proposals/route.ts` had projected both since Phase 2, so no surface could have rendered either. Added to `ProposalView`.
+- **Bulk approve and the row quick-action needed a skip path the UI contract does not mention.** A multi-option row has no approvable default, so the queue's row action is inert (titled with the choose-hint) and bulk approve disposes only the unambiguous rows, flashing how many were skipped. The ranked option set itself is a `radiogroup` inside the decision pane and the proposal card — **not** a `DataTable`; `DataTable` stays the queue list, which is what the frontend contract's "no bespoke table" line actually protects.
+
+Also shipped: `DisposeDialog` (the Cmd/Ctrl+Enter + Escape reject dialog, extracted from the queue page so the two dispose surfaces cannot drift), per-option-aware editing (`deriveActionEdits`/`deriveProposedFields` read the CHOSEN option, not the leader), an `agentType` column + filter facet on the Agents list, and the `near_tie` explanation on both the Caseload and the trace.
 
 ### Phase 3 implemented — 2026-08-11
 

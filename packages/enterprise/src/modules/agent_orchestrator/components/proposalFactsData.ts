@@ -1,5 +1,5 @@
 import type { AgentFactView } from './types'
-import { leadProposalOption } from '../data/proposalEnvelope'
+import { findProposalOption, leadProposalOption } from '../data/proposalEnvelope'
 
 /**
  * Pure helpers behind the Caseload facts panel. Resolve an agent's declared
@@ -74,16 +74,18 @@ type ProposalShapedPayload = {
 /**
  * A nested value that looks like a persisted agent proposal payload.
  *
- * Accepts the option envelope (`{ options: [...] }`, flattened onto the leading
- * option — the one a disposition would run) and the pre-envelope `{ actions }`
- * shape, which still reaches here through workflow input mapping carrying an
- * upstream agent's raw findings.
+ * Accepts the option envelope (`{ options: [...] }`, flattened onto the option the
+ * operator picked — or, absent a pick, the leading one) and the pre-envelope
+ * `{ actions }` shape, which still reaches here through workflow input mapping
+ * carrying an upstream agent's raw findings.
  */
-function asProposalShaped(value: unknown): ProposalShapedPayload | null {
+function asProposalShaped(value: unknown, selectedOptionId?: string | null): ProposalShapedPayload | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Record<string, unknown>
   if (Array.isArray(candidate.options)) {
-    const option = leadProposalOption(candidate)
+    const option = selectedOptionId
+      ? findProposalOption(candidate, selectedOptionId)
+      : leadProposalOption(candidate)
     if (!option) return null
     return {
       actions: option.actions,
@@ -171,9 +173,17 @@ export function deriveFactsFromInput(input: unknown, locale?: string): ResolvedF
   return facts
 }
 
-/** Flat primitive fields of the first proposed action's payload — what the operator decides on. */
-export function deriveProposedFields(payload: unknown, locale?: string): ResolvedFact[] {
-  const proposalShaped = asProposalShaped(payload)
+/**
+ * Flat primitive fields of the first proposed action's payload — what the operator
+ * decides on. Reads the CHOSEN option when one is named, so the panel never shows
+ * the leader's fields under another option's selection.
+ */
+export function deriveProposedFields(
+  payload: unknown,
+  locale?: string,
+  selectedOptionId?: string | null,
+): ResolvedFact[] {
+  const proposalShaped = asProposalShaped(payload, selectedOptionId)
   const action = proposalShaped?.actions.find(
     (entry) => entry && typeof entry === 'object' && entry.payload && typeof entry.payload === 'object',
   )

@@ -15,6 +15,7 @@ import {
   ListChecks,
   Lock,
   Radar,
+  Scale,
   Search,
   ShieldCheck,
   Sparkles,
@@ -33,6 +34,17 @@ import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
 export const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   proposal: Zap,
   researcher: Info,
+}
+
+/**
+ * The DECLARED agent type (an authoring fact) — deliberately a separate glyph set
+ * from `TYPE_ICON`, which reads the RUNTIME result kind. Conflating the two is
+ * exactly what the taxonomy spec set out to fix.
+ */
+export const AGENT_TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  researcher: Search,
+  decision_maker: Scale,
+  action: Zap,
 }
 
 export const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = {

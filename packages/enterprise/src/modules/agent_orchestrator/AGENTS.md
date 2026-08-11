@@ -28,6 +28,15 @@ effective = (listWorkflowSafeCommands() ∪ workflowActivityTypes()) ∩ agent.a
 - Narrowing runs at the END of the registry load (`ensureAgentsLoaded`), not inside the synchronous `defineAgent`: the catalogue lives in core `workflows`, an OPTIONAL peer reachable only through a dynamic import. An UNAVAILABLE catalogue leaves the declaration untouched rather than emptying it — the disposition-time check already fails closed.
 - **Checked AGAIN before the effect** (`executeProposal` → `isEffectWithinVocabulary`), never only at registration: an agent registered before a tenant revoked a safe command must not have a stale proposal execute.
 - The `action_vocabulary` eval scorer makes the same violation VISIBLE — a blocked effect leaves nothing an operator would look at, and an agent that keeps proposing what it may not run is a prompt defect.
+- On the wire (`GET /agents`, `GET /agents/:id`) `allowedActions: null` means NO narrowing was declared (the whole catalogue); an EMPTY array means nothing survived the intersection. Render them differently — collapsing the two shows a fail-closed agent as permissive. Same rule for `agentType: null` = undeclared, never `researcher`.
+
+### Disposing an option set (Caseload surfaces)
+
+- **NEVER derive the option a verdict runs.** `selectedOptionId` is what the human picked. A **disposed** proposal replays its own `selected_option_id`; a **single-option** proposal preselects it (no choice exists); a **multi-option** proposal preselects NOTHING and Approve/Edit stay disabled. `leadProposalOption` is for ranking and display only — it MUST NOT reach a dispose body (`__tests__/caseload-option-set.test.tsx` fails if it reappears in either caseload page).
+- The ranked set renders through the `ProposalOptionList` client island (a `radiogroup` with arrow/Home/End roving selection) — in the queue's decision pane and inside `ProposalCard`. `DataTable` stays the queue LIST; the option set is not a table. Reason dialogs go through the `DisposeDialog` island (Cmd/Ctrl+Enter submits, Escape cancels) so the queue and the detail page cannot drift.
+- **One disposition→status mapping**: `components/proposalCaseStatus.ts`. It is EXHAUSTIVE and its default arm is `unknown`, never `approved` — `none_proposed` is the agent's own terminus (neutral badge + an EmptyState saying so), not a verdict anyone gave. It appears in the caseload `all` segment; do not hide it again.
+- `auto_disposition_block: 'near_tie'` MUST be EXPLAINED wherever the proposal renders (queue pane, proposal card, trace) — silence reads as "the threshold simply was not met". `disposition_by` is `rule:threshold` for an auto-approval, so render that as a rule, not as a user id.
+- An operator EDIT applies to the SELECTED option only (`deriveActionEdits(payload, selectedOptionId)` → `replaceOptionActions`); every other option, both rationales and the confidences survive verbatim, because an override is a training signal only while the rest of the agent's testimony does.
 
 ## The Process Model (spec `2026-08-11-triggered-process-model.md`)
 

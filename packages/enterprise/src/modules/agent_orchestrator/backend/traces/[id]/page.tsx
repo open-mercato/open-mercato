@@ -31,6 +31,8 @@ import {
   type ToolCallView,
 } from '../../../components/types'
 import { deriveReasoning } from '../../../components/proposalFactsData'
+import { proposalCaseStatus, proposalCaseStatusVariant } from '../../../components/proposalCaseStatus'
+import { findProposalOption, normalizeProposalEnvelope, rankProposalOptions } from '../../../data/proposalEnvelope'
 import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTimeline'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
@@ -544,6 +546,86 @@ function ReasoningCard({
           ))}
         </ol>
       )}
+    </InspectorCard>
+  )
+}
+
+/**
+ * WHICH option the run's proposals were disposed with, and BY WHOM
+ * (spec `2026-08-11-agent-taxonomy.md`, Phase 4 step 13).
+ *
+ * A trace that records only "approved" hides the decision: with N ranked
+ * alternatives the interesting fact is which one ran and who chose it.
+ * `disposition_by` is `rule:threshold` for an auto-approval and the acting
+ * user's id otherwise — rendered as-is, because inventing a display name for an
+ * id we cannot resolve would be worse than showing the id.
+ */
+function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
+  const t = useT()
+  const locale = useLocale()
+  if (proposals.length === 0) return null
+  return (
+    <InspectorCard title={t('agent_orchestrator.traces.detail.disposition')}>
+      <ul className="space-y-3">
+        {proposals.map((proposal) => {
+          const options = rankProposalOptions(normalizeProposalEnvelope(proposal.payload).options)
+          const chosen = proposal.selectedOptionId
+            ? findProposalOption(proposal.payload, proposal.selectedOptionId)
+            : null
+          const chosenRank = chosen ? options.findIndex((option) => option.id === chosen.id) + 1 : 0
+          const auto = proposal.dispositionBy === 'rule:threshold'
+          return (
+            <li key={proposal.id} className="space-y-1.5 border-b border-border pb-3 last:border-0 last:pb-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge variant={proposalCaseStatusVariant(proposal.disposition)} dot>
+                  {t(`agent_orchestrator.caseload.status.${proposalCaseStatus(proposal.disposition)}`)}
+                </StatusBadge>
+                <span className="font-mono text-xs text-muted-foreground">{proposal.id.slice(0, 8)}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {formatDateTime(proposal.updatedAt, locale) ?? ''}
+                </span>
+              </div>
+              <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-sm">
+                <dt className="text-muted-foreground">{t('agent_orchestrator.traces.detail.chosenOption')}</dt>
+                <dd className="min-w-0 text-foreground">
+                  {chosen ? (
+                    <span className="truncate">
+                      {t('agent_orchestrator.proposal.options.rank', undefined, { rank: chosenRank })} · {chosen.label}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {options.length === 0
+                        ? t('agent_orchestrator.proposal.options.noneProposed.title')
+                        : t('agent_orchestrator.traces.detail.noChosenOption')}
+                    </span>
+                  )}
+                </dd>
+                <dt className="text-muted-foreground">{t('agent_orchestrator.traces.detail.disposedBy')}</dt>
+                <dd className="min-w-0 truncate text-foreground">
+                  {proposal.dispositionBy == null ? (
+                    <span className="text-muted-foreground">{t('agent_orchestrator.traces.detail.notDisposed')}</span>
+                  ) : auto ? (
+                    t('agent_orchestrator.traces.detail.disposedByRule')
+                  ) : (
+                    <span className="font-mono text-xs">{proposal.dispositionBy}</span>
+                  )}
+                </dd>
+                {options.length > 1 ? (
+                  <>
+                    <dt className="text-muted-foreground">{t('agent_orchestrator.traces.detail.optionsOffered')}</dt>
+                    <dd className="tabular-nums text-foreground">{options.length}</dd>
+                  </>
+                ) : null}
+              </dl>
+              {proposal.autoDispositionBlock === 'near_tie' ? (
+                <p className="text-sm text-status-warning-text">
+                  {t('agent_orchestrator.proposal.options.nearTie')}
+                </p>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
     </InspectorCard>
   )
 }
@@ -1240,6 +1322,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 {/* Run analysis: Reasoning + Guardrails + Context assembled (TDCR) — three columns */}
                 <div className="grid gap-6 lg:grid-cols-3">
                   <ReasoningCard proposals={detail.proposals} input={run.input} output={run.output} />
+                  <DispositionCard proposals={detail.proposals} />
                   {detail.guardrailChecks.length > 0 ? (
                     <GuardrailsCard checks={detail.guardrailChecks} />
                   ) : null}

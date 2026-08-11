@@ -10,6 +10,7 @@ import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
 import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES, isAgentIconName } from '../../../data/agentIcons'
 import { normalizeAgentTags } from '../../../data/agentTags'
+import { agentTypeSchema } from '../../../data/validators'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -38,6 +39,10 @@ const agentDetailSchema = z.object({
   id: z.string(),
   moduleId: z.string(),
   resultKind: z.enum(['researcher', 'proposal']),
+  // Declared type + effective action vocabulary — see the list route for the
+  // null semantics (undeclared type, un-narrowed catalogue).
+  agentType: agentTypeSchema.nullable(),
+  allowedActions: z.array(z.string()).nullable(),
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
@@ -120,6 +125,8 @@ export async function GET(req: Request, ctx: RouteContext) {
     id: entry.id,
     moduleId: entry.moduleId,
     resultKind: entry.resultKind,
+    agentType: entry.agentType ?? null,
+    allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
     runtime: entry.runtime,
     tools: entry.tools,
     skills: entry.skills,

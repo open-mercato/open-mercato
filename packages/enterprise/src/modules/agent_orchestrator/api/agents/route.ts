@@ -8,6 +8,7 @@ import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
 import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContract'
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
+import { agentTypeSchema } from '../../data/validators'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -16,6 +17,13 @@ export const metadata = {
 const agentItemSchema = z.object({
   id: z.string(),
   resultKind: z.enum(['researcher', 'proposal']),
+  // The DECLARED type (authoring fact). Null when the agent declares none —
+  // never defaulted to `researcher`, which would invent a declaration.
+  agentType: agentTypeSchema.nullable(),
+  // The effective action vocabulary after `catalogue ∩ allowedActions`. Null when
+  // the agent declared no narrowing (it may propose anything in the catalogue);
+  // an empty array means nothing survived the intersection.
+  allowedActions: z.array(z.string()).nullable(),
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
@@ -80,6 +88,8 @@ export async function GET(req: Request) {
   const items = listAgentEntries().map((entry) => ({
     id: entry.id,
     resultKind: entry.resultKind,
+    agentType: entry.agentType ?? null,
+    allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
     runtime: entry.runtime,
     tools: entry.tools,
     skills: entry.skills,
@@ -101,7 +111,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags).',
+        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags).',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],

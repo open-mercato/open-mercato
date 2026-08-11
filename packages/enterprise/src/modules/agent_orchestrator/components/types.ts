@@ -5,6 +5,7 @@
  */
 import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
 import { normalizeAgentTags } from '../data/agentTags'
+import type { AgentType } from '../data/validators'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 
 export type ProposalView = {
@@ -22,6 +23,13 @@ export type ProposalView = {
   disposition: string
   dispositionBy: string | null
   dispositionReason: string | null
+  /** Which envelope option the verdict ran; null while pending or on a reject. */
+  selectedOptionId: string | null
+  /**
+   * Why an auto-approval that cleared its threshold was held for a human
+   * (`near_tie`). Distinct from `dispositionReason`, which is the OPERATOR's.
+   */
+  autoDispositionBlock: string | null
   createdAt: string | null
   updatedAt: string | null
 }
@@ -209,6 +217,18 @@ export type AgentView = {
   label: string
   description: string
   resultKind: 'researcher' | 'proposal'
+  /**
+   * The DECLARED type — an authoring fact, distinct from `resultKind` (what came
+   * back). Null when the agent declares none; a null is "undeclared", never
+   * "researcher".
+   */
+  agentType: AgentType | null
+  /**
+   * The narrowed action vocabulary after `catalogue ∩ allowedActions`. Null means
+   * the agent declared no narrowing and may propose anything in the catalogue; an
+   * EMPTY array means nothing survived the intersection.
+   */
+  allowedActions: string[] | null
   runtime: AgentRuntime
   /** Tenant-configured presentation icon (lucide name), or null for the fallback glyph. */
   icon: AgentIconName | null
@@ -362,6 +382,8 @@ export function mapProposal(item: Record<string, unknown>): ProposalView | null 
     disposition: asString(item.disposition) ?? 'pending',
     dispositionBy: asString(item.disposition_by) ?? asString(item.dispositionBy),
     dispositionReason: asString(item.disposition_reason) ?? asString(item.dispositionReason),
+    selectedOptionId: asString(item.selected_option_id) ?? asString(item.selectedOptionId),
+    autoDispositionBlock: asString(item.auto_disposition_block) ?? asString(item.autoDispositionBlock),
     createdAt: asString(item.created_at) ?? asString(item.createdAt),
     updatedAt: asString(item.updated_at) ?? asString(item.updatedAt),
   }
@@ -561,6 +583,10 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     label: asString(item.label) ?? id,
     description: asString(item.description) ?? '',
     resultKind,
+    agentType: asAgentType(item.agentType),
+    allowedActions: Array.isArray(item.allowedActions)
+      ? item.allowedActions.filter((action): action is string => typeof action === 'string')
+      : null,
     runtime,
     icon: isAgentIconName(item.icon) ? item.icon : null,
     tags: normalizeAgentTags(item.tags),
@@ -569,6 +595,14 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     sampleInput: item.sampleInput,
     facts: mapAgentFacts(item.facts),
   }
+}
+
+const AGENT_TYPE_VALUES: readonly AgentType[] = ['researcher', 'decision_maker', 'action']
+
+function asAgentType(value: unknown): AgentType | null {
+  return typeof value === 'string' && (AGENT_TYPE_VALUES as readonly string[]).includes(value)
+    ? (value as AgentType)
+    : null
 }
 
 function mapAgentFacts(raw: unknown): AgentFactView[] | undefined {

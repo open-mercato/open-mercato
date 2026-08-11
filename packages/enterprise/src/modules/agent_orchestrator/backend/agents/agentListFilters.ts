@@ -1,5 +1,13 @@
 import { normalizeAgentTag } from '../../data/agentTags'
+import type { AgentType } from '../../data/validators'
 import type { AgentRuntime } from '../../components/types'
+
+/**
+ * Filter value standing for "the agent declares no type". A null cannot travel
+ * through the FilterBar's string-valued select, and folding it into `researcher`
+ * would invent a declaration the author never made.
+ */
+export const AGENT_TYPE_UNDECLARED = 'undeclared'
 
 /**
  * Filtering for the agents registry list.
@@ -19,6 +27,8 @@ export type AgentFilterableRow = {
   label: string
   description: string
   resultKind: 'researcher' | 'proposal'
+  /** The DECLARED type; null when the agent declares none. */
+  agentType: AgentType | null
   runtime: AgentRuntime
   autonomy: string
   status: string
@@ -27,13 +37,14 @@ export type AgentFilterableRow = {
 
 export type AgentListFilterValues = {
   resultKind?: string[]
+  agentType?: string[]
   runtime?: string[]
   autonomy?: string[]
   status?: string[]
   tags?: string[]
 }
 
-export const AGENT_LIST_FILTER_IDS = ['resultKind', 'runtime', 'autonomy', 'status', 'tags'] as const
+export const AGENT_LIST_FILTER_IDS = ['resultKind', 'agentType', 'runtime', 'autonomy', 'status', 'tags'] as const
 
 function selected(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -55,6 +66,8 @@ export function matchesAgentSearch(row: AgentFilterableRow, search: string): boo
 export function matchesAgentFilters(row: AgentFilterableRow, values: AgentListFilterValues): boolean {
   const kinds = selected(values.resultKind)
   if (kinds.length && !kinds.includes(row.resultKind)) return false
+  const agentTypes = selected(values.agentType)
+  if (agentTypes.length && !agentTypes.includes(row.agentType ?? AGENT_TYPE_UNDECLARED)) return false
   const runtimes = selected(values.runtime)
   if (runtimes.length && !runtimes.includes(row.runtime)) return false
   const autonomies = selected(values.autonomy)

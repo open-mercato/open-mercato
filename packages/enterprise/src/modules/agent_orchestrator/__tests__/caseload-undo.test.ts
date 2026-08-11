@@ -165,6 +165,7 @@ describe('caseload risk-aware approve wiring (source + locale invariants)', () =
   const moduleRoot = path.resolve(__dirname, '..')
   const read = (rel: string) => fs.readFileSync(path.join(moduleRoot, rel), 'utf8')
   const page = read('backend/caseload/page.tsx')
+  const caseStatusSource = read('components/proposalCaseStatus.ts')
   const locales = ['en', 'es', 'de', 'pl'] as const
   const localeData = Object.fromEntries(
     locales.map((locale) => [locale, JSON.parse(read(`i18n/${locale}.json`)) as Record<string, string>]),
@@ -179,13 +180,17 @@ describe('caseload risk-aware approve wiring (source + locale invariants)', () =
     expect(data['agent_orchestrator.caseload.undo.approved']).toContain('{summary}')
   })
 
+  // Phase 4 (spec 2026-08-11-agent-taxonomy) moved the mapping into the shared
+  // `proposalCaseStatus` module so the queue, the card and the trace inspector
+  // cannot disagree. The auto-approved split this test guards is unchanged.
   it('splits auto_approved into its own badge status', () => {
-    expect(page).toMatch(/disposition === 'auto_approved'.*return 'autoApproved'/s)
-    expect(page).toMatch(/autoApproved: 'info'/)
+    expect(page).toMatch(/const statusOf = proposalCaseStatus/)
+    expect(caseStatusSource).toMatch(/case 'auto_approved':\s*\n\s*return 'autoApproved'/)
+    expect(caseStatusSource).toMatch(/autoApproved: 'info'/)
   })
 
   it('defers only single warn-flagged approves — bulk stays immediate', () => {
-    expect(page).toMatch(/source === 'single' && pending\.length === 1 && pending\[0\]\.riskFlagged/)
+    expect(page).toMatch(/source === 'single' && targets\.length === 1 && targets\[0\]\.row\.riskFlagged/)
     expect(page).toMatch(/approveRows\(selectedRows, 'bulk'\)/)
   })
 
@@ -200,7 +205,12 @@ describe('caseload risk-aware approve wiring (source + locale invariants)', () =
     expect(page).toMatch(/setSelectedIds\(new Set\(\)\); deferredApprove\.flushAll\(\)/)
   })
 
+  // The deferred commit now carries the CHOSEN option alongside the row, so it
+  // sends the same verdict the operator saw confirmed rather than re-deriving one.
   it('keeps the deferred committer on the guarded, lock-headered dispose path', () => {
-    expect(page).toMatch(/commitDeferredRef\.current = \(id, row\) => {\s*\n\s*void disposeRows\(\[{ \.\.\.row, isPending: true/)
+    expect(page).toMatch(
+      /commitDeferredRef\.current = \(id, target\) => {\s*\n\s*void disposeTargets\(\s*\n\s*\[{ \.\.\.target, row: { \.\.\.target\.row, isPending: true/,
+    )
+    expect(page).toMatch(/buildOptimisticLockHeader\(row\.updatedAt\)/)
   })
 })

@@ -51,10 +51,19 @@ export function FactsGrid({
   )
 }
 
-export function ProposedFields({ payload, className }: { payload: unknown; className?: string }) {
+export function ProposedFields({
+  payload,
+  selectedOptionId = null,
+  className,
+}: {
+  payload: unknown
+  /** Show the CHOSEN option's fields; falls back to the leader when null. */
+  selectedOptionId?: string | null
+  className?: string
+}) {
   const t = useT()
   const locale = useLocale()
-  const fields: ResolvedFact[] = deriveProposedFields(payload, locale)
+  const fields: ResolvedFact[] = deriveProposedFields(payload, locale, selectedOptionId)
   if (fields.length === 0) return null
   return (
     <div className={className}>

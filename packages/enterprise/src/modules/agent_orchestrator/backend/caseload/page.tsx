@@ -19,14 +19,6 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { Pagination } from '@open-mercato/ui/primitives/pagination'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -52,7 +44,15 @@ import {
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { summarizeProposalActions } from '../../components/proposalFactsData'
-import { leadProposalOption } from '../../data/proposalEnvelope'
+import { normalizeProposalEnvelope, rankProposalOptions } from '../../data/proposalEnvelope'
+import {
+  PROPOSAL_CASE_STATUS_DOT,
+  PROPOSAL_CASE_STATUS_VARIANT,
+  proposalCaseStatus,
+  type ProposalCaseStatus,
+} from '../../components/proposalCaseStatus'
+import { DisposeDialog } from '../../components/DisposeDialog'
+import { ProposalOptionList } from '../../components/ProposalOptionList'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 import {
@@ -75,7 +75,9 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // `autoApproved` is a badge-level split of the approved family — the Approved
 // tab still groups all three dispositions, but rubber-stamp review needs to
 // SEE which approvals never had a human in the loop.
-type CaseStatus = 'actionRequired' | 'approved' | 'autoApproved' | 'rejected'
+// `noneProposed` is the agent's own terminus — it looked and had nothing to
+// offer — and is NOT an approval; conflating the two was the bug this phase closes.
+type CaseStatus = ProposalCaseStatus
 // Segments stay a three-way split — `autoApproved` is a badge-level status
 // only; the Approved tab keeps grouping approved + auto_approved + edited.
 type SegmentKey = 'actionRequired' | 'approved' | 'rejected' | 'all'
@@ -99,15 +101,15 @@ const SORT_PARAMS: Record<SortKey, { field: string; dir: 'asc' | 'desc' }> = {
   confidenceAsc: { field: 'confidence', dir: 'asc' },
   agentAsc: { field: 'agentId', dir: 'asc' },
 }
-// `all` enumerates the operator-facing dispositions rather than sending no filter,
-// so a `none_proposed` proposal — an agent that looked and had nothing to offer, a
-// record with no decision behind it — never surfaces here wearing another verdict's
-// badge. It stays reachable from the run's trace inspector.
+// `all` enumerates the stored dispositions rather than sending no filter. It now
+// includes `none_proposed` — an agent that looked and had nothing to offer — because
+// Phase 4 gives that record its own badge and its own empty state; before it had
+// neither, and hiding it was the lesser of two wrongs against showing it as approved.
 const SEGMENT_DISPOSITIONS: Record<SegmentKey, string | null> = {
   actionRequired: 'pending',
   approved: 'approved,auto_approved,edited',
   rejected: 'rejected',
-  all: 'pending,approved,auto_approved,edited,rejected',
+  all: 'pending,approved,auto_approved,edited,rejected,none_proposed',
 }
 
 type QueueRow = {
@@ -136,13 +138,21 @@ type QueueRow = {
   riskFlagged: boolean
   /** Inside its approve undo window — rendered approved, dispose not yet sent. */
   pendingUndo: boolean
+  /** How many mutually-exclusive options the agent offered. */
+  optionCount: number
   /**
-   * The option an approve from this row runs — the leading one, which is what the
-   * row already summarises. Null when the agent proposed nothing; such a row is
-   * never pending, so no dispose is ever sent for it.
+   * The option an approve runs WITHOUT an operator choice: the one a disposed
+   * proposal already ran, or the sole option when there is no choice to make.
+   * Null when the agent offered real alternatives — then a human must pick, which
+   * is what the envelope is for.
    */
-  selectedOptionId: string | null
+  defaultOptionId: string | null
+  /** `near_tie` — a threshold-clearing auto-approval held for a human. */
+  autoDispositionBlock: string | null
 }
+
+/** One proposal plus the option its verdict will run. */
+type DisposeTarget = { row: QueueRow; optionId: string | null }
 
 /** Full data behind one queue row, feeding the DecisionPane's facts/reasoning. */
 type DecisionDetail = {
@@ -152,25 +162,17 @@ type DecisionDetail = {
   runOutput: unknown
 }
 
-const STATUS_VARIANT: Record<CaseStatus, 'info' | 'success' | 'error'> = {
-  actionRequired: 'info',
-  approved: 'success',
-  autoApproved: 'info',
-  rejected: 'error',
-}
-const STATUS_DOT: Record<CaseStatus, string> = {
-  actionRequired: 'bg-status-info-icon',
-  approved: 'bg-status-success-icon',
-  autoApproved: 'bg-status-info-icon',
-  rejected: 'bg-status-error-icon',
-}
+const STATUS_VARIANT = PROPOSAL_CASE_STATUS_VARIANT
+const STATUS_DOT = PROPOSAL_CASE_STATUS_DOT
 
-function statusOf(disposition: string): CaseStatus {
-  if (disposition === 'pending') return 'actionRequired'
-  if (disposition === 'rejected') return 'rejected'
-  if (disposition === 'auto_approved') return 'autoApproved'
-  return 'approved'
-}
+/**
+ * Every STORED disposition maps to its own badge through the shared taxonomy —
+ * `none_proposed` is `noneProposed`, and an unrecognised value is `unknown`,
+ * never `approved`. Painting an unknown verdict green would claim a decision
+ * nobody gave.
+ */
+const statusOf = proposalCaseStatus
+
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
@@ -290,6 +292,10 @@ export default function AgentCaseloadPage() {
   const [rejectDialog, setRejectDialog] = React.useState<{ open: boolean; rows: QueueRow[] }>({ open: false, rows: [] })
   const [reason, setReason] = React.useState('')
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
+  // Which option the operator picked, per proposal. Absent means "not chosen
+  // yet" — the row falls back to its `defaultOptionId`, which is null whenever
+  // there is a real choice to make.
+  const [optionChoices, setOptionChoices] = React.useState<ReadonlyMap<string, string>>(new Map())
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.caseload',
@@ -299,8 +305,8 @@ export default function AgentCaseloadPage() {
   // Warn-flagged approves defer their dispose behind an undo window (spec 4
   // Phase 3). The committer is bound via a ref because `disposeRows` closes
   // over state declared below; the manager guarantees exactly-once per id.
-  const commitDeferredRef = React.useRef<(id: string, row: QueueRow) => void>(() => {})
-  const deferredApprove = useDeferredApprove<QueueRow>((id, row) => commitDeferredRef.current(id, row))
+  const commitDeferredRef = React.useRef<(id: string, target: DisposeTarget) => void>(() => {})
+  const deferredApprove = useDeferredApprove<DisposeTarget>((id, target) => commitDeferredRef.current(id, target))
 
   React.useEffect(() => {
     let cancelled = false
@@ -421,6 +427,7 @@ export default function AgentCaseloadPage() {
       const summary = summarizeProposal(proposal.payload, (count) =>
         t('agent_orchestrator.caseload.proposes.more', undefined, { count }),
       )
+      const options = rankProposalOptions(normalizeProposalEnvelope(proposal.payload).options)
       return {
         id: proposal.id,
         agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
@@ -441,7 +448,9 @@ export default function AgentCaseloadPage() {
         guardBlockCount,
         riskFlagged: hasGuardRisk(proposal.guardResults),
         pendingUndo: inUndoWindow,
-        selectedOptionId: leadProposalOption(proposal.payload)?.id ?? null,
+        optionCount: options.length,
+        defaultOptionId: proposal.selectedOptionId ?? (options.length === 1 ? options[0].id : null),
+        autoDispositionBlock: proposal.autoDispositionBlock,
       }
     })
   }, [proposals, agentLabels, agentIcons, runClaims, deferredApprove.pendingUndo, t])
@@ -481,9 +490,10 @@ export default function AgentCaseloadPage() {
       actionRequired: countOf('pending'),
       approved: countOf('approved') + countOf('auto_approved') + countOf('edited'),
       rejected: countOf('rejected'),
+      noneProposed: countOf('none_proposed'),
     }
   }, [metrics])
-  const grandTotal = counts.actionRequired + counts.approved + counts.rejected
+  const grandTotal = counts.actionRequired + counts.approved + counts.rejected + counts.noneProposed
   // `waiting` stays 0 until runs can report a queued/scheduled status — the run
   // model only knows running|ok|error|cancelled today, so the previous
   // sample-derived value was always 0 as well.
@@ -531,7 +541,7 @@ export default function AgentCaseloadPage() {
   const inboxCursor = useInboxCursor(visibleRows)
   const [legendOpen, setLegendOpen] = React.useState(false)
   const undoEntries = React.useMemo(
-    () => Array.from(deferredApprove.pendingUndo.values()),
+    () => Array.from(deferredApprove.pendingUndo.values()).map((target) => target.row),
     [deferredApprove.pendingUndo],
   )
   const cursorRow = React.useMemo(
@@ -543,6 +553,21 @@ export default function AgentCaseloadPage() {
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id))
   const someSelected = selectedIds.size > 0 && !allSelected
   const clearSelection = React.useCallback(() => setSelectedIds(new Set()), [])
+  const chooseOption = React.useCallback((proposalId: string, optionId: string) => {
+    setOptionChoices((prev) => {
+      if (prev.get(proposalId) === optionId) return prev
+      const next = new Map(prev)
+      next.set(proposalId, optionId)
+      return next
+    })
+  }, [])
+  // The option a verdict on this row would run: the operator's pick, else the
+  // row's default (a disposed proposal's own option, or the sole option). Null
+  // means the agent offered alternatives and nobody has chosen between them.
+  const chosenOptionOf = React.useCallback(
+    (row: QueueRow): string | null => optionChoices.get(row.id) ?? row.defaultOptionId,
+    [optionChoices],
+  )
   const toggleRow = React.useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -561,15 +586,20 @@ export default function AgentCaseloadPage() {
   // Failures are AGGREGATED into the returned outcome (spec 4 Phase 5) — the
   // callers emit one flash instead of a per-row toast storm; conflict failures
   // carry a null message because they already surfaced on the conflict bar.
-  const disposeRows = React.useCallback(
-    async (rows: QueueRow[], disposition: 'approved' | 'rejected', rejectReason?: string): Promise<DisposeOutcome> => {
-      const pending = rows.filter((row) => row.isPending)
+  const disposeTargets = React.useCallback(
+    async (
+      targets: DisposeTarget[],
+      disposition: 'approved' | 'rejected',
+      rejectReason?: string,
+    ): Promise<DisposeOutcome> => {
+      const pending = targets.filter((target) => target.row.isPending)
       if (pending.length === 0) return { ok: 0, failures: [] }
       setBusy(true)
       let ok = 0
       const failures: DisposeOutcome['failures'] = []
       try {
-        for (const row of pending) {
+        for (const target of pending) {
+          const { row } = target
           try {
             await runMutation({
               operation: () =>
@@ -577,12 +607,13 @@ export default function AgentCaseloadPage() {
                   apiCallOrThrow(`/api/agent_orchestrator/proposals/${encodeURIComponent(row.id)}/dispose`, {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    // `selectedOptionId` names which alternative an approve runs;
-                    // a reject runs none and must NOT carry one.
+                    // `selectedOptionId` names which alternative an approve runs —
+                    // the one the operator chose, never a leader picked for them.
+                    // A reject runs none and must NOT carry one.
                     body: JSON.stringify(
                       rejectReason
                         ? { disposition, reason: rejectReason }
-                        : { disposition, selectedOptionId: row.selectedOptionId },
+                        : { disposition, selectedOptionId: target.optionId },
                     ),
                   }),
                 ),
@@ -635,34 +666,54 @@ export default function AgentCaseloadPage() {
   const approveRows = React.useCallback(
     async (rows: QueueRow[], source: 'single' | 'bulk' = 'single'): Promise<number> => {
       const pending = rows.filter((row) => row.isPending)
+      // A proposal offering real alternatives cannot be approved without naming
+      // one: the endpoint requires an option id and the whole point of the
+      // envelope is that a human picks. Such rows are skipped and counted.
+      const targets: DisposeTarget[] = []
+      let needsChoice = 0
+      for (const row of pending) {
+        const optionId = chosenOptionOf(row)
+        if (optionId == null) {
+          needsChoice += 1
+          continue
+        }
+        targets.push({ row, optionId })
+      }
+      if (needsChoice > 0) {
+        flash(t('agent_orchestrator.caseload.bulk.needsOption', undefined, { count: needsChoice }), 'info')
+      }
+      if (targets.length === 0) return 0
       // Warn-flagged single approves defer behind the undo window instead of a
       // confirm dialog (spec 4 Phase 3): one keystroke stays one keystroke,
       // mistakes stay recoverable. Bulk approve is a deliberate multi-select
       // act and commits immediately, as do clean rows.
-      if (source === 'single' && pending.length === 1 && pending[0].riskFlagged) {
-        const row = pending[0]
-        deferredApprove.defer(row.id, row)
-        inboxCursor.advanceAfterDispose([row.id])
+      if (source === 'single' && targets.length === 1 && targets[0].row.riskFlagged) {
+        const target = targets[0]
+        deferredApprove.defer(target.row.id, target)
+        inboxCursor.advanceAfterDispose([target.row.id])
         return 1
       }
-      const outcome = await disposeRows(rows, 'approved')
-      flashDisposeOutcome(outcome, pending.length, 'agent_orchestrator.caseload.bulk.summary', 'agent_orchestrator.caseload.flash.approved')
+      const outcome = await disposeTargets(targets, 'approved')
+      flashDisposeOutcome(outcome, targets.length, 'agent_orchestrator.caseload.bulk.summary', 'agent_orchestrator.caseload.flash.approved')
       const failedIds = new Set(outcome.failures.map((failure) => failure.id))
-      const succeededIds = pending.map((row) => row.id).filter((id) => !failedIds.has(id))
+      const succeededIds = targets.map((target) => target.row.id).filter((id) => !failedIds.has(id))
       if (succeededIds.length > 0) inboxCursor.advanceAfterDispose(succeededIds)
       // Successes leave the selection; failures stay selected for retry.
       setSelectedIds((prev) => pruneSelectionAfterDispose(prev, succeededIds))
       reload()
       return outcome.ok
     },
-    [disposeRows, flashDisposeOutcome, reload, inboxCursor, deferredApprove],
+    [chosenOptionOf, disposeTargets, flashDisposeOutcome, reload, inboxCursor, deferredApprove, t],
   )
 
   // The deferred committer sends the SAME guarded, lock-headered dispose the
   // immediate path uses (`isPending` restored — the overlay cleared it), then
   // refreshes counts. A 409 surfaces via the existing conflict bar.
-  commitDeferredRef.current = (id, row) => {
-    void disposeRows([{ ...row, isPending: true, pendingUndo: false }], 'approved').then((outcome) => {
+  commitDeferredRef.current = (id, target) => {
+    void disposeTargets(
+      [{ ...target, row: { ...target.row, isPending: true, pendingUndo: false } }],
+      'approved',
+    ).then((outcome) => {
       if (outcome.ok > 0) {
         reload()
         return
@@ -677,8 +728,8 @@ export default function AgentCaseloadPage() {
 
   const undoApprove = React.useCallback(
     (id: string) => {
-      const row = deferredApprove.undo(id)
-      if (row) inboxCursor.setCursor(id)
+      const target = deferredApprove.undo(id)
+      if (target) inboxCursor.setCursor(id)
     },
     [deferredApprove, inboxCursor],
   )
@@ -698,7 +749,11 @@ export default function AgentCaseloadPage() {
     if (!trimmed || busy) return
     const rows = rejectDialog.rows
     const pending = rows.filter((row) => row.isPending)
-    const outcome = await disposeRows(rows, 'rejected', trimmed)
+    const outcome = await disposeTargets(
+      rows.map((row) => ({ row, optionId: null })),
+      'rejected',
+      trimmed,
+    )
     flashDisposeOutcome(outcome, pending.length, 'agent_orchestrator.caseload.bulk.summaryRejected', 'agent_orchestrator.caseload.flash.rejected')
     const failedIds = new Set(outcome.failures.map((failure) => failure.id))
     const succeededIds = pending.map((row) => row.id).filter((id) => !failedIds.has(id))
@@ -707,7 +762,7 @@ export default function AgentCaseloadPage() {
     setReason('')
     setSelectedIds((prev) => pruneSelectionAfterDispose(prev, succeededIds))
     reload()
-  }, [reason, busy, rejectDialog.rows, disposeRows, flashDisposeOutcome, reload, inboxCursor])
+  }, [reason, busy, rejectDialog.rows, disposeTargets, flashDisposeOutcome, reload, inboxCursor])
 
   const openDetail = React.useCallback(
     (row: QueueRow) => {
@@ -873,14 +928,17 @@ export default function AgentCaseloadPage() {
   const rowActions = React.useCallback(
     (row: QueueRow) => {
       if (!row.isPending) return null
+      // A row whose agent offered alternatives has no approvable default: the
+      // quick action is inert and points at the pane/detail where the choice lives.
+      const optionId = chosenOptionOf(row)
       return (
         <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
           <IconButton
             size="sm"
             variant="outline"
             aria-label={t('agent_orchestrator.caseload.actions.approveAria')}
-            title={t('agent_orchestrator.proposal.actions.approve')}
-            disabled={busy}
+            title={optionId == null ? t('agent_orchestrator.proposal.options.chooseHint') : t('agent_orchestrator.proposal.actions.approve')}
+            disabled={busy || optionId == null}
             onClick={() => { void approveRows([row]) }}
           >
             <Check className="size-4 text-status-success-text" />
@@ -898,7 +956,7 @@ export default function AgentCaseloadPage() {
         </div>
       )
     },
-    [approveRows, openReject, busy, t],
+    [approveRows, openReject, busy, chosenOptionOf, t],
   )
 
   // Defined once, composed into both the inbox (inside its container) and the
@@ -1011,6 +1069,8 @@ export default function AgentCaseloadPage() {
                 ? { current: Math.min((page - 1) * pageSize + inboxCursor.cursorIndex + 1, total), total }
                 : null
             }
+            optionChoiceOf={chosenOptionOf}
+            onChooseOption={chooseOption}
             onApprove={(row) => approveRows([row])}
             onReject={(row) => openReject([row])}
             onOpenDetail={openDetail}
@@ -1095,43 +1155,22 @@ export default function AgentCaseloadPage() {
         )}
       </PageBody>
 
-      <Dialog open={rejectDialog.open} onOpenChange={(next) => { if (!next) closeReject() }}>
-        <DialogContent
-          className="sm:max-w-md"
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault()
-              void confirmReject()
-            }
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{t('agent_orchestrator.proposal.reject.heading')}</DialogTitle>
-            <DialogDescription>
-              {rejectPendingCount === 1
-                ? t('agent_orchestrator.caseload.reject.descriptionOne')
-                : t('agent_orchestrator.caseload.reject.description', undefined, { count: rejectPendingCount })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Textarea
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder={t('agent_orchestrator.proposal.reject.reasonPlaceholder')}
-              rows={3}
-              autoFocus
-            />
-            <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" onClick={closeReject} disabled={busy}>
-                {t('agent_orchestrator.proposal.actions.cancelEdit')}
-              </Button>
-              <Button type="button" variant="destructive" onClick={() => { void confirmReject() }} disabled={busy || !reason.trim()}>
-                {t('agent_orchestrator.proposal.reject.confirm')}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DisposeDialog
+        open={rejectDialog.open}
+        onOpenChange={(next) => { if (!next) closeReject() }}
+        title={t('agent_orchestrator.proposal.reject.heading')}
+        description={
+          rejectPendingCount === 1
+            ? t('agent_orchestrator.caseload.reject.descriptionOne')
+            : t('agent_orchestrator.caseload.reject.description', undefined, { count: rejectPendingCount })
+        }
+        reason={reason}
+        onReasonChange={setReason}
+        reasonPlaceholder={t('agent_orchestrator.proposal.reject.reasonPlaceholder')}
+        confirmLabel={t('agent_orchestrator.proposal.reject.confirm')}
+        onConfirm={() => { void confirmReject() }}
+        busy={busy}
+      />
     </Page>
   )
 }
@@ -1386,6 +1425,8 @@ function ExceptionsInbox({
   cursorId,
   onCursorChange,
   position,
+  optionChoiceOf,
+  onChooseOption,
   onApprove,
   onReject,
   onOpenDetail,
@@ -1404,6 +1445,8 @@ function ExceptionsInbox({
   cursorId: string | null
   onCursorChange: (id: string) => void
   position: { current: number; total: number } | null
+  optionChoiceOf: (row: QueueRow) => string | null
+  onChooseOption: (proposalId: string, optionId: string) => void
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
@@ -1514,6 +1557,8 @@ function ExceptionsInbox({
             detail={details.get(selected.id) ?? null}
             busy={busy}
             position={position}
+            selectedOptionId={optionChoiceOf(selected)}
+            onChooseOption={onChooseOption}
             onApprove={onApprove}
             onReject={onReject}
             onOpenDetail={onOpenDetail}
@@ -1536,6 +1581,8 @@ function DecisionPane({
   detail,
   busy,
   position,
+  selectedOptionId,
+  onChooseOption,
   onApprove,
   onReject,
   onOpenDetail,
@@ -1544,12 +1591,15 @@ function DecisionPane({
   detail: DecisionDetail | null
   busy: boolean
   position: { current: number; total: number } | null
+  selectedOptionId: string | null
+  onChooseOption: (proposalId: string, optionId: string) => void
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
 }) {
   const t = useT()
   const face = row.confidencePct != null ? confidenceFace(row.confidencePct) : null
+  const optionChosen = selectedOptionId != null
 
   return (
     <div className="flex h-full flex-col">
@@ -1610,7 +1660,26 @@ function DecisionPane({
           </div>
         ) : null}
 
-        {detail ? <ProposedFields payload={detail.proposal.payload} /> : null}
+        {/* The alternatives the agent weighed, ranked, with the one selection
+            control a verdict reads. Without this the operator sees a verdict and
+            never the choice behind it. */}
+        {detail ? (
+          <section className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('agent_orchestrator.proposal.options.heading')}
+            </p>
+            <ProposalOptionList
+              payload={detail.proposal.payload}
+              selectedOptionId={selectedOptionId}
+              onSelect={row.isPending ? (optionId) => onChooseOption(row.id, optionId) : undefined}
+              disabled={busy}
+              autoDispositionBlock={row.autoDispositionBlock}
+              showChooseHint={row.isPending && row.optionCount > 1}
+            />
+          </section>
+        ) : null}
+
+        {detail ? <ProposedFields payload={detail.proposal.payload} selectedOptionId={selectedOptionId} /> : null}
 
         {detail ? (
           <ReasoningList
@@ -1633,7 +1702,14 @@ function DecisionPane({
               {t('agent_orchestrator.proposal.actions.edit')}
               <Kbd className="ml-1.5">E</Kbd>
             </Button>
-            <Button type="button" size="sm" className="ml-auto" onClick={() => onApprove(row)} disabled={busy}>
+            <Button
+              type="button"
+              size="sm"
+              className="ml-auto"
+              onClick={() => onApprove(row)}
+              disabled={busy || !optionChosen}
+              title={optionChosen ? undefined : t('agent_orchestrator.proposal.options.chooseHint')}
+            >
               <Check className="mr-1.5 size-4" />
               {t('agent_orchestrator.proposal.actions.approve')}
               <Kbd className="ml-1.5 border-primary-foreground/30 bg-transparent text-primary-foreground">A</Kbd>

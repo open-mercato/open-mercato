@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { proposedActionSchema, type ProposedAction } from '../data/validators'
-import { leadProposalOption, replaceOptionActions } from '../data/proposalEnvelope'
+import { findProposalOption, leadProposalOption, replaceOptionActions } from '../data/proposalEnvelope'
 
 /**
  * Pure helpers behind the structured proposal editor (spec 4 Phase 4).
@@ -9,9 +9,10 @@ import { leadProposalOption, replaceOptionActions } from '../data/proposalEnvelo
  * `confidence` and `rationale` are the agent's testimony and are preserved
  * verbatim by reassembly, along with any non-primitive payload entries.
  *
- * The plan being edited belongs to ONE option of the envelope. Until the ranked
- * selection UI lands, that is the leading option — the same one the disposition
- * would run — and every other option survives the edit untouched.
+ * The plan being edited belongs to ONE option of the envelope: the one the
+ * operator selected in `ProposalOptionList`. Every other option survives the edit
+ * untouched, so an override stays a training signal rather than erasing the rest
+ * of the agent's testimony.
  */
 
 export type EditableActionField = {
@@ -36,12 +37,12 @@ function isEditablePrimitive(value: unknown): value is string | number | boolean
 }
 
 /**
- * Derive per-action typed editors from a canonical proposal payload.
- * Returns null when the payload carries no option with a plan (legacy /
- * ad-hoc payloads keep the old whole-payload editing path).
+ * Derive per-action typed editors from the SELECTED option of a canonical proposal
+ * payload (the leader when none is named). Returns null when the payload carries
+ * no such option (legacy / ad-hoc payloads keep the old whole-payload editing path).
  */
-export function deriveActionEdits(payload: unknown): ActionEdit[] | null {
-  const option = leadProposalOption(payload)
+export function deriveActionEdits(payload: unknown, selectedOptionId?: string | null): ActionEdit[] | null {
+  const option = selectedOptionId ? findProposalOption(payload, selectedOptionId) : leadProposalOption(payload)
   if (!option) return null
   return option.actions.map((action) => {
     const fields: EditableActionField[] = []

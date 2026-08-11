@@ -10,13 +10,15 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
-import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { normalizeProposalEnvelope } from '../data/proposalEnvelope'
+import { ProposalOptionList } from './ProposalOptionList'
 import { formatConfidence, type ProposalView } from './types'
 import { agentAvatarIcon } from './agentChips'
 import { useAgentIconMap } from './useAgentIcons'
 import { proposalVerdict } from './cockpitStatus'
+import { proposalCaseStatusLabelKey, proposalCaseStatusVariant } from './proposalCaseStatus'
 import { humanizeKey } from './proposalFactsData'
 import {
   actionEditsToActions,
@@ -26,20 +28,6 @@ import {
   stringifyActions,
   type ActionEdit,
 } from './proposalEdit'
-
-// Mirror the caseload status taxonomy (Action required / Approved / Rejected)
-// so the proposal detail badge reads identically to the inbox + list — and
-// never falls back to the amber "Pending" pill the cockpit retired.
-function caseStatusVariant(disposition: string): 'info' | 'success' | 'error' {
-  if (disposition === 'pending') return 'info'
-  if (disposition === 'rejected') return 'error'
-  return 'success'
-}
-function caseStatusLabelKey(disposition: string): string {
-  if (disposition === 'pending') return 'agent_orchestrator.caseload.status.actionRequired'
-  if (disposition === 'rejected') return 'agent_orchestrator.caseload.status.rejected'
-  return 'agent_orchestrator.caseload.status.approved'
-}
 
 export type DisposeKind = 'approved' | 'edited' | 'rejected'
 
@@ -72,6 +60,14 @@ export type ProposalCardProps = {
   onInspect?: () => void
   /** Human-readable agent name; falls back to the agent id when omitted. */
   agentLabel?: string
+  /**
+   * Which option the operator picked. `null` means no choice yet — approve and
+   * edit stay disabled, because the endpoint requires one and guessing the
+   * leader on the operator's behalf is exactly what Phase 4 removes.
+   */
+  selectedOptionId?: string | null
+  /** Omit to render the option set read-only (playground preview, disposed row). */
+  onSelectOption?: (optionId: string) => void
 }
 
 function stringifyPayload(payload: unknown): string {
@@ -111,7 +107,15 @@ function fieldsToPayload(fields: PayloadField[]): Record<string, unknown> {
   )
 }
 
-export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }: ProposalCardProps) {
+export function ProposalCard({
+  proposal,
+  adHoc,
+  actions,
+  onInspect,
+  agentLabel,
+  selectedOptionId = null,
+  onSelectOption,
+}: ProposalCardProps) {
   const t = useT()
   const [mode, setMode] = React.useState<'view' | 'edit' | 'reject'>('view')
   const [payloadText, setPayloadText] = React.useState('')
@@ -136,11 +140,16 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
   const busy = actions?.busy ?? false
   const canDispose = actions?.canDispose ?? false
   const isPending = (proposal?.disposition ?? 'pending') === 'pending'
+  const optionCount = React.useMemo(() => normalizeProposalEnvelope(payload).options.length, [payload])
+  // A verdict names the option it runs. With no option there is nothing to run,
+  // and with an unmade choice there is nothing to name — either way the dispose
+  // buttons stay inert rather than sending a guess.
+  const optionChosen = optionCount > 0 && selectedOptionId != null
 
   const startEdit = React.useCallback(() => {
     // Canonical `{actions}` payloads get the structured per-action editor;
     // confidence/rationale are agent testimony and never become inputs.
-    const edits = deriveActionEdits(payload)
+    const edits = deriveActionEdits(payload, selectedOptionId)
     if (edits) {
       setActionEdits(edits)
       setRawMode(false)
@@ -159,7 +168,7 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
     setReason('')
     setLocalError(null)
     setMode('edit')
-  }, [payload])
+  }, [payload, selectedOptionId])
 
   const updateField = React.useCallback((index: number, value: string | boolean) => {
     setPayloadFields((fields) => fields.map((field, i) => (i === index ? { ...field, value } : field)))
@@ -197,11 +206,14 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
       )
       return
     }
-    const reparsed = deriveActionEdits(reassembleProposalPayload(payload, parsed.actions))
+    const reparsed = deriveActionEdits(
+      reassembleProposalPayload(payload, parsed.actions, selectedOptionId),
+      selectedOptionId,
+    )
     if (reparsed) setActionEdits(reparsed)
     setRawMode(false)
     setLocalError(null)
-  }, [actionEdits, rawMode, rawText, payload, t])
+  }, [actionEdits, rawMode, rawText, payload, selectedOptionId, t])
 
   const startReject = React.useCallback(() => {
     setReason('')
@@ -238,7 +250,7 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
       } else {
         editedActions = actionEditsToActions(actionEdits)
       }
-      actions.onEdit(reassembleProposalPayload(payload, editedActions), reason.trim())
+      actions.onEdit(reassembleProposalPayload(payload, editedActions, selectedOptionId), reason.trim())
       return
     }
     let parsed: unknown
@@ -253,7 +265,19 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
       parsed = fieldsToPayload(payloadFields)
     }
     actions.onEdit(parsed, reason.trim())
-  }, [actions, actionEdits, rawMode, rawText, payload, isComplexPayload, payloadText, payloadFields, reason, t])
+  }, [
+    actions,
+    actionEdits,
+    rawMode,
+    rawText,
+    payload,
+    selectedOptionId,
+    isComplexPayload,
+    payloadText,
+    payloadFields,
+    reason,
+    t,
+  ])
 
   const submitReject = React.useCallback(() => {
     if (!actions) return
@@ -298,8 +322,8 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
           </div>
         ) : null}
         {proposal ? (
-          <StatusBadge variant={caseStatusVariant(proposal.disposition)} dot>
-            {t(caseStatusLabelKey(proposal.disposition))}
+          <StatusBadge variant={proposalCaseStatusVariant(proposal.disposition)} dot>
+            {t(proposalCaseStatusLabelKey(proposal.disposition))}
           </StatusBadge>
         ) : null}
       </div>
@@ -310,10 +334,19 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
 
         {rationale ? <p className="text-sm text-muted-foreground">{rationale}</p> : null}
 
-        {/* Proposed actions / payload */}
+        {/* The option set the agent offered — ranked, with ONE selection control.
+            An operator must see the alternatives that were considered, not only
+            the verdict, which is the whole point of the envelope. */}
         <section className="space-y-2">
-          <SectionHeader title={t('agent_orchestrator.proposal.actionsHeading')} />
-          <JsonDisplay data={payload} />
+          <SectionHeader title={t('agent_orchestrator.proposal.options.heading')} count={optionCount} />
+          <ProposalOptionList
+            payload={payload}
+            selectedOptionId={selectedOptionId}
+            onSelect={onSelectOption}
+            disabled={busy || !canDispose || !isPending}
+            autoDispositionBlock={proposal?.autoDispositionBlock ?? null}
+            showChooseHint={!!onSelectOption && isPending && optionCount > 1}
+          />
         </section>
 
         {/* Inspect run */}
@@ -539,7 +572,8 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
               type="button"
               variant="outline"
               onClick={startEdit}
-              disabled={!canDispose || busy}
+              disabled={!canDispose || busy || !optionChosen}
+              title={optionChosen ? undefined : t('agent_orchestrator.proposal.options.chooseHint')}
             >
               {t('agent_orchestrator.proposal.actions.edit')}
             </Button>
@@ -547,7 +581,8 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
               type="button"
               className="ml-auto"
               onClick={() => actions.onApprove()}
-              disabled={!canDispose || busy}
+              disabled={!canDispose || busy || !optionChosen}
+              title={optionChosen ? undefined : t('agent_orchestrator.proposal.options.chooseHint')}
             >
               {t('agent_orchestrator.proposal.actions.approve')}
             </Button>

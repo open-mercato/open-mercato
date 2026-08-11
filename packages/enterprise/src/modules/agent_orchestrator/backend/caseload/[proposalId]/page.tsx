@@ -17,7 +17,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard, type DisposeKind } from '../../../components/ProposalCard'
 import { parseQueueState, serializeQueueState } from '../hooks'
-import { leadProposalOption } from '../../../data/proposalEnvelope'
+import { normalizeProposalEnvelope, rankProposalOptions } from '../../../data/proposalEnvelope'
 import { AgentIoDrawer } from '../../../components/AgentIoDrawer'
 import { FactsGrid, ReasoningList } from '../../../components/ProposalFacts'
 import {
@@ -33,6 +33,18 @@ type ProposalsResponse = { items?: Array<Record<string, unknown>> }
 type RunsResponse = { items?: Array<Record<string, unknown>> }
 
 type PageState = 'loading' | 'notFound' | 'error' | 'ready'
+
+/**
+ * The option a freshly loaded proposal starts on: the one it was disposed with,
+ * else the sole option when there is no choice to make, else nothing — a genuine
+ * choice is the operator's to make, and preselecting the leader is the
+ * placeholder Phase 4 removes.
+ */
+function resolveInitialOption(proposal: ProposalView): string | null {
+  if (proposal.selectedOptionId) return proposal.selectedOptionId
+  const options = rankProposalOptions(normalizeProposalEnvelope(proposal.payload).options)
+  return options.length === 1 ? options[0].id : null
+}
 
 export default function AgentProposalDetailPage({ params }: { params?: { proposalId?: string } }) {
   const t = useT()
@@ -52,6 +64,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
   const [run, setRun] = React.useState<RunView | null>(null)
   const [agentLabel, setAgentLabel] = React.useState<string | null>(null)
   const [agentFacts, setAgentFacts] = React.useState<AgentFactView[] | undefined>(undefined)
+  const [selectedOptionId, setSelectedOptionId] = React.useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -81,6 +94,11 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
           return
         }
         setProposal(mapped)
+        // Which option the verdict runs. A disposed proposal replays the option it
+        // ran; a pending one preselects ONLY when there is a single option — with
+        // real alternatives the choice belongs to the human, so nothing is
+        // preselected and approve stays disabled until one is picked.
+        setSelectedOptionId(resolveInitialOption(mapped))
         // Best-effort resolve of the agent's display label.
         try {
           const agentsData = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
@@ -144,10 +162,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                       disposition,
                       payload,
                       reason,
-                      selectedOptionId:
-                        disposition === 'rejected'
-                          ? undefined
-                          : leadProposalOption(proposal.payload)?.id,
+                      selectedOptionId: disposition === 'rejected' ? undefined : selectedOptionId,
                     }),
                   },
                 ),
@@ -175,7 +190,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
         setBusy(false)
       }
     },
-    [proposal, proposalId, retryLastMutation, router, runMutation, caseloadHref, t],
+    [proposal, proposalId, selectedOptionId, retryLastMutation, router, runMutation, caseloadHref, t],
   )
 
   if (state === 'loading') {
@@ -255,6 +270,8 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
           proposal={proposal}
           agentLabel={agentLabel ?? undefined}
           onInspect={() => setDrawerOpen(true)}
+          selectedOptionId={selectedOptionId}
+          onSelectOption={setSelectedOptionId}
           actions={{
             canDispose: true,
             busy,

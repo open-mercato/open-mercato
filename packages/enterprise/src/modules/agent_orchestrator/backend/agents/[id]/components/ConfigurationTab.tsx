@@ -73,7 +73,46 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
             <dd className="font-mono text-foreground">{agent.runtime}</dd>
             <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.config.resultKind', 'Result kind')}</dt>
             <dd className="text-foreground">{agent.resultKind}</dd>
+            {/* The DECLARED type is an authoring fact and sits beside — never
+                instead of — the runtime result kind; the two may legitimately
+                disagree. */}
+            <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.config.agentType', 'Agent type')}</dt>
+            <dd className="text-foreground">
+              {agent.agentType
+                ? t(`agent_orchestrator.agents.list.agentType.${agent.agentType}`)
+                : t('agent_orchestrator.agents.list.agentType.undeclared', 'Undeclared')}
+            </dd>
           </dl>
+        </section>
+
+        <section className="space-y-2">
+          <SectionHeader title={t('agent_orchestrator.agentDetail.fields.allowedActions', 'Allowed actions')} />
+          {/* `null` = no narrowing declared (the whole catalogue); an EMPTY list =
+              everything declared fell outside the catalogue and was dropped. The
+              two must not read the same — one is permissive, the other forbids
+              every effect. */}
+          {agent.allowedActions == null ? (
+            <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+              {t('agent_orchestrator.agentDetail.allowedActions.catalogue')}
+            </p>
+          ) : agent.allowedActions.length === 0 ? (
+            <p className="rounded-xl border border-border bg-card p-4 text-sm text-status-warning-text">
+              {t('agent_orchestrator.agentDetail.allowedActions.none')}
+            </p>
+          ) : (
+            <div className="space-y-2 rounded-xl border border-border bg-card p-4">
+              <p className="text-sm text-muted-foreground">
+                {t('agent_orchestrator.agentDetail.allowedActions.narrowed', undefined, {
+                  count: agent.allowedActions.length,
+                })}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {agent.allowedActions.map((action) => (
+                  <Tag key={action} variant="neutral">{action}</Tag>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="space-y-2">

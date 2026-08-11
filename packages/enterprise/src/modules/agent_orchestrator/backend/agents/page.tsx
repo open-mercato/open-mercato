@@ -25,9 +25,12 @@ import {
   type AgentRuntime,
   type AgentWindowMetricsView,
 } from '../../components/types'
-import { Chip, TYPE_ICON, RUNTIME_ICON, AUTONOMY_ICON, agentAvatarIcon } from '../../components/agentChips'
+import { Chip, TYPE_ICON, AGENT_TYPE_ICON, RUNTIME_ICON, AUTONOMY_ICON, agentAvatarIcon } from '../../components/agentChips'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
-import { collectAgentTagOptions, filterAgentRows } from './agentListFilters'
+import { AGENT_TYPE_UNDECLARED, collectAgentTagOptions, filterAgentRows } from './agentListFilters'
+import type { AgentType } from '../../data/validators'
+
+const AGENT_TYPE_VALUES: readonly AgentType[] = ['researcher', 'decision_maker', 'action']
 
 const RUNTIME_LABEL: Record<AgentRuntime, string> = {
   'in-process': 'In Process',
@@ -180,6 +183,19 @@ export default function AgentsRegistryPage() {
       ),
     },
     {
+      accessorKey: 'agentType',
+      header: t('agent_orchestrator.agents.list.col.agentType', 'Purpose'),
+      cell: ({ row }) => {
+        // The DECLARED type — what the agent is FOR, known before it has ever run.
+        // Undeclared is its own state, never silently rendered as "Researcher".
+        const agentType = row.original.agentType
+        if (!agentType) {
+          return <PendingChip label={t('agent_orchestrator.agents.list.agentType.undeclared', 'Undeclared')} />
+        }
+        return <Chip icon={AGENT_TYPE_ICON[agentType]}>{t(`agent_orchestrator.agents.list.agentType.${agentType}`)}</Chip>
+      },
+    },
+    {
       accessorKey: 'runtime',
       header: t('agent_orchestrator.agents.list.col.runtime', 'Runtime'),
       cell: ({ row }) => (
@@ -276,6 +292,22 @@ export default function AgentsRegistryPage() {
         value,
         label: t(`agent_orchestrator.agents.list.resultKind.${value}`),
       })),
+    },
+    {
+      id: 'agentType',
+      label: t('agent_orchestrator.agents.list.col.agentType', 'Purpose'),
+      type: 'select',
+      multiple: true,
+      options: [
+        ...AGENT_TYPE_VALUES.map((value) => ({
+          value,
+          label: t(`agent_orchestrator.agents.list.agentType.${value}`),
+        })),
+        {
+          value: AGENT_TYPE_UNDECLARED,
+          label: t('agent_orchestrator.agents.list.agentType.undeclared', 'Undeclared'),
+        },
+      ],
     },
     {
       id: 'runtime',
