@@ -305,12 +305,14 @@ describe('SalesDocumentForm lines error ownership (#5126)', () => {
     expect(screen.getAllByText(LINES_FIELD_ERROR)).toHaveLength(1)
   })
 
-  it('keeps SalesOrderDraftLines free of its own error node', () => {
+  it('keeps SalesOrderDraftLines free of a form-error prop to render', () => {
     const linesSource = fs.readFileSync(
       path.join(__dirname, '..', 'documents', 'SalesOrderDraftLines.tsx'),
       'utf8',
     )
+    const propsBlock = linesSource.match(/type SalesOrderDraftLinesProps = \{[^}]*\}/)?.[0]
 
-    expect(linesSource).not.toMatch(/\{error\s*\?/)
+    expect(propsBlock).toBeTruthy()
+    expect(propsBlock).not.toMatch(/\berror\b/)
   })
 })
