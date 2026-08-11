@@ -105,6 +105,8 @@ closes.
 
 ## Progress
 
+PR: #5180
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Raise the release routing budget
@@ -120,3 +122,30 @@ closes.
 ### Phase 3: Documentation
 
 - [x] 3.1 Restate the RELEASE.md duration-budget paragraph and record the deviation — 935c02616
+
+### Phase 4: Review follow-through
+
+- [x] 4.1 Fix the two majors the review pass raised — cdf39888b
+- [x] 4.2 File the deferred minor as a follow-up issue — #5184
+
+## Validation outcome
+
+Local runner (no compose `app` container running). `build:packages` → `generate` → `build:packages` →
+`i18n:check-sync` → `i18n:check-usage` → `typecheck` → `build:app` all green.
+
+`yarn test` aborted twice on a jest worker `SIGSEGV` inside `@open-mercato/cli`, on a different suite each
+time and with zero failed assertions; `yarn workspace @open-mercato/cli test --runInBand` then passed 81/81
+suites and 1480/1480 tests, which identifies it as a worker-crash flake rather than a regression.
+`yarn workspace create-mercato-app test` reported 466 passed / 5 skipped (the Bubblewrap-only lanes) / 1
+failed on `ENOTEMPTY: dist/agentic` from a concurrent package build; that file alone passes 11/11. Neither
+failure reads a file in this diff.
+
+## Review outcome
+
+`om-auto-review-pr 5180 --autofix` found no blockers, two majors and one minor. Both majors were fixed in
+this PR (`cdf39888b`): the `timeoutMs` raise mechanism is inert at the new default because the schema caps it
+at exactly that value, and the raised default governs the writable and review lanes as well as routing —
+neither was stated. The minor, the deterministic step budgeting its process from the per-model ceiling
+(`run-agent-harness-release.mjs:1598`), predates this change and needs its own measured value, so it was
+filed as #5184 instead of guessed at here. The verdict was submitted as a comment review because GitHub does
+not permit self-approval; the PR keeps the `review` pipeline label until a maintainer approves it.
