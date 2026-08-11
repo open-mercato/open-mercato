@@ -15,6 +15,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import {
   assertActorCanAccessUserTarget,
+  assertActorCanAssignUserToOrganization,
   assertActorCanGrantRoleTokens,
   assertActorCanModifySuperAdminUserTarget,
   listSuperAdminUserIds,
@@ -166,6 +167,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
             await assertCanModifySuperAdminTarget(ctx.request, parsed.id)
             await assertCanAccessUserTarget(ctx.request, parsed.id)
           }
+          // Independent of assertCanAssignRoles, which returns early when `roles` is
+          // omitted — the destination organization must be authorized even when the
+          // request changes nothing else about the user's role links (#5176).
+          await assertCanAssignOrganization(ctx.request, parsed.organizationId)
           await assertCanAssignRoles(ctx.request, parsed.roles, parsed)
         }
         return parsed
@@ -578,6 +583,31 @@ function readId(record: Record<string, unknown> | null | undefined): string | nu
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+async function assertCanAssignOrganization(req: Request, organizationId: unknown) {
+  if (typeof organizationId !== 'string' || !organizationId.length) return
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const organization = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: organizationId },
+    { populate: ['tenant'] },
+    { tenantId: null, organizationId },
+  )
+  if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+  await assertActorCanAssignUserToOrganization({
+    em,
+    rbacService: container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    targetOrganizationId: organizationId,
+    targetTenantId: organization.tenant?.id ? String(organization.tenant.id) : null,
+  })
+}
+
 async function assertCanAssignRoles(req: Request, roles: unknown, payload: Record<string, unknown>) {
   if (!Array.isArray(roles)) return
   const auth = await getAuthFromRequest(req)
@@ -662,7 +692,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user',
-      description: 'Updates profile fields including display name, organization assignment, credentials, or role memberships.',
+      description: 'Updates profile fields including display name, organization assignment, credentials, or role memberships. Changing organizationId requires the destination organization to belong to the caller\'s tenant and to be inside the caller\'s allowed organization set; super administrators are exempt.',
       requestBody: {
         contentType: 'application/json',
         schema: userUpdateSchema,
@@ -673,8 +703,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
-        { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
-        { status: 404, description: 'User not found', schema: errorResponseSchema },
+        { status: 403, description: 'Attempted to assign privileged roles, or to move the user into an organization outside the caller\'s scope', schema: errorResponseSchema },
+        { status: 404, description: 'User not found, or the destination organization belongs to another tenant', schema: errorResponseSchema },
       ],
     },
     DELETE: {

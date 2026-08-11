@@ -24,6 +24,16 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### Updating a staff user now authorizes the destination organization (#5176)
+
+`PUT /api/auth/users` and the `auth.users.update` command used to authorize only the organization a user *currently* lives in. The destination organization was resolved globally and written together with its tenant, and the role-grant check that incidentally looked at it returned early whenever the request omitted `roles`. An organization-limited administrator could therefore move a user they were allowed to edit into an organization — or a whole tenant — they were not allowed to administer, keep that user's existing role links, and set a password of their choosing in the same request.
+
+Both layers now authorize the destination before the write: the organization's tenant must match the actor's tenant, and the organization itself must be inside the actor's allowed organization set. Super administrators are exempt, and so are `systemActor` command invocations (CLI provisioning, seeding). A destination organization in another tenant answers `404 Organization not found` so the endpoint cannot be used to enumerate foreign organizations; a same-tenant organization outside the actor's set answers `403`.
+
+**Action for API consumers:** this is a **narrowing** of the update contract — it can no longer be used as an unrestricted organization/tenant relocation operation. Callers that legitimately move users across organizations must run as an actor whose ACL lists the destination organization (or as a super administrator). Nothing changes for requests that leave `organizationId` untouched, or that set it to the organization the user is already in and the actor already administers.
+
+**Behavior change on cross-tenant moves:** when an update changes the user's tenant and does not pass `roles`, the user's existing role links are now dropped instead of being carried over. Those links pointed at roles owned by the previous tenant and were meaningless — and, combined with the hole above, dangerous — in the destination. Pass `roles` explicitly to establish role membership in the destination tenant; those tokens are resolved against the destination tenant as before.
+
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.

@@ -27,7 +27,9 @@ import {
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { normalizeTenantId, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { assertActorCanAssignUserToOrganization } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
@@ -86,6 +88,49 @@ function resolveActorTenantScope(ctx: CommandRuntimeContext): string | null {
   if ((auth as { isSuperAdmin?: boolean }).isSuperAdmin === true) return null
   const actorTenantId = normalizeTenantId(auth.tenantId ?? null) ?? null
   return actorTenantId
+}
+
+// Command-layer twin of the route guard: an internal command-bus caller must not be able to
+// relocate a user into an organization or tenant its actor may not administer (#5176).
+async function assertActorCanAssignToOrganization(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  targetOrganizationId: string,
+  targetTenantId: string | null,
+): Promise<void> {
+  if (ctx.systemActor === true) return
+  const actorUserId = typeof ctx.auth?.sub === 'string' && ctx.auth.sub.length ? ctx.auth.sub : null
+  // No authenticated actor and no system-actor flag: the same unscoped posture
+  // resolveActorTenantScope already takes for such callers.
+  if (!actorUserId) return
+  const actorIsSuperAdmin = await resolveIsSuperAdmin(ctx)
+  await assertActorCanAssignUserToOrganization({
+    em,
+    rbacService: ctx.container.resolve('rbacService') as RbacService,
+    actorUserId,
+    tenantId: ctx.auth?.tenantId ?? null,
+    organizationId: ctx.auth?.orgId ?? null,
+    targetOrganizationId,
+    targetTenantId,
+    actorIsSuperAdmin,
+  })
+}
+
+// A user moved to another tenant keeps role links pointing at the previous tenant's roles.
+// Those grants are meaningless — and dangerous — in the destination tenant, so they are
+// dropped instead of being retained implicitly. A caller that wants roles in the destination
+// tenant passes `roles` explicitly, which syncUserRoles resolves against that tenant.
+async function dropRoleLinksOutsideTenant(em: EntityManager, user: User, tenantId: string | null): Promise<void> {
+  const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
+  const links = await findWithDecryption(em, UserRole, { user }, { populate: ['role'] }, { tenantId: null, organizationId: null })
+  let removed = 0
+  for (const link of links) {
+    const roleTenantId = normalizeTenantId(link.role?.tenantId ?? null) ?? null
+    if (roleTenantId === normalizedTenantId) continue
+    em.remove(link)
+    removed += 1
+  }
+  if (removed) await em.flush()
 }
 
 function assertTargetTenantInScope(actorTenantScope: string | null, targetTenantId: unknown, notFoundError: string): void {
@@ -531,6 +576,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     // (see Migration20260610120000: users_tenant_email_hash_uniq) — a matching email in another
     // tenant must not block the update or leak cross-tenant account existence (#2934).
     let tenantId: string | null | undefined
+    let previousTenantId: string | null = null
     if (parsed.organizationId !== undefined) {
       const organization = await findOneWithDecryption(
         em,
@@ -541,6 +587,8 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       )
       if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+      await assertActorCanAssignToOrganization(ctx, em, parsed.organizationId, tenantId)
+      previousTenantId = await resolveUserTenantId(em, parsed.id)
     }
 
     if (parsed.email !== undefined) {
@@ -607,8 +655,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       await em.nativeDelete(Session, { user: parsed.id })
     }
 
+    const destinationTenantId = user.tenantId ? String(user.tenantId) : tenantId ?? null
     if (Array.isArray(parsed.roles)) {
-      await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
+      await syncUserRoles(em, user, parsed.roles, destinationTenantId)
+    } else if (parsed.organizationId !== undefined && previousTenantId !== destinationTenantId) {
+      await dropRoleLinksOutsideTenant(em, user, destinationTenantId)
     }
 
     await setCustomFieldsIfAny({

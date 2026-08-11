@@ -43,6 +43,12 @@ type SuperAdminRoleTargetInput = GrantCheckContext & {
   actorIsSuperAdmin?: boolean
 }
 
+type OrganizationAssignmentInput = GrantCheckContext & {
+  targetOrganizationId: string
+  targetTenantId: string | null | undefined
+  actorIsSuperAdmin?: boolean
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function assertActorCanGrantRoleTokens(input: RoleTokenGrantCheckInput): Promise<Role[]> {
@@ -157,6 +163,32 @@ export async function assertActorCanAccessUserTarget(input: SuperAdminUserTarget
     if (!targetOrganizationId || !actorAcl.organizations.includes(targetOrganizationId)) {
       throw forbidden('Not authorized to access this user.')
     }
+  }
+}
+
+// Destination-scope guard for writes that place a user into an organization. The
+// source-side guard (assertActorCanAccessUserTarget) only proves the actor may touch the
+// user where it currently lives; without this the same request could relocate that user —
+// with its role links and a caller-chosen password — into an organization or tenant the
+// actor may not administer.
+export async function assertActorCanAssignUserToOrganization(input: OrganizationAssignmentInput): Promise<void> {
+  const isSuperAdmin = await resolveActorIsSuperAdmin(input)
+  if (isSuperAdmin) return
+
+  const actorTenantId = normalizeNullableString(input.tenantId)
+  const targetTenantId = normalizeNullableString(input.targetTenantId)
+  // A foreign-tenant organization is reported as missing rather than forbidden so the
+  // response cannot be used to enumerate organizations in other tenants — the same posture
+  // assertActorCanAccessUserTarget takes for foreign users.
+  if (!actorTenantId || !targetTenantId || targetTenantId !== actorTenantId) {
+    throw new CrudHttpError(404, { error: 'Organization not found' })
+  }
+
+  const actorAcl = await loadActorAcl(input)
+  if (actorAcl.organizations === null || actorAcl.organizations.includes('__all__')) return
+  const targetOrganizationId = normalizeNullableString(input.targetOrganizationId)
+  if (!targetOrganizationId || !actorAcl.organizations.includes(targetOrganizationId)) {
+    throw forbidden('Not authorized to assign users to this organization.')
   }
 }
 

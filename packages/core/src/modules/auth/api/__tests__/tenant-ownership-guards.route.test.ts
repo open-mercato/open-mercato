@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
@@ -114,6 +115,8 @@ const actorId = '33333333-3333-4333-8333-333333333333'
 const orgId = '44444444-4444-4444-8444-444444444444'
 const foreignUserId = '55555555-5555-4555-8555-555555555555'
 const sameTenantUserId = '66666666-6666-4666-8666-666666666666'
+const forbiddenOrgId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const foreignTenantOrgId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const foreignRoleId = '77777777-7777-4777-8777-777777777777'
 const sameTenantRoleId = '88888888-8888-4888-8888-888888888888'
 const nullTenantRoleId = '99999999-9999-4999-8999-999999999999'
@@ -218,6 +221,100 @@ describe('auth user target-ownership guards', () => {
     mockUserTargets()
     const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${foreignUserId}`, 'GET'))
     expect(res.status).toBe(404)
+  })
+})
+
+// Regression coverage for #5176: the destination organization of a user update was never
+// authorized. `assertCanAssignRoles` returned early whenever `roles` was omitted, so an
+// organization-limited administrator could move a user they may edit into an organization
+// (or tenant) they may not administer, keep its role links, and set a chosen password.
+function mockUserAndOrganizationTargets() {
+  mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: { id?: string }) => {
+    if (entity === User) {
+      if (where?.id === foreignUserId) return { id: foreignUserId, tenantId: tenantB, organizationId: orgId }
+      if (where?.id === sameTenantUserId) return { id: sameTenantUserId, tenantId: tenantA, organizationId: orgId }
+    }
+    if (entity === Organization) {
+      if (where?.id === orgId) return { id: orgId, tenant: { id: tenantA } }
+      if (where?.id === forbiddenOrgId) return { id: forbiddenOrgId, tenant: { id: tenantA } }
+      if (where?.id === foreignTenantOrgId) return { id: foreignTenantOrgId, tenant: { id: tenantB } }
+    }
+    return null
+  })
+}
+
+describe('auth user destination-organization guards (#5176)', () => {
+  test('organization-limited admin cannot move a user into a forbidden same-tenant organization (403)', async () => {
+    setActor({ organizations: [orgId] })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      organizationId: forbiddenOrgId,
+      password: 'AttackerChosen123!',
+    }))
+    const body = await res.json()
+    expect(res.status).toBe(403)
+    expect(body.error).toContain('assign users to this organization')
+  })
+
+  test('organization-limited admin cannot move a user into a foreign-tenant organization (404)', async () => {
+    setActor({ organizations: [orgId] })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      organizationId: foreignTenantOrgId,
+    }))
+    expect(res.status).toBe(404)
+  })
+
+  test('organization-limited admin can move a user into an allowed organization (200)', async () => {
+    setActor({ organizations: [orgId] })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      organizationId: orgId,
+    }))
+    expect(res.status).toBe(200)
+  })
+
+  test('tenant-wide admin can move a user between same-tenant organizations (200)', async () => {
+    setActor({ organizations: null })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      organizationId: forbiddenOrgId,
+    }))
+    expect(res.status).toBe(200)
+  })
+
+  test('tenant-wide admin still cannot move a user into a foreign-tenant organization (404)', async () => {
+    setActor({ organizations: null })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      organizationId: foreignTenantOrgId,
+    }))
+    expect(res.status).toBe(404)
+  })
+
+  test('superadmin can move a user into a foreign-tenant organization (200)', async () => {
+    setActor({ isSuperAdmin: true })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      organizationId: foreignTenantOrgId,
+    }))
+    expect(res.status).toBe(200)
+  })
+
+  test('an unchanged organization assignment stays authorized by the source-target guard alone (200)', async () => {
+    setActor({ organizations: [orgId] })
+    mockUserAndOrganizationTargets()
+    const res = await usersPut(jsonRequest('http://localhost/api/auth/users', 'PUT', {
+      id: sameTenantUserId,
+      name: 'Renamed',
+    }))
+    expect(res.status).toBe(200)
   })
 })
 
