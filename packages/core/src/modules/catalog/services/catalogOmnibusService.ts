@@ -32,6 +32,8 @@ const logger = createLogger('catalog')
 
 const CACHE_TTL_MS = 5 * 60 * 1000
 const IN_WINDOW_ROW_CAP = 1000
+// Enough to cover every price row sharing one backfill instant for a single scope.
+const BASELINE_ROW_CAP = 200
 // Only these two state a price that was actually on offer; see isOfferedPrice.
 const OFFERED_CHANGE_TYPES = ['create', 'update']
 const DEFAULT_PROGRESSIVE_MAX_GAP_DAYS = 7
@@ -44,7 +46,7 @@ const DEFAULT_PROGRESSIVE_MAX_GAP_DAYS = 7
  * uses, so nothing here bypasses the decryption contract or reaches for raw SQL.
  */
 export type OmnibusHistoryPrefetch = {
-  baseline: Map<string, OmnibusHistoryRow | null>
+  baseline: Map<string, OmnibusHistoryRow[]>
   inWindow: Map<string, OmnibusHistoryRow[]>
   truncated: Set<string>
 }
@@ -218,7 +220,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const prefetchKey = prefetch ? buildPrefetchKey(ctx) : null
     const prefetched = prefetchKey && prefetch?.inWindow.has(prefetchKey) ? prefetch : null
 
-    const baseline = prefetched
+    const baselineRows = prefetched
       ? (prefetched.baseline.get(prefetchKey!) ?? (await this.fetchBaseline(em, ctx, windowStart)))
       : await this.fetchBaseline(em, ctx, windowStart)
     const { rows: inWindow, truncated } = prefetched
@@ -250,7 +252,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     // price held as it was withdrawn, and the undo of a `create` records the value being removed,
     // so both describe prices that were never on offer at that point. Counting them lets a
     // fat-fingered price that was immediately undone become the legal reference for ever.
-    const candidates = [...(baseline ? [baseline] : []), ...inWindow].filter(
+    const candidates = [...baselineRows, ...inWindow].filter(
       (row) =>
         isOfferedPrice(row) &&
         !isPresentedReduction(row, presentedPriceEntry) &&
@@ -263,9 +265,12 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     let coverageStartAt: string | null = null
 
     if (lowestRow) {
-      const baselineKept = baseline != null && candidates.some((row) => row.id === baseline.id)
-      if (baselineKept && !truncated) {
-        previousRow = baseline
+      const baselineIds = new Set(baselineRows.map((row) => row.id))
+      const keptBaseline = candidates.filter((row) => baselineIds.has(row.id))
+      if (keptBaseline.length && !truncated) {
+        // Several rows can share the baseline instant; the cheapest is the one that matters,
+        // for the same reason the reference itself is a minimum.
+        previousRow = pickLowestRow(keptBaseline, axis) ?? keptBaseline[0]!
       } else {
         previousRow = pickOldestRow(candidates)
         insufficientHistory = true
@@ -512,12 +517,13 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       result.inWindow.set(entry.key, rows)
       if (rows.length >= IN_WINDOW_ROW_CAP) result.truncated.add(entry.key)
 
-      const candidate = (baselineCandidates.get(entry.key) ?? []).find(
+      const eligible = (baselineCandidates.get(entry.key) ?? []).filter(
         (row) => new Date(row.recordedAt) <= entry.windowStart,
       )
+      const atInstant = takeNewestInstant(eligible)
       // Absent means "the cap did not reach it", not "there is none" — leaving the key unset makes
       // computeLowestPrice fall back to its own query rather than silently treating it as missing.
-      if (candidate) result.baseline.set(entry.key, candidate)
+      if (atInstant.length) result.baseline.set(entry.key, atInstant)
     }
     return result
   }
@@ -553,11 +559,22 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return { windowStart: subtractDays(windowEnd, effectiveLookbackDays), windowEnd }
   }
 
+  /**
+   * Every row that was in effect when the window opened — not one of them.
+   *
+   * `omnibus:backfill` stamps every price it seeds with a single `recorded_at`, so a product with
+   * more than one variant or price row always has several rows sharing the baseline instant. Taking
+   * `limit: 1` picked among them by id, which is arbitrary: the same data resolved to 138, 148 or
+   * 168 depending on which row happened to come back. Worse, discarding the others throws away
+   * genuine candidates, so the reference could come out too high. There is no single "price in
+   * effect at window start" for a product-scoped query; there is a set, and the minimum over it is
+   * the answer.
+   */
   private async fetchBaseline(
     em: EntityManager,
     ctx: OmnibusResolutionContext,
     windowStart: Date,
-  ): Promise<OmnibusHistoryRow | null> {
+  ): Promise<OmnibusHistoryRow[]> {
     const filters = buildScopeFilters(ctx)
     filters.recordedAt = { $lte: windowStart }
     filters.changeType = { $in: OFFERED_CHANGE_TYPES }
@@ -565,10 +582,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       em,
       CatalogPriceHistoryEntry,
       filters,
-      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: 1 },
+      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: BASELINE_ROW_CAP },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
-    return rows[0] ? mapRow(rows[0]) : null
+    return takeNewestInstant(rows.map(mapRow))
   }
 
   private async fetchInWindow(
@@ -842,6 +859,13 @@ function resolvePriceProductId(price: CatalogProductPrice): string | null {
 
 // Only `create` and `update` state a price that was actually on offer. Excluding `undo` loses
 // nothing: an undo restores a value that its own earlier create/update row already records.
+// The rows at the newest recorded instant, which is the set that was simultaneously in effect.
+function takeNewestInstant(rows: OmnibusHistoryRow[]): OmnibusHistoryRow[] {
+  if (!rows.length) return []
+  const newest = rows.reduce((max, row) => (row.recordedAt > max ? row.recordedAt : max), rows[0]!.recordedAt)
+  return rows.filter((row) => row.recordedAt === newest)
+}
+
 function buildPrefetchKey(ctx: OmnibusResolutionContext): string {
   return `${ctx.productId ?? ''}|${ctx.priceKindId}|${ctx.currencyCode}`
 }

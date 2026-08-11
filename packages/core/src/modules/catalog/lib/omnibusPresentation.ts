@@ -81,7 +81,10 @@ export async function resolvePresentedPrice(
     em,
     CatalogProductPrice,
     priceFilters,
-    { orderBy: { startsAt: 'DESC', updatedAt: 'DESC' }, limit: 1 },
+    // `id` is the tie-break, not decoration: the seed data has several prices per scope with a
+    // null startsAt and equal updatedAt, so without it the "active" price — and therefore the
+    // promotion anchor — differed between this path and the batched one. M-3 requires they agree.
+    { orderBy: { startsAt: 'DESC', updatedAt: 'DESC', id: 'DESC' }, limit: 1 },
     scope,
   )
   const activePrice = prices[0]
@@ -170,11 +173,12 @@ export async function resolvePresentedPricesForProducts(
     em,
     CatalogProductPrice,
     priceFilters,
-    { orderBy: { startsAt: 'DESC', updatedAt: 'DESC' } },
+    { orderBy: { startsAt: 'DESC', updatedAt: 'DESC', id: 'DESC' } },
     scope,
   )
 
-  // First row per key wins: the query is already ordered the way the per-item version orders it.
+  // First row per key wins: the query is already ordered the way the per-item version orders it,
+  // including the `id` tie-break, so both paths select the same row.
   const priceByKey = new Map<string, (typeof prices)[number]>()
   for (const price of prices) {
     const productRef = price.product

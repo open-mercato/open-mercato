@@ -1114,8 +1114,9 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
 
     expect(prefetch.inWindow.get('product-a|kind-1|PLN')?.map((r) => r.id)).toEqual(['a-in'])
     expect(prefetch.inWindow.get('product-b|kind-1|PLN')?.map((r) => r.id)).toEqual(['b-in'])
-    expect(prefetch.baseline.get('product-a|kind-1|PLN')?.unitPriceGross).toBe('100')
-    expect(prefetch.baseline.get('product-b|kind-1|PLN')?.unitPriceGross).toBe('200')
+    // The baseline is the whole instant, so each product gets an array of the rows in effect.
+    expect(prefetch.baseline.get('product-a|kind-1|PLN')?.map((r) => r.unitPriceGross)).toEqual(['100'])
+    expect(prefetch.baseline.get('product-b|kind-1|PLN')?.map((r) => r.unitPriceGross)).toEqual(['200'])
   })
 
   it('resolves to the same block with and without the prefetch', async () => {
@@ -1173,5 +1174,69 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
 
     // Left out of the batch on purpose — the perishable branch does its own bounded read.
     expect(prefetch.inWindow.has('product-a|kind-1|PLN')).toBe(false)
+  })
+})
+
+// Found by running the batched path against a real database: omnibus:backfill stamps every price
+// it seeds with one recorded_at, so a product with several variants always has several rows at the
+// baseline instant. Taking one of them picked by id, which meant the same data resolved to 138,
+// 148 or 168 depending on which row came back — and discarding the rest could put the reference
+// above the true minimum.
+describe('DefaultCatalogOmnibusService — baseline instant with several rows', () => {
+  const atInstant = (gross: string, id: string) =>
+    row({ id, recordedAt: '2026-05-01T00:00:00.000Z', gross })
+
+  it('takes the cheapest row of the baseline instant, not an arbitrary one', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([atInstant('168', 'b-168'), atInstant('148', 'b-148'), atInstant('138', 'b-138')])
+      .mockResolvedValueOnce([])
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    expect(block?.lowestPriceGross).toBe('138')
+    expect(block?.previousPriceGross).toBe('138')
+  })
+
+  it('is stable no matter what order the rows come back in', async () => {
+    const orders = [
+      [atInstant('168', 'b-168'), atInstant('138', 'b-138')],
+      [atInstant('138', 'b-138'), atInstant('168', 'b-168')],
+    ]
+    for (const baseline of orders) {
+      const { service } = makeService(euConfig)
+      findMock.mockReset()
+      findMock.mockResolvedValueOnce(baseline).mockResolvedValueOnce([])
+
+      const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+      expect(block?.lowestPriceGross).toBe('138')
+    }
+  })
+
+  it('ignores rows older than the baseline instant', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([
+        atInstant('168', 'newest'),
+        // Cheaper but superseded — it was not in effect when the window opened.
+        row({ id: 'older', recordedAt: '2026-04-01T00:00:00.000Z', gross: '10' }),
+      ])
+      .mockResolvedValueOnce([])
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    expect(block?.lowestPriceGross).toBe('168')
+  })
+
+  it('still reports insufficient history when the instant yields nothing', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row({ id: 'in', recordedAt: '2026-06-02T00:00:00.000Z', gross: '90' })])
+
+    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
+
+    expect(block?.applicabilityReason).toBe('insufficient_history')
+    expect(block?.lowestPriceGross).toBe('90')
   })
 })
