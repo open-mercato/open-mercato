@@ -153,15 +153,15 @@ body {
   box-shadow: var(--docs-screenshot-shadow-hover);
 }
 
-/* Copy page button */
-.doc-item-with-copy-button {
+/* Copy page button — positioned inside the article content column, not spanning the TOC */
+.doc-item-with-copy-button .row > .col:first-child {
   position: relative;
 }
 
 .copy-page-button-container {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 0.25rem;
+  right: 0.5rem;
   z-index: 1;
 }
 
