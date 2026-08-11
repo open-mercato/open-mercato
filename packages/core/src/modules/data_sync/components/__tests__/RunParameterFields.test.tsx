@@ -8,6 +8,7 @@ import type { RunParameter } from '../../lib/adapter'
 import {
   RunParameterFields,
   buildDefaultRunParameterValues,
+  buildRunFailureMessage,
   buildRunParametersPayload,
   hasRequiredRunParameterWithoutDefault,
   type RunParameterFormValue,
@@ -78,6 +79,51 @@ describe('hasRequiredRunParameterWithoutDefault', () => {
 
   it('ignores an optional param without a default', () => {
     expect(hasRequiredRunParameterWithoutDefault(params)).toBe(false)
+  })
+})
+
+describe('buildRunFailureMessage', () => {
+  // Regression: the dashboard used to flash only the top-level `error`, so an
+  // out-of-range value surfaced as "Invalid run parameters" with no hint which
+  // field was wrong.
+  it('prefers the per-key parameter messages over the generic error', () => {
+    const message = buildRunFailureMessage(
+      {
+        error: 'Invalid run parameters',
+        details: { parameters: [{ key: 'startId', message: 'Start id must be at least 0.' }] },
+      },
+      'Failed to start sync run',
+    )
+    expect(message).toBe('Start id must be at least 0.')
+  })
+
+  it('joins multiple parameter messages', () => {
+    const message = buildRunFailureMessage(
+      {
+        error: 'Invalid run parameters',
+        details: {
+          parameters: [
+            { key: 'startId', message: 'Start id must be at least 0.' },
+            { key: 'mode', message: 'Mode must be one of: fast, thorough.' },
+          ],
+        },
+      },
+      'fallback',
+    )
+    expect(message).toBe('Start id must be at least 0. Mode must be one of: fast, thorough.')
+  })
+
+  it('falls back to the top-level error for non-parameter failures', () => {
+    expect(buildRunFailureMessage({ error: 'Integration is disabled' }, 'fallback'))
+      .toBe('Integration is disabled')
+  })
+
+  it('falls back to the provided default when the body carries nothing usable', () => {
+    expect(buildRunFailureMessage(null, 'Failed to start sync run')).toBe('Failed to start sync run')
+    expect(buildRunFailureMessage({ details: { parameters: [] } }, 'Failed to start sync run'))
+      .toBe('Failed to start sync run')
+    expect(buildRunFailureMessage({ details: { parameters: [{ key: 'x', message: '  ' }] } }, 'fallback'))
+      .toBe('fallback')
   })
 })
 

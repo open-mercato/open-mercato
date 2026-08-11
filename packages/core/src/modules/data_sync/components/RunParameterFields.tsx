@@ -57,6 +57,28 @@ export function hasRequiredRunParameterWithoutDefault(params: RunParameter[]): b
   return params.some((param) => param.required && param.defaultValue === undefined)
 }
 
+export type RunFailureBody = {
+  error?: string
+  details?: { parameters?: Array<{ key?: string; message?: string }> }
+}
+
+/**
+ * Picks the most specific message out of a failed run response. The run API
+ * reports invalid parameters per key under `details.parameters`; surfacing only
+ * the top-level `error` would tell the operator "Invalid run parameters"
+ * without saying which one or why.
+ */
+export function buildRunFailureMessage(
+  failure: RunFailureBody | null | undefined,
+  fallback: string,
+): string {
+  const parameterErrors = (failure?.details?.parameters ?? [])
+    .map((entry) => entry?.message)
+    .filter((message): message is string => typeof message === 'string' && message.trim().length > 0)
+  if (parameterErrors.length > 0) return parameterErrors.join(' ')
+  return failure?.error ?? fallback
+}
+
 export type RunParameterFieldsProps = {
   params: RunParameter[]
   values: Record<string, RunParameterFormValue>

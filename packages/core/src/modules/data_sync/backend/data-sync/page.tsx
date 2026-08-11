@@ -48,7 +48,9 @@ import { getApplicableRunParameters } from '../../lib/run-parameters'
 import {
   RunParameterFields,
   buildDefaultRunParameterValues,
+  buildRunFailureMessage,
   buildRunParametersPayload,
+  type RunFailureBody,
   type RunParameterFormValue,
 } from '../../components/RunParameterFields'
 
@@ -406,7 +408,10 @@ export default function SyncRunsDashboardPage() {
       })
 
       if (!call.ok || !call.result?.id) {
-        flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.start.error', 'Failed to start sync run'), 'error')
+        flash(buildRunFailureMessage(
+          call.result as RunFailureBody | null,
+          t('data_sync.dashboard.start.error', 'Failed to start sync run'),
+        ), 'error')
         return
       }
 
