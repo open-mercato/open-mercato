@@ -30,20 +30,40 @@ interface DocumentsResponse {
 export function HistoryList() {
   const t = useT()
   const [items, setItems] = React.useState<HistoryItem[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const pageSize = 20
 
   React.useEffect(() => {
-    apiCall<DocumentsResponse>('/api/document-generators/documents?page=1&pageSize=20', { method: 'GET' })
-      .then(({ ok, result }) => {
-        if (!ok || !result) throw new Error('Failed to load generation history')
-        setItems(result.items)
-      })
-      .catch(() => setError(t('document_generators.history.error', 'Failed to load generation history.')))
-      .finally(() => setLoading(false))
-  }, [])
+    let cancelled = false
+    setLoading(true)
+    setError(null)
 
-  const columns: ColumnDef<HistoryItem>[] = [
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+    apiCall<DocumentsResponse>(`/api/document-generators/documents?${params.toString()}`, { method: 'GET' })
+      .then(({ ok, result }) => {
+        if (!ok || !result) throw new Error('[internal] Failed to load generation history')
+        if (cancelled) return
+        setItems(result.items)
+        setTotal(result.total)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(t('document_generators.history.error', 'Failed to load generation history.'))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [page, t])
+
+  const columns = React.useMemo<ColumnDef<HistoryItem>[]>(() => [
     { accessorKey: 'id', header: t('document_generators.history.id', 'History ID'), meta: { maxWidth: 220, truncate: true } },
     { accessorKey: 'resourceLabel', header: t('document_generators.history.resource', 'Resource'), meta: { truncate: true } },
     { accessorKey: 'resourceKind', header: t('document_generators.history.resourceKind', 'Resource type'), meta: { maxWidth: 160, truncate: true } },
@@ -63,18 +83,19 @@ export function HistoryList() {
       cell: ({ getValue }) => formatDateTime(String(getValue() ?? '')) ?? '—',
       meta: { maxWidth: 190 },
     },
-  ]
+  ], [t])
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
-    <section>
-      <h2 className="mb-4 text-base font-semibold">{t('document_generators.history.title', 'Generation history')}</h2>
-      {!loading && !error && items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t('document_generators.history.empty', 'No documents have been generated yet.')}
-        </p>
-      ) : (
-        <DataTable columns={columns} data={items} isLoading={loading} error={error} disableRowClick />
-      )}
-    </section>
+    <DataTable
+      columns={columns}
+      data={items}
+      isLoading={loading}
+      error={error}
+      emptyState={t('document_generators.history.empty', 'No documents have been generated yet.')}
+      pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+      disableRowClick
+    />
   )
 }

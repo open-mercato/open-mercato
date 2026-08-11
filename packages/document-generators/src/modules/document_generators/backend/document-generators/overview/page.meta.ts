@@ -1,14 +1,13 @@
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['document_generators.view'],
-  pageTitle: 'Document generator',
-  pageTitleKey: 'document_generators.overview.title',
+  pageTitle: 'Overview',
+  pageTitleKey: 'document_generators.overview.navTitle',
   pageGroup: 'Document Generators',
   pageGroupKey: 'document_generators.page.group',
   pageOrder: 900,
-  navHidden: true,
   breadcrumb: [
-    { label: 'Document generator', labelKey: 'document_generators.overview.title' },
+    { label: 'Overview', labelKey: 'document_generators.overview.navTitle' },
   ],
 } as const
 export default metadata
