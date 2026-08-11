@@ -263,7 +263,10 @@ describe('Queue - local strategy', () => {
     await queue.close()
   })
 
-  test('corrupted queue file is backed up and recreated', async () => {
+  // Regression (#5149): an unparsable queue file used to be replaced with `[]`
+  // and reported only in the log, so `enqueue` resolved against a queue that had
+  // just been emptied. The bytes must now be preserved and the caller told.
+  test('corrupted queue file is quarantined and the failure reaches the caller', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'local')
     const queueDir = path.join('.mercato', 'queue', 'test-queue')
     const queuePath = path.join(queueDir, 'queue.json')
@@ -273,12 +276,7 @@ describe('Queue - local strategy', () => {
     fs.mkdirSync(queueDir, { recursive: true })
     fs.writeFileSync(queuePath, brokenContent, 'utf8')
 
-    const jobId = await queue.enqueue({ value: 42 })
-
-    const queueContent = readJson(queuePath)
-    expect(queueContent).toHaveLength(1)
-    expect(queueContent[0].id).toBe(jobId)
-    expect(queueContent[0].payload).toEqual({ value: 42 })
+    await expect(queue.enqueue({ value: 42 })).rejects.toThrow(/quarantined/)
 
     const backupFiles = fs.readdirSync(queueDir)
       .filter((fileName) => fileName.startsWith('queue.corrupted.') && fileName.endsWith('.json'))
@@ -290,9 +288,97 @@ describe('Queue - local strategy', () => {
       { err: expect.any(Error) },
     )
     expect(queueLoggerError).toHaveBeenCalledWith(
-      'Backed up corrupted queue file and recreated queue.json',
+      'Quarantined corrupted queue file; its jobs are recoverable from the backup',
       { backupFile: expect.stringContaining('queue.corrupted.') },
     )
+
+    // The failed segment must not strand the cross-process lock, and the queue
+    // has to be usable again on the very next call.
+    expect(fs.existsSync(path.join(queueDir, 'queue.lock'))).toBe(false)
+
+    const jobId = await queue.enqueue({ value: 43 })
+    const queueContent = readJson(queuePath)
+    expect(queueContent).toHaveLength(1)
+    expect(queueContent[0].id).toBe(jobId)
+    expect(queueContent[0].payload).toEqual({ value: 43 })
+
+    await queue.close()
+  })
+
+  // Regression (#5149): two queue instances sharing a directory — the default
+  // dev topology, where the Next server and the worker are separate processes —
+  // used to interleave truncate-then-write calls. Each instance had its own
+  // in-process mutex, so nothing serialized them: the file was left unparsable
+  // and the jobs written by the losing writer disappeared.
+  test('concurrent writers on separate instances neither corrupt the file nor lose jobs', async () => {
+    const queueDir = path.join('.mercato', 'queue', 'multi-writer-queue')
+    const queuePath = path.join(queueDir, 'queue.json')
+    const writerA = createQueue<{ writer: string; index: number; payload: string }>('multi-writer-queue', 'local')
+    const writerB = createQueue<{ writer: string; index: number; payload: string }>('multi-writer-queue', 'local')
+    const jobsPerWriter = 25
+
+    // Deliberately mismatched payload sizes: the reported corruption signature
+    // is a short complete array followed by the tail of a longer earlier write.
+    const enqueueAll = (queue: typeof writerA, label: string, payloadSize: number) =>
+      Array.from({ length: jobsPerWriter }, (_, index) =>
+        queue.enqueue({ writer: label, index, payload: 'x'.repeat(payloadSize) }))
+
+    await Promise.all([
+      ...enqueueAll(writerA, 'A', 4000),
+      ...enqueueAll(writerB, 'B', 40),
+    ])
+
+    const stored = readJson(queuePath)
+    expect(stored).toHaveLength(jobsPerWriter * 2)
+    expect(stored.filter((job: any) => job.payload.writer === 'A')).toHaveLength(jobsPerWriter)
+    expect(stored.filter((job: any) => job.payload.writer === 'B')).toHaveLength(jobsPerWriter)
+
+    const strayFiles = fs.readdirSync(queueDir)
+      .filter((fileName) => fileName.startsWith('queue.corrupted.') || fileName.endsWith('.tmp'))
+    expect(strayFiles).toEqual([])
+
+    await writerA.close()
+    await writerB.close()
+  }, 60_000)
+
+  // Regression (#5149): `queue.json` was persisted with a plain `writeFile`,
+  // which truncates the existing inode and then streams the payload into it.
+  // Persisting through a temp file plus `rename` replaces the inode instead, so
+  // a concurrent reader can only ever see one complete document.
+  test('each persist swaps in a replacement file instead of truncating in place', async () => {
+    const queue = createQueue<{ value: number }>('atomic-write-queue', 'local')
+    const queueDir = path.join('.mercato', 'queue', 'atomic-write-queue')
+    const queuePath = path.join(queueDir, 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+    const inodeAfterFirstWrite = fs.statSync(queuePath).ino
+
+    await queue.enqueue({ value: 2 })
+    const inodeAfterSecondWrite = fs.statSync(queuePath).ino
+
+    expect(inodeAfterSecondWrite).not.toBe(inodeAfterFirstWrite)
+    expect(readJson(queuePath)).toHaveLength(2)
+    expect(fs.readdirSync(queueDir).filter((fileName) => fileName.endsWith('.tmp'))).toEqual([])
+
+    await queue.close()
+  })
+
+  // Regression (#5149): the cross-process lock must not outlive the process
+  // that took it, or a crash mid-segment would wedge every queue consumer.
+  test('a stale lock left behind by a dead process is reclaimed', async () => {
+    const queue = createQueue<{ value: number }>('stale-lock-queue', 'local')
+    const queueDir = path.join('.mercato', 'queue', 'stale-lock-queue')
+    const lockPath = path.join(queueDir, 'queue.lock')
+
+    fs.mkdirSync(lockPath, { recursive: true })
+    const wellPastTheStaleThreshold = new Date(Date.now() - 60_000)
+    fs.utimesSync(lockPath, wellPastTheStaleThreshold, wellPastTheStaleThreshold)
+
+    const jobId = await queue.enqueue({ value: 7 })
+
+    expect(typeof jobId).toBe('string')
+    expect(readJson(path.join(queueDir, 'queue.json'))).toHaveLength(1)
+    expect(fs.existsSync(lockPath)).toBe(false)
 
     await queue.close()
   })
