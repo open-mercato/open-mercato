@@ -60,13 +60,25 @@ The `DataTable` component keeps a lightweight snapshot in `localStorage` so subs
 
 ## Building your own “Save view” affordance
 
-The perspectives sidebar is the default place to save a view, but a host application can render its own toolbar button and unsaved-changes indicator without patching `DataTable`. Three additive props expose the state and the action:
+Reach for `showSaveViewButton` first: it is the recommended way to give a table a save affordance, and a hand-built control is reserved for hosts that already pass a custom `toolbar`. The built-in button keeps the placement, styling and copy identical on every screen, which is exactly the drift a per-module button reintroduces.
+
+```tsx
+<DataTable
+  perspective={{ tableId: 'sales:orders' }}
+  showSaveViewButton
+  …
+/>
+```
+
+The perspectives sidebar stays the default save path, and the button is off by default, so no existing screen changes until a host opts in. Three additive props expose the state and the action:
 
 | Prop | Purpose |
 |------|---------|
+| `showSaveViewButton` | Renders the built-in “Save view” button next to the views switcher. Off by default; the recommended path. |
+| `viewApiRef` | Imperative handle: `getCurrentSettings()`, `getDirtyState()`, `saveCurrentView(input?)`, `openViewsSidebar()`. For hosts that render their own control. |
 | `onColumnsDirtyChange` | Read-only callback fired whenever the unsaved-changes state changes. Only fires for tables that wire `perspective`. |
-| `viewApiRef` | Imperative handle: `getCurrentSettings()`, `getDirtyState()`, `saveCurrentView(input?)`, `openViewsSidebar()`. |
-| `showSaveViewButton` | Renders the built-in “Save view” button next to the views switcher. Off by default. |
+
+A custom `toolbar` prop replaces the built-in toolbar entirely, so `showSaveViewButton` has no effect there. Such a host renders the same affordance from `viewApiRef` and `onColumnsDirtyChange` — still without patching `DataTable`:
 
 ```tsx
 const viewApi = React.useRef<DataTableViewApi | null>(null)
@@ -97,7 +109,7 @@ const [dirty, setDirty] = React.useState<DataTableViewDirtyState | null>(null)
 
 “Dirty” is measured against the settings the view was last applied or saved from, so restoring a view on page load never flags changes the user did not make. `pageSize` is not compared: the live settings never carry one.
 
-`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed' }`. `not-ready` means the perspectives permission check has not resolved yet — nothing was saved and nothing is wrong, so retry rather than telling the user views are disabled. Conflicts (HTTP 409) are surfaced by the shared conflict bar exactly as in the sidebar flow. Note that a custom `toolbar` prop replaces the built-in toolbar entirely, so `showSaveViewButton` has no effect there — use `viewApiRef` instead.
+`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed' }`. `not-ready` means the perspectives permission check has not resolved yet — nothing was saved and nothing is wrong, so retry rather than telling the user views are disabled. Conflicts (HTTP 409) are surfaced by the shared conflict bar exactly as in the sidebar flow.
 
 `openViewsSidebar()` is a no-op for a user without the `perspectives.use` feature (the sidebar closes again on the next render), so gate a host-rendered “Manage views” action on the same permission instead of expecting an error. The dirty state and the imperative handle are only computed for tables that pass at least one of these three props — a table that opts out pays nothing.
 

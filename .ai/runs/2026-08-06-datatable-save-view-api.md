@@ -97,3 +97,20 @@ attempts; `TC-CRM-087` had neither.
 - [x] Port TC-CRM-086's gesture hardening into TC-CRM-087 — 20fa4e0
 - [x] Verify on a fresh ephemeral env (086 + 087 green; the earlier local red was a
       drained database from the full-shard run, not the change)
+
+## Docs follow-up — `zielivia`, 2026-08-10 (`om-auto-continue-pr`)
+
+Non-blocking review note, from the design-system consistency angle: the
+"Building your own “Save view” affordance" section led with the hand-built control, so a
+reader's first impression is that rolling your own button is the normal path. Left that
+way, every module grows its own save button in a different spot, style and copy — exactly
+the drift the built-in one exists to prevent. The recommended default is
+`showSaveViewButton`; a hand-built control belongs to hosts that already pass a custom
+`toolbar`, where the built-in button cannot render at all.
+
+- [ ] Docs: lead the section with `showSaveViewButton`, show its one-prop usage first, and
+      reserve the `viewApiRef` walkthrough for hosts with a custom `toolbar`
+- [ ] Reorder the prop table to match that hierarchy and fold the custom-`toolbar` caveat
+      into the opening instead of a trailing note four paragraphs down
+- [ ] Align the `packages/ui/AGENTS.md` DataTable guideline with the same hierarchy
+- [ ] Keep `yarn agents:check-budget` green (the `packages/ui` chain is on the ratchet)
