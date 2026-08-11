@@ -8,6 +8,7 @@ import {
   type SearchPolicy,
   type SearchPolicyInput,
 } from '@open-mercato/web-research'
+import { adapterSecretFields, decryptAdapterSecrets } from './secretStorage'
 
 /** The adapter enabled by default; also the one that needs its own budget. */
 const MODEL_ADAPTER_ID = 'model-native'
@@ -146,15 +147,29 @@ export function withModelAdapterBudget(policy: SearchPolicy): SearchPolicy {
   }
 }
 
+/**
+ * The guardrails a TENANT may store.
+ *
+ * `allowPrivateHosts` is deliberately absent. Naming a host there lets an
+ * adapter — and `web_fetch` — resolve to a private address, which widens the
+ * deployment's egress boundary past the SSRF guard. That is an operator
+ * decision about the network the app runs in, not a per-tenant preference, so
+ * it lives in `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` only. A tenant admin with
+ * `agents.manage` could otherwise point the fetcher at the cloud metadata
+ * endpoint from a settings form.
+ *
+ * The field is not merely ignored on write — it is not in the schema, so a body
+ * carrying it is REJECTED rather than silently accepted. Silent acceptance
+ * would leave an operator believing they had set something.
+ */
 export const guardrailsSchema = z.object({
   allowDomains: z.array(z.string()).optional(),
   denyDomains: z.array(z.string()).optional(),
-  allowPrivateHosts: z.array(z.string()).optional(),
   searchesPerRun: z.number().int().min(1).optional(),
   fetchesPerRun: z.number().int().min(1).optional(),
   callsPerTenantPerMinute: z.number().int().min(1).optional(),
   maxFetchBytes: z.number().int().min(1024).optional(),
-})
+}).strict()
 
 /** Shape persisted under `agent_orchestrator` / `web_search`. */
 export const storedSettingsSchema = searchPolicySchema.extend({
@@ -215,14 +230,26 @@ export async function resolveWebSearchSettings(
   const policy = withModelAdapterBudget(merged)
 
   const storedGuardrails = (stored?.guardrails ?? {}) as Partial<WebSearchGuardrails>
-  const adapterOptions = (stored?.adapterOptions ?? {}) as Record<string, unknown>
+  // Adapter credentials are encrypted at rest (see `secretStorage.ts`). Every
+  // consumer — the engine, the health probe, the preview, the settings form —
+  // comes through here, so decrypting once at this seam is what keeps a second
+  // reader from acquiring its own copy of the rule.
+  const adapterOptions = await decryptAdapterSecrets(
+    container,
+    tenantId,
+    (stored?.adapterOptions ?? {}) as Record<string, unknown>,
+    adapterSecretFields(container),
+  )
 
   return {
     policy,
     guardrails: {
       allowDomains: storedGuardrails.allowDomains ?? base.guardrails.allowDomains,
       denyDomains: storedGuardrails.denyDomains ?? base.guardrails.denyDomains,
-      allowPrivateHosts: storedGuardrails.allowPrivateHosts ?? base.guardrails.allowPrivateHosts,
+      // Env only, never the stored row — see `guardrailsSchema`. Reading a
+      // stored value here would reopen the hole the schema closes for any row
+      // written before the field was removed.
+      allowPrivateHosts: base.guardrails.allowPrivateHosts,
       searchesPerRun: storedGuardrails.searchesPerRun ?? base.guardrails.searchesPerRun,
       fetchesPerRun: storedGuardrails.fetchesPerRun ?? base.guardrails.fetchesPerRun,
       callsPerTenantPerMinute:

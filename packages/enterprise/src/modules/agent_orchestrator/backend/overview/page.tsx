@@ -8,6 +8,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -418,25 +419,25 @@ export default function AgentFleetOverviewPage() {
                 ) : stuck.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.stuck.empty', 'Nothing stuck right now')}</p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.stuck.col.id', 'ID')}</th>
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.stuck.col.process', 'Process')}</th>
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.stuck.col.agent', 'Agent')}</th>
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.stuck.col.waitingFor', 'Waiting for')}</th>
-                        <th className="px-2 py-2 text-right font-medium">{t('agent_orchestrator.overview.stuck.col.waitingTime', 'Waiting time')}</th>
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.stuck.col.sla', 'SLA')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('agent_orchestrator.overview.stuck.col.id', 'ID')}</TableHead>
+                        <TableHead>{t('agent_orchestrator.overview.stuck.col.process', 'Process')}</TableHead>
+                        <TableHead>{t('agent_orchestrator.overview.stuck.col.agent', 'Agent')}</TableHead>
+                        <TableHead>{t('agent_orchestrator.overview.stuck.col.waitingFor', 'Waiting for')}</TableHead>
+                        <TableHead className="text-right">{t('agent_orchestrator.overview.stuck.col.waitingTime', 'Waiting time')}</TableHead>
+                        <TableHead>{t('agent_orchestrator.overview.stuck.col.sla', 'SLA')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {stuck.map((row) => (
-                        <tr
+                        <TableRow
                           key={row.id}
                           tabIndex={0}
                           role="link"
                           aria-label={t('agent_orchestrator.overview.stuck.openRow', undefined, { id: row.claim })}
-                          className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                          className="cursor-pointer outline-none focus-visible:bg-accent/40"
                           onClick={() => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
@@ -445,8 +446,8 @@ export default function AgentFleetOverviewPage() {
                             }
                           }}
                         >
-                          <td className="px-2 py-2.5 font-mono text-xs text-foreground">{row.claim}</td>
-                          <td className="px-2 py-2.5">
+                          <TableCell className="font-mono text-xs text-foreground">{row.claim}</TableCell>
+                          <TableCell>
                             {row.processId ? (
                               <button
                                 type="button"
@@ -462,19 +463,19 @@ export default function AgentFleetOverviewPage() {
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
-                          </td>
-                          <td className="px-2 py-2.5 text-foreground">{row.agentLabel}</td>
-                          <td className="px-2 py-2.5 text-foreground">{t(`agent_orchestrator.overview.interventions.${row.waitingFor}`, titleCase(row.waitingFor))}</td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">{formatWaitMinutes(row.waitingMin) ?? '—'}</td>
-                          <td className="px-2 py-2.5">
+                          </TableCell>
+                          <TableCell className="text-foreground">{row.agentLabel}</TableCell>
+                          <TableCell className="text-foreground">{t(`agent_orchestrator.overview.interventions.${row.waitingFor}`, titleCase(row.waitingFor))}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{formatWaitMinutes(row.waitingMin) ?? '—'}</TableCell>
+                          <TableCell>
                             <StatusBadge variant={slaVariant[row.sla]} dot>
                               {t(`agent_orchestrator.overview.stuck.sla.${row.sla}`, titleCase(row.sla))}
                             </StatusBadge>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 )}
               </Panel>
 
@@ -484,23 +485,23 @@ export default function AgentFleetOverviewPage() {
                 ) : trust.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.trust.empty', 'No agents yet')}</p>
                 ) : (
-                  <table className="w-full table-fixed text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                        <th className="px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</th>
-                        <th className="w-16 px-2 py-2 text-right font-medium">{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</th>
-                        <th className="w-28 px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</th>
-                        <th className="w-20 px-2 py-2 font-medium">{t('agent_orchestrator.overview.trust.col.status', 'Status')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</TableHead>
+                        <TableHead className="w-16 text-right">{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
+                        <TableHead className="w-28">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</TableHead>
+                        <TableHead className="w-20">{t('agent_orchestrator.overview.trust.col.status', 'Status')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {trust.map((row) => (
-                        <tr
+                        <TableRow
                           key={row.id}
                           tabIndex={0}
                           role="link"
                           aria-label={t('agent_orchestrator.overview.trust.openRow', undefined, { id: row.id })}
-                          className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                          className="cursor-pointer outline-none focus-visible:bg-accent/40"
                           onClick={() => router.push(`/backend/agents/${encodeURIComponent(row.id)}`)}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
@@ -509,7 +510,7 @@ export default function AgentFleetOverviewPage() {
                             }
                           }}
                         >
-                          <td className="px-2 py-2.5">
+                          <TableCell>
                             <div className="flex items-center gap-2.5">
                               <Avatar label={row.label} size="sm" variant="monochrome" icon={agentAvatarIcon(row.icon, row.resultKind)} />
                               <div className="min-w-0">
@@ -517,18 +518,18 @@ export default function AgentFleetOverviewPage() {
                                 <div className="truncate font-mono text-xs text-muted-foreground">{row.id}</div>
                               </div>
                             </div>
-                          </td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-foreground">{formatNumber(row.runs, locale) ?? '0'}</td>
-                          <td className="px-2 py-2.5"><OverrideMeter pct={row.overridePct} /></td>
-                          <td className="px-2 py-2.5">
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-foreground">{formatNumber(row.runs, locale) ?? '0'}</TableCell>
+                          <TableCell><OverrideMeter pct={row.overridePct} /></TableCell>
+                          <TableCell>
                             <StatusBadge variant={statusVariant[row.status]} dot>
                               {t(`agent_orchestrator.agents.list.status.${row.status}`, row.status)}
                             </StatusBadge>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 )}
               </Panel>
             </div>

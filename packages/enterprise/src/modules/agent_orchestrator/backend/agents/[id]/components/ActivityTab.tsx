@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConfidenceFaceValue } from '../../../../components/cockpitStatus'
 import { formatTimeShort } from '../../../../components/types'
@@ -53,27 +55,34 @@ export function ActivityTab({ runs, proposals }: ActivityTabProps) {
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {filtered.length === 0 ? (
-          <p className="p-5 text-sm text-muted-foreground">{t('agent_orchestrator.agentDetail.recent.empty', 'No runs yet for this agent.')}</p>
+          <EmptyState
+            variant="subtle"
+            title={t('agent_orchestrator.agentDetail.recent.empty', 'No runs yet for this agent.')}
+            description={t(
+              'agent_orchestrator.agentDetail.recent.emptyDescription',
+              'Runs appear here as soon as this agent is invoked.',
+            )}
+          />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-2 font-medium">{t('agent_orchestrator.agentDetail.recent.claim', 'Claim')}</th>
-                  <th className="px-4 py-2 font-medium">{t('agent_orchestrator.agentDetail.recent.decision', 'Decision')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('agent_orchestrator.agentDetail.recent.conf', 'Conf.')}</th>
-                  <th className="px-4 py-2 font-medium">{t('agent_orchestrator.agentDetail.recent.outcome', 'Outcome')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('agent_orchestrator.agentDetail.recent.when', 'When')}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('agent_orchestrator.agentDetail.recent.claim', 'Claim')}</TableHead>
+                  <TableHead>{t('agent_orchestrator.agentDetail.recent.decision', 'Decision')}</TableHead>
+                  <TableHead className="text-right">{t('agent_orchestrator.agentDetail.recent.conf', 'Conf.')}</TableHead>
+                  <TableHead>{t('agent_orchestrator.agentDetail.recent.outcome', 'Outcome')}</TableHead>
+                  <TableHead className="text-right">{t('agent_orchestrator.agentDetail.recent.when', 'When')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {filtered.map((run) => (
-                  <tr
+                  <TableRow
                     key={run.id}
                     tabIndex={0}
                     role="link"
                     aria-label={t('agent_orchestrator.agentDetail.recent.openTrace', 'Open run trace')}
-                    className="cursor-pointer border-b border-border outline-none transition-colors last:border-0 hover:bg-accent/40 focus-visible:bg-accent/40"
+                    className="cursor-pointer outline-none focus-visible:bg-accent/40"
                     onClick={() => open(run.id)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -82,25 +91,25 @@ export function ActivityTab({ runs, proposals }: ActivityTabProps) {
                       }
                     }}
                   >
-                    <td className="px-4 py-2.5 font-mono text-xs text-foreground">{run.claim}</td>
-                    <td className="px-4 py-2.5 text-foreground">{run.decision}</td>
-                    <td className="px-4 py-2.5 text-right text-muted-foreground">
+                    <TableCell className="font-mono text-xs text-foreground">{run.claim}</TableCell>
+                    <TableCell className="text-foreground">{run.decision}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">
                       <ConfidenceFaceValue
                         confidence={run.confidence}
                         display={run.confidence == null ? undefined : run.confidence.toFixed(2)}
                         className="justify-end"
                       />
-                    </td>
-                    <td className="px-4 py-2.5">
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge variant={outcomeVariant[run.outcome]}>
                         {t(`agent_orchestrator.agentDetail.outcome.${run.outcome}`, titleCase(run.outcome))}
                       </StatusBadge>
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{formatTimeShort(run.when) ?? ''}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">{formatTimeShort(run.when) ?? ''}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

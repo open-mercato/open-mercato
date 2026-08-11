@@ -12,6 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapRunDetail, type EvalResultView, type RunDetailView } from '../../components/types'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 
 type PanelState = 'loading' | 'ready' | 'forbidden'
 
@@ -192,17 +193,17 @@ function VerdictBadge({ verdict, t }: { verdict: RunVerdict; t: ReturnType<typeo
 function AssertionTable({ rows, t }: { rows: EvalResultView[]; t: ReturnType<typeof useT> }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
-            <th className="w-9 px-3 py-2" aria-hidden="true" />
-            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.assertion', 'Assertion')}</th>
-            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.severity', 'Severity')}</th>
-            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.actual', 'Actual')}</th>
-            <th className="px-3 py-2 font-medium">{t('agent_orchestrator.playground.eval.col.expected', 'Expected')}</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-9" aria-hidden="true" />
+            <TableHead>{t('agent_orchestrator.playground.eval.col.assertion', 'Assertion')}</TableHead>
+            <TableHead>{t('agent_orchestrator.playground.eval.col.severity', 'Severity')}</TableHead>
+            <TableHead>{t('agent_orchestrator.playground.eval.col.actual', 'Actual')}</TableHead>
+            <TableHead>{t('agent_orchestrator.playground.eval.col.expected', 'Expected')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((row) => {
             const meta = verdictMeta(row.passed)
             const { actual, expected } = evidenceActualExpected(row.evidence)
@@ -210,17 +211,17 @@ function AssertionTable({ rows, t }: { rows: EvalResultView[]; t: ReturnType<typ
               ? t('agent_orchestrator.playground.eval.skipped', 'skipped')
               : actual ?? t(meta.labelKey, meta.labelFallback)
             return (
-              <tr key={row.id} className="border-b border-border last:border-0">
-                <td className="px-3 py-2"><meta.Icon className={`size-4 ${meta.className}`} /></td>
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-foreground">{row.assertionKey}</td>
-                <td className="px-3 py-2 text-muted-foreground">{t(`agent_orchestrator.playground.eval.severity.${row.severity}`, row.severity)}</td>
-                <td className="max-w-[280px] truncate px-3 py-2 font-mono text-foreground" title={actual ?? undefined}>{actualText}</td>
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-muted-foreground">{expected ?? '—'}</td>
-              </tr>
+              <TableRow key={row.id}>
+                <TableCell><meta.Icon className={`size-4 ${meta.className}`} /></TableCell>
+                <TableCell className="whitespace-nowrap font-mono text-foreground">{row.assertionKey}</TableCell>
+                <TableCell className="text-muted-foreground">{t(`agent_orchestrator.playground.eval.severity.${row.severity}`, row.severity)}</TableCell>
+                <TableCell className="max-w-[280px] truncate font-mono text-foreground" title={actual ?? undefined}>{actualText}</TableCell>
+                <TableCell className="whitespace-nowrap font-mono text-muted-foreground">{expected ?? '—'}</TableCell>
+              </TableRow>
             )
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   )
 }

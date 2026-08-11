@@ -84,6 +84,8 @@ type SettingsResponse = {
   guardrails: Guardrails
   source: 'tenant' | 'instance'
   installed?: InstalledAdapter[]
+  /** False when this deployment has no key to encrypt stored credentials with. */
+  secretsEncrypted?: boolean
 }
 
 type AdapterOptions = Record<string, Record<string, unknown>>
@@ -304,6 +306,18 @@ export default function WebSearchSettingsPage() {
   const [health, setHealth] = React.useState<AdapterHealth[]>([])
   const [adapterOptions, setAdapterOptions] = React.useState<AdapterOptions>({})
   const [guardrails, setGuardrails] = React.useState<Guardrails | null>(null)
+  const [secretsEncrypted, setSecretsEncrypted] = React.useState(true)
+
+  /**
+   * What the server will accept. `allowPrivateHosts` is instance-only and the
+   * PUT schema is strict, so echoing back the value the GET returned would 400
+   * the whole save — the field is displayed, never submitted.
+   */
+  const writableGuardrails = React.useMemo(() => {
+    if (!guardrails) return null
+    const { allowPrivateHosts: _instanceOnly, ...writable } = guardrails
+    return writable
+  }, [guardrails])
   const [source, setSource] = React.useState<'tenant' | 'instance'>('instance')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -331,6 +345,7 @@ export default function WebSearchSettingsPage() {
       setAdapterOptions(Object.fromEntries(adapters.map((adapter) => [adapter.id, { ...adapter.options }])))
       setSource(next.source)
       setGuardrails(next.guardrails)
+      setSecretsEncrypted(next.secretsEncrypted !== false)
       const mergedAdapters = mergeAdapters(next.policy, adapters)
       setPolicy({ ...next.policy, adapters: mergedAdapters })
       setBaseline({
@@ -470,13 +485,13 @@ export default function WebSearchSettingsPage() {
             cacheTtlMs: policy.cacheTtlMs,
             escalateToBrowser: policy.escalateToBrowser,
             content: policy.content,
-            ...(guardrails ? { guardrails } : {}),
+            ...(writableGuardrails ? { guardrails: writableGuardrails } : {}),
           }
         default:
           return {}
       }
     },
-    [policy, guardrails, adapterOptions],
+    [policy, writableGuardrails, adapterOptions],
   )
 
   const isDirty = React.useCallback(
@@ -530,9 +545,9 @@ export default function WebSearchSettingsPage() {
       cacheTtlMs: policy.cacheTtlMs,
       escalateToBrowser: policy.escalateToBrowser,
       content: policy.content,
-      ...(guardrails ? { guardrails } : {}),
+      ...(writableGuardrails ? { guardrails: writableGuardrails } : {}),
     }
-  }, [policy, adapterOptions, guardrails])
+  }, [policy, adapterOptions, writableGuardrails])
 
   /** True when any part of the screen differs from what is stored. */
   const anyDirty = React.useMemo(() => {
@@ -648,6 +663,17 @@ export default function WebSearchSettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Said BEFORE a key is pasted, not after it is on disk in the
+                clear. An operator who knows can decide; one who assumes
+                encryption cannot. */}
+            {!secretsEncrypted ? (
+              <p className="mb-3 rounded-md bg-status-warning-bg px-3 py-2 text-xs text-status-warning-text">
+                {t(
+                  'agent_orchestrator.settings.webSearch.secretsPlaintext',
+                  'Tenant data encryption is not available on this deployment, so adapter API keys are stored unencrypted. Enable it before saving a production key.',
+                )}
+              </p>
+            ) : null}
             {policy.adapters.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {t(
@@ -831,6 +857,12 @@ export default function WebSearchSettingsPage() {
                 <Label>
                   {t('agent_orchestrator.settings.webSearch.allowPrivateHosts', 'Reachable internal hosts')}
                 </Label>
+                {/* Read-only by design. Naming a host here lets an adapter and
+                    web_fetch resolve to a private address — that widens the
+                    deployment's egress boundary, which is an operator decision
+                    about the network the app runs in, not a tenant preference.
+                    Shown rather than hidden so an admin can see what the
+                    deployment allows and who to ask to change it. */}
                 <Input
                   value={(guardrails?.allowPrivateHosts ?? []).join(', ')}
                   placeholder={t(
@@ -838,25 +870,19 @@ export default function WebSearchSettingsPage() {
                     'none — every private address is refused',
                   )}
                   autoComplete="off"
-                  disabled={guardrails === null}
-                  onChange={(event) =>
-                    setGuardrails((current) =>
-                      current === null
-                        ? current
-                        : {
-                            ...current,
-                            allowPrivateHosts: event.target.value
-                              .split(',')
-                              .map((entry) => entry.trim().toLowerCase())
-                              .filter((entry) => entry.length > 0),
-                          },
-                    )
-                  }
+                  readOnly
+                  disabled
                 />
                 <p className="text-xs text-muted-foreground">
                   {t(
                     'agent_orchestrator.settings.webSearch.allowPrivateHostsHint',
                     'Comma-separated hosts allowed to resolve to a private address, for a service you run yourself such as SearXNG. Everything else stays blocked. A host named here is also reachable by web_fetch, so add it to the deny list too if only an adapter should reach it.',
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'agent_orchestrator.settings.webSearch.allowPrivateHostsInstanceOnly',
+                    'Set by the deployment in OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS. It is not editable per tenant, because reaching a private address is a property of the network the app runs in.',
                   )}
                 </p>
               </div>

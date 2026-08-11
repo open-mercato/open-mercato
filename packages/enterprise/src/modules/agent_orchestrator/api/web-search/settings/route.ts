@@ -19,6 +19,8 @@ import {
   resolveWebSearchSettings,
   storedSettingsSchema,
 } from '../../../lib/webSearch/policy'
+import { adapterSecretFields, canEncryptSecrets, encryptAdapterSecrets } from '../../../lib/webSearch/secretStorage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { hostCapabilitiesFor } from '../../../lib/webSearch/registry'
 import { agentOrchestratorTag } from '../../openapi'
 
@@ -35,6 +37,8 @@ import { agentOrchestratorTag } from '../../openapi'
  * stays on `agents.manage` — this configures outbound egress and stores adapter
  * credentials.
  */
+const logger = createLogger('agent_orchestrator').child({ component: 'web-search-settings' })
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
   PUT: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.manage'] },
@@ -118,6 +122,16 @@ function catalogue(container: AwilixContainer, adapterOptions: Readonly<Record<s
   }
 }
 
+/**
+ * Drops the guardrails a tenant row must never hold. Today that is
+ * `allowPrivateHosts` — see `guardrailsSchema` in `lib/webSearch/policy.ts` for
+ * why it is an instance decision.
+ */
+function stripInstanceOnlyGuardrails(guardrails: Record<string, unknown>): Record<string, unknown> {
+  const { allowPrivateHosts: _instanceOnly, ...writable } = guardrails
+  return writable
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -132,6 +146,8 @@ export async function GET(req: Request) {
     source: settings.source,
     installed,
     rejected,
+    // Answered before the operator pastes a key, not after it is on disk.
+    secretsEncrypted: await canEncryptSecrets(container, auth.tenantId ?? null),
   })
 }
 
@@ -192,14 +208,34 @@ export async function PUT(req: Request) {
     (await readStoredValue(service, auth.tenantId)) ?? {},
   )
 
+  // Encrypted at the last moment, so everything above works in plaintext and
+  // only the row is ciphertext. `encrypted: false` means no DEK was available —
+  // it is reported to the operator rather than swallowed, because an API key
+  // they believe is protected and is not is worse than one they know is bare.
+  const { adapterOptions: storedAdapterOptions, encrypted } = await encryptAdapterSecrets(
+    container,
+    auth.tenantId,
+    adapterOptions,
+    adapterSecretFields(container),
+  )
+  if (!encrypted) {
+    logger.warn(
+      'Tenant data encryption is unavailable; web-search adapter credentials are stored in plaintext',
+      { tenantId: auth.tenantId },
+    )
+  }
+
   await service.setValue(
     WEB_SEARCH_CONFIG_MODULE,
     WEB_SEARCH_CONFIG_NAME,
     {
       ...(storedPolicy.success ? storedPolicy.data : {}),
       ...incomingPolicy,
-      guardrails: { ...current.guardrails, ...(incomingGuardrails ?? {}) },
-      adapterOptions,
+      // `current.guardrails` carries the env-resolved `allowPrivateHosts`;
+      // persisting it would write an instance value into a tenant row that
+      // nothing reads, which reads as authoritative and is not.
+      guardrails: stripInstanceOnlyGuardrails({ ...current.guardrails, ...(incomingGuardrails ?? {}) }),
+      adapterOptions: storedAdapterOptions,
     },
     { tenantId: auth.tenantId },
   )
@@ -211,6 +247,7 @@ export async function PUT(req: Request) {
     guardrails: settings.guardrails,
     source: settings.source,
     installed,
+    secretsEncrypted: encrypted,
   })
 }
 
