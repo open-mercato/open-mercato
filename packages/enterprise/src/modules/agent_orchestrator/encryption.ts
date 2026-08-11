@@ -58,17 +58,22 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     ],
   },
   {
-    // Agentic-task default input mirrors agent_run.input's treatment — it is
-    // literally the template for that input, so it inherits the same PII risk.
-    entityId: 'agent_orchestrator:agent_task_definition',
+    // A process definition's default input mirrors agent_run.input's treatment
+    // — it is literally the template for that input, so it inherits the same
+    // PII risk. `entityId` is a PLAIN STRING nothing type-checks: it MUST move
+    // with any entity rename, or these columns silently start persisting in
+    // plaintext while existing rows become undecryptable. Guarded by
+    // __tests__/encryption-map-entity-ids.test.ts.
+    entityId: 'agent_orchestrator:agent_process_definition',
     fields: [
       { field: 'input_defaults' },
     ],
   },
   {
-    // The resolved input actually used by a task run, plus the failure reason
+    // The resolved input actually used by a process run, plus the failure reason
     // (which may echo part of a malformed input back on validation failure).
-    entityId: 'agent_orchestrator:agent_task_run',
+    // Same unchecked-string hazard as the definition entry above.
+    entityId: 'agent_orchestrator:agent_process_run',
     fields: [
       { field: 'input' },
       { field: 'failure_reason' },

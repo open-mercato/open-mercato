@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { AgentTaskDefinition, AgentTaskEventTrigger, AgentTaskRun } from '../data/entities'
+import { AgentProcessDefinition, AgentTaskEventTrigger, AgentProcessRun } from '../data/entities'
 
 import handle from '../subscribers/task-event-trigger'
 
@@ -42,7 +42,7 @@ function createFakeEm() {
 }
 
 function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, triggerOverrides: Record<string, unknown> = {}) {
-  storeFor(AgentTaskDefinition).push({
+  storeFor(AgentProcessDefinition).push({
     id: TASK_ID,
     tenantId: TENANT,
     organizationId: ORG,
@@ -53,7 +53,7 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, tri
     id: 'trigger-1',
     tenantId: TENANT,
     organizationId: ORG,
-    taskDefinitionId: TASK_ID,
+    processDefinitionId: TASK_ID,
     eventPattern: 'claims.claim.reported',
     config: {
       contextMapping: [{ targetKey: 'claimId', sourceExpression: 'id' }],
@@ -82,15 +82,15 @@ describe('task-event-trigger subscriber', () => {
   it('enqueues a run for a matching event with mapped input and event provenance', async () => {
     const { em, storeFor } = createFakeEm()
     seed(storeFor)
-    const execute = jest.fn(async () => ({ result: { taskRunId: 'x' } }))
+    const execute = jest.fn(async () => ({ result: { processRunId: 'x' } }))
 
     await handle({ id: 'claim-9', status: 'open' }, makeCtx(em, execute, 'claims.claim.reported'))
 
     expect(execute).toHaveBeenCalledWith(
-      'agent_orchestrator.tasks.enqueueRun',
+      'agent_orchestrator.processes.enqueueRun',
       expect.objectContaining({
         input: expect.objectContaining({
-          taskDefinitionId: TASK_ID,
+          processDefinitionId: TASK_ID,
           input: { claimId: 'claim-9' },
           triggeredBy: 'event:claims.claim.reported',
         }),
@@ -100,10 +100,10 @@ describe('task-event-trigger subscriber', () => {
 
   it('never fires for excluded prefixes (incl. its own module → no recursion)', async () => {
     const { em, storeFor } = createFakeEm()
-    seed(storeFor, { eventPattern: 'agent_orchestrator.task_run.started' })
+    seed(storeFor, { eventPattern: 'agent_orchestrator.process_run.started' })
     const execute = jest.fn()
 
-    await handle({}, makeCtx(em, execute, 'agent_orchestrator.task_run.started'))
+    await handle({}, makeCtx(em, execute, 'agent_orchestrator.process_run.started'))
     await handle({}, makeCtx(em, execute, 'workflows.instance.completed'))
     await handle({}, makeCtx(em, execute, 'queue.job.enqueued'))
 
@@ -120,7 +120,7 @@ describe('task-event-trigger subscriber', () => {
     await handle({ id: 'c', status: 'closed' }, makeCtx(em, execute, 'claims.claim.reported'))
     expect(execute).not.toHaveBeenCalled()
 
-    storeFor(AgentTaskDefinition)[0].enabled = false
+    storeFor(AgentProcessDefinition)[0].enabled = false
     await handle({ id: 'c', status: 'open' }, makeCtx(em, execute, 'claims.claim.reported'))
     expect(execute).not.toHaveBeenCalled()
   })
@@ -128,9 +128,9 @@ describe('task-event-trigger subscriber', () => {
   it('respects maxConcurrentInstances against running ledger rows', async () => {
     const { em, storeFor } = createFakeEm()
     seed(storeFor, { config: { maxConcurrentInstances: 1 } })
-    storeFor(AgentTaskRun).push({
+    storeFor(AgentProcessRun).push({
       id: 'running-1',
-      taskDefinitionId: TASK_ID,
+      processDefinitionId: TASK_ID,
       organizationId: ORG,
       status: 'running',
     })

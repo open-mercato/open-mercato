@@ -1,7 +1,7 @@
 import {
-  agentTaskDefinitionCreateSchema,
+  agentProcessDefinitionCreateSchema,
   agentTaskEventTriggerCreateSchema,
-  agentTaskRunRequestSchema,
+  agentProcessRunRequestSchema,
 } from '../data/validators'
 import {
   evaluateFilterConditions,
@@ -9,22 +9,22 @@ import {
   matchesEventPattern,
 } from '../lib/tasks/eventTriggerMatch'
 
-describe('agentTaskDefinitionCreateSchema', () => {
+describe('agentProcessDefinitionCreateSchema', () => {
   const base = { name: 'Deal health check', targetType: 'agent' as const }
 
   it('requires a target agent id for agent targets', () => {
-    expect(agentTaskDefinitionCreateSchema.safeParse(base).success).toBe(false)
+    expect(agentProcessDefinitionCreateSchema.safeParse(base).success).toBe(false)
     expect(
-      agentTaskDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'deals.health_check' }).success,
+      agentProcessDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'deals.health_check' }).success,
     ).toBe(true)
   })
 
   it('requires a target workflow id for workflow targets', () => {
     expect(
-      agentTaskDefinitionCreateSchema.safeParse({ name: 'X', targetType: 'workflow' }).success,
+      agentProcessDefinitionCreateSchema.safeParse({ name: 'X', targetType: 'workflow' }).success,
     ).toBe(false)
     expect(
-      agentTaskDefinitionCreateSchema.safeParse({
+      agentProcessDefinitionCreateSchema.safeParse({
         name: 'X',
         targetType: 'workflow',
         targetWorkflowId: 'claims_resolution',
@@ -34,7 +34,7 @@ describe('agentTaskDefinitionCreateSchema', () => {
 
   it('rejects malformed cron expressions and accepts 5-field ones', () => {
     const withCron = (cron: string) =>
-      agentTaskDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'a', scheduleCron: cron })
+      agentProcessDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'a', scheduleCron: cron })
     expect(withCron('0 7 * * *').success).toBe(true)
     expect(withCron('0 7 * * * *').success).toBe(true)
     expect(withCron('every morning').success).toBe(false)
@@ -42,12 +42,12 @@ describe('agentTaskDefinitionCreateSchema', () => {
   })
 })
 
-describe('agentTaskRunRequestSchema', () => {
+describe('agentProcessRunRequestSchema', () => {
   it('accepts an empty body and rejects a non-uuid sourceEntityId', () => {
-    expect(agentTaskRunRequestSchema.safeParse({}).success).toBe(true)
-    expect(agentTaskRunRequestSchema.safeParse({ sourceEntityId: 'claim-1' }).success).toBe(false)
+    expect(agentProcessRunRequestSchema.safeParse({}).success).toBe(true)
+    expect(agentProcessRunRequestSchema.safeParse({ sourceEntityId: 'claim-1' }).success).toBe(false)
     expect(
-      agentTaskRunRequestSchema.safeParse({
+      agentProcessRunRequestSchema.safeParse({
         input: { claimId: 'x' },
         idempotencyKey: 'settle-2026-07-12',
         sourceEntityType: 'claims:claim',

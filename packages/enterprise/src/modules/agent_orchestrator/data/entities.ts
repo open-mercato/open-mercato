@@ -1188,25 +1188,25 @@ export class AgentContextBundle {
   createdAt: Date = new Date()
 }
 
-export type AgentTaskTargetType = 'agent' | 'workflow'
-export type AgentTaskRunStatus = 'running' | 'completed' | 'failed'
+export type AgentProcessTargetType = 'agent' | 'workflow'
+export type AgentProcessRunStatus = 'running' | 'completed' | 'failed'
 
 /**
- * A persisted, reusable "agentic task" launcher (Agentic Tasks spec,
- * 2026-07-03): a named, permissioned pointer at either a single agent or a
- * `workflows` definition, triggerable manually / via API key / on a schedule /
- * by a domain event. Deliberately NOT the dispatch spec's `AgentTask`
- * (external-fleet routing) — different concept, different tables.
+ * The AUTHORED half of a process (triggered process model spec, 2026-08-11): a
+ * named, permissioned pointer at either a single agent or a `workflows`
+ * definition, entered manually / via API key / on a schedule / by a domain
+ * event. Its runtime counterpart is `AgentProcessRun`; `AgentProcess` remains
+ * the separate event-rebuilt projection and is NOT renamed by this spec.
  *
  * User-editable → carries `updated_at` for optimistic locking (default ON).
  * Every definition executes under its own auto-provisioned `AgentPrincipal`
- * (`executionPrincipalId`, synthetic agent id `task:<id>`), never as the
- * triggering user.
+ * (`executionPrincipalId`, synthetic agent id `task:<id>` — a persisted
+ * principal key, deliberately NOT renamed), never as the triggering user.
  */
-@Entity({ tableName: 'agent_task_definitions' })
-@Index({ name: 'agent_task_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_task_definitions_target_idx', properties: ['organizationId', 'targetType'] })
-export class AgentTaskDefinition {
+@Entity({ tableName: 'agent_process_definitions' })
+@Index({ name: 'agent_process_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_process_definitions_target_idx', properties: ['organizationId', 'targetType'] })
+export class AgentProcessDefinition {
   [OptionalProps]?:
     | 'description'
     | 'targetAgentId'
@@ -1240,7 +1240,7 @@ export class AgentTaskDefinition {
   description?: string | null
 
   @Property({ name: 'target_type', type: 'varchar', length: 20 })
-  targetType!: AgentTaskTargetType
+  targetType!: AgentProcessTargetType
 
   /** Stable registry `agentId` when targetType='agent'. */
   @Property({ name: 'target_agent_id', type: 'varchar', length: 150, nullable: true })
@@ -1301,22 +1301,22 @@ export class AgentTaskDefinition {
 }
 
 /**
- * One execution of an `AgentTaskDefinition` — the unified, shallow run ledger
+ * One execution of an `AgentProcessDefinition` — the unified, shallow run ledger
  * across both target types (the deep trace stays in agent_runs / workflow
  * instances). System-transitioned (`running → completed|failed`), no user edit
  * form → exempt from the optimistic-lock UI surface, mirroring `AgentRun`.
  * Target pointers are denormalized so history survives definition edits.
  */
-@Entity({ tableName: 'agent_task_runs' })
-@Index({ name: 'agent_task_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_task_runs_definition_idx', properties: ['taskDefinitionId', 'createdAt'] })
-@Index({ name: 'agent_task_runs_source_idx', properties: ['sourceEntityType', 'sourceEntityId'] })
+@Entity({ tableName: 'agent_process_runs' })
+@Index({ name: 'agent_process_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_process_runs_definition_idx', properties: ['processDefinitionId', 'createdAt'] })
+@Index({ name: 'agent_process_runs_source_idx', properties: ['sourceEntityType', 'sourceEntityId'] })
 @Index({
-  name: 'agent_task_runs_idempotency_uq',
+  name: 'agent_process_runs_idempotency_uq',
   expression:
-    `create unique index "agent_task_runs_idempotency_uq" on "agent_task_runs" ("organization_id", "task_definition_id", "idempotency_key") where "idempotency_key" is not null`,
+    `create unique index "agent_process_runs_idempotency_uq" on "agent_process_runs" ("organization_id", "process_definition_id", "idempotency_key") where "idempotency_key" is not null`,
 })
-export class AgentTaskRun {
+export class AgentProcessRun {
   [OptionalProps]?:
     | 'status'
     | 'targetAgentId'
@@ -1341,13 +1341,13 @@ export class AgentTaskRun {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  /** FK id → agent_task_definitions. */
-  @Property({ name: 'task_definition_id', type: 'uuid' })
-  taskDefinitionId!: string
+  /** FK id → agent_process_definitions. */
+  @Property({ name: 'process_definition_id', type: 'uuid' })
+  processDefinitionId!: string
 
   /** Denormalized snapshot at trigger time. */
   @Property({ name: 'target_type', type: 'varchar', length: 20 })
-  targetType!: AgentTaskTargetType
+  targetType!: AgentProcessTargetType
 
   @Property({ name: 'target_agent_id', type: 'varchar', length: 150, nullable: true })
   targetAgentId?: string | null
@@ -1356,7 +1356,7 @@ export class AgentTaskRun {
   targetWorkflowId?: string | null
 
   @Property({ name: 'status', type: 'varchar', length: 20, default: 'running' })
-  status: AgentTaskRunStatus = 'running'
+  status: AgentProcessRunStatus = 'running'
 
   /** FK id → agent_runs (agent target). */
   @Property({ name: 'agent_run_id', type: 'uuid', nullable: true })
@@ -1402,14 +1402,14 @@ export class AgentTaskRun {
 }
 
 /**
- * A domain-event trigger for an `AgentTaskDefinition` — mirrors `workflows`'
+ * A domain-event trigger for an `AgentProcessDefinition` — mirrors `workflows`'
  * `WorkflowEventTrigger` (`eventPattern` + `{ filterConditions, contextMapping,
  * debounceMs, maxConcurrentInstances }` config), evaluated by the module's own
  * wildcard subscriber. User-editable → `updated_at` for optimistic locking.
  */
 @Entity({ tableName: 'agent_task_event_triggers' })
 @Index({ name: 'agent_task_event_triggers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_task_event_triggers_definition_idx', properties: ['taskDefinitionId'] })
+@Index({ name: 'agent_task_event_triggers_definition_idx', properties: ['processDefinitionId'] })
 export class AgentTaskEventTrigger {
   [OptionalProps]?: 'config' | 'enabled' | 'priority' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -1422,9 +1422,9 @@ export class AgentTaskEventTrigger {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  /** FK id → agent_task_definitions. */
-  @Property({ name: 'task_definition_id', type: 'uuid' })
-  taskDefinitionId!: string
+  /** FK id → agent_process_definitions. */
+  @Property({ name: 'process_definition_id', type: 'uuid' })
+  processDefinitionId!: string
 
   /** e.g. `claims.claim.reported` or a trailing-wildcard `claims.*`. */
   @Property({ name: 'event_pattern', type: 'varchar', length: 255 })
@@ -1477,7 +1477,7 @@ export type AgentProcessStatus =
 // One LIVE projection per (tenant, org, process) is enforced by a partial unique
 // index (`agent_processes_org_process_uq`) over live rows (`WHERE deleted_at IS
 // NULL`), declared via `@Index({ expression })` so `db:generate` stays aware of
-// it (precedent: `agent_task_runs_idempotency_uq`, `agent_runs_eval_failed_idx`).
+// it (precedent: `agent_process_runs_idempotency_uq`, `agent_runs_eval_failed_idx`).
 @Entity({ tableName: 'agent_processes' })
 @Index({ name: 'agent_processes_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_processes_status_idx', properties: ['organizationId', 'status', 'lastActivityAt'] })

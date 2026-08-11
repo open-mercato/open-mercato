@@ -1,11 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { AgentTaskRun } from '../data/entities'
+import { AgentProcessRun } from '../data/entities'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
 }))
 
-import { resolveWorkflowTaskRun } from '../lib/tasks/resolveWorkflowTaskRun'
+import { resolveWorkflowProcessRun } from '../lib/tasks/resolveWorkflowProcessRun'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -31,7 +31,7 @@ function seedRun(rows: Array<Record<string, unknown>>, overrides: Record<string,
     id: 'task-run-1',
     tenantId: TENANT,
     organizationId: ORG,
-    taskDefinitionId: 'def-1',
+    processDefinitionId: 'def-1',
     targetType: 'workflow',
     workflowInstanceId: INSTANCE,
     status: 'running',
@@ -42,7 +42,7 @@ function seedRun(rows: Array<Record<string, unknown>>, overrides: Record<string,
 
 const payload = { id: INSTANCE, tenantId: TENANT, organizationId: ORG }
 
-describe('resolveWorkflowTaskRun', () => {
+describe('resolveWorkflowProcessRun', () => {
   beforeEach(() => {
     ;(emitAgentOrchestratorEvent as jest.Mock).mockClear()
   })
@@ -51,12 +51,12 @@ describe('resolveWorkflowTaskRun', () => {
     const { em, rows } = createFakeEm()
     seedRun(rows)
 
-    await resolveWorkflowTaskRun(em, payload, 'completed')
+    await resolveWorkflowProcessRun(em, payload, 'completed')
 
     expect(rows[0].status).toBe('completed')
     expect(rows[0].completedAt).toBeInstanceOf(Date)
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
-      'agent_orchestrator.task_run.completed',
+      'agent_orchestrator.process_run.completed',
       expect.objectContaining({ id: 'task-run-1' }),
       { persistent: true },
     )
@@ -66,7 +66,7 @@ describe('resolveWorkflowTaskRun', () => {
     const { em, rows } = createFakeEm()
     seedRun(rows)
 
-    await resolveWorkflowTaskRun(em, payload, 'failed', 'Workflow instance cancelled')
+    await resolveWorkflowProcessRun(em, payload, 'failed', 'Workflow instance cancelled')
 
     expect(rows[0].status).toBe('failed')
     expect(rows[0].failureReason).toBe('Workflow instance cancelled')
@@ -76,7 +76,7 @@ describe('resolveWorkflowTaskRun', () => {
     const { em, rows } = createFakeEm()
     seedRun(rows, { status: 'completed' })
 
-    await resolveWorkflowTaskRun(em, payload, 'failed')
+    await resolveWorkflowProcessRun(em, payload, 'failed')
 
     expect(rows[0].status).toBe('completed')
     expect(emitAgentOrchestratorEvent).not.toHaveBeenCalled()
@@ -86,10 +86,10 @@ describe('resolveWorkflowTaskRun', () => {
     const { em, rows } = createFakeEm()
     seedRun(rows)
 
-    await resolveWorkflowTaskRun(em, { id: INSTANCE }, 'completed')
+    await resolveWorkflowProcessRun(em, { id: INSTANCE }, 'completed')
     expect(rows[0].status).toBe('running')
 
-    await resolveWorkflowTaskRun(
+    await resolveWorkflowProcessRun(
       em,
       { id: INSTANCE, tenantId: TENANT, organizationId: '99999999-9999-4999-8999-999999999999' },
       'completed',

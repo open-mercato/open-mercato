@@ -1,10 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
-  resolveWorkflowTaskRun,
+  resolveWorkflowProcessRun,
   type WorkflowInstanceLifecyclePayload,
-} from '../lib/tasks/resolveWorkflowTaskRun'
+} from '../lib/tasks/resolveWorkflowProcessRun'
 
-/** Workflow-target task runs fail when their instance fails (Agentic Tasks Phase 3). */
+/** Workflow-target process runs fail when their instance fails. */
 export const metadata = {
   event: 'workflows.instance.failed',
   persistent: true,
@@ -16,5 +16,5 @@ export default async function handle(
   ctx: { resolve: <T = unknown>(name: string) => T },
 ): Promise<void> {
   const em = (ctx.resolve('em') as EntityManager).fork()
-  await resolveWorkflowTaskRun(em, (payload ?? {}) as WorkflowInstanceLifecyclePayload, 'failed')
+  await resolveWorkflowProcessRun(em, (payload ?? {}) as WorkflowInstanceLifecyclePayload, 'failed')
 }

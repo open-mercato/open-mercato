@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { AgentTaskDefinition, AgentTaskEventTrigger, AgentTaskRun } from '../data/entities'
+import { AgentProcessDefinition, AgentTaskEventTrigger, AgentProcessRun } from '../data/entities'
 import type { AgentTaskEventTriggerConfig } from '../data/validators'
 import {
   evaluateFilterConditions,
@@ -12,7 +12,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('agent_orchestrator').child({ subscriber: 'task-event-trigger' })
 
 /**
- * Wildcard subscriber evaluating `AgentTaskEventTrigger` rows (Agentic Tasks
+ * Wildcard subscriber evaluating `AgentTaskEventTrigger` rows (triggered process model
  * Phase 4) — mirrors `workflows`' event-trigger subscriber. Matching triggers
  * enqueue a run through the same `tasks.enqueueRun` command every other
  * trigger source uses (`triggeredBy: 'event:<name>'`).
@@ -25,7 +25,7 @@ export const metadata = {
 
 /**
  * Internal/system events that must never trigger tasks. `agent_orchestrator.`
- * is excluded to prevent recursion storms: a task run emits task_run.* events
+ * is excluded to prevent recursion storms: a process run emits process_run.* events
  * which would otherwise re-match a broad trigger and loop.
  */
 const EXCLUDED_EVENT_PREFIXES = [
@@ -83,8 +83,8 @@ export default async function handle(
     const config = (trigger.config ?? {}) as AgentTaskEventTriggerConfig
     if (!evaluateFilterConditions(config.filterConditions, eventPayload)) continue
 
-    const definition = await em.findOne(AgentTaskDefinition, {
-      id: trigger.taskDefinitionId,
+    const definition = await em.findOne(AgentProcessDefinition, {
+      id: trigger.processDefinitionId,
       tenantId,
       organizationId,
       enabled: true,
@@ -94,9 +94,9 @@ export default async function handle(
 
     if (config.debounceMs && config.debounceMs > 0) {
       const recent = await em.find(
-        AgentTaskRun,
+        AgentProcessRun,
         {
-          taskDefinitionId: definition.id,
+          processDefinitionId: definition.id,
           organizationId,
           triggeredBy: `event:${eventName}`,
           createdAt: { $gte: new Date(now - config.debounceMs) },
@@ -107,8 +107,8 @@ export default async function handle(
     }
 
     if (config.maxConcurrentInstances && config.maxConcurrentInstances > 0) {
-      const runningCount = await em.count(AgentTaskRun, {
-        taskDefinitionId: definition.id,
+      const runningCount = await em.count(AgentProcessRun, {
+        processDefinitionId: definition.id,
         organizationId,
         status: 'running',
       })
@@ -126,11 +126,11 @@ export default async function handle(
       organizationIds: [organizationId],
     }
     try {
-      await commandBus.execute('agent_orchestrator.tasks.enqueueRun', {
+      await commandBus.execute('agent_orchestrator.processes.enqueueRun', {
         input: {
           tenantId,
           organizationId,
-          taskDefinitionId: definition.id,
+          processDefinitionId: definition.id,
           input: mapEventToInput(config.contextMapping, eventPayload),
           triggeredBy: `event:${eventName}`,
         },
@@ -139,7 +139,7 @@ export default async function handle(
     } catch (error) {
       logger.error('event-triggered task enqueue failed', {
         triggerId: trigger.id,
-        taskDefinitionId: definition.id,
+        processDefinitionId: definition.id,
         eventName,
         error: error instanceof Error ? error.message : String(error),
       })

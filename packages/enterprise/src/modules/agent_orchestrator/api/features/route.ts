@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 /**
- * Read-only feature catalog for the task-definition permissions picker.
+ * Read-only feature catalog for the process-definition permissions picker.
  * Mirrors `packages/core/src/modules/auth/api/features.ts` over the same
  * `getModules()` source but is gated `tasks.manage` instead of
  * `auth.acl.manage` — task admins are generally not ACL admins, yet they need
@@ -13,7 +13,7 @@ import { getModules } from '@open-mercato/shared/lib/i18n/server'
  * principal. Ids + titles only; no role or grant data leaks through here.
  */
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.tasks.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.manage'] },
 }
 
 type FeatureItem = { id: string; title: string; module: string }
@@ -49,12 +49,12 @@ const featureItemSchema = z.object({
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Agent Orchestrator',
-  summary: 'List declared ACL features for the task permissions picker',
+  summary: 'List declared ACL features for the process definition permissions picker',
   methods: {
     GET: {
       summary: 'List declared ACL feature ids and titles',
       description:
-        'Flattens the enabled modules’ static feature declarations to id/title/module triples for the agentic-task grantedFeatures picker. Gated by agent_orchestrator.tasks.manage.',
+        'Flattens the enabled modules’ static feature declarations to id/title/module triples for the agentic-task grantedFeatures picker. Gated by agent_orchestrator.processes.manage.',
       responses: [
         {
           status: 200,
@@ -64,7 +64,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
-        { status: 403, description: 'Missing agent_orchestrator.tasks.manage', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Missing agent_orchestrator.processes.manage', schema: z.object({ error: z.string() }) },
       ],
     },
   },

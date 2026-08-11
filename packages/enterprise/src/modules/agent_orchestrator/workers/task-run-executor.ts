@@ -3,9 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentPrincipal, AgentRun, AgentTaskDefinition, AgentTaskRun } from '../data/entities'
+import { AgentPrincipal, AgentRun, AgentProcessDefinition, AgentProcessRun } from '../data/entities'
 import { emitAgentOrchestratorEvent } from '../events'
-import { AGENT_ORCHESTRATOR_TASK_RUN_QUEUE } from '../lib/queue'
+import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE } from '../lib/queue'
 import { isAgentCapacityError } from '../lib/runtime/admission'
 import type { AgentRunCtx, AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -13,29 +13,29 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('agent_orchestrator').child({ worker: 'task-run-executor' })
 
 /**
- * Agentic Tasks executor: consumes `{ taskRunId }` jobs from the always-async
+ * Process-run executor: consumes `{ processRunId }` jobs from the always-async
  * run pipeline and dispatches on the run's denormalized `targetType` —
  * `agentRuntime.run()` (the exact Playground call) or
  * `workflowExecutor.startWorkflow()` (the exact "Start instance" call).
  *
- * Also accepts the scheduler's `{ scheduledTaskDefinitionId, scheduleId }`
+ * Also accepts the scheduler's `{ scheduledProcessDefinitionId, scheduleId }`
  * payload (the cron target enqueues straight onto this queue): that shape is
- * converted into a real AgentTaskRun via the enqueueRun command, which then
- * enqueues the normal `{ taskRunId }` job.
+ * converted into a real AgentProcessRun via the enqueueRun command, which then
+ * enqueues the normal `{ processRunId }` job.
  *
  * Idempotent per packages/queue/AGENTS.md: a retried job re-checks
- * `AgentTaskRun.status` and skips terminal rows. Tenant/org scope is
+ * `AgentProcessRun.status` and skips terminal rows. Tenant/org scope is
  * re-resolved from the row itself — never trusted from the payload.
  */
 export const metadata: WorkerMeta = {
-  queue: AGENT_ORCHESTRATOR_TASK_RUN_QUEUE,
+  queue: AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE,
   id: 'agent_orchestrator:task-run-executor',
   concurrency: 2,
 }
 
 type TaskRunJobPayload = {
-  taskRunId?: string
-  scheduledTaskDefinitionId?: string
+  processRunId?: string
+  scheduledProcessDefinitionId?: string
   scheduleId?: string
 }
 
@@ -51,7 +51,7 @@ function parseTriggeredByUser(triggeredBy: string): string | null {
 
 async function finishTaskRun(
   em: EntityManager,
-  taskRun: AgentTaskRun,
+  taskRun: AgentProcessRun,
   outcome: { status: 'completed' | 'failed'; agentRunId?: string | null; failureReason?: string | null },
 ): Promise<void> {
   taskRun.status = outcome.status
@@ -60,10 +60,10 @@ async function finishTaskRun(
   taskRun.completedAt = new Date()
   await em.flush()
   await emitAgentOrchestratorEvent(
-    outcome.status === 'completed' ? 'agent_orchestrator.task_run.completed' : 'agent_orchestrator.task_run.failed',
+    outcome.status === 'completed' ? 'agent_orchestrator.process_run.completed' : 'agent_orchestrator.process_run.failed',
     {
       id: taskRun.id,
-      taskDefinitionId: taskRun.taskDefinitionId,
+      processDefinitionId: taskRun.processDefinitionId,
       targetType: taskRun.targetType,
       status: taskRun.status,
       tenantId: taskRun.tenantId,
@@ -73,14 +73,14 @@ async function finishTaskRun(
   )
 }
 
-/** Scheduler tick → create the real AgentTaskRun through the same command every trigger source uses. */
+/** Scheduler tick → create the real AgentProcessRun through the same command every trigger source uses. */
 async function handleScheduledTick(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   em: EntityManager,
   payload: TaskRunJobPayload,
 ): Promise<void> {
-  const definition = await em.findOne(AgentTaskDefinition, {
-    id: payload.scheduledTaskDefinitionId,
+  const definition = await em.findOne(AgentProcessDefinition, {
+    id: payload.scheduledProcessDefinitionId,
     deletedAt: null,
   })
   if (!definition || !definition.enabled || !definition.scheduleEnabled) return
@@ -93,32 +93,32 @@ async function handleScheduledTick(
     organizationIds: [definition.organizationId],
   }
   try {
-    await commandBus.execute('agent_orchestrator.tasks.enqueueRun', {
+    await commandBus.execute('agent_orchestrator.processes.enqueueRun', {
       input: {
         tenantId: definition.tenantId,
         organizationId: definition.organizationId,
-        taskDefinitionId: definition.id,
+        processDefinitionId: definition.id,
         triggeredBy: `schedule:${payload.scheduleId ?? 'cron'}`,
       },
       ctx: commandCtx,
     })
   } catch (error) {
     logger.warn('scheduled task tick failed to enqueue', {
-      taskDefinitionId: definition.id,
+      processDefinitionId: definition.id,
       error: error instanceof Error ? error.message : String(error),
     })
   }
 }
 
 /**
- * The task's own least-privilege execution principal — the acting identity for
+ * The definition's own least-privilege execution principal — the acting identity for
  * BOTH target types. Resolved from the definition (never from the payload) and
  * org-scoped, so a foreign principal id can never be borrowed.
  */
 async function resolveExecutionPrincipal(
   em: EntityManager,
-  taskRun: AgentTaskRun,
-  definition: AgentTaskDefinition,
+  taskRun: AgentProcessRun,
+  definition: AgentProcessDefinition,
 ): Promise<AgentPrincipal | null> {
   return em.findOne(AgentPrincipal, {
     id: definition.executionPrincipalId,
@@ -130,8 +130,8 @@ async function resolveExecutionPrincipal(
 async function executeAgentTarget(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   em: EntityManager,
-  taskRun: AgentTaskRun,
-  definition: AgentTaskDefinition,
+  taskRun: AgentProcessRun,
+  definition: AgentProcessDefinition,
 ): Promise<void> {
   const principal = await resolveExecutionPrincipal(em, taskRun, definition)
   if (!principal) {
@@ -146,7 +146,7 @@ async function executeAgentTarget(
   const runCtx: AgentRunCtx = {
     tenantId: taskRun.tenantId,
     organizationId: taskRun.organizationId,
-    // The task's own principal is the acting identity — never the trigger.
+    // The definition's own principal is the acting identity — never the trigger.
     userId: principal.userId,
     runAs: {
       agentUserId: principal.userId,
@@ -206,8 +206,8 @@ type WorkflowExecutorLike = {
 async function executeWorkflowTarget(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   em: EntityManager,
-  taskRun: AgentTaskRun,
-  definition: AgentTaskDefinition,
+  taskRun: AgentProcessRun,
+  definition: AgentProcessDefinition,
 ): Promise<void> {
   if (!taskRun.targetWorkflowId) {
     await finishTaskRun(em, taskRun, { status: 'failed', failureReason: 'Task has no target workflow' })
@@ -218,7 +218,7 @@ async function executeWorkflowTarget(
   // `metadata.initiatedBy` and `executeWorkflow` no `userId`, so every
   // UPDATE_ENTITY activity failed the "requires an authenticated workflow user"
   // check and CALL_API silently fell back to the workflow AUTHOR's roles —
-  // which is exactly the trigger-borrows-a-bigger-identity path the task's own
+  // which is exactly the trigger-borrows-a-bigger-identity path the definition's own
   // principal exists to close.
   const principal = await resolveExecutionPrincipal(em, taskRun, definition)
   if (!principal) {
@@ -256,7 +256,7 @@ async function executeWorkflowTarget(
     // The executor persists instance failure itself and (post lifecycle-events
     // spec) emits workflows.instance.failed — the subscriber owns the flip.
     logger.warn('workflow-target execution error (instance state is authoritative)', {
-      taskRunId: taskRun.id,
+      processRunId: taskRun.id,
       instanceId,
       error: error instanceof Error ? error.message : String(error),
     })
@@ -268,13 +268,13 @@ export default async function handle(job: QueuedJob<TaskRunJobPayload>, _ctx: Jo
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  if (!payload.taskRunId && payload.scheduledTaskDefinitionId) {
+  if (!payload.processRunId && payload.scheduledProcessDefinitionId) {
     await handleScheduledTick(container, em, payload)
     return
   }
-  if (!payload.taskRunId) return
+  if (!payload.processRunId) return
 
-  const taskRun = await em.findOne(AgentTaskRun, { id: payload.taskRunId })
+  const taskRun = await em.findOne(AgentProcessRun, { id: payload.processRunId })
   if (!taskRun) return
   if (taskRun.status !== 'running') return
   // A workflow-target row with an instance already started must not start a
@@ -282,10 +282,10 @@ export default async function handle(job: QueuedJob<TaskRunJobPayload>, _ctx: Jo
   if (taskRun.workflowInstanceId) return
 
   const scope = { tenantId: taskRun.tenantId, organizationId: taskRun.organizationId }
-  const decrypted = await findOneWithDecryption(em, AgentTaskRun, { id: taskRun.id, ...scope }, undefined, scope)
+  const decrypted = await findOneWithDecryption(em, AgentProcessRun, { id: taskRun.id, ...scope }, undefined, scope)
   if (!decrypted) return
 
-  const definition = await em.findOne(AgentTaskDefinition, { id: taskRun.taskDefinitionId, ...scope })
+  const definition = await em.findOne(AgentProcessDefinition, { id: taskRun.processDefinitionId, ...scope })
   if (!definition) {
     await finishTaskRun(em, decrypted, { status: 'failed', failureReason: 'Task definition missing' })
     return

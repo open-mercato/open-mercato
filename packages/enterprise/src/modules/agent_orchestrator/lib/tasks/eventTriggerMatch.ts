@@ -76,7 +76,7 @@ export function evaluateFilterConditions(
   return conditions.every((condition) => evaluateCondition(condition, payload))
 }
 
-/** Build the task-run input from the event payload via the trigger's context mapping. */
+/** Build the process-run input from the event payload via the trigger's context mapping. */
 export function mapEventToInput(
   mapping: ContextMapping[] | undefined,
   payload: Record<string, unknown>,

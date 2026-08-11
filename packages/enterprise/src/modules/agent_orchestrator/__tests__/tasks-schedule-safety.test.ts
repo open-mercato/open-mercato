@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  agentTaskDefinitionCreateSchema,
+  agentProcessDefinitionCreateSchema,
   isValidIanaTimeZone,
 } from '../data/validators'
 import { withScheduleSemanticChecks } from '../lib/tasks/scheduleValidation'
@@ -13,7 +13,7 @@ import {
   parseGrantedFeaturesText,
   resolveFeaturePrefill,
   unknownFeatureIds,
-} from '../backend/agentic-tasks/formHelpers'
+} from '../backend/processes/definitions/formHelpers'
 
 const MODULE_ROOT = path.join(__dirname, '..')
 const LOCALES = ['en', 'es', 'de', 'pl'] as const
@@ -24,11 +24,11 @@ const baseTask = {
   targetAgentId: 'deals.lead_triage',
 }
 
-const createWithSemantics = withScheduleSemanticChecks(agentTaskDefinitionCreateSchema)
+const createWithSemantics = withScheduleSemanticChecks(agentProcessDefinitionCreateSchema)
 
 describe('schedule semantic validation (route layer)', () => {
   it('rejects shape-valid cron garbage the token regex accepts', () => {
-    const shapeOnly = agentTaskDefinitionCreateSchema.safeParse({
+    const shapeOnly = agentProcessDefinitionCreateSchema.safeParse({
       ...baseTask,
       scheduleCron: 'foo bar baz qux quux',
     })
@@ -53,13 +53,13 @@ describe('schedule semantic validation (route layer)', () => {
 
 describe('timezone validation (shared schema)', () => {
   it('rejects non-IANA values like "Warsaw"', () => {
-    const result = agentTaskDefinitionCreateSchema.safeParse({ ...baseTask, scheduleTimezone: 'Warsaw' })
+    const result = agentProcessDefinitionCreateSchema.safeParse({ ...baseTask, scheduleTimezone: 'Warsaw' })
     expect(result.success).toBe(false)
   })
 
   it('accepts "Europe/Warsaw"', () => {
     expect(
-      agentTaskDefinitionCreateSchema.safeParse({ ...baseTask, scheduleTimezone: 'Europe/Warsaw' }).success,
+      agentProcessDefinitionCreateSchema.safeParse({ ...baseTask, scheduleTimezone: 'Europe/Warsaw' }).success,
     ).toBe(true)
   })
 
@@ -73,7 +73,7 @@ describe('timezone validation (shared schema)', () => {
 describe('GET /api/agent_orchestrator/features — gate and shape', () => {
   it('is gated by tasks.manage (not the auth route\'s acl.manage)', () => {
     expect(featuresMetadata.GET.requireAuth).toBe(true)
-    expect(featuresMetadata.GET.requireFeatures).toEqual(['agent_orchestrator.tasks.manage'])
+    expect(featuresMetadata.GET.requireFeatures).toEqual(['agent_orchestrator.processes.manage'])
   })
 
   it('reads the static module catalog only — no RBAC/entity data path', () => {
@@ -125,17 +125,17 @@ describe('formHelpers — permissions picker logic', () => {
 
 describe('i18n coverage for the scheduling-safety copy', () => {
   const requiredKeys = [
-    'agent_orchestrator.tasks.detail.scheduleInvalid',
-    'agent_orchestrator.tasks.detail.scheduleNextRun',
-    'agent_orchestrator.tasks.form.errors.cronInvalid',
-    'agent_orchestrator.tasks.form.errors.timezoneInvalid',
-    'agent_orchestrator.tasks.form.featuresAdd',
-    'agent_orchestrator.tasks.form.featuresAddAction',
-    'agent_orchestrator.tasks.form.featuresRemove',
-    'agent_orchestrator.tasks.form.featuresUnknown',
-    'agent_orchestrator.tasks.form.nextRuns',
-    'agent_orchestrator.tasks.form.nextRunsInvalid',
-    'agent_orchestrator.tasks.form.workflowGrantsWarning',
+    'agent_orchestrator.processDefinitions.detail.scheduleInvalid',
+    'agent_orchestrator.processDefinitions.detail.scheduleNextRun',
+    'agent_orchestrator.processDefinitions.form.errors.cronInvalid',
+    'agent_orchestrator.processDefinitions.form.errors.timezoneInvalid',
+    'agent_orchestrator.processDefinitions.form.featuresAdd',
+    'agent_orchestrator.processDefinitions.form.featuresAddAction',
+    'agent_orchestrator.processDefinitions.form.featuresRemove',
+    'agent_orchestrator.processDefinitions.form.featuresUnknown',
+    'agent_orchestrator.processDefinitions.form.nextRuns',
+    'agent_orchestrator.processDefinitions.form.nextRunsInvalid',
+    'agent_orchestrator.processDefinitions.form.workflowGrantsWarning',
   ]
 
   it.each(LOCALES)('%s carries every key with interpolation tokens intact', (locale) => {
@@ -145,8 +145,8 @@ describe('i18n coverage for the scheduling-safety copy', () => {
     for (const key of requiredKeys) {
       expect(catalog[key]).toBeTruthy()
     }
-    expect(catalog['agent_orchestrator.tasks.detail.scheduleNextRun']).toContain('{time}')
-    expect(catalog['agent_orchestrator.tasks.form.nextRunsInvalid']).toContain('{error}')
-    expect(catalog['agent_orchestrator.tasks.form.featuresRemove']).toContain('{id}')
+    expect(catalog['agent_orchestrator.processDefinitions.detail.scheduleNextRun']).toContain('{time}')
+    expect(catalog['agent_orchestrator.processDefinitions.form.nextRunsInvalid']).toContain('{error}')
+    expect(catalog['agent_orchestrator.processDefinitions.form.featuresRemove']).toContain('{id}')
   })
 })

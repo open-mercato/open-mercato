@@ -37,7 +37,7 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
     let assertionId: string | null = null
 
     try {
-      const taskResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/tasks', {
+      const taskResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
         data: {
           name: taskName,
@@ -68,13 +68,13 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
       await loginAsAdmin(page)
 
       // --- Task delete: dialog first, cancel keeps the row.
-      await page.goto('/backend/agentic-tasks', { waitUntil: 'domcontentloaded' })
+      await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
       const taskRow = page.getByRole('row', { name: new RegExp(taskName) })
       await expect(taskRow).toBeVisible({ timeout: 10_000 })
 
       let sawDelete = false
       page.on('request', (req) => {
-        if (req.method() === 'DELETE' && req.url().includes('agent_orchestrator/tasks')) sawDelete = true
+        if (req.method() === 'DELETE' && req.url().includes('agent_orchestrator/process-definitions')) sawDelete = true
       })
 
       await taskRow.getByRole('button').last().click()
@@ -105,7 +105,7 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
       await expect(assertionRow).toBeVisible()
     } finally {
       if (taskId) {
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/tasks?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
+        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
       }
       if (assertionId) {
         await apiRequest(request, 'DELETE', `/api/agent_orchestrator/eval-assertions?id=${encodeURIComponent(assertionId)}`, { token }).catch(() => {})

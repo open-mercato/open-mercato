@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob } from '@open-mercato/queue'
-import { AgentPrincipal, AgentRun, AgentTaskDefinition, AgentTaskRun } from '../data/entities'
+import { AgentPrincipal, AgentRun, AgentProcessDefinition, AgentProcessRun } from '../data/entities'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
@@ -88,7 +88,7 @@ function makeContainer(em: EntityManager, registrations: Registrations) {
 }
 
 function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, runOverrides: Record<string, unknown> = {}) {
-  storeFor(AgentTaskDefinition).push({
+  storeFor(AgentProcessDefinition).push({
     id: TASK_ID,
     tenantId: TENANT,
     organizationId: ORG,
@@ -105,11 +105,11 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, run
     userId: PRINCIPAL_USER,
     deletedAt: null,
   })
-  storeFor(AgentTaskRun).push({
+  storeFor(AgentProcessRun).push({
     id: RUN_ID,
     tenantId: TENANT,
     organizationId: ORG,
-    taskDefinitionId: TASK_ID,
+    processDefinitionId: TASK_ID,
     targetType: 'agent',
     targetAgentId: 'deals.health_check',
     targetWorkflowId: null,
@@ -123,7 +123,7 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, run
 }
 
 const job = (payload: Record<string, unknown>) =>
-  ({ payload }) as unknown as QueuedJob<{ taskRunId?: string }>
+  ({ payload }) as unknown as QueuedJob<{ processRunId?: string }>
 const jobCtx = {} as JobContext
 
 describe('task-run-executor worker', () => {
@@ -145,7 +145,7 @@ describe('task-run-executor worker', () => {
     })
     containerHolder.container = makeContainer(em, { agentRuntime: { run: runMock } })
 
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
 
     expect(runMock).toHaveBeenCalledWith(
       'deals.health_check',
@@ -158,11 +158,11 @@ describe('task-run-executor worker', () => {
         },
       }),
     )
-    const row = storeFor(AgentTaskRun)[0]
+    const row = storeFor(AgentProcessRun)[0]
     expect(row.status).toBe('completed')
     expect(row.agentRunId).toBe('agent-run-1')
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
-      'agent_orchestrator.task_run.completed',
+      'agent_orchestrator.process_run.completed',
       expect.objectContaining({ id: RUN_ID }),
       { persistent: true },
     )
@@ -175,13 +175,13 @@ describe('task-run-executor worker', () => {
       agentRuntime: { run: jest.fn(async () => { throw new Error('model exploded') }) },
     })
 
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
 
-    const row = storeFor(AgentTaskRun)[0]
+    const row = storeFor(AgentProcessRun)[0]
     expect(row.status).toBe('failed')
     expect(row.failureReason).toBe('model exploded')
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
-      'agent_orchestrator.task_run.failed',
+      'agent_orchestrator.process_run.failed',
       expect.anything(),
       { persistent: true },
     )
@@ -195,8 +195,8 @@ describe('task-run-executor worker', () => {
       agentRuntime: { run: jest.fn(async () => { throw capacityError }) },
     })
 
-    await expect(handle(job({ taskRunId: RUN_ID }), jobCtx)).rejects.toBe(capacityError)
-    expect(storeFor(AgentTaskRun)[0].status).toBe('running')
+    await expect(handle(job({ processRunId: RUN_ID }), jobCtx)).rejects.toBe(capacityError)
+    expect(storeFor(AgentProcessRun)[0].status).toBe('running')
   })
 
   it('workflow target: starts the instance, stamps workflowInstanceId, leaves the ledger running', async () => {
@@ -208,7 +208,7 @@ describe('task-run-executor worker', () => {
       workflowExecutor: { startWorkflow, executeWorkflow },
     })
 
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
 
     expect(startWorkflow).toHaveBeenCalledWith(
       em,
@@ -220,7 +220,7 @@ describe('task-run-executor worker', () => {
       }),
     )
     expect(executeWorkflow).toHaveBeenCalled()
-    const row = storeFor(AgentTaskRun)[0]
+    const row = storeFor(AgentProcessRun)[0]
     expect(row.workflowInstanceId).toBe('instance-1')
     expect(row.status).toBe('running')
     expect(emitAgentOrchestratorEvent).not.toHaveBeenCalled()
@@ -235,7 +235,7 @@ describe('task-run-executor worker', () => {
       workflowExecutor: { startWorkflow, executeWorkflow },
     })
 
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
 
     // Without this the instance has no actor at all: every UPDATE_ENTITY
     // activity refuses ("requires an authenticated workflow user") and CALL_API
@@ -258,10 +258,10 @@ describe('task-run-executor worker', () => {
       workflowExecutor: { startWorkflow, executeWorkflow: jest.fn() },
     })
 
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
 
     expect(startWorkflow).not.toHaveBeenCalled()
-    const row = storeFor(AgentTaskRun)[0]
+    const row = storeFor(AgentProcessRun)[0]
     expect(row.status).toBe('failed')
     expect(row.failureReason).toBe('Execution principal missing')
   })
@@ -272,12 +272,12 @@ describe('task-run-executor worker', () => {
     const runMock = jest.fn()
     containerHolder.container = makeContainer(em, { agentRuntime: { run: runMock } })
 
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
     expect(runMock).not.toHaveBeenCalled()
 
-    storeFor(AgentTaskRun)[0].status = 'running'
-    storeFor(AgentTaskRun)[0].workflowInstanceId = 'instance-1'
-    await handle(job({ taskRunId: RUN_ID }), jobCtx)
+    storeFor(AgentProcessRun)[0].status = 'running'
+    storeFor(AgentProcessRun)[0].workflowInstanceId = 'instance-1'
+    await handle(job({ processRunId: RUN_ID }), jobCtx)
     expect(runMock).not.toHaveBeenCalled()
   })
 })

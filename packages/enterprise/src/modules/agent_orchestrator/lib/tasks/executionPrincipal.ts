@@ -8,30 +8,33 @@ import {
 } from '../identity/agentPrincipalService'
 
 /**
- * Synthetic agent-definition id for a task's execution principal. Namespaced so
- * it can never collide with a real registry agent id, and stable per task so
- * `provisionAgentPrincipal`'s `(organizationId, agentDefinitionId)` idempotency
- * key holds across re-provisioning.
+ * Synthetic agent-definition id for a process definition's execution principal.
+ * Namespaced so it can never collide with a real registry agent id, and stable
+ * per definition so `provisionAgentPrincipal`'s `(organizationId,
+ * agentDefinitionId)` idempotency key holds across re-provisioning. The `task:`
+ * prefix is a PERSISTED key on `agent_principals` and is deliberately left
+ * unchanged by the process rename — moving it would orphan every provisioned
+ * principal and silently mint a second one per definition.
  */
-export function taskExecutionAgentId(taskDefinitionId: string): string {
-  return `task:${taskDefinitionId}`
+export function processExecutionAgentId(processDefinitionId: string): string {
+  return `task:${processDefinitionId}`
 }
 
 /**
  * Provisions (idempotently) the dedicated execution principal for an
- * `AgentTaskDefinition` and pins its scoped role's ACL to EXACTLY
+ * `AgentProcessDefinition` and pins its scoped role's ACL to EXACTLY
  * `grantedFeatures`. `provisionAgentPrincipal` only ever merges features, which
- * cannot narrow a previously over-granted task — so after provisioning, the
+ * cannot narrow a previously over-granted definition — so after provisioning, the
  * role ACL is replaced with the requested set (least-privilege re-scoping on
  * every create/update, self-healing per the spec's stray-grant risk entry).
  */
-export async function provisionTaskExecutionPrincipal(
+export async function provisionProcessExecutionPrincipal(
   container: AwilixContainer,
   scope: AgentPrincipalScope,
-  input: { taskDefinitionId: string; displayName: string; grantedFeatures: string[] },
+  input: { processDefinitionId: string; displayName: string; grantedFeatures: string[] },
 ): Promise<ResolvedAgentPrincipal> {
   const resolved = await provisionAgentPrincipal(container, scope, {
-    agentDefinitionId: taskExecutionAgentId(input.taskDefinitionId),
+    agentDefinitionId: processExecutionAgentId(input.processDefinitionId),
     displayName: input.displayName,
     credentialMode: 'internal',
     roleFeatures: input.grantedFeatures,

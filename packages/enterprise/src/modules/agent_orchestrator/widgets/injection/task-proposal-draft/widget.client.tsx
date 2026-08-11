@@ -103,11 +103,11 @@ export default function TaskProposalDraftWidget({ context }: InjectionWidgetComp
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <Bot className="size-4" aria-hidden="true" />
-          {t('agent_orchestrator.tasks.draftTitle')}
+          {t('agent_orchestrator.userTaskProposal.draftTitle')}
         </h2>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">
-            {t('agent_orchestrator.tasks.draftConfidence')}: {formatConfidence(proposal.confidence ?? null)}
+            {t('agent_orchestrator.userTaskProposal.draftConfidence')}: {formatConfidence(proposal.confidence ?? null)}
           </Badge>
           {proposal.runId ? (
             <Button
@@ -126,12 +126,12 @@ export default function TaskProposalDraftWidget({ context }: InjectionWidgetComp
             size="sm"
             onClick={() => router.push(`/backend/caseload/${encodeURIComponent(proposalId)}`)}
           >
-            {t('agent_orchestrator.tasks.reviewProposal')}
+            {t('agent_orchestrator.userTaskProposal.reviewProposal')}
           </Button>
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">{t('agent_orchestrator.tasks.draftDescription')}</p>
+      <p className="text-xs text-muted-foreground">{t('agent_orchestrator.userTaskProposal.draftDescription')}</p>
 
       <ProposedFields payload={proposal.payload} />
       <ReasoningList

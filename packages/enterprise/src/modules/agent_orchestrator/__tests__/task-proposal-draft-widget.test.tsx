@@ -45,7 +45,7 @@ describe('task proposal draft card', () => {
     renderWidget({ taskId: 'task-1', formSchema: { proposalId: 'proposal-1' } })
 
     await waitFor(() => expect(screen.getByTestId('task-proposal-draft')).toBeTruthy())
-    expect(screen.getByText('agent_orchestrator.tasks.draftTitle')).toBeTruthy()
+    expect(screen.getByText('agent_orchestrator.userTaskProposal.draftTitle')).toBeTruthy()
     expect(screen.getByRole('button', { name: /openTrace/ })).toBeTruthy()
   })
 

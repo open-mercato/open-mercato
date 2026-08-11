@@ -76,27 +76,30 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.identity.manage'],
   },
-  // Agentic Tasks overlay (spec 2026-07-03) — named, reusable task launchers.
-  { id: 'agent_orchestrator.tasks.view', title: 'View agentic tasks and run history', module: 'agent_orchestrator' },
-  {
-    id: 'agent_orchestrator.tasks.manage',
-    title: 'Create and configure agentic tasks',
-    module: 'agent_orchestrator',
-    dependsOn: ['agent_orchestrator.tasks.view'],
-  },
-  {
-    id: 'agent_orchestrator.tasks.run',
-    title: 'Run agentic tasks',
-    module: 'agent_orchestrator',
-    dependsOn: ['agent_orchestrator.tasks.view'],
-  },
-  // Process projection (spec 2026-06-25) — read the Processes list + detail
-  // header. Plural `processes`, matching the `proposals.*`/`agents.*` convention.
+  // Processes (triggered process model spec, 2026-08-11). ONE `view` feature
+  // covers both surfaces the model has: the running-process projection
+  // (`/backend/processes`) and the definitions that can start one
+  // (`/backend/processes/definitions`). The retired `tasks.view` merged into
+  // this id rather than adding a fourth feature for a distinction nobody makes.
+  // Consequence recorded in the spec: `dependsOn` proposals.view is inherited by
+  // definition authors, who did not transitively read proposals before.
   {
     id: 'agent_orchestrator.processes.view',
-    title: 'View agent processes (case-anchored caseload)',
+    title: 'View agent processes, process definitions and run history',
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.proposals.view'],
+  },
+  {
+    id: 'agent_orchestrator.processes.manage',
+    title: 'Create and configure process definitions',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.processes.view'],
+  },
+  {
+    id: 'agent_orchestrator.processes.run',
+    title: 'Start a process run',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.processes.view'],
   },
   // Web egress overlay (spec 2026-07-11-agent-web-search-tool) — gates the
   // read-only `web_search`/`web_fetch` MCP tools. Default-OFF: intentionally NOT

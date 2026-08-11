@@ -1,8 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
-  resolveWorkflowTaskRun,
+  resolveWorkflowProcessRun,
   type WorkflowInstanceLifecyclePayload,
-} from '../lib/tasks/resolveWorkflowTaskRun'
+} from '../lib/tasks/resolveWorkflowProcessRun'
 
 /**
  * A cancelled instance would otherwise leave the ledger 'running' forever —
@@ -19,5 +19,5 @@ export default async function handle(
   ctx: { resolve: <T = unknown>(name: string) => T },
 ): Promise<void> {
   const em = (ctx.resolve('em') as EntityManager).fork()
-  await resolveWorkflowTaskRun(em, (payload ?? {}) as WorkflowInstanceLifecyclePayload, 'failed', 'Workflow instance cancelled')
+  await resolveWorkflowProcessRun(em, (payload ?? {}) as WorkflowInstanceLifecyclePayload, 'failed', 'Workflow instance cancelled')
 }

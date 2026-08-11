@@ -7,7 +7,7 @@ import path from 'node:path'
 // disabled, the Overview interventions section carries the shared Sample label,
 // and the Caseload inbox exposes its loaded range. The module has no page-level
 // RTL harness, so these are source+locale invariants (same style as
-// agentic-tasks-route.test.ts).
+// process-definitions-route.test.ts).
 describe('agent_orchestrator P0 honesty & safety invariants', () => {
   const moduleRoot = path.resolve(__dirname, '..')
   const read = (rel: string) => fs.readFileSync(path.join(moduleRoot, rel), 'utf8')
@@ -22,9 +22,9 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     'agent_orchestrator.evalAssertions.confirmDelete.text',
     'agent_orchestrator.overview.interventions.sampleHint',
     'agent_orchestrator.process.actionsComingSoon',
-    'agent_orchestrator.tasks.confirmDelete.title',
-    'agent_orchestrator.tasks.confirmDelete.text',
-    'agent_orchestrator.tasks.triggers.confirmDelete.text',
+    'agent_orchestrator.processDefinitions.confirmDelete.title',
+    'agent_orchestrator.processDefinitions.confirmDelete.text',
+    'agent_orchestrator.processDefinitions.triggers.confirmDelete.text',
   ]
   const REMOVED_KEYS = [
     'agent_orchestrator.process.actionPreviewOnly',
@@ -40,7 +40,7 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
 
   it('keeps the {pattern} interpolation in every trigger confirm translation', () => {
     for (const locale of locales) {
-      expect(localeData[locale]['agent_orchestrator.tasks.triggers.confirmDelete.text']).toContain('{pattern}')
+      expect(localeData[locale]['agent_orchestrator.processDefinitions.triggers.confirmDelete.text']).toContain('{pattern}')
     }
   })
 
@@ -51,18 +51,18 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     }
   })
 
-  it('confirms before deleting a task', () => {
-    const source = read('backend/agentic-tasks/page.tsx')
+  it('confirms before deleting a process definition', () => {
+    const source = read('backend/processes/definitions/page.tsx')
     expect(source).toContain("useConfirmDialog")
-    const confirmIndex = source.indexOf("tasks.confirmDelete.title")
-    const deleteIndex = source.indexOf("deleteCrud('agent_orchestrator/tasks'")
+    const confirmIndex = source.indexOf("processDefinitions.confirmDelete.title")
+    const deleteIndex = source.indexOf("deleteCrud('agent_orchestrator/process-definitions'")
     expect(confirmIndex).toBeGreaterThan(-1)
     expect(deleteIndex).toBeGreaterThan(confirmIndex)
   })
 
   it('confirms before deleting an event trigger', () => {
-    const source = read('backend/agentic-tasks/[id]/page.tsx')
-    const confirmIndex = source.indexOf('tasks.triggers.confirmDelete.text')
+    const source = read('backend/processes/definitions/[id]/page.tsx')
+    const confirmIndex = source.indexOf('processDefinitions.triggers.confirmDelete.text')
     const deleteIndex = source.indexOf('event-triggers/')
     expect(confirmIndex).toBeGreaterThan(-1)
     expect(deleteIndex).toBeGreaterThan(confirmIndex)

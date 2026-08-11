@@ -13,7 +13,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 const authEntities = { RoleAcl: class RoleAcl {} }
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => authEntities, { virtual: false })
 
-import { provisionTaskExecutionPrincipal, taskExecutionAgentId } from '../lib/tasks/executionPrincipal'
+import { provisionProcessExecutionPrincipal, processExecutionAgentId } from '../lib/tasks/executionPrincipal'
 
 const SCOPE = {
   tenantId: '11111111-1111-4111-8111-111111111111',
@@ -29,13 +29,13 @@ const container = {
   },
 } as unknown as AwilixContainer
 
-describe('taskExecutionAgentId', () => {
+describe('processExecutionAgentId', () => {
   it('namespaces the synthetic id so it can never collide with a registry agent', () => {
-    expect(taskExecutionAgentId(TASK_ID)).toBe(`task:${TASK_ID}`)
+    expect(processExecutionAgentId(TASK_ID)).toBe(`task:${TASK_ID}`)
   })
 })
 
-describe('provisionTaskExecutionPrincipal', () => {
+describe('provisionProcessExecutionPrincipal', () => {
   beforeEach(() => {
     provisionMock.mockReset()
     flushMock.mockClear()
@@ -49,8 +49,8 @@ describe('provisionTaskExecutionPrincipal', () => {
   })
 
   it('provisions with the synthetic agent id and the requested features', async () => {
-    await provisionTaskExecutionPrincipal(container, SCOPE, {
-      taskDefinitionId: TASK_ID,
+    await provisionProcessExecutionPrincipal(container, SCOPE, {
+      processDefinitionId: TASK_ID,
       displayName: 'Task: Health check',
       grantedFeatures: ['customers.deals.view'],
     })
@@ -66,8 +66,8 @@ describe('provisionTaskExecutionPrincipal', () => {
   it('replaces (not merges) the role ACL so features can be narrowed', async () => {
     aclRow.featuresJson = ['customers.deals.view', 'workflows.*']
 
-    await provisionTaskExecutionPrincipal(container, SCOPE, {
-      taskDefinitionId: TASK_ID,
+    await provisionProcessExecutionPrincipal(container, SCOPE, {
+      processDefinitionId: TASK_ID,
       displayName: 'Task: Health check',
       grantedFeatures: ['customers.deals.view'],
     })
@@ -79,8 +79,8 @@ describe('provisionTaskExecutionPrincipal', () => {
   it('does not rewrite the ACL when the feature set already matches', async () => {
     aclRow.featuresJson = ['a.view', 'b.view']
 
-    await provisionTaskExecutionPrincipal(container, SCOPE, {
-      taskDefinitionId: TASK_ID,
+    await provisionProcessExecutionPrincipal(container, SCOPE, {
+      processDefinitionId: TASK_ID,
       displayName: 'Task: Health check',
       grantedFeatures: ['b.view', 'a.view'],
     })

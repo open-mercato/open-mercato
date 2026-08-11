@@ -19,7 +19,7 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
     let taskId: string | null = null
 
     try {
-      const invalid = await apiRequest(request, 'POST', '/api/agent_orchestrator/tasks', {
+      const invalid = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
         data: {
           name: `TC-UXC-007 invalid ${stamp}`,
@@ -33,7 +33,7 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
       const invalidBody = await readJsonSafe<Record<string, unknown>>(invalid)
       expect(JSON.stringify(invalidBody)).toContain('scheduleTimezone')
 
-      const valid = await apiRequest(request, 'POST', '/api/agent_orchestrator/tasks', {
+      const valid = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
         data: {
           name: `TC-UXC-007 valid ${stamp}`,
@@ -48,7 +48,7 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
       expect(taskId).toBeTruthy()
     } finally {
       if (taskId) {
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/tasks?id=${encodeURIComponent(taskId)}`, {
+        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, {
           token,
         }).catch(() => {})
       }

@@ -5,7 +5,7 @@ import { metadata as processesMeta } from '../backend/processes/page.meta'
 import { metadata as tracesMeta } from '../backend/traces/page.meta'
 import { metadata as agentsMeta } from '../backend/agents/page.meta'
 import { metadata as playgroundMeta } from '../backend/playground/page.meta'
-import { metadata as agenticTasksMeta } from '../backend/agentic-tasks/page.meta'
+import { metadata as processDefinitionsMeta } from '../backend/processes/definitions/page.meta'
 import { metadata as auditMeta } from '../backend/audit/page.meta'
 
 // Navigation-pass spec §6 (2026-07-12-ux-navigation-pass): the AGENTS sidebar
@@ -25,7 +25,7 @@ const ladder = [
   ['traces', tracesMeta],
   ['agents', agentsMeta],
   ['playground', playgroundMeta],
-  ['agentic-tasks', agenticTasksMeta],
+  ['processes/definitions', processDefinitionsMeta],
   ['audit', auditMeta],
 ] as const
 

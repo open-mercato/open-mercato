@@ -16,7 +16,7 @@ const widget: InjectionRowActionWidget = {
   rowActions: [
     {
       id: 'review_proposal',
-      label: 'agent_orchestrator.tasks.reviewProposal',
+      label: 'agent_orchestrator.userTaskProposal.reviewProposal',
       icon: 'Bot',
       onSelect: (row: unknown, context: unknown) => {
         const record = row as { proposalId?: string; proposal_id?: string }

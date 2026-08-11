@@ -12,7 +12,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { eventsConfig } from '../events'
-import { attachLastRunProjection } from '../api/tasks/route'
+import { attachLastRunProjection } from '../api/process-definitions/route'
 
 const MODULE_ROOT = path.resolve(__dirname, '..')
 
@@ -38,9 +38,9 @@ describe('run lifecycle broadcast flags (Area 1)', () => {
       'agent_orchestrator.proposal.disposed',
       'agent_orchestrator.proposal.ready',
       'agent_orchestrator.guardrail.tripped',
-      'agent_orchestrator.task_run.started',
-      'agent_orchestrator.task_run.completed',
-      'agent_orchestrator.task_run.failed',
+      'agent_orchestrator.process_run.started',
+      'agent_orchestrator.process_run.completed',
+      'agent_orchestrator.process_run.failed',
       'agent_orchestrator.process.updated',
     ]) {
       expect(eventById(id).clientBroadcast).toBe(true)
@@ -74,7 +74,7 @@ describe('tasks list last_run projection', () => {
       { id: 'task-b', name: 'B' },
     ]
     const em = makeEm([
-      { task_definition_id: 'task-a', status: 'failed', completed_at: finished },
+      { process_definition_id: 'task-a', status: 'failed', completed_at: finished },
     ])
     await attachLastRunProjection(em, scope, items)
     expect(items[0].last_run).toEqual({ status: 'failed', finished_at: finished.toISOString() })
@@ -83,7 +83,7 @@ describe('tasks list last_run projection', () => {
 
   it('keeps finished_at null for a still-running last run', async () => {
     const items: Array<Record<string, unknown>> = [{ id: 'task-a' }]
-    const em = makeEm([{ task_definition_id: 'task-a', status: 'running', completed_at: null }])
+    const em = makeEm([{ process_definition_id: 'task-a', status: 'running', completed_at: null }])
     await attachLastRunProjection(em, scope, items)
     expect(items[0].last_run).toEqual({ status: 'running', finished_at: null })
   })
@@ -94,13 +94,13 @@ describe('tasks list last_run projection', () => {
     await attachLastRunProjection(makeEm([], calls), scope, items)
     expect(calls).toHaveLength(1)
     const [sql, params] = calls[0] as [string, unknown[]]
-    expect(sql).toContain('distinct on (task_definition_id)')
+    expect(sql).toContain('distinct on (process_definition_id)')
     expect(sql).toContain('tenant_id = ?')
     expect(sql).toContain('organization_id = ?')
     // Ids bind as FLAT scalars (`in (?, ?)`), never as one array param —
     // the ORM's raw-execute layer expands array bindings per element, which
     // made the previous `= any(?)` reach Postgres as a malformed array literal.
-    expect(sql).toContain('task_definition_id in (?)')
+    expect(sql).toContain('process_definition_id in (?)')
     expect(params).toEqual(['task-a', scope.tenantId, scope.organizationId])
   })
 
@@ -128,12 +128,12 @@ describe('page subscriptions (source invariants)', () => {
     expect(source).toContain('useCoalescedReload')
   })
 
-  it('agentic-tasks list subscribes task_run.* and renders the Last-run column', () => {
-    const source = readSource('backend/agentic-tasks/page.tsx')
-    expect(source).toContain("useAppEvent('agent_orchestrator.task_run.*'")
+  it('process-definitions list subscribes task_run.* and renders the Last-run column', () => {
+    const source = readSource('backend/processes/definitions/page.tsx')
+    expect(source).toContain("useAppEvent('agent_orchestrator.process_run.*'")
     expect(source).toContain('useCoalescedReload')
-    expect(source).toContain('agent_orchestrator.tasks.list.col.lastRun')
-    expect(source).toContain('agent_orchestrator.tasks.list.lastRunNever')
+    expect(source).toContain('agent_orchestrator.processDefinitions.list.col.lastRun')
+    expect(source).toContain('agent_orchestrator.processDefinitions.list.lastRunNever')
   })
 
   it('caseload listens to guardrail.tripped (the flag has a consumer)', () => {
@@ -144,8 +144,8 @@ describe('page subscriptions (source invariants)', () => {
   it('the Last-run i18n keys exist in all four locales', () => {
     for (const locale of ['en', 'es', 'de', 'pl']) {
       const catalog = JSON.parse(readSource(`i18n/${locale}.json`)) as Record<string, string>
-      expect(catalog['agent_orchestrator.tasks.list.col.lastRun']).toBeTruthy()
-      expect(catalog['agent_orchestrator.tasks.list.lastRunNever']).toBeTruthy()
+      expect(catalog['agent_orchestrator.processDefinitions.list.col.lastRun']).toBeTruthy()
+      expect(catalog['agent_orchestrator.processDefinitions.list.lastRunNever']).toBeTruthy()
     }
   })
 })

@@ -168,21 +168,22 @@ describe('reading and editing one option', () => {
   })
 })
 
-describe('the backfill migration applies the same rule as the runtime twin', () => {
+// W2's Migration20260811090000 was absorbed by the W1 migration squash
+// (2026-08-11-triggered-process-model.md §Migrations). Its `agent_proposals`
+// halves are now create-table DDL plus a backfill over a table created empty, so
+// only the schema survives as an assertion. Its rewrite of CORE
+// `workflow_definitions` / `workflow_definition_drafts` rows is NOT absorbable —
+// those tables belong to another module — and is carried into the squash
+// verbatim, still asserted here unchanged.
+describe('the envelope columns and the outputMapping rewrite survive the squash', () => {
   const sql = fs.readFileSync(
-    path.join(__dirname, '..', 'migrations', 'Migration20260811090000_agent_orchestrator.ts'),
+    path.join(__dirname, '..', 'migrations', 'Migration20260811150000_agent_orchestrator.ts'),
     'utf8',
   )
 
-  test('adds both columns', () => {
+  test('declares both columns', () => {
     expect(sql).toContain('"selected_option_id" varchar(100) null')
     expect(sql).toContain('"auto_disposition_block" varchar(20) null')
-  })
-
-  test('has a SEPARATE branch writing an empty option set for an empty action list', () => {
-    expect(sql).toContain("'options', '[]'::jsonb")
-    expect(sql).toContain(`jsonb_array_length("payload" -> 'actions') = 0`)
-    expect(sql).toContain(`jsonb_array_length("payload" -> 'actions') > 0`)
   })
 
   test('rewrites persisted INVOKE_AGENT outputMapping dot-paths in both definition tables', () => {
@@ -190,5 +191,15 @@ describe('the backfill migration applies the same rule as the runtime twin', () 
     expect(sql).toContain(`'"proposalPayload.options[0].actions'`)
     expect(sql).toContain('workflow_definitions')
     expect(sql).toContain('workflow_definition_drafts')
+  })
+
+  test('guards that reach into core tables with to_regclass', () => {
+    expect(sql).toContain(`to_regclass('public.\${table}')`)
+  })
+
+  test('reverses the outputMapping rewrite on down()', () => {
+    const down = sql.slice(sql.indexOf('override down()'))
+    expect(down).toContain(`'"proposalPayload.options[0].actions'`)
+    expect(down).toContain(`'"proposalPayload.actions'`)
   })
 })

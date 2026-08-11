@@ -77,19 +77,26 @@ describe('no retired wire value survives the rename', () => {
   })
 })
 
-describe('the graph-edge migration', () => {
+// W2's Migration20260811120000 was absorbed by the W1 migration squash
+// (2026-08-11-triggered-process-model.md §Migrations). Its MODULE-table halves —
+// the `agent_runs.agent_type` column and the `result_kind` value rewrite — are
+// now create-table DDL over a table that starts empty, so there is nothing left
+// to rewrite. Its CORE-table half is NOT absorbable: `workflow_definitions` and
+// `workflow_definition_drafts` belong to another module and are not created
+// here, so the rewrite is carried into the squash verbatim and is still asserted
+// below, unchanged.
+describe('the graph-edge migration (carried into the squash)', () => {
   const sql = fs.readFileSync(
-    path.join(MODULE_DIR, 'migrations', 'Migration20260811120000_agent_orchestrator.ts'),
+    path.join(MODULE_DIR, 'migrations', 'Migration20260811150000_agent_orchestrator.ts'),
     'utf8',
   )
 
-  test('adds the nullable agent_type column', () => {
+  test('declares the nullable agent_type column on agent_runs', () => {
     expect(sql).toContain('"agent_type" varchar(20) null')
   })
 
-  test('moves persisted result_kind values onto the new union', () => {
-    expect(sql).toContain(`set "result_kind" = 'researcher' where "result_kind" = 'informative'`)
-    expect(sql).toContain(`set "result_kind" = 'proposal' where "result_kind" = 'actionable'`)
+  test('declares result_kind, whose stored values are now researcher/proposal only', () => {
+    expect(sql).toContain('"result_kind" varchar(20) null')
   })
 
   test('rewrites the outcome kind AND the outcome: handle id, in both definition tables', () => {
@@ -105,14 +112,16 @@ describe('the graph-edge migration', () => {
     expect(sql).toContain('workflow_definition_drafts')
   })
 
-  test('guards its reach into core tables with to_regclass, like Migration20260811090000', () => {
+  test('guards its reach into core tables with to_regclass', () => {
     expect(sql).toContain(`to_regclass('public.\${table}')`)
   })
 
-  test('is reversible in both halves', () => {
+  test('reverses the core-table rewrite on down()', () => {
     const down = sql.slice(sql.indexOf('override down()'))
-    expect(down).toContain('drop column "agent_type"')
     expect(down).toContain(`'"outcomeKind": "informative"'`)
-    expect(down).toContain(`set "result_kind" = 'informative' where "result_kind" = 'researcher'`)
+    expect(down).toContain(`'"outcome:informative"'`)
+    // The module tables are dropped wholesale, so their value rewrites need no
+    // inverse — but the core tables outlive the drop and must be put back.
+    expect(down).toContain('drop table if exists "agent_runs" cascade;')
   })
 })

@@ -42,17 +42,20 @@ const events = [
   // Identity overlay (Wave 4 Phase 4) — an external agent self-registered via the
   // ID-JAG / auth.md flow (issuer-signed assertion → scoped principal + grant).
   { id: 'agent_orchestrator.agent_principal.registered', label: 'Agent Principal Registered (ID-JAG)', entity: 'agent_principal', category: 'lifecycle', clientBroadcast: true },
-  // Agentic Tasks overlay (spec 2026-07-03). `task_run.*` are clientBroadcast so
-  // the task detail page's run-history table live-updates after the async 202.
-  { id: 'agent_orchestrator.task.created', label: 'Agentic Task Created', entity: 'task', category: 'crud' },
-  { id: 'agent_orchestrator.task.updated', label: 'Agentic Task Updated', entity: 'task', category: 'crud' },
-  { id: 'agent_orchestrator.task.deleted', label: 'Agentic Task Deleted', entity: 'task', category: 'crud' },
-  { id: 'agent_orchestrator.task_run.started', label: 'Agentic Task Run Started', entity: 'task_run', category: 'lifecycle', clientBroadcast: true },
-  { id: 'agent_orchestrator.task_run.completed', label: 'Agentic Task Run Completed', entity: 'task_run', category: 'lifecycle', clientBroadcast: true },
-  { id: 'agent_orchestrator.task_run.failed', label: 'Agentic Task Run Failed', entity: 'task_run', category: 'lifecycle', clientBroadcast: true },
-  { id: 'agent_orchestrator.task_event_trigger.created', label: 'Agentic Task Event Trigger Created', entity: 'task_event_trigger', category: 'crud' },
-  { id: 'agent_orchestrator.task_event_trigger.updated', label: 'Agentic Task Event Trigger Updated', entity: 'task_event_trigger', category: 'crud' },
-  { id: 'agent_orchestrator.task_event_trigger.deleted', label: 'Agentic Task Event Trigger Deleted', entity: 'task_event_trigger', category: 'crud' },
+  // Triggered process model (spec 2026-08-11). `process_run.*` stay
+  // clientBroadcast so the definition detail page's run-history table
+  // live-updates after the async 202.
+  { id: 'agent_orchestrator.process_definition.created', label: 'Process Definition Created', entity: 'process_definition', category: 'crud' },
+  { id: 'agent_orchestrator.process_definition.updated', label: 'Process Definition Updated', entity: 'process_definition', category: 'crud' },
+  { id: 'agent_orchestrator.process_definition.deleted', label: 'Process Definition Deleted', entity: 'process_definition', category: 'crud' },
+  { id: 'agent_orchestrator.process_run.started', label: 'Process Run Started', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.process_run.completed', label: 'Process Run Completed', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.process_run.failed', label: 'Process Run Failed', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
+  // The event-trigger table survives Phase 1 unchanged — it collapses into the
+  // definition's `triggers` jsonb in Phase 2, and only then do these events go.
+  { id: 'agent_orchestrator.task_event_trigger.created', label: 'Process Event Trigger Created', entity: 'task_event_trigger', category: 'crud' },
+  { id: 'agent_orchestrator.task_event_trigger.updated', label: 'Process Event Trigger Updated', entity: 'task_event_trigger', category: 'crud' },
+  { id: 'agent_orchestrator.task_event_trigger.deleted', label: 'Process Event Trigger Deleted', entity: 'task_event_trigger', category: 'crud' },
   // Process projection (spec 2026-06-25). Emitted after every projection upsert
   // (clientBroadcast) so the open Processes list refetches the changed row.
   // excludeFromTriggers: it is a derived read-model echo, not a domain fact.

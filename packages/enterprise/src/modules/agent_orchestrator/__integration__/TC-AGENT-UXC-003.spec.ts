@@ -36,7 +36,7 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
     let taskId: string | null = null
 
     try {
-      const garbage = await apiRequest(request, 'POST', '/api/agent_orchestrator/tasks', {
+      const garbage = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
         data: {
           name: `TC-UXC-003 garbage ${stamp}`,
@@ -49,7 +49,7 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
       const garbageBody = await readJsonSafe<Record<string, unknown>>(garbage)
       expect(JSON.stringify(garbageBody)).toContain('scheduleCron')
 
-      const valid = await apiRequest(request, 'POST', '/api/agent_orchestrator/tasks', {
+      const valid = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
         data: {
           name: `TC-UXC-003 valid ${stamp}`,
@@ -64,7 +64,7 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
       expect(taskId).toBeTruthy()
     } finally {
       if (taskId) {
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/tasks?id=${encodeURIComponent(taskId)}`, {
+        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, {
           token,
         }).catch(() => {})
       }
@@ -74,7 +74,7 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
   test('create form previews three next runs for a valid cron', async ({ page }) => {
     test.slow()
     await loginAsAdmin(page)
-    await page.goto('/backend/agentic-tasks', { waitUntil: 'domcontentloaded' })
+    await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: /new task/i }).click()
 
     const cronInput = page.getByLabel(/cron schedule/i)

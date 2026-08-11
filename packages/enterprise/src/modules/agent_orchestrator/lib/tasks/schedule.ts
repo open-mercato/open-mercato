@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentTaskDefinition } from '../../data/entities'
-import { AGENT_ORCHESTRATOR_TASK_RUN_QUEUE } from '../queue'
+import type { AgentProcessDefinition } from '../../data/entities'
+import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE } from '../queue'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'task-schedule' })
 
@@ -29,8 +29,8 @@ type SchedulerServiceLike = {
 }
 
 /** `scheduled_jobs.id` is a uuid — hash the stable task key into one (same trick as setup.ts). */
-export function taskScheduleUuid(taskDefinitionId: string): string {
-  const hex = createHash('sha256').update(`agent_orchestrator:task:${taskDefinitionId}`).digest('hex')
+export function taskScheduleUuid(processDefinitionId: string): string {
+  const hex = createHash('sha256').update(`agent_orchestrator:task:${processDefinitionId}`).digest('hex')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
@@ -44,14 +44,14 @@ function resolveScheduler(container: AwilixContainer): SchedulerServiceLike | nu
 
 /**
  * Best-effort, idempotent schedule sync for a task definition: registers the
- * cron schedule when the task is enabled + scheduled, unregisters it otherwise
+ * cron schedule when the definition is enabled + scheduled, unregisters it otherwise
  * (including soft delete). Runs on EVERY create/update/delete — not just when
  * schedule fields changed — so a failed sync self-heals on the next edit (spec
  * risk register: "stray schedule keeps firing"). A deployment without the
  * scheduler module is a safe no-op; failures log loudly but never abort the
  * mutation that triggered the sync.
  */
-export async function syncTaskSchedule(container: AwilixContainer, task: AgentTaskDefinition): Promise<void> {
+export async function syncProcessSchedule(container: AwilixContainer, task: AgentProcessDefinition): Promise<void> {
   const scheduler = resolveScheduler(container)
   if (!scheduler) return
   const scheduleId = taskScheduleUuid(task.id)
@@ -60,8 +60,8 @@ export async function syncTaskSchedule(container: AwilixContainer, task: AgentTa
     if (shouldRun) {
       await scheduler.register({
         id: scheduleId,
-        name: `Agentic task: ${task.name}`,
-        description: `Scheduled trigger for agentic task ${task.id}.`,
+        name: `Process definition: ${task.name}`,
+        description: `Scheduled trigger for process definition ${task.id}.`,
         scopeType: 'organization',
         organizationId: task.organizationId,
         tenantId: task.tenantId,
@@ -69,10 +69,10 @@ export async function syncTaskSchedule(container: AwilixContainer, task: AgentTa
         scheduleValue: task.scheduleCron as string,
         timezone: task.scheduleTimezone ?? 'UTC',
         targetType: 'queue',
-        targetQueue: AGENT_ORCHESTRATOR_TASK_RUN_QUEUE,
+        targetQueue: AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE,
         // The scheduler enqueues this payload directly; the worker recognizes
-        // the schedule shape and creates the AgentTaskRun row itself.
-        targetPayload: { scheduledTaskDefinitionId: task.id, scheduleId },
+        // the schedule shape and creates the AgentProcessRun row itself.
+        targetPayload: { scheduledProcessDefinitionId: task.id, scheduleId },
         sourceType: 'module',
         sourceModule: 'agent_orchestrator',
         isEnabled: true,
@@ -82,7 +82,7 @@ export async function syncTaskSchedule(container: AwilixContainer, task: AgentTa
     }
   } catch (error) {
     logger.warn('task schedule sync failed', {
-      taskDefinitionId: task.id,
+      processDefinitionId: task.id,
       shouldRun,
       error: error instanceof Error ? error.message : String(error),
     })

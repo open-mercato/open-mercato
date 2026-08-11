@@ -7,7 +7,7 @@ import { validateCronExpression } from '@open-mercato/scheduler'
  * client-bundle-safe); this refinement runs the expression through the
  * scheduler's real parser so `foo bar baz qux quux` — five perfectly shaped
  * garbage tokens — is rejected before a task is saved with a schedule that
- * would never fire. Applied at the route layer (the tasks CRUD validators'
+ * would never fire. Applied at the route layer (the definitions CRUD validators'
  * server entry point), keeping cron-parser out of client bundles that import
  * the shared validators.
  */

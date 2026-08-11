@@ -1038,13 +1038,13 @@ export const idJagAssertionClaimsSchema = z.object({
 })
 export type IdJagAssertionClaims = z.infer<typeof idJagAssertionClaimsSchema>
 
-// ── Agentic Tasks (spec 2026-07-03) ──────────────────────────────────────────
+// ── Process definitions + runs (spec 2026-08-11) ─────────────────────────────
 
-export const agentTaskTargetType = z.enum(['agent', 'workflow'])
-export type AgentTaskTargetTypeInput = z.infer<typeof agentTaskTargetType>
+export const agentProcessTargetType = z.enum(['agent', 'workflow'])
+export type AgentProcessTargetTypeInput = z.infer<typeof agentProcessTargetType>
 
-export const agentTaskRunStatus = z.enum(['running', 'completed', 'failed'])
-export type AgentTaskRunStatusInput = z.infer<typeof agentTaskRunStatus>
+export const agentProcessRunStatus = z.enum(['running', 'completed', 'failed'])
+export type AgentProcessRunStatusInput = z.infer<typeof agentProcessRunStatus>
 
 /**
  * 5- or 6-field cron expression SHAPE gate. Semantic validation (does this
@@ -1082,7 +1082,7 @@ const scheduleTimezone = z
 const taskTargetShape = {
   name: z.string().min(1).max(255),
   description: z.string().max(4000).nullable().optional(),
-  targetType: agentTaskTargetType,
+  targetType: agentProcessTargetType,
   targetAgentId: z.string().min(1).max(150).nullable().optional(),
   targetWorkflowId: z.string().min(1).max(150).nullable().optional(),
   inputDefaults: z.record(z.string(), z.unknown()).nullable().optional(),
@@ -1099,26 +1099,26 @@ function requireTargetPointer(data: { targetType: 'agent' | 'workflow'; targetAg
   return data.targetType === 'agent' ? !!data.targetAgentId : !!data.targetWorkflowId
 }
 
-export const agentTaskDefinitionCreateSchema = z
+export const agentProcessDefinitionCreateSchema = z
   .object(taskTargetShape)
   .refine(requireTargetPointer, {
     message: 'Target id is required for the selected target type',
     path: ['targetAgentId'],
   })
-export type AgentTaskDefinitionCreateInput = z.infer<typeof agentTaskDefinitionCreateSchema>
+export type AgentProcessDefinitionCreateInput = z.infer<typeof agentProcessDefinitionCreateSchema>
 
-export const agentTaskDefinitionUpdateSchema = z
+export const agentProcessDefinitionUpdateSchema = z
   .object({ id: z.string().uuid(), ...taskTargetShape })
   .refine(requireTargetPointer, {
     message: 'Target id is required for the selected target type',
     path: ['targetAgentId'],
   })
-export type AgentTaskDefinitionUpdateInput = z.infer<typeof agentTaskDefinitionUpdateSchema>
+export type AgentProcessDefinitionUpdateInput = z.infer<typeof agentProcessDefinitionUpdateSchema>
 
-export const agentTaskDefinitionListQuerySchema = z
+export const agentProcessDefinitionListQuerySchema = z
   .object({
     id: z.string().uuid().optional(),
-    targetType: agentTaskTargetType.optional(),
+    targetType: agentProcessTargetType.optional(),
     enabled: z.coerce.boolean().optional(),
     search: z.string().max(200).optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -1127,22 +1127,22 @@ export const agentTaskDefinitionListQuerySchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
-export type AgentTaskDefinitionListQuery = z.infer<typeof agentTaskDefinitionListQuerySchema>
+export type AgentProcessDefinitionListQuery = z.infer<typeof agentProcessDefinitionListQuerySchema>
 
-/** `POST /tasks/:id/run` request body — always async, returns 202 + taskRunId. */
-export const agentTaskRunRequestSchema = z.object({
+/** `POST /process-definitions/:id/run` request body — always async, returns 202 + processRunId. */
+export const agentProcessRunRequestSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional(),
   idempotencyKey: z.string().min(1).max(200).optional(),
   sourceEntityType: z.string().min(1).max(100).optional(),
   sourceEntityId: z.string().uuid().optional(),
 })
-export type AgentTaskRunRequest = z.infer<typeof agentTaskRunRequestSchema>
+export type AgentProcessRunRequest = z.infer<typeof agentProcessRunRequestSchema>
 
-export const agentTaskRunListQuerySchema = z
+export const agentProcessRunListQuerySchema = z
   .object({
     id: z.string().uuid().optional(),
-    taskDefinitionId: z.string().uuid().optional(),
-    status: agentTaskRunStatus.optional(),
+    processDefinitionId: z.string().uuid().optional(),
+    status: agentProcessRunStatus.optional(),
     sourceEntityType: z.string().max(100).optional(),
     sourceEntityId: z.string().uuid().optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -1151,7 +1151,7 @@ export const agentTaskRunListQuerySchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
-export type AgentTaskRunListQuery = z.infer<typeof agentTaskRunListQuerySchema>
+export type AgentProcessRunListQuery = z.infer<typeof agentProcessRunListQuerySchema>
 
 /** WorkflowEventTriggerConfig-shaped trigger config (mirrored locally, no cross-module import). */
 export const agentTaskEventTriggerConfigSchema = z

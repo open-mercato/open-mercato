@@ -18,8 +18,8 @@ import {
   AgentContextBundle,
   AgentPrincipal,
   AgentDelegationGrant,
-  AgentTaskDefinition,
-  AgentTaskRun,
+  AgentProcessDefinition,
+  AgentProcessRun,
   AgentTaskEventTrigger,
   AgentProcess,
 } from './data/entities'
@@ -88,8 +88,8 @@ export function register(container: AppContainer) {
     AgentContextBundle: asValue(AgentContextBundle),
     AgentPrincipal: asValue(AgentPrincipal),
     AgentDelegationGrant: asValue(AgentDelegationGrant),
-    AgentTaskDefinition: asValue(AgentTaskDefinition),
-    AgentTaskRun: asValue(AgentTaskRun),
+    AgentProcessDefinition: asValue(AgentProcessDefinition),
+    AgentProcessRun: asValue(AgentProcessRun),
     AgentTaskEventTrigger: asValue(AgentTaskEventTrigger),
     AgentProcess: asValue(AgentProcess),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent

@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
-  deleteAgentTaskRunsByTaskDefinitionIds,
-  insertAgentTaskRunFixtures,
+  deleteAgentProcessRunsByProcessDefinitionIds,
+  insertAgentProcessRunFixtures,
 } from './helpers/agentPerfFixtures'
 
 /**
@@ -43,7 +43,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
 
     try {
       // Seed a task owned by the admin org (API create resolves the scope).
-      const createResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/tasks', {
+      const createResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
         data: {
           name: taskName,
@@ -60,7 +60,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const listResponse = await apiRequest(
         request,
         'GET',
-        `/api/agent_orchestrator/tasks?id=${encodeURIComponent(taskId!)}&page=1&pageSize=1`,
+        `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId!)}&page=1&pageSize=1`,
         { token },
       )
       const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
@@ -71,11 +71,11 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
 
       // Leg 1 — a failed ledger row from an hour ago drives the projection.
       const failedAt = new Date(Date.now() - 60 * 60_000)
-      await insertAgentTaskRunFixtures([
+      await insertAgentProcessRunFixtures([
         {
           tenantId: tenantId!,
           organizationId: organizationId!,
-          taskDefinitionId: taskId!,
+          processDefinitionId: taskId!,
           targetAgentId: 'deals.health_check',
           status: 'failed',
           createdAt: failedAt,
@@ -85,7 +85,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       ])
 
       await loginAsAdmin(page)
-      await page.goto('/backend/agentic-tasks', { waitUntil: 'domcontentloaded' })
+      await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
       const taskRow = page.getByRole('row', { name: new RegExp(taskName) })
       await expect(taskRow).toBeVisible({ timeout: 15_000 })
       await expect(taskRow.getByText('Failed', { exact: true })).toBeVisible({ timeout: 10_000 })
@@ -96,7 +96,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const runResponse = await apiRequest(
         request,
         'POST',
-        `/api/agent_orchestrator/tasks/${encodeURIComponent(taskId!)}/run`,
+        `/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId!)}/run`,
         { token, data: { input: {} } },
       )
       expect(runResponse.status(), 'run-now must be accepted asynchronously').toBe(202)
@@ -104,8 +104,8 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       await expect(taskRow.getByText('Running', { exact: true })).toBeVisible({ timeout: 30_000 })
     } finally {
       if (taskId) {
-        await deleteAgentTaskRunsByTaskDefinitionIds([taskId]).catch(() => {})
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/tasks?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
+        await deleteAgentProcessRunsByProcessDefinitionIds([taskId]).catch(() => {})
+        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
       }
     }
   })

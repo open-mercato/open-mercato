@@ -306,6 +306,21 @@ Definition create/update/delete, trigger edits and milestone reorder all run thr
 | Renaming `tasks.*` ACL features locks a tenant out mid-upgrade | Low | `sync-role-acls` is additive and wildcard-aware; module unreleased | None |
 
 ## Changelog
+
+### Phase 1 implemented — 2026-08-11
+
+Rename, encryption maps and the migration squash shipped; no behaviour change. Phases 2-4 are untouched.
+
+- Entities/tables: `AgentTaskDefinition`/`agent_task_definitions` → `AgentProcessDefinition`/`agent_process_definitions`, `AgentTaskRun`/`agent_task_runs` → `AgentProcessRun`/`agent_process_runs`, FK `task_definition_id` → `process_definition_id`. `AgentProcess` untouched, as specified.
+- `agent_task_event_triggers` and its `task_event_trigger.*` events deliberately KEPT — the table collapses in Phase 2, and renaming it twice would cost two migrations. Only its FK column was repointed.
+- ACL `tasks.{view,manage,run}` → `processes.{view,manage,run}`, with `tasks.view` MERGED into the existing `processes.view` (three features, not four); `setup.ts` `defaultRoleFeatures` deduped in the same change.
+- Events `task.*` → `process_definition.*`, `task_run.*` → `process_run.*` (`clientBroadcast` preserved). Command id `tasks.enqueueRun` → `processes.enqueueRun`; queue `agent-task-runs` → `agent-process-runs`; the `202` body key `taskRunId` → `processRunId`.
+- Routes `/api/agent_orchestrator/tasks*` → `/process-definitions*`, `/task-runs*` → `/process-runs*`. Page `/backend/agentic-tasks` → `/backend/processes/definitions`, with a nav-hidden, still-RBAC-guarded bridge redirect at the old path (list AND detail). `/backend/processes` still lists the projection — the two routes stay separate.
+- i18n `agent_orchestrator.tasks.*` → `agent_orchestrator.processDefinitions.*` across all five locales, keys and copy. **Correction to the spec:** four of those keys (`draftTitle`, `draftConfidence`, `draftDescription`, `reviewProposal`) were never about agentic tasks — they label the proposal widgets injected into core `workflows`' USER TASK surfaces. They moved to `agent_orchestrator.userTaskProposal.*` instead, so the frozen core surface keeps an honest namespace.
+- Encryption maps moved with the entities, and `__tests__/encryption-map-entity-ids.test.ts` now resolves every `defaultEncryptionMaps` entityId AND every field name against the ORM metadata.
+- 28 migrations replaced by one current-state `Migration20260811150000`, snapshot regenerated from `data/entities.ts`. It absorbs W2's columns and clears the W4 snapshot defect. W2's `to_regclass`-guarded rewrites of CORE `workflow_definitions`/`workflow_definition_drafts` rows are carried over verbatim — a create-table cannot absorb a data rewrite on a table this module does not own. The two W2 migration tests were repointed at the squash rather than deleted.
+- **Not renamed, deliberately:** the `task:<id>` `agent_principals.agent_definition_id` prefix (a persisted key; moving it would orphan every provisioned principal and mint a second one per definition), and internal source paths (`lib/tasks/`, `commands/tasks.ts`, `workers/task-run-executor.ts`, `subscribers/task-*.ts`, several `__tests__` filenames) — symbols inside them were renamed.
+
 ### Review — 2026-08-11
 
 Independent fresh-context review (checklist §1 scope cohesion + full compliance gate). Accepted and applied: the encryption-map `entityId` rename (would have silently plaintexted `input` / `input_defaults` / `failure_reason` and made existing rows unreadable, in green CI); four capabilities the trigger collapse was dropping while calling itself lossless (`event_pattern` wildcards, `contextMapping`, `debounceMs` / `maxConcurrentInstances`, `priority`); the manual-trigger backfill without which every existing definition silently loses run-now; the pilot database on `comerito/feat/agentic-claims-branch`, which the risk table had written off as "a fork nobody knows about"; entity-class prefixes; the GIN index actually written out; the `/backend/processes` route split; undo, data models, API contracts and the compliance report the repo's own gate requires.

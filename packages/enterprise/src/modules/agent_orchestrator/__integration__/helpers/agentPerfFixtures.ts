@@ -158,10 +158,10 @@ export async function deleteAgentOrchestratorRowsForOrganization(
   })
 }
 
-export type AgentTaskRunSeed = {
+export type AgentProcessRunSeed = {
   tenantId: string
   organizationId: string
-  taskDefinitionId: string
+  processDefinitionId: string
   targetType?: 'agent' | 'workflow'
   targetAgentId?: string | null
   status?: 'running' | 'completed' | 'failed'
@@ -172,24 +172,24 @@ export type AgentTaskRunSeed = {
 }
 
 /**
- * Inserts agent_task_runs ledger rows directly (no worker involved) — drives
+ * Inserts agent_process_runs ledger rows directly (no worker involved) — drives
  * the tasks list's Last-run projection in TC-AGENT-UXC-002.
  */
-export async function insertAgentTaskRunFixtures(rows: AgentTaskRunSeed[]): Promise<string[]> {
+export async function insertAgentProcessRunFixtures(rows: AgentProcessRunSeed[]): Promise<string[]> {
   const ids = rows.map(() => randomUUID())
   await withClient(async (client) => {
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index]
       await client.query(
-        `insert into agent_task_runs
-           (id, tenant_id, organization_id, task_definition_id, target_type, target_agent_id,
+        `insert into agent_process_runs
+           (id, tenant_id, organization_id, process_definition_id, target_type, target_agent_id,
             input, triggered_by, status, started_at, completed_at, failure_reason, created_at, updated_at)
          values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $10, $10)`,
         [
           ids[index],
           row.tenantId,
           row.organizationId,
-          row.taskDefinitionId,
+          row.processDefinitionId,
           row.targetType ?? 'agent',
           row.targetAgentId ?? null,
           SEED_PAYLOAD,
@@ -205,10 +205,10 @@ export async function insertAgentTaskRunFixtures(rows: AgentTaskRunSeed[]): Prom
   return ids
 }
 
-/** Hard-deletes agent_task_runs rows for the given task definitions (cleanup). */
-export async function deleteAgentTaskRunsByTaskDefinitionIds(ids: string[]): Promise<void> {
+/** Hard-deletes agent_process_runs rows for the given task definitions (cleanup). */
+export async function deleteAgentProcessRunsByProcessDefinitionIds(ids: string[]): Promise<void> {
   if (ids.length === 0) return
   await withClient(async (client) => {
-    await client.query('delete from agent_task_runs where task_definition_id = any($1::uuid[])', [ids])
+    await client.query('delete from agent_process_runs where process_definition_id = any($1::uuid[])', [ids])
   })
 }

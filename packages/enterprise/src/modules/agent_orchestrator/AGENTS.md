@@ -29,6 +29,21 @@ effective = (listWorkflowSafeCommands() ∪ workflowActivityTypes()) ∩ agent.a
 - **Checked AGAIN before the effect** (`executeProposal` → `isEffectWithinVocabulary`), never only at registration: an agent registered before a tenant revoked a safe command must not have a stale proposal execute.
 - The `action_vocabulary` eval scorer makes the same violation VISIBLE — a blocked effect leaves nothing an operator would look at, and an agent that keeps proposing what it may not run is a prompt defect.
 
+## The Process Model (spec `2026-08-11-triggered-process-model.md`)
+
+One domain concept, three records — do not reintroduce the "task vs process" split this spec removed.
+
+| Record | Table | What it is |
+|---|---|---|
+| `AgentProcessDefinition` | `agent_process_definitions` | **Authored**: what CAN happen |
+| `AgentProcessRun` | `agent_process_runs` | **Instance**: one entry into it |
+| `AgentProcess` | `agent_processes` | **Projection**: rebuilt from events, NOT renamed, still the read model |
+
+- **Two routes, not one tabbed page.** `/backend/processes` lists running processes (the projection); `/backend/processes/definitions` authors definitions. They answer "what is happening now" versus "what can happen". `/backend/agentic-tasks` is a nav-hidden, still-RBAC-guarded bridge redirect for one release.
+- **`encryption.ts` keys `defaultEncryptionMaps` by a PLAIN STRING `entityId` that nothing type-checks.** Rename an entity or a column without moving its map entry and `input`, `input_defaults` and `failure_reason` silently persist in PLAINTEXT while existing rows become undecryptable — in green CI. `__tests__/encryption-map-entity-ids.test.ts` resolves every entry against the ORM metadata; keep it passing rather than deleting the failing row.
+- **Migrations are SQUASHED, not stacked** (`Migration20260811150000`): one current-state create-schema file regenerated from `data/entities.ts`. Regenerate the file AND `.snapshot-open-mercato.json` together; never run `db:migrate` to quiet the generator. Data rewrites that touch CORE `workflows` tables cannot be absorbed by a create-table and are carried over verbatim, `to_regclass`-guarded.
+- Phases 2-4 (first-class `triggers`, `milestones`, nullable `outcome`) are NOT implemented yet.
+
 ## Runtime Selection
 
 | Runtime | When to use | Authoring |
@@ -111,6 +126,9 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 - **AgentPrincipal** (`agent_principals`) — links an agent to a non-interactive `auth.User` (`kind='agent'`) + scoped `auth.Role`. `credentialMode` ∈ `internal|oauth_client|authmd`; live partial-unique on (org, agent).
 - **AgentDelegationGrant** (`agent_delegation_grants`) — external agent's revocable OAuth/ID-JAG grant. Revocation denies every minted token on its NEXT request, not at expiry.
 - **AgentRunSession** (`agent_run_sessions`) — DB-backed cross-process correlation (runner ↔ `mcp:serve-http`). An in-process Map does NOT work across processes.
+- **AgentProcessDefinition** (`agent_process_definitions`) — the AUTHORED half of a process: name, `target_type` (`agent|workflow`), `input_schema`/`input_defaults`, `granted_features`, `schedule_cron`, `enabled`. User-editable → `updated_at` optimistic locking. Runs under its OWN auto-provisioned `AgentPrincipal` (`execution_principal_id`, synthetic agent id `task:<id>` — a persisted key deliberately NOT renamed), never the triggering user.
+- **AgentProcessRun** (`agent_process_runs`) — one execution of a definition (`running → completed|failed`), system-transitioned, unified across both target types. FK `process_definition_id`; partial-unique on (org, definition, idempotency_key).
+- **AgentTaskEventTrigger** (`agent_task_event_triggers`) — event entry into a definition (`event_pattern` + `{filterConditions, contextMapping, debounceMs, maxConcurrentInstances}`). Table and event ids still carry the retired `task` word ON PURPOSE: it collapses into the definition's `triggers` jsonb in Phase 2 of the triggered-process spec, and renaming it twice would cost two migrations.
 
 ## Lifecycle: run → disposition → effector
 
@@ -167,6 +185,10 @@ agents/<agent_id>/
 | `/eval-cases[/:id/approve][/export]`, `/eval-assertions` | CRUD | `eval.manage` / `eval.export` | Manage + export eval cases/assertions |
 | `/context-bundles` | GET | `context.read` | Inspect TDCR bundles |
 | `/guardrail-checks` | GET | `guardrail.read` | Inspect guardrail audit |
+| `/process-definitions`, `/process-definitions/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
+| `/process-definitions/:id/run` | POST | `processes.run` | Start a run — always async, `202 { processRunId }` |
+| `/process-definitions/:id/event-triggers[/:triggerId]` | CRUD | `processes.manage` | Event entries into a definition |
+| `/process-runs`, `/process-runs/:id` | GET | `processes.view` | Unified run ledger across agent and workflow targets |
 | `/identity/well-known`, `/identity/token`, `/identity/agent/auth` | GET/POST | public / no-user-auth | OAuth discovery, client-credentials, ID-JAG |
 | `/identity/grants/:id/revoke` | POST | `identity.manage` | Revoke a delegation grant |
 
@@ -174,15 +196,17 @@ Every route file MUST export `openApi`. Custom write routes MUST wire the mutati
 
 ## ACL Features (`acl.ts`)
 
-`agents.view`, `agents.run`, `proposals.view`, `proposals.dispose`, `trace.view`, `trace.correct`, `eval.manage`, `eval.export`, `guardrail.read`, `guardrail.manage`, `context.read`, `identity.read`, `identity.manage`, `identity.tokens` (all prefixed `agent_orchestrator.`).
+`agents.view`, `agents.run`, `agents.manage`, `proposals.view`, `proposals.dispose`, `trace.view`, `trace.correct`, `eval.manage`, `eval.run`, `eval.export`, `guardrail.read`, `guardrail.manage`, `context.read`, `identity.read`, `identity.manage`, `identity.tokens`, `processes.view`, `processes.manage`, `processes.run`, `web_search`, `web_fetch` (all prefixed `agent_orchestrator.`).
+
+`processes.view` is ONE feature covering both the projection list and the definitions list — the retired `tasks.view` merged into it rather than adding a fourth id, so definition authors now transitively inherit its `dependsOn: proposals.view`. That privilege change is deliberate and recorded in the spec.
 
 ## Events (`events.ts`)
 
-`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered` (all prefixed `agent_orchestrator.`). Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
+`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast), `task_event_trigger.*` (all prefixed `agent_orchestrator.`). Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
 
 ## Backend Cockpit (`backend/`)
 
-`overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
+`overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `processes` + `processes/:id` (running-process projection), `processes/definitions` + `processes/definitions/:id` (definition authoring), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden), `agentic-tasks` (nav-hidden bridge redirect). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
 
 ### Operator tags + registry filters
 
