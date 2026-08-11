@@ -36,6 +36,24 @@ const IN_WINDOW_ROW_CAP = 1000
 const OFFERED_CHANGE_TYPES = ['create', 'update']
 const DEFAULT_PROGRESSIVE_MAX_GAP_DAYS = 7
 
+/**
+ * Page-wide history prefetch for the products list.
+ *
+ * Keyed `productId|priceKindId|currencyCode` — the products-list path resolves product-scoped, so
+ * that triple is the whole scope. Built with the same `findWithDecryption` reads the per-scope path
+ * uses, so nothing here bypasses the decryption contract or reaches for raw SQL.
+ */
+export type OmnibusHistoryPrefetch = {
+  baseline: Map<string, OmnibusHistoryRow | null>
+  inWindow: Map<string, OmnibusHistoryRow[]>
+  truncated: Set<string>
+}
+
+export type OmnibusPrefetchRequest = {
+  ctx: OmnibusResolutionContext
+  presentedPriceEntry: OmnibusHistoryRow | null
+}
+
 export interface BackfillChannelResult {
   inserted: number
   skipped: number
@@ -53,7 +71,12 @@ export interface CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     presentedPriceEntry: OmnibusHistoryRow | null,
     priceKindIsPromotion: boolean,
+    prefetch?: OmnibusHistoryPrefetch,
   ): Promise<OmnibusBlock | null>
+  prefetchHistoryForProducts(
+    em: EntityManager,
+    requests: OmnibusPrefetchRequest[],
+  ): Promise<OmnibusHistoryPrefetch>
   resolvePresentedEntryForPrice(
     em: EntityManager,
     scope: { tenantId: string; organizationId: string },
@@ -117,6 +140,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     config: OmnibusConfig,
     presentedPriceEntry: OmnibusHistoryRow | null,
+    prefetch?: OmnibusHistoryPrefetch,
   ): Promise<OmnibusLowestPriceResult> {
     const configuredLookback = config.lookbackDays ?? OMNIBUS_DEFAULT_LOOKBACK_DAYS
     const configuredAxis = config.minimizationAxis ?? 'gross'
@@ -189,8 +213,23 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const cached = await this.readCache(cacheKey)
     if (cached) return cached
 
-    const baseline = await this.fetchBaseline(em, ctx, windowStart)
-    const { rows: inWindow, truncated } = await this.fetchInWindow(em, ctx, windowStart, windowEnd, axis)
+    // A prefetched page serves both reads from memory; anything the batch could not cover falls
+    // back to the per-scope query, so the result is identical either way.
+    const prefetchKey = prefetch ? buildPrefetchKey(ctx) : null
+    const prefetched = prefetchKey && prefetch?.inWindow.has(prefetchKey) ? prefetch : null
+
+    const baseline = prefetched
+      ? (prefetched.baseline.get(prefetchKey!) ?? (await this.fetchBaseline(em, ctx, windowStart)))
+      : await this.fetchBaseline(em, ctx, windowStart)
+    const { rows: inWindow, truncated } = prefetched
+      ? {
+          rows: (prefetched.inWindow.get(prefetchKey!) ?? []).filter((row) => {
+            const at = new Date(row.recordedAt)
+            return at > windowStart && at <= windowEnd
+          }),
+          truncated: prefetched.truncated.has(prefetchKey!),
+        }
+      : await this.fetchInWindow(em, ctx, windowStart, windowEnd, axis)
     if (truncated) {
       // The minimum itself survives the cap because the scan is ordered by the axis, but the
       // window is no longer fully represented, so `coverageStartAt` and `previousRow` are
@@ -258,6 +297,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     presentedPriceEntry: OmnibusHistoryRow | null,
     priceKindIsPromotion: boolean,
+    prefetch?: OmnibusHistoryPrefetch,
   ): Promise<OmnibusBlock | null> {
     let config: OmnibusConfig
     try {
@@ -279,7 +319,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     let result: OmnibusLowestPriceResult
     try {
-      result = await this.computeLowestPrice(em, ctx, config, presentedPriceEntry)
+      result = await this.computeLowestPrice(em, ctx, config, presentedPriceEntry, prefetch)
     } catch (err) {
       // Price values stay out of the error log on purpose (GDPR caution).
       logger.error('Omnibus resolution failed', {
@@ -376,6 +416,141 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
         variantId: ctx.variantId,
       }),
     })
+  }
+
+  /**
+   * Two queries for a whole products page instead of two per row.
+   *
+   * The windows differ per product — each has its own anchor and its own new-arrival lookback — so
+   * the batch fetches the union window and each product filters its own slice out in memory. The
+   * baseline read is capped, and `computeLowestPrice` falls back to a per-scope query for any
+   * product the cap did not reach, which keeps the result identical to the unbatched path.
+   */
+  async prefetchHistoryForProducts(
+    em: EntityManager,
+    requests: OmnibusPrefetchRequest[],
+  ): Promise<OmnibusHistoryPrefetch> {
+    const empty: OmnibusHistoryPrefetch = { baseline: new Map(), inWindow: new Map(), truncated: new Set() }
+    if (!requests.length) return empty
+
+    const config = await this.getConfig({
+      tenantId: requests[0]!.ctx.tenantId,
+      organizationId: requests[0]!.ctx.organizationId,
+    })
+    if (!config.enabled) return empty
+
+    const scoped = requests
+      .map((request) => {
+        const window = this.resolveWindowFor(request.ctx, config, request.presentedPriceEntry)
+        return window ? { ...request, ...window, key: buildPrefetchKey(request.ctx) } : null
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    if (!scoped.length) return empty
+
+    const { tenantId, organizationId } = requests[0]!.ctx
+    const scope = { tenantId, organizationId }
+    const productIds = Array.from(new Set(scoped.map((entry) => entry.ctx.productId).filter(Boolean) as string[]))
+    const priceKindIds = Array.from(new Set(scoped.map((entry) => entry.ctx.priceKindId)))
+    const currencyCodes = Array.from(new Set(scoped.map((entry) => entry.ctx.currencyCode)))
+    const channelIds = Array.from(new Set(scoped.map((entry) => entry.ctx.channelId).filter(Boolean) as string[]))
+    if (!productIds.length) return empty
+
+    const unionStart = new Date(Math.min(...scoped.map((entry) => entry.windowStart.getTime())))
+    const unionEnd = new Date(Math.max(...scoped.map((entry) => entry.windowEnd.getTime())))
+    const maxStart = new Date(Math.max(...scoped.map((entry) => entry.windowStart.getTime())))
+
+    const baseFilters: Record<string, unknown> = {
+      tenantId: { $eq: tenantId },
+      organizationId: { $eq: organizationId },
+      productId: { $in: productIds },
+      priceKindId: { $in: priceKindIds },
+      currencyCode: { $in: currencyCodes },
+      changeType: { $in: OFFERED_CHANGE_TYPES },
+    }
+    if (channelIds.length) baseFilters.channelId = { $in: channelIds }
+
+    const pageCap = IN_WINDOW_ROW_CAP * Math.max(1, productIds.length)
+    const [inWindowRows, baselineRows] = await Promise.all([
+      findWithDecryption(
+        em,
+        CatalogPriceHistoryEntry,
+        { ...baseFilters, recordedAt: { $gt: unionStart, $lte: unionEnd } },
+        { orderBy: [{ recordedAt: 'DESC' }, { id: 'DESC' }], limit: pageCap },
+        scope,
+      ),
+      findWithDecryption(
+        em,
+        CatalogPriceHistoryEntry,
+        { ...baseFilters, recordedAt: { $lte: maxStart } },
+        { orderBy: [{ recordedAt: 'DESC' }, { id: 'DESC' }], limit: pageCap },
+        scope,
+      ),
+    ])
+
+    const inWindowByKey = new Map<string, OmnibusHistoryRow[]>()
+    for (const raw of inWindowRows) {
+      const key = buildPrefetchKeyFromEntry(raw)
+      const bucket = inWindowByKey.get(key) ?? []
+      bucket.push(mapRow(raw))
+      inWindowByKey.set(key, bucket)
+    }
+    // Rows arrive newest-first, so the first hit per key at or before a given start is its baseline.
+    const baselineCandidates = new Map<string, OmnibusHistoryRow[]>()
+    for (const raw of baselineRows) {
+      const key = buildPrefetchKeyFromEntry(raw)
+      const bucket = baselineCandidates.get(key) ?? []
+      bucket.push(mapRow(raw))
+      baselineCandidates.set(key, bucket)
+    }
+
+    const result: OmnibusHistoryPrefetch = { baseline: new Map(), inWindow: new Map(), truncated: new Set() }
+    for (const entry of scoped) {
+      const rows = (inWindowByKey.get(entry.key) ?? []).filter((row) => {
+        const at = new Date(row.recordedAt)
+        return at > entry.windowStart && at <= entry.windowEnd
+      })
+      result.inWindow.set(entry.key, rows)
+      if (rows.length >= IN_WINDOW_ROW_CAP) result.truncated.add(entry.key)
+
+      const candidate = (baselineCandidates.get(entry.key) ?? []).find(
+        (row) => new Date(row.recordedAt) <= entry.windowStart,
+      )
+      // Absent means "the cap did not reach it", not "there is none" — leaving the key unset makes
+      // computeLowestPrice fall back to its own query rather than silently treating it as missing.
+      if (candidate) result.baseline.set(entry.key, candidate)
+    }
+    return result
+  }
+
+  /**
+   * The window this ctx would resolve to, or null when a derogation or a gate would short-circuit
+   * before the standard window is used. Kept beside `computeLowestPrice` so both read the same rules.
+   */
+  private resolveWindowFor(
+    ctx: OmnibusResolutionContext,
+    config: OmnibusConfig,
+    presentedPriceEntry: OmnibusHistoryRow | null,
+  ): { windowStart: Date; windowEnd: Date } | null {
+    if (!ctx.productId || ctx.variantId || ctx.offerId) return null
+    const enabledCountryCodes = config.enabledCountryCodes ?? []
+    if (!enabledCountryCodes.length) return null
+    const channelConfig = ctx.channelId ? config.channels?.[ctx.channelId] : undefined
+    if (ctx.channelId != null) {
+      const countryCode = channelConfig?.countryCode ?? null
+      if (countryCode == null || !enabledCountryCodes.includes(countryCode)) return null
+    } else if (ctx.isStorefront === true || (config.noChannelMode ?? 'best_effort') === 'require_channel') {
+      return null
+    }
+    // A derogation takes its own path and its own reads; leave those to the per-scope resolver.
+    if (ctx.omnibusExempt === true && (channelConfig?.perishableGoodsRule ?? 'standard') !== 'standard') return null
+    if (presentedPriceEntry?.offerId) return null
+
+    const lookbackDays = channelConfig?.lookbackDays ?? config.lookbackDays ?? OMNIBUS_DEFAULT_LOOKBACK_DAYS
+    const newArrival = this.resolveNewArrivalAdjustment(channelConfig, ctx, lookbackDays)
+    const effectiveLookbackDays = newArrival?.lookbackDays ?? lookbackDays
+    const anchor = presentedPriceEntry?.startsAt ? new Date(presentedPriceEntry.startsAt) : null
+    const windowEnd = anchor ?? new Date()
+    return { windowStart: subtractDays(windowEnd, effectiveLookbackDays), windowEnd }
   }
 
   private async fetchBaseline(
@@ -667,6 +842,14 @@ function resolvePriceProductId(price: CatalogProductPrice): string | null {
 
 // Only `create` and `update` state a price that was actually on offer. Excluding `undo` loses
 // nothing: an undo restores a value that its own earlier create/update row already records.
+function buildPrefetchKey(ctx: OmnibusResolutionContext): string {
+  return `${ctx.productId ?? ''}|${ctx.priceKindId}|${ctx.currencyCode}`
+}
+
+function buildPrefetchKeyFromEntry(entry: CatalogPriceHistoryEntry): string {
+  return `${entry.productId}|${entry.priceKindId}|${entry.currencyCode}`
+}
+
 function isOfferedPrice(row: OmnibusHistoryRow): boolean {
   return row.changeType === 'create' || row.changeType === 'update'
 }

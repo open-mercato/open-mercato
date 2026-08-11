@@ -455,27 +455,41 @@ async function decorateProductsWithOmnibus(
       })),
     );
 
+    // One batched history read for the page; each row still resolves through the same service and
+    // falls back to its own query for anything the batch could not cover.
+    const resolutionContexts = targets.map((target) => ({
+      target,
+      ctx: {
+        tenantId,
+        organizationId,
+        productId: target.productId,
+        variantId: null,
+        offerId: null,
+        priceKindId: target.priceKindId,
+        currencyCode: target.currencyCode,
+        channelId,
+        isStorefront: false,
+        firstListedAt: toOptionalDate(target.item.first_listed_at),
+        omnibusExempt: target.item.omnibus_exempt === true ? true : null,
+      } satisfies OmnibusResolutionContext,
+    }));
+    const prefetch = await omnibusService.prefetchHistoryForProducts(
+      em,
+      resolutionContexts.map(({ target, ctx }) => ({
+        ctx,
+        presentedPriceEntry: presentedByProduct.get(target.productId)?.presentedEntry ?? null,
+      })),
+    );
+
     const results = await Promise.all(
-      targets.map(async (target) => {
-        const resolutionCtx: OmnibusResolutionContext = {
-          tenantId,
-          organizationId,
-          productId: target.productId,
-          variantId: null,
-          offerId: null,
-          priceKindId: target.priceKindId,
-          currencyCode: target.currencyCode,
-          channelId,
-          isStorefront: false,
-          firstListedAt: toOptionalDate(target.item.first_listed_at),
-          omnibusExempt: target.item.omnibus_exempt === true ? true : null,
-        };
+      resolutionContexts.map(async ({ target, ctx: resolutionCtx }) => {
         const presented = presentedByProduct.get(target.productId);
         const block = await omnibusService.resolveOmnibusBlock(
           em,
           resolutionCtx,
           presented?.presentedEntry ?? null,
           presented?.priceKindIsPromotion ?? false,
+          prefetch,
         );
         return { item: target.item, block };
       }),

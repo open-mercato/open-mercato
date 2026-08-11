@@ -1064,3 +1064,114 @@ describe('DefaultCatalogOmnibusService — in-window row cap', () => {
     expect(block?.applicabilityReason).toBe('insufficient_history')
   })
 })
+
+// Review finding 4. The batch exists to cut queries, so the thing worth pinning is that it does
+// not change the answer — and that anything it cannot cover still falls back to a real query.
+describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
+  const productA = { ...baseCtx, productId: 'product-a' }
+  const productB = { ...baseCtx, productId: 'product-b' }
+
+  // Relative to now: the prefetch filters each product's slice against its real window, so fixed
+  // calendar dates would fall outside it and the rows would be correctly discarded.
+  const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  const rowFor = (productId: string, gross: string, recordedAt: string, id: string) => ({
+    ...row({ id, recordedAt, gross }),
+    productId,
+    priceKindId: 'kind-1',
+    currencyCode: 'PLN',
+  })
+  const IN_WINDOW_AT = daysAgo(5)
+  const BASELINE_AT = daysAgo(40)
+
+  it('issues two queries for a page instead of two per product', async () => {
+    const { service } = makeService(euConfig)
+    findMock.mockResolvedValue([])
+
+    await service.prefetchHistoryForProducts(em, [
+      { ctx: productA, presentedPriceEntry: null },
+      { ctx: productB, presentedPriceEntry: null },
+    ])
+
+    expect(findMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives each product only the rows from its own scope', async () => {
+    const { service } = makeService(euConfig)
+    findMock
+      .mockResolvedValueOnce([
+        rowFor('product-a', '90', IN_WINDOW_AT, 'a-in'),
+        rowFor('product-b', '70', IN_WINDOW_AT, 'b-in'),
+      ])
+      .mockResolvedValueOnce([
+        rowFor('product-a', '100', BASELINE_AT, 'a-base'),
+        rowFor('product-b', '200', BASELINE_AT, 'b-base'),
+      ])
+
+    const prefetch = await service.prefetchHistoryForProducts(em, [
+      { ctx: productA, presentedPriceEntry: null },
+      { ctx: productB, presentedPriceEntry: null },
+    ])
+
+    expect(prefetch.inWindow.get('product-a|kind-1|PLN')?.map((r) => r.id)).toEqual(['a-in'])
+    expect(prefetch.inWindow.get('product-b|kind-1|PLN')?.map((r) => r.id)).toEqual(['b-in'])
+    expect(prefetch.baseline.get('product-a|kind-1|PLN')?.unitPriceGross).toBe('100')
+    expect(prefetch.baseline.get('product-b|kind-1|PLN')?.unitPriceGross).toBe('200')
+  })
+
+  it('resolves to the same block with and without the prefetch', async () => {
+    const inWindow = [rowFor('product-a', '90', IN_WINDOW_AT, 'a-in')]
+    const baseline = [rowFor('product-a', '100', BASELINE_AT, 'a-base')]
+
+    const direct = makeService(euConfig)
+    findMock.mockResolvedValueOnce(baseline).mockResolvedValueOnce(inWindow)
+    const withoutPrefetch = await direct.service.resolveOmnibusBlock(em, productA, null, false)
+
+    const batched = makeService(euConfig)
+    findMock.mockResolvedValueOnce(inWindow).mockResolvedValueOnce(baseline)
+    const prefetch = await batched.service.prefetchHistoryForProducts(em, [
+      { ctx: productA, presentedPriceEntry: null },
+    ])
+    const withPrefetch = await batched.service.resolveOmnibusBlock(em, productA, null, false, prefetch)
+
+    expect(withPrefetch?.lowestPriceGross).toBe(withoutPrefetch?.lowestPriceGross)
+    expect(withPrefetch?.applicabilityReason).toBe(withoutPrefetch?.applicabilityReason)
+    expect(withPrefetch?.previousPriceGross).toBe(withoutPrefetch?.previousPriceGross)
+  })
+
+  it('falls back to a per-scope query for a product the batch did not cover', async () => {
+    const { service } = makeService(euConfig)
+    // Empty batch: no key present, so the resolver must not treat that as "no history".
+    findMock.mockResolvedValue([])
+    const prefetch = await service.prefetchHistoryForProducts(em, [{ ctx: productA, presentedPriceEntry: null }])
+    findMock.mockReset()
+    findMock
+      .mockResolvedValueOnce([rowFor('product-c', '100', BASELINE_AT, 'c-base')])
+      .mockResolvedValueOnce([])
+
+    const block = await service.resolveOmnibusBlock(
+      em,
+      { ...baseCtx, productId: 'product-c' },
+      null,
+      false,
+      prefetch,
+    )
+
+    expect(findMock).toHaveBeenCalled()
+    expect(block?.lowestPriceGross).toBe('100')
+  })
+
+  it('skips products whose scope takes a derogation path', async () => {
+    const { service } = makeService({
+      ...euConfig,
+      channels: { 'ch-pl': { countryCode: 'PL', perishableGoodsRule: 'last_price' } },
+    })
+    findMock.mockResolvedValue([])
+
+    const prefetch = await service.prefetchHistoryForProducts(em, [
+      { ctx: { ...productA, omnibusExempt: true }, presentedPriceEntry: null },
+    ])
+
+    // Left out of the batch on purpose — the perishable branch does its own bounded read.
+    expect(prefetch.inWindow.has('product-a|kind-1|PLN')).toBe(false)
+  })
+})
