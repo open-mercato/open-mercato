@@ -76,7 +76,9 @@ interceptor rejection carrying an **integer status in 400–599**. The bound is 
 | App catch-all (`apps/mercato/src/app/api/[...slug]/route.ts`) | ❌ | Keeps its narrow tenant-guard mapping; it is not a general error handler. |
 
 Adoption is pinned by `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`: every core route that calls
-the command bus and catches its own failures must consult the mapper, and the exemption lists must stay free of stale entries.
+the command bus and catches its own failures must consult the mapper, the exemption list must stay free of stale entries, and
+every exemption must still hold structurally — the guard re-derives "the bus call sits outside every `try/catch`"
+from the AST, so a route that later grows one drops out of the exemption and has to adopt the mapper.
 
 ## Non-goals
 
@@ -153,6 +155,6 @@ instead of a generic 500. Omitting `status` keeps the historical behaviour.
 | Bus forwarding | `packages/shared/src/lib/commands/__tests__/command-bus.test.ts` | A registered interceptor blocking a real `commandBus.execute` — status and derived body forwarded, explicit body forwarded verbatim, no status leaves both undefined, and the command never executes. |
 | CRUD transport | `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts` | A real `makeCrudRoute` POST returning 500 (no status), 422 (status), the explicit body, and 500 again for an out-of-range status. |
 | Undo transport | `packages/core/src/modules/audit_logs/api/__tests__/undo.route.test.ts` | 409 with the message, 422 with an explicit body, generic 400 without a status, generic 400 for an unrelated failure. |
-| Direct-`execute` adoption (#5097) | `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts` | Static guard: every core command-bus route that catches its own failures consults the mapper; exemption lists carry no stale entries. |
+| Direct-`execute` adoption (#5097) | `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts` | Static guard: every core command-bus route that catches its own failures consults the mapper; the exemption list carries no stale entries and every exemption is re-derived from the AST. |
 | Direct-`execute` behavior (#5097) | `staff/api/leave-requests/accept`, `customers/api/todos`, `directory/api/organization-branding`, `feature_toggles/api/overrides` route tests | Per response shape: 422 with the explicit body, and the route's historical generic answer (400 / 500, adapter headers preserved) for a statusless rejection. |
 | Module-level mappers (#5097) | `packages/checkout/src/modules/checkout/api/__tests__/helpers.error-mapping.test.ts`, `packages/enterprise/src/modules/security/api/__tests__/error-mapping.interceptor.test.ts` | Status-carrying rejection, message-derived body, statusless rejection keeping the generic 500, and `CrudHttpError` still mapped first. |

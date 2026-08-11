@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import * as ts from 'typescript'
 
 /**
  * Command-interceptor HTTP-status coverage guard (#5097).
@@ -14,6 +15,11 @@ import { join, relative, sep } from 'node:path'
  * This test pins the invariant: every core route that calls the command bus and
  * maps its own errors MUST consult the mapper. A new route shipped without the
  * branch fails here instead of quietly answering with the wrong status.
+ *
+ * Scope is this package, per the convention of the other structural guards here.
+ * The checkout and enterprise-security routes funnel their errors through one
+ * module-level mapper each, and those mappers carry their own unit tests
+ * (`helpers.error-mapping.test.ts`, `error-mapping.interceptor.test.ts`).
  */
 
 const MAPPER = 'getCommandInterceptorHttpRejection'
@@ -27,6 +33,10 @@ const modulesRoot = join(__dirname, '..', 'modules')
  * with the framework's unhandled-error response today, exactly as before this
  * change — bringing them into the contract means giving them error handling
  * first, which is a behavior change of its own.
+ *
+ * The last test below re-derives that property from the AST, so a route that
+ * later grows a `try/catch` around its bus call drops out of the exemption and
+ * has to adopt the mapper.
  */
 const ROUTES_WITHOUT_OWN_ERROR_HANDLING = [
   'communication_channels/api/delete/channels/[id]/route.ts',
@@ -43,10 +53,31 @@ const ROUTES_WITHOUT_OWN_ERROR_HANDLING = [
   'messages/api/route.ts',
 ]
 
-/** Routes that reach the command bus only through `makeCrudRoute`'s `handleError`. */
-const ROUTES_HANDLED_BY_CRUD_FACTORY = [
-  'dictionaries/api/[dictionaryId]/entries/route.ts',
-]
+function countEnclosingCatches(source: string, relativePath: string): number[] {
+  const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const perCall: number[] = []
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const access = node.expression
+      const isBusCall = access.expression.getText(sourceFile).endsWith('commandBus')
+        && ['execute', 'undo', 'redo'].includes(access.name.text)
+      if (isBusCall) {
+        let enclosing = 0
+        let parent: ts.Node | undefined = node.parent
+        while (parent) {
+          if (ts.isTryStatement(parent) && parent.catchClause) enclosing += 1
+          parent = parent.parent
+        }
+        perCall.push(enclosing)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  return perCall
+}
 
 function collectRouteFiles(dir: string): string[] {
   const collected: string[] = []
@@ -71,7 +102,7 @@ describe('command interceptor HTTP status coverage (core routes)', () => {
   })
 
   it('maps interceptor rejections on every route that catches its own command-bus failures', () => {
-    const exempt = new Set([...ROUTES_WITHOUT_OWN_ERROR_HANDLING, ...ROUTES_HANDLED_BY_CRUD_FACTORY])
+    const exempt = new Set(ROUTES_WITHOUT_OWN_ERROR_HANDLING)
     const missing = commandBusRoutes
       .filter(({ rel }) => !exempt.has(rel))
       .filter(({ source }) => !source.includes(MAPPER))
@@ -80,11 +111,19 @@ describe('command interceptor HTTP status coverage (core routes)', () => {
     expect(missing).toEqual([])
   })
 
-  it('keeps the exemption lists free of stale entries', () => {
+  it('keeps the exemption list free of stale entries', () => {
     const known = new Set(commandBusRoutes.map(({ rel }) => rel))
-    const stale = [...ROUTES_WITHOUT_OWN_ERROR_HANDLING, ...ROUTES_HANDLED_BY_CRUD_FACTORY]
-      .filter((rel) => !known.has(rel))
+    const stale = ROUTES_WITHOUT_OWN_ERROR_HANDLING.filter((rel) => !known.has(rel))
 
     expect(stale).toEqual([])
+  })
+
+  it('exempts only routes whose command-bus call sits outside every try/catch', () => {
+    const wronglyExempt = commandBusRoutes
+      .filter(({ rel }) => ROUTES_WITHOUT_OWN_ERROR_HANDLING.includes(rel))
+      .filter(({ rel, source }) => countEnclosingCatches(source, rel).some((count) => count > 0))
+      .map(({ rel }) => rel)
+
+    expect(wronglyExempt).toEqual([])
   })
 })

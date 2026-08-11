@@ -20,10 +20,10 @@ own `catch`, maps `isCrudHttpError`, and falls through to a generic answer, disc
 interceptor set (`packages/core/src/modules/sales/api/quotes/accept/route.ts` was the issue's
 representative case).
 
-Inventory of `route.ts` files that reach the command bus: 77 total → 1 already adopted, 1 routed through
-`makeCrudRoute`'s `handleError`, 12 with no `try/catch` around the bus call, leaving **63 files** that
-own their error handling. Of those, 12 delegate to a module-level error mapper, so the branch belongs in
-the mapper rather than in each route.
+Inventory of the 77 `route.ts` files that mention the bus: 1 never calls it, 1 already adopted the mapper
+(the undo route), 12 call it outside any `try/catch`, leaving **63 files** that own their error handling.
+Of those, 12 delegate to a module-level error mapper, so the branch belongs in the mapper rather than in
+each route — 51 route edits + 5 mapper edits.
 
 ## Scope
 
@@ -73,6 +73,10 @@ answered, which is a behavior change of its own. They are pinned in
       branding, feature_toggles overrides, checkout mapper, all four security mappers
 - [x] Spec transport-coverage table and Non-goals updated; the migrated row is now ✅
 - [x] Full validation gate — 7/8 green locally; `yarn test` red only on unrelated flakes (see the PR body)
-- [ ] PR opened with the full label set and a summary comment
-- [ ] Self-review pass
+- [x] PR opened with the full label set and a summary comment — #5181
+- [x] Self-review pass — one real finding in the guard test fixed: the `dictionaries/…/entries` route was
+      wrongly exempted as "handled by the CRUD factory" when it owns its own `catch` (it *had* adopted the
+      mapper, so nothing was unmapped — but the false exemption would have hidden a future removal). The
+      exemption list is gone, and a new AST-based case re-derives "no enclosing `try/catch`" for every
+      remaining exemption, so a route that later grows one drops out and must adopt the mapper.
 - [ ] CI green on the PR head
