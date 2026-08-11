@@ -1,6 +1,18 @@
 import * as esbuild from 'esbuild'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'node:os'
 import { join, basename, resolve } from 'path'
 import { pathToFileURL } from 'node:url'
 
@@ -28,18 +40,21 @@ if (existsSync('src/lib/templates')) {
   console.log('Copied src/lib/templates/ → dist/templates/')
 }
 
-// Copy agentic source content to dist/ so generators can read it at runtime
+const agenticTargetDir = join('dist', 'agentic')
+const agenticStageDir = mkdtempSync(join(tmpdir(), 'create-mercato-app-agentic-'))
+
 if (existsSync('agentic')) {
-  rmSync('dist/agentic', { recursive: true, force: true })
-  cpSync('agentic', 'dist/agentic', { recursive: true })
-  console.log('Copied agentic/ → dist/agentic/')
+  cpSync('agentic', agenticStageDir, { recursive: true })
+} else {
+  mkdirSync(agenticStageDir, { recursive: true })
 }
+process.on('exit', () => rmSync(agenticStageDir, { recursive: true, force: true }))
 
 // Bundle the release-matched upstream instruction boundary used by standalone
 // apps when installed package/module context is not enough. Both files remain
 // read-only reference material in the generated app.
 const repositoryRoot = resolve('..', '..')
-const upstreamDir = join('dist', 'agentic', 'guides', 'upstream')
+const upstreamDir = join(agenticStageDir, 'guides', 'upstream')
 mkdirSync(upstreamDir, { recursive: true })
 const createAppVersion = JSON.parse(readFileSync('package.json', 'utf8')).version ?? null
 const upstreamManifest = { version: 1, generator: `create-mercato-app@${createAppVersion ?? 'unknown'}`, files: {} }
@@ -55,7 +70,7 @@ writeFileSync(join(upstreamDir, 'manifest.json'), `${JSON.stringify(upstreamMani
 // Package-level guides are intentionally not shipped: the routed conceptual guides and
 // generated module fact-sheets are the standalone sources of truth.
 const packagesDir = join('..') // packages/create-app/.. = packages/
-const guidesDestDir = join('dist', 'agentic', 'guides')
+const guidesDestDir = join(agenticStageDir, 'guides')
 mkdirSync(guidesDestDir, { recursive: true })
 
 // Clean stale per-module artifacts before regenerating so an incremental dist never
@@ -205,5 +220,28 @@ if (sources.length > 0) {
     '[module-facts] no readable package module sources were discovered; refusing to build an empty knowledge layer',
   )
 }
+
+const synchronizeDirectory = (sourceDir, targetDir) => {
+  mkdirSync(targetDir, { recursive: true })
+  cpSync(sourceDir, targetDir, { recursive: true, force: true })
+
+  const sourceEntries = new Set(readdirSync(sourceDir))
+  for (const targetEntry of readdirSync(targetDir)) {
+    const targetPath = join(targetDir, targetEntry)
+    if (!sourceEntries.has(targetEntry)) {
+      rmSync(targetPath, { recursive: true, force: true })
+      continue
+    }
+
+    const sourcePath = join(sourceDir, targetEntry)
+    if (statSync(sourcePath).isDirectory() && statSync(targetPath).isDirectory()) {
+      synchronizeDirectory(sourcePath, targetPath)
+    }
+  }
+}
+
+synchronizeDirectory(agenticStageDir, agenticTargetDir)
+rmSync(agenticStageDir, { recursive: true, force: true })
+console.log('Published agentic/ → dist/agentic/')
 
 console.log('Build complete: dist/index.js')
