@@ -184,7 +184,9 @@ if (sources.length > 0) {
     `Generated ${REFERENCE_MODULE_IDS.length} local reference projection(s) → dist/agentic/guides/reference-modules/`,
   )
 } else {
-  console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
+  throw new Error(
+    '[module-facts] no readable package module sources were discovered; refusing to build an empty knowledge layer',
+  )
 }
 
 console.log('Build complete: dist/index.js')

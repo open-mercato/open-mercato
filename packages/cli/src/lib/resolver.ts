@@ -489,6 +489,11 @@ function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; m
 
   const corePkgPath = path.join(nodeModulesRoot, 'node_modules', '@open-mercato', 'core')
 
+  const workspaceCoreModules = path.join(nodeModulesRoot, 'packages', 'core', 'src', 'modules')
+  if (fs.existsSync(workspaceCoreModules)) {
+    return { isMonorepo: true, monorepoRoot: nodeModulesRoot, nodeModulesRoot }
+  }
+
   try {
     const stat = fs.lstatSync(corePkgPath)
     if (stat.isSymbolicLink()) {

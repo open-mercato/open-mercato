@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,7 +27,23 @@ let buildComplete = false
 
 function ensureBuilt() {
   if (buildComplete) return
-  execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
+  try {
+    execFileSync(process.execPath, ['build.mjs'], {
+      cwd: pkgRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch (error) {
+    const failed = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
+    const stdout = failed.stdout?.toString().trim()
+    const stderr = failed.stderr?.toString().trim()
+    throw new Error([
+      'create-app build failed while generating module facts',
+      stdout ? `stdout:\n${stdout}` : null,
+      stderr ? `stderr:\n${stderr}` : null,
+      !stdout && !stderr ? failed.message : null,
+    ].filter(Boolean).join('\n'))
+  }
   buildComplete = true
 }
 
