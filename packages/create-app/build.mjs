@@ -92,7 +92,7 @@ for (const pkg of readdirSync(packagesDir)) {
   }
 }
 if (guidesFound > 0) {
-  console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
+  console.log(`Discovered ${guidesFound} standalone guides → dist/agentic.staging/guides/`)
 }
 
 // Generate per-module fact-sheets (Layer 2) for every package-provided module via
