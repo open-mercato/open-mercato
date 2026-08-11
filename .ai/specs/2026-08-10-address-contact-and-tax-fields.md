@@ -14,14 +14,14 @@
 **Scope:**
 - `AddressValue` contact fields + opt-in `AddressView` contact block
 - Tax-id typing (`taxIdType`) and EU-VAT normalization on write
-- Read-only snapshot view for locked documents
+- Locked documents render a disabled editor instead of an editable one
 - Type-aware indexing/display policy for tax ids
 - `name` → `label` rename on address entities (deprecation protocol)
 
 **Concerns:**
 - Two new frozen exports (`formatAddressContactPairs`, `AddressContactLabels`) per `BACKWARD_COMPATIBILITY.md` — this spec is the reference its §"Spec requirement" demands.
 - Tax ids are PII-adjacent and already treated as sensitive by search (`customers/search.ts:713`, `:805`).
-- `AddressesSection.tsx` carries `// @ts-nocheck` (13 pre-existing type errors) — everything added there is unchecked by CI until that is lifted.
+- `AddressesSection.tsx` carries `// @ts-nocheck` — the file is invisible to `tsc`, so everything added there is unchecked by CI until the directive is lifted.
 
 ## Overview
 
@@ -39,11 +39,11 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 > | [Stripe](https://docs.stripe.com/billing/customer/tax-ids) | — | — | `tax_id` value + `type` enum, held as a **list** on the customer and rendered onto invoices |
 > | **Open Mercato** | **no** | **no** | **no** |
 >
-> **Adopted:** a phone on the address (universal); a tax identifier carrying an explicit type (Stripe). Stripe is also the precedent for Q6 — the customer owns the identifier, the document freezes the value it was issued under.
+> **Adopted:** a phone on the address (universal); a tax identifier carrying an explicit type (Stripe). Stripe is also the precedent for the ownership split — the customer owns the identifier, the document freezes the value it was issued under.
 >
-> **Rejected:** an email on the address — two of the three commerce platforms deliberately keep it on the order, and an order-level email is the better home (see Q2); splicing contact details into the postal address lines — nobody does this, and it corrupts every one-line summary built from those lines.
+> **Rejected:** an email on the address — two of the three commerce platforms deliberately keep it on the order, and an order-level email is the better home; splicing contact details into the postal address lines — nobody does this, and it corrupts every one-line summary built from those lines.
 
-**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (byte-identical twin), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, sales i18n (5 locales), Phase 3 only: `customers` address entities + migration.
+**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, `packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx` (second `normalizeAddressDraft` on the document create/edit path — Phase 0), sales i18n (5 locales), Phase 3 only: `customers` address entities + migration.
 
 **Not touched:** `sales_document_addresses` schema (explicitly rejected — see Alternatives), `addressSnapshotSchema` (stays free-form), search indexing config outside the tax-id rules, per-country address formats, VIES calls, address filterability (blocked by encryption at rest), `buildingNumber`/`flatNumber` logic (house numbers are conventionally written into the street line, and the field is near-empty in practice — see Appendix).
 
@@ -53,8 +53,8 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 2. **The fields cannot be shown.** On the sales side the document address snapshot is schemaless jsonb, so an integration posting `{ addressLine1, city, phone, taxId }` **does** get those keys persisted today — they simply have no read path, and render as if absent.
 3. **Contact details are per-address, not per-customer.** One customer has a home address, an office address and a warehouse, each with a different person to call. Holding one phone on the customer answers the wrong question.
 4. **A bare tax identifier is ambiguous.** `1234567890` may be a Polish NIP, an EU VAT number missing its country prefix, or a local tax number of a business that is not VAT-registered at all. Stripe treats these as *distinct types* (`pl_nip` vs `eu_vat`, examples `1234567890` vs `PL1234567890`) precisely because display, tax calculation and validation all diverge on the answer.
-5. **Locked documents render an editor.** Address snapshots render exclusively through `AddressEditor`, which takes no `disabled` prop. A deployment that locks document addresses (`order_address_editable_statuses = []`) shows an editable form over read-only data.
-6. **Unknown snapshot keys did not survive a save.** `normalizeAddressDraft` rebuilt the snapshot from the twelve fields the editor models, destroying every other key on the first manual save — silent data loss for exactly the keys this feature depends on. *(Fixed; see Phase 0.)*
+5. **Locked documents render an editable editor.** `AddressEditor` does accept a `disabled` prop (`customers/components/AddressEditor.tsx:82`, and its `ui` twin at `:97`), but neither snapshot call site passes it (`AddressesSection.tsx:1070`, `:1137`) — while every sibling control in that component is already locked (`:1057`, `:1082`, `:1113`, `:1132`) and a `lockedReason` banner renders above them at `:1018-1026`. A deployment that locks document addresses (`order_address_editable_statuses = []`) therefore presents a fully editable form over data the API will refuse to change.
+6. **Unknown snapshot keys do not survive a save.** `normalizeAddressDraft` rebuilds the snapshot from the twelve fields the editor models, destroying every other key on the first manual save — silent data loss for exactly the keys this feature depends on. Two independent copies of the helper do this: `AddressesSection.tsx:78-99` (document detail Addresses tab) and `SalesDocumentForm.tsx:438-459` (document create/edit form, reached from `:1446-1447`). Fixing one and not the other makes the loss depend on which screen the user saved from. *(Outstanding in this repository — Phase 0.)*
 
 ## Proposed Solution
 
@@ -67,46 +67,40 @@ Model the contact details as **optional fields on `AddressValue`**, rendered by 
 | Contact block outside `formatAddressLines` | `formatAddressString` joins lines with `", "` into picker labels and table cells; a tax id spliced into `"Baker Street 10, NW1 London"` is wrong in every one. A test pins postal-line purity. |
 | Labels-as-opt-in, caller-translated | The util module is deliberately i18n-free; callers have `useT()`. Also enables phone-without-tax-id, which is the common delivery-address case. |
 | Snapshot as carrier on the sales side, not typed columns | The snapshot is where the per-document value is frozen and where integrations already write. Typed columns would need a write path and a backfill to reach the same place. |
-| Tax identifier carries an explicit type | Follows Stripe; without it the value cannot be interpreted, validated or gated. Shape is Q3/Q4. |
+| Tax identifier carries an explicit type | Follows Stripe; without it the value cannot be interpreted, validated or gated. Shape is `{country}_{kind}` — see Design Decisions. |
 
 ### Alternatives Considered
 
 | Alternative | Why Rejected |
 |-------------|-------------|
-| Columns on `sales_document_addresses` | Wrong on two counts: the per-document frozen fact belongs on the snapshot, and that table is a document's *additional* address list, which most deployments never populate. |
+| Columns on `sales_document_addresses` | Wrong on two counts: the per-document frozen fact belongs on the snapshot, and that table holds a document's *additional* addresses — it is not where the primary shipping and billing addresses live, so columns there would not reach the addresses this feature is about. |
+| A new read-only render path for locked documents | Rejected as a standalone step. `AddressEditor` already accepts `disabled`, so `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137` — beside the `locked` value that already flows to every sibling control — delivers the stated outcome in two lines with no second rendering path to keep in step. A read-only `AddressView` summary would read better than greyed-out inputs and stays open as a later improvement; it is not a prerequisite for the contact block, which renders beside the editor either way. |
 | Splice contacts into `formatAddressLines` | Corrupts every one-line summary downstream — picker options, entry labels, table cells. |
 | Bare `taxId: string`, type added later | The identifier is uninterpretable without its type, and the field freezes as public surface on merge. |
-| `email` on the address | Two of three comparable platforms hold it on the order instead; see Q2. |
+| `email` on the address | Two of three comparable platforms hold it on the order instead; see Design Decisions. |
 | Hardcoded translated labels in the util | Breaks the module's i18n-free contract and forces all-or-nothing field display. |
 
-## Open Questions
+## Design Decisions Taken During Review
 
-*Scaffolding — to be resolved and removed before this spec is finalized.* **Q0 and Q3/Q4 block implementation past Phase 0**; the rest carry a recommendation and default to it if unchallenged.
+Every question raised while this spec was drafted is settled. They are recorded with their reasoning because each one constrains an implementation phase below.
 
-- **Q0 — one spec or two?** Does this bundle two independently deployable capabilities, contact-detail rendering and tax-id semantics? *Recommendation: one spec, phased.* Both freeze the same `AddressValue` surface, so splitting would commit to `taxId: string` in the first and regret it in the second. The phases below are independently shippable, which captures the split's benefit without the surface risk.
+- **Scope — one spec, phased.** Contact-detail rendering and tax-id semantics freeze the same `AddressValue` surface, so splitting them would commit to a bare `taxId: string` in the first spec and regret it in the second. The phases below are independently shippable, which is what a split would have bought.
 
-- **Q3/Q4 — the shape of `taxIdType`.** *Presented as a genuine fork; no recommendation.* This one is architectural and worth your call.
+- **`taxIdType` is Stripe-shaped `{country}_{kind}`, seeded `eu_vat`, `pl_nip`, `other`, widened one case at a time as they are observed.** A minimal `eu_vat | local | other` enum was considered and rejected: `local` cannot be interpreted without a constrained country, `country` stays unconstrained free text (see the deferred-work list below), and the display gate would then have nothing reliable to key on — so the ambiguity in Problem 4 would move rather than resolve. The larger seed set is a smaller commitment than it looks, because the backward-compatibility contract makes these enums additive-only; only the seed values freeze. It also makes the display gate implementable immediately.
 
-  | | **(a) Stripe-shaped `{country}_{kind}`** | **(b) Minimal `eu_vat \| local \| other`** |
-  |---|---|---|
-  | Seed values | `eu_vat`, `pl_nip`, `other`, widened as observed | the three, fixed |
-  | For | Matches the industry vocabulary; distinguishes `pl_nip` from `eu_vat`, which is the ambiguity in Problem 4; widens naturally one country at a time | Smallest surface to freeze; nothing speculative |
-  | Against | More public surface committed up front for cases not yet observed | `local` is uninterpretable without a country, and `country` is unconstrained free text (Q8, deferred) — so the ambiguity moves rather than resolves |
+- **Displaying a tax identifier is gated by type.** An EU VAT number is a public business identifier — VIES is an open lookup — and renders ungated; a local or personal tax number renders only behind the customer-PII feature the deployment already applies to `tax_id`. This is the split `customers/search.ts:713` (`excluded` for people) and `:805` (`hashOnly` for companies) already draws. Exact feature id settled in Phase 2 review.
 
-  *Note:* an earlier comment on PR #66 recommended (b). Reading Stripe's actual type table — where `pl_nip` and `eu_vat` are separate types with exactly the `1234567890` / `PL1234567890` examples — weakened that argument enough to withdraw the recommendation rather than defend it.
+- **`name` → `label` on address entities, under the deprecation protocol.** `name` is the address *label* ("Home", "Warehouse"); putting a recipient name beside it is a trap. Medusa makes the same split explicitly — `address_name` for the label, `first_name`/`last_name` for the person. Bridge both for ≥1 minor with an `UPGRADE_NOTES.md` entry; snapshot storage keys are untouched and the bridge maps them.
 
-- **Q7 — is displaying a tax identifier ACL-gated?** *Recommendation: type-aware, matching what search already does.* An EU VAT number is a public business identifier (VIES is an open lookup) and renders ungated; a local or personal tax number renders only behind the customer-PII feature the deployment already applies to `tax_id`. Exact feature id settled in Phase 2 review.
+- **One `recipientName`, not `firstName`/`lastName`.** Shopify and Medusa both split the person in two, which is better for salutation and sorting, but `AddressValue` has no person field at all today and a split can be layered additively later. A single field is also friendlier to sources that only ever supply a full name.
 
-- **Q9 — rename `name` to `label`.** `name` on address entities is the address *label* ("Home", "Warehouse"); putting a recipient name beside it is a trap. Medusa makes the same split explicitly — `address_name` for the label, `first_name`/`last_name` for the person. *Recommendation: rename under the deprecation protocol* (bridge both for ≥1 minor, `UPGRADE_NOTES.md` entry); snapshot storage keys are untouched and the bridge maps them.
+- **`email` is not added to `AddressValue`.** Shopify and Medusa keep email off the address and hold it on the order/customer; only commercetools carries it on the address. Two of three, plus the fact that a delivery email is a per-order rather than per-address fact, is enough not to freeze a contested field. Scope is `phone` + `taxId` + `taxIdType`.
 
-- **Q1 refinement — one `recipientName`, or `firstName`/`lastName`?** Shopify and Medusa both split the person into two fields. Splitting is better for salutation and sorting; a single field is friendlier to sources that only ever supply a full name. *Recommendation: single `recipientName` in Phase 3, since `AddressValue` has no person field at all today and splitting can be layered additively.*
+- **EU VAT is normalized to the ISO-2-prefixed form on write.** Stripe validates `eu_vat` against VIES and `gb_vat` against HMRC on exactly that form, so normalizing makes any future validation a pass-through.
 
-**Resolved on the evidence, no longer open:**
+- **The customer is the master of a tax identifier; the document freezes the value it was issued under.** This is Stripe's model — identifiers live on the customer as a list and are rendered onto invoice PDFs.
 
-- **Q2 — email is dropped from `AddressValue`.** Shopify and Medusa both keep email off the address and hold it on the order/customer; only commercetools carries it on the address. Two of three, plus the fact that a delivery email is a per-order rather than per-address fact, is enough to leave it out rather than freeze a contested field. Scope shrinks to `phone` + `taxId` + `taxIdType`.
-- **Q5** — normalize EU VAT to the ISO-2-prefixed form on write. Stripe validates `eu_vat` against VIES and `gb_vat` against HMRC on exactly that form, so normalizing makes any future validation a pass-through.
-- **Q6** — the customer is the master of a tax identifier; the document freezes the value it was issued under. This is Stripe's model (identifiers live on the customer as a list, and are rendered onto invoice PDFs).
-- **Q8** (`country` constraint — separate change), **Q10** (read-only snapshot view — Phase 1), **Q11** (no core backfill), **Q12** (the duplicate `addressFormat.tsx` copies — out of scope).
+**Deliberately deferred, not part of any phase here:** constraining `country` to ISO-3166-2 (load-bearing under OSS, but its own blast radius); collapsing the two `addressFormat.tsx` copies into one module; any core backfill of existing snapshots.
 
 ## User Stories / Use Cases
 
@@ -118,15 +112,15 @@ Model the contact details as **optional fields on `AddressValue`**, rendered by 
 ## Architecture
 
 Data flow (read): `writer → *_address_snapshot (jsonb, encrypted at rest per sales/encryption.ts) → document detail UI → AddressView contact block`.
-Data flow (write/edit): `AddressEditor draft → normalizeAddressDraft(draft, previousSnapshot) → snapshot` — keys the editor does not own are merged back rather than dropped (Phase 0).
+Data flow (write/edit), **after Phase 0**: `AddressEditor draft → normalizeAddressDraft(draft, previousSnapshot) → snapshot` — keys the editor does not own are merged back rather than dropped. Today the helper takes the draft alone and drops them, on both the document detail and the document form paths.
 
-No new commands, events, routes, or DI registrations. The snapshot rides the existing order/quote update payload. Cross-module surface: `customers` owns the util, `sales` consumes it, `ui` holds the byte-identical twin (kept in sync here; collapsing them is out of scope, Q12).
+No new commands, events, routes, or DI registrations. The snapshot rides the existing order/quote update payload. Cross-module surface: `customers` owns the util, `sales` consumes it, `ui` holds the near-identical twin (edited in parallel here; collapsing the two into one module is deferred).
 
 ## Data Models
 
 ### Address snapshot (informal contract — schema stays `z.record(z.string(), z.unknown())`)
 
-Documented well-known keys, all optional strings: the nine postal fields (unchanged), plus `phone`, `taxId`, `taxIdType` (shape per Q3/Q4), and in Phase 3 `recipientName`. Unknown keys MUST survive an editor round-trip (Phase 0's guarantee).
+Documented well-known keys, all optional strings: the nine postal fields (unchanged), plus `phone`, `taxId`, `taxIdType` (Stripe-shaped `{country}_{kind}`), and in Phase 3 `recipientName`. Unknown keys MUST survive an editor round-trip — a guarantee Phase 0 establishes and which does not hold today.
 
 ### `AddressValue` (type, frozen surface)
 
@@ -134,7 +128,7 @@ Adds optional `phone`, `taxId`, `taxIdType`, later `recipientName` — additive,
 
 ### `CustomerAddress` (Phase 3, additive migration)
 
-`recipient_name text NULL`, `phone text NULL`. Both declared in `customers` `defaultEncryptionMaps` with reads through `findWithDecryption`; if phone becomes equality-searchable it declares a sibling `hashField`. No tax-id column on `CustomerAddress` — customer-level tax id stays where it is (master on the customer entity), per Q6.
+`recipient_name text NULL`, `phone text NULL`. Both declared in `customers` `defaultEncryptionMaps` with reads through `findWithDecryption`; if phone becomes equality-searchable it declares a sibling `hashField`. No tax-id column on `CustomerAddress` — the customer entity stays master of the identifier.
 
 ## API Contracts
 
@@ -142,39 +136,44 @@ No new endpoints; no request/response shape changes. `addressSnapshotSchema` del
 
 ## Internationalization (i18n)
 
-`sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, `de`, `es`, `ko`. The corresponding `…addresses.email` key is removed in Phase 1 along with the field (Q2). Phase 3 adds `recipientName`.
+Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, `de`, `es`, `ko`. No existing key is removed. Phase 3 adds `recipientName`.
 
 ## UI/UX
 
 - Contact block under the shipping/billing tiles as `text-xs text-muted-foreground` label–value lines; self-hiding when the address carries nothing.
-- Phase 1 adds a **read-only snapshot view**: when the document is locked, render `AddressView` (postal + contact) instead of `AddressEditor`.
+- Phase 1 passes `disabled={locked}` to the two snapshot `AddressEditor`s, so a locked document stops presenting an editable form over data the API refuses to change.
 - DS rules apply: semantic tokens only, shared primitives, no new inline comments.
-- The UI phase MUST remove `// @ts-nocheck` from `AddressesSection.tsx` (13 pre-existing errors to fix) or, failing that, MUST NOT be accepted on eyeball-only review — the file is invisible to `tsc`.
+- Phase 1 MUST remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the type errors it hides. This is a precondition of the phase, not a preference: while the directive stands the file is invisible to `tsc`, so everything the phase adds there is unchecked by CI.
 
 ## Migration & Backward Compatibility
 
 - **Everything in Phases 0–2 is additive.** No DB migration; snapshots are schemaless. With no `contactLabels` supplied, `AddressView` output is byte-identical — pinned by test.
 - **New frozen exports**: `formatAddressContactPairs`, `AddressContactLabels` freeze on merge per `BACKWARD_COMPATIBILITY.md`; this spec is the required reference.
-- **`name` → `label` rename (Q9, Phase 4)** follows the deprecation protocol: add `label`, keep `name` as a deprecated bridge for ≥1 minor, `@deprecated` JSDoc with target removal version, `UPGRADE_NOTES.md` entry. Snapshot storage keys are untouched.
+- **`name` → `label` rename (Phase 4)** follows the deprecation protocol: add `label`, keep `name` as a deprecated bridge for ≥1 minor, `@deprecated` JSDoc with target removal version, `UPGRADE_NOTES.md` entry. Snapshot storage keys are untouched.
 - **Phase 3 migration** is additive nullable columns — deployable without downtime, safely re-runnable.
 - **No core backfill.** Existing snapshots keep whatever they carry; a writer that wants the fields on historical documents re-emits them.
 
 ## Implementation Plan
 
-### Phase 0 — snapshot key preservation *(shipped, PR #69)*
-`normalizeAddressDraft` merges back keys outside the twelve it owns; cleared address still normalizes to `null`.
+### Phase 0 — snapshot key preservation *(outstanding; first implementable step)*
+1. `normalizeAddressDraft` in `AddressesSection.tsx:78-99` takes the previous snapshot and merges back keys outside the twelve it owns; a cleared address still normalizes to `null`.
+2. The same for the second copy in `SalesDocumentForm.tsx:438-459`, used on the document create/edit path at `:1446-1447`. Both must land together — fixing one leaves the data loss reachable from the other screen.
+3. Round-trip tests on both save paths.
 
-### Phase 1 — contact fields, render, read-only view *(PR #66)*
+*Prior art: this fix exists on the Full Stack House fork as [fullstackhouse/open-mercato#69](https://github.com/fullstackhouse/open-mercato/pull/69), covering the `AddressesSection` copy only. It is not merged in this repository, and the `SalesDocumentForm` copy is not covered there.*
+
+### Phase 1 — contact fields and render
 1. `AddressValue` + `formatAddressContactPairs` + `AddressView` contact block, with postal-purity and self-hiding tests.
 2. Wire to the shipping/billing snapshot tiles.
-3. Add `taxIdType` to the type and the pair-formatter (pending the Q3/Q4 call).
-4. Remove `email` from the field set and from the five locale files (see Q2).
-5. Read-only snapshot view for locked documents.
-6. Lift `// @ts-nocheck` from `AddressesSection.tsx`.
+3. Add `taxIdType` to the type and the pair-formatter.
+4. Pass `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137`.
+5. Remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the errors it hides.
+
+*Prior art: a first cut of steps 1–2 exists on the fork as [fullstackhouse/open-mercato#66](https://github.com/fullstackhouse/open-mercato/pull/66), not merged in this repository.*
 
 ### Phase 2 — tax-id semantics
 1. `normalizeEuVatId()` util — ISO-2 prefix on write.
-2. Type-aware display gate per Q7; align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded.
+2. Type-aware display gate; align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded.
 
 ### Phase 3 — recipient name + customer address book *(separable)*
 1. `recipientName` on `AddressValue`/`AddressView`; `recipient_name`, `phone` columns on `CustomerAddress` with encryption-map entries.
@@ -185,9 +184,9 @@ No new endpoints; no request/response shape changes. `addressSnapshotSchema` del
 
 ## Integration Coverage
 
-Unit (`packages/core`, exists on branch): postal lines unchanged when contacts present (**the safety property**); per-field label gate; null-render preserved; snapshot round-trip keeps unowned keys.
+Unit (`packages/core`): postal lines unchanged when contacts present (**the safety property**); per-field label gate; null-render preserved; snapshot round-trip keeps unowned keys — asserted separately against **both** `normalizeAddressDraft` copies, since a single-path test passes while the other still drops keys.
 
-Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` — order created via API with a snapshot carrying `phone`/`taxId`; detail page renders both; editor save round-trips them; locked document shows the read-only view. Self-contained fixtures, no seeded data.
+Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` — order created via API with a snapshot carrying `phone`/`taxId`; detail page renders both; save round-trips them from the detail tab and from the document form; a locked document renders the address inputs in their disabled state. Self-contained fixtures, no seeded data.
 
 Phase 3: `TC-CRM-CRUDFORM-*` proves `recipient_name`/`phone` save-and-reload on customer address create + update.
 
@@ -199,7 +198,7 @@ Write operations are limited to the existing document-update path (Phase 0/1) an
 - **Scenario**: A personal (non-VAT) tax number renders in the document detail to a user who shouldn't see PII.
 - **Severity**: Medium
 - **Affected area**: sales document detail
-- **Mitigation**: type-aware gate (Q7) before anything beyond the locked read-only view ships; `local`/`other` behind the existing PII feature.
+- **Mitigation**: the type-aware gate ships with Phase 2, before any tax id renders to a non-privileged user; `pl_nip`/`other` sit behind the existing PII feature.
 - **Residual risk**: `eu_vat` renders ungated by design — it is a public identifier (VIES).
 
 #### Editor merge-back resurrects a stale key
@@ -209,12 +208,12 @@ Write operations are limited to the existing document-update path (Phase 0/1) an
 - **Mitigation**: document-level optimistic locking already rejects the stale save (409).
 - **Residual risk**: none beyond existing conflict UX.
 
-#### Frozen enum too small, or too coarse
-- **Scenario**: Under option (b), a value typed `local` cannot be interpreted because `country` is unconstrained free text; under either option, a tax-id class appears that the seeded set does not name.
+#### A tax-id class appears that the seed set does not name
+- **Scenario**: A deployment meets an identifier that is neither `eu_vat` nor `pl_nip`, and stores it as `other`, losing the distinction.
 - **Severity**: Low
 - **Affected area**: tax-id display, future validation
-- **Mitigation**: enums widen additively under the BC contract; the coarseness risk is the explicit trade-off recorded in Q3/Q4 and is one input to that decision.
-- **Residual risk**: a second small migration, accepted.
+- **Mitigation**: the enum widens additively under the BC contract, one observed case at a time; only the seed values freeze on merge.
+- **Residual risk**: values already stored as `other` need re-typing when their class is named — a data touch-up, not a migration of surface.
 
 #### Rename breaks third-party address consumers
 - **Scenario**: A module reads `name` from the API after Phase 4 removal.
@@ -223,7 +222,7 @@ Write operations are limited to the existing document-update path (Phase 0/1) an
 - **Mitigation**: ≥1-minor bridge, `@deprecated` JSDoc, `UPGRADE_NOTES.md`; storage keys unchanged.
 - **Residual risk**: consumers that ignore deprecation warnings break at the announced removal — accepted per protocol.
 
-## Final Compliance Report — 2026-08-10
+## Final Compliance Report — 2026-08-11
 
 ### AGENTS.md Files Reviewed
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md`, `.ai/qa/AGENTS.md`, `BACKWARD_COMPATIBILITY.md`, `.ai/skills/om-spec-writing/SKILL.md` + references
@@ -248,13 +247,15 @@ Write operations are limited to the existing document-update path (Phase 0/1) an
 | API contracts match UI/UX | Pass | Render-only; no shape change |
 | Risks cover all write operations | Pass | Save path + Phase 3 migration |
 | Commands defined for all mutations | Pass | No new mutations |
-| Field set consistent after dropping `email` | Pass | TLDR, Data Models, Phases and Integration Coverage all read `phone` + `taxId` + `taxIdType` |
+| Field set consistent throughout | Pass | TLDR, Data Models, Phases and Integration Coverage all read `phone` + `taxId` + `taxIdType` |
+| Every claim about current behaviour re-read at `develop` | Pass | Verified against `39412fdd5`: `normalizeAddressDraft` single-argument in both copies, `AddressEditor` `disabled` prop present and unpassed at `AddressesSection.tsx:1070`/`:1137`, no `…addresses.email` key in any of the five locales |
+| No open decisions left to the implementer | Pass | §Design Decisions Taken During Review; deferred items listed explicitly |
 
 ### Non-Compliant Items
 None at spec level.
 
 ### Verdict
-**Blocked — Open Questions Q0 and Q3/Q4 must be resolved before implementation proceeds past Phase 0.** All other sections are implementation-ready.
+**Implementation-ready**, starting at Phase 0. No question in this document is left open; the deferred items named under Design Decisions are outside every phase here and block none of them.
 
 ## Appendix — field prevalence in one production dataset
 
@@ -266,10 +267,14 @@ The justification above stands on the market comparison, not on any single deplo
 | Tax identifier on the document billing address (placeholders excluded) | 12.9% of orders |
 | Tax identifier at customer level | 5.6% of customers |
 
-Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often (an input to Q6), and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line — which is why this spec adds no further logic there.
+Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often — an input to keeping the customer as master while the document freezes what it was issued under — and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line, which is why this spec adds no further logic there.
 
 ## Changelog
 
+### 2026-08-11
+- Every claim about current behaviour re-verified against `develop` and corrected. Phase 0 is stated as outstanding work in this repository rather than shipped; a second `normalizeAddressDraft` on `SalesDocumentForm.tsx` is brought into scope, since fixing one copy leaves the data loss reachable from the other screen; Problem 5 is restated as the narrower true defect — `AddressEditor` accepts `disabled` and the two snapshot call sites simply do not pass it — and the two-line fix replaces the proposed read-only render path, which moves to Alternatives; the removal of a nonexistent `…addresses.email` i18n key is dropped; fork pull requests are labelled and linked as such.
+- Open Questions resolved and the block replaced by a decisions record: one spec phased, and `taxIdType` takes the Stripe-shaped `{country}_{kind}` seeded `eu_vat` / `pl_nip` / `other`, because a minimal enum's `local` is uninterpretable while `country` stays unconstrained and leaves the display gate nothing to key on. Compliance verdict moves from Blocked to implementation-ready.
+
 ### 2026-08-10
 - Initial specification.
-- Reframed after review: the driver is now the general commerce gap — every comparable platform models a phone on the address and Open Mercato does not — with the single-deployment measurements demoted to an appendix. Open Questions moved below Problem Statement and Proposed Solution. `email` dropped from the field set on market evidence (Q2). The `taxIdType` shape (Q3/Q4) is presented as an open fork after Stripe's type table showed `pl_nip` and `eu_vat` to be distinct types, withdrawing an earlier recommendation for a minimal enum.
+- Reframed after review: the driver is the general commerce gap — every comparable platform models a phone on the address and Open Mercato does not — with the single-deployment measurements demoted to an appendix. `email` dropped from the field set on market evidence.
