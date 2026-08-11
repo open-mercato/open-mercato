@@ -153,16 +153,21 @@ body {
   box-shadow: var(--docs-screenshot-shadow-hover);
 }
 
-/* Copy page button — positioned inside the article element */
-article {
-  position: relative;
+/* Copy page button — inline with breadcrumbs */
+.copy-page-breadcrumb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.copy-page-breadcrumb-row .theme-doc-breadcrumbs {
+  min-width: 0;
+  flex: 1;
 }
 
 .copy-page-button-container {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 1;
+  flex-shrink: 0;
 }
 
 .copy-page-button {
