@@ -108,9 +108,10 @@ the drift the built-in one exists to prevent. The recommended default is
 `showSaveViewButton`; a hand-built control belongs to hosts that already pass a custom
 `toolbar`, where the built-in button cannot render at all.
 
-- [ ] Docs: lead the section with `showSaveViewButton`, show its one-prop usage first, and
-      reserve the `viewApiRef` walkthrough for hosts with a custom `toolbar`
-- [ ] Reorder the prop table to match that hierarchy and fold the custom-`toolbar` caveat
-      into the opening instead of a trailing note four paragraphs down
-- [ ] Align the `packages/ui/AGENTS.md` DataTable guideline with the same hierarchy
-- [ ] Keep `yarn agents:check-budget` green (the `packages/ui` chain is on the ratchet)
+- [x] Docs: lead the section with `showSaveViewButton`, show its one-prop usage first, and
+      reserve the `viewApiRef` walkthrough for hosts with a custom `toolbar` — 966bfc8
+- [x] Reorder the prop table to match that hierarchy and fold the custom-`toolbar` caveat
+      into the opening instead of a trailing note four paragraphs down — 966bfc8
+- [x] Align the `packages/ui/AGENTS.md` DataTable guideline with the same hierarchy — 966bfc8
+- [x] Keep `yarn agents:check-budget` green (the `packages/ui` chain is on the ratchet):
+      66 468 bytes, **-6** vs baseline after the reword — 966bfc8
