@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useDoc } from '@docusaurus/plugin-content-docs/client';
 
-export default function CopyPageButton(): React.ReactElement {
+export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React.ReactElement {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { metadata } = useDoc();
@@ -53,7 +53,7 @@ export default function CopyPageButton(): React.ReactElement {
     <button
       data-copy-page-button
       type="button"
-      className={`copy-page-button ${copied ? 'copy-page-button--copied' : ''}`}
+      className={`copy-page-button ${copied ? 'copy-page-button--copied' : ''} ${wide ? 'copy-page-button--wide' : ''}`}
       onClick={handleCopy}
       title={copied ? 'Copied!' : 'Copy page as Markdown'}
       aria-label={copied ? 'Copied!' : 'Copy page as Markdown'}

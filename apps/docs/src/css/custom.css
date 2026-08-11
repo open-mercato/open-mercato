@@ -153,17 +153,7 @@ body {
   box-shadow: var(--docs-screenshot-shadow-hover);
 }
 
-/* Copy page button — positioned at the top-right of the breadcrumb row */
-.copy-page-breadcrumb-row {
-  position: relative;
-}
-
-.copy-page-button-container {
-  position: absolute;
-  top: 0;
-  right: 0;
-}
-
+/* Copy page button */
 .copy-page-button {
   display: inline-flex;
   align-items: center;
@@ -188,6 +178,16 @@ body {
 .copy-page-button--copied {
   color: var(--ifm-color-primary);
   border-color: var(--ifm-color-primary);
+}
+
+.copy-page-button--wide {
+  width: 100%;
+  justify-content: center;
+  min-width: unset;
+}
+
+.copy-page-toc-button {
+  margin-bottom: 0.75rem;
 }
 
 .copy-page-button__label {
