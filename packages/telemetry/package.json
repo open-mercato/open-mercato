@@ -15,6 +15,14 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./browser": {
+      "types": "./src/browser/index.ts",
+      "default": "./dist/browser/index.js"
+    },
+    "./browser/server": {
+      "types": "./src/browser/server.ts",
+      "default": "./dist/browser/server.js"
+    },
     "./*": {
       "types": [
         "./src/*.ts"
@@ -31,6 +39,14 @@
   "dependencies": {
     "@open-mercato/shared": "workspace:*"
   },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "optionalDependencies": {
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/api-logs": "^0.220.0",
@@ -39,20 +55,30 @@
     "@opentelemetry/exporter-metrics-otlp-http": "^0.220.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
     "@opentelemetry/instrumentation": "^0.220.0",
+    "@opentelemetry/instrumentation-document-load": "^0.65.0",
+    "@opentelemetry/instrumentation-fetch": "^0.220.0",
     "@opentelemetry/instrumentation-pg": "^0.71.0",
     "@opentelemetry/instrumentation-undici": "^0.29.0",
+    "@opentelemetry/instrumentation-user-interaction": "^0.64.0",
     "@opentelemetry/resources": "^2.9.0",
     "@opentelemetry/sdk-logs": "^0.220.0",
     "@opentelemetry/sdk-metrics": "^2.9.0",
     "@opentelemetry/sdk-node": "^0.220.0",
+    "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@opentelemetry/sdk-trace-node": "^2.9.0",
+    "@opentelemetry/sdk-trace-web": "^2.9.0",
     "@opentelemetry/semantic-conventions": "^1.41.1"
   },
   "devDependencies": {
-    "@opentelemetry/sdk-trace-base": "^2.9.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.2",
+    "@types/react": "^19.2.0",
     "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

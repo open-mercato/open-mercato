@@ -4,12 +4,14 @@
  * span shape, the delegation/nesting model, cross-boundary trace propagation
  * (same traceId), root-per-request, log correlation, and metrics.
  */
-import { SpanStatusCode, propagation, trace, context, ROOT_CONTEXT } from '@opentelemetry/api'
+import { SpanStatusCode, propagation, trace, context, defaultTextMapSetter, ROOT_CONTEXT } from '@opentelemetry/api'
+import { W3CTraceContextPropagator } from '@opentelemetry/core'
 import { InMemorySpanExporter, SimpleSpanProcessor, type ReadableSpan } from '@opentelemetry/sdk-trace-base'
 import { InMemoryLogRecordExporter, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs'
 import { InMemoryMetricExporter, PeriodicExportingMetricReader, AggregationTemporality } from '@opentelemetry/sdk-metrics'
 
 import { OtlpProvider } from '../provider/otlp-provider'
+import { createBackupHeaderPropagator } from '../browser/propagator'
 import {
   createLogger,
   resetLoggerExtension,
@@ -186,6 +188,57 @@ describe('OtlpProvider (in-memory exporters)', () => {
     const carrier = { traceparent: `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01` }
     const extracted = propagation.extract(ROOT_CONTEXT, carrier)
     expect(trace.getSpanContext(extracted)).toBeUndefined()
+  })
+
+  /**
+   * Browser RUM's end-to-end promise: a span the browser started and the server span it caused
+   * share one trace. Drives the REAL browser injector (`createBackupHeaderPropagator`, the same
+   * factory `BrowserTelemetry.tsx` registers) against the REAL server extractor, with a proxy
+   * rewriting `traceparent` in between — the case the backup header exists for.
+   */
+  describe('browser RUM trace continuity', () => {
+    const browserPropagator = createBackupHeaderPropagator(
+      new W3CTraceContextPropagator(),
+      defaultTextMapSetter,
+    )
+
+    /** Headers as the browser exporter's fetch instrumentation would send them, then an LB rewrite. */
+    function browserRequestHeaders(): { headers: Record<string, string>; browserTraceId: string } {
+      const headers: Record<string, string> = {}
+      let browserTraceId = ''
+      withSpan('browser-fetch', () => {
+        browserPropagator.inject(context.active(), headers, defaultTextMapSetter)
+        browserTraceId = trace.getActiveSpan()?.spanContext().traceId ?? ''
+      })
+      // The proxy in front of the app points `traceparent` at its own unexported span.
+      headers.traceparent = `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`
+      return { headers, browserTraceId }
+    }
+
+    it('puts the server span in the browser span trace once the deployment trusts inbound context', () => {
+      const { headers, browserTraceId } = browserRequestHeaders()
+      process.env.TELEMETRY_TRUST_INBOUND_TRACE = 'true'
+      resetTelemetryEnvCache()
+
+      const inbound = propagation.extract(ROOT_CONTEXT, headers)
+      context.with(inbound, () => withSpan('server-request', () => undefined))
+
+      const serverSpan = spanExporter.getFinishedSpans().find((s) => s.name === 'server-request')
+      expect(browserTraceId).toMatch(/^[0-9a-f]{32}$/)
+      expect(serverSpan?.spanContext().traceId).toBe(browserTraceId)
+      // Not the proxy's rewritten id — that is exactly what the backup header defends against.
+      expect(serverSpan?.spanContext().traceId).not.toBe('a'.repeat(32))
+    })
+
+    it('leaves the server span in its own trace while the default trust boundary holds', () => {
+      const { headers, browserTraceId } = browserRequestHeaders()
+
+      const inbound = propagation.extract(ROOT_CONTEXT, headers)
+      context.with(inbound, () => withSpan('server-request', () => undefined))
+
+      const serverSpan = spanExporter.getFinishedSpans().find((s) => s.name === 'server-request')
+      expect(serverSpan?.spanContext().traceId).not.toBe(browserTraceId)
+    })
   })
 
   it('redacts a leaked email from a span exception (PII backstop at the OTEL boundary)', () => {

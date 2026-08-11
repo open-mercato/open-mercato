@@ -78,6 +78,63 @@ names, a custom-provider bootstrap must import `@open-mercato/telemetry`,
 register a provider whose `name` matches `TELEMETRY_BACKEND`, and call
 `initTelemetry()` directly. Unregistered names remain a hard no-op.
 
+## Browser RUM (client-side telemetry)
+
+Server traces can only prove where the time *isn't*: a page can render an API
+answer in 50 ms yet leave the user waiting seconds on bundle download,
+hydration, or a click handler — all invisible to server spans. The
+`@open-mercato/telemetry/browser` entry closes that gap with the OpenTelemetry
+web SDK: document-load, fetch, and user-interaction spans from the backoffice.
+
+Browser RUM is off by default and needs an explicit opt-in on top of an active
+server backend:
+
+```dotenv
+TELEMETRY_BROWSER_ENABLED=true
+# TELEMETRY_BROWSER_SAMPLING_RATIO=1.0  # 0.0-1.0 (default 1.0)
+# TELEMETRY_BROWSER_SERVICE_NAME=       # default: <OTEL_SERVICE_NAME>-browser
+```
+
+The wiring has three parts, all shipped with a fresh scaffold:
+
+- `resolveBrowserTelemetryConfig()` — from the server-only
+  `@open-mercato/telemetry/browser/server` entry — runs on the server (the
+  backend layout is `force-dynamic`) and returns `null` unless browser telemetry
+  is fully configured. Deliberately not `NEXT_PUBLIC_*`, so toggling needs no
+  rebuild.
+- `<BrowserTelemetry config={...} />` is a `'use client'` component that
+  dynamically `import()`s the web SDK only when the config is non-null; the SDK
+  never enters the critical bundle path, and every failure is swallowed.
+- The `telemetry` module (enabled in `modules.ts` via
+  `{ id: 'telemetry', from: '@open-mercato/telemetry' }`) serves the
+  same-origin proxy `POST /api/telemetry/browser-traces` — authenticated,
+  rate-limited, size-capped — and forwards batches to the configured OTLP
+  collector, adding `OTEL_EXPORTER_OTLP_HEADERS` server-side so the credential
+  never reaches the browser.
+
+`@open-mercato/telemetry/browser` is the ONLY part of this package a client
+bundle may import. Everything that reads the environment or the collector
+credential lives behind `@open-mercato/telemetry/browser/server`, which throws if
+it is ever loaded in a browser; the server facade stays server-only
+(`node:async_hooks`).
+
+### End-to-end traces need `TELEMETRY_TRUST_INBOUND_TRACE=true`
+
+The browser injects `traceparent` plus the `x-original-traceparent` backup header
+the server propagator understands. The server nevertheless **ignores every
+inbound trace header by default** — at an HTTP boundary they are
+caller-controlled, so accepting them would let any caller dictate trace ids.
+
+```dotenv
+TELEMETRY_TRUST_INBOUND_TRACE=true
+```
+
+Set it only when the app is reachable exclusively through trusted infrastructure;
+it applies to *all* inbound requests, not just RUM. Without it, browser RUM still
+works — each page simply produces one browser trace and one server trace instead
+of a single joined one, and the server logs
+`telemetry.browser.trace_continuity_disabled` once at startup to say so.
+
 ## Existing apps
 
 Fresh create-app scaffolds are already wired. Older apps can run:
@@ -153,7 +210,9 @@ bridge, so the package is not loaded on the disabled path.
 - Metric labels must remain low-cardinality and must never contain tenant,
   organization, or user IDs.
 
-The package is server-only because span context uses `node:async_hooks`.
+The package is server-only because span context uses `node:async_hooks` — with
+one exception: `@open-mercato/telemetry/browser` is the dedicated client-safe
+entry for browser RUM and never imports the server facade.
 
 ## Validation
 

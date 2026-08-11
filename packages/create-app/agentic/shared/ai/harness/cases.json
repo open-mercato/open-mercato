@@ -21097,5 +21097,82 @@
       "OMH-039",
       "OMH-232"
     ]
+  },
+  {
+    "id": "OMH-234",
+    "title": "Correlate slow backoffice pages with browser RUM instead of a bespoke span-ingest route",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, backoffice users report pages that feel slow even though server-side API traces show fast responses, and the team wants client-side browser telemetry — document-load, fetch, and user-interaction spans — correlated with the existing server traces in the OTLP backend. Decide the smallest safe design against what the installed modules already provide, state the access-control posture of the span-ingest path and where the collector credential lives, and identify the smallest relevant validation. Do not build a bespoke span-ingest API route or expose the collector endpoint and its credential to the browser before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "browser-telemetry"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/telemetry/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "framework-context",
+        "module-data",
+        "umes",
+        "debugging"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/telemetry/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/testing-debugging.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:token|secret|password|credential).{0,30}(?:NEXT_PUBLIC|client bundle|browser env)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 65536,
+    "relatedCases": [
+      "OMH-194",
+      "OMH-195"
+    ]
   }
 ]

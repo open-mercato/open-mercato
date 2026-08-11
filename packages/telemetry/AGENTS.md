@@ -27,7 +27,10 @@ off by default. Spec:
 - Ask before adding a built-in metric, auto-instrumentation, production
   dependency, or new global hook.
 - OpenTelemetry packages must stay optional and may only be imported by
-  `provider/otlp-provider.ts`.
+  `provider/otlp-provider.ts` (Node SDK) and `browser/BrowserTelemetry.tsx` (web
+  SDK). Both must load them through a dynamic `import()` so a disabled
+  deployment never resolves them. Adding a third runtime importer needs
+  approval; `import type` is erased and unrestricted.
 - Ask before changing the `pg` `enhancedDatabaseReporting: false` guard or
   broadening the accepted inbound-trace trust model.
 
@@ -40,7 +43,17 @@ off by default. Spec:
 - Never store provider, shared-logger extension, or runtime bridge state only in
   a module local; cross-bundle state uses `globalThis` symbol registries.
 - Never replace provider-owned span delegation with a finished-span sink.
-- Never import this package from a client component.
+- Never import this package from a client component, except the dedicated
+  `@open-mercato/telemetry/browser` entry — the only client-safe surface. It must
+  stay env-free, must never import the server facade (`node:async_hooks`), and
+  must keep the OTel web SDK behind a dynamic `import()` gated on a non-null
+  server-resolved config.
+- Never move an env-reading or collector-credential helper into the `/browser`
+  entry; those belong to `@open-mercato/telemetry/browser/server`, which throws
+  on load in a browser.
+- Never expose the OTLP collector endpoint or its credential to the browser;
+  browser spans go through the same-origin `telemetry` module proxy, which adds
+  `OTEL_EXPORTER_OTLP_HEADERS` server-side.
 
 ## Architecture
 
@@ -61,6 +74,13 @@ host/queue shared runtime bridge ── absent while off
   registration.
 - `src/nextjs-config.ts`: build-time constants only; no runtime imports.
 - `src/nextjs.ts`: enabled runtime helper.
+- `src/browser/*`: browser RUM. `config.ts` (shared, env-free contract) and
+  `BrowserTelemetry.tsx` (boots the web SDK) form the client-safe `/browser`
+  entry; `server.ts` is the server-only `/browser/server` entry that reads env
+  and the collector credential. Off unless `TELEMETRY_BROWSER_ENABLED` is set
+  alongside an active backend.
+- `src/modules/telemetry/*`: the `telemetry` module — the authenticated,
+  rate-limited same-origin OTLP proxy (`POST /api/telemetry/browser-traces`).
 
 ## Validation
 

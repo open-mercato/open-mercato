@@ -10,6 +10,8 @@ import { profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
+import { BrowserTelemetry } from '@open-mercato/telemetry/browser'
+import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
 
@@ -101,6 +103,11 @@ export default async function BackendLayout({
     organizationId: auth?.orgId ?? null,
   }
 
+  // Resolved per request (this layout is force-dynamic), so browser RUM can be
+  // toggled per environment without a rebuild. Null keeps the SDK chunk from
+  // ever being requested.
+  const browserTelemetryConfig = resolveBrowserTelemetryConfig()
+
   return (
     <I18nProvider locale={locale} dict={dict}>
       <AppShell
@@ -135,6 +142,7 @@ export default async function BackendLayout({
           {children}
         </PageInjectionBoundary>
         {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
+        <BrowserTelemetry config={browserTelemetryConfig} />
       </AppShell>
     </I18nProvider>
   )
