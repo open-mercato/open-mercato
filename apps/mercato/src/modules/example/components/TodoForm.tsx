@@ -1,10 +1,9 @@
 "use client"
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { createCrud, fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
+import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
@@ -128,7 +127,6 @@ export function TodoCreateForm() {
 
 export function TodoEditForm({ id }: { id: string }) {
   const t = useT()
-  const router = useRouter()
   const [initial, setInitial] = React.useState<TodoFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [err, setErr] = React.useState<string | null>(null)
@@ -160,6 +158,10 @@ export function TodoEditForm({ id }: { id: string }) {
   const groups = useTodoGroups(t, actionsGroup)
   const successRedirect = React.useMemo(
     () => `${LIST_HREF}?flash=${encodeURIComponent(t('example.todos.form.flash.saved'))}&type=success`,
+    [t],
+  )
+  const deleteRedirect = React.useMemo(
+    () => withFlash(LIST_HREF, t('example.todos.form.flash.deleted'), 'success'),
     [t],
   )
 
@@ -243,13 +245,11 @@ export function TodoEditForm({ id }: { id: string }) {
       submitLabel={t('example.todos.form.edit.submit')}
       cancelHref={LIST_HREF}
       successRedirect={successRedirect}
+      deleteRedirect={deleteRedirect}
       isLoading={loading}
       loadingMessage={t('example.todos.form.loading')}
       onSubmit={async (vals) => { await updateCrud('example/todos', vals) }}
-      onDelete={async () => {
-        await deleteCrud('example/todos', String(id))
-        pushWithFlash(router, LIST_HREF, t('example.todos.form.flash.deleted'), 'success')
-      }}
+      onDelete={async () => { await deleteCrud('example/todos', String(id)) }}
     />
   )
 }

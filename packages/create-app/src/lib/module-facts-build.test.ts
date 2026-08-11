@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { requirePackageBuild } from './package-build-artifacts.js'
 import { selectModuleFactSheets } from '../setup/tools/shared.js'
 
 const D5_MODULES = [
@@ -23,6 +24,9 @@ const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
 const templateRoot = join(pkgRoot, 'template')
 const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
+
+requirePackageBuild(pkgRoot)
+
 test('build emits customers facts and the framework extension catalog (T5)', () => {
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
@@ -166,6 +170,18 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
     assert.ok(
       !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
       `core.${moduleId}.md redirect stub should not be emitted`,
+    )
+  }
+})
+
+// dist/ is published (package.json `files`), so a staging tree the build forgot to swap in or clean
+// up would ship with the package — and a surviving `agentic.previous` would mean the swap never
+// completed (#5059).
+test('build leaves no staging artifacts behind in dist', () => {
+  for (const leftover of ['agentic.staging', 'agentic.previous']) {
+    assert.ok(
+      !fs.existsSync(join(pkgRoot, 'dist', leftover)),
+      `dist/${leftover} must not survive the build`,
     )
   }
 })

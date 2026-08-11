@@ -19,7 +19,7 @@
     "harness:check-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs --check",
     "harness:generate-design-system-inventory": "node ./scripts/generate-design-system-inventory.mjs",
     "harness:check-design-system-inventory": "node ./scripts/generate-design-system-inventory.mjs --check",
-    "test": "node build.mjs && node --import tsx --test --test-timeout=120000 src/**/*.test.ts",
+    "test": "node build.mjs && node --import tsx --test --test-timeout=120000 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/report-truncation.mjs --test-reporter-destination=stdout src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

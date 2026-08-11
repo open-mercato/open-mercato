@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as tar from 'tar'
+import { requirePackageBuild } from './package-build-artifacts.js'
 import {
   downloadReadyAppSnapshot,
   extractTarballSnapshot,
@@ -172,6 +173,9 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
 })
 
 test('published CLI bin executes the dist entrypoint', () => {
+  // Only this test needs the build, so the check lives here rather than at module scope.
+  requirePackageBuild(PACKAGE_ROOT)
+
   const result = spawnSync(process.execPath, [CLI_BIN, '--help'], {
     cwd: PACKAGE_ROOT,
     encoding: 'utf8',

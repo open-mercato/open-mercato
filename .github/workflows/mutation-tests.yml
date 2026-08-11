@@ -1,0 +1,271 @@
+name: Mutation tests
+
+# Standalone by design: kept out of ci.yml so a mutation result can never be
+# confused with a test failure, and so rolling the whole thing back is deleting
+# one file. It cannot block ci.yml, and while MUTATION_ENFORCE is unset it
+# cannot block a merge either.
+#
+# Which jobs may go red, decided deliberately rather than by omission. Branch
+# protection on develop is not readable through the API, and this repository's
+# review and merge automation is specified to treat every reported check as
+# required in exactly that case — so a red job here does reach the pipeline even
+# though no mutation *score* can block anything.
+#
+#   mutate   continue-on-error while MUTATION_ENFORCE is not 'true'. A low score is
+#            advisory by definition; this is the flag that makes it a real gate.
+#   comment  continue-on-error: true. It only re-posts what the job summary already
+#            says, so a `gh api` or artifact hiccup carries no signal about the code
+#            and must not read as a merge blocker.
+#   scope    deliberately NOT continue-on-error. It is pure JS over a git diff with
+#            no network beyond the checkout, so a failure means the gate itself is
+#            misconfigured — and a silenced scope job would make the whole workflow
+#            a no-op that still burns runner minutes. That invisible failure is the
+#            one mode worth being loud about.
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  # Lets a maintainer execute the mutate job on demand against a known file, which
+  # is the only way to exercise the runner path (install → build → stryker → report
+  # → enforce) when no pull request happens to touch an in-scope file. Keep it: it
+  # doubles as the debugging entrypoint when a mutation run misbehaves in CI.
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Allowlisted package to mutate (see ALLOWLISTED_PACKAGES in scripts/stryker/scope.mjs)'
+        required: false
+        default: 'shared'
+      mutate:
+        description: 'Comma-separated package-relative files to mutate'
+        required: false
+        default: 'src/lib/boolean.ts'
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Advisory by default. Enforcement is a core-team decision (see the spec's Q1);
+  # setting this repository variable to 'true' is the only change required to make
+  # a low score fail the job.
+  MUTATION_ENFORCE: ${{ vars.MUTATION_ENFORCE || 'false' }}
+
+jobs:
+  # Resolve which packages and files this PR actually changed. Emits an empty
+  # matrix when nothing is in scope, which skips the mutate job entirely rather
+  # than reporting a synthetic score.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.scope.outputs.matrix }}
+      has_work: ${{ steps.scope.outputs.has_work }}
+    steps:
+      # Pinned to the PR's own head commit, not the default `refs/pull/<n>/merge`.
+      # That ref is GitHub's live merge of this branch into whatever the base branch's
+      # tip is *at checkout time* — which can already be ahead of `base.sha` below by
+      # the time a queued job starts. Diffing the frozen `base.sha` against a HEAD that
+      # silently gained every commit merged into develop in the meantime turns "what
+      # this PR changed" into "what this PR changed plus everything upstream since it
+      # branched", which is how an unrelated develop-side refactor once got mutated as
+      # if this PR had written it (and blew the mutate job's timeout doing so).
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Every value that originates outside this file is read from the environment
+      # rather than interpolated into the script. `${{ … }}` expands as text before
+      # bash parses the line, so an interpolated value is shell source — see the
+      # `mutate` job's own note. A dispatch selection is still filtered by
+      # scope.mjs's allowlist and character rules, not trusted verbatim.
+      - name: Compute mutation scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+          DISPATCH_PACKAGE: ${{ inputs.package }}
+          DISPATCH_MUTATE: ${{ inputs.mutate }}
+        run: |
+          # Branch on the event, not on whether the inputs happen to be populated: a
+          # dispatch whose inputs were cleared must resolve to "nothing in scope" and
+          # skip, not fall through to a diff against an empty base ref and fail the
+          # one job in this workflow that is deliberately allowed to go red.
+          if [ "${IS_DISPATCH}" = "true" ]; then
+            MATRIX=$(node scripts/stryker/scope.mjs --package "${DISPATCH_PACKAGE}" --mutate "${DISPATCH_MUTATE}")
+          else
+            MATRIX=$(node scripts/stryker/scope.mjs --base "${BASE_SHA}")
+          fi
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+          if [ "$(echo "${MATRIX}" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(String(JSON.parse(d).include.length)))')" = "0" ]; then
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+            echo "No in-scope changes — skipping mutation testing." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_work=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  mutate:
+    needs: scope
+    if: needs.scope.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Advisory: a low score annotates the PR, it does not fail the check. Flipping
+    # MUTATION_ENFORCE to 'true' is what turns this into a real gate.
+    continue-on-error: ${{ vars.MUTATION_ENFORCE != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.scope.outputs.matrix) }}
+    steps:
+      # Same head-sha pin as the `scope` job, and for the same reason: the tree being
+      # mutated must be exactly the one `scope` diffed, not a live merge that can have
+      # drifted ahead of it between the two jobs.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      # The package test suites resolve sibling packages through their built
+      # dist/ output (for example @open-mercato/cache from packages/shared), so
+      # Stryker's initial dry run fails without this.
+      - name: Build packages
+        run: yarn build:packages
+
+      # MUTATE_LIST goes through the environment, never into the `run:` script.
+      # `${{ … }}` is expanded as text before bash parses the line, so an
+      # interpolated mutate list would be shell source: it is built from the changed
+      # paths of a pull request anyone can open, and `$(…)` stays live inside double
+      # quotes. Through the environment the shell sees a value, never code.
+      # `${{ matrix.package }}` below is safe as interpolation because it can only be
+      # a member of the frozen ALLOWLISTED_PACKAGES array in scripts/stryker/scope.mjs.
+      - name: Run mutation testing
+        id: mutate
+        working-directory: packages/${{ matrix.package }}
+        env:
+          MUTATE_LIST: ${{ matrix.mutate }}
+        run: node ../../node_modules/.bin/stryker run --mutate "$MUTATE_LIST"
+
+      # Runs even when the mutation step failed: a low score is exactly when the
+      # survivor list is worth reading.
+      - name: Write the survivor report to the job summary
+        if: always()
+        env:
+          MUTATE_PACKAGE: ${{ matrix.package }}
+          ENFORCED: ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
+        run: |
+          node scripts/stryker/report.mjs \
+            "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json" \
+            --package "${MUTATE_PACKAGE}" \
+            ${ENFORCED}
+
+      # Owns the pass/fail decision instead of Stryker's own thresholds.break, so
+      # the minimum-mutant floor can veto it. While MUTATION_ENFORCE is not 'true'
+      # this only prints its reasoning and always exits 0.
+      - name: Enforce the mutation threshold
+        if: always()
+        env:
+          MUTATION_ENFORCE: ${{ vars.MUTATION_ENFORCE || 'false' }}
+          MUTATE_PACKAGE: ${{ matrix.package }}
+        run: |
+          node scripts/stryker/enforce.mjs \
+            "packages/${MUTATE_PACKAGE}/reports/mutation/mutation.json"
+
+      - name: Upload the mutation report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mutation-report-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/reports/mutation/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # The job summary above is the primary surface and works everywhere. This job
+  # additionally posts the same markdown as a PR comment, but only for
+  # same-repository pull requests: a `pull_request` run from a fork receives a
+  # read-only token, so the step would fail rather than degrade. It is the same
+  # fork guard ci.yml's docker-build job uses.
+  comment:
+    needs: [scope, mutate]
+    if: |
+      always() &&
+      needs.scope.outputs.has_work == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Convenience surface only: the job summary is primary and needs no token. See
+    # the per-job note at the top of this file.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download mutation reports
+        uses: actions/download-artifact@v6
+        with:
+          pattern: mutation-report-*
+          path: mutation-reports
+
+      - name: Post or update the mutation comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ENFORCED: ${{ vars.MUTATION_ENFORCE == 'true' && '--enforced' || '' }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- om:mutation-testing-report -->'
+          BODY_FILE=$(mktemp)
+          printf '%s\n\n' "$MARKER" > "$BODY_FILE"
+
+          shopt -s nullglob
+          for REPORT in mutation-reports/mutation-report-*/mutation.json; do
+            PACKAGE=$(basename "$(dirname "$REPORT")" | sed 's/^mutation-report-//')
+            node scripts/stryker/report.mjs "$REPORT" --package "$PACKAGE" ${ENFORCED} >> "$BODY_FILE"
+            printf '\n' >> "$BODY_FILE"
+          done
+
+          # Idempotent: reuse this run's own marker comment instead of appending a
+          # new one on every push.
+          EXISTING=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq "[.[] | select(.body | contains(\"${MARKER}\")) | .id] | first // empty")
+
+          if [ -n "${EXISTING}" ]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${EXISTING}" \
+              -F body=@"$BODY_FILE" > /dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -F body=@"$BODY_FILE" > /dev/null
+          fi
