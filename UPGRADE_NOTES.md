@@ -109,6 +109,20 @@ const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
 **Action for authors of stored workflow definitions:** an activity that previously "succeeded" while silently shipping an unresolved template now fails. That is almost always the bug becoming visible rather than a new one, but there is a genuine regression case: a definition that deliberately passes brace-delimited text through to a field the target command accepts verbatim — a message body, a note, or a template meant to be rendered later downstream. The guard cannot tell that apart from a missing context key, so such a definition now fails the activity.
 
 If you hit this, the fix is to stop routing literal `{{...}}` text through `UPDATE_ENTITY` input or `EMIT_EVENT` payload fields — escape it, or move the templating to the consumer that is supposed to render it. Search stored definitions for `{{` in activity `config.input` and `config.payload` before upgrading if you want to find these ahead of time.
+
+### Credential-free integrations now resolve as configured (#4897)
+
+An integration whose effective credentials schema declares `fields: []` now resolves through the
+payment-gateway descriptor as credential-free: `requiresConfiguration: false`, `isConfigured: true`,
+and `configurationStatus: 'unmanaged'`. Previously the descriptor attempted a credential lookup and
+reported `requiresConfiguration: true`, `isConfigured: false`, and
+`configurationStatus: 'missing_credentials'`, which could disable an otherwise usable provider.
+
+**Action for integration authors:** none. Providers that declare one or more credential fields keep
+the existing credential and state checks. If an integration inherits credentials from its bundle,
+the bundle's effective schema is still used, so declaring `fields: []` on the integration does not
+bypass required bundle credentials.
+
 ### `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` is removed
 
 The `example` module's `widgets/injection-table.ts` used to export a value chosen by a
