@@ -45,9 +45,15 @@ framework-wide (it affects every field, not just this one) and belongs to the #5
 - [x] Stop forwarding `error` into the component from `SalesDocumentForm`
 - [x] Regression coverage in `salesDocumentFormHoistedRenderers.test.tsx` (verified red before the fix, green after)
 - [x] Validation gate
-- [x] Open PR
-- [ ] Review loop (`om-auto-review-pr`)
-- [ ] UI verification (`om-auto-qa-pr`)
+- [x] Open PR — #5188
+- [x] Review loop (`om-auto-review-pr --autofix`) — one minor finding fixed in-run (the structural guard was
+      narrowed to the props contract); the ARIA trade-off is accepted with a written waiver. GitHub blocks an
+      author from approving their own PR, so the report is a comment and the PR still needs a human approval.
+- [x] UI verification (`om-auto-qa-pr`) — PASS on a clean ephemeral environment: after submitting an order with
+      no lines the message renders in exactly one node (`div.text-xs.text-status-error-text`, the `CrudForm`
+      wrapper); the removed `p.text-sm.text-destructive[role=alert]` is absent. Screenshots and DOM measurements
+      posted on the PR.
+- [ ] Human approval + `qa-approved` (maintainer) — this run deliberately does not add either
 
 ## 🧪 Tests
 
