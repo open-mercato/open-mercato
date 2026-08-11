@@ -37,6 +37,7 @@ type SidebarItem = {
   defaultTitle: string
   enabled: boolean
   hidden?: boolean
+  order?: number
   children?: SidebarItem[]
 }
 
@@ -281,6 +282,107 @@ describe('GET /api/auth/admin/nav', () => {
     expect(groups.find((group) => group.id === 'Dashboard')?.items.map((item) => item.href)).toContain('/backend/dashboard')
   })
 
+  it('orders items inside a group by the declared pageOrder, not by module registration order', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'later_page',
+        pattern: '/backend/later/page-b',
+        title: 'Beta page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 71,
+      },
+      {
+        moduleId: 'earlier_page',
+        pattern: '/backend/earlier/page-a',
+        title: 'Alpha page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 70,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const sharedGroup = groups.find((group) => group.id === 'shared.nav.group')
+
+    expect(sharedGroup?.items.map((item) => item.href)).toEqual([
+      '/backend/earlier/page-a',
+      '/backend/later/page-b',
+    ])
+  })
+
+  it('serializes the declared order on nav items and their children', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms',
+        title: 'Warehouse',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 95,
+      },
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms/zones',
+        title: 'Zones',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 120,
+      },
+      {
+        moduleId: 'wms',
+        pattern: '/backend/wms/inventory',
+        title: 'Inventory',
+        pageGroupKey: 'wms.nav.group',
+        group: 'WMS',
+        order: 100,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const warehouse = groups.find((group) => group.id === 'wms.nav.group')?.items[0]
+
+    expect(warehouse?.order).toBe(95)
+    expect(warehouse?.children?.map((child) => [child.href, child.order])).toEqual([
+      ['/backend/wms/inventory', 100],
+      ['/backend/wms/zones', 120],
+    ])
+  })
+
+  it('serializes the weight it sorted by when pagePriority and pageOrder disagree', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'trailing_page',
+        pattern: '/backend/trailing/page',
+        title: 'Trailing page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 5,
+        priority: 50,
+      },
+      {
+        moduleId: 'leading_page',
+        pattern: '/backend/leading/page',
+        title: 'Leading page',
+        pageGroupKey: 'shared.nav.group',
+        group: 'Shared',
+        order: 20,
+        priority: 1,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const sharedItems = groups.find((group) => group.id === 'shared.nav.group')?.items
+
+    expect(sharedItems?.map((item) => [item.href, item.order])).toEqual([
+      ['/backend/leading/page', 1],
+      ['/backend/trailing/page', 50],
+    ])
+  })
+
   it('returns the extended backend chrome payload fields for client hydration', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -406,8 +508,8 @@ describe('GET /api/auth/admin/nav', () => {
       headers: { cookie: 'om_selected_org=org-1' },
     }))
     const concreteSelectionKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
-    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
-    expect(concreteSelectionKey).not.toContain('nav:sidebar:v5:')
+    expect(concreteSelectionKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
+    expect(concreteSelectionKey).not.toContain('nav:sidebar:v6:')
 
     mockCacheGet.mockClear()
     setupCustomEntities([])
@@ -416,7 +518,7 @@ describe('GET /api/auth/admin/nav', () => {
       headers: { cookie: 'om_selected_org=__all__' },
     }))
     const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
-    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v6:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
+    expect(allOrganizationsKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
     expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
   })
 
