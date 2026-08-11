@@ -72,7 +72,7 @@ test('case-local writable timeout raises but never lowers the operator timeout f
 test('the release gate owns --case-timeout and rejects the evaluator flag --timeout (#5057)', () => {
   const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
-  assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor \\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}`))
+  assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor[^\\n]*\\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}\\)`))
   assert.equal(release.DEFAULT_CASE_TIMEOUT_MS, 600_000)
   const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
   assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)

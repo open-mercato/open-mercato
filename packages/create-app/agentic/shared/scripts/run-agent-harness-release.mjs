@@ -55,7 +55,7 @@ Options:
   --portability-runner <runner> Optional different runner for the 46-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
-  --case-timeout <ms>           Per-model invocation timeout floor (default: ${DEFAULT_CASE_TIMEOUT_MS}; a writable case may raise it)
+  --case-timeout <ms>           Per-model invocation timeout floor for the routing, writable, and review lanes (default: ${DEFAULT_CASE_TIMEOUT_MS})
   --validation-timeout <ms>     Timeout for each yarn validation (default: 1800000)
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
