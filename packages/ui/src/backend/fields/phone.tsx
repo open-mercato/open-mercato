@@ -92,6 +92,7 @@ function PhoneFieldDefEditor({
 
 FieldRegistry.register('phone', {
   input: (props) => <PhoneFieldInput {...props} />,
+  inputRendersOwnError: true,
   defEditor: (props) => <PhoneFieldDefEditor {...props} />,
 })
 
