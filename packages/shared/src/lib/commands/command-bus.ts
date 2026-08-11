@@ -245,7 +245,8 @@ export class CommandBus {
         allInterceptors, commandId, options.input, interceptorCtx, userFeatures,
       )
       if (!beforeResult.ok) {
-        throw new CommandInterceptorError(beforeResult.error!.message)
+        const blocked = beforeResult.error!
+        throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
       }
       interceptorMetadata = beforeResult.metadataByInterceptor
       if (beforeResult.modifiedInput) {
@@ -387,7 +388,8 @@ export class CommandBus {
           allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
         )
         if (!beforeResult.ok) {
-          throw new CommandInterceptorError(beforeResult.error!.message)
+          const blocked = beforeResult.error!
+          throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
         }
         undoInterceptorMetadata = beforeResult.metadataByInterceptor
       }

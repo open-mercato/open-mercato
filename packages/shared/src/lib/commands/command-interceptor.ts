@@ -67,6 +67,14 @@ export interface CommandInterceptorBeforeResult {
   ok?: boolean
   /** Error message when blocking */
   message?: string
+  /**
+   * HTTP status code when blocking. Omit to keep the historical behaviour, where a rejection
+   * without a status surfaces as a generic 500 — set it (e.g. 422) to have the CRUD transport
+   * layer answer with a deliberate business-rejection status instead.
+   */
+  status?: number
+  /** Error body when blocking (overrides message). Only used together with `status`. */
+  body?: Record<string, unknown>
   /** Modified input — shallow-merged into command input if ok:true */
   modifiedInput?: Record<string, unknown>
   /**

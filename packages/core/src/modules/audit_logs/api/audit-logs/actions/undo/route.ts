@@ -7,6 +7,7 @@ import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -129,6 +130,12 @@ export async function POST(req: Request) {
       logger.warn('Undo rejected', { err, logId: target.id })
       return NextResponse.json(err.body, { status: err.status })
     }
+    // A beforeUndo interceptor that blocked with an explicit status is a deliberate business
+    // rejection, not an undo failure — surface its status and message (issue #5045).
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     logger.error('Undo failed', { err })
     return NextResponse.json({ error: 'Undo failed' }, { status: 400 })
   }
@@ -165,6 +172,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid or unavailable undo token', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
         { status: 403, description: 'Undo blocked by organization or tenant scope', schema: errorSchema },
+        {
+          status: 422,
+          description:
+            'Undo deliberately blocked by a beforeUndo command interceptor. The interceptor chooses the status (any 4xx/5xx) and may replace the body.',
+          schema: errorSchema,
+        },
       ],
     },
   },

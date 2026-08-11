@@ -1,5 +1,6 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
-import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -16,6 +17,7 @@ type ConnectionOptions = {
   db?: number
   tls?: Record<string, unknown>
   family?: number
+  protocol?: RedisProtocolVersion
 }
 
 interface BullQueueInterface<T> {
@@ -98,6 +100,7 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
       db: options.db,
       tls: options.tls,
       family: options.family,
+      protocol: REDIS_WIRE_PROTOCOL,
     }
   }
 

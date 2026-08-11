@@ -72,6 +72,13 @@ type PipelineStageSnapshot = {
   order: number
 }
 
+type DealClosureOutcome = 'won' | 'lost'
+
+const TERMINAL_PIPELINE_STAGE_LABELS: Record<DealClosureOutcome, ReadonlySet<string>> = {
+  won: new Set(['won', 'win', 'closed won', 'closed win']),
+  lost: new Set(['lost', 'loose', 'closed lost', 'closed loose']),
+}
+
 type DealStageTransitionSnapshot = {
   id: string
   pipelineId: string
@@ -107,6 +114,56 @@ async function loadPipelineStageSnapshot(
   organizationId: string,
 ): Promise<PipelineStageSnapshot | null> {
   const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: pipelineStageId }, {}, { tenantId, organizationId })
+  if (!stage) return null
+  return {
+    id: stage.id,
+    pipelineId: stage.pipelineId,
+    label: stage.label,
+    order: stage.order,
+  }
+}
+
+function normalizePipelineStageLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function resolveRequestedClosureOutcome(input: DealUpdateInput): DealClosureOutcome | null {
+  if (input.closureOutcome === 'won' || input.closureOutcome === 'lost') {
+    return input.closureOutcome
+  }
+  if (input.status === 'win') return 'won'
+  if (input.status === 'loose') return 'lost'
+  return null
+}
+
+async function loadClosurePipelineStageSnapshot(
+  em: EntityManager,
+  input: {
+    pipelineId: string | null
+    closureOutcome: DealClosureOutcome
+    tenantId: string
+    organizationId: string
+  },
+): Promise<PipelineStageSnapshot | null> {
+  if (!input.pipelineId) return null
+
+  const stages = await findWithDecryption(
+    em,
+    CustomerPipelineStage,
+    {
+      pipelineId: input.pipelineId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    },
+    { orderBy: { order: 'ASC' } },
+    { tenantId: input.tenantId, organizationId: input.organizationId },
+  )
+  const aliases = TERMINAL_PIPELINE_STAGE_LABELS[input.closureOutcome]
+  const stage = stages.find((candidate) => aliases.has(normalizePipelineStageLabel(candidate.label)))
   if (!stage) return null
   return {
     id: stage.id,
@@ -681,6 +738,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     }
     let nextPipelineStageLabel: string | null = null
     let resolvedCurrentPipelineStageLabel: string | null = null
+    let pipelineStageAssignmentChanged = false
 
     await runCrudCommandWrite({
       ctx,
@@ -701,18 +759,32 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       }),
       phases: [
         async () => {
+          const requestedClosureOutcome = resolveRequestedClosureOutcome(parsed)
+          const requestedPipelineId =
+            parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+          const closureStageSnapshot =
+            parsed.pipelineStageId === undefined && requestedClosureOutcome
+              ? await loadClosurePipelineStageSnapshot(em, {
+                pipelineId: requestedPipelineId,
+                closureOutcome: requestedClosureOutcome,
+                tenantId: record.tenantId,
+                organizationId: record.organizationId,
+              })
+              : null
+          pipelineStageAssignmentChanged =
+            parsed.pipelineStageId !== undefined || closureStageSnapshot !== null
           const pipelineAssignmentChanged =
-            parsed.pipelineId !== undefined || parsed.pipelineStageId !== undefined
+            parsed.pipelineId !== undefined || pipelineStageAssignmentChanged
           const requestedPipelineStageId =
             parsed.pipelineStageId !== undefined
               ? parsed.pipelineStageId ?? null
-              : record.pipelineStageId ?? null
-          const requestedPipelineId =
-            parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+              : closureStageSnapshot?.id ?? record.pipelineStageId ?? null
 
-          nextStageSnapshot = requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
-            ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
-            : null
+          nextStageSnapshot = closureStageSnapshot ?? (
+            requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
+              ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
+              : null
+          )
           if (pipelineAssignmentChanged) {
             nextPipelineAssignment = resolvePipelineAssignment({
               pipelineId: requestedPipelineId,
@@ -738,14 +810,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.description !== undefined) record.description = parsed.description ?? null
           if (parsed.status !== undefined) record.status = parsed.status ?? record.status
           if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
-          if (parsed.pipelineId !== undefined || (parsed.pipelineStageId !== undefined && nextStageSnapshot)) {
+          if (parsed.pipelineId !== undefined || (pipelineStageAssignmentChanged && nextStageSnapshot)) {
             record.pipelineId = nextPipelineAssignment.pipelineId
           }
-          if (parsed.pipelineStageId !== undefined) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
+          if (pipelineStageAssignmentChanged) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
 
-          if (nextPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+          if (nextPipelineStageLabel && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
             record.pipelineStage = nextPipelineStageLabel
-          } else if (resolvedCurrentPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+          } else if (resolvedCurrentPipelineStageLabel && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
             record.pipelineStage = resolvedCurrentPipelineStageLabel
           }
 
@@ -774,9 +846,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           const snapshot = nextStageSnapshot
           if (!snapshot) return
           const shouldRecord =
-            parsed.pipelineStageId !== undefined &&
-            parsed.pipelineStageId !== null &&
-            parsed.pipelineStageId !== previousPipelineStageId
+            pipelineStageAssignmentChanged &&
+            nextPipelineAssignment.pipelineStageId !== null &&
+            nextPipelineAssignment.pipelineStageId !== previousPipelineStageId
           if (!shouldRecord) return
           await upsertDealStageTransition(em, {
             deal: record,
@@ -793,7 +865,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     })
 
     // Emit a lifecycle event for deal won/lost status changes; the notifications
-    // subscriber translates these into recipient notifications.
+    // subscriber translates these into recipient notifications. Tenant/organization
+    // scope MUST travel in the emit options, not only in the payload: both delivery
+    // paths build the subscriber context from `options` alone, so wildcard
+    // subscribers (workflow event triggers, business-rules triggers) drop a
+    // null-scoped event before trigger matching.
     const newStatus = record.status
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
     if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
@@ -812,7 +888,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               valueAmount: record.valueAmount ?? null,
               valueCurrency: record.valueCurrency ?? null,
             },
-            { persistent: true },
+            {
+              persistent: true,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+            },
           )
         }
       } catch (err) {
