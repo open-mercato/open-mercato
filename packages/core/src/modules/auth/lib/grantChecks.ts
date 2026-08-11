@@ -184,6 +184,12 @@ export async function assertActorCanAssignUserToOrganization(input: Organization
     throw new CrudHttpError(404, { error: 'Organization not found' })
   }
 
+  // Deliberately the raw ACL organization list, not the hierarchy-expanded scope
+  // resolveOrganizationScopeForRequest builds for list filtering and the organization picker.
+  // assertActorCanAccessUserTarget above matches on the same raw list, so accepting a
+  // descendant organization here would let an actor move a user somewhere it can no longer
+  // edit that user afterwards. Grant the sub-organization explicitly when an administrator
+  // is meant to manage users inside it.
   const actorAcl = await loadActorAcl(input)
   if (actorAcl.organizations === null || actorAcl.organizations.includes('__all__')) return
   const targetOrganizationId = normalizeNullableString(input.targetOrganizationId)
