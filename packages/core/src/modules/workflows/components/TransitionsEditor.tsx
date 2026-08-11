@@ -15,6 +15,7 @@ import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConfigJsonTextarea } from './ConfigJsonTextarea'
 import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
+import { millisecondTimeoutInputValue, millisecondTimeoutPatch } from '../lib/activityTimeoutFields'
 
 interface Activity {
   activityId: string
@@ -33,6 +34,8 @@ interface Activity {
   // as an ISO 8601 string, so saving a timeout from this editor failed
   // validation outright (#4424).
   timeoutMs?: number
+  /** @deprecated Use `timeoutMs`. Written by the CrudForm activity editor as a duration or millisecond string. */
+  timeout?: string
   compensation?: Record<string, any>
 }
 
@@ -179,12 +182,16 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
     onChange(updated)
   }
 
-  const updateActivity = (transitionIndex: number, activityIndex: number, field: keyof Activity, fieldValue: any) => {
+  const patchActivity = (transitionIndex: number, activityIndex: number, patch: Partial<Activity>) => {
     const updated = [...value]
     const activities = [...(updated[transitionIndex].activities || [])]
-    activities[activityIndex] = { ...activities[activityIndex], [field]: fieldValue }
+    activities[activityIndex] = { ...activities[activityIndex], ...patch }
     updated[transitionIndex] = { ...updated[transitionIndex], activities }
     onChange(updated)
+  }
+
+  const updateActivity = (transitionIndex: number, activityIndex: number, field: keyof Activity, fieldValue: any) => {
+    patchActivity(transitionIndex, activityIndex, { [field]: fieldValue })
   }
 
   const updateRetryPolicy = (transitionIndex: number, activityIndex: number, field: string, fieldValue: any) => {
@@ -516,8 +523,8 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                             <Input
                               id={`activity-${index}-${activityIndex}-timeout`}
                               type="number"
-                              value={activity.timeoutMs || ''}
-                              onChange={(e) => updateActivity(index, activityIndex, 'timeoutMs', e.target.value ? parseInt(e.target.value) : undefined)}
+                              value={millisecondTimeoutInputValue(activity)}
+                              onChange={(e) => patchActivity(index, activityIndex, millisecondTimeoutPatch(e.target.value))}
                               placeholder="30000"
                               className="mt-1 text-xs h-8"
                             />

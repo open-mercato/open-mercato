@@ -7,7 +7,7 @@ import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
-import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl, getRedisUrlOrThrow, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
@@ -796,7 +796,7 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
  * watchers. Filesystem events mark the tree dirty; the existing full content
  * checksum remains the final authority and the fallback when watching fails.
  */
-async function createGenerateWatchRuntime() {
+async function createGenerateWatchRuntime(quiet = false) {
   const [
     { createResolver },
     { calculateGenerateWatchStructureChecksum },
@@ -827,6 +827,9 @@ async function createGenerateWatchRuntime() {
       return calculateGenerateWatchStructureChecksum(collectWatchState())
     },
     changeSignal: createGenerateWatchChangeSignal({
+      onSkippedDirectory: quiet
+        ? undefined
+        : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
       getWatchTargets: () => {
         const state = collectWatchState()
         const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
@@ -999,6 +1002,7 @@ export async function run(argv = process.argv) {
             maxRetriesPerRequest: 1,
             retryStrategy: () => null,
             enableOfflineQueue: false,
+            protocol: REDIS_WIRE_PROTOCOL,
           })
           redis.on('error', () => {})
           try {
@@ -1867,7 +1871,7 @@ export async function run(argv = process.argv) {
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
 
-          const generateWatchRuntime = await createGenerateWatchRuntime()
+          const generateWatchRuntime = await createGenerateWatchRuntime(quiet)
           const watcher = startInProcessGenerateWatcher({
             pollMs: intervalMs,
             skipInitial,

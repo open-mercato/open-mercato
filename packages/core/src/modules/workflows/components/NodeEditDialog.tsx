@@ -34,6 +34,7 @@ import {flash} from '@open-mercato/ui/backend/FlashMessages'
 import {buildVisualEditorHref, extractFirstDefinitionId} from '../lib/visual-editor-navigation'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
 import type {InvokeAgentConfig} from '../data/validators'
+import {millisecondTimeoutInputValue, millisecondTimeoutPatch} from '../lib/activityTimeoutFields'
 
 // Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
 // human. Mirrors INVOKE_AGENT_SIGNAL_NAME in lib/activity-executor.ts (which is
@@ -1200,10 +1201,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   <Input
                                     type="text"
                                     size="sm"
-                                    value={activity.timeoutMs || ''}
+                                    value={millisecondTimeoutInputValue(activity)}
                                     onChange={(e) => {
                                       const updated = [...stepActivities]
-                                      updated[index].timeoutMs = e.target.value ? parseInt(e.target.value) : undefined
+                                      updated[index] = { ...updated[index], ...millisecondTimeoutPatch(e.target.value) }
                                       setStepActivities(updated)
                                     }}
                                     placeholder={t('workflows.form.placeholders.timeoutMs')}

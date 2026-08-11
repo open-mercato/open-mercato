@@ -163,3 +163,40 @@ export function calculateWaitDelayMs(config: { duration?: string; until?: string
 
   throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
 }
+
+/**
+ * Normalize a timeout value to milliseconds
+ *
+ * Accepts every shape the activity editors and stored definitions carry:
+ * - a millisecond number (30000)
+ * - a millisecond string ("30000") — what the CrudForm activity editor writes,
+ *   and what its own placeholder ("PT30S or 30000") tells the user to type
+ * - a duration string ("PT30S", "5m")
+ *
+ * Returns undefined for an absent or unusable value rather than throwing, so a
+ * malformed timeout never fails an activity that would otherwise succeed.
+ *
+ * @param value - Raw timeout value
+ * @returns Milliseconds, or undefined when the value is absent or unusable
+ */
+export function toTimeoutMs(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  }
+  if (typeof value !== 'string') return undefined
+
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+
+  if (/^\d+$/.test(trimmed)) {
+    const milliseconds = Number(trimmed)
+    return milliseconds > 0 ? milliseconds : undefined
+  }
+
+  try {
+    const milliseconds = parseDuration(trimmed)
+    return Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : undefined
+  } catch {
+    return undefined
+  }
+}

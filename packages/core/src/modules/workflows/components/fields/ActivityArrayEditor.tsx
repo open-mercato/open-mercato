@@ -23,6 +23,7 @@ import type { PinnedSampleEnvelope } from '../../lib/sample-resolver'
 import { useActivityTypeOptions } from './useActivityTypeOptions'
 import { ActivityConfigFields, hasActivityConfigForm } from './ActivityConfigFields'
 import { ActivityTestPanel } from './ActivityTestPanel'
+import { durationTimeoutInputValue, durationTimeoutPatch } from '../../lib/activityTimeoutFields'
 
 /**
  * Activity definition structure
@@ -141,10 +142,14 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
     setExpandedIndices(newExpanded)
   }
 
-  const updateActivity = (index: number, field: keyof Activity, fieldValue: any) => {
+  const patchActivity = (index: number, patch: Partial<Activity>) => {
     const updated = [...activities]
-    updated[index] = { ...updated[index], [field]: fieldValue }
+    updated[index] = { ...updated[index], ...patch }
     setValue(updated)
+  }
+
+  const updateActivity = (index: number, field: keyof Activity, fieldValue: any) => {
+    patchActivity(index, { [field]: fieldValue })
   }
 
   const updateRetryPolicy = (index: number, field: string, fieldValue: any) => {
@@ -283,9 +288,10 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                       </Label>
                       <DurationInput
                         id={`${id}-${index}-timeout`}
-                        value={activity.timeout || ''}
-                        onChange={(value) => updateActivity(index, 'timeout', value)}
+                        value={durationTimeoutInputValue(activity)}
+                        onChange={(value) => patchActivity(index, durationTimeoutPatch(value))}
                         aria-label={t('workflows.fieldEditors.activities.timeout')}
+                        className="text-xs"
                         disabled={disabled}
                       />
                       <p className="text-xs text-muted-foreground mt-1">

@@ -4,11 +4,15 @@ import {
   registerCommand,
   registerCommandLoaders,
   CommandBus,
+  isCommandInterceptorError,
 } from '@open-mercato/shared/lib/commands'
+import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
+import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
 
 describe('CommandBus', () => {
   afterEach(() => {
     commandRegistry.clear()
+    registerCommandInterceptors([])
   })
 
   it('executes registered command and logs action metadata', async () => {
@@ -182,5 +186,62 @@ describe('CommandBus', () => {
     const payload = logMock.mock.calls[0][0] as Record<string, unknown>
     expect(payload.actorUserId).toBe('user-1')
     expect(payload.onBehalfOfUserId).toBeUndefined()
+  describe('interceptor rejections', () => {
+    const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({
+      id: 'test.block',
+      targetCommand: 'test.*',
+      beforeExecute: async () => result,
+    })
+
+    const runBlockedCommand = async (interceptor: CommandInterceptor) => {
+      const execute = jest.fn(async () => ({ ok: true }))
+      registerCommand({ id: 'test.command.blocked', execute })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [interceptor] }])
+
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      const bus = new CommandBus()
+      const ctx = {
+        container,
+        auth: { sub: 'user-4', tenantId: 'tenant-4', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+      }
+
+      const error = await bus.execute('test.command.blocked', { input: {}, ctx }).catch((e: unknown) => e)
+      return { error, execute }
+    }
+
+    it('forwards the interceptor status and derived body onto the thrown error', async () => {
+      const { error, execute } = await runBlockedCommand(
+        blockingInterceptor({ ok: false, message: 'Missing required fields: VAT id', status: 422 }),
+      )
+
+      expect(isCommandInterceptorError(error)).toBe(true)
+      expect((error as { status?: number }).status).toBe(422)
+      expect((error as { body?: Record<string, unknown> }).body).toEqual({
+        error: 'Missing required fields: VAT id',
+      })
+      expect(execute).not.toHaveBeenCalled()
+    })
+
+    it('forwards an explicit interceptor body verbatim', async () => {
+      const body = { error: 'Blocked', missingFields: ['vatId'] }
+      const { error } = await runBlockedCommand(
+        blockingInterceptor({ ok: false, message: 'Blocked', status: 409, body }),
+      )
+
+      expect((error as { status?: number }).status).toBe(409)
+      expect((error as { body?: Record<string, unknown> }).body).toEqual(body)
+    })
+
+    it('leaves status and body undefined when the interceptor supplies no status', async () => {
+      const { error } = await runBlockedCommand(blockingInterceptor({ ok: false, message: 'Blocked' }))
+
+      expect(isCommandInterceptorError(error)).toBe(true)
+      expect((error as Error).message).toBe('Blocked')
+      expect((error as { status?: number }).status).toBeUndefined()
+      expect((error as { body?: unknown }).body).toBeUndefined()
+    })
   })
 })

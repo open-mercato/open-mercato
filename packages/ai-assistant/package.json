@@ -93,7 +93,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "ai": "^7.0.4",
     "cmdk": "^1.0.0",
-    "framer-motion": "^12.43.0",
+    "framer-motion": "^13.0.0",
     "isolated-vm": "^7.0.0",
     "react-json-view-lite": "^2.5.0",
     "react-markdown": "^10.1.0",

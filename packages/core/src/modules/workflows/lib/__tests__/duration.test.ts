@@ -1,4 +1,4 @@
-import { calculateDueDate, parseDuration, parseIso8601Duration } from '../duration'
+import { calculateDueDate, parseDuration, parseIso8601Duration, toTimeoutMs } from '../duration'
 
 describe('parseDuration', () => {
   describe('ISO 8601 format', () => {
@@ -141,4 +141,64 @@ describe('calculateDueDate', () => {
       expect(() => calculateDueDate(duration, anchor)).toThrow('Invalid duration format')
     }
   )
+})
+
+describe('toTimeoutMs', () => {
+  describe('millisecond strings', () => {
+    test('"30000" → 30000 (the value the activity editor placeholder asks for)', () => {
+      expect(toTimeoutMs('30000')).toBe(30000)
+    })
+
+    test('surrounding whitespace is tolerated', () => {
+      expect(toTimeoutMs('  30000  ')).toBe(30000)
+    })
+
+    test('"0" is not a usable timeout', () => {
+      expect(toTimeoutMs('0')).toBeUndefined()
+    })
+  })
+
+  describe('duration strings', () => {
+    test('PT30S → 30 seconds', () => {
+      expect(toTimeoutMs('PT30S')).toBe(30 * 1000)
+    })
+
+    test('5m → 5 minutes', () => {
+      expect(toTimeoutMs('5m')).toBe(5 * 60 * 1000)
+    })
+  })
+
+  describe('numbers', () => {
+    test('30000 → 30000', () => {
+      expect(toTimeoutMs(30000)).toBe(30000)
+    })
+
+    test('zero and negatives are not usable timeouts', () => {
+      expect(toTimeoutMs(0)).toBeUndefined()
+      expect(toTimeoutMs(-1)).toBeUndefined()
+    })
+
+    test('NaN and Infinity are rejected', () => {
+      expect(toTimeoutMs(Number.NaN)).toBeUndefined()
+      expect(toTimeoutMs(Number.POSITIVE_INFINITY)).toBeUndefined()
+    })
+  })
+
+  describe('unusable values return undefined instead of throwing', () => {
+    test.each([
+      ['malformed text', 'not-a-duration'],
+      ['empty string', ''],
+      ['whitespace only', '   '],
+    ])('%s', (_label, value) => {
+      expect(toTimeoutMs(value)).toBeUndefined()
+    })
+
+    test.each([
+      ['undefined', undefined],
+      ['null', null],
+      ['object', {}],
+    ])('%s', (_label, value) => {
+      expect(toTimeoutMs(value)).toBeUndefined()
+    })
+  })
 })

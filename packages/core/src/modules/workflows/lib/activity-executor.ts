@@ -64,6 +64,7 @@ import { logWorkflowEvent } from './event-logger'
 import { calculateWaitDelayMs, parseDuration } from './duration'
 
 export { calculateWaitDelayMs } from './duration'
+import { resolveActivityTimeoutMs } from './activityTimeoutFields'
 import { getWorkflowSafeCommand } from './workflow-safe-commands'
 import { isWorkflowCommandEnabled } from './workflow-command-enablement'
 import { resolveWorkflowCommandPolicyForContainer } from './workflow-command-settings'
@@ -192,33 +193,7 @@ export interface ActivityDefinition {
   compensate?: boolean // Flag to execute compensation on failure
 }
 
-/**
- * Effective timeout for an activity, in milliseconds.
- *
- * The editor and this executor both speak `timeoutMs`, but the definition
- * schema historically accepted only an ISO 8601 `timeout` string — so stored
- * definitions can carry either. Prefer `timeoutMs`; fall back to parsing
- * `timeout`, ignoring a malformed value rather than throwing mid-execution
- * (an unparseable timeout must not fail an activity that would otherwise
- * succeed). Returns undefined when no usable timeout is configured (#4424).
- */
-export function resolveActivityTimeoutMs(activity: {
-  timeoutMs?: number
-  timeout?: string
-}): number | undefined {
-  if (typeof activity.timeoutMs === 'number' && activity.timeoutMs > 0) {
-    return activity.timeoutMs
-  }
-  if (typeof activity.timeout === 'string' && activity.timeout.trim().length > 0) {
-    try {
-      const parsed = parseDuration(activity.timeout.trim())
-      if (Number.isFinite(parsed) && parsed > 0) return parsed
-    } catch {
-      return undefined
-    }
-  }
-  return undefined
-}
+export { resolveActivityTimeoutMs }
 
 export interface RetryPolicy {
   maxAttempts: number
@@ -2136,6 +2111,11 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Execute a promise with timeout
+ *
+ * Only CALL_API and CALL_WEBHOOK honour the abort signal today — they forward
+ * it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and EXECUTE_FUNCTION
+ * still run to completion after the timeout has been recorded. Tracked in
+ * #5148.
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,

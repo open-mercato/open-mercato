@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Binary, LockKeyhole, Plus, Play, Sparkles } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import {

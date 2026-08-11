@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { z } from 'zod'
 import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, Hand, Radio, X, TriangleAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'

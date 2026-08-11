@@ -21,7 +21,19 @@ REPORT_DIR=".ai/reports"
 mkdir -p "$REPORT_DIR"
 
 DATE=$(date +%Y-%m-%d)
-REPORT_FILE="$REPORT_DIR/ds-health-$DATE.txt"
+# One rolling report, overwritten every run. The trend lives in git history
+# (git log -p / git show <sha>:…) rather than in an ever-growing pile of dated
+# files that nobody prunes.
+REPORT_FILE="$REPORT_DIR/ds-health-latest.txt"
+
+# The delta baseline is the previous run — capture it before the truncation
+# below overwrites it.
+PREV_FILE=""
+if [ -f "$REPORT_FILE" ]; then
+  PREV_FILE=$(mktemp)
+  trap 'rm -f "$PREV_FILE"' EXIT
+  cp "$REPORT_FILE" "$PREV_FILE"
+fi
 
 report() {
   echo "$1" | tee -a "$REPORT_FILE"
@@ -327,12 +339,19 @@ fi
 report ""
 report "Suggested next module: highest total above."
 
-# Compare with previous report
-PREV=$(ls -1 "$REPORT_DIR"/ds-health-*.txt 2>/dev/null | grep -v "$DATE" | sort | tail -1 || true)
-if [ -n "${PREV:-}" ] && [ -f "$PREV" ]; then
+# Compare with the previous run, snapshotted before this report overwrote it.
+if [ -n "$PREV_FILE" ] && [ -f "$PREV_FILE" ]; then
+  PREV_DATE=$(grep -m1 '^Date: ' "$PREV_FILE" | cut -d' ' -f2 || true)
   echo ""
-  echo "=== DELTA vs $(basename "$PREV") ==="
-  diff --unified=0 "$PREV" "$REPORT_FILE" | grep '^[+-]  ' | head -30 || echo "  (no changes)"
+  echo "=== DELTA vs previous run (${PREV_DATE:-date unknown}) ==="
+  # Capture first: under `set -o pipefail` a diff that finds differences exits 1,
+  # so a trailing `|| echo "(no changes)"` fires even when there ARE changes.
+  DELTA=$(diff --unified=0 "$PREV_FILE" "$REPORT_FILE" | grep '^[+-]  ' | head -30 || true)
+  if [ -n "$DELTA" ]; then
+    echo "$DELTA"
+  else
+    echo "  (no changes)"
+  fi
 else
   echo ""
   echo "=== First report — no previous data to compare ==="
