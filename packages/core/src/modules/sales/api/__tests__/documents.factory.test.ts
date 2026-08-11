@@ -15,6 +15,7 @@ jest.mock('@open-mercato/core/generated/entities.ids.generated', () => ({
   },
 }))
 
+import { MAX_IDS_PER_REQUEST } from '@open-mercato/shared/lib/crud/ids'
 import { buildDocumentCrudOptions } from '../documents/factory'
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
@@ -147,6 +148,31 @@ describe('buildDocumentCrudOptions', () => {
         expect(filters).toEqual({ channel_id: { $exists: false } })
       })
 
+      it('should combine channelIds and channelIdsEmpty instead of dropping one', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({
+          channelIds: `${channelA},${channelB}`,
+          channelIdsEmpty: 'true',
+        })
+
+        expect(filters).toEqual({
+          $or: [
+            { channel_id: { $in: [channelA, channelB] } },
+            { channel_id: { $exists: false } },
+          ],
+        })
+      })
+
+      it('should not emit an $or when channelIdsEmpty accompanies an all-malformed channelIds', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const filters = await options.list.buildFilters({
+          channelIds: 'not-a-uuid',
+          channelIdsEmpty: 'true',
+        })
+
+        expect(filters).toEqual({ channel_id: { $exists: false } })
+      })
+
       it('should ignore channelIdsEmpty when it is not a truthy token', async () => {
         const options = buildDocumentCrudOptions(orderBinding)
         const filters = await options.list.buildFilters({ channelIdsEmpty: 'false' })
@@ -173,6 +199,20 @@ describe('buildDocumentCrudOptions', () => {
         const filters = await options.list.buildFilters({ channelIds: '' })
 
         expect(filters).toEqual({})
+      })
+
+      it('should cap channelIds at the shared per-request id limit', async () => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const ids = Array.from(
+          { length: MAX_IDS_PER_REQUEST + 50 },
+          (_, index) => `${index.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`,
+        )
+        const filters = await options.list.buildFilters({ channelIds: ids.join(',') })
+
+        const applied = (filters as { channel_id?: { $in?: string[] } }).channel_id?.$in
+        expect(applied).toHaveLength(MAX_IDS_PER_REQUEST)
+        expect(applied?.[0]).toBe(ids[0])
+        expect(applied).not.toContain(ids[MAX_IDS_PER_REQUEST])
       })
 
       it('should apply the same channel filtering to quotes', async () => {
