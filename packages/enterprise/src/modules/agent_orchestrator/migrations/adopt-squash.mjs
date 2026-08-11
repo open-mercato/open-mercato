@@ -84,17 +84,20 @@ async function main() {
       return
     }
     const applied = (await client.query(`select name from ${MIGRATION_TABLE}`)).rows.map((row) => row.name)
-    if (applied.includes(SQUASH)) {
-      log('The squash is already recorded as applied. Nothing to adopt.')
-      return
-    }
+    const recorded = applied.includes(SQUASH)
+    // NOT an early return. Every step below is independently idempotent, so a
+    // re-run repairs a partial adoption — which is exactly what a first version
+    // of this script needed and did not have: it renamed the FK on the runs
+    // table, missed the one on the event-trigger table, and then refused to run
+    // again because the squash was already recorded.
+    if (recorded) log('squash already recorded — checking for anything left undone')
     const hasOldTables = await tableExists(client, 'agent_task_definitions')
     const hasNewTables = await tableExists(client, 'agent_process_definitions')
     if (!hasOldTables && !hasNewTables) {
       log('Neither the old nor the new tables exist — this is a fresh install. Just run: yarn db:migrate')
       return
     }
-    if (!hasOldTables && hasNewTables) {
+    if (!hasOldTables && hasNewTables && !recorded) {
       log('Tables are already renamed but the squash is unrecorded — recording it only.')
     }
 
@@ -123,6 +126,15 @@ async function main() {
       ]) {
         await client.query(`alter index if exists "${from}" rename to "${to}"`)
       }
+    }
+
+    // The event-trigger table's FK renamed with everything else in W1 Phase 1.
+    // Its own rename is separate from the runs table's and was missed once.
+    if (await columnExists(client, 'agent_task_event_triggers', 'task_definition_id')) {
+      log('renaming agent_task_event_triggers.task_definition_id → process_definition_id')
+      await client.query(
+        `alter table "agent_task_event_triggers" rename column "task_definition_id" to "process_definition_id"`,
+      )
     }
 
     // ── 2. The W2 columns ───────────────────────────────────────────────────
@@ -173,6 +185,13 @@ async function main() {
 
     // Persisted workflow vocabulary. Core tables, so guarded — an install
     // without the workflows module is a no-op rather than a failure.
+    //
+    // The predicate matches exactly what the replacements change. A looser
+    // `like '%informative%'` also matches human-authored prose — a real
+    // definition here is named "Ocena ryzyka — approved / informative
+    // (default)" — which would rewrite the row to itself, report a misleading
+    // count, and never converge on a re-run. An author's label is not a wire
+    // value and is never rewritten.
     for (const table of ['workflow_definitions', 'workflow_definition_drafts']) {
       if (!(await tableExists(client, table))) continue
       const rewritten = await client.query(`
@@ -181,14 +200,19 @@ async function main() {
               replace("definition"::text, '"outcomeKind": "informative"', '"outcomeKind": "researcher"'),
               '"outcome:informative"', '"outcome:researcher"'
             )::jsonb
-        where "definition"::text like '%informative%'
+        where "definition"::text like '%"outcomeKind": "informative"%'
+           or "definition"::text like '%"outcome:informative"%'
       `)
       log(`${table}: ${rewritten.rowCount} definitions rewritten`)
     }
 
     // ── 4. Record the squash ────────────────────────────────────────────────
-    await client.query(`insert into ${MIGRATION_TABLE} ("name", "executed_at") values ($1, now())`, [SQUASH])
-    log(`recorded ${SQUASH} as applied`)
+    if (recorded) {
+      log('squash row already present — left as is')
+    } else {
+      await client.query(`insert into ${MIGRATION_TABLE} ("name", "executed_at") values ($1, now())`, [SQUASH])
+      log(`recorded ${SQUASH} as applied`)
+    }
 
     if (DRY_RUN) {
       await client.query('rollback')
