@@ -1,6 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
-import type { AgentType } from './validators'
+import type { AgentType, ProcessRunTriggeredBy, ProcessTrigger } from './validators'
 
 export type AgentRunStatus = 'running' | 'ok' | 'error' | 'cancelled'
 
@@ -1206,6 +1206,17 @@ export type AgentProcessRunStatus = 'running' | 'completed' | 'failed'
 @Entity({ tableName: 'agent_process_definitions' })
 @Index({ name: 'agent_process_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_process_definitions_target_idx', properties: ['organizationId', 'targetType'] })
+// The event dispatcher's lookup moved from an indexed column on the retired
+// `agent_task_event_triggers` table to a containment probe over this jsonb
+// (`triggers @> '[{"kind":"event","eventPattern":"claims.claim.reported"}]'`).
+// `jsonb_path_ops` is the smaller, faster opclass and supports exactly the `@>`
+// operator that probe uses. Declared via `@Index({ expression })` so
+// `db:generate` stays aware of it (precedent: `agent_process_runs_idempotency_uq`).
+@Index({
+  name: 'agent_process_definitions_triggers_gin',
+  expression:
+    `create index "agent_process_definitions_triggers_gin" on "agent_process_definitions" using gin ("triggers" jsonb_path_ops)`,
+})
 export class AgentProcessDefinition {
   [OptionalProps]?:
     | 'description'
@@ -1215,9 +1226,7 @@ export class AgentProcessDefinition {
     | 'inputSchema'
     | 'executionPrincipalId'
     | 'grantedFeatures'
-    | 'scheduleCron'
-    | 'scheduleTimezone'
-    | 'scheduleEnabled'
+    | 'triggers'
     | 'enabled'
     | 'createdBy'
     | 'createdAt'
@@ -1274,14 +1283,15 @@ export class AgentProcessDefinition {
   @Property({ name: 'granted_features', type: 'jsonb', nullable: true })
   grantedFeatures?: string[] | null
 
-  @Property({ name: 'schedule_cron', type: 'varchar', length: 100, nullable: true })
-  scheduleCron?: string | null
-
-  @Property({ name: 'schedule_timezone', type: 'varchar', length: 64, nullable: true })
-  scheduleTimezone?: string | null
-
-  @Property({ name: 'schedule_enabled', type: 'boolean', default: true })
-  scheduleEnabled: boolean = true
+  /**
+   * The declared entry points (`ProcessTrigger[]`, `.max(20)`): `schedule` (the
+   * retired `schedule_cron`/`schedule_timezone`/`schedule_enabled` columns),
+   * `event` (the retired `agent_task_event_triggers` rows, every field intact),
+   * and `manual` — which makes hand-starting a declared capability rather than
+   * an undocumented one. A definition with no `manual` trigger 403s on `/run`.
+   */
+  @Property({ name: 'triggers', type: 'jsonb', nullable: true, default: '[]' })
+  triggers?: ProcessTrigger[] | null
 
   @Property({ name: 'enabled', type: 'boolean', default: true })
   enabled: boolean = true
@@ -1325,6 +1335,7 @@ export class AgentProcessRun {
     | 'workflowInstanceId'
     | 'sourceEntityType'
     | 'sourceEntityId'
+    | 'triggeredBy'
     | 'idempotencyKey'
     | 'startedAt'
     | 'completedAt'
@@ -1377,9 +1388,14 @@ export class AgentProcessRun {
   @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
   sourceEntityId?: string | null
 
-  /** Provenance only, never an ACL identity: `user:<id>` / `api_key:<id>` / `schedule:<id>` / `event:<eventName>`. */
-  @Property({ name: 'triggered_by', type: 'varchar', length: 150 })
-  triggeredBy!: string
+  /**
+   * WHICH declared trigger fired: `{ kind: 'schedule' }`, `{ kind: 'event', ref:
+   * <eventPattern> }`, `{ kind: 'manual', ref: <userId> }`. Provenance only,
+   * never an ACL identity — the run always executes under the definition's own
+   * execution principal.
+   */
+  @Property({ name: 'triggered_by', type: 'jsonb', nullable: true })
+  triggeredBy?: ProcessRunTriggeredBy | null
 
   @Property({ name: 'idempotency_key', type: 'varchar', length: 200, nullable: true })
   idempotencyKey?: string | null
@@ -1399,55 +1415,6 @@ export class AgentProcessRun {
 
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
-}
-
-/**
- * A domain-event trigger for an `AgentProcessDefinition` — mirrors `workflows`'
- * `WorkflowEventTrigger` (`eventPattern` + `{ filterConditions, contextMapping,
- * debounceMs, maxConcurrentInstances }` config), evaluated by the module's own
- * wildcard subscriber. User-editable → `updated_at` for optimistic locking.
- */
-@Entity({ tableName: 'agent_task_event_triggers' })
-@Index({ name: 'agent_task_event_triggers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_task_event_triggers_definition_idx', properties: ['processDefinitionId'] })
-export class AgentTaskEventTrigger {
-  [OptionalProps]?: 'config' | 'enabled' | 'priority' | 'createdAt' | 'updatedAt' | 'deletedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  /** FK id → agent_process_definitions. */
-  @Property({ name: 'process_definition_id', type: 'uuid' })
-  processDefinitionId!: string
-
-  /** e.g. `claims.claim.reported` or a trailing-wildcard `claims.*`. */
-  @Property({ name: 'event_pattern', type: 'varchar', length: 255 })
-  eventPattern!: string
-
-  /** `{ filterConditions?, contextMapping?, debounceMs?, maxConcurrentInstances? }` (WorkflowEventTriggerConfig shape). */
-  @Property({ name: 'config', type: 'jsonb', nullable: true })
-  config?: unknown | null
-
-  @Property({ name: 'enabled', type: 'boolean', default: true })
-  enabled: boolean = true
-
-  @Property({ name: 'priority', type: 'integer', default: 0 })
-  priority: number = 0
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-
-  @Property({ name: 'deleted_at', type: Date, nullable: true })
-  deletedAt?: Date | null
 }
 
 /** Derived display status of an `AgentProcess` (spec §Status derivation — first match wins). */

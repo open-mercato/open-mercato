@@ -8,8 +8,9 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * (Area 7: `Intl`-backed timezone validation server-side; combobox over
  * `Intl.supportedValuesOf('timeZone')` in the form).
  *
- * `"Warsaw"` (a city, not a zone id) → 400 with a scheduleTimezone issue;
- * `"Europe/Warsaw"` → created.
+ * `"Warsaw"` (a city, not a zone id) → 400 with a timezone issue;
+ * `"Europe/Warsaw"` → created. Carried onto the declared-trigger list by
+ * Phase 2 of the triggered process model spec (2026-08-11).
  */
 
 test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
@@ -25,13 +26,12 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
           name: `TC-UXC-007 invalid ${stamp}`,
           targetType: 'agent',
           targetAgentId: 'deals.health_check',
-          scheduleCron: '0 7 * * 1',
-          scheduleTimezone: 'Warsaw',
+          triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'Warsaw' }],
         },
       })
       expect(invalid.status(), '"Warsaw" is not an IANA timezone and must be rejected').toBe(400)
       const invalidBody = await readJsonSafe<Record<string, unknown>>(invalid)
-      expect(JSON.stringify(invalidBody)).toContain('scheduleTimezone')
+      expect(JSON.stringify(invalidBody)).toContain('timezone')
 
       const valid = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
@@ -39,8 +39,7 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
           name: `TC-UXC-007 valid ${stamp}`,
           targetType: 'agent',
           targetAgentId: 'deals.health_check',
-          scheduleCron: '0 7 * * 1',
-          scheduleTimezone: 'Europe/Warsaw',
+          triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'Europe/Warsaw' }],
         },
       })
       expect(valid.ok(), '"Europe/Warsaw" must pass').toBeTruthy()

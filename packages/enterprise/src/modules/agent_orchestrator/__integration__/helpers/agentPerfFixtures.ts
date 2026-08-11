@@ -165,7 +165,7 @@ export type AgentProcessRunSeed = {
   targetType?: 'agent' | 'workflow'
   targetAgentId?: string | null
   status?: 'running' | 'completed' | 'failed'
-  triggeredBy?: string
+  triggeredBy?: Record<string, unknown>
   createdAt: Date
   completedAt?: Date | null
   failureReason?: string | null
@@ -184,7 +184,7 @@ export async function insertAgentProcessRunFixtures(rows: AgentProcessRunSeed[])
         `insert into agent_process_runs
            (id, tenant_id, organization_id, process_definition_id, target_type, target_agent_id,
             input, triggered_by, status, started_at, completed_at, failure_reason, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $10, $10)`,
+         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $10, $10)`,
         [
           ids[index],
           row.tenantId,
@@ -193,7 +193,7 @@ export async function insertAgentProcessRunFixtures(rows: AgentProcessRunSeed[])
           row.targetType ?? 'agent',
           row.targetAgentId ?? null,
           SEED_PAYLOAD,
-          row.triggeredBy ?? 'seed:integration-test',
+          JSON.stringify(row.triggeredBy ?? { kind: 'system', ref: 'integration-test' }),
           row.status ?? 'completed',
           row.createdAt,
           row.completedAt ?? null,

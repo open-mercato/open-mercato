@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bot, Copy, Play, Plus, Trash2, Workflow as WorkflowIcon } from 'lucide-react'
+import { Bot, Copy, Hand, Play, Save, Workflow as WorkflowIcon } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -11,7 +11,6 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Dialog,
   DialogContent,
@@ -20,21 +19,17 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-// Deep import, NOT the package root: `@open-mercato/scheduler`'s index also
-// exports `SchedulerService`, which reaches `shared/lib/i18n/server` and its
-// `require('server-only')`. Pulling that into a "use client" module breaks the
-// build with 'server-only' cannot be imported from a Client Component module.
-// `lib/cronParser` depends on `cron-parser` alone and is safe in the browser.
-import { validateCronExpression } from '@open-mercato/scheduler/modules/scheduler/lib/cronParser'
 import { formatDateTime } from '../../../../components/types'
-import { isValidIanaTimeZone } from '../../../../data/validators'
+import type { ProcessRunTriggeredBy, ProcessTrigger } from '../../../../data/validators'
+import { manualTrigger, parseProcessTriggers, scheduleTriggers } from '../../../../lib/tasks/triggers'
+import { TriggerEditor, invalidScheduleIndexes } from '../TriggerEditor'
 
 type ProcessRunStatus = 'running' | 'completed' | 'failed'
 
@@ -47,16 +42,15 @@ type ProcessDefinitionDetail = {
   targetWorkflowId: string | null
   inputDefaults: unknown
   grantedFeatures: string[]
-  scheduleCron: string | null
-  scheduleTimezone: string | null
-  scheduleEnabled: boolean
+  triggers: ProcessTrigger[]
   enabled: boolean
+  updatedAt: string | null
 }
 
 type ProcessRunRow = {
   id: string
   status: ProcessRunStatus
-  triggeredBy: string
+  triggeredBy: ProcessRunTriggeredBy | null
   agentRunId: string | null
   workflowInstanceId: string | null
   failureReason: string | null
@@ -64,50 +58,10 @@ type ProcessRunRow = {
   completedAt: string | null
 }
 
-type TriggerRow = {
-  id: string
-  eventPattern: string
-  enabled: boolean
-  updatedAt: string | null
-}
-
 const statusVariant: StatusMap<ProcessRunStatus> = {
   running: 'info',
   completed: 'success',
   failed: 'error',
-}
-
-/**
- * Client-side schedule health — recomputes the next occurrence with the same
- * scheduler parser the server validates with. No persisted health flag (the
- * scheduler registration is best-effort by design); an unparseable stored cron
- * is the one state we can detect and must surface.
- */
-function ScheduleHealth({
-  task,
-  locale,
-  t,
-}: {
-  task: { scheduleCron: string | null; scheduleTimezone: string | null; scheduleEnabled: boolean; enabled: boolean }
-  locale: string
-  t: ReturnType<typeof useT>
-}) {
-  if (!task.scheduleCron || !task.scheduleEnabled || !task.enabled) return null
-  const timezone =
-    task.scheduleTimezone && isValidIanaTimeZone(task.scheduleTimezone) ? task.scheduleTimezone : 'UTC'
-  const result = validateCronExpression(task.scheduleCron, { timezone, count: 1 })
-  if (!result.ok || !result.nextRuns?.length) {
-    return (
-      <span className="text-status-error-text">{t('agent_orchestrator.processDefinitions.detail.scheduleInvalid')}</span>
-    )
-  }
-  return (
-    <span className="text-muted-foreground">
-      {t('agent_orchestrator.processDefinitions.detail.scheduleNextRun', undefined, {
-        time: formatDateTime(result.nextRuns[0].toISOString(), locale) ?? '',
-      })}
-    </span>
-  )
 }
 
 function asString(value: unknown): string | null {
@@ -129,11 +83,20 @@ function mapDetail(raw: Record<string, unknown>): ProcessDefinitionDetail | null
     grantedFeatures: Array.isArray(granted)
       ? granted.filter((value): value is string => typeof value === 'string')
       : [],
-    scheduleCron: asString(raw.scheduleCron) ?? asString(raw.schedule_cron),
-    scheduleTimezone: asString(raw.scheduleTimezone) ?? asString(raw.schedule_timezone),
-    scheduleEnabled: (raw.scheduleEnabled ?? raw.schedule_enabled) !== false,
+    triggers: parseProcessTriggers(raw.triggers),
     enabled: (raw.enabled ?? true) !== false,
+    updatedAt: asString(raw.updatedAt) ?? asString(raw.updated_at),
   }
+}
+
+/** The jsonb `triggered_by` shape, read defensively — a run row predating it has none. */
+function mapTriggeredBy(raw: unknown): ProcessRunTriggeredBy | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const kind = record.kind
+  if (kind !== 'schedule' && kind !== 'event' && kind !== 'manual' && kind !== 'system') return null
+  const ref = typeof record.ref === 'string' && record.ref.length > 0 ? record.ref : undefined
+  return kind === 'event' ? { kind, ref: ref ?? '' } : { kind, ref }
 }
 
 function mapRun(raw: Record<string, unknown>): ProcessRunRow | null {
@@ -143,23 +106,12 @@ function mapRun(raw: Record<string, unknown>): ProcessRunRow | null {
   return {
     id,
     status: statusRaw === 'completed' ? 'completed' : statusRaw === 'failed' ? 'failed' : 'running',
-    triggeredBy: asString(raw.triggered_by) ?? asString(raw.triggeredBy) ?? '',
+    triggeredBy: mapTriggeredBy(raw.triggered_by ?? raw.triggeredBy),
     agentRunId: asString(raw.agent_run_id) ?? asString(raw.agentRunId),
     workflowInstanceId: asString(raw.workflow_instance_id) ?? asString(raw.workflowInstanceId),
     failureReason: asString(raw.failure_reason) ?? asString(raw.failureReason),
     createdAt: asString(raw.created_at) ?? asString(raw.createdAt),
     completedAt: asString(raw.completed_at) ?? asString(raw.completedAt),
-  }
-}
-
-function mapTrigger(raw: Record<string, unknown>): TriggerRow | null {
-  const id = asString(raw.id)
-  if (!id) return null
-  return {
-    id,
-    eventPattern: asString(raw.eventPattern) ?? asString(raw.event_pattern) ?? '',
-    enabled: (raw.enabled ?? true) !== false,
-    updatedAt: asString(raw.updatedAt) ?? asString(raw.updated_at) ?? null,
   }
 }
 
@@ -170,25 +122,22 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
   const taskId = params?.id ?? ''
 
   const [task, setTask] = React.useState<ProcessDefinitionDetail | null>(null)
-  const [triggers, setTriggers] = React.useState<TriggerRow[]>([])
+  const [triggerDraft, setTriggerDraft] = React.useState<ProcessTrigger[]>([])
   const [runs, setRuns] = React.useState<ProcessRunRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [runOpen, setRunOpen] = React.useState(false)
   const [runInput, setRunInput] = React.useState('')
   const [runBusy, setRunBusy] = React.useState(false)
-  const [triggerOpen, setTriggerOpen] = React.useState(false)
-  const [triggerPattern, setTriggerPattern] = React.useState('')
   const [triggerBusy, setTriggerBusy] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.processDefinitions',
     blockedMessage: t('agent_orchestrator.processDefinitions.flash.blocked'),
   })
-  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const loadDetail = React.useCallback(async () => {
-    const call = await apiCall<{ task?: Record<string, unknown>; eventTriggers?: Array<Record<string, unknown>> }>(
+    const call = await apiCall<{ task?: Record<string, unknown> }>(
       `/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId)}`,
       undefined,
       { fallback: {} },
@@ -197,12 +146,9 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
       setError(t('agent_orchestrator.processDefinitions.detail.error'))
       return false
     }
-    setTask(mapDetail(call.result.task))
-    setTriggers(
-      (Array.isArray(call.result.eventTriggers) ? call.result.eventTriggers : [])
-        .map(mapTrigger)
-        .filter((row): row is TriggerRow => !!row),
-    )
+    const detail = mapDetail(call.result.task)
+    setTask(detail)
+    setTriggerDraft(detail?.triggers ?? [])
     return true
   }, [taskId, t])
 
@@ -283,52 +229,36 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     }
   }, [runBusy, runInput, runMutation, retryLastMutation, taskId, t, loadRuns])
 
-  const submitTrigger = React.useCallback(async () => {
-    if (triggerBusy || !triggerPattern.trim()) return
+  /**
+   * Trigger edits mutate the PARENT definition, so the parent's optimistic-lock
+   * header applies — no per-child override (there is no child record any more).
+   */
+  const saveTriggers = React.useCallback(async () => {
+    if (triggerBusy || !task) return
+    if (invalidScheduleIndexes(triggerDraft).length > 0) {
+      flash(t('agent_orchestrator.processDefinitions.form.errors.cronInvalid'), 'error')
+      return
+    }
     setTriggerBusy(true)
     try {
       await runMutation({
         operation: () =>
-          apiCallOrThrow(`/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId)}/event-triggers`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ eventPattern: triggerPattern.trim() }),
-          }),
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(task.updatedAt),
+            () =>
+              updateCrud('agent_orchestrator/process-definitions', {
+                id: task.id,
+                name: task.name,
+                targetType: task.targetType,
+                targetAgentId: task.targetAgentId ?? undefined,
+                targetWorkflowId: task.targetWorkflowId ?? undefined,
+                triggers: triggerDraft,
+              }),
+          ),
         context: { retryLastMutation },
         mutationPayload: { taskId },
       })
-      flash(t('agent_orchestrator.processDefinitions.triggers.added'), 'success')
-      setTriggerOpen(false)
-      setTriggerPattern('')
-      await loadDetail()
-    } catch (err) {
-      flash(err instanceof Error ? err.message : t('agent_orchestrator.processDefinitions.triggers.error'), 'error')
-    } finally {
-      setTriggerBusy(false)
-    }
-  }, [triggerBusy, triggerPattern, runMutation, retryLastMutation, taskId, t, loadDetail])
-
-  const deleteTrigger = React.useCallback(async (trigger: TriggerRow) => {
-    const confirmed = await confirm({
-      text: t('agent_orchestrator.processDefinitions.triggers.confirmDelete.text', undefined, { pattern: trigger.eventPattern }),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
-    try {
-      await runMutation({
-        operation: () =>
-          withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(trigger.updatedAt),
-            () =>
-              apiCallOrThrow(
-                `/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId)}/event-triggers/${encodeURIComponent(trigger.id)}`,
-                { method: 'DELETE' },
-              ),
-          ),
-        context: { retryLastMutation },
-        mutationPayload: { triggerId: trigger.id },
-      })
-      flash(t('agent_orchestrator.processDefinitions.triggers.deleted'), 'success')
+      flash(t('agent_orchestrator.processDefinitions.triggers.saved'), 'success')
       await loadDetail()
     } catch (err) {
       if (surfaceRecordConflict(err, t)) {
@@ -336,8 +266,10 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         return
       }
       flash(err instanceof Error ? err.message : t('agent_orchestrator.processDefinitions.triggers.error'), 'error')
+    } finally {
+      setTriggerBusy(false)
     }
-  }, [confirm, runMutation, retryLastMutation, taskId, t, loadDetail])
+  }, [triggerBusy, task, triggerDraft, runMutation, retryLastMutation, taskId, t, loadDetail])
 
   const runColumns = React.useMemo<ColumnDef<ProcessRunRow>[]>(
     () => [
@@ -353,7 +285,20 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
       {
         accessorKey: 'triggeredBy',
         header: t('agent_orchestrator.processDefinitions.runs.col.triggeredBy'),
-        cell: ({ row }) => <span className="truncate font-mono text-xs">{row.original.triggeredBy}</span>,
+        cell: ({ row }) => {
+          const source = row.original.triggeredBy
+          if (!source) return <span className="text-xs text-muted-foreground">—</span>
+          return (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <span className="text-xs text-foreground">
+                {t(`agent_orchestrator.processDefinitions.runs.triggeredBy.${source.kind}`)}
+              </span>
+              {source.ref ? (
+                <span className="truncate font-mono text-xs text-muted-foreground">{source.ref}</span>
+              ) : null}
+            </span>
+          )
+        },
       },
       {
         accessorKey: 'createdAt',
@@ -445,6 +390,10 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
 
   const TargetIcon = task.targetType === 'agent' ? Bot : WorkflowIcon
   const targetId = task.targetType === 'agent' ? task.targetAgentId : task.targetWorkflowId
+  const schedules = scheduleTriggers(task.triggers)
+  // Run-now mirrors the server gate exactly: no declared manual trigger, no
+  // hand-start (the route 403s), so the button must not promise one.
+  const allowsManual = manualTrigger(task.triggers) !== null
 
   // API trigger facts — the primary machine entry point for process definitions.
   // `origin` resolves client-side only, so the snippet shows the real host.
@@ -485,19 +434,26 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
                 {!task.enabled ? (
                   <StatusBadge variant="warning">{t('agent_orchestrator.processDefinitions.detail.disabled')}</StatusBadge>
                 ) : null}
-                {task.scheduleCron ? (
-                  <span className="font-mono text-muted-foreground">
-                    {task.scheduleCron}
-                    {!task.scheduleEnabled ? ` (${t('agent_orchestrator.processDefinitions.list.schedulePaused')})` : ''}
+                {schedules.map((trigger, index) => (
+                  <span key={`schedule-${index}`} className="font-mono text-muted-foreground">
+                    {trigger.cron}
+                    {!trigger.enabled ? ` (${t('agent_orchestrator.processDefinitions.list.schedulePaused')})` : ''}
                   </span>
-                ) : null}
-                <ScheduleHealth task={task} locale={locale} t={t} />
+                ))}
               </div>
             </div>
-            <Button size="sm" onClick={openRunDialog} disabled={!task.enabled}>
-              <Play className="mr-2 size-4" />
-              {t('agent_orchestrator.processDefinitions.detail.runNow')}
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button size="sm" onClick={openRunDialog} disabled={!task.enabled || !allowsManual}>
+                <Play className="mr-2 size-4" />
+                {t('agent_orchestrator.processDefinitions.detail.runNow')}
+              </Button>
+              {!allowsManual ? (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Hand className="size-3.5 shrink-0" />
+                  {t('agent_orchestrator.processDefinitions.triggers.manual.required')}
+                </span>
+              ) : null}
+            </div>
           </div>
           {task.grantedFeatures.length > 0 ? (
             <div className="mt-4">
@@ -551,35 +507,37 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         </section>
 
         <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-foreground">{t('agent_orchestrator.processDefinitions.triggers.title')}</h2>
-            <Button variant="outline" size="sm" onClick={() => setTriggerOpen(true)}>
-              <Plus className="mr-2 size-4" />
-              {t('agent_orchestrator.processDefinitions.triggers.add')}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-foreground">{t('agent_orchestrator.processDefinitions.triggers.title')}</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">{t('agent_orchestrator.processDefinitions.triggers.description')}</p>
+            </div>
+            <Button size="sm" onClick={() => { void saveTriggers() }} disabled={triggerBusy}>
+              <Save className="mr-2 size-4" />
+              {t('agent_orchestrator.processDefinitions.triggers.save')}
             </Button>
           </div>
-          {triggers.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">{t('agent_orchestrator.processDefinitions.triggers.empty')}</p>
-          ) : (
-            <ul className="mt-3 space-y-1.5">
-              {triggers.map((trigger) => (
-                <li key={trigger.id} className="flex items-center gap-2">
-                  <span className="flex-1 truncate font-mono text-sm text-foreground">{trigger.eventPattern}</span>
-                  {!trigger.enabled ? (
-                    <StatusBadge variant="warning">{t('agent_orchestrator.processDefinitions.detail.disabled')}</StatusBadge>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={t('agent_orchestrator.processDefinitions.triggers.delete')}
-                    onClick={() => { void deleteTrigger(trigger) }}
-                  >
-                    <Trash2 className="size-4 text-muted-foreground" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div
+            className="mt-3"
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                void saveTriggers()
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setTriggerDraft(task.triggers)
+              }
+            }}
+          >
+            <TriggerEditor
+              value={triggerDraft}
+              onChange={setTriggerDraft}
+              disabled={triggerBusy}
+              locale={locale}
+              t={t}
+            />
+          </div>
         </section>
 
         <section className="space-y-3">
@@ -626,37 +584,6 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
           </DialogContent>
         </Dialog>
 
-        <Dialog open={triggerOpen} onOpenChange={setTriggerOpen}>
-          <DialogContent
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                event.preventDefault()
-                void submitTrigger()
-              }
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>{t('agent_orchestrator.processDefinitions.triggers.addTitle')}</DialogTitle>
-              <DialogDescription>{t('agent_orchestrator.processDefinitions.triggers.addDescription')}</DialogDescription>
-            </DialogHeader>
-            <Input
-              value={triggerPattern}
-              onChange={(event) => setTriggerPattern(event.target.value)}
-              placeholder="customers.deal.created"
-              className="font-mono"
-              aria-label={t('agent_orchestrator.processDefinitions.triggers.patternLabel')}
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setTriggerOpen(false)} disabled={triggerBusy}>
-                {t('agent_orchestrator.processDefinitions.run.cancel')}
-              </Button>
-              <Button size="sm" onClick={() => { void submitTrigger() }} disabled={triggerBusy || !triggerPattern.trim()}>
-                {t('agent_orchestrator.processDefinitions.triggers.submit')}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

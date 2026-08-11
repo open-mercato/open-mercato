@@ -9,6 +9,7 @@ import {
   agentProcessDefinitionCreateSchema,
   agentProcessDefinitionListQuerySchema,
   agentProcessDefinitionUpdateSchema,
+  processTriggerSchema,
   type AgentProcessDefinitionCreateInput,
   type AgentProcessDefinitionUpdateInput,
 } from '../../data/validators'
@@ -157,9 +158,7 @@ const crud = makeCrudRoute<
       'input_schema',
       'execution_principal_id',
       'granted_features',
-      'schedule_cron',
-      'schedule_timezone',
-      'schedule_enabled',
+      'triggers',
       'enabled',
       'organization_id',
       'tenant_id',
@@ -196,9 +195,7 @@ const crud = makeCrudRoute<
         inputDefaults: input.inputDefaults ?? null,
         inputSchema: input.inputSchema ?? null,
         grantedFeatures: input.grantedFeatures ?? [],
-        scheduleCron: input.scheduleCron ?? null,
-        scheduleTimezone: input.scheduleTimezone ?? null,
-        scheduleEnabled: input.scheduleEnabled ?? true,
+        triggers: input.triggers ?? [],
         enabled: input.enabled ?? true,
         createdBy: ctx.auth?.sub ?? null,
       }
@@ -220,9 +217,7 @@ const crud = makeCrudRoute<
       if (input.inputDefaults !== undefined) row.inputDefaults = input.inputDefaults ?? null
       if (input.inputSchema !== undefined) row.inputSchema = input.inputSchema ?? null
       if (input.grantedFeatures !== undefined) row.grantedFeatures = input.grantedFeatures
-      if (input.scheduleCron !== undefined) row.scheduleCron = input.scheduleCron ?? null
-      if (input.scheduleTimezone !== undefined) row.scheduleTimezone = input.scheduleTimezone ?? null
-      if (input.scheduleEnabled !== undefined) row.scheduleEnabled = input.scheduleEnabled
+      if (input.triggers !== undefined) row.triggers = input.triggers
       if (input.enabled !== undefined) row.enabled = input.enabled
     },
     response: (entity) => {
@@ -298,9 +293,7 @@ const taskListItemSchema = z.object({
   input_schema: z.unknown().nullable().optional(),
   execution_principal_id: z.string().uuid().nullable().optional(),
   granted_features: z.array(z.string()).nullable().optional(),
-  schedule_cron: z.string().nullable().optional(),
-  schedule_timezone: z.string().nullable().optional(),
-  schedule_enabled: z.boolean().optional(),
+  triggers: z.array(processTriggerSchema).nullable().optional(),
   enabled: z.boolean().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
@@ -321,17 +314,17 @@ export const openApi = createAgentOrchestratorCrudOpenApi({
     schema: agentProcessDefinitionCreateSchema,
     responseSchema: defaultCreateResponseSchema,
     description:
-      'Creates a process definition. Auto-provisions a dedicated execution principal (agent user + least-privilege role scoped to `grantedFeatures`) and registers the cron schedule when set.',
+      'Creates a process definition. Auto-provisions a dedicated execution principal (agent user + least-privilege role scoped to `grantedFeatures`) and registers a scheduler job for every declared `{ kind: "schedule" }` trigger.',
   },
   update: {
     schema: agentProcessDefinitionUpdateSchema,
     responseSchema: defaultOkResponseSchema,
     description:
-      'Updates a process definition (optimistic-locked on updatedAt). Re-scopes the execution principal role when `grantedFeatures` changed and re-syncs the schedule.',
+      'Updates a process definition (optimistic-locked on updatedAt). Re-scopes the execution principal role when `grantedFeatures` changed and re-syncs every declared schedule trigger.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Soft-deletes a process definition and unregisters any active schedule.',
+    description: 'Soft-deletes a process definition and unregisters every schedule it registered.',
   },
 })

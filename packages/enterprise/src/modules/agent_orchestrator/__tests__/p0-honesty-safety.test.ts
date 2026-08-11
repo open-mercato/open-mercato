@@ -24,24 +24,20 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     'agent_orchestrator.process.actionsComingSoon',
     'agent_orchestrator.processDefinitions.confirmDelete.title',
     'agent_orchestrator.processDefinitions.confirmDelete.text',
-    'agent_orchestrator.processDefinitions.triggers.confirmDelete.text',
   ]
   const REMOVED_KEYS = [
     'agent_orchestrator.process.actionPreviewOnly',
     'agent_orchestrator.traces.detail.sample',
     'agent_orchestrator.overview.domain',
+    // Retired with the event-trigger table (triggered process model Phase 2):
+    // removing a trigger is an unsaved draft edit, not a destructive delete.
+    'agent_orchestrator.processDefinitions.triggers.confirmDelete.text',
   ]
 
   it.each(locales)('locale %s carries the new keys and drops the removed ones', (locale) => {
     const data = localeData[locale]
     for (const key of NEW_KEYS) expect(data[key]).toBeTruthy()
     for (const key of REMOVED_KEYS) expect(data[key]).toBeUndefined()
-  })
-
-  it('keeps the {pattern} interpolation in every trigger confirm translation', () => {
-    for (const locale of locales) {
-      expect(localeData[locale]['agent_orchestrator.processDefinitions.triggers.confirmDelete.text']).toContain('{pattern}')
-    }
   })
 
   it('keeps {from}/{to}/{total} interpolations in every inbox range translation', () => {
@@ -60,12 +56,16 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     expect(deleteIndex).toBeGreaterThan(confirmIndex)
   })
 
-  it('confirms before deleting an event trigger', () => {
+  it('edits triggers as a reviewable draft rather than a per-row destructive delete', () => {
+    // Phase 2 of the triggered process model collapsed the event-trigger table
+    // into the definition's `triggers` jsonb. Removing an entry is now an
+    // unsaved edit to a draft list — reversible with Escape and only persisted
+    // by an explicit, optimistic-locked save — so a delete confirmation would
+    // be confirming nothing destructive.
     const source = read('backend/processes/definitions/[id]/page.tsx')
-    const confirmIndex = source.indexOf('processDefinitions.triggers.confirmDelete.text')
-    const deleteIndex = source.indexOf('event-triggers/')
-    expect(confirmIndex).toBeGreaterThan(-1)
-    expect(deleteIndex).toBeGreaterThan(confirmIndex)
+    expect(source).not.toContain('event-triggers/')
+    expect(source).toContain('setTriggerDraft(task.triggers)')
+    expect(source).toContain('buildOptimisticLockHeader(task.updatedAt)')
   })
 
   it('manages eval assertions through a guarded, non-destructive toggle (no per-agent raw delete)', () => {

@@ -42,7 +42,10 @@ One domain concept, three records — do not reintroduce the "task vs process" s
 - **Two routes, not one tabbed page.** `/backend/processes` lists running processes (the projection); `/backend/processes/definitions` authors definitions. They answer "what is happening now" versus "what can happen". `/backend/agentic-tasks` is a nav-hidden, still-RBAC-guarded bridge redirect for one release.
 - **`encryption.ts` keys `defaultEncryptionMaps` by a PLAIN STRING `entityId` that nothing type-checks.** Rename an entity or a column without moving its map entry and `input`, `input_defaults` and `failure_reason` silently persist in PLAINTEXT while existing rows become undecryptable — in green CI. `__tests__/encryption-map-entity-ids.test.ts` resolves every entry against the ORM metadata; keep it passing rather than deleting the failing row.
 - **Migrations are SQUASHED, not stacked** (`Migration20260811150000`): one current-state create-schema file regenerated from `data/entities.ts`. Regenerate the file AND `.snapshot-open-mercato.json` together; never run `db:migrate` to quiet the generator. Data rewrites that touch CORE `workflows` tables cannot be absorbed by a create-table and are carried over verbatim, `to_regclass`-guarded.
-- Phases 2-4 (first-class `triggers`, `milestones`, nullable `outcome`) are NOT implemented yet.
+- **Triggers are ONE declared list** (`agent_process_definitions.triggers` jsonb, `processTriggerSchema`, `.max(20)`): `schedule` | `event` | `manual`. The event arm's `config` persists ARRAYS of typed objects (`filterConditions: [{field,operator,value?}]`, `contextMapping: [{targetKey,sourceExpression,defaultValue?}]`) — NOT maps; modelling them as `z.record` drops every stored config. Read the column through `lib/tasks/triggers.ts`, never `JSON.parse` by hand.
+- **A definition with no `manual` trigger CANNOT be started by hand** — `POST /process-definitions/:id/run` 403s, and the trigger's own `requireFeatures` is checked on top of `processes.run`. `AgentProcessRun.triggered_by` is jsonb `{ kind, ref? }` recording WHICH trigger fired.
+- **The event dispatcher probes the GIN index, it does not scan.** `candidateEventPatterns(eventName)` enumerates the exact id plus every trailing-wildcard prefix that could match, and each is one `triggers @> '[{"kind":"event","eventPattern":…}]'` containment probe against `agent_process_definitions_triggers_gin` (`jsonb_path_ops`). `matchesEventPattern` is re-applied in memory as the correctness backstop.
+- Phases 3-4 (`milestones`, nullable `outcome`) are NOT implemented yet.
 
 ## Runtime Selection
 
@@ -126,9 +129,8 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 - **AgentPrincipal** (`agent_principals`) — links an agent to a non-interactive `auth.User` (`kind='agent'`) + scoped `auth.Role`. `credentialMode` ∈ `internal|oauth_client|authmd`; live partial-unique on (org, agent).
 - **AgentDelegationGrant** (`agent_delegation_grants`) — external agent's revocable OAuth/ID-JAG grant. Revocation denies every minted token on its NEXT request, not at expiry.
 - **AgentRunSession** (`agent_run_sessions`) — DB-backed cross-process correlation (runner ↔ `mcp:serve-http`). An in-process Map does NOT work across processes.
-- **AgentProcessDefinition** (`agent_process_definitions`) — the AUTHORED half of a process: name, `target_type` (`agent|workflow`), `input_schema`/`input_defaults`, `granted_features`, `schedule_cron`, `enabled`. User-editable → `updated_at` optimistic locking. Runs under its OWN auto-provisioned `AgentPrincipal` (`execution_principal_id`, synthetic agent id `task:<id>` — a persisted key deliberately NOT renamed), never the triggering user.
-- **AgentProcessRun** (`agent_process_runs`) — one execution of a definition (`running → completed|failed`), system-transitioned, unified across both target types. FK `process_definition_id`; partial-unique on (org, definition, idempotency_key).
-- **AgentTaskEventTrigger** (`agent_task_event_triggers`) — event entry into a definition (`event_pattern` + `{filterConditions, contextMapping, debounceMs, maxConcurrentInstances}`). Table and event ids still carry the retired `task` word ON PURPOSE: it collapses into the definition's `triggers` jsonb in Phase 2 of the triggered-process spec, and renaming it twice would cost two migrations.
+- **AgentProcessDefinition** (`agent_process_definitions`) — the AUTHORED half of a process: name, `target_type` (`agent|workflow`), `input_schema`/`input_defaults`, `granted_features`, `triggers` (jsonb, GIN-indexed), `enabled`. User-editable → `updated_at` optimistic locking. Runs under its OWN auto-provisioned `AgentPrincipal` (`execution_principal_id`, synthetic agent id `task:<id>` — a persisted key deliberately NOT renamed), never the triggering user.
+- **AgentProcessRun** (`agent_process_runs`) — one execution of a definition (`running → completed|failed`), system-transitioned, unified across both target types. FK `process_definition_id`; `triggered_by` jsonb `{ kind, ref? }`; partial-unique on (org, definition, idempotency_key).
 
 ## Lifecycle: run → disposition → effector
 
@@ -186,8 +188,7 @@ agents/<agent_id>/
 | `/context-bundles` | GET | `context.read` | Inspect TDCR bundles |
 | `/guardrail-checks` | GET | `guardrail.read` | Inspect guardrail audit |
 | `/process-definitions`, `/process-definitions/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
-| `/process-definitions/:id/run` | POST | `processes.run` | Start a run — always async, `202 { processRunId }` |
-| `/process-definitions/:id/event-triggers[/:triggerId]` | CRUD | `processes.manage` | Event entries into a definition |
+| `/process-definitions/:id/run` | POST | `processes.run` | Start a run BY HAND — 403 without a declared `manual` trigger; always async, `202 { processRunId }` |
 | `/process-runs`, `/process-runs/:id` | GET | `processes.view` | Unified run ledger across agent and workflow targets |
 | `/identity/well-known`, `/identity/token`, `/identity/agent/auth` | GET/POST | public / no-user-auth | OAuth discovery, client-credentials, ID-JAG |
 | `/identity/grants/:id/revoke` | POST | `identity.manage` | Revoke a delegation grant |
@@ -202,7 +203,7 @@ Every route file MUST export `openApi`. Custom write routes MUST wire the mutati
 
 ## Events (`events.ts`)
 
-`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast), `task_event_trigger.*` (all prefixed `agent_orchestrator.`). Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
+`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
 
 ## Backend Cockpit (`backend/`)
 

@@ -7,6 +7,7 @@ import { AgentPrincipal, AgentRun, AgentProcessDefinition, AgentProcessRun } fro
 import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE } from '../lib/queue'
 import { isAgentCapacityError } from '../lib/runtime/admission'
+import { parseProcessTriggers, scheduleTriggers } from '../lib/tasks/triggers'
 import type { AgentRunCtx, AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -45,8 +46,14 @@ function isRetryable(error: unknown): boolean {
   return isAgentCapacityError(error) || (typeof error === 'object' && error !== null && (error as RetryableError).retryable === true)
 }
 
-function parseTriggeredByUser(triggeredBy: string): string | null {
-  return triggeredBy.startsWith('user:') ? triggeredBy.slice('user:'.length) : null
+/**
+ * The human the run acts on behalf of — only a MANUAL entry has one. A schedule
+ * or event entry has no delegator, so `runAs.onBehalfOfUserId` stays null and
+ * the run is attributed purely to the definition's execution principal.
+ */
+function parseTriggeredByUser(triggeredBy: AgentProcessRun['triggeredBy']): string | null {
+  if (!triggeredBy || triggeredBy.kind !== 'manual') return null
+  return triggeredBy.ref ?? null
 }
 
 async function finishTaskRun(
@@ -83,7 +90,12 @@ async function handleScheduledTick(
     id: payload.scheduledProcessDefinitionId,
     deletedAt: null,
   })
-  if (!definition || !definition.enabled || !definition.scheduleEnabled) return
+  if (!definition || !definition.enabled) return
+  // The scheduler only holds registrations for enabled schedule triggers, but a
+  // tick can outrace an edit that disabled the last one — re-read the declared
+  // list rather than trusting the registration that produced this job.
+  const schedules = scheduleTriggers(parseProcessTriggers(definition.triggers))
+  if (!schedules.some((trigger) => trigger.enabled)) return
   const commandBus = container.resolve('commandBus') as CommandBus
   const commandCtx: CommandRuntimeContext = {
     container: container as unknown as CommandRuntimeContext['container'],
@@ -98,7 +110,7 @@ async function handleScheduledTick(
         tenantId: definition.tenantId,
         organizationId: definition.organizationId,
         processDefinitionId: definition.id,
-        triggeredBy: `schedule:${payload.scheduleId ?? 'cron'}`,
+        triggeredBy: { kind: 'schedule' as const, ref: payload.scheduleId ?? undefined },
       },
       ctx: commandCtx,
     })

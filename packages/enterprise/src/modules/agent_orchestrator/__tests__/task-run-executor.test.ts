@@ -117,7 +117,7 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, run
     agentRunId: null,
     workflowInstanceId: null,
     input: { dealId: 'deal-1' },
-    triggeredBy: 'user:88888888-8888-4888-8888-888888888888',
+    triggeredBy: { kind: 'manual', ref: '88888888-8888-4888-8888-888888888888' },
     ...runOverrides,
   })
 }

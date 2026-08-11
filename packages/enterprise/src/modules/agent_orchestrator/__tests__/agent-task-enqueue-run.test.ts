@@ -95,6 +95,7 @@ function seedDefinition(storeFor: (entity: unknown) => Array<Record<string, unkn
     inputDefaults: { threshold: 5 },
     inputSchema: null,
     executionPrincipalId: '55555555-5555-4555-8555-555555555555',
+    triggers: [{ kind: 'manual', requireFeatures: [] }],
     enabled: true,
     deletedAt: null,
     ...overrides,
@@ -111,7 +112,7 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
     tenantId: TENANT,
     organizationId: ORG,
     processDefinitionId: TASK_ID,
-    triggeredBy: 'user:66666666-6666-4666-8666-666666666666',
+    triggeredBy: { kind: 'manual' as const, ref: '66666666-6666-4666-8666-666666666666' },
   }
 
   it('creates a running task run, merges input defaults, emits started, and enqueues', async () => {
@@ -128,7 +129,7 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
     expect(runs).toHaveLength(1)
     expect(runs[0].status).toBe('running')
     expect(runs[0].input).toEqual({ threshold: 5, dealId: 'deal-1' })
-    expect(runs[0].triggeredBy).toBe(baseInput.triggeredBy)
+    expect(runs[0].triggeredBy).toEqual(baseInput.triggeredBy)
     expect(enqueueMock).toHaveBeenCalledWith({ processRunId: result.processRunId })
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
       'agent_orchestrator.process_run.started',
@@ -165,6 +166,29 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
     })
     expect(storeFor(AgentProcessRun)).toHaveLength(0)
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('403s a manual entry when the definition declares no manual trigger', async () => {
+    const { em, storeFor } = createFakeEm()
+    seedDefinition(storeFor, { triggers: [{ kind: 'schedule', cron: '0 7 * * *', timezone: 'UTC', enabled: true }] })
+
+    await expect(enqueueProcessRunCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
+      status: 403,
+    })
+    expect(storeFor(AgentProcessRun)).toHaveLength(0)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('lets a schedule entry through a definition with no manual trigger', async () => {
+    const { em, storeFor } = createFakeEm()
+    seedDefinition(storeFor, { triggers: [{ kind: 'schedule', cron: '0 7 * * *', timezone: 'UTC', enabled: true }] })
+
+    const result = await enqueueProcessRunCommand.execute(
+      { ...baseInput, triggeredBy: { kind: 'schedule' as const } },
+      makeCtx(em),
+    )
+    expect(result.status).toBe('running')
+    expect(storeFor(AgentProcessRun)[0].triggeredBy).toEqual({ kind: 'schedule' })
   })
 
   it('409s a disabled task', async () => {

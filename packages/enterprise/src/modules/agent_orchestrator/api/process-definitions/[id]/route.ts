@@ -5,12 +5,14 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentProcessDefinition, AgentTaskEventTrigger } from '../../../data/entities'
+import { AgentProcessDefinition } from '../../../data/entities'
 
 /**
- * Process-definition detail for the edit form and detail page: the row (including
- * `updatedAt` for the optimistic-lock header and the audited `grantedFeatures`)
- * plus its event triggers. Org-scoped — cross-org ids 404, never the row.
+ * Process-definition detail for the edit form and detail page: the row,
+ * including `updatedAt` for the optimistic-lock header, the audited
+ * `grantedFeatures`, and the declared `triggers` list (the event entries used to
+ * be a sibling table; they are entries of that list now). Org-scoped —
+ * cross-org ids 404, never the row.
  */
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.view'] },
@@ -43,13 +45,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   )
   if (!task) return NextResponse.json({ error: 'Process definition not found' }, { status: 404 })
 
-  const eventTriggers = await em.find(
-    AgentTaskEventTrigger,
-    { processDefinitionId: task.id, ...scope, deletedAt: null },
-    { orderBy: { priority: 'desc', createdAt: 'asc' } },
-  )
-
-  return NextResponse.json({ task, eventTriggers })
+  return NextResponse.json({ task })
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -57,10 +53,10 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Get process definition detail',
   methods: {
     GET: {
-      summary: 'Get a process definition with its event triggers',
+      summary: 'Get a process definition with its declared triggers',
       description:
-        'Returns the process definition (including updatedAt for optimistic locking and the audited grantedFeatures) plus its event triggers. Org-scoped; gated by agent_orchestrator.processes.view.',
-      responses: [{ status: 200, description: 'Task detail' }],
+        'Returns the process definition including updatedAt for optimistic locking, the audited grantedFeatures, and the declared triggers list (schedule / event / manual). Org-scoped; gated by agent_orchestrator.processes.view.',
+      responses: [{ status: 200, description: 'Process definition detail' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing agent_orchestrator.processes.view', schema: errorSchema },

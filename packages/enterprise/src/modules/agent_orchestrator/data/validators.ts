@@ -1079,6 +1079,111 @@ const scheduleTimezone = z
   .max(64)
   .refine(isValidIanaTimeZone, 'Invalid IANA timezone (expected e.g. Europe/Warsaw)')
 
+/**
+ * WorkflowEventTriggerConfig-shaped trigger config (mirrored locally, no
+ * cross-module import). **The persisted shape is ARRAYS of typed objects, not
+ * maps** — `filterConditions` is a list of `{ field, operator, value? }` and
+ * `contextMapping` a list of `{ targetKey, sourceExpression, defaultValue? }`.
+ * The spec sketched both as `z.record(...)`; carrying that across would have
+ * silently dropped every stored trigger config on read.
+ */
+export const processEventTriggerConfigSchema = z
+  .object({
+    filterConditions: z
+      .array(
+        z.object({
+          field: z.string().min(1),
+          operator: z.enum([
+            'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
+            'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'exists', 'notExists',
+          ]),
+          value: z.unknown().optional(),
+        }),
+      )
+      .optional(),
+    /** How the event payload becomes run input. Without it an event-triggered run has NO input. */
+    contextMapping: z
+      .array(
+        z.object({
+          targetKey: z.string().min(1),
+          sourceExpression: z.string().min(1),
+          defaultValue: z.unknown().optional(),
+        }),
+      )
+      .optional(),
+    debounceMs: z.number().int().min(0).max(86_400_000).optional(),
+    maxConcurrentInstances: z.number().int().min(1).max(1000).optional(),
+  })
+  .strict()
+export type ProcessEventTriggerConfig = z.infer<typeof processEventTriggerConfigSchema>
+
+/**
+ * Exact event id OR a trailing-wildcard pattern (`claims.*`) — the shape the
+ * retired `agent_task_event_triggers.event_pattern` column accepted. Naming this
+ * `eventId` would have silently dropped wildcard subscription.
+ */
+export const processEventPatternSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$|^[a-z0-9_]+\.\*$/i, 'Invalid event pattern')
+
+/**
+ * How a process can be entered — ONE declared list replacing three unrelated
+ * mechanisms (cron on the definition, a sibling event-trigger table, and an
+ * undocumented run route). Stored as `agent_process_definitions.triggers` jsonb.
+ *
+ * Cron SHAPE only here (this file is imported by client bundles); the semantic
+ * parse runs server-side through `withScheduleSemanticChecks`.
+ */
+export const processTriggerSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('schedule'),
+    cron: cronExpression,
+    timezone: scheduleTimezone.default('UTC'),
+    enabled: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('event'),
+    eventPattern: processEventPatternSchema,
+    config: processEventTriggerConfigSchema.nullable().optional(),
+    /** Order among triggers matching the same event. */
+    priority: z.number().int().min(-1000).max(1000).default(0),
+    enabled: z.boolean().default(true),
+  }),
+  z.object({
+    kind: z.literal('manual'),
+    /** Features a caller needs beyond `processes.run` to start it by hand. */
+    requireFeatures: z.array(z.string().min(1).max(200)).max(50).default([]),
+  }),
+])
+export type ProcessTrigger = z.infer<typeof processTriggerSchema>
+export type ProcessScheduleTrigger = Extract<ProcessTrigger, { kind: 'schedule' }>
+export type ProcessEventTrigger = Extract<ProcessTrigger, { kind: 'event' }>
+export type ProcessManualTrigger = Extract<ProcessTrigger, { kind: 'manual' }>
+
+/**
+ * Storage bound on the declared entry points. `triggers` is scanned by the
+ * wildcard event subscriber on every domain event, so the list length is a
+ * dispatch cost, not just a schema nicety.
+ */
+export const PROCESS_TRIGGERS_MAX = 20
+
+export const processTriggersSchema = z.array(processTriggerSchema).max(PROCESS_TRIGGERS_MAX)
+
+/**
+ * Why a run happened — `agent_process_runs.triggered_by` jsonb. `ref` is the
+ * user id (manual), the event name (event), or absent (schedule).
+ */
+export const processRunTriggeredBySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('schedule'), ref: z.string().min(1).max(200).optional() }),
+  z.object({ kind: z.literal('event'), ref: z.string().min(1).max(255) }),
+  z.object({ kind: z.literal('manual'), ref: z.string().min(1).max(200).optional() }),
+  /** System entries with no declared trigger (backfills, fixtures, replays). */
+  z.object({ kind: z.literal('system'), ref: z.string().min(1).max(200).optional() }),
+])
+export type ProcessRunTriggeredBy = z.infer<typeof processRunTriggeredBySchema>
+
 const taskTargetShape = {
   name: z.string().min(1).max(255),
   description: z.string().max(4000).nullable().optional(),
@@ -1089,9 +1194,7 @@ const taskTargetShape = {
   /** JSON-Schema restricted to the OUTCOME-compatible subset; compiled lazily at /run time. */
   inputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
   grantedFeatures: z.array(z.string().min(1).max(200)).max(200).optional(),
-  scheduleCron: cronExpression.nullable().optional(),
-  scheduleTimezone: scheduleTimezone.nullable().optional(),
-  scheduleEnabled: z.boolean().optional(),
+  triggers: processTriggersSchema.optional(),
   enabled: z.boolean().optional(),
 }
 
@@ -1152,53 +1255,6 @@ export const agentProcessRunListQuerySchema = z
   })
   .passthrough()
 export type AgentProcessRunListQuery = z.infer<typeof agentProcessRunListQuerySchema>
-
-/** WorkflowEventTriggerConfig-shaped trigger config (mirrored locally, no cross-module import). */
-export const agentTaskEventTriggerConfigSchema = z
-  .object({
-    filterConditions: z
-      .array(
-        z.object({
-          field: z.string().min(1),
-          operator: z.enum([
-            'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
-            'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'exists', 'notExists',
-          ]),
-          value: z.unknown().optional(),
-        }),
-      )
-      .optional(),
-    contextMapping: z
-      .array(
-        z.object({
-          targetKey: z.string().min(1),
-          sourceExpression: z.string().min(1),
-          defaultValue: z.unknown().optional(),
-        }),
-      )
-      .optional(),
-    debounceMs: z.number().int().min(0).max(86_400_000).optional(),
-    maxConcurrentInstances: z.number().int().min(1).max(1000).optional(),
-  })
-  .strict()
-export type AgentTaskEventTriggerConfig = z.infer<typeof agentTaskEventTriggerConfigSchema>
-
-export const agentTaskEventTriggerCreateSchema = z.object({
-  eventPattern: z
-    .string()
-    .min(1)
-    .max(255)
-    .regex(/^[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$|^[a-z0-9_]+\.\*$/i, 'Invalid event pattern'),
-  config: agentTaskEventTriggerConfigSchema.nullable().optional(),
-  enabled: z.boolean().optional(),
-  priority: z.number().int().min(-1000).max(1000).optional(),
-})
-export type AgentTaskEventTriggerCreateInput = z.infer<typeof agentTaskEventTriggerCreateSchema>
-
-export const agentTaskEventTriggerUpdateSchema = agentTaskEventTriggerCreateSchema.partial().extend({
-  updatedAt: z.string().optional(),
-})
-export type AgentTaskEventTriggerUpdateInput = z.infer<typeof agentTaskEventTriggerUpdateSchema>
 
 // ── Process subject & caseload projection (spec 2026-06-25) ──────────────────
 

@@ -51,11 +51,9 @@ const events = [
   { id: 'agent_orchestrator.process_run.started', label: 'Process Run Started', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.process_run.completed', label: 'Process Run Completed', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.process_run.failed', label: 'Process Run Failed', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
-  // The event-trigger table survives Phase 1 unchanged — it collapses into the
-  // definition's `triggers` jsonb in Phase 2, and only then do these events go.
-  { id: 'agent_orchestrator.task_event_trigger.created', label: 'Process Event Trigger Created', entity: 'task_event_trigger', category: 'crud' },
-  { id: 'agent_orchestrator.task_event_trigger.updated', label: 'Process Event Trigger Updated', entity: 'task_event_trigger', category: 'crud' },
-  { id: 'agent_orchestrator.task_event_trigger.deleted', label: 'Process Event Trigger Deleted', entity: 'task_event_trigger', category: 'crud' },
+  // No `task_event_trigger.*` events: Phase 2 collapsed the sibling table into
+  // the definition's `triggers` jsonb, so a trigger edit IS a definition update
+  // and is announced by `process_definition.updated`.
   // Process projection (spec 2026-06-25). Emitted after every projection upsert
   // (clientBroadcast) so the open Processes list refetches the changed row.
   // excludeFromTriggers: it is a derived read-model echo, not a domain fact.

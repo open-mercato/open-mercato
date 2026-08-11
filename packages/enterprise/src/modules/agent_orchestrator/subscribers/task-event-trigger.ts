@@ -1,8 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { AgentProcessDefinition, AgentTaskEventTrigger, AgentProcessRun } from '../data/entities'
-import type { AgentTaskEventTriggerConfig } from '../data/validators'
+import { AgentProcessDefinition, AgentProcessRun } from '../data/entities'
+import { parseProcessTriggers, eventTriggers } from '../lib/tasks/triggers'
 import {
+  candidateEventPatterns,
   evaluateFilterConditions,
   mapEventToInput,
   matchesEventPattern,
@@ -12,10 +13,12 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('agent_orchestrator').child({ subscriber: 'task-event-trigger' })
 
 /**
- * Wildcard subscriber evaluating `AgentTaskEventTrigger` rows (triggered process model
- * Phase 4) — mirrors `workflows`' event-trigger subscriber. Matching triggers
- * enqueue a run through the same `tasks.enqueueRun` command every other
- * trigger source uses (`triggeredBy: 'event:<name>'`).
+ * Wildcard subscriber evaluating the `{ kind: 'event' }` entries of
+ * `agent_process_definitions.triggers` (triggered process model Phase 2 — the
+ * retired `agent_task_event_triggers` table collapsed into that jsonb).
+ * Matching triggers enqueue a run through the same `processes.enqueueRun`
+ * command every other trigger source uses, with
+ * `triggeredBy: { kind: 'event', ref: <eventPattern> }`.
  */
 export const metadata = {
   event: '*',
@@ -24,7 +27,7 @@ export const metadata = {
 }
 
 /**
- * Internal/system events that must never trigger tasks. `agent_orchestrator.`
+ * Internal/system events that must never trigger processes. `agent_orchestrator.`
  * is excluded to prevent recursion storms: a process run emits process_run.* events
  * which would otherwise re-match a broad trigger and loop.
  */
@@ -36,6 +39,35 @@ const EXCLUDED_EVENT_PREFIXES = [
   'queue.',
   'agent_orchestrator.',
 ]
+
+/** How many recent runs the debounce window inspects before giving up on a match. */
+const DEBOUNCE_SCAN_LIMIT = 20
+
+type DefinitionIdRow = { id: string }
+
+/**
+ * The definitions whose declared triggers CAN match this event, narrowed by
+ * jsonb containment so the `agent_process_definitions_triggers_gin` index does
+ * the work. `candidateEventPatterns` enumerates the exact id plus every
+ * trailing-wildcard pattern that could match it, so wildcards are index-served
+ * too and no scan over enabled definitions is needed.
+ */
+async function findCandidateDefinitionIds(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  eventName: string,
+): Promise<string[]> {
+  const patterns = candidateEventPatterns(eventName)
+  const containment = patterns.map(() => '"triggers" @> ?::jsonb').join(' or ')
+  const params = patterns.map((pattern) => JSON.stringify([{ kind: 'event', eventPattern: pattern }]))
+  const rows = (await em.getConnection().execute(
+    `select "id" from "agent_process_definitions"
+     where "tenant_id" = ? and "organization_id" = ? and "enabled" = true and "deleted_at" is null
+       and (${containment})`,
+    [scope.tenantId, scope.organizationId, ...params],
+  )) as DefinitionIdRow[]
+  return rows.map((row) => row.id).filter((id): id is string => typeof id === 'string')
+}
 
 export default async function handle(
   payload: unknown,
@@ -70,27 +102,41 @@ export default async function handle(
     return
   }
 
-  const triggers = await em.find(
-    AgentTaskEventTrigger,
-    { tenantId, organizationId, enabled: true, deletedAt: null },
-    { orderBy: { priority: 'desc', createdAt: 'asc' } },
+  const scope = { tenantId, organizationId }
+  let candidateIds: string[]
+  try {
+    candidateIds = await findCandidateDefinitionIds(em, scope, eventName)
+  } catch (error) {
+    logger.error('event-trigger candidate lookup failed', {
+      eventName,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return
+  }
+  if (candidateIds.length === 0) return
+
+  const definitions = await em.find(
+    AgentProcessDefinition,
+    { id: { $in: candidateIds }, ...scope, enabled: true, deletedAt: null },
+    { orderBy: { createdAt: 'asc' } },
   )
-  if (triggers.length === 0) return
+  if (definitions.length === 0) return
+
+  // One definition may declare several event triggers; the highest priority
+  // matching entry within a definition decides, mirroring the retired table's
+  // `order by priority desc, created_at asc`.
+  const matches = definitions
+    .flatMap((definition) =>
+      eventTriggers(parseProcessTriggers(definition.triggers))
+        .filter((trigger) => trigger.enabled && matchesEventPattern(trigger.eventPattern, eventName))
+        .map((trigger) => ({ definition, trigger })),
+    )
+    .sort((left, right) => right.trigger.priority - left.trigger.priority)
 
   const now = Date.now()
-  for (const trigger of triggers) {
-    if (!matchesEventPattern(trigger.eventPattern, eventName)) continue
-    const config = (trigger.config ?? {}) as AgentTaskEventTriggerConfig
+  for (const { definition, trigger } of matches) {
+    const config = trigger.config ?? {}
     if (!evaluateFilterConditions(config.filterConditions, eventPayload)) continue
-
-    const definition = await em.findOne(AgentProcessDefinition, {
-      id: trigger.processDefinitionId,
-      tenantId,
-      organizationId,
-      enabled: true,
-      deletedAt: null,
-    })
-    if (!definition) continue
 
     if (config.debounceMs && config.debounceMs > 0) {
       const recent = await em.find(
@@ -98,12 +144,15 @@ export default async function handle(
         {
           processDefinitionId: definition.id,
           organizationId,
-          triggeredBy: `event:${eventName}`,
           createdAt: { $gte: new Date(now - config.debounceMs) },
         },
-        { limit: 1 },
+        { limit: DEBOUNCE_SCAN_LIMIT, orderBy: { createdAt: 'desc' } },
       )
-      if (recent.length > 0) continue
+      const debounced = recent.some((run) => {
+        const source = run.triggeredBy
+        return !!source && source.kind === 'event' && source.ref === trigger.eventPattern
+      })
+      if (debounced) continue
     }
 
     if (config.maxConcurrentInstances && config.maxConcurrentInstances > 0) {
@@ -132,14 +181,14 @@ export default async function handle(
           organizationId,
           processDefinitionId: definition.id,
           input: mapEventToInput(config.contextMapping, eventPayload),
-          triggeredBy: `event:${eventName}`,
+          triggeredBy: { kind: 'event' as const, ref: trigger.eventPattern },
         },
         ctx: commandCtx,
       })
     } catch (error) {
-      logger.error('event-triggered task enqueue failed', {
-        triggerId: trigger.id,
+      logger.error('event-triggered process enqueue failed', {
         processDefinitionId: definition.id,
+        eventPattern: trigger.eventPattern,
         eventName,
         error: error instanceof Error ? error.message : String(error),
       })

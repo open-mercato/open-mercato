@@ -1,4 +1,4 @@
-import type { AgentTaskEventTriggerConfig } from '../../data/validators'
+import type { ProcessEventTriggerConfig } from '../../data/validators'
 
 /**
  * Local, dependency-free mirror of the `workflows` event-trigger matching
@@ -8,8 +8,8 @@ import type { AgentTaskEventTriggerConfig } from '../../data/validators'
  * identical so a trigger config is portable between the two.
  */
 
-type FilterCondition = NonNullable<AgentTaskEventTriggerConfig['filterConditions']>[number]
-type ContextMapping = NonNullable<AgentTaskEventTriggerConfig['contextMapping']>[number]
+type FilterCondition = NonNullable<ProcessEventTriggerConfig['filterConditions']>[number]
+type ContextMapping = NonNullable<ProcessEventTriggerConfig['contextMapping']>[number]
 
 /** Exact match, or a trailing `.*` wildcard (`claims.*` matches `claims.claim.reported`). */
 export function matchesEventPattern(pattern: string, eventName: string): boolean {
@@ -19,6 +19,31 @@ export function matchesEventPattern(pattern: string, eventName: string): boolean
     return eventName.startsWith(prefix)
   }
   return false
+}
+
+/**
+ * Every `eventPattern` that CAN match `eventName`, enumerated exactly.
+ *
+ * The spec assumed wildcard patterns could not be served by jsonb containment
+ * and would need a filtered scan over enabled definitions. They can: the match
+ * rule above is prefix-only and anchored at a dot, so the matching pattern set
+ * is finite and tiny — the exact id plus one wildcard per dot position
+ * (`a.b.c` → `a.b.c`, `a.*`, `a.b.*`). Each is a separate containment probe
+ * that the `agent_process_definitions_triggers_gin` index serves, so the
+ * dispatcher never scans.
+ *
+ * `matchesEventPattern` is still applied to the loaded rows: containment is the
+ * narrowing index probe, this function's completeness is what makes it safe,
+ * and the in-memory re-check is what makes a mistake in either impossible to
+ * turn into a wrong dispatch.
+ */
+export function candidateEventPatterns(eventName: string): string[] {
+  const patterns = [eventName]
+  const segments = eventName.split('.')
+  for (let index = 1; index < segments.length; index += 1) {
+    patterns.push(`${segments.slice(0, index).join('.')}.*`)
+  }
+  return patterns
 }
 
 export function getNestedValue(payload: Record<string, unknown>, path: string): unknown {

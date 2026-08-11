@@ -8,15 +8,20 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { agentProcessRunRequestSchema } from '../../../../data/validators'
+import { AgentProcessDefinition } from '../../../../data/entities'
+import { manualTrigger, parseProcessTriggers } from '../../../../lib/tasks/triggers'
 import type { EnqueueProcessRunInput, EnqueueProcessRunResult } from '../../../../commands/tasks'
 
 /**
- * Start a process run — always async (`202 { processRunId, status: 'running' }`)
- * for every trigger source. Callable by a human session or an ApiKey bearer
- * whose role grants `agent_orchestrator.processes.run`; provenance is recorded as
- * `user:<id>` / `api_key:<id>` on the AgentProcessRun, while execution always
- * happens under the definition's own execution principal in the queue worker.
+ * Start a process run BY HAND — always async (`202 { processRunId, status:
+ * 'running' }`). Callable by a human session or an ApiKey bearer whose role
+ * grants `agent_orchestrator.processes.run`, and only when the definition
+ * DECLARES a `{ kind: 'manual' }` trigger (403 otherwise): hand-starting is a
+ * declared capability rather than an ambient one. Provenance is recorded as
+ * `{ kind: 'manual', ref: <userId> }`, while execution always happens under the
+ * definition's own execution principal in the queue worker.
  */
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.run'] },
@@ -61,6 +66,45 @@ export async function POST(req: Request, ctx: RouteContext) {
     )
   }
 
+  // The declared manual trigger is resolved BEFORE the mutation guard so an
+  // undeclared hand-start never reaches the command or an approval queue. The
+  // command re-checks it — this is the surface that also enforces the trigger's
+  // own `requireFeatures`, which only a request-scoped RBAC lookup can answer.
+  const em = (container.resolve('em') as EntityManager).fork()
+  const definition = await em.findOne(AgentProcessDefinition, {
+    id,
+    tenantId: auth.tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+  if (!definition) return NextResponse.json({ error: 'Process definition not found' }, { status: 404 })
+  const manual = manualTrigger(parseProcessTriggers(definition.triggers))
+  if (!manual) {
+    return NextResponse.json(
+      { error: 'This process declares no manual trigger — add one to start it by hand.' },
+      { status: 403 },
+    )
+  }
+  if (manual.requireFeatures.length > 0) {
+    const rbac = container.resolve('rbacService') as {
+      userHasAllFeatures: (
+        userId: string,
+        features: string[],
+        scope: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<boolean>
+    }
+    const allowed = await rbac.userHasAllFeatures(auth.sub, manual.requireFeatures, {
+      tenantId: auth.tenantId,
+      organizationId,
+    })
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Missing the features this process requires to be started by hand.' },
+        { status: 403 },
+      )
+    }
+  }
+
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
     organizationId,
@@ -85,8 +129,9 @@ export async function POST(req: Request, ctx: RouteContext) {
     request: req,
   }
 
-  // ApiKey principals already arrive as `api_key:<id>`; humans get `user:<id>`.
-  const triggeredBy = auth.isApiKey ? auth.sub : `user:${auth.sub}`
+  // Both a human session and an ApiKey bearer are MANUAL entry — the difference
+  // is which principal id the provenance ref carries.
+  const triggeredBy = { kind: 'manual' as const, ref: auth.sub }
 
   let result: EnqueueProcessRunResult
   try {
@@ -137,14 +182,19 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Start a process run',
   methods: {
     POST: {
-      summary: 'Start a process run (always async)',
+      summary: 'Start a process run by hand (always async)',
       description:
-        'Validates input against the definition inputSchema when set, dedupes on idempotencyKey, inserts an AgentProcessRun and enqueues execution. Returns 202 immediately; observe completion via the process_run.* events or GET /process-runs/:id. Gated by agent_orchestrator.processes.run (session or API key).',
+        'Requires the definition to declare a { kind: "manual" } trigger (403 otherwise) plus any features that trigger names. Validates input against the definition inputSchema when set, dedupes on idempotencyKey, inserts an AgentProcessRun with triggeredBy { kind: "manual", ref: <userId> } and enqueues execution. Returns 202 immediately; observe completion via the process_run.* events or GET /process-runs/:id. Gated by agent_orchestrator.processes.run (session or API key).',
       responses: [{ status: 202, description: 'Run accepted', schema: acceptedSchema }],
       errors: [
         { status: 400, description: 'Validation failed (body or inputSchema)', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
-        { status: 403, description: 'Missing agent_orchestrator.processes.run', schema: errorSchema },
+        {
+          status: 403,
+          description:
+            'Missing agent_orchestrator.processes.run, no declared manual trigger, or missing the trigger\'s requireFeatures',
+          schema: errorSchema,
+        },
         { status: 404, description: 'Unknown process definition id (or cross-tenant)', schema: errorSchema },
         { status: 409, description: 'Process definition disabled', schema: errorSchema },
       ],

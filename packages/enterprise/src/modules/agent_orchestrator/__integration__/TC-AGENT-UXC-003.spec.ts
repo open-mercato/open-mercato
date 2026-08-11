@@ -10,11 +10,15 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * validators + live "Next runs" preview).
  *
  * Legs:
- * 1. API — `POST /tasks` with `scheduleCron: "foo bar baz qux quux"` (five
- *    perfectly shaped garbage tokens that pass the token-count regex) → 400
- *    with a scheduleCron issue; a valid 5-field expression → created.
- * 2. UI — the create form shows three upcoming occurrences once a valid cron
+ * 1. API — `POST /process-definitions` with a `{ kind: 'schedule' }` trigger
+ *    carrying `"foo bar baz qux quux"` (five perfectly shaped garbage tokens
+ *    that pass the token-count regex) → 400 with a `triggers.0.cron` issue; a
+ *    valid 5-field expression → created.
+ * 2. UI — the trigger editor shows three upcoming occurrences once a valid cron
  *    is typed, and the invalid-schedule note for garbage.
+ *
+ * Carried onto the declared-trigger list by Phase 2 of
+ * `.ai/specs/enterprise/agent-orchestrator/2026-08-11-triggered-process-model.md`.
  */
 
 const ADMIN_EMAIL = 'admin@acme.com'
@@ -42,12 +46,12 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
           name: `TC-UXC-003 garbage ${stamp}`,
           targetType: 'agent',
           targetAgentId: 'deals.health_check',
-          scheduleCron: 'foo bar baz qux quux',
+          triggers: [{ kind: 'schedule', cron: 'foo bar baz qux quux' }],
         },
       })
       expect(garbage.status(), 'five shaped garbage tokens must fail semantic validation').toBe(400)
       const garbageBody = await readJsonSafe<Record<string, unknown>>(garbage)
-      expect(JSON.stringify(garbageBody)).toContain('scheduleCron')
+      expect(JSON.stringify(garbageBody)).toContain('cron')
 
       const valid = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
         token,
@@ -55,8 +59,7 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
           name: `TC-UXC-003 valid ${stamp}`,
           targetType: 'agent',
           targetAgentId: 'deals.health_check',
-          scheduleCron: '0 7 * * 1',
-          scheduleTimezone: 'Europe/Warsaw',
+          triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'Europe/Warsaw' }],
         },
       })
       expect(valid.ok(), 'a real weekly cron must pass').toBeTruthy()
@@ -77,7 +80,8 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
     await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: /new task/i }).click()
 
-    const cronInput = page.getByLabel(/cron schedule/i)
+    await page.getByRole('button', { name: /add schedule/i }).click()
+    const cronInput = page.getByLabel(/cron expression/i)
     await expect(cronInput).toBeVisible({ timeout: 10_000 })
 
     await cronInput.fill('0 7 * * 1')

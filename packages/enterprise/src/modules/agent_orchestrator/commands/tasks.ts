@@ -9,6 +9,8 @@ import { AgentProcessDefinition, AgentProcessRun } from '../data/entities'
 import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
 import { jsonSchemaToZod, type JsonSchemaNode } from '../lib/sdk/outcomeSchema'
+import { processRunTriggeredBySchema } from '../data/validators'
+import { allowsManualEntry } from '../lib/tasks/triggers'
 
 const logger = createLogger('agent_orchestrator').child({ command: 'process-definitions' })
 
@@ -20,8 +22,8 @@ const enqueueProcessRunSchema = z.object({
   idempotencyKey: z.string().min(1).max(200).nullable().optional(),
   sourceEntityType: z.string().min(1).max(100).nullable().optional(),
   sourceEntityId: z.string().uuid().nullable().optional(),
-  /** Provenance: `user:<id>` / `api_key:<id>` / `schedule:<id>` / `event:<name>`. */
-  triggeredBy: z.string().min(1).max(150),
+  /** WHICH declared trigger fired: `{ kind, ref? }` (see `processRunTriggeredBySchema`). */
+  triggeredBy: processRunTriggeredBySchema,
 })
 export type EnqueueProcessRunInput = z.infer<typeof enqueueProcessRunSchema>
 
@@ -90,6 +92,13 @@ export const enqueueProcessRunCommand: CommandHandler<EnqueueProcessRunInput, En
     )
     if (!definition) throw new CrudHttpError(404, { error: 'Process definition not found' })
     if (!definition.enabled) throw new CrudHttpError(409, { error: 'Process definition is disabled' })
+    // Manual entry is a DECLARED capability, not an ambient one. Checked here
+    // rather than only in the route so every hand-start path converges on one gate.
+    if (input.triggeredBy.kind === 'manual' && !allowsManualEntry(definition.triggers)) {
+      throw new CrudHttpError(403, {
+        error: 'This process declares no manual trigger — add one to start it by hand.',
+      })
+    }
     if (!definition.executionPrincipalId) {
       throw new CrudHttpError(409, { error: 'Process definition has no execution principal yet — retry shortly' })
     }

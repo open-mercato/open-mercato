@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { AgentProcessRun } from '../../data/entities'
-import { agentProcessRunListQuerySchema } from '../../data/validators'
+import { agentProcessRunListQuerySchema, processRunTriggeredBySchema } from '../../data/validators'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -84,7 +84,7 @@ const taskRunListItemSchema = z.object({
   workflow_instance_id: z.string().uuid().nullable().optional(),
   source_entity_type: z.string().nullable().optional(),
   source_entity_id: z.string().uuid().nullable().optional(),
-  triggered_by: z.string(),
+  triggered_by: processRunTriggeredBySchema.nullable().optional(),
   started_at: z.string().nullable().optional(),
   completed_at: z.string().nullable().optional(),
   failure_reason: z.string().nullable().optional(),

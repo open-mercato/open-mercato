@@ -1,7 +1,7 @@
 import {
   agentProcessDefinitionCreateSchema,
-  agentTaskEventTriggerCreateSchema,
   agentProcessRunRequestSchema,
+  processTriggerSchema,
 } from '../data/validators'
 import {
   evaluateFilterConditions,
@@ -34,7 +34,11 @@ describe('agentProcessDefinitionCreateSchema', () => {
 
   it('rejects malformed cron expressions and accepts 5-field ones', () => {
     const withCron = (cron: string) =>
-      agentProcessDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'a', scheduleCron: cron })
+      agentProcessDefinitionCreateSchema.safeParse({
+        ...base,
+        targetAgentId: 'a',
+        triggers: [{ kind: 'schedule', cron }],
+      })
     expect(withCron('0 7 * * *').success).toBe(true)
     expect(withCron('0 7 * * * *').success).toBe(true)
     expect(withCron('every morning').success).toBe(false)
@@ -57,22 +61,20 @@ describe('agentProcessRunRequestSchema', () => {
   })
 })
 
-describe('agentTaskEventTriggerCreateSchema', () => {
+describe('processTriggerSchema — event arm', () => {
+  const event = (extra: Record<string, unknown>) =>
+    processTriggerSchema.safeParse({ kind: 'event', ...extra })
+
   it('accepts exact ids and trailing wildcards, rejects junk', () => {
-    expect(agentTaskEventTriggerCreateSchema.safeParse({ eventPattern: 'claims.claim.reported' }).success).toBe(true)
-    expect(agentTaskEventTriggerCreateSchema.safeParse({ eventPattern: 'claims.*' }).success).toBe(true)
-    expect(agentTaskEventTriggerCreateSchema.safeParse({ eventPattern: 'not an event!!' }).success).toBe(false)
+    expect(event({ eventPattern: 'claims.claim.reported' }).success).toBe(true)
+    expect(event({ eventPattern: 'claims.*' }).success).toBe(true)
+    expect(event({ eventPattern: 'not an event!!' }).success).toBe(false)
   })
 
   it('rejects unknown config keys (strict shape)', () => {
+    expect(event({ eventPattern: 'claims.claim.reported', config: { unknownKey: true } }).success).toBe(false)
     expect(
-      agentTaskEventTriggerCreateSchema.safeParse({
-        eventPattern: 'claims.claim.reported',
-        config: { unknownKey: true },
-      }).success,
-    ).toBe(false)
-    expect(
-      agentTaskEventTriggerCreateSchema.safeParse({
+      event({
         eventPattern: 'claims.claim.reported',
         config: {
           filterConditions: [{ field: 'status', operator: 'eq', value: 'open' }],

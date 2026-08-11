@@ -20,7 +20,6 @@ import {
   AgentDelegationGrant,
   AgentProcessDefinition,
   AgentProcessRun,
-  AgentTaskEventTrigger,
   AgentProcess,
 } from './data/entities'
 import { provisionAgentPrincipal, resolveAgentPrincipal } from './lib/identity/agentPrincipalService'
@@ -90,7 +89,6 @@ export function register(container: AppContainer) {
     AgentDelegationGrant: asValue(AgentDelegationGrant),
     AgentProcessDefinition: asValue(AgentProcessDefinition),
     AgentProcessRun: asValue(AgentProcessRun),
-    AgentTaskEventTrigger: asValue(AgentTaskEventTrigger),
     AgentProcess: asValue(AgentProcess),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is

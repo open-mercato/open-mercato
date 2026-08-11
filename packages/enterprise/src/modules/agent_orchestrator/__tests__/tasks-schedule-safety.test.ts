@@ -26,41 +26,43 @@ const baseTask = {
 
 const createWithSemantics = withScheduleSemanticChecks(agentProcessDefinitionCreateSchema)
 
+const withSchedule = (cron: string, timezone?: string) => ({
+  ...baseTask,
+  triggers: [{ kind: 'schedule' as const, cron, ...(timezone ? { timezone } : {}) }],
+})
+
 describe('schedule semantic validation (route layer)', () => {
   it('rejects shape-valid cron garbage the token regex accepts', () => {
-    const shapeOnly = agentProcessDefinitionCreateSchema.safeParse({
-      ...baseTask,
-      scheduleCron: 'foo bar baz qux quux',
-    })
+    const shapeOnly = agentProcessDefinitionCreateSchema.safeParse(withSchedule('foo bar baz qux quux'))
     expect(shapeOnly.success).toBe(true)
 
-    const semantic = createWithSemantics.safeParse({ ...baseTask, scheduleCron: 'foo bar baz qux quux' })
+    const semantic = createWithSemantics.safeParse(withSchedule('foo bar baz qux quux'))
     expect(semantic.success).toBe(false)
     if (!semantic.success) {
-      expect(semantic.error.issues[0]?.path).toEqual(['scheduleCron'])
+      expect(semantic.error.issues[0]?.path).toEqual(['triggers', 0, 'cron'])
     }
   })
 
   it('accepts a valid 5-field expression', () => {
-    expect(createWithSemantics.safeParse({ ...baseTask, scheduleCron: '0 7 * * 1' }).success).toBe(true)
+    expect(createWithSemantics.safeParse(withSchedule('0 7 * * 1')).success).toBe(true)
   })
 
-  it('leaves schedule-less tasks untouched', () => {
+  it('leaves schedule-less definitions untouched', () => {
     expect(createWithSemantics.safeParse(baseTask).success).toBe(true)
-    expect(createWithSemantics.safeParse({ ...baseTask, scheduleCron: null }).success).toBe(true)
+    expect(
+      createWithSemantics.safeParse({ ...baseTask, triggers: [{ kind: 'manual' }] }).success,
+    ).toBe(true)
   })
 })
 
 describe('timezone validation (shared schema)', () => {
   it('rejects non-IANA values like "Warsaw"', () => {
-    const result = agentProcessDefinitionCreateSchema.safeParse({ ...baseTask, scheduleTimezone: 'Warsaw' })
+    const result = agentProcessDefinitionCreateSchema.safeParse(withSchedule('0 7 * * 1', 'Warsaw'))
     expect(result.success).toBe(false)
   })
 
   it('accepts "Europe/Warsaw"', () => {
-    expect(
-      agentProcessDefinitionCreateSchema.safeParse({ ...baseTask, scheduleTimezone: 'Europe/Warsaw' }).success,
-    ).toBe(true)
+    expect(agentProcessDefinitionCreateSchema.safeParse(withSchedule('0 7 * * 1', 'Europe/Warsaw')).success).toBe(true)
   })
 
   it('isValidIanaTimeZone matches the schema behavior', () => {
@@ -125,8 +127,6 @@ describe('formHelpers — permissions picker logic', () => {
 
 describe('i18n coverage for the scheduling-safety copy', () => {
   const requiredKeys = [
-    'agent_orchestrator.processDefinitions.detail.scheduleInvalid',
-    'agent_orchestrator.processDefinitions.detail.scheduleNextRun',
     'agent_orchestrator.processDefinitions.form.errors.cronInvalid',
     'agent_orchestrator.processDefinitions.form.errors.timezoneInvalid',
     'agent_orchestrator.processDefinitions.form.featuresAdd',
@@ -145,7 +145,6 @@ describe('i18n coverage for the scheduling-safety copy', () => {
     for (const key of requiredKeys) {
       expect(catalog[key]).toBeTruthy()
     }
-    expect(catalog['agent_orchestrator.processDefinitions.detail.scheduleNextRun']).toContain('{time}')
     expect(catalog['agent_orchestrator.processDefinitions.form.nextRunsInvalid']).toContain('{error}')
     expect(catalog['agent_orchestrator.processDefinitions.form.featuresRemove']).toContain('{id}')
   })

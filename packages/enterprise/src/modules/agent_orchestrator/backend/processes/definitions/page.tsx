@@ -4,13 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { z } from 'zod'
-import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, X, TriangleAlert } from 'lucide-react'
-// Deep import, NOT the package root: `@open-mercato/scheduler`'s index also
-// exports `SchedulerService`, which reaches `shared/lib/i18n/server` and its
-// `require('server-only')`. Pulling that into a "use client" module breaks the
-// build with 'server-only' cannot be imported from a Client Component module.
-// `lib/cronParser` depends on `cron-parser` alone and is safe in the browser.
-import { validateCronExpression } from '@open-mercato/scheduler/modules/scheduler/lib/cronParser'
+import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, Hand, Radio, X, TriangleAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -36,11 +30,15 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { formatRelativeAge, formatDateTime } from '../../../components/types'
+import { formatRelativeAge } from '../../../components/types'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
-import { isValidIanaTimeZone } from '../../../data/validators'
 import {
-  listTimeZones,
+  processTriggersSchema,
+  type ProcessTrigger,
+} from '../../../data/validators'
+import { parseProcessTriggers, scheduleTriggers, eventTriggers, manualTrigger } from '../../../lib/tasks/triggers'
+import { TriggerEditor, invalidScheduleIndexes } from './TriggerEditor'
+import {
   parseGrantedFeaturesText,
   resolveFeaturePrefill,
   unknownFeatureIds,
@@ -77,9 +75,7 @@ type ProcessDefinitionRow = {
   inputDefaults: unknown
   inputSchema: unknown
   grantedFeatures: string[]
-  scheduleCron: string | null
-  scheduleTimezone: string | null
-  scheduleEnabled: boolean
+  triggers: ProcessTrigger[]
   enabled: boolean
   lastRun: ProcessLastRun | null
   updatedAt: string | null
@@ -95,9 +91,7 @@ type FormValues = {
   inputDefaultsJson?: string
   inputSchemaJson?: string
   grantedFeaturesText?: string
-  scheduleCron?: string
-  scheduleTimezone?: string
-  scheduleEnabled: boolean
+  triggers: ProcessTrigger[]
   enabled: boolean
   updatedAt?: string | null
 }
@@ -126,9 +120,7 @@ function mapRow(item: Record<string, unknown>): ProcessDefinitionRow | null {
     grantedFeatures: Array.isArray(grantedRaw)
       ? grantedRaw.filter((value): value is string => typeof value === 'string')
       : [],
-    scheduleCron: readString(item, 'schedule_cron', 'scheduleCron') || null,
-    scheduleTimezone: readString(item, 'schedule_timezone', 'scheduleTimezone') || null,
-    scheduleEnabled: (item.schedule_enabled ?? item.scheduleEnabled) !== false,
+    triggers: parseProcessTriggers(item.triggers),
     enabled: (item.enabled ?? true) !== false,
     lastRun: mapLastRun(item.last_run ?? item.lastRun),
     updatedAt: readString(item, 'updated_at', 'updatedAt') || null,
@@ -277,35 +269,48 @@ function FeaturesPickerField({
 }
 
 /**
- * Display-only "Next runs" preview under the schedule fields — the live
- * semantic feedback that makes a typo'd cron visible before save. Uses the
- * same scheduler parser the server-side validator runs.
+ * One compact cell answering "how can this start" — the question no surface
+ * could answer while cron, event triggers and the run route were three
+ * unrelated mechanisms.
  */
-function CronPreviewField({
-  values,
-  locale,
-  t,
-}: {
-  values: Record<string, unknown> | undefined
-  locale: string
-  t: ReturnType<typeof useT>
-}) {
-  const cron = typeof values?.scheduleCron === 'string' ? values.scheduleCron.trim() : ''
-  const timezoneRaw = typeof values?.scheduleTimezone === 'string' ? values.scheduleTimezone.trim() : ''
-  const timezone = timezoneRaw && isValidIanaTimeZone(timezoneRaw) ? timezoneRaw : 'UTC'
-  if (!cron) return null
-  const result = validateCronExpression(cron, { timezone, count: 3 })
-  if (!result.ok) {
-    return (
-      <p className="text-xs text-status-error-text">
-        {t('agent_orchestrator.processDefinitions.form.nextRunsInvalid', undefined, { error: result.error ?? '' })}
-      </p>
-    )
+function TriggerSummary({ triggers, t }: { triggers: ProcessTrigger[]; t: ReturnType<typeof useT> }) {
+  const schedules = scheduleTriggers(triggers)
+  const events = eventTriggers(triggers)
+  const manual = manualTrigger(triggers)
+  if (triggers.length === 0) {
+    return <span className="text-xs text-muted-foreground">{t('agent_orchestrator.processDefinitions.triggers.none')}</span>
   }
   return (
-    <div className="text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">{t('agent_orchestrator.processDefinitions.form.nextRuns')}:</span>{' '}
-      {(result.nextRuns ?? []).map((run) => formatDateTime(run.toISOString(), locale)).join(' · ')}
+    <div className="flex flex-wrap items-center gap-1.5">
+      {schedules.map((trigger, index) => (
+        <span
+          key={`schedule-${index}`}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-foreground"
+        >
+          <CalendarClock className="size-3.5 shrink-0 text-muted-foreground" />
+          {trigger.cron}
+          {!trigger.enabled ? (
+            <span className="font-sans text-muted-foreground">
+              ({t('agent_orchestrator.processDefinitions.list.schedulePaused')})
+            </span>
+          ) : null}
+        </span>
+      ))}
+      {events.map((trigger, index) => (
+        <span
+          key={`event-${index}`}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs text-foreground"
+        >
+          <Radio className="size-3.5 shrink-0 text-muted-foreground" />
+          {trigger.eventPattern}
+        </span>
+      ))}
+      {manual ? (
+        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
+          <Hand className="size-3.5 shrink-0 text-muted-foreground" />
+          {t('agent_orchestrator.processDefinitions.triggers.manual.badge')}
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -322,10 +327,6 @@ export default function ProcessDefinitionsPage() {
   const [workflows, setWorkflows] = React.useState<CrudFieldOption[]>([])
   const [featureCatalog, setFeatureCatalog] = React.useState<FeatureCatalogItem[]>([])
   const locale = useLocale()
-  const timeZoneOptions = React.useMemo<CrudFieldOption[]>(
-    () => listTimeZones().map((zone) => ({ value: zone, label: zone })),
-    [],
-  )
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
@@ -426,6 +427,7 @@ export default function ProcessDefinitionsPage() {
           targetType: row.targetType,
           targetAgentId: row.targetAgentId ?? undefined,
           targetWorkflowId: row.targetWorkflowId ?? undefined,
+          triggers: row.triggers,
           enabled: next,
         }),
       )
@@ -449,26 +451,17 @@ export default function ProcessDefinitionsPage() {
           inputDefaultsJson: z.string().optional(),
           inputSchemaJson: z.string().optional(),
           grantedFeaturesText: z.string().optional(),
-          scheduleCron: z.string().optional(),
-          scheduleTimezone: z.string().optional(),
-          scheduleEnabled: z.boolean(),
+          triggers: processTriggersSchema,
           enabled: z.boolean(),
         })
         .superRefine((data, ctx) => {
-          const cron = data.scheduleCron?.trim()
-          if (cron && !validateCronExpression(cron, { count: 1 }).ok) {
+          // Invalid cron is rejected AT SAVE, not discovered at fire time. The
+          // same parser the server-side `withScheduleSemanticChecks` runs.
+          for (const index of invalidScheduleIndexes(data.triggers)) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              path: ['scheduleCron'],
+              path: ['triggers', index, 'cron'],
               message: 'agent_orchestrator.processDefinitions.form.errors.cronInvalid',
-            })
-          }
-          const timezone = data.scheduleTimezone?.trim()
-          if (timezone && !isValidIanaTimeZone(timezone)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ['scheduleTimezone'],
-              message: 'agent_orchestrator.processDefinitions.form.errors.timezoneInvalid',
             })
           }
         }),
@@ -528,29 +521,22 @@ export default function ProcessDefinitionsPage() {
         ),
       },
       {
-        id: 'scheduleCron',
-        label: t('agent_orchestrator.processDefinitions.form.scheduleCron'),
-        type: 'text',
-        description: t('agent_orchestrator.processDefinitions.form.scheduleCronHint'),
-      },
-      {
-        id: 'scheduleTimezone',
-        label: t('agent_orchestrator.processDefinitions.form.scheduleTimezone'),
-        type: 'combobox',
-        options: timeZoneOptions,
-        seedOptions: timeZoneOptions,
-        allowCustomValues: true,
-      },
-      {
-        id: 'schedulePreview',
-        label: '',
+        id: 'triggers',
+        label: t('agent_orchestrator.processDefinitions.triggers.title'),
         type: 'custom',
-        component: ({ values }) => <CronPreviewField values={values} locale={locale} t={t} />,
+        description: t('agent_orchestrator.processDefinitions.triggers.description'),
+        component: ({ value, setValue }) => (
+          <TriggerEditor
+            value={Array.isArray(value) ? (value as ProcessTrigger[]) : []}
+            onChange={(next) => setValue(next)}
+            locale={locale}
+            t={t}
+          />
+        ),
       },
-      { id: 'scheduleEnabled', label: t('agent_orchestrator.processDefinitions.form.scheduleEnabled'), type: 'checkbox' },
       { id: 'enabled', label: t('agent_orchestrator.processDefinitions.form.enabled'), type: 'checkbox' },
     ],
-    [t, agents, workflows, featureCatalog, timeZoneOptions, locale, mode],
+    [t, agents, workflows, featureCatalog, locale, mode],
   )
 
   const columns = React.useMemo<ColumnDef<ProcessDefinitionRow>[]>(
@@ -583,20 +569,10 @@ export default function ProcessDefinitionsPage() {
         },
       },
       {
-        accessorKey: 'scheduleCron',
-        header: t('agent_orchestrator.processDefinitions.list.col.schedule'),
-        cell: ({ row }) =>
-          row.original.scheduleCron ? (
-            <span className="inline-flex items-center gap-1 font-mono text-xs text-foreground">
-              <CalendarClock className="size-3.5 shrink-0 text-muted-foreground" />
-              {row.original.scheduleCron}
-              {!row.original.scheduleEnabled ? (
-                <span className="text-muted-foreground">({t('agent_orchestrator.processDefinitions.list.schedulePaused')})</span>
-              ) : null}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          ),
+        accessorKey: 'triggers',
+        header: t('agent_orchestrator.processDefinitions.list.col.triggers'),
+        enableSorting: false,
+        cell: ({ row }) => <TriggerSummary triggers={row.original.triggers} t={t} />,
       },
       {
         accessorKey: 'lastRun',
@@ -653,9 +629,7 @@ export default function ProcessDefinitionsPage() {
       inputDefaults,
       inputSchema,
       grantedFeatures,
-      scheduleCron: values.scheduleCron?.trim() ? values.scheduleCron.trim() : null,
-      scheduleTimezone: values.scheduleTimezone?.trim() ? values.scheduleTimezone.trim() : null,
-      scheduleEnabled: values.scheduleEnabled,
+      triggers: values.triggers ?? [],
       enabled: values.enabled,
     }
   }
@@ -673,13 +647,18 @@ export default function ProcessDefinitionsPage() {
           inputDefaultsJson: editing!.inputDefaults ? JSON.stringify(editing!.inputDefaults, null, 2) : '',
           inputSchemaJson: editing!.inputSchema ? JSON.stringify(editing!.inputSchema, null, 2) : '',
           grantedFeaturesText: editing!.grantedFeatures.join('\n'),
-          scheduleCron: editing!.scheduleCron ?? '',
-          scheduleTimezone: editing!.scheduleTimezone ?? '',
-          scheduleEnabled: editing!.scheduleEnabled,
+          triggers: editing!.triggers,
           enabled: editing!.enabled,
           updatedAt: editing!.updatedAt,
         }
-      : { targetType: 'agent', scheduleEnabled: true, enabled: true }
+      : {
+          targetType: 'agent',
+          // A new definition can be started by hand unless the author says
+          // otherwise — the same default the manual-trigger backfill gives every
+          // definition that predates this phase.
+          triggers: [{ kind: 'manual', requireFeatures: [] }],
+          enabled: true,
+        }
 
     return (
       <Page>
