@@ -12,7 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
@@ -50,6 +50,7 @@ function formatDisplayDate(value: string | null | undefined): string | null {
 
 export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
   const t = useT()
+  const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [returns, setReturns] = React.useState<ReturnRow[]>([])
@@ -331,7 +332,7 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                 {formatDisplayDate(ret.returnedAt) ?? t('sales.returns.notSet', 'Not set')}
               </div>
               <div className="whitespace-nowrap text-right text-sm font-medium">
-                {formatMoney(ret.total, currencyCode ?? null)}
+                {formatMoney(ret.total, currencyCode ?? null, locale)}
               </div>
               <div className="flex justify-end">
                 <RowActions

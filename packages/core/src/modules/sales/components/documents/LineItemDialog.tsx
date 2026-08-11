@@ -46,7 +46,7 @@ import {
   renderDictionaryColor,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
 import { E } from "#generated/entities.ids.generated";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
@@ -480,6 +480,7 @@ export function LineItemDialog({
   onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
+  const locale = useLocale();
   const scope = useOrganizationScopeDetail();
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null;
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null;
@@ -1018,10 +1019,10 @@ export function LineItemDialog({
               displayMode === "including-tax" &&
               amountGross !== null &&
               currency
-                ? formatMoney(amountGross, currency)
+                ? formatMoney(amountGross, currency, locale)
                 : null,
               displayMode === "excluding-tax" && amountNet !== null && currency
-                ? formatMoney(amountNet, currency)
+                ? formatMoney(amountNet, currency, locale)
                 : null,
               displayMode
                 ? displayMode === "including-tax"
@@ -1037,9 +1038,9 @@ export function LineItemDialog({
               labelParts.length > 0
                 ? labelParts.join(" • ")
                 : amountGross !== null && currency
-                  ? formatMoney(amountGross, currency)
+                  ? formatMoney(amountGross, currency, locale)
                   : amountNet !== null && currency
-                    ? formatMoney(amountNet, currency)
+                    ? formatMoney(amountNet, currency, locale)
                     : id;
             return {
               id,
@@ -2161,11 +2162,11 @@ export function LineItemDialog({
                       "sales.documents.items.priceBasisTemplate",
                       "Catalog price basis: {{baseAmount}} / {{baseUnit}}. Converted for {{unit}}: {{baseAmount}} × {{factor}} = {{convertedAmount}}.",
                       {
-                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency),
+                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency, locale),
                         baseUnit: baseUnitCode,
                         unit: quantityUnitCode,
                         factor: unitFactor,
-                        convertedAmount: formatMoney(convertedAmount, selectedCurrency),
+                        convertedAmount: formatMoney(convertedAmount, selectedCurrency, locale),
                       },
                     )}
                   </p>
