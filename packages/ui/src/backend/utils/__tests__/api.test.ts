@@ -45,6 +45,7 @@ describe('apiFetch', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     jest.useFakeTimers()
     window.history.pushState({}, '', '/backend/sales/documents')
+    window.sessionStorage.clear()
     ;(window as unknown as Record<string, unknown>).__omOriginalFetch = undefined
   })
 
@@ -186,5 +187,19 @@ describe('apiFetch', () => {
       'Session expired. Redirecting to sign in…',
       'warning',
     )
+  })
+
+  it('guards the session-refresh redirect from looping when a non-session 401 repeats on the same page (GH #5186)', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(401, { error: 'Unauthorized' }),
+    )
+
+    await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(UnauthorizedError)
+    expect(flash).toHaveBeenCalledTimes(1)
+
+    // The refresh bounce lands back on the same page and the same endpoint
+    // answers 401 again — the second attempt must not re-trigger the redirect.
+    await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(UnauthorizedError)
+    expect(flash).toHaveBeenCalledTimes(1)
   })
 })

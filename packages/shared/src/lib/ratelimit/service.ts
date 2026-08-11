@@ -1,5 +1,6 @@
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
 import { createLogger } from '../logger'
+import { REDIS_WIRE_PROTOCOL } from '../redis/connection'
 import type { RateLimitConfig, RateLimitResult, RateLimitGlobalConfig } from './types'
 
 const logger = createLogger('ratelimit')
@@ -27,6 +28,7 @@ export class RateLimiterService {
       this.redisClient = new Redis(this.globalConfig.redisUrl, {
         enableOfflineQueue: false,
         maxRetriesPerRequest: 1,
+        protocol: REDIS_WIRE_PROTOCOL,
       })
     }
   }

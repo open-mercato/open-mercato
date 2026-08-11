@@ -128,11 +128,13 @@ class FakeRedis {
 }
 
 let currentRedis: FakeRedis
+let lastConstructorArgs: unknown[] = []
 
 jest.mock('ioredis', () => ({
   __esModule: true,
   default: class {
-    constructor() {
+    constructor(...args: unknown[]) {
+      lastConstructorArgs = args
       return currentRedis as unknown as object
     }
   },
@@ -151,6 +153,11 @@ describe('redis strategy tag index', () => {
 
   afterEach(async () => {
     await strategy.close?.()
+  })
+
+  it('pins the wire protocol to RESP2 so ioredis 6 keeps the v5 reply shapes', async () => {
+    await strategy.set('protocol-probe', { ok: true }, { ttl: 60_000 })
+    expect(lastConstructorArgs[1]).toMatchObject({ protocol: 2 })
   })
 
   it('reaps tag members whose value key already expired', async () => {
