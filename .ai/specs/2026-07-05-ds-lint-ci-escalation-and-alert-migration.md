@@ -126,7 +126,15 @@ Opt-out convention: `// eslint-disable-next-line om-ds/<rule> -- <reason>` with 
 
 **Escalation unit and criterion.** The unit is *rule × module* (module = one directory under `packages/{core,enterprise}/src/modules/`, plus `packages/ui/src/backend` treated as one pseudo-module). A rule flips to `error` for a module when **both** hold:
 
-1. the module's counter for that rule is **zero in two consecutive weekly health reports** (`.ai/reports/ds-health-*.txt`), and
+1. the module's counter for that rule is **zero in two consecutive runs of the rolling health report** — the working-tree `.ai/reports/ds-health-latest.txt` and the previous committed revision of that same file:
+
+   ```bash
+   git show "$(git log -2 --format=%H -- .ai/reports/ds-health-latest.txt | tail -1):.ai/reports/ds-health-latest.txt"
+   ```
+
+   Never resolve the two reports through a `.ai/reports/ds-health-*.txt` glob. Since the rolling-report change the tree holds exactly one health report at a time, so that glob matches only `ds-health-latest.txt` plus the April 2026 `ds-health-baseline-*.txt` anchor — and comparing against the anchor is wrong twice over: it is not the previous run, and its metric definitions predate the 2026-07-17 `HC_PATTERN`/scan-root change, so the two numbers do not measure the same quantity.
+
+   Because the criterion reads committed revisions, both runs must actually be committed — see the note on committing the refreshed report in `om-ds-guardian/SKILL.md`. A gap in the file's history is not a zero; re-run the check until two consecutive committed revisions both read zero.
 2. the inline-opt-out change above has merged.
 
 Two consecutive zeros (not one) prevent flip/revert churn when a module briefly touches zero while related PRs are in flight.
@@ -191,7 +199,7 @@ Later blocks win in flat config, so overrides layer cleanly on the `warn` baseli
 3. PR carries `needs-qa` (the visual-review requirement — `light` vs `lighter` genuinely differ, see `.ai/ui-components.md` § Alert) unless the batch contains zero style opt-ins, in which case `skip-qa` with the render-identity argument stated explicitly.
 4. PR description quotes the health-check "Legacy Alert variant usages" counter before/after.
 
-**Holding the line and end state.** The rule at `warn` feeds the CI delta report from day one, so a PR that adds a legacy usage surfaces as "+1" immediately. The rule flips to `error` repo-wide in a single step — its per-module machinery is unnecessary given the campaign drives the count to zero within weeks — once the counter reads 0 in two consecutive health reports. Removing the `variant` prop from `alert.tsx` itself is **out of scope**: it is a STABLE contract surface under `BACKWARD_COMPATIBILITY.md` and follows the deprecation protocol (≥1 minor version with `@deprecated` JSDoc + the `error`-level rule guarding in-repo code) in a future release. The health check's per-module breakdown table additionally gains an `alert-variant` column (grep proxy `<Alert[^>]*variant=`) so batch progress shows up in the offender ranking.
+**Holding the line and end state.** The rule at `warn` feeds the CI delta report from day one, so a PR that adds a legacy usage surfaces as "+1" immediately. The rule flips to `error` repo-wide in a single step — its per-module machinery is unnecessary given the campaign drives the count to zero within weeks — once the counter reads 0 in two consecutive runs of `.ai/reports/ds-health-latest.txt` (the criterion defined above — the current file and its previous committed revision, never a `ds-health-*.txt` glob). Removing the `variant` prop from `alert.tsx` itself is **out of scope**: it is a STABLE contract surface under `BACKWARD_COMPATIBILITY.md` and follows the deprecation protocol (≥1 minor version with `@deprecated` JSDoc + the `error`-level rule guarding in-repo code) in a future release. The health check's per-module breakdown table additionally gains an `alert-variant` column (grep proxy `<Alert[^>]*variant=`) so batch progress shows up in the offender ranking.
 
 ## Architecture
 

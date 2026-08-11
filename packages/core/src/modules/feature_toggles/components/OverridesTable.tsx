@@ -6,7 +6,8 @@ import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useQueryClient } from "@tanstack/react-query";
-import { ColumnDef, SortingState } from "@tanstack/react-table";
+import type { LegacyColumnDef as ColumnDef } from "@tanstack/react-table/legacy";
+import type { SortingState } from "@tanstack/react-table";
 import * as React from 'react'
 import type { FilterDef, FilterValues } from "@open-mercato/ui/backend/FilterBar"
 import { RowActions } from "@open-mercato/ui/backend/RowActions";
