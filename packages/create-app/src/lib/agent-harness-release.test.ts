@@ -86,20 +86,19 @@ test('the deterministic step budgets its process independently of the per-model 
   // warm, 213 cases) and matches the flat allowance the gate already gives fixture preparation,
   // the release path's other model-free step.
   assert.equal(release.DETERMINISTIC_STEP_TIMEOUT_MS, 120_000)
-  // Neither an operator's model ceiling nor the catalog size may move it: the budget is flat by
-  // measurement, so the invocation deliberately has nowhere to read either one from.
+  // The invocation takes the evaluator and the root and nothing else, so no operator ceiling and no
+  // catalog size can reach it. Spell out what the old formula would have produced across the whole
+  // accepted --case-timeout range and a catalog ten times the shipped one, so a future edit that
+  // reintroduces the scaling has to break this assertion to do it.
   for (const caseTimeout of [1_000, 120_000, 600_000, 3_600_000]) {
     for (const caseCount of [1, 213, 2_130]) {
-      const budgeted = release.deterministicInvocation({
-        evaluator: '/app/scripts/evaluate-agent-harness.mjs',
-        root: '/app',
-        caseTimeout,
-        caseCount,
-      } as never)
-      assert.equal(budgeted.timeout, 120_000)
-      assert.notEqual(budgeted.timeout, caseTimeout * caseCount + 60_000)
+      assert.notEqual(invocation.timeout, caseTimeout * Math.max(1, caseCount) + 60_000)
     }
   }
+  assert.equal(
+    release.deterministicInvocation({ evaluator: '/other/evaluate.mjs', root: '/other' }).timeout,
+    invocation.timeout,
+  )
 })
 
 // The browser lane needs a launchable Chromium headless shell, which depends on host
