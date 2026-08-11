@@ -152,8 +152,19 @@ export function createLocalQueue<T = unknown>(
   async function backupCorruptedQueueFile(content: string): Promise<string> {
     const backupFile = path.join(queueDir, `queue.corrupted.${Date.now()}.json`)
     await fsp.writeFile(backupFile, content, 'utf8')
-    await fsp.writeFile(queueFile, '[]', 'utf8')
+    await writeQueueFile('[]')
     return backupFile
+  }
+
+  async function writeQueueFile(content: string): Promise<void> {
+    const tempFile = `${queueFile}.${nodeProcess?.pid ?? 0}.${crypto.randomUUID()}.tmp`
+    try {
+      await fsp.writeFile(tempFile, content, 'utf8')
+      await fsp.rename(tempFile, queueFile)
+    } catch (error) {
+      await fsp.unlink(tempFile).catch(() => undefined)
+      throw error
+    }
   }
 
   async function readQueue(): Promise<StoredJob<T>[]> {
@@ -190,7 +201,7 @@ export function createLocalQueue<T = unknown>(
 
   async function writeQueue(jobs: StoredJob<T>[]): Promise<void> {
     await ensureDir()
-    await fsp.writeFile(queueFile, JSON.stringify(jobs, null, 2), 'utf8')
+    await writeQueueFile(JSON.stringify(jobs, null, 2))
   }
 
   async function readState(): Promise<LocalState> {

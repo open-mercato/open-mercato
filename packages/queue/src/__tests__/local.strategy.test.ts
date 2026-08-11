@@ -609,6 +609,13 @@ describe('Queue - local strategy', () => {
         await expect(recoveredWithinFallback).resolves.toBe(7)
 
         jest.useRealTimers()
+        await within((async () => {
+          while (true) {
+            const counts = await consumer.getJobCounts()
+            if (counts.completed === 1 && counts.waiting === 0) break
+            await new Promise((resolve) => setTimeout(resolve, 10))
+          }
+        })(), 800)
         await producer.enqueue({ value: 8 })
         await expect(within(eventDriven, 800)).resolves.toBe(8)
       } finally {
