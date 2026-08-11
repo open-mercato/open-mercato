@@ -64,5 +64,10 @@ Both fire even when the resolution result is unchanged (no override targets this
 - [x] 2.2 Late-override identity test (verified red on `develop`'s hook, green with the fix)
 - [x] 2.3 Late replacement still applied
 - [x] 2.4 Different `componentId` still remounts
-- [ ] 3.1 Validation gate
-- [ ] 3.2 UI QA + screenshots
+- [x] 1.3 Wrapper-override composition memoized per (wrapper, base) pair, with its own regression test
+- [x] 3.1 Validation gate — `build:packages`, `generate`, both i18n checks, `typecheck`, `lint`, `build:app` green; tests green per package for everything this change reaches (13 598 across `ui`/`core`/`enterprise`/`checkout`/`shared`). The whole-repo `turbo run test` sweep failed a different unrelated package on each of three attempts (`telemetry`, `scheduler`, `create-mercato-app`), each passing on its own straight afterwards — local contention, left to CI.
+- [x] 3.2 UI QA + screenshots — before/after ephemeral builds with the enterprise security override live: https://github.com/open-mercato/open-mercato/pull/5187#issuecomment-5251429011
+
+## Outcome
+
+The measurable win is not on `/login`, and the QA comment says so plainly: with the security wrapper override arriving after the first render, the resolved component genuinely changes there, so one remount survives in both builds. The change is proven by the unit tests instead — two of them fail against `develop`'s hook. The late-override delivery that causes the remaining `/login` remount is filed separately as #5194.
