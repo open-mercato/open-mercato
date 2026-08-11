@@ -15,6 +15,8 @@ const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../n
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   effectiveCaseTimeout: (cases: Array<{ id: string; timeoutMs?: number }>, caseId: string, fallback: number) => number
+  deterministicInvocation: (input: { evaluator: string; root: string }) => { args: string[]; timeout: number }
+  DETERMINISTIC_STEP_TIMEOUT_MS: number
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
   createMinimalValidationEnvironment: (tempRoot: string, pathValue?: string) => { env: NodeJS.ProcessEnv; toolReadRoots: string[] }
@@ -64,10 +66,40 @@ test('case-local writable timeout raises but never lowers the operator timeout f
 test('the release gate owns --case-timeout and rejects the evaluator flag --timeout (#5057)', () => {
   const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
-  assert.match(help.stdout, /--case-timeout <ms>\s+Per-model invocation timeout floor \(default: 120000/)
+  assert.match(help.stdout, /--case-timeout <ms>\s+Per-model invocation timeout floor for the routing, writable, and judge lanes \(default: 120000/)
   const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
   assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)
   assert.match(rejected.stderr, /unknown argument: --timeout/)
+})
+
+// The deterministic step invokes no model — it is the evaluator's own catalog validation — so its
+// process budget must not be derived from --case-timeout, whose help calls it a per-model floor.
+// Pin both halves of the invocation together: the argv that makes it deterministic, and a ceiling
+// that stays put no matter what an operator hands --case-timeout (#5184).
+test('the deterministic step budgets its process independently of the per-model case timeout (#5184)', () => {
+  const invocation = release.deterministicInvocation({ evaluator: '/app/scripts/evaluate-agent-harness.mjs', root: '/app' })
+  assert.deepEqual(invocation.args, ['/app/scripts/evaluate-agent-harness.mjs', '--root', '/app', '--all'])
+  assert.equal(invocation.args.includes('--runner'), false)
+  assert.equal(invocation.args.includes('--timeout'), false)
+  assert.equal(invocation.timeout, release.DETERMINISTIC_STEP_TIMEOUT_MS)
+  // 120000 ms is about 233x the slowest observed complete-catalog run (515 ms cold, 211-258 ms
+  // warm, 213 cases) and matches the flat allowance the gate already gives fixture preparation,
+  // the release path's other model-free step.
+  assert.equal(release.DETERMINISTIC_STEP_TIMEOUT_MS, 120_000)
+  // Neither an operator's model ceiling nor the catalog size may move it: the budget is flat by
+  // measurement, so the invocation deliberately has nowhere to read either one from.
+  for (const caseTimeout of [1_000, 120_000, 600_000, 3_600_000]) {
+    for (const caseCount of [1, 213, 2_130]) {
+      const budgeted = release.deterministicInvocation({
+        evaluator: '/app/scripts/evaluate-agent-harness.mjs',
+        root: '/app',
+        caseTimeout,
+        caseCount,
+      } as never)
+      assert.equal(budgeted.timeout, 120_000)
+      assert.notEqual(budgeted.timeout, caseTimeout * caseCount + 60_000)
+    }
+  }
 })
 
 // The browser lane needs a launchable Chromium headless shell, which depends on host

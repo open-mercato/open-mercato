@@ -36,6 +36,13 @@ const SENSITIVE_AUTH_DATA_FILE = /^(?:auth|credentials?|secrets?|tokens?)(?:\.(?
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
+// The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
+// macOS, the complete 213-case catalog finished in 211-515 ms, and going from one case to the whole
+// catalog cost about 35 ms, so the run is dominated by fixed process and catalog load rather than
+// by case count. A flat allowance is therefore the honest shape, and 120000 ms is both about 233x
+// the slowest observed run and the value this gate already gives its other model-free step,
+// fixture preparation. It bounds a hang; a healthy run never approaches it.
+export const DETERMINISTIC_STEP_TIMEOUT_MS = 120_000
 
 function usage() {
   return `Run the complete standalone agent-harness release gate.
@@ -50,7 +57,8 @@ Options:
   --portability-runner <runner> Optional different runner for the 46-case read-only portability lane
   --prepare-targets <absolute>   Clone this fresh scaffold once per writable case under an empty/new directory
   --writable-targets <absolute> JSON map of every writable case to a fresh disposable app
-  --case-timeout <ms>           Per-model invocation timeout floor (default: 120000; a writable case may raise it)
+  --case-timeout <ms>           Per-model invocation timeout floor for the routing, writable, and judge lanes (default: 120000; a writable case may raise it).
+                                The model-free deterministic and fixture-preparation steps carry their own flat ceilings and do not read it.
   --validation-timeout <ms>     Timeout for each yarn validation (default: 1800000)
   --acknowledge-writes          Required: fixture preparation and validation commands write files
   --help                        Show this help
@@ -116,6 +124,10 @@ function parseArgs(argv) {
 export function effectiveCaseTimeout(cases, caseId, fallback) {
   const declared = cases.find((item) => item.id === caseId)?.timeoutMs
   return Math.max(fallback, Number.isInteger(declared) ? declared : 0)
+}
+
+export function deterministicInvocation({ evaluator, root }) {
+  return { args: [evaluator, '--root', root, '--all'], timeout: DETERMINISTIC_STEP_TIMEOUT_MS }
 }
 
 function readJson(file) {
@@ -1575,11 +1587,12 @@ export function main(argv = process.argv.slice(2)) {
   const { env: foundationEnv } = createMinimalValidationEnvironment(foundationTempRoot)
   let deterministicResult
   try {
+    const deterministic = deterministicInvocation({ evaluator, root })
     const deterministicExecution = execute(
       process.execPath,
-      [evaluator, '--root', root, '--all'],
+      deterministic.args,
       root,
-      options.caseTimeout * Math.max(1, plan.catalog.caseCount) + 60_000,
+      deterministic.timeout,
       foundationEnv,
     )
     const deterministicObserved = sortedUnique((deterministicExecution.stdout ?? '').match(/^PASS (OMH-[0-9]{3})/gm)?.map((entry) => entry.slice('PASS '.length)) ?? [])
