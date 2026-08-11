@@ -335,11 +335,11 @@ export const vectorReindexResponseSchema = z.object({
 export const searchOpenApi: OpenApiRouteDoc = {
   tag: 'Search',
   summary: 'Search across all indexed entities',
-  description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground. Results are limited to the entity types the caller holds the declared view features for; superadmins are exempt.',
+  description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground.',
   methods: {
     GET: {
       summary: 'Search across all indexed entities',
-      description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground. Results are limited to the entity types the caller holds the declared view features for; superadmins are exempt.',
+      description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground.',
       tags: ['Search'],
       query: searchQueryParamsSchema,
       responses: [
