@@ -64,8 +64,9 @@ closes.
 ## Non-goals
 
 - No change to `resolveLiveCaseTimeout`, to the runner-aware floors, or to the evaluator's own default.
-- No change to the writable (`:1651`) or review (`:1711`) pass-throughs, which already resolve a per-case
-  ceiling before passing it.
+- No change to the writable or review pass-throughs themselves, which already resolve a per-case ceiling
+  before passing it. Their resolved ceilings do rise with the shared default, which the review pass made
+  explicit in `RELEASE.md` and in the flag's help line rather than leaving implied.
 - No change to the catalog guard that keeps `timeoutMs` writable-only, and no new case-local durations.
 - No driven live release run; see the deviation above.
 
