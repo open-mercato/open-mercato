@@ -158,6 +158,21 @@ Run parameters are **operator-visible and stored in clear text** on
 declare a parameter that carries a secret — credentials belong in
 `integrationCredentialsService`.
 
+**Translation.** `label`, `description` and `placeholder` are literals, so an
+adapter shipping to more than one locale MUST also set `labelKey` /
+`descriptionKey` / `placeholderKey`; the dashboard prefers the key and falls
+back to the literal. Validation failures come back from the API as
+`{ key, code, params, message }` — the UI renders `code` through
+`data_sync.runParameters.errors.<code>` and only uses the English `message` as
+a fallback, so never rely on the sentence text.
+
+**Retry re-validates.** `POST /api/data_sync/runs/[id]/retry` re-runs the stored
+values through `normalizeRunParameters` against the *current* declaration:
+parameters you have since removed or re-scoped fall away, and a value that no
+longer satisfies its declaration fails the retry with a 422 instead of reaching
+the adapter. An adapter therefore never receives a set the run API would reject
+today — tighten a bound freely.
+
 The integration detail page's schedule table also starts runs, but has no room
 for a parameter form: it submits the declared defaults and refuses the run when
 an applicable parameter is `required` with no `defaultValue`, pointing the

@@ -129,7 +129,6 @@ function formatEntityTypeLabel(entityType: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-
 function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState {
   const normalized = entityType.trim().toLowerCase()
   const longerInterval = normalized === 'categories' || normalized === 'attributes'
@@ -247,7 +246,11 @@ export default function SyncRunsDashboardPage() {
     () => getApplicableRunParameters(
       selectedIntegration?.runParameters,
       selectedDirection,
-      selectedEntityType ?? undefined,
+      // Pass the state through as-is. Before an entity is chosen it is '',
+      // which matches no `entityType` and so hides scoped parameters — the
+      // wanted outcome. Mapping '' to `undefined` would mean "skip entity
+      // scoping" and show every scoped parameter instead.
+      selectedEntityType,
     ),
     [selectedIntegration, selectedDirection, selectedEntityType],
   )
@@ -411,6 +414,7 @@ export default function SyncRunsDashboardPage() {
         flash(buildRunFailureMessage(
           call.result as RunFailureBody | null,
           t('data_sync.dashboard.start.error', 'Failed to start sync run'),
+          t,
         ), 'error')
         return
       }

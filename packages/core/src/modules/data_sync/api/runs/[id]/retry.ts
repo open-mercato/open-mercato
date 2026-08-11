@@ -5,8 +5,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
+import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { retrySyncSchema } from '../../../data/validators'
 import { startDataSyncRun } from '../../../lib/start-run'
+import { getDataSyncAdapter } from '../../../lib/adapter-registry'
+import { normalizeRunParameters } from '../../../lib/run-parameters'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -82,6 +85,33 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
+  // A retry replays the stored parameters, but the adapter's declaration may
+  // have moved on since the original run — a parameter dropped, a bound
+  // tightened, a select option removed, a scope narrowed. Re-normalize against
+  // the current declaration so an adapter never receives a set the run API
+  // would reject today. Undeclared keys fall away silently; values that are now
+  // invalid stop the retry, because the operator has no form here to fix them.
+  const retryIntegration = getIntegration(previous.integrationId)
+  const retryAdapter = retryIntegration?.providerKey ? getDataSyncAdapter(retryIntegration.providerKey) : null
+  const normalizedParameters = normalizeRunParameters(
+    retryAdapter?.runParameters,
+    previous.direction,
+    previous.parameters ?? null,
+    previous.entityType,
+  )
+  if (!normalizedParameters.ok) {
+    return NextResponse.json(
+      {
+        error: 'Stored run parameters are no longer valid for this integration. Start a new run from the Data Sync dashboard.',
+        details: { parameters: normalizedParameters.errors },
+      },
+      { status: 422 },
+    )
+  }
+  const retryParameters = Object.keys(normalizedParameters.values).length > 0
+    ? normalizedParameters.values
+    : null
+
   const cursor = parsedBody.data.fromBeginning
     ? null
     : previous.cursor ?? await syncRunService.resolveCursor(previous.integrationId, previous.entityType, previous.direction, scope)
@@ -100,7 +130,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
       cursor,
       triggeredBy: auth.sub,
       batchSize: 100,
-      parameters: previous.parameters ?? null,
+      parameters: retryParameters,
       progressJob: {
         name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,
       },

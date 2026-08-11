@@ -93,6 +93,97 @@ describe('normalizeRunParameters', () => {
   })
 })
 
+describe('machine-readable error codes', () => {
+  it('reports a code and interpolation params alongside the English message', () => {
+    const result = normalizeRunParameters(params, 'import', { startId: '-1' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.errors[0]).toEqual({
+        key: 'startId',
+        code: 'min',
+        params: { label: 'Start id', min: 0 },
+        message: 'Start id must be at least 0.',
+      })
+    }
+  })
+
+  it('emits the right code for each failure kind', () => {
+    const declared: RunParameter[] = [
+      { key: 'need', label: 'Need', type: 'string', required: true },
+      { key: 'num', label: 'Num', type: 'number', max: 5 },
+      { key: 'pick', label: 'Pick', type: 'select', options: [{ value: 'a' }] },
+    ]
+    const codeFor = (raw: Record<string, unknown>) => {
+      const result = normalizeRunParameters(declared, 'import', raw)
+      return result.ok ? null : result.errors[0].code
+    }
+    expect(codeFor({ num: 3, pick: 'a' })).toBe('required')
+    expect(codeFor({ need: 'x', num: 'abc', pick: 'a' })).toBe('type')
+    expect(codeFor({ need: 'x', num: 9, pick: 'a' })).toBe('max')
+    expect(codeFor({ need: 'x', num: 3, pick: 'z' })).toBe('select')
+  })
+})
+
+describe('declared defaults are validated like submitted values', () => {
+  it('rejects a select default that is not among its own options', () => {
+    const result = normalizeRunParameters(
+      [{ key: 'mode', label: 'Mode', type: 'select', options: [{ value: 'a' }], defaultValue: 'zzz' }],
+      'import',
+      {},
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errors[0].code).toBe('select')
+  })
+
+  it('rejects a number default below its own min', () => {
+    const result = normalizeRunParameters(
+      [{ key: 'n', label: 'N', type: 'number', min: 10, defaultValue: 1 }],
+      'import',
+      {},
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errors[0].code).toBe('min')
+  })
+
+  it('still accepts a valid default', () => {
+    const result = normalizeRunParameters(
+      [{ key: 'n', label: 'N', type: 'number', min: 0, defaultValue: 7 }],
+      'import',
+      {},
+    )
+    expect(result).toEqual({ ok: true, values: { n: 7 } })
+  })
+})
+
+describe('inherited object properties', () => {
+  // A parameter named after an Object.prototype member must read as absent when
+  // the caller omits it — otherwise the inherited function leaks in as a value.
+  const inherited: RunParameter[] = [
+    { key: 'toString', label: 'To string', type: 'string' },
+    { key: 'valueOf', label: 'Value of', type: 'string', required: true },
+  ]
+
+  it('treats an omitted inherited key as blank rather than reading the prototype', () => {
+    const result = normalizeRunParameters(inherited, 'import', {})
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      // `valueOf` is required and absent → required, not a coerced function body.
+      expect(result.errors).toEqual([
+        expect.objectContaining({ key: 'valueOf', code: 'required' }),
+      ])
+    }
+  })
+
+  it('still reads an inherited-name key the caller actually sent', () => {
+    const result = normalizeRunParameters(
+      [{ key: 'toString', label: 'To string', type: 'string' }],
+      'import',
+      { toString: 'mine' },
+    )
+    expect(result).toEqual({ ok: true, values: { toString: 'mine' } })
+  })
+})
+
 describe('reserved parameter keys', () => {
   // Assigning a primitive to `__proto__` on an object literal is silently
   // discarded, so such a param would disappear between the form and the

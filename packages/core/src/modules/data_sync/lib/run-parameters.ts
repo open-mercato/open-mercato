@@ -1,7 +1,20 @@
 import type { RunParameter, RunParameterValue } from './adapter'
 
+export type RunParameterErrorCode = 'required' | 'type' | 'min' | 'max' | 'select'
+
 export type RunParameterError = {
   key: string
+  /**
+   * Machine-readable reason, so the client can render a translated message.
+   * The dashboard maps these to `data_sync.runParameters.errors.<code>`.
+   */
+  code: RunParameterErrorCode
+  /** Values the translated message interpolates (label, bound, option list). */
+  params: { label: string; type?: string; min?: number; max?: number; options?: string }
+  /**
+   * Pre-rendered English sentence. Kept for non-UI callers (API clients, logs)
+   * and as the client-side fallback; the UI prefers `code` + `params`.
+   */
   message: string
 }
 
@@ -88,6 +101,56 @@ function coerceNumber(value: unknown): number | null {
  * - Blank values fall back to `defaultValue`; a blank required value is an error.
  * - Values are coerced to the declared type; the result only contains declared keys.
  */
+function buildRunParameterError(
+  param: RunParameter,
+  code: RunParameterErrorCode,
+  extra: { type?: string; min?: number; max?: number; options?: string } = {},
+): RunParameterError {
+  const message = code === 'required' ? `${param.label} is required.`
+    : code === 'type' ? `${param.label} must be a ${extra.type}.`
+    : code === 'min' ? `${param.label} must be at least ${extra.min}.`
+    : code === 'max' ? `${param.label} must be at most ${extra.max}.`
+    : `${param.label} must be one of: ${extra.options}.`
+  return { key: param.key, code, params: { label: param.label, ...extra }, message }
+}
+
+type CoerceResult =
+  | { ok: true; value: RunParameterValue }
+  | { ok: false; error: RunParameterError }
+
+/** Coerces and range-checks one non-blank value against its declaration. */
+function coerceDeclaredValue(param: RunParameter, raw: unknown): CoerceResult {
+  switch (param.type) {
+    case 'boolean': {
+      const coerced = coerceBoolean(raw)
+      if (coerced === null) return { ok: false, error: buildRunParameterError(param, 'type', { type: 'boolean' }) }
+      return { ok: true, value: coerced }
+    }
+    case 'number': {
+      const coerced = coerceNumber(raw)
+      if (coerced === null) return { ok: false, error: buildRunParameterError(param, 'type', { type: 'number' }) }
+      if (typeof param.min === 'number' && coerced < param.min) {
+        return { ok: false, error: buildRunParameterError(param, 'min', { min: param.min }) }
+      }
+      if (typeof param.max === 'number' && coerced > param.max) {
+        return { ok: false, error: buildRunParameterError(param, 'max', { max: param.max }) }
+      }
+      return { ok: true, value: coerced }
+    }
+    case 'select': {
+      const candidate = String(raw)
+      const allowed = (param.options ?? []).map((option) => option.value)
+      if (!allowed.includes(candidate)) {
+        return { ok: false, error: buildRunParameterError(param, 'select', { options: allowed.join(', ') }) }
+      }
+      return { ok: true, value: candidate }
+    }
+    case 'string':
+    default:
+      return { ok: true, value: String(raw).trim() }
+  }
+}
+
 export function normalizeRunParameters(
   declared: RunParameter[] | undefined,
   direction: 'import' | 'export',
@@ -100,63 +163,32 @@ export function normalizeRunParameters(
   const errors: RunParameterError[] = []
 
   for (const param of params) {
-    const provided = (input as Record<string, unknown>)[param.key]
-    const hasValue = !isBlank(provided)
+    // Own-property lookup only: a parameter declared under an inherited name
+    // (`constructor`, `toString`, `valueOf`) would otherwise read back the
+    // inherited function instead of `undefined`, so a required check would
+    // silently pass and a string parameter would coerce the function source.
+    const provided = Object.prototype.hasOwnProperty.call(input, param.key)
+      ? (input as Record<string, unknown>)[param.key]
+      : undefined
 
-    if (!hasValue) {
-      if (param.required && param.defaultValue === undefined) {
-        errors.push({ key: param.key, message: `${param.label} is required.` })
+    if (isBlank(provided)) {
+      if (param.defaultValue === undefined) {
+        if (param.required) errors.push(buildRunParameterError(param, 'required'))
         continue
       }
-      if (param.defaultValue !== undefined) {
-        values[param.key] = param.defaultValue
-      }
+      // The declared default goes through the same checks as a submitted
+      // value, so a misdeclared adapter (a `select` default outside its own
+      // options, a number below its own `min`) fails loudly here rather than
+      // shipping an invalid value to itself mid-run.
+      const fallback = coerceDeclaredValue(param, param.defaultValue)
+      if (fallback.ok) values[param.key] = fallback.value
+      else errors.push(fallback.error)
       continue
     }
 
-    switch (param.type) {
-      case 'boolean': {
-        const coerced = coerceBoolean(provided)
-        if (coerced === null) {
-          errors.push({ key: param.key, message: `${param.label} must be a boolean.` })
-          break
-        }
-        values[param.key] = coerced
-        break
-      }
-      case 'number': {
-        const coerced = coerceNumber(provided)
-        if (coerced === null) {
-          errors.push({ key: param.key, message: `${param.label} must be a number.` })
-          break
-        }
-        if (typeof param.min === 'number' && coerced < param.min) {
-          errors.push({ key: param.key, message: `${param.label} must be at least ${param.min}.` })
-          break
-        }
-        if (typeof param.max === 'number' && coerced > param.max) {
-          errors.push({ key: param.key, message: `${param.label} must be at most ${param.max}.` })
-          break
-        }
-        values[param.key] = coerced
-        break
-      }
-      case 'select': {
-        const candidate = String(provided)
-        const allowed = (param.options ?? []).map((option) => option.value)
-        if (!allowed.includes(candidate)) {
-          errors.push({ key: param.key, message: `${param.label} must be one of: ${allowed.join(', ')}.` })
-          break
-        }
-        values[param.key] = candidate
-        break
-      }
-      case 'string':
-      default: {
-        values[param.key] = String(provided).trim()
-        break
-      }
-    }
+    const coerced = coerceDeclaredValue(param, provided)
+    if (coerced.ok) values[param.key] = coerced.value
+    else errors.push(coerced.error)
   }
 
   if (errors.length > 0) return { ok: false, errors }

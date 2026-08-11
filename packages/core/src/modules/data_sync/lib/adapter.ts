@@ -119,11 +119,22 @@ export interface RunParameterOption {
 export interface RunParameter {
   /** Stable identifier used as the key in the normalized parameters object. */
   key: string
-  /** Human-readable label shown next to the input. */
+  /**
+   * Human-readable label shown next to the input. Used verbatim when
+   * `labelKey` is absent, and as the fallback when it resolves to nothing.
+   */
   label: string
+  /**
+   * i18n key the dashboard resolves for the label, preferred over `label`.
+   * Declare it whenever the adapter ships to more than one locale — `label`
+   * alone can only ever be one language.
+   */
+  labelKey?: string
   type: RunParameterType
   /** Optional helper text rendered under the input. */
   description?: string
+  /** i18n key for `description`, preferred over the literal when present. */
+  descriptionKey?: string
   /**
    * When true, the run cannot start unless a non-empty value is provided.
    *
@@ -138,6 +149,8 @@ export interface RunParameter {
   defaultValue?: RunParameterValue
   /** Placeholder for `string` / `number` inputs. */
   placeholder?: string
+  /** i18n key for `placeholder`, preferred over the literal when present. */
+  placeholderKey?: string
   /** Allowed choices for `select` parameters. */
   options?: RunParameterOption[]
   /** Inclusive bounds for `number` parameters. */

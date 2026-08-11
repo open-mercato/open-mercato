@@ -2589,8 +2589,24 @@ interface DataSyncAdapter {
 4. Normalized values are persisted on `SyncRun.parameters` (JSONB, nullable) and
    handed to the adapter on `StreamImportInput.parameters` /
    `StreamExportInput.parameters` for the whole duration of the run.
-5. The run detail page surfaces the parameters read-only; **retry carries the
-   parameters forward** onto the new run.
+5. The run detail page surfaces the parameters read-only, resolving declared
+   labels from `/api/data_sync/options` so a past run reads as "Start id" rather
+   than `startId` (keys the adapter no longer declares keep their raw form).
+6. **Retry re-normalizes** the stored values against the *current* declaration
+   rather than replaying them blind. Parameters since removed or re-scoped are
+   dropped; a value that no longer satisfies its declaration fails the retry
+   with a `422` naming the offending keys, because the operator has no form on
+   the retry path to correct them. This keeps the `StreamImportInput.parameters`
+   guarantee — "only declared keys, already coerced" — true across a deploy that
+   changes a declaration.
+
+**Localization.** `label` / `description` / `placeholder` are literals; the
+optional `labelKey` / `descriptionKey` / `placeholderKey` are i18n keys the
+dashboard prefers when present, so one adapter can serve several locales.
+Validation failures are returned as `{ key, code, params, message }` with `code`
+∈ `required | type | min | max | select`; the client renders
+`data_sync.runParameters.errors.<code>` and keeps the English `message` as a
+fallback for non-UI callers and logs.
 
 **Scope / limits (v1)**: scalar values only; parameters reach the streaming
 methods (and the persisted record), not `getMapping` / `getInitialCursor` /
@@ -2621,7 +2637,10 @@ behaviour changes.
 | `StreamImportInput` / `StreamExportInput` | new optional `parameters?` | additive optional field |
 | `lib/adapter.ts` | new exported `RunParameter`, `RunParameterType`, `RunParameterValue`, `RunParameterOption` | new exports |
 | `lib/run-parameters.ts` | new module (`normalizeRunParameters`, `getApplicableRunParameters`) | new file |
+| `RunParameter` | new optional `labelKey` / `descriptionKey` / `placeholderKey` | additive optional fields |
+| `RunParameterError` | new `code` + `params`; `message` retained | additive fields on a new type |
 | `runSyncSchema` | new optional `parameters` record | widened, not narrowed |
+| `POST /api/data_sync/runs/[id]/retry` | new `422` when stored values no longer satisfy the declaration | only reachable once an adapter declares parameters *and* changes them |
 | `POST /api/data_sync/run` | new `422` for invalid parameters | only reachable once an adapter declares parameters |
 | `GET /api/data_sync/options` | new `runParameters` array per item | additive response field |
 | `GET /api/data_sync/runs/[id]` | new `parameters` field | additive response field |

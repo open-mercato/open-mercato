@@ -165,6 +165,10 @@ Types are `boolean`, `string`, `number` and `select`. A parameter may be scoped 
 
 Run parameters are operator-visible and stored in clear text, so they must never carry secrets — use the integration's credentials service for those.
 
+For a multi-locale deployment, pair each literal with an i18n key — `labelKey`, `descriptionKey`, `placeholderKey` — which the dashboard prefers over `label` / `description` / `placeholder`. Validation failures return `{ key, code, params, message }`, where `code` is one of `required`, `type`, `min`, `max`, `select`; the UI translates it through `data_sync.runParameters.errors.<code>` and treats the English `message` only as a fallback for non-UI callers.
+
+Retrying a run re-normalizes the stored values against the adapter's *current* declaration, so parameters you have since removed or re-scoped are dropped and a value that no longer satisfies its declaration fails the retry with a 422 rather than reaching the adapter.
+
 ## Provider-owned environment preconfiguration
 
 New integration providers should not require manual admin setup after every fresh install when deployment already knows the credentials and defaults. The provider package should own that bootstrap path itself.

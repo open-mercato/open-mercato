@@ -118,6 +118,31 @@ describe('buildRunFailureMessage', () => {
       .toBe('Integration is disabled')
   })
 
+  it('renders a translated message from the error code when a translator is given', () => {
+    const t = jest.fn((_key: string, fallback?: string, vars?: Record<string, unknown>) =>
+      `PL:${String(vars?.label)}:${String(vars?.min)}`) as never
+    const message = buildRunFailureMessage(
+      {
+        error: 'Invalid run parameters',
+        details: { parameters: [{ key: 'startId', code: 'min', params: { label: 'Start id', min: 0 }, message: 'Start id must be at least 0.' }] },
+      },
+      'fallback',
+      t,
+    )
+    // The server's English sentence must not win over the translated one.
+    expect(message).toBe('PL:Start id:0')
+  })
+
+  it('falls back to the server message when the code is unknown', () => {
+    const t = jest.fn(() => 'unused') as never
+    const message = buildRunFailureMessage(
+      { details: { parameters: [{ key: 'x', code: 'not-a-code', message: 'Raw server text.' }] } },
+      'fallback',
+      t,
+    )
+    expect(message).toBe('Raw server text.')
+  })
+
   it('falls back to the provided default when the body carries nothing usable', () => {
     expect(buildRunFailureMessage(null, 'Failed to start sync run')).toBe('Failed to start sync run')
     expect(buildRunFailureMessage({ details: { parameters: [] } }, 'Failed to start sync run'))
