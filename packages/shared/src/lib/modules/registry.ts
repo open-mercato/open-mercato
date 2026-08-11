@@ -14,6 +14,7 @@ const logger = createLogger('shared').child({ component: 'modules-registry' })
 // node_modules/@open-mercato/shared/dist/. Mirrors the same workaround used
 // by `getDiRegistrars()` in `../di/container.ts`.
 const GLOBAL_KEY = '__openMercatoModulesRegistry__'
+const LISTENERS_GLOBAL_KEY = '__openMercatoModulesRegistryListeners__'
 
 function getGlobalModules(): Module[] | null {
   return (globalThis as any)[GLOBAL_KEY] ?? null
@@ -21,6 +22,52 @@ function getGlobalModules(): Module[] | null {
 
 function setGlobalModules(modules: Module[]): void {
   ;(globalThis as any)[GLOBAL_KEY] = modules
+}
+
+export type ModulesRegisteredListener = (modules: Module[]) => void
+
+function getListeners(): Set<ModulesRegisteredListener> {
+  const globalScope = globalThis as any
+  if (!globalScope[LISTENERS_GLOBAL_KEY]) {
+    globalScope[LISTENERS_GLOBAL_KEY] = new Set<ModulesRegisteredListener>()
+  }
+  return globalScope[LISTENERS_GLOBAL_KEY]
+}
+
+/**
+ * Subscribe to module-registry (re-)registrations so caches derived from the
+ * module list can drop what they built from an incomplete one. Bootstrap can
+ * register modules more than once — an i18n-only registration is reconciled
+ * with the full module list by `mergeI18nModules()` — and a consumer that
+ * memoized its resolution in between would otherwise serve the pre-merge view
+ * for the lifetime of the process (issue #5103).
+ *
+ * Listeners live on `globalThis` for the same module-duplication reason the
+ * registry itself does, and they are notified only when the registered set
+ * actually changed, so repeated identical bootstraps and HMR re-registrations
+ * do not needlessly drop warm caches. Returns an unsubscribe function.
+ */
+export function onModulesRegistered(listener: ModulesRegisteredListener): () => void {
+  const listeners = getListeners()
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function modulesUnchanged(previous: Module[] | null, next: Module[]): boolean {
+  if (previous === null || previous.length !== next.length) return false
+  return previous.every((entry, index) => entry === next[index])
+}
+
+function notifyModulesRegistered(modules: Module[]): void {
+  for (const listener of [...getListeners()]) {
+    try {
+      listener(modules)
+    } catch (err) {
+      logger.error('Module registration listener failed', { err })
+    }
+  }
 }
 
 function hasRuntimeContracts(entry: Module): boolean {
@@ -88,6 +135,9 @@ export function registerModules(modules: Module[]) {
     invalidateDictionaryCacheLocales(getTranslationLocales(nextModules))
   } else {
     invalidateDictionaryCache()
+  }
+  if (!modulesUnchanged(existing, registeredModules)) {
+    notifyModulesRegistered(registeredModules)
   }
 }
 
