@@ -23,7 +23,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import {
   EUDR_MITIGATION_STATUSES,
   EUDR_MITIGATION_TYPES,
