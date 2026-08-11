@@ -217,6 +217,7 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
+| [OpenAPI Response Precedence](2026-08-11-openapi-route-declared-response-precedence.md) | 2026-08-11 | OpenAPI Route-Declared Response Precedence | Route-declared `401`/`403` responses now win over the metadata-inferred defaults in the OpenAPI generator |
 
 ## Specification Structure
 
