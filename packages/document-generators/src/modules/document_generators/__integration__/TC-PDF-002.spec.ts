@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
+import {
+  createSalesOrderFixture,
+  deleteSalesEntityIfExists,
+} from '@open-mercato/core/helpers/integration/salesFixtures'
 import { getAuthToken } from './helpers/api'
 import { previewDocument } from './helpers/fixtures'
 
@@ -11,35 +15,43 @@ import { previewDocument } from './helpers/fixtures'
  * Content-Disposition filename; missing fields and unknown templates return
  * 400; and the endpoint requires authentication.
  *
- * The happy path uses a random UUID as the record id — when no matching
- * quote/order exists the service returns the raw data and the pipeline still
- * renders a (near-empty) PDF, so the test does not depend on seeded data.
- * If the authenticated user has no active organization the route returns a
- * coded 409 (organization_required); both outcomes are accepted, mirroring the
- * environment-tolerant assertions used elsewhere in the integration suite.
+ * The happy path creates its own order fixture and removes it in finally.
+ * A separate case verifies the response for an inaccessible record.
  */
 test.describe('TC-PDF-002: PDF preview', () => {
   test('should render a PDF for a built-in template', async ({ request }) => {
+    const token = await getAuthToken(request)
+    let orderId: string | null = null
+
+    try {
+      orderId = await createSalesOrderFixture(request, token)
+      const response = await previewDocument(request, token, {
+        template_id: 'order-invoice',
+        data: { id: orderId },
+      })
+
+      expect(response.status()).toBe(200)
+      expect(response.headers()['content-type']).toContain('application/pdf')
+      expect(response.headers()['content-disposition']).toMatch(/filename=".+\.pdf"/)
+
+      const buffer = await response.body()
+      expect(buffer.subarray(0, 4).toString('latin1')).toBe('%PDF')
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('should return 500 when the source order does not exist', async ({ request }) => {
     const token = await getAuthToken(request)
     const response = await previewDocument(request, token, {
       template_id: 'order-invoice',
       data: { id: randomUUID() },
     })
 
-    if (response.status() === 409) {
-      // No active organization in this environment — the route guards the fetch.
-      const body = await response.json()
-      expect(body.error).toBe('organization_required')
-      return
-    }
-
-    expect(response.status()).toBe(200)
-    expect(response.headers()['content-type']).toContain('application/pdf')
-    expect(response.headers()['content-disposition']).toMatch(/filename=".+\.pdf"/)
-
-    const buffer = await response.body()
-    // A valid PDF always starts with the "%PDF" magic bytes.
-    expect(buffer.subarray(0, 4).toString('latin1')).toBe('%PDF')
+    expect(response.status()).toBe(500)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Failed to render document',
+    })
   })
 
   test('should return 400 when template_id or data is missing', async ({ request }) => {
@@ -58,11 +70,6 @@ test.describe('TC-PDF-002: PDF preview', () => {
       data: { id: randomUUID() },
     })
 
-    // 409 first if the environment has no active organization; otherwise 400.
-    if (response.status() === 409) {
-      expect((await response.json()).error).toBe('organization_required')
-      return
-    }
     expect(response.status()).toBe(400)
     expect((await response.json()).error).toContain('does-not-exist')
   })
