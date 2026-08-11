@@ -329,6 +329,40 @@ describe('jwt helpers', () => {
       expect(verifyJwt(legacyToken)).toBeNull()
     })
 
+    it('accepts a legacy token at exactly the edge of the grace window', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      advanceMinutes(60)
+      expect(verifyJwt(legacyToken)).not.toBeNull()
+      advanceMinutes(61)
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('rejects a legacy token at exactly the cutover instant, not a second later', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '480'
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      process.env.JWT_LEGACY_CUTOVER_AT = new Date(now.getTime() + 60 * 60 * 1000).toISOString()
+      advanceMinutes(59)
+      expect(verifyJwt(legacyToken)).not.toBeNull()
+      advanceMinutes(60)
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('normalizes the grace value for case and surrounding whitespace', () => {
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 3600)
+      process.env.JWT_LEGACY_GRACE_MINUTES = '  OFF  '
+      expect(verifyJwt(legacyToken)).toBeNull()
+      process.env.JWT_LEGACY_GRACE_MINUTES = ' False '
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('ignores an unparseable cutover instead of treating the window as already closed', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+      process.env.JWT_LEGACY_CUTOVER_AT = 'not-a-date'
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      expect(verifyJwt(legacyToken)).not.toBeNull()
+    })
+
     it('ignores a _legacyToken claim smuggled into a modern token payload', () => {
       const token = signJwt({ sub: 'staff-user', _legacyToken: true })
       const payload = verifyJwt(token) as Record<string, unknown> | null
@@ -351,13 +385,24 @@ describe('jwt helpers', () => {
     it('refuses to sign in production with the placeholder secret published in the compose files', () => {
       process.env.NODE_ENV = 'production'
       process.env.JWT_SECRET = 'JWT'
-      expect(() => signJwt({ sub: 'user-1' })).toThrow(/unsafe signing secret/i)
+      // Assert the reason, not merely that it threw: `JWT` is also under the length floor, so a
+      // policy that had stopped recognizing placeholders would still throw here for the wrong
+      // reason and the test would pass while the placeholder set had quietly become dead code.
+      expect(() => signJwt({ sub: 'user-1' })).toThrow(/placeholder value published/i)
     })
 
     it('refuses to sign in production with a secret shorter than 32 characters', () => {
       process.env.NODE_ENV = 'production'
       process.env.JWT_SECRET = 'short-secret'
       expect(() => signJwt({ sub: 'user-1' })).toThrow(/unsafe signing secret/i)
+    })
+
+    it('accepts a secret of exactly the minimum length and rejects one character less', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = 'a'.repeat(32)
+      expect(() => signJwt({ sub: 'user-1' })).not.toThrow()
+      process.env.JWT_SECRET = 'a'.repeat(31)
+      expect(() => signJwt({ sub: 'user-1' })).toThrow(/shorter than 32 characters/i)
     })
 
     it('signs normally in production with a strong secret', () => {
