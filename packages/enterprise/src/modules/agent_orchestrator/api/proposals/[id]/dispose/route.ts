@@ -22,6 +22,7 @@ const disposeResultSchema = z.object({
   proposalId: z.string().uuid(),
   disposition: z.enum(['auto_approved', 'approved', 'edited', 'rejected']),
   dispositionBy: z.string().nullable(),
+  selectedOptionId: z.string().nullable().optional(),
   updatedAt: z.string(),
 })
 
@@ -79,6 +80,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     disposition: parsed.data.disposition,
     payload: parsed.data.payload,
     reason: parsed.data.reason,
+    selectedOptionId: parsed.data.selectedOptionId,
   }
 
   try {
@@ -104,7 +106,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Dispose a proposal',
       description:
-        'Records an operator verdict (approve/edit/reject) on a pending AgentProposal. Routes through the audited dispose Command (mutation guard + optimistic lock); on a workflow-originated proposal it emits the resume signal. Edit overrides the proposal payload (requires payload + reason); reject requires a reason.',
+        'Records an operator verdict (approve/edit/reject) on a pending AgentProposal. Routes through the audited dispose Command (mutation guard + optimistic lock); on a workflow-originated proposal it emits the resume signal. Edit overrides the proposal payload (requires payload + reason); reject requires a reason. `selectedOptionId` names which of the envelope options the verdict runs — required for approve/edit, forbidden for reject, and rejected with a 400 when it names an option the agent never offered.',
       requestBody: {
         contentType: 'application/json',
         schema: disposeProposalSchema,

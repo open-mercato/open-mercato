@@ -28,15 +28,31 @@ const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const PROCESS_ID = '11111111-2222-4333-8444-cccccccccccc'
 
+/**
+ * The auto-approve rule reads the OPTION confidences, not the row column, so the
+ * fixture keeps the two consistent: one option carrying the same confidence the row
+ * derives from it. `confidence: null` therefore produces an option that declares
+ * none — the fail-closed case.
+ */
 function makeProposal(overrides: Partial<AgentProposal> = {}): AgentProposal {
+  const confidence = 'confidence' in overrides ? overrides.confidence : 0.9
   return {
     id: 'proposal-1',
     tenantId: TENANT_ID,
     organizationId: ORG_ID,
     agentId: 'deal_enricher',
     runId: 'run-1',
-    payload: { actions: [] },
-    confidence: 0.9,
+    payload: {
+      options: [
+        {
+          id: 'primary',
+          label: 'deal_enricher',
+          actions: [{ type: 'set_stage', payload: { stage: 'won' } }],
+          ...(typeof confidence === 'number' ? { confidence } : {}),
+        },
+      ],
+    },
+    confidence: confidence ?? null,
     disposition: 'pending',
     ...overrides,
   } as AgentProposal
@@ -76,11 +92,15 @@ describe('DispositionService — the auto-approve boundary is unchanged', () => 
       ctx,
     )
 
-    expect(outcome).toEqual({ kind: 'auto_approved', proposalId: 'proposal-1' })
+    expect(outcome).toEqual({ kind: 'auto_approved', proposalId: 'proposal-1', selectedOptionId: 'primary' })
     expect(execute).toHaveBeenCalledWith(
       'agent_orchestrator.proposals.dispose',
       expect.objectContaining({
-        input: expect.objectContaining({ disposition: 'auto_approved', dispositionBy: 'rule:threshold' }),
+        input: expect.objectContaining({
+          disposition: 'auto_approved',
+          dispositionBy: 'rule:threshold',
+          selectedOptionId: 'primary',
+        }),
       }),
     )
     expect(createAgentDispositionTask).not.toHaveBeenCalled()

@@ -18,7 +18,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('workflows').child({ component: 'agent-result-mapping' })
 
 export type AgentResultEnvelope = {
-  kind: 'auto_approved' | 'informative' | 'user_task'
+  kind: 'auto_approved' | 'informative' | 'user_task' | 'none_proposed'
   agentId?: string
   proposalId?: string
   proposalPayload?: unknown

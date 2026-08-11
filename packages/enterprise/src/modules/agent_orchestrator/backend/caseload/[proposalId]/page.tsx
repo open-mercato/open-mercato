@@ -17,6 +17,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard, type DisposeKind } from '../../../components/ProposalCard'
 import { parseQueueState, serializeQueueState } from '../hooks'
+import { leadProposalOption } from '../../../data/proposalEnvelope'
 import { AgentIoDrawer } from '../../../components/AgentIoDrawer'
 import { FactsGrid, ReasoningList } from '../../../components/ProposalFacts'
 import {
@@ -137,7 +138,17 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                   {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ disposition, payload, reason }),
+                    // The verdict names which alternative it runs; a reject runs
+                    // none and must NOT carry an option id.
+                    body: JSON.stringify({
+                      disposition,
+                      payload,
+                      reason,
+                      selectedOptionId:
+                        disposition === 'rejected'
+                          ? undefined
+                          : leadProposalOption(proposal.payload)?.id,
+                    }),
                   },
                 ),
             ),

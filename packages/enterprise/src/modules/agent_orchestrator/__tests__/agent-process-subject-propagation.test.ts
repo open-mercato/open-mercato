@@ -61,7 +61,7 @@ const INPUT = {
   runId: RUN_ID,
   processId: PROCESS,
   stepId: 'intake',
-  payload: { actions: [], rationale: 'ok' },
+  payload: { options: [], rationale: 'ok' },
 }
 
 describe('subject propagation — INVOKE_AGENT subject → proposal.created payload', () => {

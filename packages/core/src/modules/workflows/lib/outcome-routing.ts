@@ -207,12 +207,17 @@ export function resolveAgentOutcomeHandling(
  * human approving a proposal they amended, which still executes, so it routes
  * the approved handle rather than inventing a sixth outcome the spec does not
  * define. `pending` maps to nothing — the step is still parked.
+ *
+ * `none_proposed` — an agent that looked and had nothing to propose — takes the
+ * `informative` handle, which is exactly what that route means. It is NOT
+ * `rejected`: nothing was offered for a human to decline.
  */
 const DISPOSITION_TO_OUTCOME: Record<string, AgentOutcomeKind> = {
   auto_approved: 'approved',
   approved: 'approved',
   edited: 'approved',
   informative: 'informative',
+  none_proposed: 'informative',
   rejected: 'rejected',
   guardrail_blocked: 'guardrailBlocked',
   guardrailBlocked: 'guardrailBlocked',

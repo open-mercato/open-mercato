@@ -1386,7 +1386,7 @@ type AgentWorkflowBridgeLike = {
   invokeAgentForWorkflow: (args: {
     agentId: string
     input: unknown
-    onResult: { autoApproveThreshold: number } | { alwaysAsk: true }
+    onResult: { autoApproveThreshold: number; autoApproveMargin?: number } | { alwaysAsk: true }
     ctx: {
       tenantId: string
       organizationId: string
@@ -1404,6 +1404,8 @@ type AgentWorkflowBridgeLike = {
     | { kind: 'informative'; data: unknown }
     | { kind: 'auto_approved'; proposalId: string; payload: unknown }
     | { kind: 'user_task'; proposalId: string }
+    // The agent proposed nothing: terminal like `informative`, never parked.
+    | { kind: 'none_proposed'; proposalId: string; payload: unknown }
   >
 }
 
@@ -1492,8 +1494,8 @@ export async function executeInvokeAgent(
     if (outcome.kind === 'informative') {
       return { kind: 'informative', agentId, data: outcome.data }
     }
-    if (outcome.kind === 'auto_approved') {
-      return { kind: 'auto_approved', agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
+    if (outcome.kind === 'auto_approved' || outcome.kind === 'none_proposed') {
+      return { kind: outcome.kind, agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
     }
     return {
       kind: 'user_task',

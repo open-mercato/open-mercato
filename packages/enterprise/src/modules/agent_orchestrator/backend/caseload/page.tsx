@@ -52,6 +52,7 @@ import {
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { summarizeProposalActions } from '../../components/proposalFactsData'
+import { leadProposalOption } from '../../data/proposalEnvelope'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 import {
@@ -98,11 +99,15 @@ const SORT_PARAMS: Record<SortKey, { field: string; dir: 'asc' | 'desc' }> = {
   confidenceAsc: { field: 'confidence', dir: 'asc' },
   agentAsc: { field: 'agentId', dir: 'asc' },
 }
+// `all` enumerates the operator-facing dispositions rather than sending no filter,
+// so a `none_proposed` proposal — an agent that looked and had nothing to offer, a
+// record with no decision behind it — never surfaces here wearing another verdict's
+// badge. It stays reachable from the run's trace inspector.
 const SEGMENT_DISPOSITIONS: Record<SegmentKey, string | null> = {
   actionRequired: 'pending',
   approved: 'approved,auto_approved,edited',
   rejected: 'rejected',
-  all: null,
+  all: 'pending,approved,auto_approved,edited,rejected',
 }
 
 type QueueRow = {
@@ -131,6 +136,12 @@ type QueueRow = {
   riskFlagged: boolean
   /** Inside its approve undo window — rendered approved, dispose not yet sent. */
   pendingUndo: boolean
+  /**
+   * The option an approve from this row runs — the leading one, which is what the
+   * row already summarises. Null when the agent proposed nothing; such a row is
+   * never pending, so no dispose is ever sent for it.
+   */
+  selectedOptionId: string | null
 }
 
 /** Full data behind one queue row, feeding the DecisionPane's facts/reasoning. */
@@ -430,6 +441,7 @@ export default function AgentCaseloadPage() {
         guardBlockCount,
         riskFlagged: hasGuardRisk(proposal.guardResults),
         pendingUndo: inUndoWindow,
+        selectedOptionId: leadProposalOption(proposal.payload)?.id ?? null,
       }
     })
   }, [proposals, agentLabels, agentIcons, runClaims, deferredApprove.pendingUndo, t])
@@ -565,7 +577,13 @@ export default function AgentCaseloadPage() {
                   apiCallOrThrow(`/api/agent_orchestrator/proposals/${encodeURIComponent(row.id)}/dispose`, {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify(rejectReason ? { disposition, reason: rejectReason } : { disposition }),
+                    // `selectedOptionId` names which alternative an approve runs;
+                    // a reject runs none and must NOT carry one.
+                    body: JSON.stringify(
+                      rejectReason
+                        ? { disposition, reason: rejectReason }
+                        : { disposition, selectedOptionId: row.selectedOptionId },
+                    ),
                   }),
                 ),
               context: { retryLastMutation },

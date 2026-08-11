@@ -19,7 +19,8 @@ import {
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { AgentProposal, type AgentProposalDisposition } from '../data/entities'
-import { disposeProposalSchema } from '../data/validators'
+import { PROPOSAL_OPTION_ID_MAX, disposeProposalSchema } from '../data/validators'
+import { deriveEnvelopeConfidence, listProposalOptionIds } from '../data/proposalEnvelope'
 import { emitAgentOrchestratorEvent } from '../events'
 import { resumeWorkflowForProposal } from '../lib/disposition/resume'
 
@@ -43,6 +44,11 @@ const disposeCommandInputSchema = z.object({
   disposition: z.enum(['auto_approved', 'approved', 'edited', 'rejected']),
   payload: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().min(1).optional(),
+  /**
+   * Which of the proposal's options this verdict selects. Required for the option-
+   * running verdicts (`approved`/`edited`/`auto_approved`), absent for `rejected`.
+   */
+  selectedOptionId: z.string().min(1).max(PROPOSAL_OPTION_ID_MAX).optional(),
   /** rule attribution for the internal auto-approve verdict (e.g. 'rule:threshold'). */
   dispositionBy: z.string().min(1).optional(),
   /**
@@ -58,6 +64,8 @@ export type DisposeProposalCommandResult = {
   proposalId: string
   disposition: AgentProposalDisposition
   dispositionBy: string | null
+  /** Which envelope option the verdict selected; null on a reject or a legacy row. */
+  selectedOptionId: string | null
   updatedAt: string
 }
 
@@ -113,6 +121,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         disposition: input.disposition,
         payload: input.payload,
         reason: input.reason,
+        selectedOptionId: input.selectedOptionId,
       })
     }
 
@@ -173,6 +182,19 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
     const correctionProcessId = proposal.processId ?? null
     const correctionStepId = proposal.stepId ?? null
 
+    // 3a. The selected option must be one the AGENT actually offered. Checked against
+    // the original payload — for `edited` the incoming payload is the operator's
+    // amendment, and an option id that only exists there was never proposed.
+    if (input.selectedOptionId) {
+      const knownOptionIds = listProposalOptionIds(originalProposalPayload)
+      if (!knownOptionIds.includes(input.selectedOptionId)) {
+        throw new CrudHttpError(400, {
+          error: '[internal] unknown selectedOptionId',
+          details: { selectedOptionId: input.selectedOptionId, knownOptionIds },
+        })
+      }
+    }
+
     // 3. Already-disposed guard. Re-disposing to the same verdict is idempotent;
     // a different verdict on an already-terminal proposal is a genuine conflict.
     if (proposal.disposition !== 'pending') {
@@ -181,6 +203,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
           proposalId: proposal.id,
           disposition: proposal.disposition,
           dispositionBy: proposal.dispositionBy ?? null,
+          selectedOptionId: proposal.selectedOptionId ?? null,
           updatedAt: proposal.updatedAt.toISOString(),
         }
       }
@@ -207,6 +230,16 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         () => {
           proposal.disposition = input.disposition
           proposal.dispositionBy = nextDispositionBy
+          if (input.selectedOptionId) {
+            proposal.selectedOptionId = input.selectedOptionId
+            // Envelope confidence is the LEADER option's before a verdict and the
+            // CHOSEN option's after; the column is what the traces `low-confidence`
+            // facet filters on, so it must follow the choice.
+            proposal.confidence = deriveEnvelopeConfidence(
+              originalProposalPayload,
+              input.selectedOptionId,
+            )
+          }
           if (input.disposition === 'edited') {
             proposal.payload = input.payload
             proposal.dispositionReason = input.reason ?? null
@@ -240,6 +273,8 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         proposalId: proposal.id,
         disposition: proposal.disposition,
         dispositionBy: nextDispositionBy,
+        // Which alternative the verdict selected (additive; null on a reject).
+        selectedOptionId: proposal.selectedOptionId ?? null,
         processId: proposal.processId,
         stepId: proposal.stepId,
         tenantId: proposal.tenantId,
@@ -319,6 +354,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
       proposalId: proposal.id,
       disposition: proposal.disposition,
       dispositionBy: nextDispositionBy,
+      selectedOptionId: proposal.selectedOptionId ?? null,
       updatedAt: proposal.updatedAt.toISOString(),
     }
   },

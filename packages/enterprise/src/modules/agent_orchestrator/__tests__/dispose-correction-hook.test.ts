@@ -29,8 +29,17 @@ const USER = '33333333-3333-4333-8333-333333333333'
 const PROPOSAL_ID = '44444444-4444-4444-8444-444444444444'
 const RUN_ID = '55555555-5555-4555-8555-555555555555'
 
-const ORIGINAL_PAYLOAD = { stage: 'won', confidence: 0.4 }
-const EDITED_PAYLOAD = { stage: 'lost', confidence: 0.9 }
+const OPTION_ID = 'primary'
+const ORIGINAL_PAYLOAD = {
+  options: [
+    { id: OPTION_ID, label: 'Close won', confidence: 0.4, actions: [{ type: 'set_stage', payload: { stage: 'won' } }] },
+  ],
+}
+const EDITED_PAYLOAD = {
+  options: [
+    { id: OPTION_ID, label: 'Close won', confidence: 0.4, actions: [{ type: 'set_stage', payload: { stage: 'lost' } }] },
+  ],
+}
 
 /** Minimal in-memory EntityManager fake. See trace-ingestion-service.test.ts. */
 function createFakeEm() {
@@ -150,6 +159,7 @@ describe('dispose command — correction flywheel hook (step 8b)', () => {
         disposition: 'edited',
         payload: EDITED_PAYLOAD,
         reason: 'wrong stage',
+        selectedOptionId: OPTION_ID,
       },
       makeCtx(em),
     )
@@ -206,6 +216,7 @@ describe('dispose command — correction flywheel hook (step 8b)', () => {
         organizationId: ORG,
         userId: USER,
         disposition: 'approved',
+        selectedOptionId: OPTION_ID,
       },
       makeCtx(em),
     )

@@ -44,7 +44,9 @@ describe('deals-health-check demo workflow definition', () => {
     expect(parsed.success).toBe(true)
     if (parsed.success) {
       expect(parsed.data.agentId).toBe('deals.health_check')
-      expect(parsed.data.onResult).toEqual({ autoApproveThreshold: 0.8 })
+      // `autoApproveMargin` defaults to 0 — the near-tie guard is opt-in, so the
+      // parsed config is behaviourally identical to the authored one.
+      expect(parsed.data.onResult).toEqual({ autoApproveThreshold: 0.8, autoApproveMargin: 0 })
     }
   })
 

@@ -215,8 +215,13 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     // The captured outcome was shaped into the typed actionable AgentResult.
     expect(result.kind).toBe('actionable')
     if (result.kind === 'actionable') {
-      expect(result.proposal.actions[0]).toEqual({ type: 'set_stage', payload: { stage: 'negotiation' } })
-      expect(result.proposal.confidence).toBe(0.82)
+      // Lifted onto one implicit option labelled with the agent id.
+      expect(result.proposal.options).toHaveLength(1)
+      expect(result.proposal.options[0].actions[0]).toEqual({
+        type: 'set_stage',
+        payload: { stage: 'negotiation' },
+      })
+      expect(result.proposal.options[0].confidence).toBe(0.82)
     }
 
     // The `agent` field equals the sanitized OpenCode agent name.

@@ -29,6 +29,10 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
   async execute(rawInput, ctx) {
     const input = createAgentProposalSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    // An empty option set is the agent saying it has nothing to propose. It gets its
+    // own terminus at creation: queueing it for review would park the WAIT_FOR_SIGNAL
+    // step on a decision no operator can make.
+    const proposesNothing = input.payload.options.length === 0
     const proposal = em.create(AgentProposal, {
       tenantId: input.tenantId,
       organizationId: input.organizationId,
@@ -40,7 +44,7 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
       stepId: input.stepId ?? null,
       guardResults: input.guardResults ?? null,
       source: input.source ?? 'runtime',
-      disposition: 'pending',
+      disposition: proposesNothing ? 'none_proposed' : 'pending',
     })
     em.persist(proposal)
     await em.flush()
@@ -56,6 +60,8 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
       // Carried on the event so subscribers and the caseload can tell a replay
       // from production work WITHOUT re-reading the row.
       source: proposal.source,
+      // How many mutually-exclusive alternatives the agent offered (additive).
+      optionCount: input.payload.options.length,
       processId: proposal.processId,
       stepId: proposal.stepId,
       subject: getProcessSubject() ?? null,

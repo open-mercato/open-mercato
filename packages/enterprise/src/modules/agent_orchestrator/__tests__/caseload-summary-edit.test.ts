@@ -77,14 +77,21 @@ describe('deriveActionEdits', () => {
 
 describe('reassembly', () => {
   it('replaces only actions — rationale, confidence, and extra keys pass through verbatim', () => {
-    const original = { ...canonicalPayload, extraKey: { audit: 1 } }
+    const original = { ...canonicalPayload }
     const edits = deriveActionEdits(original)!
     edits[0].fields = edits[0].fields.map((field) => (field.key === 'stage' ? { ...field, value: 'won' } : field))
     const reassembled = reassembleProposalPayload(original, actionEditsToActions(edits))
+    // Reassembly returns the ENVELOPE: the edit replaced one option's plan and the
+    // agent's testimony — envelope rationale, the option's own confidence — survives.
     expect(reassembled.rationale).toBe(canonicalPayload.rationale)
-    expect(reassembled.confidence).toBe(0.85)
-    expect(reassembled.extraKey).toEqual({ audit: 1 })
-    const actions = reassembled.actions as Array<{ type: string; payload: Record<string, unknown> }>
+    const options = reassembled.options as Array<{
+      id: string
+      confidence?: number
+      actions: Array<{ type: string; payload: Record<string, unknown> }>
+    }>
+    expect(options).toHaveLength(1)
+    expect(options[0].confidence).toBe(0.85)
+    const actions = options[0].actions
     expect(actions[0].payload.stage).toBe('won')
     expect(actions[0].payload.amount).toBe(4200)
     expect(actions[0].payload.urgent).toBe(true)

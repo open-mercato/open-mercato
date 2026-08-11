@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { type AgentResult, type AgentProposalPayload, type GuardResults } from '../../data/validators'
+import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 
 /**
@@ -263,11 +264,19 @@ export async function createProposal(
  * so the persisted output/proposal is always well-formed even if a schema omits
  * the literal `kind` discriminator.
  */
-export function shapeResult(resultKind: 'informative' | 'actionable', data: unknown): AgentResult {
+export function shapeResult(
+  resultKind: 'informative' | 'actionable',
+  data: unknown,
+  agentId?: string,
+): AgentResult {
   const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
   if (resultKind === 'informative') {
     return { kind: 'informative', data: 'data' in record ? record.data : data }
   }
-  const proposal = (record.proposal ?? data) as AgentProposalPayload
+  // An agent's OUTCOME schema is authored per agent and may still declare the
+  // pre-envelope `{ actions, confidence, rationale }` shape. Lifting it here — by the
+  // SAME rule the backfill migration applies — is what makes the option envelope the
+  // one persisted contract without rewriting every agent's declared OUTCOME.
+  const proposal = normalizeProposalEnvelope(record.proposal ?? data, agentId)
   return { kind: 'actionable', proposal }
 }

@@ -994,7 +994,10 @@ export class AgentDelegationGrant {
 }
 
 export type AgentProposalDisposition =
-  | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
+  | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected' | 'none_proposed'
+
+/** Why an auto-approval that cleared its threshold was still routed to a human. */
+export type AgentProposalAutoDispositionBlock = 'near_tie'
 
 export type AgentProposalSource = 'runtime' | 'eval'
 
@@ -1005,7 +1008,7 @@ export type AgentProposalSource = 'runtime' | 'eval'
 export class AgentProposal {
   [OptionalProps]?: 'source' | 'disposition' | 'dispositionBy' | 'dispositionReason'
     | 'processId' | 'stepId' | 'userTaskId' | 'confidence' | 'guardResults' | 'createdAt'
-    | 'updatedAt' | 'deletedAt'
+    | 'updatedAt' | 'deletedAt' | 'selectedOptionId' | 'autoDispositionBlock'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1072,6 +1075,21 @@ export class AgentProposal {
 
   @Property({ name: 'disposition_reason', type: 'text', nullable: true })
   dispositionReason?: string | null
+
+  /**
+   * Which of `payload.options` the disposition selected. Set on approve/edit (and on
+   * the rule-driven auto-approve, which selects the leader); null on reject, on a
+   * pending proposal, and on every row written before the envelope existed.
+   */
+  @Property({ name: 'selected_option_id', type: 'varchar', length: 100, nullable: true })
+  selectedOptionId?: string | null
+
+  /**
+   * Why an auto-approval that cleared its threshold was still held for a human.
+   * Distinct from `dispositionReason`, which carries the OPERATOR's words.
+   */
+  @Property({ name: 'auto_disposition_block', type: 'varchar', length: 20, nullable: true })
+  autoDispositionBlock?: AgentProposalAutoDispositionBlock | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

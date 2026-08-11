@@ -54,6 +54,12 @@ export type InvokeAgentForWorkflowOutcome =
   | { kind: 'informative'; data: unknown }
   | { kind: 'auto_approved'; proposalId: string; payload: unknown }
   | { kind: 'user_task'; proposalId: string }
+  /**
+   * The agent returned an EMPTY option set — it looked and had nothing to propose.
+   * Terminal like `informative`: the step resumes instead of parking on a decision
+   * nobody can make, and routes onto the informative outcome handle.
+   */
+  | { kind: 'none_proposed'; proposalId: string; payload: unknown }
 
 /**
  * One agent's declared OUTCOME contract, as the workflows context ledger needs
@@ -129,12 +135,15 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     }
 
     const em = (this.container.resolve('em') as EntityManager).fork()
+    // `none_proposed` is stamped at creation for an empty option set, so the lookup
+    // must accept it too — otherwise the run that proposed nothing looks like a run
+    // whose proposal went missing.
     const proposal = await em.findOne(
       AgentProposal,
       {
         processId: ctx.processId,
         stepId: ctx.stepId,
-        disposition: 'pending',
+        disposition: { $in: ['pending', 'none_proposed'] },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
       },
@@ -153,9 +162,13 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       ...(ctx.review ? { review: ctx.review } : {}),
     })
 
-    return outcome.kind === 'auto_approved'
-      ? { kind: 'auto_approved', proposalId: outcome.proposalId, payload: proposal.payload }
-      : { kind: 'user_task', proposalId: outcome.proposalId }
+    if (outcome.kind === 'auto_approved') {
+      return { kind: 'auto_approved', proposalId: outcome.proposalId, payload: proposal.payload }
+    }
+    if (outcome.kind === 'none_proposed') {
+      return { kind: 'none_proposed', proposalId: outcome.proposalId, payload: proposal.payload }
+    }
+    return { kind: 'user_task', proposalId: outcome.proposalId }
   }
 
   /**

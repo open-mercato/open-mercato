@@ -154,7 +154,20 @@ export const invokeAgentConfigSchema = z.object({
   agentId: z.string().min(1),
   input: z.record(z.string(), z.any()).default({}),
   onResult: z.union([
-    z.object({ autoApproveThreshold: z.number().min(0).max(1) }),
+    z.object({
+      autoApproveThreshold: z.number().min(0).max(1),
+      /**
+       * Minimum separation the leading option must hold over the runner-up before a
+       * threshold-clearing proposal auto-approves. A near-tie is the agent saying it
+       * cannot tell its top two apart; reading that as certainty is how an
+       * auto-approved wrong answer happens.
+       *
+       * Defaults to `0`, which is today's rule EXACTLY. A non-zero default would
+       * change behaviour for every existing config without anyone asking for it, so
+       * a margin is opt-in and the authoring UI recommends one.
+       */
+      autoApproveMargin: z.number().min(0).max(1).default(0),
+    }),
     z.object({ alwaysAsk: z.literal(true) }),
   ]),
   // Optional routing of the agent result into workflow context. Keys are the

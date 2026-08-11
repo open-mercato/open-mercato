@@ -1,4 +1,5 @@
 import type { AgentFactView } from './types'
+import { leadProposalOption } from '../data/proposalEnvelope'
 
 /**
  * Pure helpers behind the Caseload facts panel. Resolve an agent's declared
@@ -70,10 +71,26 @@ type ProposalShapedPayload = {
   rationale?: unknown
 }
 
-/** A nested value that looks like a persisted agent proposal payload (`{ actions, ... }`). */
+/**
+ * A nested value that looks like a persisted agent proposal payload.
+ *
+ * Accepts the option envelope (`{ options: [...] }`, flattened onto the leading
+ * option — the one a disposition would run) and the pre-envelope `{ actions }`
+ * shape, which still reaches here through workflow input mapping carrying an
+ * upstream agent's raw findings.
+ */
 function asProposalShaped(value: unknown): ProposalShapedPayload | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Record<string, unknown>
+  if (Array.isArray(candidate.options)) {
+    const option = leadProposalOption(candidate)
+    if (!option) return null
+    return {
+      actions: option.actions,
+      confidence: option.confidence,
+      rationale: option.rationale ?? candidate.rationale,
+    }
+  }
   if (!Array.isArray(candidate.actions)) return null
   return candidate as ProposalShapedPayload
 }

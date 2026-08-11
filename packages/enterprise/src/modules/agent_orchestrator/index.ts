@@ -28,7 +28,9 @@ export { executeProposal } from './lib/runtime/executeProposal'
 export type { ExecuteProposalActionResult } from './lib/runtime/executeProposal'
 export {
   proposedActionSchema,
+  proposalOptionSchema,
   agentProposalSchema,
+  autoDispositionBlockSchema,
   agentResultSchema,
   baseAgentResultSchema,
   dealHealthCheckResult,
@@ -43,8 +45,23 @@ export {
   groundingCitationSchema,
   citableSourceSchema,
 } from './data/validators'
+export {
+  normalizeProposalEnvelope,
+  rankProposalOptions,
+  leadProposalOption,
+  findProposalOption,
+  listProposalOptionIds,
+  deriveEnvelopeConfidence,
+  readProposalActions,
+  replaceOptionActions,
+  isProposalEnvelope,
+} from './data/proposalEnvelope'
+export { autoApprovable, evaluateAutoApproval } from './lib/disposition/dispositionService'
+export type { AutoApprovalDecision } from './lib/disposition/dispositionService'
 export type {
   ProposedAction,
+  ProposalOption,
+  AutoDispositionBlock,
   AgentProposalPayload,
   AgentResult,
   DealHealthCheckResult,

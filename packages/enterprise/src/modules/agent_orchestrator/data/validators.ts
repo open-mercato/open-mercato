@@ -12,11 +12,47 @@ export const proposedActionSchema = z.object({
 })
 export type ProposedAction = z.infer<typeof proposedActionSchema>
 
-/** The proposal envelope carried by an actionable AgentResult. */
+/**
+ * Storage bounds on the model-authored parts of the envelope. `agent_proposals.payload`
+ * is an ENCRYPTED jsonb column and every option is rendered in the Caseload, so array
+ * size and free-text length are a crypto cost and a render cost, not just a schema nicety.
+ */
+export const PROPOSAL_OPTIONS_MAX = 10
+export const PROPOSAL_OPTION_ID_MAX = 100
+export const PROPOSAL_OPTION_LABEL_MAX = 120
+export const PROPOSAL_RATIONALE_MAX = 2000
+
+/**
+ * One mutually-exclusive alternative within a proposal. `actions` is the plan that
+ * runs if this option is the one chosen — a conjunction inside a disjunction — so it
+ * is `.min(1)`: "I have nothing to propose" is an EMPTY option set, never an option
+ * carrying an empty plan.
+ *
+ * `id` is stable within the proposal (the disposition names it, audit records it, an
+ * eval asserts against it); a positional index would silently re-point if the agent
+ * reordered its options.
+ */
+export const proposalOptionSchema = z.object({
+  id: z.string().min(1).max(PROPOSAL_OPTION_ID_MAX),
+  label: z.string().min(1).max(PROPOSAL_OPTION_LABEL_MAX),
+  rationale: z.string().max(PROPOSAL_RATIONALE_MAX).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  actions: z.array(proposedActionSchema).min(1),
+})
+export type ProposalOption = z.infer<typeof proposalOptionSchema>
+
+/**
+ * The proposal envelope carried by an actionable AgentResult: N ranked options, of
+ * which the disposition selects AT MOST one. `options` may legally be empty — "I
+ * considered this and have nothing to propose" is a real answer, terminated by the
+ * `none_proposed` disposition rather than queued for a human.
+ *
+ * Envelope `rationale` explains the option SET; why one option was ranked where it
+ * was lives on the option itself.
+ */
 export const agentProposalSchema = z.object({
-  actions: z.array(proposedActionSchema),
-  confidence: z.number().optional(),
-  rationale: z.string().optional(),
+  options: z.array(proposalOptionSchema).max(PROPOSAL_OPTIONS_MAX),
+  rationale: z.string().max(PROPOSAL_RATIONALE_MAX).optional(),
 })
 export type AgentProposalPayload = z.infer<typeof agentProposalSchema>
 
@@ -123,6 +159,13 @@ export const disposeProposalSchema = z
     disposition: z.enum(['approved', 'edited', 'rejected']),
     payload: z.record(z.string(), z.unknown()).optional(),
     reason: z.string().min(1).optional(),
+    /**
+     * Which option the operator picked. Required for `approved` and `edited` —
+     * editing means choosing an option AND changing its payload, so there is
+     * nothing to edit without naming which. Forbidden for `rejected`: no option
+     * runs, so naming one would record a choice that was never made.
+     */
+    selectedOptionId: z.string().min(1).max(PROPOSAL_OPTION_ID_MAX).optional(),
   })
   .superRefine((value, ctx) => {
     if ((value.disposition === 'edited' || value.disposition === 'rejected') && !value.reason) {
@@ -131,11 +174,48 @@ export const disposeProposalSchema = z
     if (value.disposition === 'edited' && !value.payload) {
       ctx.addIssue({ code: 'custom', path: ['payload'], message: '[internal] payload required for edit' })
     }
+    const needsOption = value.disposition === 'approved' || value.disposition === 'edited'
+    if (needsOption && !value.selectedOptionId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['selectedOptionId'],
+        message: '[internal] selectedOptionId required for approve/edit',
+      })
+    }
+    if (!needsOption && value.selectedOptionId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['selectedOptionId'],
+        message: '[internal] selectedOptionId forbidden for reject',
+      })
+    }
   })
 export type DisposeProposalInput = z.infer<typeof disposeProposalSchema>
 
-export const proposalDispositionValues = ['pending', 'auto_approved', 'approved', 'edited', 'rejected'] as const
+/**
+ * `none_proposed` is a STORED disposition and never operator-settable: it is written
+ * at creation for a proposal whose option set is empty, so the `WAIT_FOR_SIGNAL` step
+ * terminates instead of parking on a decision nobody can make.
+ */
+export const proposalDispositionValues = [
+  'pending',
+  'auto_approved',
+  'approved',
+  'edited',
+  'rejected',
+  'none_proposed',
+] as const
 export type ProposalDispositionValue = (typeof proposalDispositionValues)[number]
+
+/**
+ * Why an auto-approval that cleared its threshold was still held for a human.
+ * Its own column rather than `disposition_reason`, which is `text` and holds the
+ * OPERATOR's reason — writing a machine reason there corrupts the override signal
+ * the correction flywheel and evals read.
+ */
+export const autoDispositionBlockValues = ['near_tie'] as const
+export const autoDispositionBlockSchema = z.enum(autoDispositionBlockValues)
+export type AutoDispositionBlock = z.infer<typeof autoDispositionBlockSchema>
 
 /**
  * `disposition` accepts one value or a comma-separated list (e.g.
@@ -174,7 +254,7 @@ export type ProposalListQuery = z.infer<typeof proposalListQuerySchema>
 // Tightened so object-mode generation always yields a usable proposal: a
 // REQUIRED confidence (drives the disposition threshold — a missing one would
 // fail-closed and always park) and a typed `set_stage` action with a non-empty
-// stage (the effector reads `proposal.actions[0].payload.stage`). With these
+// stage (the effector reads the chosen option's `actions[0].payload.stage`). With these
 // required, `generateObject` constrains the model to fill them.
 export const dealHealthCheckResult = z.object({
   kind: z.literal('actionable'),

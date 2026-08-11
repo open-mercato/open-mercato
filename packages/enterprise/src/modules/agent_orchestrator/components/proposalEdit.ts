@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { agentProposalSchema, proposedActionSchema, type ProposedAction } from '../data/validators'
+import { proposedActionSchema, type ProposedAction } from '../data/validators'
+import { leadProposalOption, replaceOptionActions } from '../data/proposalEnvelope'
 
 /**
  * Pure helpers behind the structured proposal editor (spec 4 Phase 4).
@@ -7,6 +8,10 @@ import { agentProposalSchema, proposedActionSchema, type ProposedAction } from '
  * as raw JSON behind an explicit escape hatch) — never the whole payload:
  * `confidence` and `rationale` are the agent's testimony and are preserved
  * verbatim by reassembly, along with any non-primitive payload entries.
+ *
+ * The plan being edited belongs to ONE option of the envelope. Until the ranked
+ * selection UI lands, that is the leading option — the same one the disposition
+ * would run — and every other option survives the edit untouched.
  */
 
 export type EditableActionField = {
@@ -32,13 +37,13 @@ function isEditablePrimitive(value: unknown): value is string | number | boolean
 
 /**
  * Derive per-action typed editors from a canonical proposal payload.
- * Returns null when the payload is not `{ actions: [...] }`-shaped (legacy /
+ * Returns null when the payload carries no option with a plan (legacy /
  * ad-hoc payloads keep the old whole-payload editing path).
  */
 export function deriveActionEdits(payload: unknown): ActionEdit[] | null {
-  const parsed = agentProposalSchema.safeParse(payload)
-  if (!parsed.success || parsed.data.actions.length === 0) return null
-  return parsed.data.actions.map((action) => {
+  const option = leadProposalOption(payload)
+  if (!option) return null
+  return option.actions.map((action) => {
     const fields: EditableActionField[] = []
     const preserved: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(action.payload)) {
@@ -91,15 +96,16 @@ export function parseRawActions(text: string): RawActionsParse {
 }
 
 /**
- * Rebuild the canonical payload with only `actions` replaced — rationale,
- * confidence, and any extra top-level keys pass through untouched.
+ * Rebuild the canonical payload with only the edited option's `actions` replaced —
+ * the envelope rationale, every other option, and the edited option's own
+ * rationale and confidence pass through untouched.
  */
-export function reassembleProposalPayload(original: unknown, actions: ProposedAction[]): Record<string, unknown> {
-  const base =
-    original && typeof original === 'object' && !Array.isArray(original)
-      ? (original as Record<string, unknown>)
-      : {}
-  return { ...base, actions }
+export function reassembleProposalPayload(
+  original: unknown,
+  actions: ProposedAction[],
+  selectedOptionId?: string | null,
+): Record<string, unknown> {
+  return replaceOptionActions(original, actions, selectedOptionId)
 }
 
 export function stringifyActions(actions: ProposedAction[]): string {

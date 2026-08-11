@@ -12,6 +12,7 @@ import {
   type GuardrailSetBody,
   type UntrustedSpan,
 } from '../../data/validators'
+import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
@@ -512,7 +513,7 @@ export class NativeAgentRunner {
       proposalId: null,
     })
 
-    const result = shapeResult(entry.resultKind, parsed.data)
+    const result = shapeResult(entry.resultKind, parsed.data, agentId)
 
     await completeRun(this.commandBus, commandCtx, {
       runId,
@@ -520,7 +521,7 @@ export class NativeAgentRunner {
       resultKind: entry.resultKind,
       // Actionable runs surface the proposal's confidence on the run row;
       // informative runs have no confidence semantics → null (renders `—`).
-      confidence: result.kind === 'actionable' ? (result.proposal.confidence ?? null) : null,
+      confidence: result.kind === 'actionable' ? deriveEnvelopeConfidence(result.proposal) : null,
       ...buildUsageStamp(),
     })
 
@@ -532,7 +533,7 @@ export class NativeAgentRunner {
         agentId,
         runId,
         payload: result.proposal,
-        confidence: result.proposal.confidence ?? null,
+        confidence: deriveEnvelopeConfidence(result.proposal),
         processId: ctx.processId ?? null,
         stepId: ctx.stepId ?? null,
         guardResults,

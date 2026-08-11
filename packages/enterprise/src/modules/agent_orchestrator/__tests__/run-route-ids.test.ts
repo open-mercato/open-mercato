@@ -96,7 +96,11 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     expect(body.runId).toBe(RUN_ID)
     expect(body.proposalId).toBe(PROPOSAL_ID)
     expect(body.kind).toBe('actionable')
-    expect(body.proposal.confidence).toBe(0.9)
+    // The envelope lifts a pre-envelope `{ actions, confidence }` OUTCOME onto one
+    // implicit option, which is where the confidence now lives.
+    expect(body.proposal.options).toHaveLength(1)
+    expect(body.proposal.options[0].confidence).toBe(0.9)
+    expect(body.proposal.options[0].actions).toEqual([{ type: 'set_stage', payload: { stage: 'won' } }])
     expect(find).toHaveBeenCalledTimes(1)
     const [, where, options] = find.mock.calls[0] as unknown[] as [
       unknown,

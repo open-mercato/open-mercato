@@ -623,7 +623,12 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       const onResult: InvokeAgentConfig['onResult'] =
         agentResultMode === 'alwaysAsk'
           ? { alwaysAsk: true }
-          : { autoApproveThreshold: Number.parseFloat(agentAutoApproveThreshold) || 0 }
+          : {
+              autoApproveThreshold: Number.parseFloat(agentAutoApproveThreshold) || 0,
+              // The near-tie margin has no control on this retired dialog; 0 is the
+              // schema default and preserves the node's existing behaviour exactly.
+              autoApproveMargin: 0,
+            }
 
       const outputMapping = agentOutputMappings.reduce<Record<string, string>>((acc, row) => {
         const key = row.key.trim()

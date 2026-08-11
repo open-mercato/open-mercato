@@ -3311,6 +3311,23 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "auto_disposition_block": {
+          "name": "auto_disposition_block",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 20,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "confidence": {
           "name": "confidence",
           "type": "real",
@@ -3514,6 +3531,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "selected_option_id": {
+          "name": "selected_option_id",
+          "type": "varchar(100)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 100,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
         },
         "step_id": {
           "name": "step_id",

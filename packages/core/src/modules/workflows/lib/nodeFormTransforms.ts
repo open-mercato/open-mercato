@@ -113,6 +113,17 @@ function findInvokeAgentConfig(node: Node): Partial<InvokeAgentConfig> {
   return findInvokeAgentActivity(node)?.config || {}
 }
 
+/**
+ * The authored near-tie margin, or the schema default. Read defensively: the
+ * threshold arm may carry no margin at all (every definition written before the
+ * field existed), and the `alwaysAsk` arm never carries one.
+ */
+function readAutoApproveMargin(onResult: Partial<InvokeAgentConfig>['onResult']): number {
+  if (!onResult || !('autoApproveMargin' in onResult)) return 0
+  const margin = onResult.autoApproveMargin
+  return typeof margin === 'number' && Number.isFinite(margin) ? margin : 0
+}
+
 const SUBJECT_FORM_KEYS = ['subjectType', 'subjectId', 'subjectLabel'] as const
 
 function subjectToFormValue(subject: unknown): AgentSubjectValue {
@@ -755,7 +766,12 @@ export function formValuesToNodeUpdates(
     const onResult: InvokeAgentConfig['onResult'] =
       agent?.resultMode === 'alwaysAsk'
         ? { alwaysAsk: true }
-        : { autoApproveThreshold: Number.parseFloat(agent?.autoApproveThreshold ?? '') || 0 }
+        : {
+            autoApproveThreshold: Number.parseFloat(agent?.autoApproveThreshold ?? '') || 0,
+            // No control exposes the near-tie margin yet, so an authored value is
+            // carried through rather than reset to the schema default by a save.
+            autoApproveMargin: readAutoApproveMargin(existingConfig.onResult),
+          }
 
     const subject = formValueToSubject(existingConfig.subject, agent?.subject)
     const review = formValuesToAgentReview(values as Partial<AgentReviewFormValues>)

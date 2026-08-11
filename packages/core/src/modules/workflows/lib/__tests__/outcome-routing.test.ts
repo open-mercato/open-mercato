@@ -98,6 +98,9 @@ describe('agent outcome routing — the vocabulary is spec 7.2, not an OUTCOME e
     expect(mapDispositionToAgentOutcome('approved')).toBe('approved')
     expect(mapDispositionToAgentOutcome('edited')).toBe('approved')
     expect(mapDispositionToAgentOutcome('informative')).toBe('informative')
+    // An agent that looked and had nothing to propose takes the informative handle —
+    // NOT `rejected`: nothing was offered for a human to decline.
+    expect(mapDispositionToAgentOutcome('none_proposed')).toBe('informative')
     expect(mapDispositionToAgentOutcome('rejected')).toBe('rejected')
     expect(mapDispositionToAgentOutcome('guardrail_blocked')).toBe('guardrailBlocked')
     expect(mapDispositionToAgentOutcome('pending')).toBeNull()

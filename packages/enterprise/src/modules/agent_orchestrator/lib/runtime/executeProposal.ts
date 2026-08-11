@@ -1,5 +1,10 @@
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { ProposedAction } from '../../data/validators'
+import {
+  isEffectWithinVocabulary,
+  loadActionVocabulary,
+  type ActionVocabulary,
+} from './actionVocabulary'
 
 export type ExecuteProposalCtx = {
   commandBus: CommandBus
@@ -11,6 +16,11 @@ export type ExecuteProposalCtx = {
    * are returned as `skipped`.
    */
   actionCommandMap: Record<string, string>
+  /**
+   * Pre-resolved action vocabulary. Callers running many proposals may load it once;
+   * omitted, it is read per call. Never widen it — it is the catalogue, not a grant.
+   */
+  vocabulary?: ActionVocabulary
 }
 
 export type ExecuteProposalActionResult =
@@ -29,10 +39,22 @@ export async function executeProposal(
   ctx: ExecuteProposalCtx,
 ): Promise<ExecuteProposalActionResult[]> {
   const results: ExecuteProposalActionResult[] = []
+  // Server-side vocabulary re-check, immediately before the effect. The proposal may
+  // have been made under a catalogue the tenant has since narrowed; a stale approval
+  // must not carry an effect the platform no longer declares runnable.
+  const vocabulary = ctx.vocabulary ?? (await loadActionVocabulary())
   for (const action of actions) {
     const commandId = ctx.actionCommandMap[action.type]
     if (!commandId) {
       results.push({ type: action.type, status: 'skipped', reason: `no command mapped for action type "${action.type}"` })
+      continue
+    }
+    if (!isEffectWithinVocabulary(vocabulary, action.type, commandId)) {
+      results.push({
+        type: action.type,
+        status: 'skipped',
+        reason: `action type "${action.type}" is outside the effective action vocabulary`,
+      })
       continue
     }
     try {

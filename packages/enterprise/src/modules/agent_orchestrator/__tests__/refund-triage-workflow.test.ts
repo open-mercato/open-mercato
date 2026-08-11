@@ -62,7 +62,7 @@ describe('refund-triage seed workflow definition', () => {
     expect(parsed.success).toBe(true)
     if (parsed.success) {
       expect(parsed.data.agentId).toBe('support.refund_assessor')
-      expect(parsed.data.onResult).toEqual({ autoApproveThreshold: 0.85 })
+      expect(parsed.data.onResult).toEqual({ autoApproveThreshold: 0.85, autoApproveMargin: 0 })
       expect(parsed.data.review?.assignedToRoles).toEqual(['support_lead'])
       expect(parsed.data.review?.onBreach).toEqual({ action: 'reassign', reassignTo: 'refund_manager' })
     }

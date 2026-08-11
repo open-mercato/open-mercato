@@ -29,12 +29,19 @@ import { toolPanelStateFromResponse, type ToolPanelState } from '../../component
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
 import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
 import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
+import { deriveEnvelopeConfidence, normalizeProposalEnvelope, readProposalActions } from '../../data/proposalEnvelope'
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
 
+/** The option-set rationale, or the leading option's when the envelope carries none. */
+function readEnvelopeRationale(payload: unknown): string | null {
+  const envelope = normalizeProposalEnvelope(payload)
+  return envelope.rationale ?? envelope.options[0]?.rationale ?? null
+}
+
 type AgentResult =
   | { kind: 'informative'; data: unknown }
-  | { kind: 'actionable'; proposal: { actions: unknown[]; confidence?: number; rationale?: string } }
+  | { kind: 'actionable'; proposal: unknown }
 
 type AgentRunResponse = AgentResult & { runId?: string | null; proposalId?: string | null }
 
@@ -521,9 +528,9 @@ export default function AgentPlaygroundPage() {
                 <ProposalCard
                   adHoc={{
                     agentId,
-                    confidence: typeof result.proposal.confidence === 'number' ? result.proposal.confidence : null,
-                    payload: result.proposal.actions,
-                    rationale: result.proposal.rationale ?? null,
+                    confidence: deriveEnvelopeConfidence(result.proposal),
+                    payload: readProposalActions(result.proposal),
+                    rationale: readEnvelopeRationale(result.proposal),
                   }}
                 />
               ) : null}

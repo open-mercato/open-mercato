@@ -69,7 +69,7 @@ const DEMO_DHC_ASSERTIONS: Array<{
     description: 'The proposal moves the deal to a stage.',
     type: 'deterministic',
     severity: 'gate',
-    config: { path: 'proposal.actions[0].type', operator: 'eq', value: 'set_stage' },
+    config: { path: 'proposal.options[0].actions[0].type', operator: 'eq', value: 'set_stage' },
   },
   {
     key: 'dh_rationale_present',
@@ -86,8 +86,14 @@ const DEMO_DHC_ASSERTIONS: Array<{
 const DEMO_HEALTHY_EXPECTED = {
   kind: 'actionable',
   proposal: {
-    actions: [{ type: 'set_stage', payload: { stage: 'Negotiation' } }],
-    confidence: 0.85,
+    options: [
+      {
+        id: 'primary',
+        label: DEMO_AGENT_ID,
+        actions: [{ type: 'set_stage', payload: { stage: 'Negotiation' } }],
+        confidence: 0.85,
+      },
+    ],
     rationale:
       'The deal is healthy: strong momentum, engaged stakeholders, and the current-stage exit criteria are met — advance to Negotiation.',
   },

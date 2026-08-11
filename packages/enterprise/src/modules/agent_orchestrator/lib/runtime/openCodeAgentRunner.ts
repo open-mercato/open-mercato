@@ -12,6 +12,7 @@ import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-
 import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
+import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
   type AgentRunCtx,
   buildCommandContext,
@@ -343,7 +344,7 @@ export class OpenCodeAgentRunner {
         throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
       }
 
-      const result = shapeResult(entry.resultKind, parsed.data)
+      const result = shapeResult(entry.resultKind, parsed.data, agentId)
 
       await completeRun(this.commandBus, commandCtx, {
         runId,
@@ -351,7 +352,7 @@ export class OpenCodeAgentRunner {
         resultKind: entry.resultKind,
         // Actionable runs surface the proposal's confidence on the run row;
         // informative runs have no confidence semantics → null (renders `—`).
-        confidence: result.kind === 'actionable' ? (result.proposal.confidence ?? null) : null,
+        confidence: result.kind === 'actionable' ? deriveEnvelopeConfidence(result.proposal) : null,
       })
 
       if (result.kind === 'actionable') {
@@ -362,7 +363,7 @@ export class OpenCodeAgentRunner {
           agentId,
           runId,
           payload: result.proposal,
-          confidence: result.proposal.confidence ?? null,
+          confidence: deriveEnvelopeConfidence(result.proposal),
           processId: ctx.processId ?? null,
           stepId: ctx.stepId ?? null,
         })

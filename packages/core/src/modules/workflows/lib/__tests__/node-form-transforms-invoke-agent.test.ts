@@ -85,7 +85,9 @@ describe('nodeFormTransforms — invokeAgent', () => {
         config: {
           agentId: 'client_profile',
           input: { dealId: '{{deal.id}}' },
-          onResult: { autoApproveThreshold: 0.75 },
+          // The near-tie margin is opt-in: 0 is the schema default and preserves
+          // the node's existing auto-approve behaviour exactly.
+          onResult: { autoApproveThreshold: 0.75, autoApproveMargin: 0 },
           outputMapping: { riskScore: 'proposalPayload.riskScore' },
         },
       },

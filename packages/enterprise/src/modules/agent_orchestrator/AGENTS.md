@@ -73,7 +73,7 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 `data/entities.ts` — all rows scoped by `tenantId` + `organizationId`. Cross-module links are FK ids only (no ORM relations across modules).
 
 - **AgentRun** (`agent_runs`) — immutable audit of one execution (`running → ok|error`). MUST carry `agentId`, `resultKind`; `parentRunId` links nested in-process sub-agents; `proposalId`/`processId`/`stepId` link disposition + workflow.
-- **AgentProposal** (`agent_proposals`) — the actionable envelope. MUST track disposition (`pending → auto_approved|approved|edited|rejected`); applied only via effector command.
+- **AgentProposal** (`agent_proposals`) — the actionable envelope: `payload` is `{ options[], rationale? }`, N ranked alternatives of which a disposition selects AT MOST one (`selected_option_id`). MUST track disposition (`pending → auto_approved|approved|edited|rejected`); an EMPTY option set is stamped `none_proposed` at creation and is never operator-settable. `auto_disposition_block` (`near_tie`) records why a threshold-clearing auto-approval was held for a human — never `disposition_reason`, which is the operator's. Applied only via effector command.
 - **AgentSpan** (`agent_spans`) / **AgentToolCall** (`agent_tool_calls`) — append-only OTel-GenAI trace tree. Full payloads offload to S3; rows keep redacted summaries.
 - **AgentCorrection** (`agent_corrections`) — append-only flywheel entry. MUST record `action` (`edit|reject|override|answer`) + mandatory `reason`.
 - **AgentEvalCase** (`agent_eval_cases`) — regression case (`draft → approved → archived`), sourced from a correction or golden run. Editable.

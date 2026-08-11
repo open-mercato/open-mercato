@@ -3,6 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AgentProposal } from '../../data/entities'
+import type { AutoDispositionBlock, ProposalOption } from '../../data/validators'
+import { normalizeProposalEnvelope, rankProposalOptions } from '../../data/proposalEnvelope'
 import type {
   DisposeProposalCommandInput,
   DisposeProposalCommandResult,
@@ -12,11 +14,15 @@ const logger = createLogger('agent_orchestrator').child({ component: 'dispositio
 
 /**
  * Disposition config carried verbatim from the area-02 Invoke Agent node's
- * `onResult`. `alwaysAsk` always routes to a human; otherwise a single
- * confidence threshold gates auto-approval.
+ * `onResult`. `alwaysAsk` always routes to a human; otherwise a confidence
+ * threshold plus an optional separation MARGIN gates auto-approval.
+ *
+ * `autoApproveMargin` is optional here (not just defaulted in the zod schema)
+ * because a queue job enqueued before the field existed carries no value —
+ * absent means `0`, which is exactly today's rule.
  */
 export type DispositionOnResult =
-  | { autoApproveThreshold: number }
+  | { autoApproveThreshold: number; autoApproveMargin?: number }
   | { alwaysAsk: true }
 
 /**
@@ -43,8 +49,10 @@ export type DispositionCtx = {
 }
 
 export type DispositionOutcome =
-  | { kind: 'auto_approved'; proposalId: string }
+  | { kind: 'auto_approved'; proposalId: string; selectedOptionId: string }
   | { kind: 'user_task'; userTaskId: string; proposalId: string }
+  /** The agent proposed nothing; there is no decision to raise and none to auto-approve. */
+  | { kind: 'none_proposed'; proposalId: string }
 
 export interface DispositionService {
   dispose(
@@ -54,12 +62,48 @@ export interface DispositionService {
   ): Promise<DispositionOutcome>
 }
 
-function shouldAutoApprove(proposal: AgentProposal, onResult: DispositionOnResult): boolean {
-  // alwaysAsk → always human.
-  if ('alwaysAsk' in onResult) return false
-  // Fail-closed: a missing / null confidence is treated as below threshold.
-  if (typeof proposal.confidence !== 'number') return false
-  return proposal.confidence >= onResult.autoApproveThreshold
+export type AutoApprovalDecision =
+  | { kind: 'approve'; option: ProposalOption }
+  | { kind: 'review'; block: AutoDispositionBlock | null }
+
+/**
+ * Threshold AND margin.
+ *
+ * The `alwaysAsk` short-circuit is FIRST and is load-bearing: dropping it makes every
+ * `alwaysAsk: true` node start auto-approving, which is the worst regression this
+ * module can produce. The `typeof confidence !== 'number'` guard is equally
+ * load-bearing — a missing confidence fails closed to a human, never to approval.
+ *
+ * The margin exists because a 0.81/0.80 split under an 0.8 threshold is the agent
+ * saying it cannot tell its top two options apart; reading that as certainty is how
+ * an auto-approved wrong answer happens. It defaults to 0, which preserves today's
+ * rule exactly — a `.default()` that changed behaviour without anyone asking would be
+ * the opposite of opt-in.
+ */
+export function evaluateAutoApproval(
+  options: readonly ProposalOption[],
+  onResult: DispositionOnResult,
+): AutoApprovalDecision {
+  if ('alwaysAsk' in onResult) return { kind: 'review', block: null }
+  if (options.length === 0) return { kind: 'review', block: null }
+  const ranked = rankProposalOptions(options)
+  const [top, runnerUp] = ranked
+  if (typeof top.confidence !== 'number') return { kind: 'review', block: null }
+  if (top.confidence < onResult.autoApproveThreshold) return { kind: 'review', block: null }
+  const margin = onResult.autoApproveMargin ?? 0
+  if (runnerUp && top.confidence - (runnerUp.confidence ?? 0) < margin) {
+    return { kind: 'review', block: 'near_tie' }
+  }
+  return { kind: 'approve', option: top }
+}
+
+/** The option auto-approval would run, or null when a human must decide. */
+export function autoApprovable(
+  options: readonly ProposalOption[],
+  onResult: DispositionOnResult,
+): ProposalOption | null {
+  const decision = evaluateAutoApproval(options, onResult)
+  return decision.kind === 'approve' ? decision.option : null
 }
 
 /**
@@ -95,13 +139,23 @@ export class DispositionServiceImpl implements DispositionService {
     onResult: DispositionOnResult,
     ctx: DispositionCtx,
   ): Promise<DispositionOutcome> {
-    if (shouldAutoApprove(proposal, onResult)) {
-      return this.autoApprove(proposal)
+    const { options } = normalizeProposalEnvelope(proposal.payload, proposal.agentId)
+    // Nothing proposed: terminal at creation, so there is neither a decision to raise
+    // nor a plan to approve. Routed onto the informative outcome handle downstream.
+    if (options.length === 0) {
+      return { kind: 'none_proposed', proposalId: proposal.id }
     }
-    return this.raiseUserTask(proposal, ctx)
+    const decision = evaluateAutoApproval(options, onResult)
+    if (decision.kind === 'approve') {
+      return this.autoApprove(proposal, decision.option)
+    }
+    return this.raiseUserTask(proposal, ctx, decision.block)
   }
 
-  private async autoApprove(proposal: AgentProposal): Promise<DispositionOutcome> {
+  private async autoApprove(
+    proposal: AgentProposal,
+    option: ProposalOption,
+  ): Promise<DispositionOutcome> {
     const commandBus = this.container.resolve('commandBus') as CommandBus
     const commandCtx: CommandRuntimeContext = {
       container: this.container,
@@ -120,20 +174,51 @@ export class DispositionServiceImpl implements DispositionService {
           organizationId: proposal.organizationId,
           disposition: 'auto_approved',
           dispositionBy: 'rule:threshold',
+          selectedOptionId: option.id,
           skipResume: true,
         },
         ctx: commandCtx,
       },
     )
-    return { kind: 'auto_approved', proposalId: proposal.id }
+    return { kind: 'auto_approved', proposalId: proposal.id, selectedOptionId: option.id }
   }
 
   private async raiseUserTask(
     proposal: AgentProposal,
     ctx: DispositionCtx,
+    block: AutoDispositionBlock | null,
   ): Promise<DispositionOutcome> {
+    if (block) await this.recordAutoDispositionBlock(proposal, block)
     const userTaskId = await this.createUserTask(proposal, ctx)
     return { kind: 'user_task', userTaskId, proposalId: proposal.id }
+  }
+
+  /**
+   * A blocked auto-approval is not a failure — it is a proposal that cleared its
+   * threshold and was held anyway, and silence would read as the threshold simply not
+   * being met. Written with a targeted `nativeUpdate` for the same reason
+   * `recordUserTaskId` is: `updated_at` is the proposal's optimistic-lock token and
+   * bumping it here would turn the annotation into a spurious 409 for the operator.
+   */
+  private async recordAutoDispositionBlock(
+    proposal: AgentProposal,
+    block: AutoDispositionBlock,
+  ): Promise<void> {
+    try {
+      const em = (this.container.resolve('em') as EntityManager).fork()
+      await em.nativeUpdate(
+        AgentProposal,
+        { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId },
+        { autoDispositionBlock: block },
+      )
+      proposal.autoDispositionBlock = block
+    } catch (error) {
+      logger.warn('auto-disposition block not recorded', {
+        proposalId: proposal.id,
+        block,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   private async createUserTask(
