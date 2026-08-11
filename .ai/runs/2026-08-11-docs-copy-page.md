@@ -40,10 +40,10 @@ Add a "Copy page as Markdown" button to every MDX documentation page in `apps/do
 
 ### Phase 1: Core implementation
 
-- [ ] 1.1 Create CopyPageButton component
-- [ ] 1.2 Swizzle DocItem/Layout
-- [ ] 1.3 Add CSS styling
+- [x] 1.1 Create CopyPageButton component — cb902d3e4
+- [x] 1.2 Swizzle DocItem/Layout — cb902d3e4
+- [x] 1.3 Add CSS styling — cb902d3e4
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Run build validation
+- [x] 2.1 Run build validation — cb902d3e4
