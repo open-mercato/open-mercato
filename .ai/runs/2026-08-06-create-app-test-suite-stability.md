@@ -210,3 +210,30 @@ PR: #5064
       that job. `yarn build:app` ✅ after it. The changed package's suite was run directly and is
       green: **478 tests, 473 pass, 0 fail, 5 skipped**
 - [x] 7.4 Push, report on the PR, and request the re-review
+
+### Phase 8: Close the three nits from the approving review (@pkarw, `656cd762f`)
+
+- [x] 8.1 Close #5091 from this PR's body — PR body edit, no commit. It is the ENOTEMPTY-shaped sibling of #5059 — the same
+      `rmSync(..., { recursive: true })` on `dist/agentic` that the staged swap deletes, triggered by
+      the same back-to-back builds this PR stops spawning — and its own "Suggested direction" asks
+      verbatim for the swap implemented here. Without the keyword the issue sits open until somebody
+      re-triages it and rediscovers it was fixed in August
+- [x] 8.2 `packages/create-app/build.mjs` — 15fa941dc: the standalone-guides log line still named
+      `dist/agentic/guides/` while its two siblings (the copy line and the fact-sheet line) were
+      updated to the staging path in step 5.4. While the build runs, that directory still holds the
+      *previous* build's contents, which is exactly the confusion the staged swap exists to remove
+- [x] 8.3 Cover `requirePackageBuild()`'s throw path directly — 15fa941dc, `src/lib/package-build-artifacts.test.ts`. The guard's whole reason to exist is
+      the message it raises when `dist/index.js` or `dist/agentic` is missing, and the suite only
+      ever reached the satisfied branch because the `test` script builds first; its sibling
+      `describeMissingSiblingBuild` already had `sibling-build.test.ts` covering both branches
+- [x] 8.4 Verify, push, and re-request the review that still holds the merge blocked. Verification on
+      this head, local runner (no Docker `app` container): `yarn build:packages` ✅ · `yarn generate` ✅
+      (no tracked-file drift) · `yarn i18n:check-sync` ✅ · `yarn i18n:check-usage` ✅ ·
+      `yarn typecheck` ✅ (22/22 turbo tasks) · `yarn test:scripts` ✅ (475 pass, 0 fail — run
+      explicitly because `yarn test` does not reach `scripts/check-version-alignment.sh`, the lesson
+      from #4391) · the changed package's own suite ✅ **481 tests, 476 pass, 0 fail, 5 skipped**
+      (was 478/473 before this phase; +3 are the new throw-path cases). The monorepo-wide `yarn test`
+      and `yarn build:app` were not re-run on this head: this phase's delta is one log string and one
+      new test file, both inside `packages/create-app`, and neither enters `build:app`'s input set —
+      CI runs the full gate on the merge result and is the arbiter, per this repo's review
+      convention. The merge stays blocked on the stale `changes-requested` review, not on the gate
