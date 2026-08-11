@@ -220,6 +220,14 @@ Operational notes:
 
 Each run stores tenant and organization scope and must stay scoped in every read/write.
 
+### Tracing
+
+When telemetry is enabled, the engine wraps every batch in its own **root** span — `data_sync.import.batch` or `data_sync.export.batch` — linked back to the run's trace. Rooting per batch is deliberate: a sync run can last hours, and a trace inherits a single sampling decision from its root, so leaving batches nested under the triggering request would put a whole run behind one decision (emitting nothing below a sampling ratio of 1.0, or one unrenderable trace at 1.0).
+
+The span covers the adapter's read as well as the engine's per-batch bookkeeping, so a batch trace is self-contained, and it carries `data_sync.run_id`, `data_sync.integration_id`, `data_sync.provider_key`, `data_sync.entity_type`, `data_sync.direction`, `data_sync.batch_index`, per-batch counters, and `om.tenant_id` / `om.organization_id`.
+
+Adapters get this for free and should not create their own batch span; any spans an adapter does create nest under the engine's batch span as usual.
+
 ## Credentials resolution
 
 Credentials are stored by integration id. If the integration belongs to a bundle and per-integration credentials are empty, the system resolves bundle credentials as fallback. This allows one credential form to drive multiple bundle integrations.

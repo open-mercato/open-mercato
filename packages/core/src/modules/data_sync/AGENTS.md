@@ -54,6 +54,7 @@ packages/core/src/modules/data_sync/
 │   ├── adapter-registry.ts      # Register/get adapters by providerKey
 │   ├── id-mapping.ts            # External ID ↔ local ID lookup and storage
 │   ├── queue.ts                 # Queue helper for enqueuing sync jobs
+│   ├── batch-stream.ts          # Drives adapter streams; one root span per batch
 │   ├── sync-engine.ts           # Orchestrates streaming import/export with progress
 │   └── sync-run-service.ts      # CRUD for SyncRun + cursor management
 ├── api/
@@ -128,6 +129,8 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: Via `progressService.isCancellationRequested()`
+- **Tracing**: The engine emits one **root** span per batch (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run, covering the adapter's read *and* the engine's bookkeeping. Adapters MUST NOT hand-roll their own batch span — they cannot root it, so a multi-day run would ride on the single sampling decision taken for the request that triggered it. Inner spans an adapter creates nest under the batch span normally.
+- **Stream shape**: The engine drives the adapter's async iterator explicitly (`batch-stream.ts`) so the span wraps `next()`, where a generator does its real work before yielding. Closing follows the language's own `IteratorClose` rules, so `finally` blocks in an adapter generator behave exactly as under `for await`: no `return()` when the stream exhausts or `next()` throws (already closed), `return()` with its failure surfaced on an early stop, and `return()` with its failure swallowed when the engine's own handler threw (that error wins). Keep cleanup in `finally`.
 
 ## Queue Names
 
