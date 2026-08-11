@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-11 · **Status:** ready to implement
 **Umbrella:** [`2026-08-10-pre-release-remediation-plan.md`](./2026-08-10-pre-release-remediation-plan.md) — workstream W1
-**Companion:** [`2026-08-11-agent-taxonomy.md`](./2026-08-11-agent-taxonomy.md) (W2) owns the proposal envelope this consumes; neither blocks the other.
+**Companion:** [`2026-08-11-agent-taxonomy.md`](./2026-08-11-agent-taxonomy.md) (W2) owns the proposal envelope this consumes.
+**Ordering:** independent in scope; W2 carries its own migration rather than folding into this squash, so neither waits on the other. If W2 lands first, this squash absorbs its columns.
 **Scope:** enterprise `agent_orchestrator`. Core `workflows` is read, never renamed.
 
 ## TLDR
@@ -42,8 +43,10 @@ A process that files a claim, drafts a contract or opens a case has no field nam
 
 ### The model
 
+Entity classes are prefixed `Agent*`, matching every other class in the module and keeping them distinct from core `workflows`' `WorkflowDefinition`. "Which one is *the* process" is the ambiguity this spec exists to remove, so the projection keeps the bare name and the two authored records are explicit about what they are:
+
 ```
-ProcessDefinition          ← agent_task_definitions + agent_task_event_triggers
+AgentProcessDefinition     ← agent_task_definitions + agent_task_event_triggers
   id, name, description
   target: { kind: 'agent' | 'workflow', agentId? , workflowId? }
   inputSchema, inputDefaults
@@ -52,13 +55,13 @@ ProcessDefinition          ← agent_task_definitions + agent_task_event_trigger
   milestones: ProcessMilestone[]    ← NEW
   enabled
 
-ProcessRun                 ← agent_task_runs
+AgentProcessRun            ← agent_task_runs
   definitionId, triggeredBy: { kind, ref? }
   status, input, startedAt, completedAt
   outcome: { type, id, label } | null   ← NEW, nullable
 
 AgentProcess               ← unchanged projection
-  rebuilt from events over ProcessRun; still the read model
+  rebuilt from events over AgentProcessRun; still the read model
   for status, subject, counters, assignee
 ```
 
@@ -76,8 +79,22 @@ export const processTriggerSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('event'),
-    eventId: z.string().min(1),
-    filter: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * Exact id OR a trailing-wildcard pattern (`claims.*`) — the shape
+     * `agent_task_event_triggers.event_pattern` already accepts. Naming this
+     * `eventId` would have silently dropped wildcard subscription.
+     */
+    eventPattern: z.string().min(1),
+    /** The `WorkflowEventTriggerConfig` shape, carried over verbatim. */
+    config: z.object({
+      filterConditions: z.record(z.string(), z.unknown()).optional(),
+      /** How the event payload becomes run input. Without it an event-triggered run has NO input. */
+      contextMapping: z.record(z.string(), z.string()).optional(),
+      debounceMs: z.number().int().min(0).optional(),
+      maxConcurrentInstances: z.number().int().min(1).optional(),
+    }).optional(),
+    /** Order among triggers matching the same event. */
+    priority: z.number().int().default(0),
     enabled: z.boolean().default(true),
   }),
   z.object({
@@ -88,11 +105,13 @@ export const processTriggerSchema = z.discriminatedUnion('kind', [
 ])
 ```
 
+**Nothing is dropped in the collapse.** An earlier draft of this spec modelled the event trigger as `{ eventId, filter }` and called the table's removal lossless. It is not: `agent_task_event_triggers` carries a wildcard-capable `event_pattern`, a `config` holding `contextMapping` / `debounceMs` / `maxConcurrentInstances`, and a `priority` (`data/entities.ts:1384-1422`). Losing `contextMapping` alone would leave every event-triggered run with no input. All four move across.
+
 - **`schedule`** absorbs `schedule_cron` / `schedule_timezone` / `schedule_enabled`. Validation stays `validateCronExpression` from `@open-mercato/scheduler/modules/scheduler/lib/cronParser` — the **deep import**, never the package root, which reaches server-only code and breaks the client bundle (guarded by `__tests__/client-server-boundary.test.ts`).
-- **`event`** absorbs `agent_task_event_triggers` rows. The table collapses into the definition's jsonb: it carried no lifecycle of its own, and a trigger without its definition is meaningless.
+- **`event`** absorbs `agent_task_event_triggers` rows with every field intact. The table collapses into the definition's jsonb because it has no lifecycle of its own — a trigger without its definition is meaningless — not because its columns were surplus.
 - **`manual`** makes the existing run route a declared capability rather than an undocumented one. A definition with no `manual` trigger cannot be started by hand — today every definition can, silently.
 
-`ProcessRun.triggeredBy` records which fired: `{ kind: 'schedule' }`, `{ kind: 'event', ref: <eventId> }`, `{ kind: 'manual', ref: <userId> }`. Today `agent_task_runs` cannot answer "why did this run".
+`AgentProcessRun.triggeredBy` records which fired: `{ kind: 'schedule' }`, `{ kind: 'event', ref: <eventId> }`, `{ kind: 'manual', ref: <userId> }`. Today `agent_task_runs` cannot answer "why did this run".
 
 ### Milestones
 
@@ -134,18 +153,39 @@ Written on completion, mirroring the existing `subject*` shape. **Optional by de
 | `agent_orchestrator.task.{created,updated,deleted}` | `agent_orchestrator.process_definition.*` |
 | `agent_orchestrator.task_run.{started,completed,failed}` | `agent_orchestrator.process_run.*` (keep `clientBroadcast: true`) |
 | `agent_orchestrator.task_event_trigger.*` | *(deleted — no separate entity)* |
-| `/backend/agentic-tasks` | folds into `/backend/processes` |
+| `/backend/agentic-tasks` | `/backend/processes/definitions` (list + authoring) |
+| `/backend/processes` | unchanged — still the **projection** list of running processes |
 | `/api/agent_orchestrator/tasks*`, `/task-runs*` | `/api/agent_orchestrator/process-definitions*`, `/process-runs*` |
 
 `agent_orchestrator.processes.view` already exists (`acl.ts:96`) for the projection surface; `tasks.view` merges into it rather than adding a fourth feature. `defaultRoleFeatures` in `setup.ts` updates in the same change, and `yarn mercato auth sync-role-acls` runs for existing tenants.
 
 **The one surface that does not move:** core `workflows` keeps `/backend/tasks`, its bridge redirect, and the frozen `workflows.tasks.list` tableId that the enterprise Caseload row action binds to. W1 renames the *enterprise* task concept; the core user-task one is released and untouched.
 
+### Encryption: the rename must move the map with it
+
+`encryption.ts` keys its `defaultEncryptionMaps` entries by a **string** `entityId`:
+
+```ts
+{ entityId: 'agent_orchestrator:agent_task_definition', fields: ['input_defaults'] }
+{ entityId: 'agent_orchestrator:agent_task_run',        fields: ['input', 'failure_reason'] }
+```
+
+Nothing type-checks that string. Rename the entities without renaming these and the maps stop matching: `input`, `input_defaults` and `failure_reason` — all of which can carry claimant data, contact details and free text about people — begin persisting in **plaintext**, and every previously-encrypted row becomes unreadable. It fails silently, in green CI. This is the single highest-consequence line in the rename.
+
+So the rename carries:
+
+| Map entityId | Becomes |
+|---|---|
+| `agent_orchestrator:agent_task_definition` | `agent_orchestrator:agent_process_definition` |
+| `agent_orchestrator:agent_task_run` | `agent_orchestrator:agent_process_run` |
+
+and Phase 1 ships a test that asserts every `defaultEncryptionMaps` entityId resolves to a registered entity — a guard, because the next rename will have the same hole. Reads stay on `findWithDecryption` / `findOneWithDecryption`; no call site changes.
+
 ### Migrations: squash, do not stack
 
 The module's snapshot already fails to record `agent_eval_case_runs`, `agent_eval_suite_runs`, `agent_eval_results.eval_case_run_id`, `agent_proposals.source` and `agent_runs.source`, so `yarn db:generate` emits non-idempotent DDL today. Stacking an alter-heavy rename chain on top makes it worse.
 
-Replace the module's migrations with **one current-state migration** and regenerate `migrations/.snapshot-open-mercato.json` from it. Legitimate because no deployment holds these tables (module absent from `origin/develop`), and it clears the W4 defect in passing. W2's `agent_proposals.selected_option_id` and its backfill land in the same squash.
+Replace the module's migrations with **one current-state migration** and regenerate `migrations/.snapshot-open-mercato.json` from it. It clears the W4 defect in passing. If W2 has already landed, its `selected_option_id` and `agent_type` columns are absorbed into the squash and its alter is deleted; if it has not, the squash does not wait for it.
 
 Per the root rules: do **not** run `yarn db:migrate` to make the generator quiet. The PR carries the migration and the snapshot.
 
@@ -158,6 +198,7 @@ Per the root rules: do **not** run `yarn db:migrate` to make the generator quiet
 - **Server-only imports.** The cron validator comes from the deep path `@open-mercato/scheduler/modules/scheduler/lib/cronParser`. The existing boundary test covers regressions; extend `SERVER_REACHING_PACKAGE_ROOTS` if a new package root is reached.
 - **Canonical primitives.** `makeCrudRoute` with `indexer: { entityType }` for definitions; `CrudForm` for the definition form with optimistic locking auto-derived from `initialValues.updatedAt`; `DataTable` for lists; `apiCall`; `useGuardedMutation` for run-now. No raw `fetch`, no bespoke table.
 - **Design system.** Status via `StatusBadge` with semantic tokens — no `text-red-*`/`bg-green-*`, no arbitrary text sizes, lucide icons only, `aria-label` on icon-only buttons, `Cmd/Ctrl+Enter` submit and `Escape` cancel in every dialog. Boy Scout rule on every touched line.
+- **Two routes, not one tabbed page.** `/backend/processes` keeps listing running processes (the projection); `/backend/processes/definitions` is where definitions are authored. They answer different questions — "what is happening now" versus "what can happen" — and merging them behind tabs would rebuild the task/process confusion this spec removes. `/backend/agentic-tasks` redirects to the definitions route for one release of muscle memory, then goes.
 - **Milestone editor:** the child milestone rows mutate the parent definition, so the parent's optimistic-lock header applies — no per-child override is needed here (unlike a form whose `onSubmit` mutates *other* entities).
 
 ## Phasing
@@ -174,7 +215,7 @@ Per the root rules: do **not** run `yarn db:migrate` to make the generator quiet
 
 4. `processTriggerSchema`; migrate `schedule_cron` and `agent_task_event_triggers` rows into `triggers`.
 5. `triggeredBy` on `ProcessRun`.
-6. Manual entry gated on a declared `manual` trigger.
+6. Manual entry gated on a declared `manual` trigger. **The step-4 migration must synthesize a `{ kind: 'manual' }` trigger on every existing definition** — today every definition can be run by hand, so gating without the backfill silently removes run-now from all of them. Covered by an integration assertion, not left to review.
 7. Trigger editor UI.
 
 ### Phase 3 — milestones
@@ -185,8 +226,60 @@ Per the root rules: do **not** run `yarn db:migrate` to make the generator quiet
 
 ### Phase 4 — outcome
 
-11. Nullable `outcome` on `ProcessRun`, written on completion.
+11. Nullable `outcome` on `AgentProcessRun`, written on completion.
 12. Rendered on process detail and linked where the target module is present — resolved soft-optionally, degrading to the label snapshot when it is not.
+
+## Data models
+
+| Table | Column | Type | Null | Default | Notes |
+|---|---|---|---|---|---|
+| `agent_process_definitions` | `triggers` | `jsonb` | yes | `'[]'` | `ProcessTrigger[]`, `.max(20)`. GIN index below |
+| `agent_process_definitions` | `milestones` | `jsonb` | yes | `'[]'` | `ProcessMilestone[]`, `.max(50)` |
+| `agent_process_runs` | `triggered_by` | `jsonb` | yes | — | `{ kind, ref? }` |
+| `agent_process_runs` | `outcome_type` / `outcome_id` / `outcome_label` | `varchar` | yes | — | FK-id + snapshot; never a relation |
+
+Every existing column carries over unchanged, including `tenant_id` / `organization_id` on both tables.
+
+**Index.** The event dispatcher's access pattern changes from an indexed lookup on `agent_task_event_triggers.event_pattern` to a scan of definitions. That needs a real index, not an assertion:
+
+```sql
+create index "agent_process_definitions_triggers_gin"
+  on "agent_process_definitions" using gin ("triggers" jsonb_path_ops);
+```
+
+queried with containment (`triggers @> '[{"kind":"event","eventPattern":"claims.claim.reported"}]'`). Wildcard patterns cannot be served by containment, so they fall back to a filtered scan over the (small) set of enabled definitions — acceptable at this cardinality, and stated rather than assumed.
+
+## API contracts
+
+| Route | Method | Shape |
+|---|---|---|
+| `/api/agent_orchestrator/process-definitions` | GET/POST | `makeCrudRoute` with `indexer: { entityType: 'agent_orchestrator:agent_process_definition' }`; list returns `updatedAt` for optimistic locking |
+| `/api/agent_orchestrator/process-definitions/[id]` | GET/PUT/DELETE | 409 with the standard conflict body on stale `updatedAt` |
+| `/api/agent_orchestrator/process-definitions/[id]/run` | POST | `403` without a declared `manual` trigger or without `processes.run`; `202` with `{ runId }` |
+| `/api/agent_orchestrator/process-runs` | GET | Adds `triggeredBy`, `outcome` |
+
+Every route exports `openApi`. Cache: definition lists are read-heavy and tenant-scoped — cached via the DI cache with tag `agent_orchestrator:process_definitions:<tenantId>`, invalidated on every definition write.
+
+## Undo
+
+Definition create/update/delete, trigger edits and milestone reorder all run through the command path with `before`/`after` snapshots and `emitCrudUndoSideEffects` carrying `indexer: { entityType, cacheAliases }`, so an undo refreshes the query index and the cache tag above. The outcome write is part of run completion and is **not** independently undoable — undoing a completed run's outcome without undoing the run would be a lie; stated here so an implementer does not invent one.
+
+## Final compliance report
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Singular entity naming | ✅ | `agent_process_definition`, `agent_process_run`; tables plural |
+| No cross-module ORM relations | ✅ | Outcome is FK-id + label snapshot, resolved soft-optionally |
+| Tenant/organization scoping | ✅ | Both tables carry and filter on both |
+| Zod validation | ✅ | `processTriggerSchema`, `processMilestoneSchema` in `data/validators.ts` |
+| Encryption maps | ✅ | Rename section above; guard test in Phase 1 |
+| Canonical primitives | ✅ | `makeCrudRoute`, `CrudForm`, `DataTable`, `apiCall`, `useGuardedMutation` |
+| Undo contract | ✅ | Section above |
+| Optimistic locking | ✅ | `updated_at` on both entities; returned in list/detail; `CrudForm` auto-derives |
+| BC contract surfaces | ⚠️ | Routes, ACL ids, event ids, tables all rename. Branch-only except core `/backend/tasks` + `workflows.tasks.list`, which are untouched |
+| Integration coverage | ✅ | Table below |
+
+**Non-compliant / accepted:** `agent_orchestrator.tasks.view` merges into `processes.view`, which carries `dependsOn: ['agent_orchestrator.proposals.view']` (`acl.ts:96-101`) where `tasks.view` did not. Anyone who could manage agentic tasks now transitively gains proposal read. Accepted — in this module a process and its proposals are one workflow, and the alternative is a fourth feature id for a distinction nobody makes — but it is a privilege change and is called out for the ACL review rather than left to be discovered.
 
 ## Integration coverage
 
@@ -206,12 +299,16 @@ Per the root rules: do **not** run `yarn db:migrate` to make the generator quiet
 
 | Risk | Severity | Mitigation | Residual |
 |---|---|---|---|
-| The squash is applied to a database that already ran the old migrations | High | Verified absent from `origin/develop`; the PR carries migration + snapshot and never runs `db:migrate`. Any fork holding these tables must drop and re-init — stated in the PR body | A fork nobody knows about; acceptable for an unreleased module |
+| The squash is applied to a database that already ran the old migrations | High | Verified absent from `origin/develop`. **But `comerito/feat/agentic-claims-branch` carries the module and the pilot ran against it** — this is a known database, not a hypothetical fork. The PR body must carry the operational instruction: that database drops and re-initialises the module's tables, or stays off the squash. The PR carries migration + snapshot and never runs `db:migrate` | The pilot database must be re-initialised. That is a real instruction to a real operator, not an accepted unknown |
 | A rename misses a call site and fails only at runtime | Medium | `yarn generate` + typecheck catch imports and registries; i18n key sweep across five locales; integration tests cover every renamed route | Dynamic string-built ids; grep for `'agent_orchestrator.task` before merge |
 | Milestone drift warnings become noise | Medium | Warning not error; scoped to workflow-targeted definitions only | Authors may ignore it — the same residual the workflows Problems panel already carries |
 | Collapsing event triggers into jsonb loses per-trigger querying | Low | Nothing queries triggers across definitions today; a GIN index on `triggers` covers the event-id lookup the dispatcher needs | Revisit if cross-definition trigger search is ever needed |
 | Renaming `tasks.*` ACL features locks a tenant out mid-upgrade | Low | `sync-role-acls` is additive and wildcard-aware; module unreleased | None |
 
 ## Changelog
+### Review — 2026-08-11
+
+Independent fresh-context review (checklist §1 scope cohesion + full compliance gate). Accepted and applied: the encryption-map `entityId` rename (would have silently plaintexted `input` / `input_defaults` / `failure_reason` and made existing rows unreadable, in green CI); four capabilities the trigger collapse was dropping while calling itself lossless (`event_pattern` wildcards, `contextMapping`, `debounceMs` / `maxConcurrentInstances`, `priority`); the manual-trigger backfill without which every existing definition silently loses run-now; the pilot database on `comerito/feat/agentic-claims-branch`, which the risk table had written off as "a fork nobody knows about"; entity-class prefixes; the GIN index actually written out; the `/backend/processes` route split; undo, data models, API contracts and the compliance report the repo's own gate requires.
+
 
 - **2026-08-11**: Written. Gate answers: definition + run with the projection kept (the umbrella's "merge three into one" corrected — a definition and a projection cannot merge); triggers as one declared list; milestones stored with a load-bearing drift diagnostic; optional outcome; migrations squashed rather than stacked; split from W2, whose proposal envelope this consumes.
