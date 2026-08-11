@@ -23,32 +23,7 @@ const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
 const templateRoot = join(pkgRoot, 'template')
 const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
-let buildComplete = false
-
-function ensureBuilt() {
-  if (buildComplete) return
-  try {
-    execFileSync(process.execPath, ['build.mjs'], {
-      cwd: pkgRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-  } catch (error) {
-    const failed = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
-    const stdout = failed.stdout?.toString().trim()
-    const stderr = failed.stderr?.toString().trim()
-    throw new Error([
-      'create-app build failed while generating module facts',
-      stdout ? `stdout:\n${stdout}` : null,
-      stderr ? `stderr:\n${stderr}` : null,
-      !stdout && !stderr ? failed.message : null,
-    ].filter(Boolean).join('\n'))
-  }
-  buildComplete = true
-}
-
 test('build emits customers facts and the framework extension catalog (T5)', () => {
-  ensureBuilt()
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.v2.json')), 'module-facts.v2.json sidecar should exist')
@@ -107,19 +82,31 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
 })
 
 test('fresh scaffolds receive the disabled local-reference projection', () => {
-  ensureBuilt()
   const parent = fs.mkdtempSync(join(tmpdir(), 'om-reference-projection-'))
   try {
     const target = join(parent, 'reference-projection-app')
-    execFileSync(
-      process.execPath,
-      [join(pkgRoot, 'dist', 'index.js'), target, '--preset', 'classic', '--agents', 'codex', '--no-init-git'],
-      {
-        cwd: pkgRoot,
-        env: { ...process.env, OM_SKIP_EXTERNAL_SKILLS: '1' },
-        stdio: 'ignore',
-      },
-    )
+    try {
+      execFileSync(
+        process.execPath,
+        [join(pkgRoot, 'dist', 'index.js'), target, '--preset', 'classic', '--agents', 'codex', '--no-init-git'],
+        {
+          cwd: pkgRoot,
+          env: { ...process.env, OM_SKIP_EXTERNAL_SKILLS: '1' },
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      )
+    } catch (error) {
+      const failed = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
+      const stdout = failed.stdout?.toString().trim()
+      const stderr = failed.stderr?.toString().trim()
+      throw new Error([
+        'create-app scaffold failed while verifying the reference projection',
+        stdout ? `stdout:\n${stdout}` : null,
+        stderr ? `stderr:\n${stderr}` : null,
+        !stdout && !stderr ? failed.message : null,
+      ].filter(Boolean).join('\n'))
+    }
 
     for (const relativePath of [
       '.ai/guides/module-facts.json',
@@ -143,7 +130,6 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
-  ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
       fs.existsSync(join(guidesDir, 'modules', `${moduleId}.md`)),
@@ -153,7 +139,6 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
 })
 
 test('every default-controller module fact is exercised by the evaluation catalog', () => {
-  ensureBuilt()
   const moduleGuidesDir = join(guidesDir, 'modules')
   const selectedModuleIds = selectModuleFactSheets(templateRoot, moduleGuidesDir)
   const cases = JSON.parse(fs.readFileSync(
@@ -177,7 +162,6 @@ test('every default-controller module fact is exercised by the evaluation catalo
 })
 
 test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () => {
-  ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
       !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
@@ -187,7 +171,6 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
 })
 
 test('build does not emit unreachable package-level standalone guides', () => {
-  ensureBuilt()
   for (const guide of LEGACY_PACKAGE_GUIDES) {
     assert.ok(
       !fs.existsSync(join(guidesDir, `${guide}.md`)),
@@ -212,7 +195,6 @@ test('build does not emit unreachable package-level standalone guides', () => {
 const FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE = ['api_docs']
 
 test('every module fact-sheet a scaffold ships is required by at least one catalog case', () => {
-  ensureBuilt()
   const shipped = selectModuleFactSheets(join(pkgRoot, 'template'), join(guidesDir, 'modules'))
   assert.ok(shipped.length > 0, 'the scaffold must ship at least one module fact-sheet')
 

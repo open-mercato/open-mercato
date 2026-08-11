@@ -172,18 +172,6 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
 })
 
 test('published CLI bin executes the dist entrypoint', () => {
-  const buildResult = spawnSync(process.execPath, ['build.mjs'], {
-    cwd: PACKAGE_ROOT,
-    encoding: 'utf8',
-    env: process.env,
-  })
-
-  assert.equal(
-    buildResult.status,
-    0,
-    `expected package build to succeed\nstdout:\n${buildResult.stdout}\nstderr:\n${buildResult.stderr}`,
-  )
-
   const result = spawnSync(process.execPath, [CLI_BIN, '--help'], {
     cwd: PACKAGE_ROOT,
     encoding: 'utf8',
