@@ -45,8 +45,14 @@ const kyselyBuilder = {
   execute: (...args: unknown[]) => kyselyExecuteMock(...args),
 }
 
+// The route resolves the caller's selected-organization scope (#5012), which
+// reads the tenant's organizations to expand descendant ids. This channel's
+// organization exists for the tenant and has no children.
+const emFindMock = jest.fn(async () => [{ id: organizationId, descendantIds: [] }])
+
 const em = {
   fork: () => em,
+  find: (...args: unknown[]) => emFindMock(...args),
   getKysely: (...args: unknown[]) => getKyselyMock(...args),
 }
 

@@ -4,6 +4,7 @@ import { RateFetchingService } from './services/rateFetchingService'
 import { ExchangeRateService } from './services/exchangeRateService'
 import { NBPProvider } from './services/providers/nbp'
 import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
+import { BaseCurrencyService } from './services/baseCurrencyService'
 
 export function register(container: AppContainer) {
   container.register({
@@ -26,6 +27,8 @@ export function register(container: AppContainer) {
         return new ExchangeRateService(em, rateFetchingService)
       },
     },
+    baseCurrencyService: {
+      resolve: (c) => new BaseCurrencyService(c.resolve<EntityManager>('em')),
+    },
   })
 }
-

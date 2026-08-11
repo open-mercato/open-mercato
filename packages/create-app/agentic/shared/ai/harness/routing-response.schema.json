@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selectedRouter", "selectedSkills", "selectedContext", "decisions", "violations"],
+  "properties": {
+    "selectedRouter": { "type": "array", "items": { "type": "string", "enum": ["architecture", "module-data", "backend-ui", "umes", "integration", "ai-workflow", "testing", "debugging", "spec-pr", "framework-context"] } },
+    "selectedSkills": { "type": "array", "items": { "type": "string", "pattern": "^om-[a-z0-9-]+$", "maxLength": 100 } },
+    "selectedContext": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
+    "decisions": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 100 } },
+    "violations": { "type": "array", "items": { "type": "string", "maxLength": 4096 } }
+  }
+}

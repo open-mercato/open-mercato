@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -31,11 +31,11 @@ type EmailListResponse = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  received: 'bg-blue-100 text-blue-800',
-  processing: 'bg-purple-100 text-purple-800',
-  processed: 'bg-green-100 text-green-800',
-  needs_review: 'bg-amber-100 text-amber-800',
-  failed: 'bg-red-100 text-red-800',
+  received: 'bg-status-info-bg text-status-info-text',
+  processing: 'bg-status-neutral-bg text-status-neutral-text',
+  processed: 'bg-status-success-bg text-status-success-text',
+  needs_review: 'bg-status-warning-bg text-status-warning-text',
+  failed: 'bg-status-error-bg text-status-error-text',
 }
 
 export default function ProcessingLogPage() {
@@ -141,7 +141,7 @@ export default function ProcessingLogPage() {
       accessorKey: 'processingError',
       header: t('inbox_ops.extraction_failed', 'Error'),
       cell: ({ row }) => (
-        <span className="text-xs text-red-600 truncate max-w-[280px] block">
+        <span className="text-xs text-status-error-text truncate max-w-[280px] block">
           {row.original.processingError || '-'}
         </span>
       ),

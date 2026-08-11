@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "invalidStructuredOutputRetries": 1,
+    "rawTranscriptsCommitted": false,
+    "mandatoryFailuresWaivable": false
+  },
+  "releaseSuite": {
+    "supportedRunners": ["codex", "claude"],
+    "requireGenerativeJudge": true,
+    "requireGeneratedCodeReview": true,
+    "validationCommands": ["yarn generate", "yarn typecheck", "yarn lint", "yarn build"]
+  },
+  "deterministic": {
+    "caseIds": "all"
+  },
+  "routing": {
+    "required": {
+      "caseIds": "all"
+    },
+    "portability": {
+      "caseIds": [
+        "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027", "OMH-029", "OMH-031",
+        "OMH-042", "OMH-045", "OMH-049", "OMH-054", "OMH-057", "OMH-060", "OMH-061", "OMH-070",
+        "OMH-093", "OMH-105", "OMH-107", "OMH-115", "OMH-122", "OMH-128", "OMH-130", "OMH-133",
+        "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
+        "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
+        "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193"
+      ]
+    },
+    "runners": {
+      "codex": { "modelSelector": "default" },
+      "claude": { "modelSelector": "sonnet" }
+    }
+  },
+  "writable": [
+    { "caseId": "OMH-009" },
+    { "caseId": "OMH-011" },
+    { "caseId": "OMH-012" },
+    { "caseId": "OMH-014" },
+    { "caseId": "OMH-026" },
+    { "caseId": "OMH-027" },
+    { "caseId": "OMH-029" },
+    { "caseId": "OMH-031" },
+    { "caseId": "OMH-042" },
+    { "caseId": "OMH-045" },
+    { "caseId": "OMH-049" },
+    { "caseId": "OMH-054" },
+    { "caseId": "OMH-057" },
+    { "caseId": "OMH-060" },
+    { "caseId": "OMH-061" },
+    { "caseId": "OMH-070" },
+    { "caseId": "OMH-093" },
+    { "caseId": "OMH-105" },
+    { "caseId": "OMH-107" },
+    { "caseId": "OMH-115" },
+    { "caseId": "OMH-122" },
+    { "caseId": "OMH-128" },
+    { "caseId": "OMH-130" },
+    { "caseId": "OMH-133" },
+    { "caseId": "OMH-137" },
+    { "caseId": "OMH-140" },
+    { "caseId": "OMH-144" },
+    { "caseId": "OMH-146" },
+    { "caseId": "OMH-149" },
+    { "caseId": "OMH-150" },
+    { "caseId": "OMH-151" },
+    { "caseId": "OMH-153" },
+    { "caseId": "OMH-156" },
+    { "caseId": "OMH-163" },
+    { "caseId": "OMH-164" },
+    { "caseId": "OMH-165" },
+    { "caseId": "OMH-171" },
+    { "caseId": "OMH-172" },
+    { "caseId": "OMH-181" },
+    { "caseId": "OMH-185" },
+    { "caseId": "OMH-188" },
+    { "caseId": "OMH-189" },
+    { "caseId": "OMH-190" },
+    { "caseId": "OMH-191" },
+    { "caseId": "OMH-192" },
+    { "caseId": "OMH-193" }
+  ],
+  "generatedCodeReview": {
+    "required": true,
+    "skill": "om-code-review",
+    "caseIds": [
+      "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027",
+      "OMH-029", "OMH-031", "OMH-042", "OMH-045", "OMH-049", "OMH-054",
+      "OMH-057", "OMH-060", "OMH-061", "OMH-070",
+      "OMH-093", "OMH-105", "OMH-107", "OMH-115", "OMH-122", "OMH-128",
+      "OMH-130", "OMH-133", "OMH-137", "OMH-140", "OMH-144", "OMH-146",
+      "OMH-149", "OMH-150", "OMH-151", "OMH-153", "OMH-156", "OMH-163",
+      "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
+      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193"
+    ],
+    "runners": {
+      "codex": { "modelSelector": "default" },
+      "claude": { "modelSelector": "sonnet" }
+    },
+    "maxChangedFiles": 24,
+    "maxChangedBytes": 262144,
+    "maxContextFiles": 32,
+    "maxContextBytes": 524288
+  },
+  "generativeJudge": {
+    "required": true,
+    "skill": "om-judge-agent-session",
+    "reviewSkill": "om-code-review",
+    "caseIds": [
+      "OMH-009", "OMH-011", "OMH-012", "OMH-014", "OMH-026", "OMH-027",
+      "OMH-029", "OMH-031", "OMH-042", "OMH-045", "OMH-049", "OMH-054",
+      "OMH-057", "OMH-060", "OMH-061", "OMH-070",
+      "OMH-093", "OMH-105", "OMH-107", "OMH-115", "OMH-122", "OMH-128",
+      "OMH-130", "OMH-133", "OMH-137", "OMH-140", "OMH-144", "OMH-146",
+      "OMH-149", "OMH-150", "OMH-151", "OMH-153", "OMH-156", "OMH-163",
+      "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
+      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193"
+    ],
+    "runners": {
+      "codex": { "modelSelector": "default" },
+      "claude": { "modelSelector": "sonnet" }
+    },
+    "maxChangedFiles": 24,
+    "maxChangedBytes": 262144,
+    "maxContextFiles": 40,
+    "maxContextBytes": 524288
+  },
+  "generatedTests": {
+    "required": true,
+    "entries": [
+      {
+        "caseId": "OMH-163",
+        "runner": "jest",
+        "artifact": "src/modules/quote_approval/commands/__tests__/approve-quote.test.ts",
+        "network": "none"
+      },
+      {
+        "caseId": "OMH-164",
+        "runner": "playwright-api",
+        "artifact": "src/modules/customer_api/__integration__/TC-API-CUSTOMERS-001.spec.ts",
+        "network": "loopback"
+      },
+      {
+        "caseId": "OMH-165",
+        "runner": "playwright-browser",
+        "artifact": "src/modules/portal_quote_approval/__integration__/TC-PORTAL-QUOTE-001.spec.ts",
+        "network": "loopback"
+      },
+      {
+        "caseId": "OMH-192",
+        "runner": "jest",
+        "artifact": "src/modules/library/commands/__tests__/crm-loans.test.ts",
+        "network": "none"
+      }
+    ]
+  }
+}

@@ -1,8 +1,9 @@
 import { modules } from '@/.mercato/generated/modules.app.generated'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import { backendRouteMetadata } from '@/.mercato/generated/backend-route-metadata.generated'
+import { apiRouteMetadata } from '@/.mercato/generated/api-route-metadata.generated'
 import { StartPageContent } from '@/components/StartPageContent'
+import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import type { Metadata } from 'next'
 import { resolveLocalizedAppMetadata } from '@/lib/metadata'
 import { cookies } from 'next/headers'
@@ -38,12 +39,12 @@ for (const route of frontendRoutes) {
   if (entry) entry.frontend += 1
 }
 
-for (const route of backendRoutes) {
+for (const route of backendRouteMetadata) {
   const entry = routeCountsByModule.get(route.moduleId)
   if (entry) entry.backend += 1
 }
 
-for (const route of apiRoutes) {
+for (const route of apiRouteMetadata) {
   const entry = routeCountsByModule.get(route.moduleId)
   if (entry) entry.api += route.methods.length
 }
@@ -95,7 +96,7 @@ export default async function StartPage() {
         </div>
       </header>
 
-      <StartPageContent showStartPage={showStartPage} showOnboardingCta={onboardingAvailable} />
+      <StartPageContent showStartPage={showStartPage} showOnboardingCta={onboardingAvailable} apiBaseUrl={resolveApiDocsBaseUrl()} />
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="rounded-lg border bg-card p-4">

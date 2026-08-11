@@ -7,7 +7,7 @@ const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const getValueMock = jest.fn()
 const setValueMock = jest.fn()
 
-let grantedFeatures: string[] = []
+let canViewSettings = false
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -18,7 +18,7 @@ const container = {
       }
     }
     if (name === 'rbacService') {
-      return { loadAcl: async () => ({ isSuperAdmin: false, features: grantedFeatures }) }
+      return { userHasAllFeatures: async () => canViewSettings }
     }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
@@ -68,7 +68,7 @@ const stubStoredConfig = (stored: { unitPriceDisplayEnabled?: boolean; omnibus?:
 describe('catalog settings route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    grantedFeatures = []
+    canViewSettings = false
     authValue = { tenantId, sub: userId, orgId: organizationId }
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
@@ -143,7 +143,7 @@ describe('catalog settings route', () => {
 describe('catalog settings route — omnibus block', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    grantedFeatures = []
+    canViewSettings = false
     authValue = { tenantId, sub: userId, orgId: organizationId }
     validateCrudMutationGuardMock.mockResolvedValue({
       ok: true,
@@ -169,7 +169,7 @@ describe('catalog settings route — omnibus block', () => {
     })
 
     it('returns the stored config for a caller holding catalog.settings.view', async () => {
-      grantedFeatures = ['catalog.settings.view']
+      canViewSettings = true
       stubStoredConfig({ unitPriceDisplayEnabled: true, omnibus: { enabled: true, lookbackDays: 30 } })
 
       const response = await GET(new Request('http://localhost/api/catalog/settings'))
@@ -180,8 +180,8 @@ describe('catalog settings route — omnibus block', () => {
       })
     })
 
-    it('honours a wildcard grant', async () => {
-      grantedFeatures = ['catalog.*']
+    it('defers the wildcard and super-admin ordering to the realm service', async () => {
+      canViewSettings = true
       stubStoredConfig({ unitPriceDisplayEnabled: true, omnibus: { enabled: true } })
 
       const response = await GET(new Request('http://localhost/api/catalog/settings'))
@@ -191,7 +191,7 @@ describe('catalog settings route — omnibus block', () => {
     })
 
     it('resolves to an empty object when omnibus has never been configured', async () => {
-      grantedFeatures = ['catalog.settings.view']
+      canViewSettings = true
       stubStoredConfig({ unitPriceDisplayEnabled: true, omnibus: undefined })
 
       const response = await GET(new Request('http://localhost/api/catalog/settings'))

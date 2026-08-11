@@ -1,4 +1,4 @@
-import type { DiRegistrar } from '../di/container'
+import type { AppDiRegistrar, DiRegistrar } from '../di/container'
 import type { EntityIds } from '../encryption/entityIds'
 import type { EntityFieldsRegistry } from '../encryption/entityFields'
 import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } from '../../modules/registry'
@@ -64,9 +64,17 @@ export interface BootstrapData {
   commandInterceptorEntries?: CommandInterceptorBootstrapEntry[]
   commandLoaderEntries?: CommandLoaderBootstrapEntry[]
   notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
+  codeWorkflows?: import('../../modules/workflows/types').CodeWorkflowDefinition[]
 }
 
 export interface BootstrapOptions {
   skipSearchConfigs?: boolean
+  /** Independent registration scope for partitioned runtime bootstraps. */
+  registrationKey?: string
+  /** Skip browser-facing dashboard/injection registries in API-only runtimes. */
+  skipUiRegistries?: boolean
+  /** Keep an existing core injection-widget registry intact in partitioned runtimes. */
+  skipCoreInjectionWidgets?: boolean
   onRegistrationComplete?: () => void
+  appDiRegistrar?: AppDiRegistrar
 }

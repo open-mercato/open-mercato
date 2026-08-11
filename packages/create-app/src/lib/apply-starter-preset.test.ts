@@ -41,10 +41,10 @@ test('resolvePreset: empty returns 10-module list', () => {
   assert.ok(result.filesToRemove.includes('src/modules/example_customers_sync'))
 })
 
-test('resolvePreset: crm returns 14-module list extending empty (includes ai_assistant)', () => {
+test('resolvePreset: crm returns 16-module list extending empty (includes currencies + communication_channels + ai_assistant)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 14)
+  assert.equal(result.modules.length, 16)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -59,6 +59,10 @@ test('resolvePreset: crm returns 14-module list extending empty (includes ai_ass
   assert.ok(ids.includes('notifications'))
   assert.ok(ids.includes('dashboards'))
   assert.ok(ids.includes('events'))
+  // currencies backs deals KPI/aggregate base-currency + FX lookups
+  assert.ok(ids.includes('currencies'))
+  // communication_channels backs CRM email + /backend/profile/communication-channels
+  assert.ok(ids.includes('communication_channels'))
   // ai_assistant must be included so customers AI widgets can register
   // (issue #1849 — CRM mode must enable AI assistant module)
   assert.ok(ids.includes('ai_assistant'))
@@ -102,9 +106,11 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'customers'"))
   assert.ok(content.includes("id: 'feature_toggles'"))
   assert.ok(content.includes("id: 'dictionaries'"))
+  assert.ok(content.includes("id: 'currencies'"))
   assert.ok(content.includes("id: 'notifications'"))
   assert.ok(content.includes("id: 'dashboards'"))
   assert.ok(content.includes("id: 'events'"))
+  assert.ok(content.includes("id: 'communication_channels'"))
   // ai_assistant must register from its own package
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
@@ -121,6 +127,18 @@ function makeTempDir(): string {
   mkdirSync(join(dir, '.mercato'), { recursive: true })
   writeFileSync(join(dir, 'src', 'modules.ts'), '// original')
   return dir
+}
+
+function extractExampleModuleEntry(content: string): string {
+  const startMarker = "  {\n    id: 'example',"
+  const endMarker = "\n  { id: 'ratelimit_probe'"
+  const start = content.indexOf(startMarker)
+  const end = content.indexOf(endMarker, start)
+
+  assert.notEqual(start, -1, 'expected the Example module entry')
+  assert.notEqual(end, -1, 'expected the module entry after Example')
+
+  return content.slice(start, end)
 }
 
 test('applyStarterPreset: classic is a no-op', () => {
@@ -159,7 +177,7 @@ test('applyStarterPreset: empty writes 10-module modules.ts and removes example 
   }
 })
 
-test('applyStarterPreset: crm writes 14-module modules.ts and removes example dirs', () => {
+test('applyStarterPreset: crm writes 16-module modules.ts and removes example dirs', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -168,9 +186,11 @@ test('applyStarterPreset: crm writes 14-module modules.ts and removes example di
     assert.ok(content.includes("id: 'customers'"))
     assert.ok(content.includes("id: 'dictionaries'"))
     assert.ok(content.includes("id: 'feature_toggles'"))
+    assert.ok(content.includes("id: 'currencies'"))
     assert.ok(content.includes("id: 'notifications'"))
     assert.ok(content.includes("id: 'dashboards'"))
     assert.ok(content.includes("id: 'events'"))
+    assert.ok(content.includes("id: 'communication_channels'"))
     // ai_assistant must register so customers AI widgets work in the CRM preset
     // (regression coverage for issue #1849)
     assert.ok(content.includes("id: 'ai_assistant'"))
@@ -191,4 +211,21 @@ test('template baseline modules keep example enabled for classic', () => {
   assert.ok(content.includes("id: 'example'"))
   assert.ok(content.includes("enabledModules.some((entry) => entry.id === 'example')"))
   assert.ok(content.includes("enabledModules.push({ id: 'example_customers_sync', from: '@app' })"))
+})
+
+test('template and monorepo keep the applied Example nav override integration-only', () => {
+  const templateContent = readFileSync(join(__dirname, '..', '..', 'template', 'src', 'modules.ts'), 'utf-8')
+  const monorepoContent = readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'mercato', 'src', 'modules.ts'), 'utf-8')
+  const templateEntry = extractExampleModuleEntry(templateContent)
+  const monorepoEntry = extractExampleModuleEntry(monorepoContent)
+
+  assert.equal(templateEntry, monorepoEntry)
+
+  for (const entry of [templateEntry, monorepoEntry]) {
+    assert.match(
+      entry,
+      /nav:\s*parseBooleanWithDefault\(process\.env\.OM_INTEGRATION_TEST, false\)\s*\?\s*\{ groupOrder: \['example\.nav\.group'\] \}\s*:\s*undefined/,
+    )
+    assert.doesNotMatch(entry, /nav:\s*\{\s*groupOrder:/)
+  }
 })

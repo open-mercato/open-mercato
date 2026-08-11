@@ -7,7 +7,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import type { InteractionSummary, ActivitySummary } from './types'
+import type { InteractionSummary } from './types'
+import { loadLegacyActivitiesInRange } from './legacyActivities'
 
 interface MiniWeekCalendarProps {
   entityId: string
@@ -132,61 +133,6 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       return items.filter(isWithinRange)
     }
 
-    async function loadLegacyActivities(): Promise<InteractionSummary[]> {
-      const items: InteractionSummary[] = []
-      let page = 1
-      let totalPages = 1
-      do {
-        const payload = await readApiResultOrThrow<{
-          items?: ActivitySummary[]
-          totalPages?: number
-        }>(
-          `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=100&sortField=occurredAt&sortDir=desc`,
-          { signal: controller.signal },
-        )
-        const pageItems = Array.isArray(payload?.items) ? payload.items : []
-        const mappedItems: InteractionSummary[] = pageItems.map((activity) => ({
-          id: activity.id,
-          interactionType: activity.activityType,
-          title: activity.subject ?? null,
-          body: activity.body ?? null,
-          status: 'done',
-          scheduledAt: null,
-          occurredAt: activity.occurredAt ?? null,
-          priority: null,
-          authorUserId: activity.authorUserId ?? null,
-          ownerUserId: null,
-          appearanceIcon: activity.appearanceIcon ?? null,
-          appearanceColor: activity.appearanceColor ?? null,
-          source: 'legacy-activity',
-          entityId: activity.entityId ?? null,
-          dealId: activity.dealId ?? null,
-          organizationId: null,
-          tenantId: null,
-          authorName: activity.authorName ?? null,
-          authorEmail: activity.authorEmail ?? null,
-          dealTitle: activity.dealTitle ?? null,
-          customValues: null,
-          createdAt: activity.createdAt,
-          updatedAt: activity.createdAt,
-        }))
-        items.push(...mappedItems.filter(isWithinRange))
-        totalPages = typeof payload?.totalPages === 'number' ? payload.totalPages : totalPages
-        if (!pageItems.length) break
-        const oldestPageTimestamp = pageItems.reduce<number>((oldest, activity) => {
-          const rawDate = activity.occurredAt ?? activity.createdAt
-          const timestamp = rawDate ? new Date(rawDate).getTime() : Number.NaN
-          if (!Number.isFinite(timestamp)) return oldest
-          return Math.min(oldest, timestamp)
-        }, Number.POSITIVE_INFINITY)
-        if (Number.isFinite(oldestPageTimestamp) && oldestPageTimestamp < rangeStart.getTime()) {
-          break
-        }
-        page += 1
-      } while (page <= totalPages)
-      return items
-    }
-
     void (async () => {
       try {
         const canonicalItems = await loadCanonicalInteractions()
@@ -194,7 +140,12 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
           setEvents(canonicalItems)
           return
         }
-        const legacyItems = await loadLegacyActivities()
+        const legacyItems = await loadLegacyActivitiesInRange({
+          entityId,
+          rangeStart,
+          isWithinRange,
+          signal: controller.signal,
+        })
         const seen = new Set<string>()
         const merged: InteractionSummary[] = []
         for (const item of [...canonicalItems, ...legacyItems]) {

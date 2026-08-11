@@ -16,7 +16,6 @@ import {
   UNIT_PRICE_DISPLAY_ENABLED_KEY,
 } from '../../lib/settings'
 import { omnibusConfigSchema, type OmnibusConfig } from '../../data/validators'
-import { hasFeature } from '@open-mercato/shared/security/features'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('catalog')
@@ -91,39 +90,29 @@ async function readOmnibusConfig(context: SettingsContext): Promise<OmnibusConfi
   return value && typeof value === 'object' ? value : {}
 }
 
-type RbacFeatureReader = {
-  loadAcl?: (
+type RbacFeatureChecker = {
+  userHasAllFeatures: (
     userId: string,
+    required: string[],
     scope: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<{ isSuperAdmin?: boolean; features?: string[] }>
-  getGrantedFeatures?: (
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
+  ) => Promise<boolean>
 }
 
-function readAuthFeatures(context: SettingsContext): string[] {
-  const features = (context.auth as { features?: unknown }).features
-  if (!Array.isArray(features)) return []
-  return features.filter((value): value is string => typeof value === 'string')
-}
-
-async function resolveGrantedFeatures(context: SettingsContext): Promise<string[]> {
-  const granted = new Set<string>(readAuthFeatures(context))
-  const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
+// The realm service is the only persistence-aware authorization entrypoint: it orders
+// disabled/nulled features ahead of super-admin and wildcard grants. Reimplementing that
+// ordering here would silently grant a feature the tenant has switched off.
+async function canViewOmnibusConfig(context: SettingsContext): Promise<boolean> {
   try {
-    const rbac = context.container.resolve('rbacService') as RbacFeatureReader | undefined
-    if (rbac?.loadAcl) {
-      const acl = await rbac.loadAcl(context.actorId, scope)
-      if (acl?.isSuperAdmin) granted.add('*')
-      for (const feature of acl?.features ?? []) granted.add(feature)
-    } else if (rbac?.getGrantedFeatures) {
-      for (const feature of await rbac.getGrantedFeatures(context.actorId, scope)) granted.add(feature)
-    }
+    const rbac = context.container.resolve('rbacService') as RbacFeatureChecker | undefined
+    if (!rbac?.userHasAllFeatures) return false
+    return await rbac.userHasAllFeatures(context.actorId, [CATALOG_SETTINGS_VIEW_FEATURE], {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+    })
   } catch (err) {
-    logger.warn('catalog.settings Unable to resolve granted features', { err })
+    logger.warn('catalog.settings Unable to authorize the omnibus config block', { err })
+    return false
   }
-  return Array.from(granted)
 }
 
 function mergeOmnibusConfig(stored: OmnibusConfig, incoming: OmnibusConfig): OmnibusConfig {
@@ -165,8 +154,7 @@ async function GET(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
     const unitPriceDisplayEnabled = await readUnitPriceDisplayEnabled(context)
-    const grantedFeatures = await resolveGrantedFeatures(context)
-    if (!hasFeature(grantedFeatures, CATALOG_SETTINGS_VIEW_FEATURE)) {
+    if (!(await canViewOmnibusConfig(context))) {
       return NextResponse.json({ unitPriceDisplayEnabled })
     }
     const omnibus = await readOmnibusConfig(context)

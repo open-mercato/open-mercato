@@ -2,6 +2,7 @@
 
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runPaymentGatewayMutationGuardAfterSuccess,
   runPaymentGatewayMutationGuards,
@@ -26,6 +27,7 @@ jest.mock('../guards', () => ({
 }))
 
 const TXN_ID = '11111111-1111-4111-8111-111111111111'
+const OPERATION_ID = '22222222-2222-4222-8222-222222222222'
 const RESOURCE_KIND = 'payment_gateways.gateway_transaction'
 
 const service = {
@@ -95,6 +97,40 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
       expect(service.createPaymentSession).toHaveBeenCalledTimes(1)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
+
+    it('surfaces an order reconciliation conflict as 409 instead of a gateway error', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        conflict('Payment session amount 1 does not match the amount due for order o-1'),
+      )
+      const response = await createSession(buildRequest(body))
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        error: 'Payment session amount 1 does not match the amount due for order o-1',
+      })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+
+    it('preserves a typed missing-adapter response as 422', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        new CrudHttpError(422, { error: 'No gateway adapter registered for provider: missing' }),
+      )
+
+      const response = await createSession(buildRequest(body))
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({ error: 'No gateway adapter registered for provider: missing' })
+    })
+
+    it('does not expose unexpected internal errors in a 502 response', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        new Error('[internal] Completed payment session is missing its gateway transaction'),
+      )
+
+      const response = await createSession(buildRequest(body))
+
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({ error: 'Failed to create payment session' })
+    })
   })
 
   describe('POST /payment_gateways/capture (update)', () => {
@@ -122,9 +158,9 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
     })
 
     it('runs after-success hooks once the capture succeeds', async () => {
-      const response = await capturePayment(buildRequest(body))
+      const response = await capturePayment(buildRequest({ ...body, operationId: OPERATION_ID }))
       expect(response.status).toBe(200)
-      expect(service.capturePayment).toHaveBeenCalledTimes(1)
+      expect(service.capturePayment).toHaveBeenCalledWith(TXN_ID, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
   })
@@ -154,9 +190,9 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
     })
 
     it('runs after-success hooks once the refund succeeds', async () => {
-      const response = await refundPayment(buildRequest(body))
+      const response = await refundPayment(buildRequest({ ...body, operationId: OPERATION_ID }))
       expect(response.status).toBe(200)
-      expect(service.refundPayment).toHaveBeenCalledTimes(1)
+      expect(service.refundPayment).toHaveBeenCalledWith(TXN_ID, undefined, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
   })
@@ -186,9 +222,9 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
     })
 
     it('runs after-success hooks once the cancel succeeds', async () => {
-      const response = await cancelPayment(buildRequest(body))
+      const response = await cancelPayment(buildRequest({ ...body, operationId: OPERATION_ID }))
       expect(response.status).toBe(200)
-      expect(service.cancelPayment).toHaveBeenCalledTimes(1)
+      expect(service.cancelPayment).toHaveBeenCalledWith(TXN_ID, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
   })
