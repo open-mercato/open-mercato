@@ -86,28 +86,35 @@ to end exactly that on this page but covered only the sections and dialogs, not 
 (`DocumentTotals` → `PriceWithCurrency`) or the page's own date/message formatting. Evidence:
 PR comment `#issuecomment-5251581400`.
 
-- [ ] `sales/components/PriceWithCurrency.tsx` — `formatPriceWithCurrency` takes an optional
+- [x] `sales/components/PriceWithCurrency.tsx` — `formatPriceWithCurrency` takes an optional
       `locale`; the component reads `useLocale()` so every call site (DocumentTotals,
       AdjustmentsSection) is covered without touching them
-- [ ] `sales/backend/sales/documents/[id]/page.tsx` — `locale` for both `toLocaleDateString()`
+- [x] `sales/backend/sales/documents/[id]/page.tsx` — `locale` for both `toLocaleDateString()`
       displays (expected delivery, placed-at) and for `formatMessageAmount`
-- [ ] `salesComponentsRender.test.tsx` — extend the `i18n/context` mock with `useLocale` (third
+- [x] `salesComponentsRender.test.tsx` — extend the `i18n/context` mock with `useLocale` (third
       instance of the same trap) and add a `pl-PL` regression case
-- [ ] Verify the sales module green under both `pl_PL.UTF-8` and `en_US.UTF-8`
-- [ ] Run the configured validation gate
-- [ ] Update the PR body and post the resume summary comment
+- [x] Verify the sales module green under both `pl_PL.UTF-8` and `en_US.UTF-8`
+- [x] Run the configured validation gate
+- [x] Update the PR body and post the resume summary comment
+
+Re-driven in a browser on the fixed head (`f52f01bf`): the sales document page under a Polish
+application locale now reads `95,00 USD` in the items table, `RAZEM (NETTO) 549,90 USD` /
+`DO ZAPŁATY 549,90 USD` in the summary panel, and `7.08.2026` / `12.08.2026` for the dates. The
+assertion is stated as an absence — no `$1,234.56`-shaped string may survive anywhere on that
+page — so a future regression fails loudly instead of merely looking plausible.
 
 ## Notes / follow-ups
 
-- `detail/utils.formatCurrency` has four other call sites (`ActiveDealCard`, `ActiveDealWidget`,
-  `DealsLocationPanel`, `DealsMapCanvasImpl`) and `sales`' `formatMoney` has seven
-  (`ShipmentDialog`, `LineItemDialog`, `PaymentsSection`, `ReturnsSection`,
-  `SalesOrderDraftLines`, and the two notification renderers) that still format without a locale.
+- `detail/utils.formatCurrency` still has four call sites (`ActiveDealCard`, `ActiveDealWidget`,
+  `DealsLocationPanel`, `DealsMapCanvasImpl`) and `sales`' `formatMoney` three
+  (`SalesOrderDraftLines` and the two notification renderers) that format without a locale.
   They are behaviour-unchanged here (the parameter is optional) and are worth a separate follow-up
-  so the whole customers/sales surface honours the app locale.
+  so the whole customers surface honours the app locale. UI QA showed what the deferral costs: on a
+  company page under a Polish locale the KPI tile reads `210 000 USD` directly above a deal card
+  reading `$210,000.00`.
 - Threading `useLocale()` into a widely-rendered component breaks any test whose `i18n/context`
-  mock only stubs `useT`. One such suite (`ItemsSection.description.test.tsx`) needed its mock
-  extended. Worth remembering before wiring the remaining call sites above.
+  mock only stubs `useT`. Three suites in this PR hit it (`ItemsSection.description`,
+  `ShipmentDialog.reRenderLoop`, `salesComponentsRender`). Expect it for every call site above.
 - Pre-existing local failures unrelated to this change, reproduced in **both** locales and in
   packages this diff does not touch: `packages/cli` `generateOpenApi` cache tests (flaky, 2 vs 4
   failures across runs), `@open-mercato/telemetry` pg-instrumentation (spawns a child process),
