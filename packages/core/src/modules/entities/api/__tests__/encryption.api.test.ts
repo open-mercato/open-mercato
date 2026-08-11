@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { GET, POST } from '@open-mercato/core/modules/entities/api/encryption'
+import { GET, POST, openApi } from '@open-mercato/core/modules/entities/api/encryption'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 // Deterministic version instants. The optimistic-lock check is a pure ISO-string
@@ -161,6 +161,48 @@ describe('entities/encryption API', () => {
       organizationId: 'o-2',
     }))
     expect(mockEncSvc.invalidateMap).toHaveBeenCalledWith('example:todo', 't-1', 'o-2')
+  })
+
+  it('rejects a write when the explicitly selected organization is unavailable', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't-1',
+      selectedId: 'o-1',
+      filterIds: ['o-1'],
+      allowedIds: ['o-1'],
+      selectionRejected: true,
+    })
+    const payload = { entityId: 'example:todo', fields: [{ field: 'notes' }] }
+
+    const res = await POST(new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'om_selected_org=unavailable-org',
+      },
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ code: 'organization_selection_invalid' })
+    expect(mockMapRepo.findOne).not.toHaveBeenCalled()
+    expect(mockMapRepo.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(persistFlush).not.toHaveBeenCalled()
+    expect(mockEncSvc.invalidateMap).not.toHaveBeenCalled()
+  })
+
+  it('documents the unavailable selected-organization response in OpenAPI', () => {
+    const response = openApi.methods.POST?.responses?.find((entry) => entry.status === 422)
+
+    expect(response?.description).toBe('Selected organization is unavailable')
+    expect(response?.schema?.safeParse({
+      error: 'Selected organization is unavailable',
+      code: 'organization_selection_invalid',
+    }).success).toBe(true)
+    expect(response?.schema?.safeParse({
+      error: 'Selected organization is unavailable',
+      code: 'unexpected_code',
+    }).success).toBe(false)
   })
 
   it('rejects a stale write to an existing map with a 409 conflict', async () => {

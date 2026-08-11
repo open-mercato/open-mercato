@@ -81,17 +81,18 @@ export function boundFailedItems(
  */
 export function resolveTodoBulkOutcome(input: {
   succeededCount: number
+  failedCount: number
   failedItems: readonly TodoBulkFailedItem[]
   cancelled: boolean
 }): TodoBulkOutcome {
   const failedItems = boundFailedItems(input.failedItems)
   const summary = {
     affectedCount: input.succeededCount,
-    failedCount: input.failedItems.length,
+    failedCount: input.failedCount,
     failedItems,
   }
   if (input.cancelled) return { terminal: 'cancelled', summary }
-  if (input.succeededCount === 0 && input.failedItems.length > 0) {
+  if (input.succeededCount === 0 && input.failedCount > 0) {
     return { terminal: 'failed', summary }
   }
   return { terminal: 'completed', summary }
@@ -406,7 +407,7 @@ export async function runTodoBulkCompleteLoop(params: {
     )
   }
 
-  const outcome = resolveTodoBulkOutcome({ succeededCount, failedItems, cancelled })
+  const outcome = resolveTodoBulkOutcome({ succeededCount, failedCount, failedItems, cancelled })
   const leaseRenewed = await params.store.renewLease(
     params.operationId,
     params.scope,

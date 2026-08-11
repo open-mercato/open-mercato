@@ -32,7 +32,7 @@ const SCOPE = {
 
 describe('resolveTodoBulkOutcome', () => {
   it('completes a run where every item succeeded', () => {
-    const outcome = resolveTodoBulkOutcome({ succeededCount: 3, failedItems: [], cancelled: false })
+    const outcome = resolveTodoBulkOutcome({ succeededCount: 3, failedCount: 0, failedItems: [], cancelled: false })
 
     expect(outcome.terminal).toBe('completed')
     expect(outcome.summary).toEqual({ affectedCount: 3, failedCount: 0, failedItems: [] })
@@ -41,6 +41,7 @@ describe('resolveTodoBulkOutcome', () => {
   it('completes a mixed run and reports which items failed', () => {
     const outcome = resolveTodoBulkOutcome({
       succeededCount: 2,
+      failedCount: 1,
       failedItems: [{ id: 'todo-3', code: 'conflict' }],
       cancelled: false,
     })
@@ -56,6 +57,7 @@ describe('resolveTodoBulkOutcome', () => {
   it('fails a run where nothing succeeded and something failed', () => {
     const outcome = resolveTodoBulkOutcome({
       succeededCount: 0,
+      failedCount: 2,
       failedItems: [{ id: 'todo-1', code: 'error' }, { id: 'todo-2', code: 'not_found' }],
       cancelled: false,
     })
@@ -65,7 +67,7 @@ describe('resolveTodoBulkOutcome', () => {
   })
 
   it('cancels regardless of how many items already landed', () => {
-    const outcome = resolveTodoBulkOutcome({ succeededCount: 5, failedItems: [], cancelled: true })
+    const outcome = resolveTodoBulkOutcome({ succeededCount: 5, failedCount: 0, failedItems: [], cancelled: true })
 
     expect(outcome.terminal).toBe('cancelled')
     expect(outcome.summary.affectedCount).toBe(5)
@@ -77,7 +79,7 @@ describe('resolveTodoBulkOutcome', () => {
       code: 'error',
     }))
 
-    const outcome = resolveTodoBulkOutcome({ succeededCount: 1, failedItems, cancelled: false })
+    const outcome = resolveTodoBulkOutcome({ succeededCount: 1, failedCount: 25, failedItems, cancelled: false })
 
     expect(outcome.summary.failedCount).toBe(25)
     expect(outcome.summary.failedItems).toHaveLength(20)

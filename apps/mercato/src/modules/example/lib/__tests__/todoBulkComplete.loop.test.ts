@@ -405,6 +405,63 @@ describe('runTodoBulkCompleteLoop', () => {
     })
   })
 
+  it('keeps the exact failure count when a fresh run exceeds the bounded failure list', async () => {
+    const todoIds = Array.from({ length: 25 }, (_, index) => `todo-${index + 1}`)
+    const expectedFailedItems = todoIds.slice(0, 20).map((id) => ({ id, code: 'error' }))
+    const { store, finished } = buildStore(buildSnapshot({ todoIds }))
+    const progress = buildProgress()
+
+    await runTodoBulkCompleteLoop({
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress,
+      execute: async () => {
+        throw new Error('failed')
+      },
+    })
+
+    const summary = { affectedCount: 0, failedCount: 25, failedItems: expectedFailedItems }
+    expect(finished[0]).toEqual({ status: 'failed', summary })
+    expect(progress.failJob).toHaveBeenCalledWith(
+      PROGRESS_JOB_ID,
+      { errorMessage: 'example.todos.bulkComplete.allFailed', resultSummary: summary },
+      { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, userId: SCOPE.userId },
+    )
+  })
+
+  it('preserves the exact persisted failure count when resuming from a bounded checkpoint', async () => {
+    const failedTodoIds = Array.from({ length: 25 }, (_, index) => `todo-${index + 1}`)
+    const failedItems = failedTodoIds.slice(0, 20).map((id) => ({ id, code: 'error' }))
+    const todoIds = [...failedTodoIds, 'todo-26']
+    const { store, finished } = buildStore(buildSnapshot({
+      status: 'running',
+      todoIds,
+      nextItemIndex: 25,
+      failedCount: 25,
+      failedItems,
+    }))
+    const progress = buildProgress()
+
+    await runTodoBulkCompleteLoop({
+      operationId: OPERATION_ID,
+      scope: SCOPE,
+      leaseOwner: 'worker-a',
+      store,
+      progress,
+      execute: async () => undefined,
+    })
+
+    const summary = { affectedCount: 1, failedCount: 25, failedItems }
+    expect(finished[0]).toEqual({ status: 'completed', summary })
+    expect(progress.completeJob).toHaveBeenCalledWith(
+      PROGRESS_JOB_ID,
+      { resultSummary: summary },
+      { tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, userId: SCOPE.userId },
+    )
+  })
+
   it('clears the operation from the store even when it processed nothing', async () => {
     const { store } = buildStore(null)
     const progress = buildProgress()

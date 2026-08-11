@@ -9,6 +9,14 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+import type { QueryEngine, QueryOptions } from '@open-mercato/shared/lib/query/types'
+import {
+  createPgVectorDriver,
+  EmbeddingService,
+  VectorIndexService,
+} from '@open-mercato/search/vector'
+import { vectorConfig } from '../vector'
 
 export const integrationMeta = {
   dependsOnModules: [
@@ -41,6 +49,89 @@ type SearchResponse = {
 type IntegrationListResponse = {
   items?: Array<{ id?: string; providerKey?: string; bundleId?: string }>
   bundles?: Array<{ id?: string; integrationCount?: number }>
+}
+
+type PgPool = NonNullable<NonNullable<Parameters<typeof createPgVectorDriver>[0]>['pool']>
+
+async function queryIntegrationDatabase<Row = Record<string, unknown>>(
+  text: string,
+  params?: unknown[],
+): Promise<{ rows: Row[]; rowCount?: number }> {
+  const result = await withClient((client) => client.query<Row>(text, params))
+  return {
+    rows: result.rows,
+    ...(result.rowCount === null ? {} : { rowCount: result.rowCount }),
+  }
+}
+
+function createIntegrationPgPool(): PgPool {
+  return {
+    async connect() {
+      return {
+        query: queryIntegrationDatabase,
+        release() {},
+      }
+    },
+    query: queryIntegrationDatabase,
+    async end() {},
+  }
+}
+
+class DeterministicEmbeddingService extends EmbeddingService {
+  override get available(): boolean {
+    return true
+  }
+
+  override async createEmbedding(input: string | string[]): Promise<number[]> {
+    const text = Array.isArray(input) ? input.join('\n\n') : input
+    const embedding = Array.from({ length: 1_536 }, () => 0)
+    Array.from(text).forEach((character, index) => {
+      const codePoint = character.codePointAt(0) ?? 0
+      embedding[(codePoint + (index * 131)) % 1_535] += 1
+    })
+    embedding[1_535] = 1
+    return embedding
+  }
+}
+
+function readRequestedIds(options?: QueryOptions): string[] {
+  const filters = options?.filters
+  if (!filters || Array.isArray(filters)) return []
+  const idFilter = filters.id
+  if (!idFilter || typeof idFilter !== 'object' || Array.isArray(idFilter)) return []
+  const requestedIds = (idFilter as { $in?: unknown }).$in
+  return Array.isArray(requestedIds)
+    ? requestedIds.filter((value): value is string => typeof value === 'string')
+    : []
+}
+
+function createLiveTodoQueryEngine(observedScopes: string[]): QueryEngine {
+  return {
+    async query<Result = unknown>(entityId: string, options?: QueryOptions) {
+      expect(entityId).toBe('example:todo')
+      expect(options?.tenantId).toBeTruthy()
+      expect(options?.organizationId).toBeTruthy()
+      const tenantId = options?.tenantId ?? ''
+      const organizationId = options?.organizationId ?? ''
+      const recordIds = readRequestedIds(options)
+      observedScopes.push(organizationId)
+      const result = await queryIntegrationDatabase<Record<string, unknown>>(
+        `SELECT id, title, notes, is_done, tenant_id, organization_id
+           FROM todos
+          WHERE id = ANY($1::uuid[])
+            AND tenant_id = $2::uuid
+            AND organization_id = $3::uuid
+            AND deleted_at IS NULL`,
+        [recordIds, tenantId, organizationId],
+      )
+      return {
+        items: result.rows as Result[],
+        page: 1,
+        pageSize: Math.max(1, recordIds.length),
+        total: result.rows.length,
+      }
+    },
+  }
 }
 
 
@@ -107,6 +198,28 @@ async function deleteWorkflowInstances(instanceIds: string[]): Promise<void> {
       [instanceIds],
     )
   })
+}
+
+async function expectSingleWorkflowInstanceToRemainStable(
+  request: APIRequestContext,
+  token: string,
+  todoId: string,
+  expectedOrganizationId: string,
+  collectInstanceId: (instanceId: string) => void,
+  selectedOrgId?: string,
+): Promise<void> {
+  const observationDeadline = Date.now() + 5_000
+  do {
+    const instances = await readWorkflowInstances(request, token, todoId, selectedOrgId)
+    instances.forEach((instance) => collectInstanceId(instance.id))
+    expect(instances).toHaveLength(1)
+    expect(instances[0]).toMatchObject({
+      status: 'COMPLETED',
+      organizationId: expectedOrganizationId,
+      metadata: { entityId: todoId, entityType: 'example:todo' },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  } while (Date.now() < observationDeadline)
 }
 
 test.describe('TC-EXAMPLE-015: the nine specialized registries have real local callers', () => {
@@ -193,13 +306,28 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
     }
   })
 
-  test('token search indexes a real Todo and preserves organization scope', async ({ request }) => {
+  test('token search and live deterministic pgvector indexing preserve Todo organization scope', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
     let todoId: string | null = null
     let foreignOrgId: string | null = null
     let foreignTodoId: string | null = null
+    const vectorTableName = `vector_search_tc015_${suffix}`
+    const vectorMigrationsTableName = `vector_migrations_tc015_${suffix}`
+    const observedVectorQueryScopes: string[] = []
+    const vectorDriver = createPgVectorDriver({
+      pool: createIntegrationPgPool(),
+      tableName: vectorTableName,
+      migrationsTable: vectorMigrationsTableName,
+      dimension: 1_536,
+    })
+    const vectorService = new VectorIndexService({
+      drivers: [vectorDriver],
+      embeddingService: new DeterministicEmbeddingService(),
+      queryEngine: createLiveTodoQueryEngine(observedVectorQueryScopes),
+      moduleConfigs: [vectorConfig],
+    })
 
     try {
       const created = await apiRequest(request, 'POST', TODOS_API, {
@@ -243,7 +371,73 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       expect(await searchTodoIds(request, token, `TC-EXAMPLE-015 foreign vector ${suffix}`))
         .not.toContain(foreignTodoId)
 
+      await expect(vectorService.indexRecord({
+        entityId: 'example:todo',
+        recordId: todoId!,
+        tenantId,
+        organizationId,
+      })).resolves.toMatchObject({
+        action: 'indexed',
+        created: true,
+        organizationId,
+      })
+      await expect(vectorService.indexRecord({
+        entityId: 'example:todo',
+        recordId: foreignTodoId!,
+        tenantId,
+        organizationId: foreignOrgId,
+      })).resolves.toMatchObject({
+        action: 'indexed',
+        created: true,
+        organizationId: foreignOrgId,
+      })
+      await expect(vectorService.indexRecord({
+        entityId: 'example:todo',
+        recordId: todoId!,
+        tenantId,
+        organizationId,
+      })).resolves.toMatchObject({
+        action: 'skipped',
+        reason: 'checksum_match',
+      })
+
+      const homeEntries = await vectorDriver.list!({
+        tenantId,
+        organizationId,
+        entityId: 'example:todo',
+      })
+      const foreignEntries = await vectorDriver.list!({
+        tenantId,
+        organizationId: foreignOrgId,
+        entityId: 'example:todo',
+      })
+      expect(homeEntries.map((entry) => entry.recordId)).toEqual([todoId])
+      expect(foreignEntries.map((entry) => entry.recordId)).toEqual([foreignTodoId])
+
+      const homeHits = await vectorService.search({
+        query: `TC-EXAMPLE-015 vector ${suffix}`,
+        tenantId,
+        organizationId,
+        limit: 10,
+      })
+      const foreignHits = await vectorService.search({
+        query: `TC-EXAMPLE-015 foreign vector ${suffix}`,
+        tenantId,
+        organizationId: foreignOrgId,
+        limit: 10,
+      })
+      expect(homeHits.map((hit) => hit.recordId)).toEqual([todoId])
+      expect(foreignHits.map((hit) => hit.recordId)).toEqual([foreignTodoId])
+      expect(observedVectorQueryScopes).toEqual(expect.arrayContaining([
+        organizationId,
+        foreignOrgId,
+      ]))
+
     } finally {
+      await withClient(async (client) => {
+        await client.query(`DROP TABLE IF EXISTS "${vectorTableName}"`)
+        await client.query(`DROP TABLE IF EXISTS "${vectorMigrationsTableName}"`)
+      }).catch(() => undefined)
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
       if (foreignOrgId && foreignTodoId) {
         await apiRequestWithSelectedOrg(request, 'DELETE', TODOS_API, {
@@ -256,9 +450,9 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
     }
   })
 
-  test('one scoped Todo event starts exactly one workflow instance in its organization', async ({ request }) => {
+  test('one persisted scoped Todo event remains one workflow instance after the queued delivery is drained', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const { tenantId } = getTokenScope(token)
+    const { tenantId, organizationId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
     let homeTodoId: string | null = null
     let foreignTodoId: string | null = null
@@ -283,7 +477,6 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
         instances.forEach((instance) => workflowInstanceIds.add(instance.id))
         return instances.map((instance) => instance.status)
       }, { timeout: 30_000 }).toEqual(['COMPLETED'])
-      expect(await readWorkflowInstances(request, token, homeTodoId!)).toHaveLength(1)
 
       foreignOrgId = await createOrganizationFixture(request, token, {
         name: `TC-EXAMPLE-015 workflow org ${suffix}`,
@@ -309,7 +502,26 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       }, { timeout: 30_000 }).toEqual(['COMPLETED'])
 
       expect(await readWorkflowInstances(request, token, foreignTodoId!)).toEqual([])
-      expect(await readWorkflowInstances(request, token, foreignTodoId!, foreignOrgId!)).toHaveLength(1)
+      const processedEventDeliveries = await drainIntegrationQueue('events')
+      expect(Number.isSafeInteger(processedEventDeliveries)).toBe(true)
+      expect(processedEventDeliveries).toBeGreaterThanOrEqual(0)
+      await Promise.all([
+        expectSingleWorkflowInstanceToRemainStable(
+          request,
+          token,
+          homeTodoId!,
+          organizationId,
+          (instanceId) => workflowInstanceIds.add(instanceId),
+        ),
+        expectSingleWorkflowInstanceToRemainStable(
+          request,
+          token,
+          foreignTodoId!,
+          foreignOrgId!,
+          (instanceId) => workflowInstanceIds.add(instanceId),
+          foreignOrgId!,
+        ),
+      ])
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, homeTodoId)
       if (foreignOrgId && foreignTodoId) {

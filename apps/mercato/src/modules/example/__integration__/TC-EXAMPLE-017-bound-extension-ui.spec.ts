@@ -85,8 +85,9 @@ function collectExampleLifecycleLogs(page: Page): string[] {
  * pass for all three no matter which one actually ran.
  */
 test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts, and all three component modes', () => {
-  test('the bound CrudForm host renders its injected widget, its nested spot, and every payload category', async ({ page }) => {
+  test('the bound CrudForm host drives every non-save payload channel and its nested spot', async ({ page }) => {
     test.slow()
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
     await login(page, 'admin')
     await page.goto('/backend/todos/create', { waitUntil: 'domcontentloaded' })
 
@@ -97,8 +98,9 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
     const injected = page.getByText('Example Injection Widget')
     await expect(injected).toBeVisible({ timeout: 20_000 })
 
-    // Every payload category the CrudForm host publishes has its own readout. They start null,
-    // which is the point: the categories are distinct channels, not one blob.
+    // Every payload category the CrudForm host publishes has its own readout. Rendering these
+    // nodes is only the setup assertion; every channel this test owns is driven below and must
+    // expose its semantic payload rather than merely changing away from null.
     for (const testId of [
       'widget-field-change',
       'widget-field-warning',
@@ -120,19 +122,67 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
     await expect(addonHost).toBeVisible()
     await expect(addonHost.getByText(/Addon injected into validation widget/i)).toBeVisible()
 
+    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    const form = titleInput.locator('xpath=ancestor::form[1]')
+    await form.evaluate((formElement) => {
+      const blockedLink = document.createElement('a')
+      blockedLink.href = '/backend/blocked'
+      blockedLink.dataset.testid = 'tc-example-017-blocked-navigation'
+      blockedLink.textContent = 'Blocked navigation probe'
+      formElement.append(blockedLink)
+    })
+    await expect.poll(async () => {
+      await page.getByTestId('tc-example-017-blocked-navigation').click()
+      return (await page.getByTestId('widget-navigation').textContent()) ?? ''
+    }, { timeout: 20_000, intervals: [250, 500, 1000] }).toContain('"ok":false')
+    await expect(page.getByTestId('widget-navigation')).toContainText('"target":"/backend/blocked"')
+    await expect(page).toHaveURL(/\/backend\/todos\/create(?:\?.*)?$/)
+
     // `onFieldChange` is the category most easily faked by a widget that just renders a label,
     // so it is driven for real: typing into a host field must reach the injected widget.
-    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    const fieldValue = `TEST TC-EXAMPLE-017 ${suffix}`
     // Re-typed on every poll attempt: the widget subscribes to the form's shared state after its
     // own mount, so a single keystroke landing before that subscription is a real race rather
     // than a missing handler, and retrying the input is what distinguishes the two.
+    let fieldChangeAttempt = 0
     await expect
       .poll(async () => {
-        await titleInput.fill(`TC-EXAMPLE-017 ${randomUUID().slice(0, 8)}`)
+        fieldChangeAttempt += 1
+        await titleInput.fill(`warmup-${fieldChangeAttempt}`)
+        await titleInput.fill(fieldValue)
         await titleInput.blur()
         return (await page.getByTestId('widget-field-change').textContent()) ?? ''
       }, { timeout: 30_000, intervals: [500, 1000, 2000, 3000] })
-      .not.toBe('fieldChange=null')
+      .toContain(`"fieldId":"title","value":"${fieldValue}"`)
+    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains')
+
+    const blockedTitle = `[block] TC-EXAMPLE-017 channels ${suffix}`
+    await titleInput.fill(`  ${blockedTitle}  `)
+    await form.locator('button[type="submit"]').first().click()
+    await expect(page.getByTestId('widget-transform-form-data')).toContainText(`"title":"${blockedTitle}"`)
+    await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":false')
+    await expect(page.getByTestId('widget-save-guard')).toContainText('"reason":"rule:block-tag"')
+    await expect(page.getByTestId('widget-transform-validation')).toContainText(
+      '"title":"Remove [block] marker from title"',
+    )
+
+    const probeId = `tc-example-017-${suffix}`
+    await page.evaluate(({ probeId: eventProbeId }) => {
+      window.dispatchEvent(new CustomEvent('om:event', {
+        detail: {
+          id: 'example.todo.updated',
+          payload: { probeId: eventProbeId },
+        },
+      }))
+    }, { probeId })
+    await expect(page.getByTestId('widget-app-event')).toContainText('"id":"example.todo.updated"')
+    await expect(page.getByTestId('widget-app-event')).toContainText(`"probeId":"${probeId}"`)
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await expect(page.getByTestId('widget-visibility')).toContainText('"visible":true')
+
   })
 
   test('runs validation, transform, recursive, save and after-save phases through a real create', async ({ page, request }) => {
@@ -147,6 +197,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       await page.goto('/backend/todos/create', { waitUntil: 'domcontentloaded' })
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
+      await expect.poll(() => logs.some((entry) => entry.includes('Form loaded'))).toBe(true)
       await page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first().fill('3')
       await page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first().click()
       await page.getByRole('option', { name: 'Medium' }).click()
@@ -163,11 +214,58 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       const rawTitle = `[transform] TC-EXAMPLE-017 ${suffix}`
       const expectedTitle = `TC-EXAMPLE-017 ${suffix} (transformed)`
       await titleInput.fill(rawTitle)
-      const [createRequest, createResponse] = await Promise.all([
-        page.waitForRequest((candidate) => candidate.url().includes(TODOS_API) && candidate.method() === 'POST'),
-        page.waitForResponse((response) => response.url().includes(TODOS_API) && response.request().method() === 'POST'),
-        titleInput.locator('xpath=ancestor::form').first().locator('button[type="submit"]').first().click(),
-      ])
+      let markCreateRequestIntercepted: () => void = () => {}
+      let releaseCreateRequest: () => void = () => {}
+      const createRequestIntercepted = new Promise<void>((resolve) => {
+        markCreateRequestIntercepted = resolve
+      })
+      const createRequestRelease = new Promise<void>((resolve) => {
+        releaseCreateRequest = resolve
+      })
+      const createRoute = '**/api/example/todos'
+      await page.route(createRoute, async (route) => {
+        if (route.request().method() !== 'POST') {
+          await route.continue()
+          return
+        }
+        markCreateRequestIntercepted()
+        await createRequestRelease
+        await route.continue()
+      })
+      const createRequestPromise = page.waitForRequest(
+        (candidate) => candidate.url().includes(TODOS_API) && candidate.method() === 'POST',
+      )
+      const createResponsePromise = page.waitForResponse(
+        (response) => response.url().includes(TODOS_API) && response.request().method() === 'POST',
+      )
+      const submitPromise = titleInput
+        .locator('xpath=ancestor::form')
+        .first()
+        .locator('button[type="submit"]')
+        .first()
+        .click()
+      let createRequest: Awaited<typeof createRequestPromise>
+      let createResponse: Awaited<typeof createResponsePromise>
+      try {
+        await createRequestIntercepted
+        const recursiveDiagnostic = page.getByTestId('widget-recursive-before-save')
+        await expect(recursiveDiagnostic).toContainText('"fired":true')
+        await expect(recursiveDiagnostic).toContainText(
+          '"widgets":["example.injection.crud-validation-addon"]',
+        )
+        releaseCreateRequest()
+        const createResults = await Promise.all([
+          createRequestPromise,
+          createResponsePromise,
+          submitPromise,
+        ])
+        createRequest = createResults[0]
+        createResponse = createResults[1]
+      } finally {
+        releaseCreateRequest()
+        await submitPromise.catch(() => undefined)
+        await page.unroute(createRoute)
+      }
       expect(createResponse.ok(), `create failed: ${createResponse.status()}`).toBeTruthy()
       todoId = ((await createResponse.json()) as { id?: string }).id ?? null
       expect(todoId).toBeTruthy()
@@ -186,6 +284,62 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       const read = await apiRequest(request, 'GET', `${TODOS_API}?ids=${todoId}&page=1&pageSize=1`, { token })
       const item = ((await read.json()) as { items?: Array<{ title?: string }> }).items?.[0]
       expect(item?.title).toBe(expectedTitle)
+    } finally {
+      await deleteEntityIfExists(request, token, TODOS_API, todoId)
+    }
+  })
+
+  test('runs display transform and the complete save lifecycle through a real update', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const initialTitle = `TC-EXAMPLE-017 update source ${suffix}`
+    const rawUpdatedTitle = `[transform] TC-EXAMPLE-017 update ${suffix}`
+    const expectedUpdatedTitle = `TC-EXAMPLE-017 update ${suffix} (transformed)`
+    const logs = collectExampleLifecycleLogs(page)
+    let todoId: string | null = null
+
+    try {
+      const created = await apiRequest(request, 'POST', TODOS_API, {
+        token,
+        data: { title: initialTitle, cf_priority: 1, cf_severity: 'low' },
+      })
+      expect(created.ok()).toBeTruthy()
+      todoId = ((await created.json()) as { id?: string }).id ?? null
+      expect(todoId).toBeTruthy()
+
+      await login(page, 'admin')
+      await page.goto(`/backend/todos/${encodeURIComponent(todoId!)}/edit`, { waitUntil: 'domcontentloaded' })
+      const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
+      await expect(titleInput).toHaveValue(initialTitle.toUpperCase())
+      await expect(page.getByTestId('widget-transform-display-data')).toContainText(
+        `"title":"${initialTitle.toUpperCase()}"`,
+      )
+      await expect.poll(() => logs.some((entry) => entry.includes('Form loaded'))).toBe(true)
+
+      logs.length = 0
+      await titleInput.fill(rawUpdatedTitle)
+      const [updateRequest, updateResponse] = await Promise.all([
+        page.waitForRequest((candidate) => candidate.url().includes(TODOS_API) && candidate.method() === 'PUT'),
+        page.waitForResponse((response) => response.url().includes(TODOS_API) && response.request().method() === 'PUT'),
+        titleInput.locator('xpath=ancestor::form').first().locator('button[type="submit"]').first().click(),
+      ])
+      expect(updateResponse.ok(), `update failed: ${updateResponse.status()}`).toBeTruthy()
+      expect((updateRequest.postDataJSON() as { title?: string }).title).toBe(expectedUpdatedTitle)
+      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
+
+      const beforeSaveIndex = logs.findIndex((entry) => entry.includes('Before save validation'))
+      const saveIndex = logs.findIndex((entry) => entry.includes('Save triggered'))
+      const afterSaveIndex = logs.findIndex((entry) => entry.includes('After save complete'))
+      expect(beforeSaveIndex).toBeGreaterThanOrEqual(0)
+      expect(saveIndex).toBeGreaterThan(beforeSaveIndex)
+      expect(afterSaveIndex).toBeGreaterThan(saveIndex)
+
+      const read = await apiRequest(request, 'GET', `${TODOS_API}?ids=${todoId}&page=1&pageSize=1`, { token })
+      expect(read.ok()).toBeTruthy()
+      const item = ((await read.json()) as { items?: Array<{ title?: string }> }).items?.[0]
+      expect(item?.title).toBe(expectedUpdatedTitle)
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
     }
@@ -248,7 +402,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       await loginWithCredentials(page, email, password)
       await page.goto(`/backend/todos/${encodeURIComponent(successTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(
-        `TC-EXAMPLE-017 delete success ${suffix}`,
+        `TC-EXAMPLE-017 DELETE SUCCESS ${suffix.toUpperCase()}`,
       )
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       logs.length = 0
@@ -270,7 +424,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
 
       await page.goto(`/backend/todos/${encodeURIComponent(staleTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
       const staleTitle = `TC-EXAMPLE-017 delete stale ${suffix}`
-      await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(staleTitle)
+      await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(staleTitle.toUpperCase())
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       await bumpRecordViaApi(request, token, TODOS_API, { id: staleTodoId, title: `${staleTitle} moved` })
       logs.length = 0

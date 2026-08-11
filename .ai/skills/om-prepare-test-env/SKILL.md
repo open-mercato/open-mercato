@@ -240,3 +240,13 @@ Write the boot log to `test-env-boot.log` and keep pid files inside `test-env.lo
 Related trap in the lock itself: if the bootstrap lock **is** the `test-env.lock` directory, the
 `trap 'rm -rf "$LOCK_DIR"' EXIT` that releases it also deletes the `cli.pid` teardown needs. Make the
 lock a *file inside* the directory (`test-env.lock/bootstrap.pid`) and remove only that file on exit.
+
+## Retry the fixed Testcontainers port-binding window — 2026-08-11
+
+Testcontainers 11 polls Docker inspect for host port bindings for a fixed 10 seconds before its
+normal startup wait strategy begins. Docker Desktop can exceed that window under load even though
+the same image and daemon are healthy, causing `test:ephemeral` to exit before the app or database
+readiness gates run. The generated entrypoint retries the complete repository CLI boot up to three
+times only when the log contains the exact `waiting for container ports to be bound to the host`
+failure. Other failures still stop immediately, and Testcontainers/Ryuk retains ownership of any
+container created by the failed attempt.

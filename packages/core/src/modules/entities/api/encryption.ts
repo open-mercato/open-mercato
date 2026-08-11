@@ -81,6 +81,15 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (scope.selectionRejected) {
+      return NextResponse.json(
+        {
+          error: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+          code: 'organization_selection_invalid',
+        },
+        { status: 422 },
+      )
+    }
     const tenantId = scope.tenantId ?? auth.tenantId
     const organizationId = scope.selectedId
     const em = container.resolve('em') as any
@@ -172,6 +181,11 @@ const conflictResponseSchema = z.object({
   expectedUpdatedAt: z.string(),
 })
 
+const organizationSelectionInvalidResponseSchema = z.object({
+  error: z.string(),
+  code: z.literal('organization_selection_invalid'),
+})
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Entities',
   summary: 'Manage encryption maps',
@@ -189,6 +203,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Saved', schema: z.object({ ok: z.boolean(), updatedAt: z.string().nullable().optional() }) },
         { status: 409, description: 'Optimistic-lock conflict (stale write)', schema: conflictResponseSchema },
+        { status: 422, description: 'Selected organization is unavailable', schema: organizationSelectionInvalidResponseSchema },
       ],
     },
   },
