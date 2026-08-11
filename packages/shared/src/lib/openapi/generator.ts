@@ -809,8 +809,9 @@ function buildResponses(
       description: fallbackStatus === 204 ? 'Success' : 'Success response',
     })
   }
-  const setEntry = (res: OpenApiResponseDoc) => {
+  const setEntry = (res: OpenApiResponseDoc, options?: { skipIfPresent?: boolean }) => {
     const status = String(res.status || 200)
+    if (options?.skipIfPresent && Object.prototype.hasOwnProperty.call(entries, status)) return
     const mediaType = res.mediaType ?? 'application/json'
     const schema = res.schema ? zodToJsonSchema(res.schema) : undefined
     const example = res.schema ? res.example ?? generateExample(res.schema) : res.example
@@ -831,11 +832,7 @@ function buildResponses(
     }
   }
   for (const res of [...list, ...errorList]) setEntry(res)
-  for (const res of inferredList) {
-    const status = String(res.status || 200)
-    if (Object.prototype.hasOwnProperty.call(entries, status)) continue
-    setEntry(res)
-  }
+  for (const res of inferredList) setEntry(res, { skipIfPresent: true })
   return entries
 }
 
