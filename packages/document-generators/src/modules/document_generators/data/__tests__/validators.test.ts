@@ -1,22 +1,12 @@
 import { generateSchema, listDocumentsSchema } from '../validators'
 
 describe('generateSchema', () => {
-  it('accepts a full body with resource identifiers', () => {
-    const r = generateSchema.safeParse({
-      template_id: 'order-invoice',
-      data: { id: 'abc' },
-      resource_kind: 'sales.order',
-      resource_id: 'ord-1',
-    })
-    expect(r.success).toBe(true)
-  })
-
-  it('accepts a body without the optional resource_* fields', () => {
+  it('accepts template_id and data', () => {
     const r = generateSchema.safeParse({ template_id: 'order-invoice', data: { id: 'abc' } })
     expect(r.success).toBe(true)
   })
 
-  it('strips a client-supplied resource_label so labels remain server-derived', () => {
+  it('strips client-supplied resource identity so it remains server-derived', () => {
     const r = generateSchema.parse({
       template_id: 'order-invoice',
       data: { id: 'abc' },
@@ -25,6 +15,8 @@ describe('generateSchema', () => {
       resource_label: 'spoofed label',
     })
 
+    expect(r).not.toHaveProperty('resource_kind')
+    expect(r).not.toHaveProperty('resource_id')
     expect(r).not.toHaveProperty('resource_label')
   })
 

@@ -41,8 +41,8 @@ class TestDocumentService extends BaseDocumentService {
     return (data.document as { number?: string } | undefined)?.number
   }
 
-  override resourceId({ data }: { data: Record<string, unknown> }): string | undefined {
-    return (data.document as { id?: string } | undefined)?.id
+  override resourceId({ data }: { data: Record<string, unknown> }): string {
+    return (data.document as { id: string }).id
   }
 }
 
@@ -130,7 +130,7 @@ describe('BaseDocumentService.getEntries', () => {
 
     const [entry] = service.getEntries()
 
-    expect(entry.resourceId?.({ data: { document: { id: 'quote-42' } } })).toBe('quote-42')
+    expect(entry.resourceId({ data: { document: { id: 'quote-42' } } })).toBe('quote-42')
   })
 
   it('binds fromRecord to the service toTemplateData', () => {
@@ -164,6 +164,9 @@ describe('BaseDocumentService defaults', () => {
     readonly label = 'Minimal'
     readonly module = 'sales'
     readonly resourceKind = 'sales.order'
+    resourceId(): string {
+      return 'minimal-1'
+    }
     toTemplateData({ data }: { data: unknown; locale: string; translate: TranslateFn }): Record<string, unknown> {
       return data as Record<string, unknown>
     }
@@ -177,11 +180,6 @@ describe('BaseDocumentService defaults', () => {
   it('returns no resource label by default', () => {
     const service = new MinimalService()
     expect(service.resourceLabel({ data: {} })).toBeUndefined()
-  })
-
-  it('returns no resource id by default', () => {
-    const service = new MinimalService()
-    expect(service.resourceId({ data: {} })).toBeUndefined()
   })
 
   it('returns the raw data unchanged from the default fetchData', async () => {

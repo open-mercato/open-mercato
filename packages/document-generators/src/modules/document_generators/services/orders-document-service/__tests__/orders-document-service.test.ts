@@ -208,8 +208,8 @@ describe('OrdersDocumentService.resourceId', () => {
     expect(service.resourceId({ data: { document: { id: 'ord-9' } } })).toBe('ord-9')
   })
 
-  it('returns undefined when the id is missing', () => {
+  it('rejects normalized data without a canonical id', () => {
     const service = new OrdersDocumentService()
-    expect(service.resourceId({ data: {} })).toBeUndefined()
+    expect(() => service.resourceId({ data: {} })).toThrow('missing document.id')
   })
 })

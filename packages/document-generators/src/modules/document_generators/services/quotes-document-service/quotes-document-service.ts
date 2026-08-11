@@ -134,8 +134,10 @@ export class QuotesDocumentService extends BaseDocumentService {
     return (data.document as { number?: string } | undefined)?.number
   }
 
-  override resourceId({ data }: { data: Record<string, unknown> }): string | undefined {
-    return (data.document as { id?: string } | undefined)?.id
+  override resourceId({ data }: { data: Record<string, unknown> }): string {
+    const id = (data.document as { id?: string } | undefined)?.id
+    if (!id) throw new Error('[internal] QuotesDocumentService normalized data is missing document.id')
+    return id
   }
 
   toTemplateData({ data, locale, translate }: { data: unknown } & TemplateDataContext): Record<string, unknown> {

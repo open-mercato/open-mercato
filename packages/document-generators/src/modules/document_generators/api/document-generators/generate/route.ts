@@ -26,7 +26,7 @@ export const metadata = {
  * Generates a document with full side effects — logging, events, Phase 5 history.
  * For preview-only rendering without side effects use /preview.
  *
- * @param request - `{ template_id, data, resource_kind?, resource_id? }`
+ * @param request - `{ template_id, data }`
  * @returns Document binary stream
  */
 export async function POST(request: Request) {
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Missing template_id or data' }, { status: 400 })
   }
-  const { template_id, data, resource_kind, resource_id } = parsed.data
+  const { template_id, data } = parsed.data
 
   const org = requireOrganization(auth)
   if (!org.ok) return org.response
@@ -64,35 +64,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to render document' }, { status: 500 })
   }
 
-  // Best-effort history record — the source resource only needs kind + id.
-  // The human label is derived server-side (e.g. order number), falling back to
-  // the id. A persistence failure must not block the download.
-  if (resource_kind && resource_id) {
-    if (
-      rendered.resource.id
-      && (rendered.resource.kind !== resource_kind || rendered.resource.id !== resource_id)
-    ) {
-      return NextResponse.json({ error: 'Resource does not match the rendered document' }, { status: 400 })
-    }
-
-    const em = container.resolve('em') as EntityManager
-    const history = new GenerationHistoryService(em)
-    const canonicalResourceId = rendered.resource.id ?? resource_id
-    try {
-      await history.create({
-        scope: org.value,
-        templateId: rendered.template.id,
-        templateLabel: rendered.template.label,
-        resourceKind: rendered.resource.id ? rendered.resource.kind : resource_kind,
-        resourceId: canonicalResourceId,
-        resourceLabel: rendered.resource.label ?? canonicalResourceId,
-        format: rendered.format,
-        mimeType: rendered.mimeType,
-        generatedBy: auth!.userId ?? auth!.sub,
-      })
-    } catch (err) {
-      logger.error('Failed to persist generation history record', { err })
-    }
+  // Best-effort history record derived exclusively from the loaded template.
+  // A persistence failure must not block the download.
+  const em = container.resolve('em') as EntityManager
+  const history = new GenerationHistoryService(em)
+  try {
+    await history.create({
+      scope: org.value,
+      templateId: rendered.template.id,
+      templateLabel: rendered.template.label,
+      resourceKind: rendered.resource.kind,
+      resourceId: rendered.resource.id,
+      resourceLabel: rendered.resource.label ?? rendered.resource.id,
+      format: rendered.format,
+      mimeType: rendered.mimeType,
+      generatedBy: auth!.userId ?? auth!.sub,
+    })
+  } catch (err) {
+    logger.error('Failed to persist generation history record', { err })
   }
 
   return documentResponse(rendered)

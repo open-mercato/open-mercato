@@ -21,6 +21,7 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
     note: undefined,
     fromRecord: (data: unknown) => data as Record<string, unknown>,
     filename: () => 'invoice.pdf',
+    resourceId: () => 'ord-1',
     load: async () => ({ type: 'react-pdf', component: FakeComponent }),
     ...overrides,
   }

@@ -54,13 +54,8 @@ export abstract class BaseDocumentService {
     return undefined
   }
 
-  /**
-   * Returns the canonical source-resource id derived from normalized server-side
-   * data. The generation route uses it to verify client-supplied history metadata.
-   */
-  resourceId(_input: { data: Record<string, unknown> }): string | undefined {
-    return undefined
-  }
+  /** Returns the canonical source-resource id derived from normalized server-side data. */
+  abstract resourceId(input: { data: Record<string, unknown> }): string
 
   /**
    * Optional hook to fetch related data before normalization.

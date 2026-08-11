@@ -194,8 +194,8 @@ describe('QuotesDocumentService.resourceId', () => {
     expect(service.resourceId({ data: { document: { id: 'q-9' } } })).toBe('q-9')
   })
 
-  it('returns undefined when the id is missing', () => {
+  it('rejects normalized data without a canonical id', () => {
     const service = new QuotesDocumentService()
-    expect(service.resourceId({ data: {} })).toBeUndefined()
+    expect(() => service.resourceId({ data: {} })).toThrow('missing document.id')
   })
 })

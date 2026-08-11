@@ -5,7 +5,6 @@ import { TemplatesList } from '../../../components/TemplatesList'
 
 interface QuoteWidgetContext {
   kind: string
-  resourceId: string
   resourceKind: string
   record: { id: string }
 }
@@ -21,7 +20,6 @@ export default function QuotePdfTabWidget({ context }: InjectionWidgetComponentP
       <TemplatesList
         record={{ id: record.id }}
         filter={{ resourceKind: ctx.resourceKind }}
-        resource={{ kind: ctx.resourceKind, id: ctx.resourceId }}
       />
     </div>
   )

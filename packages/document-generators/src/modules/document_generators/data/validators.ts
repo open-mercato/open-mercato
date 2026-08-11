@@ -4,16 +4,12 @@ import { z } from 'zod'
  * Body accepted by POST /api/document-generators/generate.
  *
  * `data` is the widget record (shape is a contract between the widget and its
- * DocumentService — kept as a passthrough object). The optional `resource_*`
- * fields identify the source record; when both are present a GeneratedDocument
- * history row is written (Phase 5). The human label is derived server-side from
- * the rendered document, so the client does not supply it.
+ * DocumentService — kept as a passthrough object). Resource identity is derived
+ * server-side by the loaded template and never accepted from the client.
  */
 export const generateSchema = z.object({
   template_id: z.string().min(1),
   data: z.record(z.string(), z.unknown()),
-  resource_kind: z.string().min(1).optional(),
-  resource_id: z.string().min(1).optional(),
 })
 
 export type GenerateInput = z.infer<typeof generateSchema>

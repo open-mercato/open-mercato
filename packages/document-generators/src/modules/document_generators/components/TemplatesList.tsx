@@ -4,14 +4,13 @@ import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TemplateMeta, TemplateFilter } from '../lib/interfaces'
-import { PreviewPanel, type PdfResource } from './PreviewPanel'
+import { PreviewPanel } from './PreviewPanel'
 import { TemplatesListView } from './TemplatesListView'
 import { TemplatesListLoader } from './TemplatesListLoader'
 
 interface TemplatesListProps {
   record: unknown
   filter?: TemplateFilter
-  resource?: PdfResource
 }
 
 function applyFilter(templates: TemplateMeta[], filter?: TemplateFilter): TemplateMeta[] {
@@ -25,7 +24,7 @@ function applyFilter(templates: TemplateMeta[], filter?: TemplateFilter): Templa
   })
 }
 
-export function TemplatesList({ record, filter, resource }: TemplatesListProps) {
+export function TemplatesList({ record, filter }: TemplatesListProps) {
   const t = useT()
   const [templates, setTemplates] = React.useState<TemplateMeta[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -57,7 +56,6 @@ export function TemplatesList({ record, filter, resource }: TemplatesListProps) 
           onClose={() => setSelected(null)}
           record={record}
           template={selected}
-          resource={resource}
         />
       )}
     </>

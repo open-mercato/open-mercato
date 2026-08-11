@@ -103,7 +103,7 @@ class TemplateRegistry implements TemplateRegistryInterface {
     }
     const data = entry.fromRecord(enriched, { locale, translate })
     const filename = entry.filename({ data })
-    const resourceId = entry.resourceId?.({ data })
+    const resourceId = entry.resourceId({ data })
     const resourceLabel = entry.resourceLabel?.({ data })
     const loadedBase = {
       filename,

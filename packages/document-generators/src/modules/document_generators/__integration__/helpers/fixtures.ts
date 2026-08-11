@@ -1,4 +1,5 @@
 import type { APIRequestContext, APIResponse } from '@playwright/test'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { apiRequest } from './api'
 
 /** UI-facing template metadata as returned by GET /api/document-generators/templates. */
@@ -53,9 +54,19 @@ export async function previewDocument(
 export async function generateDocument(
   request: APIRequestContext,
   token: string,
-  body: { template_id?: string; data?: unknown; resource_kind?: string; resource_id?: string },
+  body: { template_id?: string; data?: unknown },
 ): Promise<APIResponse> {
   return apiRequest(request, 'POST', '/api/document-generators/generate', { token, data: body })
+}
+
+export async function deleteGeneratedDocumentsForResource(resourceId: string | null): Promise<void> {
+  if (!resourceId) return
+  await withClient(async (client) => {
+    await client.query(
+      'delete from document_generators_generated_documents where resource_id = $1',
+      [resourceId],
+    )
+  })
 }
 
 export interface HistoryItem {

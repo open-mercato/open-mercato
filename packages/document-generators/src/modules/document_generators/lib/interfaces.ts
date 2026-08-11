@@ -50,7 +50,7 @@ export interface TemplateLoadContext {
 export interface TemplateRegistryEntry {
   fromRecord: (data: unknown, context: TemplateDataContext) => Record<string, unknown> // maps enriched server data to the flat shape expected by the template component
   filename: (input: { data: Record<string, unknown> }) => string // derives the output filename from normalized data
-  resourceId?: (input: { data: Record<string, unknown> }) => string | undefined // derives the canonical source record id from normalized server-side data
+  resourceId: (input: { data: Record<string, unknown> }) => string // derives the canonical source record id from normalized server-side data
   resourceLabel?: (input: { data: Record<string, unknown> }) => string | undefined // derives a human-readable label for history from normalized data
   load: () => Promise<DocumentTemplateSource> // lazy-loaded format-specific template source
   fetchData?: (input: { data: unknown }, ctx: { container: AppContainer; auth: AuthContext | null }) => Promise<unknown> // server-side hook; called before normalization to fetch related data
@@ -100,7 +100,7 @@ export interface LoadedDocumentTemplateBase {
   }
   resource: {
     kind: string
-    id?: string
+    id: string
     label?: string
   }
 }

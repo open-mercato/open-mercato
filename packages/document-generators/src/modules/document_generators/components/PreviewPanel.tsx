@@ -19,20 +19,14 @@ import { downloadBlob } from '../utils/downloadBlob'
 import { getFilenameFromResponse } from '../utils/getFilenameFromResponse'
 import { resolveErrorMessage } from '../utils/resolveErrorMessage'
 
-export interface PdfResource {
-  kind: string
-  id: string
-}
-
 interface PreviewPanelProps {
   open: boolean
   onClose: () => void
   record: unknown
   template: TemplateMeta
-  resource?: PdfResource
 }
 
-export function PreviewPanel({ open, onClose, record, template, resource }: PreviewPanelProps) {
+export function PreviewPanel({ open, onClose, record, template }: PreviewPanelProps) {
   const t = useT()
   const [blobUrl, setBlobUrl] = React.useState<string | null>(null)
   const [markdown, setMarkdown] = React.useState<string | null>(null)
@@ -92,8 +86,6 @@ export function PreviewPanel({ open, onClose, record, template, resource }: Prev
       body: JSON.stringify({
         template_id: template.id,
         data: record,
-        resource_kind: resource?.kind,
-        resource_id: resource?.id,
       }),
     }, {
       parse: (res) => res.blob(),

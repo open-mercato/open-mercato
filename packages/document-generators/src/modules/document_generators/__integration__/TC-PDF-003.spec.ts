@@ -6,7 +6,7 @@ import {
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { getAuthToken } from './helpers/api'
-import { generateDocument } from './helpers/fixtures'
+import { deleteGeneratedDocumentsForResource, generateDocument } from './helpers/fixtures'
 
 /**
  * TC-PDF-003: PDF generate endpoint
@@ -38,6 +38,7 @@ test.describe('TC-PDF-003: PDF generate', () => {
       const buffer = await response.body()
       expect(buffer.subarray(0, 4).toString('latin1')).toBe('%PDF')
     } finally {
+      await deleteGeneratedDocumentsForResource(orderId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
@@ -57,6 +58,7 @@ test.describe('TC-PDF-003: PDF generate', () => {
       expect(response.headers()['content-type']).toContain('application/pdf')
       expect(response.headers()['content-disposition']).toMatch(/filename="offer-.+\.pdf"/)
     } finally {
+      await deleteGeneratedDocumentsForResource(quoteId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
     }
   })

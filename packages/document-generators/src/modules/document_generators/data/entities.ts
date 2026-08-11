@@ -4,9 +4,9 @@ import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legac
 /**
  * History record for a generated document.
  *
- * Written best-effort by `POST /api/document-generators/generate` after a successful
- * render, only when the caller supplies `resource_kind` + `resource_id`. The
- * resource label is derived from normalized data server-side. Format-agnostic
+ * Written best-effort by `POST /api/document-generators/generate` after every successful
+ * render. Resource identity and its human label are derived from normalized
+ * server-side data by the loaded template. Format-agnostic
  * by design — `format`/`mime_type` let the
  * same table hold non-PDF outputs (e.g. `.docx`, `.md`) in the future without a
  * schema change. `attachment_id` is populated in Phase 6 (attachment storage).
