@@ -1,12 +1,13 @@
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs/promises');
+const { existsSync, readdirSync, copyFileSync, mkdirSync } = require('fs');
 
 /**
- * Docusaurus plugin that serves raw .mdx source files at /raw/<path>.mdx
+ * Docusaurus plugin that serves raw .mdx/.md source files at /raw/<path>
  * so the "Copy page" button can fetch and copy the original Markdown source.
  *
- * - Production: copies .mdx files from docs/ into build/raw/ during postBuild
- * - Development: serves .mdx files via webpack devServer middleware
+ * - Development: serves files via webpack devServer middleware
+ * - Production: copies docs/ into build/raw/ during postBuild
  */
 module.exports = function rawMdxPlugin(context) {
   const docsDir = path.resolve(context.siteDir, 'docs');
@@ -14,28 +15,26 @@ module.exports = function rawMdxPlugin(context) {
   return {
     name: 'raw-mdx-plugin',
 
-    configureWebpack(_config, _isServer) {
+    configureWebpack() {
       return {
         devServer: {
           setupMiddlewares(middlewares) {
             middlewares.unshift({
               name: 'raw-mdx',
               path: '/raw/*',
-              middleware(req, res) {
-                // req.params[0] contains everything after /raw/
-                const relativePath = req.params[0];
-                const filePath = path.join(docsDir, relativePath);
+              async middleware(req, res) {
+                const filePath = path.join(docsDir, req.params[0]);
 
-                // Security: prevent directory traversal
                 if (!filePath.startsWith(docsDir)) {
                   res.status(403).end();
                   return;
                 }
 
-                if (fs.existsSync(filePath)) {
+                try {
+                  const content = await fs.readFile(filePath, 'utf-8');
                   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-                  res.send(fs.readFileSync(filePath, 'utf-8'));
-                } else {
+                  res.send(content);
+                } catch {
                   res.status(404).end();
                 }
               },
@@ -49,23 +48,23 @@ module.exports = function rawMdxPlugin(context) {
     async postBuild({ outDir }) {
       const rawDir = path.join(outDir, 'raw');
 
-      function copyDir(srcDir, destDir) {
-        if (!fs.existsSync(srcDir)) return;
-        fs.mkdirSync(destDir, { recursive: true });
+      function copyMdxFiles(srcDir, destDir) {
+        if (!existsSync(srcDir)) return;
+        mkdirSync(destDir, { recursive: true });
 
-        for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+        for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
           const srcPath = path.join(srcDir, entry.name);
           const destPath = path.join(destDir, entry.name);
 
           if (entry.isDirectory()) {
-            copyDir(srcPath, destPath);
+            copyMdxFiles(srcPath, destPath);
           } else if (entry.name.endsWith('.mdx') || entry.name.endsWith('.md')) {
-            fs.copyFileSync(srcPath, destPath);
+            copyFileSync(srcPath, destPath);
           }
         }
       }
 
-      copyDir(docsDir, rawDir);
+      copyMdxFiles(docsDir, rawDir);
     },
   };
 };

@@ -1,64 +1,51 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useDoc } from '@docusaurus/plugin-content-docs/client';
 
 export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React.ReactElement {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { metadata } = useDoc();
 
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = useCallback(async () => {
-    // Derive the raw MDX path from the doc source file path
-    // metadata.source looks like "@site/docs/user-guide/overview.mdx"
+  async function handleCopy() {
     const sourcePath = metadata.source?.replace('@site/docs/', '') || '';
     if (!sourcePath) return;
 
-    try {
-      const response = await fetch(`/raw/${sourcePath}`);
-      if (!response.ok) return;
-
-      const mdxContent = await response.text();
-
-      try {
-        await navigator.clipboard.writeText(mdxContent);
-      } catch {
-        const textarea = document.createElement('textarea');
-        textarea.value = mdxContent;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
-
-      setCopied(true);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Silently fail if fetch fails
+    const response = await fetch(`/raw/${sourcePath}`);
+    if (!response.ok) {
+      flashState('error');
+      return;
     }
-  }, [metadata.source]);
+
+    const mdxContent = await response.text();
+    await navigator.clipboard.writeText(mdxContent);
+    flashState('copied');
+  }
+
+  function flashState(next: 'copied' | 'error') {
+    setState(next);
+    clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setState('idle'), 2000);
+  }
+
+  const label = state === 'copied' ? 'Copied!' : state === 'error' ? 'Failed to copy' : 'Copy page';
 
   return (
     <button
       data-copy-page-button
       type="button"
-      className={`copy-page-button ${copied ? 'copy-page-button--copied' : ''} ${wide ? 'copy-page-button--wide' : ''}`}
+      className={[
+        'copy-page-button',
+        state === 'copied' && 'copy-page-button--copied',
+        state === 'error' && 'copy-page-button--error',
+        wide && 'copy-page-button--wide',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       onClick={handleCopy}
-      title={copied ? 'Copied!' : 'Copy page as Markdown'}
-      aria-label={copied ? 'Copied!' : 'Copy page as Markdown'}
+      title={label}
+      aria-label={label}
     >
-      {copied ? (
+      {state === 'copied' ? (
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path
             d="M13.5 4.5L6 12L2.5 8.5"
@@ -88,7 +75,7 @@ export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React
         </svg>
       )}
       <span className="copy-page-button__label" role="status" aria-live="polite">
-        {copied ? 'Copied!' : 'Copy page'}
+        {label}
       </span>
     </button>
   );
