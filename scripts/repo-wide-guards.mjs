@@ -134,6 +134,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/lib/db/__tests__/escapeLikePattern.test.ts',
         scans: 'packages/ and apps/ — unescaped LIKE patterns in query builders',
       },
+      {
+        path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
+        scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
+      },
     ],
   },
   {

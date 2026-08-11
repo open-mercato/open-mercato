@@ -153,6 +153,20 @@ Scope limits worth knowing:
 
 ---
 
+### Events worker dispatches through the DI event bus instead of the CLI-only module registry
+
+The events worker used to build its own subscriber map from `getCliModules()` - a registry populated **only** by `registerCliModules()` inside the `mercato` bin. Any worker started another way (a custom entrypoint, an in-process runner, a container whose command bypasses the CLI) resolved zero subscribers, returned early, and marked the job **completed**: no error, no log. Because default-on single-delivery had already skipped those subscribers inline, the side effect vanished - taking every wildcard `event: '*'` persistent subscriber with it (outbound webhooks, workflow event triggers, business-rule CRUD triggers).
+
+The worker now resolves `eventBus` from its per-job DI container and calls the new `EventBus.dispatchQueued(event, payload, options, resolve)`, passing its own `ctx.resolve` as the last argument so subscribers bind to the container that job runs in. The bus owns subscriber selection for both halves of single-delivery, so they cannot disagree. `packages/cli`-launched workers are unaffected: `mercato queue worker` already bootstraps the app module registry (`registerModules`) before the CLI one, from the same array.
+
+Two related changes:
+
+- **The worker fails loudly instead of silently.** If `eventBus` cannot be resolved (or predates `dispatchQueued`), `handle()` throws. The job retries and dead-letters with an actionable message rather than disappearing.
+- **Turning single-delivery off no longer dual-dispatches.** The producer stamps the queued job `persistentDeliveredInline: true` when it delivered inline, and the worker skips such jobs, so `OM_EVENTS_SINGLE_DELIVERY=false` now means inline-only rather than inline *and* worker. Retry is preserved: the stamp is only written when every persistent subscriber succeeded inline, so a handler that threw leaves the job unstamped and the worker runs it with the queue's retry and dead-lettering. Note that a retried job re-runs the persistent subscribers that already succeeded inline, which is why persistent subscribers must be idempotent (`packages/events/AGENTS.md`).
+- **The worker dispatches persistent subscribers only.** It used to select by exact event name and run *every* subscriber registered under it. That difference is invisible on the normal path - with single-delivery on, ephemeral subscribers have already run inline - but one combination changes: an enqueue-only emit (`{ persistent: true, deliverInline: false }`) with `OM_EVENTS_SINGLE_DELIVERY=false` skips inline delivery entirely, so an *ephemeral* subscriber registered on that exact event name no longer runs at all. `packages/events/AGENTS.md` already restricts enqueue-only to events whose subscribers are all `persistent: true`, so a conforming caller is unaffected; if you carry that combination, mark the subscriber `persistent: true` or drop `deliverInline: false`.
+
+**Action for downstream:** none for delivery semantics - `OM_EVENTS_SINGLE_DELIVERY` is read exactly as before. Custom `EventBus` implementations must add `dispatchQueued`; the worker's exported `clearListenerCache()` is now a deprecated no-op and will be removed in a later release. If you carry a local patch swapping the worker's `getCliModules()` for `getModules()`, remove it - `patch-package` will fail to apply against this release.
+
 ### Query index reindex now fails when a batch loses records
 
 `upsertIndexBatch` used to swallow every write error: the bulk `INSERT … ON CONFLICT` had a bare `catch`, and the per-row fallback ran inside a transaction whose per-row `catch` could not actually recover — in Postgres a failed statement aborts the transaction, and `COMMIT` on an aborted transaction returns a `ROLLBACK` tag without raising. A single bad record therefore discarded its entire batch (up to 500 rows) while the reindex job still credited the coverage counters and finished green, and the subsequent orphan purge then deleted the pre-existing index rows for those records.
