@@ -349,18 +349,27 @@ describe('Queue - local strategy', () => {
     const queue = createQueue<{ value: number }>('atomic-write-queue', 'local')
     const queueDir = path.join('.mercato', 'queue', 'atomic-write-queue')
     const queuePath = path.join(queueDir, 'queue.json')
+    const writeFileSpy = jest.spyOn(fs.promises, 'writeFile')
 
-    await queue.enqueue({ value: 1 })
-    const inodeAfterFirstWrite = fs.statSync(queuePath).ino
+    try {
+      await queue.enqueue({ value: 1 })
+      await queue.enqueue({ value: 2 })
 
-    await queue.enqueue({ value: 2 })
-    const inodeAfterSecondWrite = fs.statSync(queuePath).ino
+      // The invariant, asserted portably: queue.json is only ever created with
+      // the exclusive `wx` flag by ensureDir, never written in place. Every
+      // persist goes to a temp file that is then renamed over it.
+      const inPlaceWrites = writeFileSpy.mock.calls.filter(([target, , options]) => {
+        if (typeof target !== 'string' || path.resolve(target) !== path.resolve(queuePath)) return false
+        return (options as { flag?: string } | undefined)?.flag !== 'wx'
+      })
+      expect(inPlaceWrites).toEqual([])
 
-    expect(inodeAfterSecondWrite).not.toBe(inodeAfterFirstWrite)
-    expect(readJson(queuePath)).toHaveLength(2)
-    expect(fs.readdirSync(queueDir).filter((fileName) => fileName.endsWith('.tmp'))).toEqual([])
-
-    await queue.close()
+      expect(readJson(queuePath)).toHaveLength(2)
+      expect(fs.readdirSync(queueDir).filter((fileName) => fileName.endsWith('.tmp'))).toEqual([])
+    } finally {
+      writeFileSpy.mockRestore()
+      await queue.close()
+    }
   })
 
   // Regression (#5149): the cross-process lock must not outlive the process

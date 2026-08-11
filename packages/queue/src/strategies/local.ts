@@ -64,12 +64,20 @@ const fsp = fs.promises
  * - Not suitable for production: there is no dead-letter store, no throughput
  *   beyond one job at a time, and every operation rewrites the whole queue file
  *
- * Multiple processes MAY share a queue directory — which is the default
- * development topology, since the dev worker runs in its own process alongside
- * the Next.js server. Concurrent access is safe because every read-modify-write
- * segment takes the `queue.lock` directory lock and every persist swaps the file
- * in with an atomic rename, so a reader always observes one complete document.
- * Writers do contend, though: throughput degrades as processes are added.
+ * Multiple processes MAY share a queue directory, which is the default
+ * development topology: the dev worker runs in its own process alongside the
+ * Next.js server. What that buys you, and what it does not:
+ *
+ * - **Safe** — concurrent producers. Every read-modify-write segment takes the
+ *   `queue.lock` directory lock and every persist swaps the file in with an
+ *   atomic rename, so the file cannot be torn, no enqueue is lost to a
+ *   concurrent one, and a reader always observes one complete document.
+ *   Writers contend, though, so throughput degrades as processes are added.
+ * - **NOT safe** — concurrent consumers. `process()` deliberately runs job
+ *   handlers outside the lock, so two worker processes polling the same queue
+ *   would both claim the same pending jobs and execute them twice. There is no
+ *   per-job lease. Run exactly one worker process per queue; use the `async`
+ *   strategy when you need more than one.
  *
  * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential backoff.
  * **This strategy keeps no failed-job store**: once attempts are exhausted the job is
