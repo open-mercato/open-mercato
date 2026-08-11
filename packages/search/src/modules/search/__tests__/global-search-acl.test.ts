@@ -52,9 +52,15 @@ describe('searchable entity ACL coverage', () => {
   }
 
   function findSearchConfigFiles(): string[] {
+    // `apps/mercato` and the create-app template are scanned too: the example
+    // module's `example:todo` is indexed but had no `search.ts` at all, so the
+    // original #5168 fix made it fail closed and broke TC-EXAMPLE-001. The scan
+    // stopping at packages/ is why that gap reached CI unnoticed.
     const roots = [
       join(repoRoot, 'packages', 'core', 'src', 'modules'),
       join(repoRoot, 'packages', 'checkout', 'src', 'modules'),
+      join(repoRoot, 'apps', 'mercato', 'src', 'modules'),
+      join(repoRoot, 'packages', 'create-app', 'template', 'src', 'modules'),
     ].filter((dir) => existsSync(dir))
 
     return roots.flatMap((root) =>
@@ -94,6 +100,19 @@ describe('searchable entity ACL coverage', () => {
     )
 
     expect(offer).toContain("aclFeatures: ['sales.channels.manage']")
+  })
+
+  it('gates example todos on the feature their own list route enforces', () => {
+    // Regression for the revert that pulled #5169 out of #5167: with the hybrid
+    // route filtering by `aclFeatures`, an indexed-but-unconfigured `example:todo`
+    // is denied to every non-superadmin, which is what broke TC-EXAMPLE-001. The
+    // fix is the config below, not a weaker filter — so both copies must keep it.
+    for (const root of [
+      join(repoRoot, 'apps', 'mercato', 'src', 'modules', 'example', 'search.ts'),
+      join(repoRoot, 'packages', 'create-app', 'template', 'src', 'modules', 'example', 'search.ts'),
+    ]) {
+      expect(readEntityBlock(root, 'example:todo')).toContain("aclFeatures: ['example.todos.view']")
+    }
   })
 
   it('keeps record-scoped and polymorphic entities disabled until search can enforce their row access', () => {
