@@ -670,9 +670,19 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       const personIdInput = page.getByTestId('phase-d-person-id')
       await fillControlledInput(personIdInput, personId)
       await page.getByTestId('phase-d-probe-title').fill('')
-      await page.getByTestId('phase-d-run-probe').click()
+      const runProbe = page.getByTestId('phase-d-run-probe')
+      const probeStatus = page.getByTestId('phase-d-status')
+      await expect.poll(async () => {
+        const status = (await probeStatus.textContent()) ?? ''
+        if (status.includes('idle')) await runProbe.click()
+        return (await probeStatus.textContent()) ?? ''
+      }, {
+        message: 'the hydrated Phase D probe button should leave its idle state',
+        timeout: 20_000,
+        intervals: [250, 500, 1000],
+      }).not.toContain('idle')
 
-      await expect(page.getByTestId('phase-d-status')).toContainText('ok')
+      await expect(probeStatus).toContainText('ok')
       await expect(page.getByTestId('phase-d-result')).toContainText(personId)
       await expect(page.getByTestId('phase-d-result')).toContainText('_example')
       await expect(page.getByTestId('phase-d-result')).toContainText('example.customer-todo-count')

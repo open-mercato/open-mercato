@@ -194,12 +194,40 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
   test('runs the delete success and stale-delete error lifecycles at the real CrudForm host', async ({ page, request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+    const email = `tc-example-017-delete-${suffix}@example.com`
+    const password = 'StrongSecret123!'
     const logs = collectExampleLifecycleLogs(page)
     let successTodoId: string | null = null
     let staleTodoId: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
 
     try {
+      roleId = await createRoleFixture(request, token, {
+        name: `TC-EXAMPLE-017 delete lifecycle ${suffix}`,
+        tenantId: scope.tenantId,
+      })
+      await setRoleAclFeatures(request, token, {
+        roleId,
+        features: [
+          'example.backend',
+          'example.view',
+          'example.todos.view',
+          'example.todos.manage',
+          'example.widgets.injection',
+        ],
+        organizations: [scope.organizationId],
+      })
+      userId = await createUserFixture(request, token, {
+        email,
+        password,
+        organizationId: scope.organizationId,
+        roles: [roleId],
+        name: 'TC EXAMPLE 017 delete lifecycle',
+      })
+
       for (const branch of ['success', 'stale'] as const) {
         const created = await apiRequest(request, 'POST', TODOS_API, {
           token,
@@ -212,7 +240,12 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
         else staleTodoId = createdId
       }
 
-      await login(page, 'admin')
+      // Use the exact Example permissions needed by this host. In enterprise-enabled CI an
+      // administrator also receives record_locks.view; its proactive conflict widget correctly
+      // blocks a stale delete during onBeforeDelete, before the CrudForm error lifecycle can run.
+      // This scoped user keeps the test on the Example host and lets the stale DELETE reach the
+      // API, where the 409 drives onDeleteError as the capability under test requires.
+      await loginWithCredentials(page, email, password)
       await page.goto(`/backend/todos/${encodeURIComponent(successTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(
         `TC-EXAMPLE-017 delete success ${suffix}`,
@@ -256,6 +289,8 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, successTodoId)
       await deleteEntityIfExists(request, token, TODOS_API, staleTodoId)
+      await deleteUserIfExists(request, token, userId)
+      await deleteRoleIfExists(request, token, roleId)
     }
   })
 
