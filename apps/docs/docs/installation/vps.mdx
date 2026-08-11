@@ -33,8 +33,11 @@ newgrp docker
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
 
-cp apps/mercato/.env.example apps/mercato/.env
-# Edit apps/mercato/.env with your production values (see below)
+cp apps/mercato/.env.example .env
+# Edit .env — the file next to the compose file — with your production values (see below)
+
+# The stack refuses to start without a signing secret. Generate one now:
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 
 docker compose -f docker-compose.fullapp.yml up --build -d
 ```
@@ -47,7 +50,9 @@ Sign in with the default admin credentials printed during first-run initialisati
 
 ## Environment variables
 
-Edit `apps/mercato/.env` before starting. At minimum, set:
+Edit the **`.env` file in the repository root** — the directory holding `docker-compose.fullapp.yml` — before starting. Compose interpolates `${...}` values from that file only; a value written in `apps/mercato/.env` cannot override a variable the compose file already passes into the container, so secrets placed there are silently ignored.
+
+At minimum, set:
 
 ```env
 # Database
@@ -56,8 +61,10 @@ POSTGRES_PASSWORD=your-strong-db-password
 POSTGRES_DB=open-mercato
 DATABASE_URL=postgres://postgres:your-strong-db-password@postgres:5432/open-mercato
 
-# Authentication
-JWT_SECRET=your-strong-jwt-secret
+# Authentication — required, no default. Generate with `openssl rand -hex 32`.
+# The app refuses to start in production when this is missing, shorter than 32
+# characters, or set to a placeholder value published in these docs.
+JWT_SECRET=
 
 # Application
 APP_URL=https://your-domain.com
@@ -93,6 +100,31 @@ openssl rand -hex 24   # for MEILISEARCH_MASTER_KEY
 
 :::warning
 The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `docker-compose.fullapp.yml`. Use these exact names in your connection strings — not `localhost`.
+:::
+
+### Rotating the JWT signing secret
+
+`JWT_SECRET` signs every staff and customer-portal token, so rotating it invalidates all of them: **everyone is logged out** and has to sign in again. Plan the rotation for a quiet window.
+
+```bash
+# 1. Write the new secret into the .env next to the compose file
+sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
+
+# 2. Restart the stack so every process picks it up
+docker compose -f docker-compose.fullapp.yml up -d
+```
+
+Two variables bound how long tokens signed with the *previous* scheme keep working, so a rolling deployment does not log everyone out mid-request:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_LEGACY_GRACE_MINUTES` | `480` (8 hours — one token lifetime) | How long after a token was issued the pre-migration raw-secret verification still accepts it. `0`, `false` or `off` disables it outright (hard cutover) |
+| `JWT_LEGACY_CUTOVER_AT` | unset | An ISO-8601 instant after which pre-migration tokens are refused regardless of the grace window — set it to schedule the end of a migration in advance |
+
+Once the window closes, every token must carry a session id (`sid`) bound to a live session row, which is what makes logout and password reset revoke access immediately. Set `JWT_LEGACY_GRACE_MINUTES=0` on a fresh install: it has no pre-migration tokens to protect.
+
+:::warning
+Never leave the grace window open indefinitely "just in case". While it is open, a token signed with the raw `JWT_SECRET` is accepted without a session row, so it cannot be revoked before it expires.
 :::
 
 ---
@@ -192,7 +224,8 @@ Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
 
 ## Production security checklist
 
-- [ ] `JWT_SECRET` — strong random value, never the default
+- [ ] `JWT_SECRET` — strong random value (`openssl rand -hex 32`), set in the `.env` next to the compose file
+- [ ] `JWT_LEGACY_GRACE_MINUTES` — `0` on a fresh install; on an upgraded one, closed again after the migration window
 - [ ] `POSTGRES_PASSWORD` — strong random value
 - [ ] `MEILISEARCH_MASTER_KEY` — strong random value
 - [ ] `NODE_ENV=production`

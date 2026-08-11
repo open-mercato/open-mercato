@@ -211,3 +211,69 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     expect(result!.isPortalAdmin).toBe(true)
   })
 })
+
+describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
+  const originalGrace = process.env.JWT_LEGACY_GRACE_MINUTES
+  const rawSecret = process.env.JWT_SECRET || 'test-jwt-secret-for-unit-tests'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.JWT_LEGACY_GRACE_MINUTES
+    containerResolve.mockImplementation((name: string) => {
+      if (name === 'customerSessionService') return { findActiveSessionById }
+      if (name === 'customerRbacService') return { loadAcl, getEffectiveFeatures }
+      if (name === 'em') return mockEm
+      return null
+    })
+    findOneWithDecryption.mockResolvedValue({
+      id: userId,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    loadAcl.mockResolvedValue({ isPortalAdmin: false, features: ['customer_portal.view'] })
+    getEffectiveFeatures.mockResolvedValue(['customer_portal.view'])
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (originalGrace === undefined) delete process.env.JWT_LEGACY_GRACE_MINUTES
+    else process.env.JWT_LEGACY_GRACE_MINUTES = originalGrace
+  })
+
+  function buildLegacyRequest(): Request {
+    // Pre-migration shape: signed with the raw JWT_SECRET, no aud/iss, no sid. A long TTL keeps
+    // `exp` valid so these tests exercise the grace window rather than ordinary expiry.
+    const payload = buildCustomerPayload()
+    delete payload.sid
+    const token = signJwt(payload, rawSecret, 30 * 24 * 3600)
+    return new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+  }
+
+  it('accepts a sessionless legacy token while it is inside the grace window', async () => {
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    const req = buildLegacyRequest()
+
+    const result = await getCustomerAuthFromRequest(req)
+
+    expect(result).toMatchObject({ sub: userId, type: 'customer' })
+    expect(findActiveSessionById).not.toHaveBeenCalled()
+  })
+
+  it('rejects the same sessionless legacy token once the grace window has passed', async () => {
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    const req = buildLegacyRequest()
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61 * 60 * 1000)
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+
+  it('rejects sessionless legacy tokens outright when the grace window is disabled', async () => {
+    process.env.JWT_LEGACY_GRACE_MINUTES = '0'
+    const req = buildLegacyRequest()
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+})

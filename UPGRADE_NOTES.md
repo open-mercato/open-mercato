@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
+
+Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**
+
+**The full-app compose stacks no longer default `JWT_SECRET`.** `docker-compose.fullapp.yml` and its create-app template twin used to resolve `${JWT_SECRET:-JWT}`, so a deployment that never set the variable signed its tokens with the literal `JWT` — a value published in this repository. Both files now declare `${JWT_SECRET:?…}`, so `docker compose up` fails fast with an explanatory message instead of starting an impersonatable stack. The same files also stopped pinning `NODE_ENV: development` over an image whose `runner` stage already sets `NODE_ENV=production`; they now default to `${NODE_ENV:-production}`.
+
+Set the variable in the `.env` file **next to the compose file** (the repository root) — not in `apps/mercato/.env`, which cannot override a variable the compose file passes into the container:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+**The app refuses to run in production with an unsafe signing secret.** At startup (and on every secret read, which covers worker, scheduler, and CLI processes) Open Mercato now rejects a `JWT_SECRET` — or a per-audience `JWT_<AUDIENCE>_SECRET` override — that is missing, shorter than 32 characters, or one of the placeholder values shipped in this repository's examples. Outside production the same conditions only log a warning, so local development is unaffected. If your production deployment currently uses a short-but-real secret, rotate it to `openssl rand -hex 32` **before** upgrading; rotating logs every user out.
+
+**`JWT_LEGACY_GRACE_MINUTES` now enforces the window it documents.** It was read as an on/off switch: any value other than `0`, `false`, or `off` enabled raw-secret verification of pre-migration tokens *forever*, and those tokens are accepted without a session id — so they survive logout and password reset. The value is now honored as minutes measured against the token's own `iat`, and a token that carries no `iat` is refused because its age cannot be bounded. The new `JWT_LEGACY_CUTOVER_AT` (ISO-8601 instant) closes the window at a fixed date regardless of the grace value.
+
+The default is unchanged at 480 minutes (one token lifetime), so a normal rolling deployment behaves as before. Deployments that have already migrated should set `JWT_LEGACY_GRACE_MINUTES=0`; fresh installs have no pre-migration tokens and should start there. Users still holding a pre-migration token older than the window are logged out and must sign in again.
+
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.

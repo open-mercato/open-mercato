@@ -1,5 +1,6 @@
 import { RoleAcl, Session, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
+import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 
 const findOneWithDecryption = jest.fn()
 const findWithDecryption = jest.fn()
@@ -382,5 +383,63 @@ describe('isAuthContextValid', () => {
     ).resolves.toBe(true)
 
     expect(findOneWithDecryption).not.toHaveBeenCalled()
+  })
+})
+
+describe('staff legacy tokens across the migration window', () => {
+  const em = {} as import('@mikro-orm/postgresql').EntityManager
+  const originalJwtSecret = process.env.JWT_SECRET
+  const originalGrace = process.env.JWT_LEGACY_GRACE_MINUTES
+  const rawSecret = 'staff-legacy-window-test-secret'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    findWithDecryption.mockResolvedValue([])
+    findOneWithDecryption.mockResolvedValue(null)
+    process.env.JWT_SECRET = rawSecret
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    process.env.JWT_SECRET = originalJwtSecret
+    if (originalGrace === undefined) delete process.env.JWT_LEGACY_GRACE_MINUTES
+    else process.env.JWT_LEGACY_GRACE_MINUTES = originalGrace
+  })
+
+  function signSessionlessLegacyToken(): string {
+    // Pre-migration staff token: raw secret, no aud/iss, no sid. The long TTL keeps `exp` valid so
+    // these assertions turn on the grace window rather than ordinary expiry.
+    return signJwt({ sub: userId, tenantId, orgId: organizationId, roles: ['admin'] }, rawSecret, 30 * 24 * 3600)
+  }
+
+  it('accepts a sessionless legacy staff token inside the grace window', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    const payload = verifyJwt(signSessionlessLegacyToken()) as Record<string, unknown> | null
+
+    expect(payload).not.toBeNull()
+    await expect(isAuthContextValid(em, payload as never)).resolves.toBe(true)
+  })
+
+  it('stops accepting the same token once its grace window has lapsed', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    const token = signSessionlessLegacyToken()
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61 * 60 * 1000)
+
+    // Verification now fails outright, so no auth context ever reaches the session-integrity
+    // check — which is what makes a sessionless token unusable after the window.
+    expect(verifyJwt(token)).toBeNull()
+  })
+
+  it('never lets a sessionless token in on a _legacyToken claim baked into the payload', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    // Signed on the modern audience-derived path, so it is not a legacy token — the smuggled
+    // claim must not survive verification and must not buy an exemption from the sid requirement.
+    const token = signJwt({ sub: userId, tenantId, orgId: organizationId, roles: [], _legacyToken: true })
+    const payload = verifyJwt(token) as Record<string, unknown> | null
+
+    expect(payload).not.toBeNull()
+    expect(payload?._legacyToken).toBeUndefined()
+    await expect(isAuthContextValid(em, payload as never)).resolves.toBe(false)
   })
 })

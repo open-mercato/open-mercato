@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 
 import {
+  assertJwtSecretPolicy,
   deriveJwtAudienceSecret,
   signAudienceJwt,
   signJwt,
@@ -233,17 +234,25 @@ describe('jwt helpers', () => {
     const baseSecret = 'test-secret'
     const originalJwtSecret = process.env.JWT_SECRET
     const originalGrace = process.env.JWT_LEGACY_GRACE_MINUTES
+    const originalCutover = process.env.JWT_LEGACY_CUTOVER_AT
 
     beforeEach(() => {
       process.env.JWT_SECRET = baseSecret
       delete process.env.JWT_LEGACY_GRACE_MINUTES
+      delete process.env.JWT_LEGACY_CUTOVER_AT
     })
 
     afterEach(() => {
       process.env.JWT_SECRET = originalJwtSecret
       if (originalGrace === undefined) delete process.env.JWT_LEGACY_GRACE_MINUTES
       else process.env.JWT_LEGACY_GRACE_MINUTES = originalGrace
+      if (originalCutover === undefined) delete process.env.JWT_LEGACY_CUTOVER_AT
+      else process.env.JWT_LEGACY_CUTOVER_AT = originalCutover
     })
+
+    function advanceMinutes(minutes: number): void {
+      jest.spyOn(Date, 'now').mockReturnValue(now.getTime() + minutes * 60 * 1000)
+    }
 
     it('verifies a pre-migration token signed with raw JWT_SECRET via legacy fallback', () => {
       // Simulate a pre-migration token: signed with raw secret, no aud/iss
@@ -274,6 +283,113 @@ describe('jwt helpers', () => {
       expect(payload).not.toBeNull()
       expect(payload).toMatchObject({ sub: 'new-user', aud: 'staff', iss: 'open-mercato' })
       expect((payload as Record<string, unknown>)._legacyToken).toBeUndefined()
+    })
+
+    it('rejects a legacy token issued longer ago than the configured grace window', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '1'
+      // Long TTL so `exp` is still in the future: this must fail on the grace window alone,
+      // otherwise the test would pass even with an unbounded fallback.
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      expect(verifyJwt(legacyToken)).not.toBeNull()
+      advanceMinutes(120)
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('keeps accepting a legacy token while it is still inside the grace window', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      advanceMinutes(59)
+      const payload = verifyJwt(legacyToken)
+      expect(payload).not.toBeNull()
+      expect((payload as Record<string, unknown>)._legacyToken).toBe(true)
+    })
+
+    it('rejects a legacy token that carries no iat, since its age cannot be bounded', () => {
+      const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+      const body = base64url(JSON.stringify({ sub: 'legacy-user', exp: Math.floor(now.getTime() / 1000) + 3600 }))
+      const token = `${header}.${body}.${signTokenParts(header, body, baseSecret)}`
+      expect(verifyJwt(token)).toBeNull()
+    })
+
+    it('rejects legacy tokens once the configured cutover instant has passed', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '480'
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      process.env.JWT_LEGACY_CUTOVER_AT = new Date(now.getTime() + 60 * 60 * 1000).toISOString()
+      advanceMinutes(30)
+      expect(verifyJwt(legacyToken)).not.toBeNull()
+      advanceMinutes(90)
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('treats false and off as a disabled fallback, like 0', () => {
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 3600)
+      process.env.JWT_LEGACY_GRACE_MINUTES = 'false'
+      expect(verifyJwt(legacyToken)).toBeNull()
+      process.env.JWT_LEGACY_GRACE_MINUTES = 'off'
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('ignores a _legacyToken claim smuggled into a modern token payload', () => {
+      const token = signJwt({ sub: 'staff-user', _legacyToken: true })
+      const payload = verifyJwt(token) as Record<string, unknown> | null
+      expect(payload).not.toBeNull()
+      expect(payload?._legacyToken).toBeUndefined()
+    })
+  })
+
+  describe('signing secret policy', () => {
+    const originalJwtSecret = process.env.JWT_SECRET
+    const originalNodeEnv = process.env.NODE_ENV
+    const strongSecret = 'a'.repeat(64)
+
+    afterEach(() => {
+      process.env.JWT_SECRET = originalJwtSecret
+      process.env.NODE_ENV = originalNodeEnv
+      delete process.env.JWT_CUSTOMER_SECRET
+    })
+
+    it('refuses to sign in production with the placeholder secret published in the compose files', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = 'JWT'
+      expect(() => signJwt({ sub: 'user-1' })).toThrow(/unsafe signing secret/i)
+    })
+
+    it('refuses to sign in production with a secret shorter than 32 characters', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = 'short-secret'
+      expect(() => signJwt({ sub: 'user-1' })).toThrow(/unsafe signing secret/i)
+    })
+
+    it('signs normally in production with a strong secret', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = strongSecret
+      expect(() => signJwt({ sub: 'user-1' })).not.toThrow()
+    })
+
+    it('tolerates a weak secret outside production so local development keeps working', () => {
+      process.env.NODE_ENV = 'development'
+      process.env.JWT_SECRET = 'JWT'
+      expect(() => signJwt({ sub: 'user-1' })).not.toThrow()
+    })
+
+    it('assertJwtSecretPolicy rejects a missing secret in production', () => {
+      process.env.NODE_ENV = 'production'
+      delete process.env.JWT_SECRET
+      expect(() => assertJwtSecretPolicy()).toThrow(/JWT_SECRET is not set/i)
+    })
+
+    it('assertJwtSecretPolicy rejects a weak per-audience override in production', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = strongSecret
+      process.env.JWT_CUSTOMER_SECRET = 'secret'
+      expect(() => assertJwtSecretPolicy()).toThrow(/JWT_CUSTOMER_SECRET/)
+    })
+
+    it('assertJwtSecretPolicy passes in production when every secret is strong', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = strongSecret
+      process.env.JWT_CUSTOMER_SECRET = 'b'.repeat(64)
+      expect(() => assertJwtSecretPolicy()).not.toThrow()
     })
   })
 })

@@ -108,10 +108,14 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
 
   try {
     let payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
-    // Legacy fallback: try raw JWT_SECRET for pre-migration customer tokens
+    // Legacy fallback: accept a pre-migration customer token signed with the raw JWT_SECRET, but
+    // only while `verifyJwt` itself still considers it legacy — it owns the grace window (token
+    // `iat` vs JWT_LEGACY_GRACE_MINUTES / JWT_LEGACY_CUTOVER_AT) and marks the payload. Trusting
+    // the bare return value would also let a staff-audience token through this branch, because
+    // the default `verifyJwt` path verifies against the staff-derived key.
     if (!payload) {
-      payload = verifyJwt(token) as Record<string, unknown> | null
-      if (payload) payload._legacyToken = true
+      const legacyPayload = verifyJwt(token) as Record<string, unknown> | null
+      if (legacyPayload && legacyPayload._legacyToken === true) payload = legacyPayload
     }
     if (!payload) return null
     if (payload.type !== 'customer') return null

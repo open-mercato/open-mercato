@@ -84,7 +84,7 @@ function writeStandaloneEnv(appDir: string): void {
     // the captured-email path must be absolute and identical on both sides.
     `OM_TEST_EMAIL_CAPTURE_PATH=${standaloneEmailCapturePath()}`,
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
-    'JWT_SECRET=ci-standalone-test-jwt-secret',
+    'JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
     'NODE_ENV=test',
     'OM_TEST_MODE=1',
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
     OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
-    JWT_SECRET: 'ci-standalone-test-jwt-secret',
+    JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
