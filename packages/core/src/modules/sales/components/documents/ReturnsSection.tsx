@@ -41,11 +41,11 @@ type SalesReturnsSectionProps = {
   documentUpdatedAt?: string | null
 }
 
-function formatDisplayDate(value: string | null | undefined): string | null {
+export function formatDisplayDate(value: string | null | undefined, locale?: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
 export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
@@ -329,7 +329,7 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                 </div>
               </div>
               <div className="whitespace-nowrap text-right text-sm text-muted-foreground">
-                {formatDisplayDate(ret.returnedAt) ?? t('sales.returns.notSet', 'Not set')}
+                {formatDisplayDate(ret.returnedAt, locale) ?? t('sales.returns.notSet', 'Not set')}
               </div>
               <div className="whitespace-nowrap text-right text-sm font-medium">
                 {formatMoney(ret.total, currencyCode ?? null, locale)}

@@ -290,17 +290,17 @@ export function SalesDocumentPaymentsSection({
         header: t('sales.documents.payments.receivedAt', 'Received'),
         cell: ({ row }) =>
           row.original.receivedAt
-            ? new Date(row.original.receivedAt).toLocaleDateString()
+            ? new Date(row.original.receivedAt).toLocaleDateString(locale)
             : '—',
       },
       {
         accessorKey: 'createdAt',
         header: t('sales.documents.payments.createdAt', 'Created'),
         cell: ({ row }) =>
-          row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—',
+          row.original.createdAt ? new Date(row.original.createdAt).toLocaleString(locale) : '—',
         meta: {
           tooltipContent: (row: PaymentRow) =>
-            row.createdAt ? new Date(row.createdAt).toLocaleString() : undefined,
+            row.createdAt ? new Date(row.createdAt).toLocaleString(locale) : undefined,
         },
       },
       {
