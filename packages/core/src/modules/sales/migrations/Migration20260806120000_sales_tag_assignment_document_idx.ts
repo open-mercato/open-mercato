@@ -23,12 +23,17 @@ import { Migration } from '@mikro-orm/migrations';
 // The table is high-churn, so the index is built CONCURRENTLY to avoid blocking
 // writes during the build. CREATE INDEX CONCURRENTLY cannot run inside a
 // transaction, hence isTransactional() => false; the migration runner applies
-// migrations one-by-one, so this opt-out is safe (same pattern as
-// Migration20260611103000_query_index). Drop first so retrying a failed
-// concurrent build removes PostgreSQL's invalid index stub instead of letting
-// IF NOT EXISTS silently accept it: a half-built concurrent index is left
-// INVALID, the planner ignores it, and IF NOT EXISTS would report success while
-// the table stays unindexed.
+// migrations one-by-one, so this opt-out is safe. Drop first so retrying a
+// failed concurrent build removes PostgreSQL's invalid index stub instead of
+// letting IF NOT EXISTS silently accept it: a half-built concurrent index is
+// left INVALID, the planner ignores it, and IF NOT EXISTS would report success
+// while the table stays unindexed.
+//
+// Both halves follow Migration20260731105052_query_index, which builds
+// concurrently and drops first for the same reason. The earlier
+// Migration20260611103000_query_index builds concurrently but uses IF NOT
+// EXISTS without the drop — cited here only so a reader comparing the two knows
+// the divergence is deliberate rather than an oversight.
 //
 // On a database that does not have the index yet — every fresh install — the
 // drop is a no-op and there is no window without it. An operator who already

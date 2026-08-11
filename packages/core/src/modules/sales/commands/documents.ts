@@ -3709,6 +3709,15 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
 // delete would leave stale identities behind. The add and remove sets are
 // disjoint by construction, so MikroORM's insert-before-delete commit order can
 // never transiently violate the unique (tag_id, document_id, document_kind).
+//
+// The assignment read below is deliberately scoped by document only, with no
+// organization/tenant predicate — unlike the display reads in
+// api/documents/factory.ts, and unlike the tag-scope check above. It has to
+// match the scope of the unique constraint it reconciles against, which spans
+// (tag_id, document_id, document_kind) and no scope columns. Narrowing the read
+// would hide a mis-scoped row from the diff, put its tag in the add set, and
+// turn the insert into a unique-constraint violation. The document itself is
+// already scope-checked by the caller before this runs.
 async function syncSalesDocumentTags(
   em: EntityManager,
   params: {
