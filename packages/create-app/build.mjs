@@ -2,6 +2,7 @@ import * as esbuild from 'esbuild'
 import { createHash } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join, basename, resolve } from 'path'
+import { pathToFileURL } from 'node:url'
 
 const shebang = '#!/usr/bin/env node\n'
 
@@ -103,17 +104,26 @@ if (guidesFound > 0) {
 // Auth comes from the generated module registry (`apis[].metadata`); a missing registry
 // yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
 // packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
+const workspaceCliDist = join(repositoryRoot, 'packages', 'cli', 'dist', 'lib')
+const resolveCliBuildImport = (relativePath, packageImport) => {
+  const workspacePath = join(workspaceCliDist, relativePath)
+  return existsSync(workspacePath) ? pathToFileURL(workspacePath).href : packageImport
+}
+
 const {
   assertPackageModuleFactsOnly,
   extractAllModuleFacts,
   extractLocalReferenceModuleFacts,
   renderModuleFactsJson,
   renderReferenceModuleFactsJson,
-} = await import('@open-mercato/cli/lib/generators/module-facts')
+} = await import(resolveCliBuildImport('generators/module-facts.js', '@open-mercato/cli/lib/generators/module-facts'))
 const { discoverLocalReferenceModuleSource, discoverPackageModuleSources } = await import(
-  '@open-mercato/cli/lib/generators/module-facts-discovery'
+  resolveCliBuildImport(
+    'generators/module-facts-discovery.js',
+    '@open-mercato/cli/lib/generators/module-facts-discovery',
+  )
 )
-const { createResolver } = await import('@open-mercato/cli/lib/resolver')
+const { createResolver } = await import(resolveCliBuildImport('resolver.js', '@open-mercato/cli/lib/resolver'))
 
 // The app-local example is disabled in every preset, so it is never a package module and
 // never enters the normal outputs. It is projected into its own reference bundle from the
@@ -143,6 +153,13 @@ if (sources.length > 0) {
     factsContractVersion: 1,
   })
 
+  const extractedModuleIds = Object.keys(markdownByModule)
+  if (extractedModuleIds.length === 0) {
+    throw new Error(
+      '[module-facts] package sources were discovered but produced no fact-sheets; refusing to build an empty knowledge layer',
+    )
+  }
+
   assertPackageModuleFactsOnly(factsByModule)
   assertPackageModuleFactsOnly(legacyFactsByModule)
 
@@ -156,7 +173,7 @@ if (sources.length > 0) {
   writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
   for (const warning of warnings) console.warn(warning)
-  console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
+  console.log(`Generated ${extractedModuleIds.length} module fact-sheets → dist/agentic/guides/modules/`)
 
   const referenceBundle = {}
   const referenceGuidesDir = join(guidesDestDir, 'reference-modules')
