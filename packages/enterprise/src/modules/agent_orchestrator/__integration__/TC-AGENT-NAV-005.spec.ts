@@ -141,11 +141,23 @@ test.describe('TC-AGENT-NAV-005: eval-cases surfacing', () => {
       })
       expect(forbiddenRes.status(), 'eval-cases must 403 without eval.manage').toBe(403)
 
+      // The standalone eval-cases LIST was deleted by the agent-centric
+      // consolidation (#4489) — only `eval-cases/[id]` is a registered route.
+      // This assertion outlived it and had been failing in CI ever since,
+      // asserting a page that does not exist. Eval cases now live in the owning
+      // agent's workspace, which is where the trace inspector's "View eval set"
+      // action goes too.
       await loginAsAdmin(page)
-      await page.goto('/backend/eval-cases?status=draft', { waitUntil: 'domcontentloaded' })
+      await page.goto(`/backend/agents/${encodeURIComponent(agentId)}?tab=evaluation&section=cases`, {
+        waitUntil: 'domcontentloaded',
+      })
+      await expect(
+        page.getByRole('tab', { name: /cases/i }).first(),
+        "the agent workspace must open on the Evaluation tab's Cases section",
+      ).toBeVisible({ timeout: 15_000 })
       await expect(
         page.getByText(agentId).first(),
-        'the eval-cases page must list the created draft on the draft tab',
+        'the agent workspace must surface the agent whose draft case was created',
       ).toBeVisible({ timeout: 15_000 })
     } finally {
       await deleteAgentEvalCasesByIds(createdEvalCaseIds).catch(() => undefined)

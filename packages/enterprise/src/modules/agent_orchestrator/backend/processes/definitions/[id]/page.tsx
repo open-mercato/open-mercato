@@ -402,7 +402,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
                 size="sm"
                 onClick={(event) => {
                   event.stopPropagation()
-                  router.push(`/backend/workflows/instances/${encodeURIComponent(row.original.workflowInstanceId!)}`)
+                  router.push(`/backend/instances/${encodeURIComponent(row.original.workflowInstanceId!)}`)
                 }}
               >
                 {t('agent_orchestrator.processDefinitions.runs.openInstance')}

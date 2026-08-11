@@ -1039,7 +1039,17 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => router.push('/backend/eval-cases?status=draft')}
+                            // The eval-cases LIST was deleted by the
+                            // agent-centric consolidation (#4489); only
+                            // `eval-cases/[id]` is a registered route, so this
+                            // used to be a dead end. Eval cases now live in the
+                            // owning agent's workspace, which accepts both
+                            // params.
+                            onClick={() =>
+                              router.push(
+                                `/backend/agents/${encodeURIComponent(run.agentId)}?tab=evaluation&section=cases`,
+                              )
+                            }
                           >
                             <ClipboardCheck className="size-4" />
                             {t('agent_orchestrator.traces.detail.actionViewEvalSet')}
