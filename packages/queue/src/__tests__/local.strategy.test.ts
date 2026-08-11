@@ -649,6 +649,75 @@ describe('Queue - local strategy', () => {
     }
   })
 
+  test('scoped removal cancels queued-work polling after draining the queue', async () => {
+    jest.useFakeTimers()
+    const baseDir = path.join(tmp, 'scoped-remove-queued-poll')
+    const queueFile = path.join(baseDir, 'scoped-remove-queued-poll', 'queue.json')
+    const watcher = createWatcherStub()
+    const watchSpy = jest.spyOn(fs, 'watch').mockReturnValue(watcher)
+    const readFileSpy = jest.spyOn(fs.promises, 'readFile')
+    const consumer = createQueue<{ tenantId: string; value: number }>('scoped-remove-queued-poll', 'local', { baseDir })
+
+    try {
+      await consumer.enqueue({ tenantId: 'tenant-1', value: 1 }, { delayMs: 10_000 })
+      await consumer.process(() => {})
+      await consumer.removeQueuedJobsByScope!({ tenantId: 'tenant-1' })
+      readFileSpy.mockClear()
+
+      await jest.advanceTimersByTimeAsync(1000)
+      jest.useRealTimers()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const queueReads = readFileSpy.mock.calls.filter(([filePath]) => String(filePath) === queueFile)
+      expect(queueReads).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+      await consumer.close()
+      readFileSpy.mockRestore()
+      watchSpy.mockRestore()
+    }
+  })
+
+  test('continuous processing survives a transient watcher stat failure', async () => {
+    const baseDir = path.join(tmp, 'watcher-stat-failure')
+    const consumer = createQueue<{ value: number }>('watcher-stat-failure', 'local', { baseDir })
+    const processed: number[] = []
+
+    await consumer.enqueue({ value: 1 })
+    const statError = Object.assign(new Error('Queue file temporarily unavailable'), { code: 'ENOENT' })
+    const statSpy = jest.spyOn(fs.promises, 'stat').mockRejectedValueOnce(statError)
+
+    try {
+      await expect(consumer.process((job) => {
+        processed.push(job.payload.value)
+      })).resolves.toEqual({ processed: -1, failed: -1, lastJobId: undefined })
+      expect(processed).toEqual([1])
+    } finally {
+      await consumer.close()
+      statSpy.mockRestore()
+    }
+  })
+
+  test('continuous processing falls back to polling when watcher setup fails', async () => {
+    const baseDir = path.join(tmp, 'watcher-setup-failure')
+    const consumer = createQueue<{ value: number }>('watcher-setup-failure', 'local', { baseDir })
+    const processed: number[] = []
+    const watchSpy = jest.spyOn(fs, 'watch').mockImplementation(() => {
+      throw new Error('Filesystem watching unavailable')
+    })
+
+    try {
+      await consumer.enqueue({ value: 1 })
+      await expect(consumer.process((job) => {
+        processed.push(job.payload.value)
+      })).resolves.toEqual({ processed: -1, failed: -1, lastJobId: undefined })
+      expect(processed).toEqual([1])
+    } finally {
+      await consumer.close()
+      watchSpy.mockRestore()
+    }
+  })
+
   test('restarting continuous processing closes the previous watcher', async () => {
     jest.useFakeTimers()
     const firstWatcher = createWatcherStub()
@@ -678,15 +747,23 @@ describe('Queue - local strategy', () => {
     const baseDir = path.join(tmp, 'initial-read-failure')
     const queueFile = path.join(baseDir, 'initial-read-failure', 'queue.json')
     const consumer = createQueue<{ value: number }>('initial-read-failure', 'local', { baseDir })
+    const actualReadFile = fs.promises.readFile
 
     await consumer.enqueue({ value: 1 })
-    fs.chmodSync(queueFile, 0o000)
+    const readFileSpy = jest.spyOn(fs.promises, 'readFile').mockImplementation(async (filePath, ...args) => {
+      if (String(filePath) === queueFile) {
+        throw Object.assign(new Error('Permission denied'), { code: 'EACCES' })
+      }
+      return actualReadFile(filePath, ...args)
+    })
+    queueLoggerError.mockClear()
 
     try {
       await expect(consumer.process(() => {})).rejects.toThrow('Queue file unreadable')
+      expect(queueLoggerError).not.toHaveBeenCalledWith('Polling error', expect.anything())
     } finally {
-      fs.chmodSync(queueFile, 0o600)
       await consumer.close()
+      readFileSpy.mockRestore()
     }
   })
 

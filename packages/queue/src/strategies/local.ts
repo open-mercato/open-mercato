@@ -351,8 +351,8 @@ export function createLocalQueue<T = unknown>(
         await processBatch(handler)
       } while (pollRequested)
     } catch (error) {
-      logger.error('Polling error', { err: error })
       if (rethrow) throw error
+      logger.error('Polling error', { err: error })
     } finally {
       isProcessing = false
       scheduleQueuedPoll()
@@ -385,19 +385,19 @@ export function createLocalQueue<T = unknown>(
   function refreshQueueWatcher(): Promise<void> {
     const refresh = watcherRefreshChain.then(async () => {
       if (!activeHandler) return
-      await ensureDir()
-      const stats = await fsp.stat(queueFile)
-      const nextIdentity = { device: stats.dev, inode: stats.ino }
-      if (
-        queueWatcher
-        && queueWatcherIdentity?.device === nextIdentity.device
-        && queueWatcherIdentity.inode === nextIdentity.inode
-      ) {
-        return
-      }
-
-      closeQueueWatcher()
       try {
+        await ensureDir()
+        const stats = await fsp.stat(queueFile)
+        const nextIdentity = { device: stats.dev, inode: stats.ino }
+        if (
+          queueWatcher
+          && queueWatcherIdentity?.device === nextIdentity.device
+          && queueWatcherIdentity.inode === nextIdentity.inode
+        ) {
+          return
+        }
+
+        closeQueueWatcher()
         const watcher = fs.watch(queueFile, (eventType) => {
           if (eventType === 'rename') {
             queueWatcherIdentity = null
