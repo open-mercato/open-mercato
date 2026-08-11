@@ -80,25 +80,6 @@ function buildProgress(cancelAfter: number | null = null) {
   return progress
 }
 
-/**
- * Waits for a heartbeat-driven condition instead of sleeping for a fixed slice of
- * wall-clock time.
- *
- * The heartbeat runs on a real `setInterval`, so a fixed sleep asserts the runner's
- * scheduling latency as much as the loop's behavior: under a loaded CI worker the
- * 20ms budget elapsed with zero interval ticks delivered and the assertion read a
- * single (initial) renewal. Polling keeps the property under test — that the
- * heartbeat renews the lease *while* an item is still executing — and drops the
- * dependency on how promptly the event loop gets to the timer.
- */
-async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('[internal] timed out waiting for the expected condition')
-    await new Promise((resolve) => { setTimeout(resolve, 5) })
-  }
-}
-
 describe('runTodoBulkCompleteLoop', () => {
   it('runs every item through the executor and completes the progress job', async () => {
     const { store, checkpoints, finished } = buildStore(buildSnapshot())
@@ -251,31 +232,45 @@ describe('runTodoBulkCompleteLoop', () => {
   })
 
   it('renews the lease while one item is still executing', async () => {
+    jest.useFakeTimers()
     const { store } = buildStore(buildSnapshot({ todoIds: ['todo-1'] }))
     const progress = buildProgress()
     let releaseExecution: (() => void) | null = null
     const executionReleased = new Promise<void>((resolve) => {
       releaseExecution = resolve
     })
-
-    const running = runTodoBulkCompleteLoop({
-      operationId: OPERATION_ID,
-      scope: SCOPE,
-      leaseOwner: 'worker-a',
-      store,
-      progress,
-      execute: async () => executionReleased,
-      leaseTtlMs: 30,
-      leaseHeartbeatMs: 5,
+    let markExecutionStarted: (() => void) | null = null
+    const executionStarted = new Promise<void>((resolve) => {
+      markExecutionStarted = resolve
     })
 
-    await waitFor(() => jest.mocked(store.renewLease).mock.calls.length > 1)
-    expect(jest.mocked(store.renewLease).mock.calls.length).toBeGreaterThan(1)
-    releaseExecution?.()
-    await running
+    try {
+      const running = runTodoBulkCompleteLoop({
+        operationId: OPERATION_ID,
+        scope: SCOPE,
+        leaseOwner: 'worker-a',
+        store,
+        progress,
+        execute: async () => {
+          markExecutionStarted?.()
+          return executionReleased
+        },
+        leaseTtlMs: 30,
+        leaseHeartbeatMs: 5,
+      })
+
+      await executionStarted
+      await jest.advanceTimersByTimeAsync(5)
+      expect(jest.mocked(store.renewLease).mock.calls.length).toBeGreaterThan(1)
+      releaseExecution?.()
+      await running
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('stops without checkpointing when the lease heartbeat reports a new owner', async () => {
+    jest.useFakeTimers()
     const { store } = buildStore(buildSnapshot({ todoIds: ['todo-1'] }))
     const progress = buildProgress()
     jest.mocked(store.renewLease)
@@ -285,23 +280,35 @@ describe('runTodoBulkCompleteLoop', () => {
     const executionReleased = new Promise<void>((resolve) => {
       releaseExecution = resolve
     })
-
-    const running = runTodoBulkCompleteLoop({
-      operationId: OPERATION_ID,
-      scope: SCOPE,
-      leaseOwner: 'worker-a',
-      store,
-      progress,
-      execute: async () => executionReleased,
-      leaseTtlMs: 30,
-      leaseHeartbeatMs: 5,
+    let markExecutionStarted: (() => void) | null = null
+    const executionStarted = new Promise<void>((resolve) => {
+      markExecutionStarted = resolve
     })
 
-    await waitFor(() => jest.mocked(store.renewLease).mock.calls.length > 1)
-    releaseExecution?.()
-    await expect(running).resolves.toEqual({ outcome: null, executed: true })
-    expect(store.saveCheckpoint).not.toHaveBeenCalled()
-    expect(store.finish).not.toHaveBeenCalled()
+    try {
+      const running = runTodoBulkCompleteLoop({
+        operationId: OPERATION_ID,
+        scope: SCOPE,
+        leaseOwner: 'worker-a',
+        store,
+        progress,
+        execute: async () => {
+          markExecutionStarted?.()
+          return executionReleased
+        },
+        leaseTtlMs: 30,
+        leaseHeartbeatMs: 5,
+      })
+
+      await executionStarted
+      await jest.advanceTimersByTimeAsync(5)
+      releaseExecution?.()
+      await expect(running).resolves.toEqual({ outcome: null, executed: true })
+      expect(store.saveCheckpoint).not.toHaveBeenCalled()
+      expect(store.finish).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('passes the lease owner into every checkpoint and terminal write', async () => {
