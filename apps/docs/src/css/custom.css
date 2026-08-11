@@ -154,10 +154,15 @@ body {
 }
 
 /* Copy page button */
+.doc-item-with-copy-button {
+  position: relative;
+}
+
 .copy-page-button-container {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.5rem;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
 }
 
 .copy-page-button {

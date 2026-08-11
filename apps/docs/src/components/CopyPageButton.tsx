@@ -1,169 +1,258 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 
-function htmlToMarkdown(element: Element): string {
-  const lines: string[] = [];
+function resolveHref(href: string): string {
+  if (!href || href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#')) {
+    return href;
+  }
+  try {
+    return new URL(href, window.location.origin).href;
+  } catch {
+    return href;
+  }
+}
 
-  function walk(node: Node): string {
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent || '';
-    }
+function walkListItem(node: Node, indent: string, prefix: string): string {
+  const el = node as HTMLElement;
+  const parts: string[] = [];
+  let firstLine = '';
 
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      return '';
-    }
-
-    const el = node as HTMLElement;
-    const tag = el.tagName.toLowerCase();
-
-    // Skip the copy button itself, nav elements, and table of contents
-    if (
-      el.closest('[data-copy-page-button]') ||
-      tag === 'nav' ||
-      el.classList.contains('table-of-contents') ||
-      el.classList.contains('theme-doc-toc-desktop') ||
-      el.classList.contains('theme-doc-toc-mobile') ||
-      el.classList.contains('pagination-nav') ||
-      el.classList.contains('theme-doc-footer') ||
-      el.classList.contains('theme-last-updated') ||
-      el.classList.contains('theme-doc-breadcrumbs')
-    ) {
-      return '';
-    }
-
-    const children = Array.from(el.childNodes).map(walk).join('');
-
-    switch (tag) {
-      case 'h1':
-        return `# ${children.trim()}\n\n`;
-      case 'h2':
-        return `## ${children.trim()}\n\n`;
-      case 'h3':
-        return `### ${children.trim()}\n\n`;
-      case 'h4':
-        return `#### ${children.trim()}\n\n`;
-      case 'h5':
-        return `##### ${children.trim()}\n\n`;
-      case 'h6':
-        return `###### ${children.trim()}\n\n`;
-      case 'p':
-        return `${children.trim()}\n\n`;
-      case 'strong':
-      case 'b':
-        return `**${children}**`;
-      case 'em':
-      case 'i':
-        return `*${children}*`;
-      case 'code': {
-        // Inline code (not inside pre)
-        if (!el.closest('pre')) {
-          return `\`${children}\``;
-        }
-        return children;
-      }
-      case 'pre': {
-        const codeEl = el.querySelector('code');
-        const lang = codeEl?.className?.match(/language-(\w+)/)?.[1] || '';
-        const code = codeEl?.textContent || children;
-        return `\`\`\`${lang}\n${code.trim()}\n\`\`\`\n\n`;
-      }
-      case 'a': {
-        const href = el.getAttribute('href') || '';
-        // Skip anchor links that are just "#"
-        if (el.classList.contains('hash-link') || href === '#') {
-          return '';
-        }
-        return `[${children}](${href})`;
-      }
-      case 'ul': {
-        const items = Array.from(el.children)
-          .map((li) => `- ${walk(li).trim()}`)
+  for (const child of Array.from(el.childNodes)) {
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const childEl = child as HTMLElement;
+      const childTag = childEl.tagName.toLowerCase();
+      if (childTag === 'ul') {
+        const nestedItems = Array.from(childEl.children)
+          .map((li, i) => walkListItem(li, indent + '  ', '- '))
           .join('\n');
-        return `${items}\n\n`;
+        parts.push(nestedItems);
+        continue;
       }
-      case 'ol': {
-        const items = Array.from(el.children)
-          .map((li, i) => `${i + 1}. ${walk(li).trim()}`)
+      if (childTag === 'ol') {
+        const nestedItems = Array.from(childEl.children)
+          .map((li, i) => walkListItem(li, indent + '  ', `${i + 1}. `))
           .join('\n');
-        return `${items}\n\n`;
+        parts.push(nestedItems);
+        continue;
       }
-      case 'li':
-        return children;
-      case 'blockquote':
-        return (
-          children
-            .trim()
-            .split('\n')
-            .map((line) => `> ${line}`)
-            .join('\n') + '\n\n'
-        );
-      case 'table': {
-        const rows = Array.from(el.querySelectorAll('tr'));
-        if (rows.length === 0) return '';
-
-        const tableLines: string[] = [];
-        rows.forEach((row, rowIndex) => {
-          const cells = Array.from(row.querySelectorAll('th, td')).map((cell) =>
-            walk(cell).trim().replace(/\n/g, ' '),
-          );
-          tableLines.push(`| ${cells.join(' | ')} |`);
-          if (rowIndex === 0) {
-            tableLines.push(`| ${cells.map(() => '---').join(' | ')} |`);
-          }
-        });
-        return `${tableLines.join('\n')}\n\n`;
-      }
-      case 'br':
-        return '\n';
-      case 'hr':
-        return '---\n\n';
-      case 'img': {
-        const alt = el.getAttribute('alt') || '';
-        const src = el.getAttribute('src') || '';
-        return `![${alt}](${src})`;
-      }
-      case 'details': {
-        const summary = el.querySelector('summary');
-        const summaryText = summary ? walk(summary).trim() : '';
-        const rest = Array.from(el.childNodes)
-          .filter((n) => n !== summary)
-          .map(walk)
-          .join('');
-        return `<details>\n<summary>${summaryText}</summary>\n\n${rest.trim()}\n</details>\n\n`;
-      }
-      case 'summary':
-        return children;
-      default:
-        return children;
     }
+    firstLine += walk(child);
   }
 
-  lines.push(walk(element));
+  const result = `${indent}${prefix}${firstLine.trim()}`;
+  if (parts.length > 0) {
+    return `${result}\n${parts.join('\n')}`;
+  }
+  return result;
+}
 
-  return lines
-    .join('')
+function walk(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || '';
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return '';
+  }
+
+  const el = node as HTMLElement;
+  const tag = el.tagName.toLowerCase();
+
+  // Skip elements that should not be in the copied content
+  if (
+    el.closest('[data-copy-page-button]') ||
+    el.hasAttribute('hidden') ||
+    tag === 'nav' ||
+    tag === 'svg' ||
+    el.classList.contains('table-of-contents') ||
+    el.classList.contains('theme-doc-toc-desktop') ||
+    el.classList.contains('theme-doc-toc-mobile') ||
+    el.classList.contains('pagination-nav') ||
+    el.classList.contains('theme-doc-footer') ||
+    el.classList.contains('theme-last-updated') ||
+    el.classList.contains('theme-doc-breadcrumbs') ||
+    el.classList.contains('docusaurus-mermaid-container')
+  ) {
+    return '';
+  }
+
+  switch (tag) {
+    case 'h1':
+    case 'h2':
+    case 'h3':
+    case 'h4':
+    case 'h5':
+    case 'h6': {
+      const level = parseInt(tag[1], 10);
+      const prefix = '#'.repeat(level);
+      const text = Array.from(el.childNodes)
+        .filter((n) => {
+          if (n.nodeType === Node.ELEMENT_NODE) {
+            const c = n as HTMLElement;
+            return !c.classList.contains('hash-link') && c.tagName.toLowerCase() !== 'a' || c.getAttribute('href')?.[0] !== '#' || c.textContent?.trim() !== '';
+          }
+          return true;
+        })
+        .map(walk)
+        .join('')
+        .trim();
+      return `${prefix} ${text}\n\n`;
+    }
+    case 'p':
+      return `${Array.from(el.childNodes).map(walk).join('').trim()}\n\n`;
+    case 'strong':
+    case 'b':
+      return `**${Array.from(el.childNodes).map(walk).join('')}**`;
+    case 'em':
+    case 'i':
+      return `*${Array.from(el.childNodes).map(walk).join('')}*`;
+    case 'code': {
+      if (!el.closest('pre')) {
+        return `\`${el.textContent || ''}\``;
+      }
+      return el.textContent || '';
+    }
+    case 'pre': {
+      const codeEl = el.querySelector('code');
+      // Language class is on <pre> in Docusaurus (prism-react-renderer), not on <code>
+      const langMatch =
+        el.className.match(/language-([\w-]+)/) ||
+        el.closest('[class*="language-"]')?.className.match(/language-([\w-]+)/);
+      const lang = langMatch?.[1] || '';
+
+      let code: string;
+      if (codeEl) {
+        // Docusaurus renders code lines as <span class="token-line"> with no newlines
+        const tokenLines = codeEl.querySelectorAll('.token-line');
+        if (tokenLines.length > 0) {
+          code = Array.from(tokenLines)
+            .map((line) => line.textContent)
+            .join('\n');
+        } else {
+          code = codeEl.textContent || '';
+        }
+      } else {
+        code = el.textContent || '';
+      }
+      return `\`\`\`${lang}\n${code.trimEnd()}\n\`\`\`\n\n`;
+    }
+    case 'a': {
+      const href = el.getAttribute('href') || '';
+      if (el.classList.contains('hash-link') || href === '#') {
+        return '';
+      }
+      const children = Array.from(el.childNodes).map(walk).join('');
+      return `[${children}](${resolveHref(href)})`;
+    }
+    case 'ul': {
+      const items = Array.from(el.children)
+        .map((li) => walkListItem(li, '', '- '))
+        .join('\n');
+      return `${items}\n\n`;
+    }
+    case 'ol': {
+      const items = Array.from(el.children)
+        .map((li, i) => walkListItem(li, '', `${i + 1}. `))
+        .join('\n');
+      return `${items}\n\n`;
+    }
+    case 'li':
+      return Array.from(el.childNodes).map(walk).join('');
+    case 'blockquote':
+      return (
+        Array.from(el.childNodes)
+          .map(walk)
+          .join('')
+          .trim()
+          .split('\n')
+          .map((line) => `> ${line}`)
+          .join('\n') + '\n\n'
+      );
+    case 'table': {
+      const rows = Array.from(el.querySelectorAll('tr'));
+      if (rows.length === 0) return '';
+
+      const tableLines: string[] = [];
+      rows.forEach((row, rowIndex) => {
+        const cells = Array.from(row.querySelectorAll('th, td')).map((cell) =>
+          walk(cell).trim().replace(/\n/g, ' ').replace(/\|/g, '\\|'),
+        );
+        tableLines.push(`| ${cells.join(' | ')} |`);
+        if (rowIndex === 0) {
+          tableLines.push(`| ${cells.map(() => '---').join(' | ')} |`);
+        }
+      });
+      return `${tableLines.join('\n')}\n\n`;
+    }
+    case 'br':
+      return '\n';
+    case 'hr':
+      return '---\n\n';
+    case 'img': {
+      const alt = el.getAttribute('alt') || '';
+      const src = el.getAttribute('src') || '';
+      return `![${alt}](${resolveHref(src)})`;
+    }
+    case 'details': {
+      const summary = el.querySelector(':scope > summary');
+      const summaryText = summary ? walk(summary).trim() : '';
+      const rest = Array.from(el.childNodes)
+        .filter((n) => n !== summary)
+        .map(walk)
+        .join('');
+      return `<details>\n<summary>${summaryText}</summary>\n\n${rest.trim()}\n</details>\n\n`;
+    }
+    case 'summary':
+      return Array.from(el.childNodes).map(walk).join('');
+    default: {
+      // Handle admonitions: emit as blockquote with type label
+      if (el.classList.contains('theme-admonition')) {
+        const typeMatch = Array.from(el.classList).find((c) => c.startsWith('alert--'));
+        const type = typeMatch ? typeMatch.replace('alert--', '').toUpperCase() : 'NOTE';
+        const titleEl = el.querySelector('.admonitionHeading_node_modules-\\@docusaurus-theme-classic-lib-theme-Admonition-Layout-styles-module, .admonition-title, [class*="admonitionHeading"]');
+        const title = titleEl?.textContent?.trim() || type;
+        const bodyParts: string[] = [];
+        for (const child of Array.from(el.childNodes)) {
+          if (child === titleEl || (child as HTMLElement).classList?.contains?.('admonitionHeading')) continue;
+          bodyParts.push(walk(child));
+        }
+        const body = bodyParts.join('').trim();
+        return `> **${title}**\n>\n${body.split('\n').map((l) => `> ${l}`).join('\n')}\n\n`;
+      }
+      return Array.from(el.childNodes).map(walk).join('');
+    }
+  }
+}
+
+export function htmlToMarkdown(element: Element): string {
+  return walk(element)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 export default function CopyPageButton(): React.ReactElement {
   const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = useCallback(async () => {
-    const articleEl = document.querySelector('article.theme-doc-markdown');
+    // Docusaurus puts theme-doc-markdown on a <div> inside <article>, not on <article> itself
+    const articleEl =
+      document.querySelector('.theme-doc-markdown') ||
+      document.querySelector('article');
     if (!articleEl) return;
 
     const markdown = htmlToMarkdown(articleEl);
 
     try {
       await navigator.clipboard.writeText(markdown);
-      setCopied(true);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
       const textarea = document.createElement('textarea');
       textarea.value = markdown;
       textarea.style.position = 'fixed';
@@ -172,12 +261,13 @@ export default function CopyPageButton(): React.ReactElement {
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      setCopied(true);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
     }
+
+    setCopied(true);
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
   }, []);
 
   return (
@@ -218,7 +308,9 @@ export default function CopyPageButton(): React.ReactElement {
           />
         </svg>
       )}
-      <span className="copy-page-button__label">{copied ? 'Copied!' : 'Copy page'}</span>
+      <span className="copy-page-button__label" role="status" aria-live="polite">
+        {copied ? 'Copied!' : 'Copy page'}
+      </span>
     </button>
   );
 }

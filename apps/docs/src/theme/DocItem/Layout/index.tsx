@@ -7,11 +7,11 @@ type Props = React.ComponentProps<typeof LayoutType>;
 
 export default function LayoutWrapper(props: Props): React.ReactElement {
   return (
-    <>
+    <div className="doc-item-with-copy-button">
+      <Layout {...props} />
       <div className="copy-page-button-container">
         <CopyPageButton />
       </div>
-      <Layout {...props} />
-    </>
+    </div>
   );
 }
