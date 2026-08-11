@@ -148,15 +148,20 @@ export function createDictionarySelectLabels(
   }
 }
 
-export function formatCurrency(amount: number, currency?: string | null): string {
+/**
+ * Pass `locale` to format in the application locale (`useLocale()` in client components).
+ * Omitting it keeps the runtime default, which varies per machine and is therefore not
+ * assertable in tests.
+ */
+export function formatCurrency(amount: number, currency?: string | null, locale?: string): string {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency || 'PLN',
       maximumFractionDigits: 0,
     }).format(amount)
   } catch {
-    return `${amount.toLocaleString()} ${currency || 'PLN'}`
+    return `${amount.toLocaleString(locale)} ${currency || 'PLN'}`
   }
 }
 
