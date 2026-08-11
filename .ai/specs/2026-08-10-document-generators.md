@@ -450,7 +450,7 @@ The loaded template must derive `resourceKind`, canonical `resourceId`, and an o
 
 ### GET /api/document-generators/documents
 
-Returns paginated generation history filtered by the authenticated tenant and organization. Optional `resource_kind` and `resource_id` query parameters narrow the result.
+Returns paginated generation history filtered by the authenticated tenant and organization. Optional `resource_kind` and `resource_id` query parameters narrow the result. Resource-detail consumers must send both filters together so a history panel can never mix records from different source types that happen to share an identifier.
 
 ---
 
@@ -493,10 +493,11 @@ import InterRegular from '../shared/fonts/Inter-Regular.generated'
 
 ### Widget pattern (any module)
 
-A document tab (retaining its existing frozen PDF-oriented injection ID) is injected into detail views via `injection-table.ts`. The tab renders `TemplatesList`:
+A document tab (retaining its existing frozen PDF-oriented injection ID) is injected into detail views via `injection-table.ts`. The tab renders a resource-scoped document panel:
 
 1. **Template list** — card grid fetched from `GET /api/document-generators/templates`, filtered by `TemplateFilter` (`resourceKind`, `documentType`, `format`, `tags`).
 2. **Preview dialog** (`PreviewPanel`) — calls `POST /api/document-generators/preview`; PDF uses the existing iframe and Markdown is displayed as source text. The format-aware download button calls `POST /api/document-generators/generate`.
+3. **Source history** (Phase 6) — a compact `DataTable` below the template list calls `GET /api/document-generators/documents` with both `resource_kind` and `resource_id`, showing only documents generated for the current order, quote, or other source record. A successful production download refreshes this table without reloading the detail page.
 
 ### Backend pages
 
@@ -546,7 +547,7 @@ No changes to existing services or templates required.
 
 ### Data Integrity
 
-- **Slow render**: `renderToBuffer` is synchronous and may be slow for large documents. Acceptable for MVP; Phase 2 can move to `@open-mercato/queue`.
+- **Slow render**: `renderToBuffer` is synchronous and may be slow for large documents. Acceptable for MVP; Phase 8 moves bulk generation to `@open-mercato/queue`, while any future move of single-document rendering requires a separate asynchronous-download UX decision.
 
 ### Tenant & Data Isolation
 
@@ -639,7 +640,7 @@ No changes to existing services or templates required.
 
 | File | Description |
 |------|-------------|
-| `data/entities.ts` | `GeneratedDocument` entity — `id`, `organization_id`, `tenant_id`, `resource_kind`, `resource_id`, `resource_label`, `template_id`, `template_label`, `format` (default `'pdf'`), `mime_type` (default `'application/pdf'`), `generated_by`, `generated_at`, `attachment_id` (nullable — populated in Phase 6). Table `document_generators_generated_documents` |
+| `data/entities.ts` | `GeneratedDocument` entity — `id`, `organization_id`, `tenant_id`, `resource_kind`, `resource_id`, `resource_label`, `template_id`, `template_label`, `format` (default `'pdf'`), `mime_type` (default `'application/pdf'`), `generated_by`, `generated_at`, `attachment_id` (nullable — populated in Phase 7). Table `document_generators_generated_documents` |
 | `data/validators.ts` | Zod schemas: `generateSchema` accepts only template identity + data; `listDocumentsSchema` supports resource filters for history reads |
 | `services/generation-history-service/` | Scoped creation and paginated listing of generation history |
 | `api/document-generators/documents/route.ts` | Paginated history endpoint, filterable by `resource_kind` and `resource_id`; exports `openApi` + `metadata` |
@@ -696,13 +697,58 @@ The implementation supports two concrete formats through a shared dispatch bound
 
 Adding DOCX later would require a new source variant, `LoadedDocxTemplate`, a DOCX rendering service, one dispatch branch, and a UI preview/download decision. DOCX generation itself remains outside this spec's implemented scope.
 
-### Phase 6 — Attachment Storage (Planned)
+### Phase 6 — Source-scoped History in Detail Widgets (Planned)
+
+Expose the history already captured in Phase 5 where users work with the source record. The existing order and quote PDF-tab widgets gain a compact history section below the template cards; other built-in source widgets can adopt the same internal composition without introducing a new injection spot or changing the host module.
+
+#### UI composition
+
+1. Extract the fetch/table behavior in `components/HistoryList.tsx` into a reusable resource-aware form with optional `resourceKind`, `resourceId`, `pageSize`, and `refreshToken` inputs. The backend history page keeps its existing unfiltered behavior and page size.
+2. Add an internal `ResourceDocumentsPanel` that composes `TemplatesList` with the resource-filtered history list. It owns a monotonic refresh token and increments it only after `POST /generate` succeeds.
+3. Add an optional `onGenerated` callback through `TemplatesList` → `PreviewPanel`. Invoke it after the generated bytes have been accepted and the download has been initiated; preview-only requests must not refresh history because they have no persistence side effect. The callback requests a refresh but does not guarantee a new row, because Phase 5 history persistence remains best-effort.
+4. Replace the direct `TemplatesList` usage in `order_pdf_tab/widget.client.tsx` and `quote_pdf_tab/widget.client.tsx` with `ResourceDocumentsPanel`, passing the canonical widget context pair: `resourceKind` and `record.id`.
+5. The scoped table shows Template, Format, Generated by, and Generated at. It omits Resource, Resource type, Resource ID, and History ID because those values are redundant in a single-record context. It uses `DataTable`, `formatDateTime`, translated copy, pagination, and the standard loading/error/empty states; `pageSize` defaults to 10 and remains at or below 100.
+6. Phase 6 is read-only. Rows have no download action until Phase 7 supplies an `attachment_id`; generating another document remains the only mutation and continues through the existing authenticated, feature-gated API route.
+
+#### Data and isolation contract
+
+```text
+Order/quote detail widget
+  -> ResourceDocumentsPanel { resourceKind, resourceId }
+     -> TemplatesList -> POST /generate { template_id, data: { id } }
+     -> HistoryList -> GET /documents?resource_kind=<kind>&resource_id=<id>&page=1&pageSize=10
+                         -> GenerationHistoryService.listAndCount
+                            filters tenant_id + organization_id + resource_kind + resource_id
+```
+
+- The browser-provided filters are narrowing inputs only. They never replace the authenticated `tenant_id` and `organization_id` predicates enforced by `GenerationHistoryService`.
+- Both source filters are mandatory for the detail-widget variant. Missing `resourceKind` or `resourceId` suppresses the request and renders no cross-resource fallback.
+- A resource history refresh must preserve the current page when it is still valid and fall back to the last valid page after deletions or future retention work reduce the result count.
+- No schema, migration, ACL, event, or new API route is required. The existing `document_generators.view` guard and history endpoint remain authoritative.
+
+#### Frontend architecture contract
+
+| Surface | Server root | Client islands | Data owner | Notes |
+| --- | --- | --- | --- | --- |
+| Sales order/quote detail PDF tab | Existing sales detail host | Existing injection widget, `ResourceDocumentsPanel`, `TemplatesList`, resource-aware `HistoryList`, `PreviewPanel` | Document Generators APIs | No page-root or provider change; the widget remains lazy at its existing frozen injection spot. |
+| `/backend/document-generators/history` | Existing generated backend route | Existing `DocumentGenerationHistoryPage` and shared `HistoryList` | `GET /api/document-generators/documents` | Retains organization-wide behavior by omitting resource filters. |
+
+| `"use client"` file | Reason | Heavy dependencies / guardrail |
+| --- | --- | --- |
+| `components/ResourceDocumentsPanel.tsx` | Owns refresh state shared by template generation and history | Small orchestration island; no renderer or PDF dependency imported directly. |
+| `components/HistoryList.tsx` | Fetching, pagination, and DataTable state | Reuses existing DataTable; keep resource-specific column selection memoized and the file below 300 LOC. |
+| Existing order/quote widget clients | Injection host adapters | Remain thin context adapters; no data fetching or duplicated table logic. |
+
+- Budget: zero new page-root client components, zero global providers, zero heavy browser libraries at a page/provider root, and zero touched client files above 300 LOC.
+- Verification evidence: component tests for filtered URLs, empty/loading/error states, pagination, and refresh-token behavior; self-contained Playwright coverage that creates and cleans up order/quote fixtures, generates a document from each PDF tab, and observes the persisted row without a page reload on the normal successful-persistence path; a negative case proving another source record's history is absent; `yarn check:client-boundaries` plus the package typecheck/test gate. A successful generate response with no row must remain a valid outcome when best-effort persistence fails.
+
+### Phase 7 — Attachment Storage (Planned)
 
 Uses the existing core `attachments` module — no custom storage infrastructure needed.
 
 1. Create `pdfDocuments` attachment partition (private, non-public) via `POST /api/attachments/partitions` or seeded in `setup.ts`
 2. After successful render in `POST /generate`, upload the PDF buffer to `POST /api/attachments` (multipart, partition: `pdfDocuments`, `entity_id: 'document_generators:document'`, `record_id: rendered.resource.id`)
-3. Store returned `attachment_id` in `GeneratedDocument.attachment_id` (new nullable column, added via `yarn mercato db:generate`)
+3. Store the returned identifier in the existing nullable `GeneratedDocument.attachment_id` column introduced with Phase 5; Phase 7 requires no additional history-table migration unless the attachment contract itself changes
 4. `GET /api/document-generators/documents` history response includes `attachment_id` — client builds download URL as `/api/attachments/file/{attachment_id}`
 5. Download button in the widget uses the stored attachment URL when `attachment_id` is present, falls back to on-demand `POST /generate` render otherwise
 
@@ -715,15 +761,15 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 - The generated PDF contains customer data and amounts; it must never be retrievable from another tenant/organization.
 - If the upload omits the scope, the record is either unreachable for regular users (fail-closed 403) or, worse, over-exposed — both are defects. Verify the core `POST /api/attachments` contract actually stamps `organization_id`/`tenant_id` from auth; if it does not, pass them explicitly.
 - Every successful production render attempts to write a `GeneratedDocument` using template-derived resource identity (see Phase 5). The same auth scope used there must match the attachment scope so history and file stay consistent.
-- This mirrors the Phase 1 render-path mitigation (see **Tenant & Data Isolation** above): the same `auth`-derived scope now extends from data fetch → render → stored file → download.
+- This extends the render-path mitigation described in **Tenant & Data Isolation** above: the same `auth`-derived scope now covers data fetch → render → stored file → download.
 
-### Phase 7 — Email & Sharing (Planned)
+### Phase 8 — Email & Sharing (Planned)
 
 1. Send PDF directly to a recipient email from the widget — attach generated PDF or include storage URL
 2. Shareable link — time-limited public URL for previewing a document without login
 3. Bulk generation — generate PDFs for multiple records in a single action via queue worker
 
-### Phase 8 — Advanced Templates (Planned)
+### Phase 9 — Advanced Templates (Planned)
 
 1. Template versioning — record which template version was used at generation time; archived versions remain renderable
 2. Draft watermark — render a "DRAFT" overlay when the source resource is not in a final status
@@ -756,6 +802,9 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 | Never hardcode user-facing strings | ✅ | All via useT() |
 | Generated migrations | ✅ | Entity migration and snapshot were produced by the repository generator |
 | ACL separation | ✅ | `view` and `generate` permissions are declared and assigned to default roles |
+| Embedded lists use `DataTable` and `apiCall` | ✅ | Planned Phase 6 refactors the existing `HistoryList`; it does not introduce a custom table or raw fetch path |
+| Widget UI remains decoupled from sales | ✅ | Existing frozen sales detail injection spots pass scalar source context into a Document Generators-owned panel; no direct ORM relationship or sales business-logic import is added |
+| Frontend client boundary is explicit | ✅ | Planned Phase 6 adds one small orchestration island, keeps widget adapters thin, adds no page-root client component or global provider, and defines hydration/interactivity evidence |
 
 ### Non-Compliant / Pending
 
@@ -763,16 +812,29 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 
 ### Verdict
 
-**Compliant for Phases 1–5.** Phase 5 includes the generated entity migration, organization + tenant scoped history service, validated API contracts, ACL separation, backend history table, and regression coverage.
+**Compliant for implemented Phases 1–5 and approved for planned Phase 6.** Phase 6 reuses the existing scoped history service, API, and `DataTable`; it adds no persistence or public host contract and includes explicit client-boundary, tenant-isolation, and integration-test requirements.
+
+### Review — 2026-08-11
+
+- **Reviewer**: Codex with independent fresh-context scope-cohesion audit
+- **Security**: Passed — resource filters only narrow authenticated tenant/organization scope, and missing source identity fails closed without an organization-wide fallback.
+- **Performance**: Passed — the embedded list is paginated at 10 rows, reuses the indexed history query, and adds no eager global provider or page-root bundle.
+- **Cache**: N/A — Phase 6 uses direct scoped reads and generation-triggered refresh; no cache is introduced.
+- **Commands**: N/A — Phase 6 adds no mutation; generation continues through the existing route and history remains best-effort.
+- **Risks**: Passed — the spec explicitly distinguishes a refresh attempt from guaranteed persistence and covers stale requests, pagination, and cross-resource isolation.
+- **Verdict**: Approved — Phase 6 is cohesive with Phase 5 and the existing detail-widget workflow; a separate specification would duplicate the same contracts.
 
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase 1–4.6 | Done | 2026-05-17 | Registry, render pipeline, preview/download UI, code generation, quote and order templates |
+| Phase 1–4.7 | Done | 2026-08-11 | Registry, render pipeline, preview/download UI, code generation, quote/order templates, and Markdown output |
 | Phase 5 — History & Backend Page | Done | 2026-08-10 | GeneratedDocument persistence, scoped history endpoint, server-derived resource identity, ACL, backend DataTable, unit and integration coverage |
 | Rendering service refactor | Done | 2026-08-10 | `load()` returns a discriminated template source; registry prepares `LoadedPdfTemplate`; `PdfRenderingService` owns PDF format/MIME and renders neutral `RenderedDocument` |
-| Phase 6 — Attachment Storage | Not Started | — | Planned |
+| Phase 6 — Source-scoped History in Detail Widgets | Not Started | — | Planned; reuses the Phase 5 endpoint and entity without schema changes |
+| Phase 7 — Attachment Storage | Not Started | — | Planned |
+| Phase 8 — Email & Sharing | Not Started | — | Planned |
+| Phase 9 — Advanced Templates | Not Started | — | Planned |
 
 ---
 
@@ -786,14 +848,14 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 | 2026-05-08 | Krzysztof Polak | `templateIds` filtering replaced by `TemplateFilter { category, tags, moduleId }` — templates declare `category`, `tags[]`, `moduleId` at registration; `TemplatesList` accepts `filter` prop instead of `templateIds`; OR logic for tags |
 | 2026-05-08 | Krzysztof Polak | `fromRecord` mapper moved from `data/quote-detail/document-data.ts` into each `TemplateRegistryEntry` — template owns its own data mapping; widget passes raw `record` to `TemplatesList`; `document-data.ts` removed; `TemplatesList` resolves mapper from globalThis registry on template selection |
 | 2026-05-09 | Krzysztof Polak | Normalization moved server-side: `POST /generate` now accepts `{ template_id, record }` instead of `{ template_id, data }`; `loadTemplate(id, record)` calls `entry.fromRecord(record)` server-side; client no longer needs registry import side effect; template folder convention changed to `templates/<module>/<entity>/templates/<name>/` + `templates/<module>/<entity>/data/`; `QuoteWidgetRecord` exported publicly from package root |
-| 2026-05-09 | Krzysztof Polak | Phase 5 implementation plan detailed — files to create/modify, data flow, key implementation notes added to spec; `attachment_id` nullable column added to `PdfGeneratedDocument` (populated in Phase 6) |
-| 2026-05-09 | Krzysztof Polak | Phase 6 rewritten — replaces custom S3/GCS storage with existing core `attachments` module; uses `POST /api/attachments` + `pdfDocuments` partition; download via `/api/attachments/file/{attachment_id}`; no custom storage infrastructure needed |
+| 2026-05-09 | Krzysztof Polak | Phase 5 implementation plan detailed — files to create/modify, data flow, key implementation notes added to spec; `attachment_id` nullable column added to `PdfGeneratedDocument` (now populated in Phase 7) |
+| 2026-05-09 | Krzysztof Polak | Attachment Storage (now Phase 7) rewritten — replaces custom S3/GCS storage with existing core `attachments` module; uses `POST /api/attachments` + `pdfDocuments` partition; download via `/api/attachments/file/{attachment_id}`; no custom storage infrastructure needed |
 | 2026-05-09 | Krzysztof Polak | Introduced `BaseDocumentService` base class — `registerTemplate()`, `getEntries()`, `formatDate()` centralised; `QuotesDocumentService` and `OrdersDocumentService` as subclasses; `normalizeRecord` per service replaces standalone `normalize-record.ts` files; `config/registry.ts` uses single `registerInternal([...spread])` call to avoid array clobber; built-in `order-invoice` template added (`OrderInvoiceDocument`); `order_pdf_tab` widget added; `examples/` reference folder added; `scaffold-pdf-templates` skill added; sandbox example PDF implementation removed (superseded by built-in) |
 | 2026-05-17 | Krzysztof Polak | **Template metadata hierarchy**: `moduleId` → `module` + `entity`; `category` → `documentType`. `BaseDocumentService` now requires `module` and `entity` abstract fields. Widget filters simplified to `{ entity: 'quotes' }` / `{ entity: 'orders' }`. `TemplateFilter` updated accordingly. `note?: string` field added to `DocumentTemplateEntry` and `TemplateMeta` — free-text description of where the template is used; surfaced as a column on the backend page. |
 | 2026-05-17 | Krzysztof Polak | **Split `/generate` into `/preview` and `/generate`** — `POST /api/document-generators/preview` renders PDF with zero side effects (used by `PreviewPanel`); `POST /api/document-generators/generate` is the production endpoint with full side effects (logging, events, future persistence) and accepts optional `resource_kind`, `resource_id`, `resource_label` forward-compatible with Phase 5. Common render logic extracted to `lib/render-pdf.ts`. Download button in `PreviewPanel` calls `/generate`; iframe preview calls `/preview`. Backend page restructured: templates grouped by `module` first, then Internal/External sub-sections; External always visible with empty state when none registered; page title changed to "Available templates". |
 | 2026-05-17 | Krzysztof Polak | **Server-side data fetching via `fetchData` hook** — `BaseDocumentService` gains optional `fetchData({ data }, { container })` method called before normalization; `QuotesDocumentService` overrides it to load full quote with line items via raw SQL + DI container (resolves the missing-line-items limitation); `OrdersDocumentService` gains billing address enrichment. **API body field renamed**: `POST /generate` now accepts `data` (was `record`). **`normalizeRecord` renamed to `toTemplateData`** with `{ data }` input shape for consistency. **`filename` method added** to `BaseDocumentService` — derives the PDF download filename from normalized data; `Content-Disposition` header set from the returned value. **`enrichRecord` prop removed** from `PreviewPanel` and `TemplatesList` — no client-side enrichment; widgets pass raw `record` only. **`TemplateEntry` type introduced** (`TemplateMeta & TemplateRegistryEntry`). **`TemplateRegistry` interface** extracted to `interfaces.ts`. **`getMetas()` renamed to `listTemplates()`**. Error handling hardened in `PreviewPanel` (catches promise rejection) and generate route (catches JSON parse errors). QuotePage color scheme updated. |
 | 2026-08-08 | Krzysztof Polak | Marked the "Raw SQL in QuotesDocumentService" pending item as resolved — `SalesQuote`/`SalesQuoteLine` are now in DI and loaded via `findOneWithDecryption` (2026-06-11); the raw-SQL workaround was removed, so the ORM layer is no longer bypassed. Pending list is now empty. |
-| 2026-08-09 | Krzysztof Polak | Phase 6 — added a mandatory **Tenant & data isolation** subsection: the `private` partition flag alone does not isolate stored PDFs across organizations; the upload must persist `organization_id`/`tenant_id` (from `getAuthFromRequest`) onto the `Attachment` record, since the core download route enforces scope via `isSameScope` (fail-closed, superadmin exempt). Extends the Phase 1 render-path isolation through storage and download. |
+| 2026-08-09 | Krzysztof Polak | Attachment Storage (now Phase 7) — added a mandatory **Tenant & data isolation** subsection: the `private` partition flag alone does not isolate stored PDFs across organizations; the upload must persist `organization_id`/`tenant_id` (from `getAuthFromRequest`) onto the `Attachment` record, since the core download route enforces scope via `isSameScope` (fail-closed, superadmin exempt). Extends the render-path isolation through storage and download. |
 | 2026-08-09 | Krzysztof Polak | Phase 5 — renamed the history entity `PdfGeneratedDocument` → `GeneratedDocument` and added `format` (default `'pdf'`) + `mime_type` discriminator columns, so the persistence/history/storage layers are format-agnostic (future `.docx`/`.md` support needs a renderer, not a schema change). Only the data layer is generalized — the render pipeline stays PDF-only; module/package/API/ACL names stay `document_generators`. Table: `document_generators_generated_documents`. |
 | 2026-08-09 | Codex | Completed Phase 5 and synchronized the API contract: clients send only `resource_kind` + `resource_id`; `resource_label` is derived from normalized data by the document service and falls back to `resource_id`. Added scoped history persistence/listing, backend history UI, ACL, validators, and regression/integration coverage. |
 | 2026-08-09 | Codex | Replaced the mixed `lib/render-pdf.ts` helper with a focused `PdfRenderingService`: routes load templates explicitly, `load()` returns a discriminated `DocumentTemplateSource`, and the service renders an already prepared `LoadedPdfTemplate` into a neutral `RenderedDocument`. Format and MIME remain renderer-owned; `LoadedDocumentTemplateBase` provides the shared seam for a future DOCX variant without a placeholder implementation. Added canonical resource-id derivation and mismatch rejection for history integrity. |
@@ -804,3 +866,4 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 | 2026-08-11 | Codex | Added Markdown as the second output format for `OrdersDocumentService`: `order-invoice-markdown` shares order fetching and normalization with the PDF invoice, renders through `MarkdownRenderingService`, previews as text, downloads as `.md`, and records `format: md` history. Reorganized built-in templates to `<logical-template>/<format>/` while retaining the optional `templates/shared` library for reusable template assets. |
 | 2026-08-11 | Codex | Localized built-in Order Invoice and Sales Offer documents through the standard module dictionaries. Render routes now pass the request translator through `TemplateRegistry.load` and `BaseDocumentService`; services build typed `data.labels`, with PDF and Markdown invoice variants sharing the exact same label object. Added optional translator context fields for external-call compatibility and en/pl regression coverage. |
 | 2026-08-11 | Codex | Removed client-supplied resource identity from the unreleased generate contract. `resourceId()` and loaded resource IDs are now required; every successful production render attempts history persistence using canonical server-derived kind/id/label. Documented the intentionally global `frame-src blob:` required by extensible `TemplatesList` placements. |
+| 2026-08-11 | Codex | Added planned Phase 6 for source-scoped generation history inside the existing order/quote PDF-tab widgets. The phase reuses the scoped history endpoint and DataTable, refreshes after successful generation, adds no schema or route, and moves Attachment Storage, Email & Sharing, and Advanced Templates to Phases 7–9. |
