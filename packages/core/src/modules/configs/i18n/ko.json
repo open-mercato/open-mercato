@@ -167,6 +167,8 @@
   "configs.systemStatus.variables.omProfile.label": "트리 프로파일러 필터",
   "configs.systemStatus.variables.omQeProfile.description": "하이브리드 쿼리 엔진 프로파일링 스냅샷을 활성화하는 필터입니다.",
   "configs.systemStatus.variables.omQeProfile.label": "쿼리 엔진 프로파일러 필터",
+  "configs.systemStatus.variables.listCountCap.description": "목록 총계의 최대 보고 값입니다. 카운트는 상한에서 멈추며 제한된 총계는 예를 들어 “10 000+”로 표시됩니다. 0이면 상한이 비활성화됩니다.",
+  "configs.systemStatus.variables.listCountCap.label": "목록 카운트 상한",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.description": "읽기 작업 중 즉각적인 커버리지 재계산을 건너뜁니다.",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.label": "커버리지 재계산 건너뛰기",
   "configs.systemStatus.variables.passwordMinLength.description": "비밀번호에 필요한 최소 문자 수입니다.",

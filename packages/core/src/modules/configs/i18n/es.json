@@ -167,6 +167,8 @@
   "configs.systemStatus.variables.omProfile.label": "Filtros del perfilador de árbol",
   "configs.systemStatus.variables.omQeProfile.description": "Filtros que habilitan instantáneas de perfilado del motor de consultas híbrido.",
   "configs.systemStatus.variables.omQeProfile.label": "Filtros del perfilador del motor de consultas",
+  "configs.systemStatus.variables.listCountCap.description": "Total máximo informado en listas; el conteo se detiene en el límite y los totales limitados se muestran p. ej. como «10 000+». 0 desactiva el límite.",
+  "configs.systemStatus.variables.listCountCap.label": "Límite del conteo de listas",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.description": "Omitir el recálculo inmediato de cobertura durante las operaciones de lectura.",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.label": "Omitir recálculo de cobertura",
   "configs.systemStatus.variables.passwordMinLength.description": "Número mínimo de caracteres requeridos para las contraseñas.",

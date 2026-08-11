@@ -24,6 +24,31 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### List totals are capped at 10 000 by default — treat `total` as a floor when `totalIsCapped` is true
+
+Every CRUD list count is now bounded: the database stops counting after
+`OM_LIST_COUNT_CAP` (default `10000`) matching rows. Below the cap, `total` stays
+exact and responses are byte-identical to before. At the cap, the response
+reports `total: <cap>` together with a new optional `totalIsCapped: true` field
+(and `meta.listCountCapWarning` from the query engine), and `totalPages` becomes
+a bounded page count. This is a **value-level behavior change on a STABLE
+response surface**, shipped enabled, because an exact `COUNT` over arbitrary
+filters is `O(matching rows)` and dominates list latency on large tables.
+
+**Action for API clients:** wherever you consume `total` as ground truth about
+the full result set (loop bounds, "N results" labels, reconciliation), treat it
+as a floor whenever `totalIsCapped` is `true`. To enumerate a full result set,
+page until a page comes back with fewer rows than requested — never until you
+have collected `total` rows.
+
+**Action for UI authors:** thread `totalIsCapped` from your list response into
+`DataTable`'s `pagination` prop to render capped totals as "10 000+"; an
+unadopted table renders the floor as if it were exact.
+
+**Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
+counts globally. It is read per request from the environment, is permanently
+supported, and needs no redeploy.
+
 ### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
 
 The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.

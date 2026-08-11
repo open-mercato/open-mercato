@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, ListCountCapWarning, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -32,6 +32,7 @@ import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
@@ -775,8 +776,7 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
-      const applyOrGroupedBaseFilters = (q: AnyBuilder): AnyBuilder => {
-        if (orGroupFilters.length === 0) return q
+      const orGroupList = (() => {
         const groups = new Map<string, BaseFilter[]>()
         for (const filter of orGroupFilters) {
           if (!filter.orGroup) continue
@@ -784,13 +784,16 @@ export class HybridQueryEngine implements QueryEngine {
           existing.push(filter)
           groups.set(filter.orGroup, existing)
         }
-        const groupList = Array.from(groups.values()).filter((g) => g.length > 0)
-        if (groupList.length === 0) return q
+        return Array.from(groups.values()).filter((g) => g.length > 0)
+      })()
+
+      const applyOrGroupedBaseFilters = (q: AnyBuilder): AnyBuilder => {
+        if (orGroupList.length === 0) return q
         // Combine all groups in a single WHERE: disjuncts are OR'd together; within
         // each disjunct, fields are AND'd. Building this as separate `.where()` calls
         // would AND the disjuncts (wrong semantics).
         return q.where((eb: any) => eb.or(
-          groupList.map((groupFilters) => {
+          orGroupList.map((groupFilters) => {
             const parts = groupFilters.map((filter) =>
               this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
             )
@@ -895,6 +898,97 @@ export class HybridQueryEngine implements QueryEngine {
       const hasCustomFieldFilters = cfFilters.length > 0
       const canOptimizeCount = !hasCustomFieldFilters && !hasNonBaseSearchSource
 
+      // ── Count shape (#4552 Phase 2) ─────────────────────────────────
+      // The count query is rebuilt rather than derived from the display shape:
+      // base scope + filters only. Predicates that read the left-joined index
+      // rowset (cf filters, doc filters, or-groups with doc members, token
+      // searches over joined sources) evaluate against the *same* rowset as the
+      // display query, but confined inside a single correlated EXISTS built
+      // from a one-row seed — so the per-base-row rowset is identical, yet a
+      // semi-join cannot multiply base rows. The count therefore needs no
+      // DISTINCT or GROUP BY, and an outer LIMIT actually bounds the scan (no
+      // blocking aggregate between the LIMIT and the scan).
+      const isRowsetDependentFilter = (filter: BaseFilter): boolean => {
+        const baseField = resolveBaseColumn(String(filter.field))
+        if (!baseField) return true
+        // Token search may probe joined sources' record ids, which only exist
+        // on the index rowset.
+        if (
+          (filter.op === 'like' || filter.op === 'ilike') &&
+          searchRuntime.enabled &&
+          typeof filter.value === 'string' &&
+          hasNonBaseSearchSource
+        ) return true
+        return false
+      }
+      const rowsetRegularFilters = regularBaseFilters.filter((filter) => isRowsetDependentFilter(filter))
+      const outerRegularFilters = regularBaseFilters.filter((filter) => !isRowsetDependentFilter(filter))
+      // Or-groups are disjuncts of one $or, so they cannot be split between the
+      // outer query and the rowset — one doc-dependent member moves them all in.
+      const orGroupsRowsetDependent = orGroupList.some((group) => group.some(isRowsetDependentFilter))
+      const hasInnerTypedCfSource = preparedCfSources.some((source) =>
+        ((opts.customFieldSources ?? []).find((s) => s && (s.alias ?? undefined) === source.alias)?.join?.type ?? 'left') === 'inner')
+      const needsIndexRowset =
+        hasCustomFieldFilters ||
+        rowsetRegularFilters.length > 0 ||
+        (orGroupsRowsetDependent && orGroupList.length > 0) ||
+        hasInnerTypedCfSource
+
+      const applyCountShape = async (q: AnyBuilder): Promise<AnyBuilder> => {
+        let next = applyBaseScope(q)
+        for (const filter of outerRegularFilters) {
+          const baseField = resolveBaseColumn(String(filter.field))
+          if (!baseField) continue
+          next = this.applyColumnFilter(next, qualify(baseField), filter, {
+            ...searchRuntime, entity, field: String(filter.field), recordIdColumn: qualify('id'),
+          })
+        }
+        if (!orGroupsRowsetDependent) next = applyOrGroupedBaseFilters(next)
+        if (needsIndexRowset) {
+          next = next.where((eb: any) => {
+            // One seed row per base row, then the display query's own join
+            // builders — the rowset inside the EXISTS is the display rowset.
+            let rowset: AnyBuilder = eb
+              .selectFrom(sql`(select 1)`.as('om_count_seed'))
+              .select(sql<number>`1`.as('one'))
+            rowset = applyEntityIndexesJoin(rowset)
+            rowset = applyCustomFieldSourceJoins(rowset)
+            rowset = applyCfFilters(rowset)
+            for (const filter of rowsetRegularFilters) {
+              const baseField = resolveBaseColumn(String(filter.field))
+              if (!baseField) {
+                rowset = this.applyIndexDocFilterFromAlias(
+                  rowset, 'ei', entity, String(filter.field), filter.op, filter.value, qualify('id'), searchRuntime,
+                )
+                continue
+              }
+              rowset = this.applyColumnFilter(rowset, qualify(baseField), filter, {
+                ...searchRuntime, entity, field: String(filter.field), recordIdColumn: qualify('id'),
+              })
+            }
+            if (orGroupsRowsetDependent) rowset = applyOrGroupedBaseFilters(rowset)
+            return eb.exists(rowset)
+          })
+        }
+        next = await applyJoinFilters({
+          db,
+          baseTable,
+          builder: next,
+          joinMap,
+          joinFilters,
+          aliasTables,
+          qualifyBase: (column) => qualify(column),
+          applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
+          applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
+          applyJoinFilterOp: async (target, filter, qualified, join) => {
+            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
+            return { applied, builder: target }
+          },
+          columnExists: (tbl, column) => this.columnExists(tbl, column),
+        })
+        return next
+      }
+
       // Selection (for data query)
       const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
       if (requiresPlaintextSort) {
@@ -955,33 +1049,20 @@ export class HybridQueryEngine implements QueryEngine {
       const pageSize = opts.page?.pageSize ?? 20
       const sqlDebugEnabled = this.isSqlDebugEnabled()
 
-      let total: number
+      const countCap = resolveListCountCap()
 
-      if (canOptimizeCount) {
-        // Optimized count: apply only base-scope + regular filters + or-group filters (no index joins).
-        const optimizedRoot = db.selectFrom(`${baseTable} as b` as any)
-        let countCore = applyBaseScope(optimizedRoot)
-        countCore = applyRegularBaseFilters(countCore)
-        countCore = applyOrGroupedBaseFilters(countCore)
-        // joinFilters still need to be re-applied in the optimized path
-        countCore = await applyJoinFilters({
-          db,
-          baseTable,
-          builder: countCore,
-          joinMap,
-          joinFilters,
-          aliasTables,
-          qualifyBase: (column) => qualify(column),
-          applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
-          applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
-          applyJoinFilterOp: async (target, filter, qualified, join) => {
-            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
-            return { applied, builder: target }
-          },
-          columnExists: (tbl, column) => this.columnExists(tbl, column),
-        })
-        const sub = countCore.select(sql.ref(qualify('id')).as('id')).groupBy(qualify('id')).as('sq')
-        const countQuery = db.selectFrom(sub as any).select(sql<string>`count(*)`.as('count'))
+      // Both count paths build the same rebuilt shape; for `canOptimizeCount`
+      // queries `needsIndexRowset` is false, so the shape degenerates to
+      // base-scope + filters exactly as the optimized path always had. The gate
+      // is kept only as a debug label until the convergence proves total.
+      const runBoundedCount = async (optimized: boolean): Promise<{ total: number; warning?: ListCountCapWarning }> => {
+        const countRoot = db.selectFrom(`${baseTable} as b` as any)
+        const shape = await applyCountShape(countRoot)
+        const countQuery = countCap !== null
+          ? db
+              .selectFrom(shape.select(sql<number>`1`.as('one')).limit(countCap + 1).as('om_count_probe') as any)
+              .select(sql<string>`count(*)`.as('count'))
+          : shape.select(sql<string>`count(*)`.as('count'))
         if (debugEnabled && sqlDebugEnabled) {
           const compiled = countQuery.compile()
           this.debug('query:sql:count', { entity, sql: compiled.sql, bindings: compiled.parameters })
@@ -989,24 +1070,18 @@ export class HybridQueryEngine implements QueryEngine {
         const countRow = await this.captureSqlTiming(
           'query:sql:count', entity,
           () => countQuery.executeTakeFirst(),
-          { optimized: true }, profiler,
+          { optimized }, profiler,
         )
-        total = this.parseCount(countRow)
-      } else {
-        const countRoot = db.selectFrom(`${baseTable} as b` as any)
-        const countBuilder = (await applyQueryShape(countRoot))
-          .select(sql<string>`count(distinct ${sql.ref(qualify('id'))})`.as('count'))
-        if (debugEnabled && sqlDebugEnabled) {
-          const compiled = countBuilder.compile()
-          this.debug('query:sql:count', { entity, sql: compiled.sql, bindings: compiled.parameters })
+        const probed = this.parseCount(countRow)
+        if (countCap !== null && probed > countCap) {
+          return { total: countCap, warning: { entity, cap: countCap } }
         }
-        const countRow = await this.captureSqlTiming(
-          'query:sql:count', entity,
-          () => countBuilder.executeTakeFirst(),
-          { optimized: false }, profiler,
-        )
-        total = this.parseCount(countRow)
+        return { total: probed }
       }
+
+      const counted = await runBoundedCount(canOptimizeCount)
+      const total: number = counted.total
+      const listCountCapWarning: ListCountCapWarning | undefined = counted.warning
 
       const dekKeyCache = new Map<string | null, string | null>()
 
@@ -1058,24 +1133,29 @@ export class HybridQueryEngine implements QueryEngine {
         const sortFieldNames = Array.from(new Set(['id', ...scopeFieldNames, ...resolvedSorts.map((s) => String(s.field))]))
         phase1 = applySelection(phase1, sortFieldNames)
         if (cap !== null) {
-          phase1 = phase1.limit(cap).orderBy(qualify('id'), 'asc' as any)
+          // Probe one row past the cap: truncation is detected from the candidate
+          // scan itself, not by comparing against `total` — which may itself be
+          // capped (`OM_LIST_COUNT_CAP`) and would then never exceed the sort cap.
+          phase1 = phase1.limit(cap + 1).orderBy(qualify('id'), 'asc' as any)
         }
         if (debugEnabled && sqlDebugEnabled) {
           const compiled = phase1.compile()
           this.debug('query:sql:data:phase1', { entity, sql: compiled.sql, bindings: compiled.parameters })
         }
-        const candidateRows = await this.captureSqlTiming(
+        const candidateRowsRaw = await this.captureSqlTiming(
           'query:sql:data:phase1', entity,
           () => phase1.execute(),
           { phase: 1 }, profiler,
         ) as Record<string, unknown>[]
+        const sortTruncated = cap !== null && candidateRowsRaw.length > cap
+        const candidateRows = sortTruncated && cap !== null ? candidateRowsRaw.slice(0, cap) : candidateRowsRaw
         const decryptedCandidates = await mapWithConcurrency(candidateRows, DECRYPT_CONCURRENCY, decryptRow)
         const orderedCandidates = sortRowsInMemory(decryptedCandidates, resolvedSorts)
         const pageIds = orderedCandidates
           .slice((page - 1) * pageSize, page * pageSize)
           .map((row) => row.id)
 
-        if (cap !== null && total > cap) {
+        if (sortTruncated && cap !== null) {
           encryptedSortRowCapWarning = {
             entity,
             sortFields: resolvedSorts.map((s) => String(s.field)),
@@ -1131,10 +1211,11 @@ export class HybridQueryEngine implements QueryEngine {
 
       const typedItems = items as unknown as T[]
       let result: QueryResult<T> = { items: typedItems, page, pageSize, total }
-      if (partialIndexWarning || encryptedSortRowCapWarning) {
+      if (partialIndexWarning || encryptedSortRowCapWarning || listCountCapWarning) {
         const meta: QueryResultMeta = {}
         if (partialIndexWarning) meta.partialIndexWarning = partialIndexWarning
         if (encryptedSortRowCapWarning) meta.encryptedSortRowCapWarning = encryptedSortRowCapWarning
+        if (listCountCapWarning) meta.listCountCapWarning = listCountCapWarning
         result.meta = meta
       }
 
@@ -1880,17 +1961,35 @@ export class HybridQueryEngine implements QueryEngine {
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
 
+    // Single-table count: `applyScope` adds only WHERE predicates (cf filters
+    // included — no join), and doc storage holds one row per record within a
+    // scope, so `count(*)` needs no DISTINCT and — when the cap is active — a
+    // LIMIT on the row-producing inner query bounds the scan (#4552 Phase 2).
+    const countCap = resolveListCountCap()
     const root = db.selectFrom(`custom_entities_storage as ${alias}`)
-    const countQuery = applyScope(root).select(sql<string>`count(distinct ${sql.ref(`${alias}.entity_id`)})`.as('count'))
+    const countShape = applyScope(root)
+    const countQuery = countCap !== null
+      ? db
+          .selectFrom(countShape.select(sql<number>`1`.as('one')).limit(countCap + 1).as('om_count_probe') as any)
+          .select(sql<string>`count(*)`.as('count'))
+      : countShape.select(sql<string>`count(*)`.as('count'))
     const countRow = await countQuery.executeTakeFirst()
-    const total = this.parseCount(countRow)
+    const probed = this.parseCount(countRow)
+    let total = probed
+    let listCountCapWarning: ListCountCapWarning | undefined
+    if (countCap !== null && probed > countCap) {
+      total = countCap
+      listCountCapWarning = { entity: entity as EntityId, cap: countCap }
+    }
 
     let dataQuery = applyScope(db.selectFrom(`custom_entities_storage as ${alias}`))
     dataQuery = applySelection(dataQuery)
     dataQuery = applySort(dataQuery)
     dataQuery = dataQuery.limit(pageSize).offset((page - 1) * pageSize)
     const items = await dataQuery.execute()
-    return { items, page, pageSize, total }
+    const result: QueryResult<T> = { items, page, pageSize, total }
+    if (listCountCapWarning) result.meta = { listCountCapWarning }
+    return result
   }
 
   private async tableExists(table: string): Promise<boolean> {

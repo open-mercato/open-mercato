@@ -1931,6 +1931,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           page: page.page || requestedPage,
           pageSize: page.pageSize || requestedPageSize,
           totalPages: Math.ceil(res.total / (Number(page.pageSize) || 1)),
+          ...(res.meta?.listCountCapWarning ? { totalIsCapped: true } : {}),
           ...(res.meta ? { meta: res.meta } : {}),
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })

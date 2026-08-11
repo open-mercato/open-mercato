@@ -167,6 +167,8 @@
   "configs.systemStatus.variables.omProfile.label": "Baum-Profiler-Filter",
   "configs.systemStatus.variables.omQeProfile.description": "Filter zur Aktivierung von Hybrid-Query-Engine-Profiling-Snapshots.",
   "configs.systemStatus.variables.omQeProfile.label": "Query-Engine-Profiler-Filter",
+  "configs.systemStatus.variables.listCountCap.description": "Maximal gemeldete Gesamtzahl einer Liste; die Zählung stoppt an der Obergrenze und begrenzte Summen werden z. B. als „10 000+“ angezeigt. 0 deaktiviert die Begrenzung.",
+  "configs.systemStatus.variables.listCountCap.label": "Obergrenze für Listenzählung",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.description": "Sofortige Abdeckungsneuberechnung bei Lesevorgängen überspringen.",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.label": "Abdeckungsneuberechnung überspringen",
   "configs.systemStatus.variables.passwordMinLength.description": "Mindestanzahl an Zeichen für Passwörter.",

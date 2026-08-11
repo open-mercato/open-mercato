@@ -167,6 +167,8 @@
   "configs.systemStatus.variables.omProfile.label": "Tree profiler filters",
   "configs.systemStatus.variables.omQeProfile.description": "Filters enabling hybrid query engine profiling snapshots.",
   "configs.systemStatus.variables.omQeProfile.label": "Query engine profiler filters",
+  "configs.systemStatus.variables.listCountCap.description": "Maximum reported list total; counting stops at the cap and capped totals render as e.g. “10 000+”. 0 disables capping.",
+  "configs.systemStatus.variables.listCountCap.label": "List count cap",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.description": "Skip immediate coverage recalculation during read operations.",
   "configs.systemStatus.variables.optimizeIndexCoverageStats.label": "Skip coverage recalculation",
   "configs.systemStatus.variables.passwordMinLength.description": "Minimum number of characters required for passwords.",
