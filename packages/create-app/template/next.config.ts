@@ -11,6 +11,8 @@ const contentSecurityPolicy = [
   "font-src 'self' data: https:",
   "form-action 'self'",
   "frame-ancestors 'self'",
+  // Document previews use authenticated same-origin bytes exposed through local Blob URLs.
+  // Keep blob: global because public TemplatesList extensions may render on any backend route.
   "frame-src 'self' blob: https://js.stripe.com https://hooks.stripe.com",
   "img-src 'self' data: blob: https:",
   "object-src 'none'",

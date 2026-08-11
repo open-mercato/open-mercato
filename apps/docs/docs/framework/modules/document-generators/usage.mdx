@@ -81,7 +81,7 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
     const r = data as { id: string; number: string }
     return {
       labels: { invoice: translate?.('my_module.documents.invoice.invoice') ?? 'my_module.documents.invoice.invoice' },
-      document: { number: r.number, date: formatDate(new Date().toISOString(), locale) },
+      document: { id: r.id, number: r.number, date: formatDate(new Date().toISOString(), locale) },
       seller:   { name: '', company: '', email: '' },
       client:   { name: '' },
       lines:    [],
@@ -92,6 +92,10 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
   override filename({ data }: { data: Record<string, unknown> }): string {
     const doc = data.document as { number?: string } | undefined
     return doc?.number ? `invoice-${doc.number}.pdf` : 'invoice.pdf'
+  }
+
+  override resourceId({ data }: { data: Record<string, unknown> }): string {
+    return (data.document as { id: string }).id
   }
 }
 ```

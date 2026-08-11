@@ -65,15 +65,13 @@ Content-Type: application/pdf
 
 Renders a PDF and streams it to the browser as a file download. Called automatically by `PreviewPanel` when the user clicks **Download PDF**.
 
-**Has side effects** — when `resource_kind` and `resource_id` are supplied, a generation-history row is persisted. The human-readable resource label is derived from normalized document data on the server and falls back to `resource_id`.
+**Has side effects** — every successful render creates a best-effort generation-history row. Resource kind, canonical ID, and the human-readable label are derived exclusively from normalized document data on the server.
 
 ```jsonc
 // Request body
 {
   "template_id": "order-invoice",
-  "data": { "id": "order_01JXYZ..." },
-  "resource_kind": "sales.order",
-  "resource_id": "order_01JXYZ..."
+  "data": { "id": "order_01JXYZ..." }
 }
 ```
 
@@ -98,8 +96,6 @@ const { result, error } = await apiCall(
     body: JSON.stringify({
       template_id: template.id,
       data: record,
-      resource_kind: resource?.kind,
-      resource_id: resource?.id,
     }),
   },
   { parse: (res) => res.blob() },
@@ -119,9 +115,9 @@ if (!error && result) {
 | | `/preview` | `/generate` |
 |---|---|---|
 | Purpose | Display in iframe | File download |
-| Side effects | None | Logging, events, future history |
+| Side effects | None | Best-effort generation history |
 | When to call | On template card click | On "Download PDF" button click |
-| `resource_*` fields | Not needed | Recommended |
+| Resource identity | Derived server-side | Derived server-side and persisted |
 | Safe to call repeatedly | Yes | Avoid |
 
 ---
@@ -145,7 +141,7 @@ Abstract base class. Extend once per category of documents in your module.
 | `toTemplateData({ data, locale, translate })` (abstract) | Maps the enriched server record to template data using the active locale and request translator |
 | `fetchData(input, ctx)` | Server-side hook called before `toTemplateData`. Override to load related data via DI. Default: passes data through unchanged |
 | `filename(input)` | Derives the download filename from normalized data. Default: `'document.pdf'` |
-| `resourceId(input)` | Derives the canonical source-record id from normalized server-side data |
+| `resourceId(input)` (abstract) | Derives the required canonical source-record id from normalized server-side data |
 
 ### `PdfRenderingService`
 
@@ -169,7 +165,6 @@ React component that renders the template list for a given resource. Normally re
 |------|------|-------------|
 | `record` | `{ id: string }` | Minimal record — full data is fetched server-side |
 | `filter` | `TemplateFilter` | Scopes the list by `resourceKind`, `documentType`, or `tags` |
-| `resource` | `{ kind: string; id: string }` | Passed to `/generate` for logging and future history |
 
 ### `OpenMercatoLogo`
 

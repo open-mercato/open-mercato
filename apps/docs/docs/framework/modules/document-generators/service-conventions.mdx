@@ -80,6 +80,9 @@ templateRegistry.load(input, context)
 Date and number formatting must use the request-derived locale, while document
 labels should be built with `translate` and included in normalized template data.
 Document services must not define their own locale fallback.
+`resourceId` is required and must derive the canonical source-record id from
+the normalized server-side data; generation history never accepts resource
+identity from the client.
 
 Do not rename domain operations to CRUD verbs when they do not create, retrieve, update, or delete an entity.
 

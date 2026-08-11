@@ -56,7 +56,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 3. **Four API routes**:
    - `GET /api/document-generators/templates` — returns `{ internal: TemplateMeta[], external: TemplateMeta[] }`
    - `POST /api/document-generators/preview` — accepts `{ template_id, data }`, renders the selected format, returns a stream; **zero side effects**
-   - `POST /api/document-generators/generate` — accepts `{ template_id, data, resource_kind?, resource_id? }`, renders the selected format and persists generation history on a best-effort basis
+   - `POST /api/document-generators/generate` — accepts `{ template_id, data }`, renders the selected format and persists generation history from server-derived resource identity on a best-effort basis
    - `GET /api/document-generators/documents` — returns paginated, scoped generation history
 4. **Live preview** — `PreviewPanel` renders PDF blob URLs in a native iframe and Markdown as source text; download calls `POST /generate` separately.
 5. **Generator plugin** (`generators.ts`) — `document-generators.templates` plugin enables other modules to register external templates via `mercato generate registry`.
@@ -78,6 +78,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | `GET /api/document-generators/templates` endpoint | Client needs the list at runtime to filter and display available templates without bundling the registry |
 | `generators.ts` plugin for code-gen | External modules declare templates in `document-generators.ts`; `mercato generate registry` produces the bootstrap glue |
 | `resourceKind` identifies compatible source data | Widgets and templates use a canonical resource kind such as `sales.quote`; `module` remains grouping metadata and `documentType` describes the output's business purpose. |
+| Resource identity is server-derived | `resourceId()` is required and runs against normalized data returned by scoped `fetchData`; clients never supply history ownership metadata. |
 | `fromRecord` in registry entry calls `toTemplateData` (server-side) | Template owns its normalization logic — widget is fully decoupled from data shape. Adding a new template for `quotes` requires zero changes to the widget. |
 | No `enrichRecord` prop in widgets | Widget passes raw `record` only; all enrichment (data fetching + normalization) happens server-side via `fetchData` + `toTemplateData` |
 | Service filename plus optional per-template override | Existing PDF templates keep service-level filenames; additional formats can provide the correct extension without duplicating normalization |
@@ -116,7 +117,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
                 ├── POST /preview { template_id, data }
                 │     └── registry.load → LoadedPdfTemplate
                 │           └── PdfRenderingService.render → RenderedDocument → iframe
-                └── POST /generate { template_id, data, resource_kind?, resource_id? }
+                └── POST /generate { template_id, data }
                       ├── registry.load → LoadedPdfTemplate
                       ├── PdfRenderingService.render → RenderedDocument
                       ├── GenerationHistoryService.create (best effort)
@@ -265,7 +266,7 @@ interface TemplateLoadContext {
 interface TemplateRegistryEntry {
   fromRecord: (data: unknown, context: TemplateDataContext) => Record<string, unknown>  // locale- and translation-aware mapping of enriched server data
   filename: (input: { data: Record<string, unknown> }) => string
-  resourceId?: (input: { data: Record<string, unknown> }) => string | undefined
+  resourceId: (input: { data: Record<string, unknown> }) => string
   resourceLabel?: (input: { data: Record<string, unknown> }) => string | undefined
   load: () => Promise<DocumentTemplateSource>
   fetchData?: (input: { data: unknown }, ctx: { container: AppContainer; auth: AuthContext | null }) => Promise<unknown>
@@ -278,7 +279,7 @@ interface LoadedDocumentTemplateBase {
   data: Record<string, unknown>
   filename: string
   template: { id: string; label: string }
-  resource: { kind: string; id?: string; label?: string }
+  resource: { kind: string; id: string; label?: string }
 }
 
 interface ReactPdfTemplateSource {
@@ -433,18 +434,16 @@ Generates a PDF and records generation history on a best-effort basis. Used by t
 ```json
 {
   "template_id": "sales-offer",
-  "data": { /* raw context.record — at minimum { id } when fetchData is defined */ },
-  "resource_kind": "sales.quote",
-  "resource_id": "quote_01ABC"
+  "data": { /* raw context.record — at minimum { id } when fetchData is defined */ }
 }
 ```
 
-> `resource_kind` and `resource_id` are optional. When both are present and match the identity derived by the loaded template, the route attempts to persist history. `resource_label` is not accepted from the client; it is derived server-side and falls back to the canonical resource ID.
+The loaded template must derive `resourceKind`, canonical `resourceId`, and an optional `resourceLabel` from normalized server-side data. The route always attempts to persist history after a successful render and never accepts resource identity from the client.
 
 **Response:** `Content-Type: application/pdf` — binary PDF stream with `Content-Disposition: attachment; filename="<derived>"`.
 
 **Errors:**
-- `400` — invalid input, unknown template ID, or supplied resource identity does not match the loaded document
+- `400` — invalid input or unknown template ID
 - `401` — unauthorized
 - `409` — no active organization
 - `500` — render error
@@ -563,6 +562,12 @@ No changes to existing services or templates required.
 
 - `@react-pdf/renderer` adds weight to the server bundle. Template entries keep sources lazy through `entry.load()`.
 
+### Browser Content Security Policy
+
+- PDF preview bytes come only from the authenticated same-origin preview API and are exposed to the iframe through a local Blob URL.
+- `frame-src blob:` remains in the app-wide CSP because `TemplatesList` is a public extension component that external modules may render on any backend route. Limiting the directive to the two built-in sales detail routes would silently break supported custom injection spots.
+- The create-app template must retain the same directive and rationale as `apps/mercato/next.config.ts`.
+
 ---
 
 ## Implementation Plan
@@ -635,7 +640,7 @@ No changes to existing services or templates required.
 | File | Description |
 |------|-------------|
 | `data/entities.ts` | `GeneratedDocument` entity — `id`, `organization_id`, `tenant_id`, `resource_kind`, `resource_id`, `resource_label`, `template_id`, `template_label`, `format` (default `'pdf'`), `mime_type` (default `'application/pdf'`), `generated_by`, `generated_at`, `attachment_id` (nullable — populated in Phase 6). Table `document_generators_generated_documents` |
-| `data/validators.ts` | Zod schemas: extended `generateSchema` (adds `resource_kind`, `resource_id`) + `listDocumentsSchema` (query params) |
+| `data/validators.ts` | Zod schemas: `generateSchema` accepts only template identity + data; `listDocumentsSchema` supports resource filters for history reads |
 | `services/generation-history-service/` | Scoped creation and paginated listing of generation history |
 | `api/document-generators/documents/route.ts` | Paginated history endpoint, filterable by `resource_kind` and `resource_id`; exports `openApi` + `metadata` |
 | `migrations/Migration20260809121904_document_generators.ts` | Generated migration accompanied by the module snapshot |
@@ -646,7 +651,7 @@ No changes to existing services or templates required.
 
 | File | Change |
 |------|--------|
-| `api/document-generators/generate/route.ts` | Verify optional client resource identity against the loaded template and persist the neutral render result through `GenerationHistoryService` after a successful render |
+| `api/document-generators/generate/route.ts` | Persist the neutral render result through `GenerationHistoryService` after a successful render, using only canonical template-derived resource identity |
 | `acl.ts` | Add `document_generators.generate` feature |
 | `setup.ts` | Add `document_generators.generate` to `superadmin` + `admin` role features |
 | `backend/document-generators/page.tsx` | Navigation-hidden compatibility redirect to the overview route |
@@ -658,11 +663,10 @@ No changes to existing services or templates required.
 #### Data flow
 
 ```
-Widget → POST /generate { template_id, data, resource_kind, resource_id }
+Widget → POST /generate { template_id, data }
          ├── resolveTranslations() → required active locale
          ├── templateRegistry.load(..., { locale }) → LoadedPdfTemplate + canonical resource identity
          ├── PdfRenderingService.render() → RenderedDocument
-         ├── verify optional client resource identity
          ├── GenerationHistoryService.create(GeneratedDocument { format, mime_type, ... }) [best effort]
          └── returns PDF stream
 
@@ -674,8 +678,8 @@ GET /api/document-generators/documents?resource_kind=X&resource_id=Y&page=1&page
 
 - Use `createRequestContainer()` from `@open-mercato/shared/lib/di/container` to get `em` in the generate route
 - Use `getAuthFromRequest(request)` from `@open-mercato/shared/lib/auth/server` to get `auth.userId` for `generated_by`
-- `resource_kind` and `resource_id` are optional in `POST /generate` — PDF still renders without them; a history record is saved only when both are present
-- `resource_label` is derived server-side through the template registry after normalization; callers cannot spoof it, and an unavailable label falls back to `resource_id`
+- `resourceId()` is required for every registered template and derives the canonical source ID after server-side fetching and normalization
+- `resource_kind`, `resource_id`, and `resource_label` are never accepted by `POST /generate`; the registry derives all three values, and an unavailable label falls back to the canonical resource ID
 - `GET /documents` must always filter by `organization_id` — use `getAuthFromRequest` for tenant scoping
 - DB migration was generated with `yarn module:db:generate document-generators`; the migration and snapshot are committed together
 
@@ -697,7 +701,7 @@ Adding DOCX later would require a new source variant, `LoadedDocxTemplate`, a DO
 Uses the existing core `attachments` module — no custom storage infrastructure needed.
 
 1. Create `pdfDocuments` attachment partition (private, non-public) via `POST /api/attachments/partitions` or seeded in `setup.ts`
-2. After successful render in `POST /generate`, upload the PDF buffer to `POST /api/attachments` (multipart, partition: `pdfDocuments`, `entity_id: 'document_generators:document'`, `record_id: resource_id`)
+2. After successful render in `POST /generate`, upload the PDF buffer to `POST /api/attachments` (multipart, partition: `pdfDocuments`, `entity_id: 'document_generators:document'`, `record_id: rendered.resource.id`)
 3. Store returned `attachment_id` in `GeneratedDocument.attachment_id` (new nullable column, added via `yarn mercato db:generate`)
 4. `GET /api/document-generators/documents` history response includes `attachment_id` — client builds download URL as `/api/attachments/file/{attachment_id}`
 5. Download button in the widget uses the stored attachment URL when `attachment_id` is present, falls back to on-demand `POST /generate` render otherwise
@@ -710,7 +714,7 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 
 - The generated PDF contains customer data and amounts; it must never be retrievable from another tenant/organization.
 - If the upload omits the scope, the record is either unreachable for regular users (fail-closed 403) or, worse, over-exposed — both are defects. Verify the core `POST /api/attachments` contract actually stamps `organization_id`/`tenant_id` from auth; if it does not, pass them explicitly.
-- A history record (`GeneratedDocument`) is only written when `resource_kind` and `resource_id` are both present (see Phase 5); its label is derived server-side. The same auth scope used there must match the attachment scope so history and file stay consistent.
+- Every successful production render attempts to write a `GeneratedDocument` using template-derived resource identity (see Phase 5). The same auth scope used there must match the attachment scope so history and file stay consistent.
 - This mirrors the Phase 1 render-path mitigation (see **Tenant & Data Isolation** above): the same `auth`-derived scope now extends from data fetch → render → stored file → download.
 
 ### Phase 7 — Email & Sharing (Planned)
@@ -733,7 +737,9 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 
 `TemplateLoadContext.translate` and `TemplateDataContext.translate` are additive optional fields. Existing external template registrations and direct `TemplateRegistry.load` callers that provide only `locale` continue to compile and run. The built-in preview and generate routes always provide the request translator returned by `resolveTranslations()`. `BaseDocumentService` retains a key-returning compatibility fallback only for legacy callers that omit the translator; it does not select a locale or load a second dictionary. New document services should build user-facing labels with the supplied translator and include them in normalized template data.
 
-No template ID, route, import path, renderer contract, or existing normalized business-data field is removed or renamed. Built-in `OrderInvoiceData` and `PdfDocumentData` gain the required `labels` field because their bundled renderers now consume localized labels from normalized data.
+The unreleased generate contract no longer accepts client-supplied `resource_kind` or `resource_id`; both are derived by the template from scoped server data. `TemplateRegistryEntry.resourceId` and `LoadedDocumentTemplateBase.resource.id` are required accordingly. No released compatibility bridge is necessary because the package and route are introduced by this unmerged feature PR.
+
+No template ID, route, or import path is removed or renamed. Built-in `OrderInvoiceData` and `PdfDocumentData` gain the required `labels` field because their bundled renderers now consume localized labels from normalized data.
 
 ## Final Compliance Report — 2026-08-10
 
@@ -797,3 +803,4 @@ No template ID, route, import path, renderer contract, or existing normalized bu
 | 2026-08-11 | Codex | Split the combined backend screen into flat Overview, Available templates, and Generation history sidebar pages. The navigation-hidden base route redirects to Overview, which provides cards to both functional pages; history uses the existing paginated API. |
 | 2026-08-11 | Codex | Added Markdown as the second output format for `OrdersDocumentService`: `order-invoice-markdown` shares order fetching and normalization with the PDF invoice, renders through `MarkdownRenderingService`, previews as text, downloads as `.md`, and records `format: md` history. Reorganized built-in templates to `<logical-template>/<format>/` while retaining the optional `templates/shared` library for reusable template assets. |
 | 2026-08-11 | Codex | Localized built-in Order Invoice and Sales Offer documents through the standard module dictionaries. Render routes now pass the request translator through `TemplateRegistry.load` and `BaseDocumentService`; services build typed `data.labels`, with PDF and Markdown invoice variants sharing the exact same label object. Added optional translator context fields for external-call compatibility and en/pl regression coverage. |
+| 2026-08-11 | Codex | Removed client-supplied resource identity from the unreleased generate contract. `resourceId()` and loaded resource IDs are now required; every successful production render attempts history persistence using canonical server-derived kind/id/label. Documented the intentionally global `frame-src blob:` required by extensible `TemplatesList` placements. |

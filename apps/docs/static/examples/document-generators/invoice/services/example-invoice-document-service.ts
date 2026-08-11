@@ -199,8 +199,10 @@ export class ExampleInvoicesDocumentService extends BaseDocumentService {
     return num ? `invoice-${num}.pdf` : 'invoice.pdf'
   }
 
-  override resourceId({ data }: { data: Record<string, unknown> }): string | undefined {
-    return (data.document as { id?: string } | undefined)?.id
+  override resourceId({ data }: { data: Record<string, unknown> }): string {
+    const id = (data.document as { id?: string } | undefined)?.id
+    if (!id) throw new Error('[internal] Example invoice normalized data is missing document.id')
+    return id
   }
 
   override resourceLabel({ data }: { data: Record<string, unknown> }): string | undefined {

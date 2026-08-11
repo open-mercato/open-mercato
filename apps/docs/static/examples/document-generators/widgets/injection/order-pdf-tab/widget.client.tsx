@@ -5,7 +5,6 @@ import { TemplatesList } from '@open-mercato/document-generators'
 
 interface OrderWidgetContext {
   kind: string
-  resourceId: string
   resourceKind: string
   record: { id: string }
 }
@@ -16,8 +15,7 @@ interface OrderWidgetContext {
  * filter.resourceKind — scopes the list to templates registered for this resource kind.
  *   Passed directly from ctx.resourceKind so the widget works without hardcoding entity names.
  *
- * resource — passed to PreviewPanel so /generate receives resource_kind + resource_id,
- *   enabling logging, event emission, and future PDF history (Phase 5).
+ * Generation-history identity is derived server-side by the document service.
  */
 export default function OrderPdfTabWidget({ context }: InjectionWidgetComponentProps) {
   const ctx = context as OrderWidgetContext
@@ -30,7 +28,6 @@ export default function OrderPdfTabWidget({ context }: InjectionWidgetComponentP
       <TemplatesList
         record={{ id: record.id }}
         filter={{ resourceKind: ctx.resourceKind }}
-        resource={{ kind: ctx.resourceKind, id: ctx.resourceId }}
       />
     </div>
   )
