@@ -77,6 +77,26 @@ locale per assertion. No assertion is weakened, and nothing is pinned in the glo
 - [x] Run the configured validation gate
 - [x] Open the PR, apply labels, post the summary comment
 
+### Resume — close the UI QA finding
+
+`om-auto-qa-pr` drove the PR head in a browser and found the sales document page still mixing
+conventions: the items table rendered `528,00 USD` under a Polish app locale while the summary
+panel directly below it rendered `$765.46`, and both dates stayed en-US. Commit `387d9b5` set out
+to end exactly that on this page but covered only the sections and dialogs, not the totals panel
+(`DocumentTotals` → `PriceWithCurrency`) or the page's own date/message formatting. Evidence:
+PR comment `#issuecomment-5251581400`.
+
+- [ ] `sales/components/PriceWithCurrency.tsx` — `formatPriceWithCurrency` takes an optional
+      `locale`; the component reads `useLocale()` so every call site (DocumentTotals,
+      AdjustmentsSection) is covered without touching them
+- [ ] `sales/backend/sales/documents/[id]/page.tsx` — `locale` for both `toLocaleDateString()`
+      displays (expected delivery, placed-at) and for `formatMessageAmount`
+- [ ] `salesComponentsRender.test.tsx` — extend the `i18n/context` mock with `useLocale` (third
+      instance of the same trap) and add a `pl-PL` regression case
+- [ ] Verify the sales module green under both `pl_PL.UTF-8` and `en_US.UTF-8`
+- [ ] Run the configured validation gate
+- [ ] Update the PR body and post the resume summary comment
+
 ## Notes / follow-ups
 
 - `detail/utils.formatCurrency` has four other call sites (`ActiveDealCard`, `ActiveDealWidget`,

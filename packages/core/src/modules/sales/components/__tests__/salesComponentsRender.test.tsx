@@ -302,6 +302,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   }
   return {
     useT: () => translate,
+    useLocale: () => 'en-US',
   }
 })
 
@@ -325,11 +326,22 @@ describe('sales components', () => {
   })
 
   it('formats prices with currency helper and component', () => {
-    // Intl.NumberFormat output is locale-dependent, accept either symbol or code
-    expect(formatPriceWithCurrency(10, 'USD')).toMatch(/\$|USD/)
+    expect(formatPriceWithCurrency(10, 'USD', '—', 'en-US')).toBe('$10.00')
     expect(formatPriceWithCurrency(null, 'USD')).toBe('—')
     render(<PriceWithCurrency amount={15} currency="EUR" />)
-    expect(screen.getByText(/€|EUR/)).toBeInTheDocument()
+    expect(screen.getByText('€15.00')).toBeInTheDocument()
+  })
+
+  it('formats prices in the requested locale rather than the runtime default', () => {
+    // Guards the summary panel against regressing to Intl.NumberFormat(undefined, …):
+    // the sales document page renders these totals next to item money that already
+    // follows the application locale, so a runtime-default format mixes conventions
+    // on one screen. Non-breaking spaces are normalized before comparing.
+    const normalize = (value: string) => value.replace(/ | /g, ' ')
+
+    expect(normalize(formatPriceWithCurrency(1234.5, 'USD', '—', 'pl-PL'))).toBe('1234,50 USD')
+    expect(normalize(formatPriceWithCurrency('698.76', 'USD', '—', 'pl-PL'))).toBe('698,76 USD')
+    expect(normalize(formatPriceWithCurrency(1234.5, null, '—', 'pl-PL'))).toBe('1234,50')
   })
 
   it('renders DocumentCustomerCard and triggers selection', () => {
