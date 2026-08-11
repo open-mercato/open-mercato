@@ -11,19 +11,13 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const ENCRYPTION_MAP_RESOURCE_KIND = 'entities.encryption_map'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
-}
-
-function resolveScope(auth: { tenantId?: string | null; orgId?: string | null }) {
-  return {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-  }
 }
 
 function toIsoOrNull(value: Date | string | null | undefined): string | null {
@@ -42,9 +36,11 @@ export async function GET(req: Request) {
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { tenantId, organizationId } = resolveScope(auth)
 
   const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const tenantId = scope.tenantId ?? auth.tenantId
+  const organizationId = scope.selectedId
   const em = container.resolve('em') as any
   const repo = em.getRepository(EncryptionMap)
   // Prefer tenant+org, then tenant-global, then global
@@ -55,7 +51,6 @@ export async function GET(req: Request) {
   ]
   let record: any = null
   for (const where of candidates) {
-    // eslint-disable-next-line no-await-in-loop
     const found = await repo.findOne({ ...where, deletedAt: null })
     if (found) {
       record = found
@@ -82,12 +77,12 @@ export async function POST(req: Request) {
     }
     const auth = await getAuthFromRequest(req)
     if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const scope = resolveScope(auth)
     const payload = parsed.data
-    const tenantId: string = auth.tenantId
-    const organizationId = scope.organizationId
 
     const container = await createRequestContainer()
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const tenantId = scope.tenantId ?? auth.tenantId
+    const organizationId = scope.selectedId
     const em = container.resolve('em') as any
     const repo = em.getRepository(EncryptionMap)
     const existing = await repo.findOne({ entityId: payload.entityId, tenantId, organizationId, deletedAt: null })
