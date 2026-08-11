@@ -153,21 +153,15 @@ body {
   box-shadow: var(--docs-screenshot-shadow-hover);
 }
 
-/* Copy page button — inline with breadcrumbs */
+/* Copy page button — positioned at the top-right of the breadcrumb row */
 .copy-page-breadcrumb-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.copy-page-breadcrumb-row .theme-doc-breadcrumbs {
-  min-width: 0;
-  flex: 1;
+  position: relative;
 }
 
 .copy-page-button-container {
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .copy-page-button {
