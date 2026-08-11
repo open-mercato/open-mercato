@@ -21,6 +21,10 @@ export interface ProgressService {
   getRecentlyCompletedJobs(ctx: ProgressServiceContext, sinceSeconds?: number): Promise<ProgressJob[]>
   getJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob | null>
   markStaleJobsFailed(tenantId: string, timeoutSeconds?: number, organizationId?: string | null): Promise<number>
+  // Optional so third-party ProgressService implementations keep compiling; callers must
+  // optional-chain. Runs on a forked EntityManager, so it is safe to call while the shared
+  // request/worker EM is mid-transaction (e.g. from a keepalive timer around adapter I/O).
+  touchJobHeartbeat?(jobId: string, ctx: ProgressServiceContext): Promise<void>
 }
 
 export const HEARTBEAT_INTERVAL_MS = 5000

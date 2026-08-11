@@ -4,6 +4,7 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { ProgressService } from '../../progress/lib/progressService'
+import { STALE_JOB_TIMEOUT_SECONDS } from '../../progress/lib/progressService'
 import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
@@ -76,6 +77,48 @@ function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
   }
 }
 
+// Adapter batches can legitimately outlast the stale-job sweep window (slow upstream
+// APIs), so the engine must heartbeat while a batch is still being produced.
+const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
+
+// Runs `tick` on an interval only while the source iterator is pending, so heartbeats
+// stop the moment the producer dies and genuinely stale jobs still get swept. The outer
+// finally closes the adapter generator on early exits (cancellation, ownership conflict).
+async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
+  const iterator = source[Symbol.asyncIterator]()
+  try {
+    while (true) {
+      const timer = setInterval(tick, intervalMs)
+      let result: IteratorResult<T>
+      try {
+        result = await iterator.next()
+      } finally {
+        clearInterval(timer)
+      }
+      if (result.done) return
+      yield result.value
+    }
+  } finally {
+    await iterator.return?.()
+  }
+}
+
+type RunCounters = {
+  createdCount?: number | null
+  updatedCount?: number | null
+  skippedCount?: number | null
+  failedCount?: number | null
+}
+
+// On redelivery the progress counter must resume from the run's persisted counters the
+// same way committedBatches does — updateProgress writes absolute counts, so starting at
+// zero would regress the visible count. The sum can slightly undercount when an adapter
+// reports batch.processedCount above the per-item action total; it is monotone and
+// self-corrects as absolute writes resume.
+function seedProcessedCount(run: RunCounters): number {
+  return (run.createdCount ?? 0) + (run.updatedCount ?? 0) + (run.skippedCount ?? 0) + (run.failedCount ?? 0)
+}
+
 export function createSyncEngine(deps: EngineDeps) {
   const { syncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService } = deps
 
@@ -101,6 +144,30 @@ export function createSyncEngine(deps: EngineDeps) {
         userId: scope.userId,
       },
     )
+  }
+
+  function makeHeartbeatTick(progressJobId: string | null | undefined, scope: SyncScope): () => void {
+    const touchJobHeartbeat = progressService.touchJobHeartbeat?.bind(progressService)
+    if (!progressJobId || !touchJobHeartbeat) return () => {}
+    let inFlight = false
+    return () => {
+      if (inFlight) return
+      inFlight = true
+      touchJobHeartbeat(progressJobId, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      })
+        .catch((error) => {
+          logger.warn('Progress heartbeat failed', {
+            progressJobId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+        .finally(() => {
+          inFlight = false
+        })
+    }
   }
 
   async function refreshCoverageSnapshots(entityTypes: string[] | undefined, scope: SyncScope): Promise<void> {
@@ -471,20 +538,24 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
-      let processedCount = 0
+      let processedCount = seedProcessedCount(activeRun)
       let totalCount: number | null = null
       let committedBatches = activeRun.batchesCompleted ?? 0
 
       try {
-        for await (const batch of adapter.streamImport({
-          entityType: run.entityType,
-          cursor: run.cursor ?? undefined,
-          batchSize,
-          credentials,
-          mapping,
-          scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
-          runId: run.id,
-        })) {
+        for await (const batch of withHeartbeat(
+          adapter.streamImport({
+            entityType: run.entityType,
+            cursor: run.cursor ?? undefined,
+            batchSize,
+            credentials,
+            mapping,
+            scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+            runId: run.id,
+          }),
+          makeHeartbeatTick(run.progressJobId, scope),
+          HEARTBEAT_TICK_MS,
+        )) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
             return
@@ -631,19 +702,23 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
-      let processedCount = 0
+      let processedCount = seedProcessedCount(activeRun)
       let committedBatches = activeRun.batchesCompleted ?? 0
 
       try {
-        for await (const batch of adapter.streamExport({
-          entityType: run.entityType,
-          cursor: run.cursor ?? undefined,
-          batchSize,
-          credentials,
-          mapping,
-          scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
-          runId: run.id,
-        })) {
+        for await (const batch of withHeartbeat(
+          adapter.streamExport({
+            entityType: run.entityType,
+            cursor: run.cursor ?? undefined,
+            batchSize,
+            credentials,
+            mapping,
+            scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+            runId: run.id,
+          }),
+          makeHeartbeatTick(run.progressJobId, scope),
+          HEARTBEAT_TICK_MS,
+        )) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
             return
