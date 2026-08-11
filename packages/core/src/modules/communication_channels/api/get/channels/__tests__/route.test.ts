@@ -4,9 +4,10 @@
 // `organization_id IS NULL` (see connect-credential-channel.ts). The channel
 // list route used to filter `organizationId: auth.orgId ?? null`, so a channel
 // connected while an admin had a NON-NULL selected org was invisible to the
-// listing. The route now composes its `where` with `channelOrgScopeWhere`, so a
-// tenant-wide (null) channel is returned from ANY org in the tenant while
-// org-scoped channels stay scoped to their org.
+// listing. The route now composes its `where` with `channelOrgScopeWhereFromFilter`
+// over the resolved organization scope (#5012), so a tenant-wide (null) channel is
+// returned from ANY org in the tenant while org-scoped channels stay scoped to
+// theirs.
 //
 // There is no live DB in this suite, so we assert the composed `where` passed to
 // findAndCountWithDecryption (the query the route builds) rather than executing
@@ -16,6 +17,7 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const selectedOrgId = '22222222-2222-4222-8222-222222222222'
 const otherOrgId = '33333333-3333-4333-8333-333333333333'
+const userId = '44444444-4444-4444-8444-444444444444'
 
 const findAndCountWithDecryptionMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
@@ -91,6 +93,10 @@ function rowMatchesWhere(row: Record<string, unknown>, where: Record<string, unk
       const clauses = expected as Array<Record<string, unknown>>
       return clauses.some((clause) => rowMatchesWhere(row, clause))
     }
+    if (expected !== null && typeof expected === 'object' && '$in' in (expected as object)) {
+      const ids = (expected as { $in: unknown }).$in
+      return Array.isArray(ids) && ids.includes(row[key])
+    }
     return row[key] === expected
   })
 }
@@ -98,7 +104,7 @@ function rowMatchesWhere(row: Record<string, unknown>, where: Record<string, unk
 describe('communication_channels channel list route — org scoping', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    getAuthFromRequestMock.mockResolvedValue({ tenantId, orgId: selectedOrgId })
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: selectedOrgId })
     findAndCountWithDecryptionMock.mockResolvedValue([[], 0])
   })
 
@@ -117,33 +123,38 @@ describe('communication_channels channel list route — org scoping', () => {
     expect(where.userId).toBeNull()
     // The org scope is the $or form, NOT a bare `organizationId` equality — the
     // bug was the bare `organizationId: orgId ?? null` filter.
-    expect(where.$or).toEqual([{ organizationId: selectedOrgId }, { organizationId: null }])
+    expect(where.$or).toEqual([
+      { organizationId: { $in: [selectedOrgId] } },
+      { organizationId: null },
+    ])
     expect(where).not.toHaveProperty('organizationId')
   })
 
   it('returns the tenant-wide (null-org) push channel even under a non-null selected org', async () => {
-    const where = { ...(await captureWhereFor({ tenantId, orgId: selectedOrgId })) }
+    const where = { ...(await captureWhereFor({ sub: userId, tenantId, orgId: selectedOrgId })) }
     expect(rowMatchesWhere(tenantWidePushChannel, where)).toBe(true)
   })
 
   it('does not leak an org-scoped channel from a DIFFERENT org', async () => {
-    const where = { ...(await captureWhereFor({ tenantId, orgId: selectedOrgId })) }
+    const where = { ...(await captureWhereFor({ sub: userId, tenantId, orgId: selectedOrgId })) }
     expect(rowMatchesWhere(otherOrgChannel, where)).toBe(false)
     // ...while the caller's own org-scoped channel still matches.
     expect(rowMatchesWhere(selectedOrgChannel, where)).toBe(true)
   })
 
-  it('narrows to tenant-wide (null) rows only when the caller has no selected org', async () => {
-    getAuthFromRequestMock.mockResolvedValue({ tenantId, orgId: null })
+  // A caller whose scope resolves to no organization at all is unrestricted within the
+  // tenant — the same posture every other selected-organization read takes (#5012). The
+  // tenant filter is what keeps the result safe here.
+  it('applies no organization restriction when the caller resolves to no organization', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: null })
     const response = await invoke()
     expect(response.status).toBe(200)
 
     const where = capturedWhere()
     expect(where).not.toHaveProperty('$or')
-    expect(where.organizationId).toBeNull()
-    // The tenant-wide push channel is still visible; the selected-org channel is not.
+    expect(where).not.toHaveProperty('organizationId')
     expect(rowMatchesWhere(tenantWidePushChannel, where)).toBe(true)
-    expect(rowMatchesWhere(selectedOrgChannel, where)).toBe(false)
+    expect(rowMatchesWhere(selectedOrgChannel, where)).toBe(true)
   })
 
   it('returns 401 when the request has no tenant', async () => {
@@ -153,7 +164,7 @@ describe('communication_channels channel list route — org scoping', () => {
     expect(findAndCountWithDecryptionMock).not.toHaveBeenCalled()
   })
 
-  async function captureWhereFor(auth: { tenantId: string; orgId: string | null }) {
+  async function captureWhereFor(auth: { sub?: string; tenantId: string; orgId: string | null }) {
     getAuthFromRequestMock.mockResolvedValue(auth)
     const response = await invoke()
     expect(response.status).toBe(200)

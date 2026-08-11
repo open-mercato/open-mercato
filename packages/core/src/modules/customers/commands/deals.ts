@@ -793,7 +793,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     })
 
     // Emit a lifecycle event for deal won/lost status changes; the notifications
-    // subscriber translates these into recipient notifications.
+    // subscriber translates these into recipient notifications. Tenant/organization
+    // scope MUST travel in the emit options, not only in the payload: both delivery
+    // paths build the subscriber context from `options` alone, so wildcard
+    // subscribers (workflow event triggers, business-rules triggers) drop a
+    // null-scoped event before trigger matching.
     const newStatus = record.status
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
     if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
@@ -812,7 +816,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               valueAmount: record.valueAmount ?? null,
               valueCurrency: record.valueCurrency ?? null,
             },
-            { persistent: true },
+            {
+              persistent: true,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+            },
           )
         }
       } catch (err) {

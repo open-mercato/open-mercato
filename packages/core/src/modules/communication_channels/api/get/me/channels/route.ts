@@ -4,6 +4,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../../data/entities'
+import { isHubPolledChannel } from '../../../../lib/polling-eligibility'
+import type { ChannelAdapterRegistry } from '../../../../lib/registry'
 
 export const metadata = {
   path: '/communication_channels/me/channels',
@@ -41,13 +43,25 @@ export async function GET(req: Request): Promise<Response> {
     { tenantId: auth.tenantId as string, organizationId: (auth as { orgId?: string | null }).orgId ?? null },
   )
 
+  // The profile grid renders "is this channel polled or push-driven?" and
+  // "can push be registered here?" — both are adapter facts, not provider names,
+  // so they are resolved server-side (#4980).
+  let adapterRegistry: ChannelAdapterRegistry | null = null
+  try {
+    adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
+  } catch {
+    adapterRegistry = null
+  }
+
   return NextResponse.json({
-    items: (channels as CommunicationChannel[]).map(serialize),
+    items: (channels as CommunicationChannel[]).map((channel) =>
+      serialize(channel, adapterRegistry),
+    ),
     total: channels.length,
   })
 }
 
-function serialize(channel: CommunicationChannel) {
+function serialize(channel: CommunicationChannel, adapterRegistry: ChannelAdapterRegistry | null) {
   // Spec C — expose push status + last push error to the operator UI so
   // the `PushStatusSection` can render the "Re-register push" affordance.
   const channelState =
@@ -66,6 +80,12 @@ function serialize(channel: CommunicationChannel) {
           at: channelState.lastPushError.at ?? null,
         }
       : null
+  // `true` when the hub's poll worker skips this channel because the adapter
+  // declares real-time push — the inverse of `isHubPolledChannel`, which the
+  // worker itself uses, so the label cannot contradict the behaviour.
+  const supportsRealtimePush = !isHubPolledChannel(channel.capabilities)
+  const adapter = adapterRegistry?.get(channel.providerKey)
+  const supportsPushRegistration = typeof adapter?.registerPush === 'function'
   return {
     id: channel.id,
     providerKey: channel.providerKey,
@@ -80,6 +100,8 @@ function serialize(channel: CommunicationChannel) {
     lastPolledAt: channel.lastPolledAt?.toISOString?.() ?? null,
     pushStatus,
     lastPushError,
+    supportsRealtimePush,
+    supportsPushRegistration,
     createdAt: channel.createdAt?.toISOString?.() ?? null,
   }
 }

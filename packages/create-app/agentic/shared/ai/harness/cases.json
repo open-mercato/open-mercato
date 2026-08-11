@@ -13681,5 +13681,1000 @@
       "OMH-026",
       "OMH-027"
     ]
+  },
+  {
+    "id": "OMH-204",
+    "title": "Reconstruct who changed and who merely read a record without a bespoke history table",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, a compliance reviewer must be able to answer, for any business record, who changed it and when, and separately who merely opened it. Staff should be able to review their own trail, while a compliance officer needs the whole tenant's, and a handful of mistaken edits each month have to be walked back rather than corrected by hand. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for reading one's own trail versus the entire tenant's, and identify the smallest relevant validation. Do not add your own history, revision, or activity table before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "audit-trail"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/audit_logs.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "framework-context",
+        "debugging"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/audit_logs.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 73728,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-205",
+    "title": "Let staff retune approval and routing logic without shipping a release",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the operations team wants to change the conditions that decide which orders need a manager's approval and which get routed to a priority queue, and today every such change is a code edit and a release. They want to author those conditions themselves, group them so a whole set can be switched on for one organization at a time, and see afterwards which condition actually fired on a given record. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for authoring conditions versus merely running them, and identify the smallest relevant validation. Do not build your own condition, rule, or automation engine before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "rule-authoring"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/business_rules.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "ai-workflow",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/business_rules.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 86016,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-206",
+    "title": "Give each role its own landing screen of operational tiles",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, warehouse leads, sales staff, and administrators all land on the same empty back-office home page. Each group wants a starting screen carrying the few counters and shortcuts that matter to them, an administrator wants to decide which tiles a role gets by default, and individuals want to rearrange their own without changing anyone else's. Decide the smallest safe design against what the installed modules already provide, say how another module contributes a tile to that screen, keep tenant and organization boundaries intact, state the access-control posture for viewing a screen versus assigning tiles to a role, and identify the smallest relevant validation. Do not model your own layout, tile, or home-screen tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "role-landing-screen"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/dashboards.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "backend-ui",
+        "module-data",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/dashboards.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/perspectives.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 94208,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-207",
+    "title": "Model branches and depots without inventing a second organization tree",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the business runs three depots and two sales branches, and every order, price list, and staff assignment belongs to exactly one of them. Head office staff need to work across all of them and switch between them, while depot staff must only ever see their own. A future franchise partner will need the same structure kept entirely separate from this one. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing this structure versus changing it, and identify the smallest relevant validation. Do not model your own branch, site, depot, or company tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "organization-structure"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/directory.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "framework-context",
+        "backend-ui"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/directory.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-system-extension/SKILL.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 69632,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-208",
+    "title": "Let administrators add their own fields and record types after go-live",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, each customer of this business wants to track a couple of attributes nobody anticipated - a haulier reference on an order, a site survey score on a customer - and one of them wants a small record type of its own that no shipped module covers. Administrators want to add these themselves after go-live, filter and sort lists by them, and have one of them hold data that must be stored encrypted. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for defining these versus filling them in, and identify the smallest relevant validation. Do not design your own attribute, key-value, or dynamic-record tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "user-defined-fields"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/entities.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "module-data",
+        "backend-ui",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/entities.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/guides/modules/query_index.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 106496,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-209",
+    "title": "Turn forwarded supplier email into a proposal a human approves",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, back-office staff forward supplier and customer emails into a shared mailbox and then retype what those emails ask for into the system. They want the forwarded message read for them and turned into a concrete suggested action that a person reviews and approves before anything is written, with the mismatches between the email and the existing record called out, and a reply sent back from inside the application. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for reviewing a suggestion versus approving it, and identify the smallest relevant validation. Do not design your own inbound-email, extraction, or approval-queue tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "email-intake"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/inbox_ops.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "ai-workflow",
+        "module-data",
+        "integration",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/inbox_ops.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/ai-workflows.md",
+        ".ai/guides/integrations.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 94208,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-210",
+    "title": "Give staff an in-app thread with attachments instead of a private notes table",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, staff currently discuss individual orders over external email, so the context is lost to anyone who joins later. They want the conversation to live against the record itself, carry file attachments, reach a named group of recipients, be forwarded to an external address when someone outside needs it, and let a recipient confirm they have acted on it. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for reading a thread versus composing or attaching to one, and identify the smallest relevant validation. Do not model your own message, thread, note, or recipient tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "internal-messaging"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/messages.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "backend-ui",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/messages.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/notifications.md",
+        ".ai/guides/modules/attachments.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 36864,
+    "maxTotalContextBytes": 118784,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-211",
+    "title": "Let a new customer request their own workspace without a second signup flow",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, every new client workspace is created by an administrator by hand from a form filled in over the phone. The business wants prospects to request their own workspace from a public page, confirm they control the email address they gave, and wait in a reviewable queue until someone accepts or rejects the request. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for submitting a request versus verifying and accepting one, and identify the smallest relevant validation. Do not build your own signup, registration, or workspace-request tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "self-service-signup"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/onboarding.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "backend-ui",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/guides/modules/onboarding.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/directory.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 5,
+    "maxInitialContextBytes": 32768,
+    "maxTotalContextBytes": 61440,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-212",
+    "title": "Express when staff are actually available without a private schedule table",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, jobs are being booked onto staff who are part-time, on holiday, or already committed elsewhere, because nothing in the system knows when each person is actually free. The team wants recurring weekly patterns plus one-off exceptions, wants a single pattern shared by everyone on the same shift instead of retyped per person, and wants other parts of the application to be able to ask the same question. Before proposing any schema, establish whether an installed module already owns this capability and name it, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing availability versus changing it, and identify the smallest relevant validation. Do not model your own availability, shift, or working-hours tables, and do not scaffold a new module, before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "staff-availability"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/planner.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "framework-context",
+        "backend-ui"
+      ]
+    },
+    "requiredSkills": [],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/guides/modules/planner.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 40960,
+    "maxTotalContextBytes": 77824,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-213",
+    "title": "Serve product and category names in each customer's language without duplicate columns",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the catalogue is maintained in one language, but the business now sells into three and needs product names, category names, and a few descriptive fields to come back in the reader's language, falling back to the original where no wording exists yet. Staff want to supply the wording themselves per record and per language, and administrators want to control which languages are offered at all. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for supplying wording versus managing which languages exist, and identify the smallest relevant validation. Do not add per-language columns or your own translation tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "entity-translation"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/translations.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "framework-context",
+        "backend-ui"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/translations.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 65536,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-214",
+    "title": "Reach a customer's phone when an order ships without a private device table",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the business wants a shipment update to reach the customer's phone as a notification, and the mobile client already has a provider token per install. Before proposing any schema, establish whether installed modules already own the device registry and the push delivery path, and name them, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: where a per-user device and its provider token live and how that token is protected at rest and kept out of responses and logs, how one notification fans out to that user's devices, what happens when a provider reports a token that no longer exists, and how a user's per-type and per-channel opt-out is honoured before anything is sent. Keep tenant and organization boundaries intact, state the access-control posture for a user registering their own device versus an administrator reading the fleet, and identify the smallest relevant validation. Do not model your own device, token, or delivery-log tables, and do not call a provider SDK directly from a request handler, before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "device-registry",
+      "push-delivery"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/push_notifications.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "integration",
+        "umes",
+        "framework-context",
+        "backend-ui"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/devices.md",
+        ".ai/guides/modules/push_notifications.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/notifications.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "encrypted-credentials",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:token|secret|password).{0,20}(?:console|log)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-020",
+      "OMH-194"
+    ]
+  },
+  {
+    "id": "OMH-215",
+    "title": "Add tenant-wide push provider credentials without a bespoke integration",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, operations hold a Firebase service account for Android, an APNs signing key for iOS, and an Expo access token for the managed client, and want each one connected once for the whole tenant so push can be sent. Before proposing any schema, establish whether installed provider modules already own these three connections and name them, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: where such credentials are stored and validated at connect time, why they belong to the tenant rather than to the person who connected them and what that means for a caller whose selected organization differs, and how a provider's permanent token rejection is distinguished from a retryable failure. Keep tenant and organization boundaries intact, state the access-control posture for connecting a tenant-wide provider versus reading its health, and identify the smallest relevant validation. Do not write your own credential store, and do not build a bespoke provider integration, before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "push-provider",
+      "encrypted-credentials"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/channel_fcm.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "integration",
+        "module-data",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/channel_fcm.md",
+        ".ai/guides/modules/channel_apns.md",
+        ".ai/guides/modules/channel_expo.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/integrations.md",
+        ".ai/guides/modules/push_notifications.md"
+      ],
+      "warn": [
+        "node_modules/@open-mercato/*/src/**"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "tenant-scope",
+      "acl-features",
+      "encrypted-credentials",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:token|secret|password).{0,20}(?:console|log)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 98304,
+    "relatedCases": [
+      "OMH-039",
+      "OMH-214"
+    ]
   }
 ]

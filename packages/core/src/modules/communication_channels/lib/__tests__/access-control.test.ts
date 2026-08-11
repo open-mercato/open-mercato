@@ -3,6 +3,7 @@ import {
   assertCanAccessChannel,
   assertCanManageChannel,
   channelOrgScopeWhere,
+  channelOrgScopeWhereFromFilter,
   ChannelAccessDeniedError,
 } from '../access-control'
 
@@ -29,6 +30,23 @@ describe('channelOrgScopeWhere', () => {
 
   it('treats an empty-string org as tenant-wide only (falsy)', () => {
     expect(channelOrgScopeWhere('')).toEqual({ organizationId: null })
+  })
+})
+
+describe('channelOrgScopeWhereFromFilter', () => {
+  // Read routes resolve the *selected* organization (#5012), which yields a list
+  // of org ids — or undefined for a caller who is not restricted to any org.
+  it('matches the resolved orgs and tenant-wide (null) rows', () => {
+    const organizationIds = ['22222222-2222-4222-8222-222222222222']
+    expect(channelOrgScopeWhereFromFilter({ organizationIds })).toEqual({
+      $or: [{ organizationId: { $in: organizationIds } }, { organizationId: null }],
+    })
+  })
+
+  it('applies no org restriction for an unrestricted caller', () => {
+    expect(channelOrgScopeWhereFromFilter({ organizationIds: undefined })).toEqual({})
+    expect(channelOrgScopeWhereFromFilter({ organizationIds: [] })).toEqual({})
+    expect(channelOrgScopeWhereFromFilter(null)).toEqual({})
   })
 })
 

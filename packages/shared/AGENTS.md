@@ -70,7 +70,10 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
+| Resolving authored `PageMetadata` into a route manifest's flat shape (`resolvePageRouteMetadata`, and `resolveDeclaredPageRouteMetadata` for partial merges such as page overrides) | `@open-mercato/shared/modules/registry` |
 | Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
+
+`registry.ts` re-exports `resolvePageRouteMetadata` from `@open-mercato/shared/modules/pageRouteMetadata`, where it lives so `overrides.ts` can reuse it without an import cycle. Import it from `registry` — the split is an implementation detail.
 
 ## Key Patterns
 
@@ -122,6 +125,11 @@ index stores hashes of the plaintext, so it keeps matching. Issue #2990.
   `em.find` / Kysely list routes must wire it themselves. When the fallback would run
   `ILIKE` against an encrypted column, both query engines now log a warning
   (`lib/query/ciphertext-search-warning`) instead of degrading silently.
+- The `…WithDecryption` helpers log the same warning outside production when the `where`
+  clause targets an encryption-map property with `$like`/`$ilike`/`$re`
+  (`lib/encryption/likeFilterWarning`). It is a development aid — the map lookup costs an
+  uncached read, so it is skipped in production. A search that only breaks under a
+  production-only encryption map still needs a test.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
 

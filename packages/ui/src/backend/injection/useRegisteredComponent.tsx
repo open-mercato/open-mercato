@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { ComponentType } from 'react'
 import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
-import { useOverrideUserFeatures } from './ComponentOverrideProvider'
+import { useOverrideRegistryRevision, useOverrideUserFeatures } from './ComponentOverrideProvider'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui').child({ component: 'useRegisteredComponent' })
@@ -36,6 +36,7 @@ export function useRegisteredComponent<TProps>(
   fallback?: ComponentType<TProps>,
 ): ComponentType<TProps> {
   const userFeatures = useOverrideUserFeatures()
+  const overrideRevision = useOverrideRegistryRevision()
   return React.useMemo(() => {
     const entry = getComponentEntry(componentId)
     const original = (entry?.component as ComponentType<TProps> | undefined) ?? fallback ?? null
@@ -98,7 +99,7 @@ export function useRegisteredComponent<TProps>(
 
     Resolved.displayName = `RegisteredComponent(${componentId})`
     return Resolved
-  }, [componentId, fallback, userFeatures])
+  }, [componentId, fallback, overrideRevision, userFeatures])
 }
 
 export default useRegisteredComponent

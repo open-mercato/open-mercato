@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Tag } from '@open-mercato/ui/primitives/tag'

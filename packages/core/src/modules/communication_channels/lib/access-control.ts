@@ -40,6 +40,26 @@ export function channelOrgScopeWhere(
 }
 
 /**
+ * Same NULL-inclusive org scoping, expressed over a resolved
+ * `OrganizationScopeFilter` (`resolveOrganizationScopeFilter`) rather than a
+ * single org id.
+ *
+ * Read routes scope on the caller's *selected* organization (the
+ * `om_selected_org` cookie the top-bar switcher writes), not on the org baked
+ * into the session token (#5012) — that resolution yields a list of org ids, or
+ * `undefined` when the caller is unrestricted (super-admin viewing all orgs).
+ * An unrestricted caller sees every channel in the tenant, so the fragment is
+ * empty; a restricted one gets their orgs plus the tenant-wide (`NULL`) rows.
+ */
+export function channelOrgScopeWhereFromFilter(
+  filter: { organizationIds: string[] | undefined } | null | undefined,
+): Record<string, unknown> {
+  const organizationIds = filter?.organizationIds
+  if (!organizationIds || organizationIds.length === 0) return {}
+  return { $or: [{ organizationId: { $in: organizationIds } }, { organizationId: null }] }
+}
+
+/**
  * Throws when the caller may not access a specific channel. Returns silently
  * when access is allowed.
  *
