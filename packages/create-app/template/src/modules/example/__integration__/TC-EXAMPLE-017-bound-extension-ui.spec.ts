@@ -217,6 +217,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(
         `TC-EXAMPLE-017 delete success ${suffix}`,
       )
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       logs.length = 0
       await page.getByRole('button', { name: /^Delete$/ }).first().click()
       const successDialog = page.getByRole('alertdialog')
@@ -237,6 +238,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       await page.goto(`/backend/todos/${encodeURIComponent(staleTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
       const staleTitle = `TC-EXAMPLE-017 delete stale ${suffix}`
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(staleTitle)
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       await bumpRecordViaApi(request, token, TODOS_API, { id: staleTodoId, title: `${staleTitle} moved` })
       logs.length = 0
       await page.getByRole('button', { name: /^Delete$/ }).first().click()

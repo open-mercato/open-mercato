@@ -262,6 +262,8 @@ test.describe('TC-EXAMPLE-003: the todo bulk-complete operation is durable, scop
         )
       })
 
+      await page.reload({ waitUntil: 'domcontentloaded' })
+
       const runningSummary = page.getByRole('button', { name: /operations running/i })
       await expect(runningSummary).toBeVisible({ timeout: 15_000 })
       await expect(runningSummary).toContainText('Mark selected todos done')

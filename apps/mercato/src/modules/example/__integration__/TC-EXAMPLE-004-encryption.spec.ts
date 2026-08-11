@@ -121,7 +121,7 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
 
       const createdHome = await apiRequest(request, 'POST', '/api/example/todos', {
         token,
-        data: { title: `TC-EXAMPLE-004 home ${suffix}`, notes: homeSecret, cf_priority: 2, cf_severity: 'low' },
+        data: { title: `TC-EXAMPLE-004 home ${suffix}`, notes: homeSecret },
       })
       expect(createdHome.ok(), `create home todo failed: ${createdHome.status()}`).toBeTruthy()
       homeTodoId = (await createdHome.json() as { id?: string }).id ?? null
@@ -130,7 +130,7 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
       const createdOther = await apiRequestWithSelectedOrg(request, 'POST', '/api/example/todos', {
         token,
         selectedOrgId: otherOrgId,
-        data: { title: `TC-EXAMPLE-004 other ${suffix}`, notes: otherSecret, cf_priority: 2, cf_severity: 'low' },
+        data: { title: `TC-EXAMPLE-004 other ${suffix}`, notes: otherSecret },
       })
       expect(createdOther.ok(), `create other-org todo failed: ${createdOther.status()}`).toBeTruthy()
       otherTodoId = (await createdOther.json() as { id?: string }).id ?? null
