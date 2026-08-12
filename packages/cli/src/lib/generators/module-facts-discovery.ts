@@ -107,3 +107,49 @@ export function discoverPackageModuleSources(resolver: PackageResolver): ModuleF
   }
   return resolveDuplicateModuleIds(sources, resolver)
 }
+
+/** App-local modules always live under this app-root-relative directory. */
+export const LOCAL_MODULES_DIRECTORY = path.posix.join('src', 'modules')
+
+/**
+ * Locates an app-local module that is projected into the reference bundle rather than the
+ * normal package outputs. `appRoot` is the directory containing `src/modules` — the
+ * create-app template root at build time, the generated app root at scaffold and
+ * `agentic:init` time — so the same module yields the same portable `src/modules/<id>`
+ * provenance from every root. Returns `null` when the module is absent or is not readable
+ * TypeScript source, because a reference bundle built from an unreadable root would claim
+ * an empty surface rather than fail.
+ */
+export function discoverLocalReferenceModuleSource(options: {
+  appRoot: string
+  moduleId: string
+}): ModuleFactSource | null {
+  const moduleRoot = path.join(options.appRoot, 'src', 'modules', options.moduleId)
+  if (!hasReadableModuleSource(moduleRoot)) return null
+  return {
+    moduleId: options.moduleId,
+    moduleRoot,
+    portableSourceRoot: path.posix.join(LOCAL_MODULES_DIRECTORY, options.moduleId),
+    sourceKind: 'local-reference',
+  }
+}
+
+/**
+ * Appends the local reference source to the package batch, rejecting a duplicate module
+ * id *before* assignment. A package that already provides the same id would otherwise be
+ * silently replaced by (or silently replace) the app-local projection, and the emitted
+ * bundle would attribute one module's surfaces to the other's source tree.
+ */
+export function appendLocalReferenceModuleSource(
+  packageSources: readonly ModuleFactSource[],
+  reference: ModuleFactSource,
+): ModuleFactSource[] {
+  const conflict = packageSources.find((source) => source.moduleId === reference.moduleId)
+  if (conflict) {
+    throw new Error(
+      `[module-facts] local reference module "${reference.moduleId}" collides with the module provided by `
+      + `${conflict.from ?? '<unknown package>'}. Rename the app-local module or remove the package providing it.`,
+    )
+  }
+  return [...packageSources, reference]
+}

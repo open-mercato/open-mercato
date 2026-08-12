@@ -1,7 +1,13 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { extractModuleFacts, renderModuleFactsMarkdown } from '../module-facts'
+import { extractModuleFacts, isExactSourceFilePath, renderModuleFactsMarkdown } from '../module-facts'
+
+const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
+
+function collectLinkTargets(markdown: string): string[] {
+  return [...markdown.matchAll(MARKDOWN_LINK_TARGET)].map((match) => match[1])
+}
 
 function writeFixture(root: string, relativePath: string, source: string): void {
   const filePath = path.join(root, relativePath)
@@ -115,5 +121,40 @@ describe('module-facts source-linked extension surfaces', () => {
     expect(markdown).toContain(
       '(../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
     )
+  })
+
+  it('links only exact module code files and never a directory', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+    })
+    const markdown = renderModuleFactsMarkdown(facts)
+    const targets = collectLinkTargets(markdown)
+
+    expect(targets.length).toBeGreaterThan(0)
+    expect(targets.filter((target) => !isExactSourceFilePath(target))).toEqual([])
+  })
+
+  it('renders the directory-valued source root as plain text instead of a folder link', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+    })
+    const markdown = renderModuleFactsMarkdown(facts)
+
+    expect(markdown).toContain('Source root: node_modules/@open-mercato/example/src/modules/facts\n')
+    expect(markdown).not.toContain('(../../../node_modules/@open-mercato/example/src/modules/facts)')
+  })
+
+  it('classifies exact files and directories consistently', () => {
+    expect(isExactSourceFilePath('packages/core/src/modules/customers/index.ts')).toBe(true)
+    expect(isExactSourceFilePath('packages/ui/src/backend/DataTable.tsx')).toBe(true)
+    expect(isExactSourceFilePath('node_modules/@open-mercato/core/dist/modules/customers/acl.js')).toBe(true)
+    expect(isExactSourceFilePath('packages/ui/src')).toBe(false)
+    expect(isExactSourceFilePath('node_modules/@open-mercato/core/src/modules/customers')).toBe(false)
   })
 })

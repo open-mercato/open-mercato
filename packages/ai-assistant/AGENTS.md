@@ -1489,6 +1489,10 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 **Backward compatibility**: additive. With `MCP_SERVER_API_KEY_FILE` unset the OpenCode entrypoint behaves byte-for-byte as before; host-MCP mode (`yarn mcp:serve` + `MCP_SERVER_API_KEY`) is unchanged. Spec: `.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md`.
 
+### 2026-08-05 - @app module entries are compiled, not raw TS
+
+`compileAndImportGenerated` (`lib/generated-registry-loader.ts`) compiles every `@app` module entry a generated registry references into `<appRoot>/.mercato/generated/app-modules/`, via the new `compileAppSourceFile` in `shared/lib/bootstrap/dynamicLoader` (reuses `loadBootstrapData`'s esbuild bundle and dep cache; packages stay external). The 2026-06-24 fix below only rewrote the specifier to an absolute `.ts` path, which holds only while the target's graph stays inside Node's type stripping — a real module's does not (`./di` is extensionless, `./data/entities` has decorators), so the first app-local `ai-tools.ts` killed the tool registry. Uncompilable modules log and fall back to the raw path. Additive: the artifact map is an optional third `rewriteGeneratedAliasImports` arg.
+
 ### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
 
 **What changed** (`lib/generated-registry-loader.ts`):
@@ -1595,20 +1599,9 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 - Removed auto-discovered module AI tools from `ai-tools.generated.ts`
 - Token savings: from ~10+ tool schemas to exactly 2, with fixed footprint regardless of API surface growth
 
-**Files created**:
-- `lib/codemode-tools.ts` — `search` and `execute` tool definitions
-- `lib/sandbox.ts` — `node:vm` sandbox executor with security restrictions
-- `lib/truncate.ts` — Response size limiter (40K chars / ~10K tokens)
+**Files created**: `lib/codemode-tools.ts` (the two tool definitions), `lib/sandbox.ts` (`node:vm` executor), `lib/truncate.ts` (40K-char response limiter) — all three described under "Rules for Code Mode Internals" above.
 
-**Files modified**:
-- `lib/api-endpoint-index.ts` — Added `getRawOpenApiSpec()` for raw spec caching
-- `lib/tool-loader.ts` — Loads Code Mode tools instead of legacy tools + module tools
-- `lib/http-server.ts` — Pre-caches raw OpenAPI spec at startup
-- `lib/mcp-server.ts` — Generates entity graph and caches spec for stdio mode
-
-**Files kept but unused**:
-- `lib/api-discovery-tools.ts` — Old find_api/call_api (no longer imported, deleted in #1876)
-- `lib/entity-graph-tools.ts` — Old discover_schema (no longer imported, deleted in #1876)
+**Files modified**: `lib/api-endpoint-index.ts` (raw spec caching), `lib/tool-loader.ts`, `lib/http-server.ts`, `lib/mcp-server.ts`. The superseded `lib/api-discovery-tools.ts` and `lib/entity-graph-tools.ts` were later deleted in #1876.
 
 ### 2026-01-17 - Session Persistence Fix
 
@@ -1623,31 +1616,14 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 2. **React stale closure**: `handleSubmit` callback captured initial `null` sessionId value.
 
 **Fixes applied**:
-- `opencode-handlers.ts`: Removed Promise.race, await only SSE eventPromise
-- `useCommandPalette.ts`: Added `opencodeSessionIdRef` (ref) alongside state to avoid stale closures
-
-**Files modified**:
-- `src/modules/ai_assistant/lib/opencode-handlers.ts` - Fixed Promise.race completion bug
-- `src/frontend/hooks/useCommandPalette.ts` - Added ref pattern for sessionId
+- `lib/opencode-handlers.ts`: removed `Promise.race`, await only the SSE eventPromise
+- `src/frontend/hooks/useCommandPalette.ts`: added `opencodeSessionIdRef` alongside state to avoid stale closures
 
 ### 2026-01 - OpenCode Integration
 
 **Lesson learned:** When replacing an AI backend, preserve the session management contract — the frontend depends on `sessionId` in `done` events regardless of the underlying AI engine.
 
-**Major change**: Replaced Vercel AI SDK with OpenCode as the AI backend.
-
-**What changed**:
-- Chat API now routes all requests to OpenCode
-- Added session management for conversation context
-- Added "Agent is working..." indicator
-- OpenCode connects to MCP server for tools
-- Removed direct AI provider integration
-
-**Files modified**:
-- `src/modules/ai_assistant/api/chat/route.ts` - Complete rewrite to use OpenCode
-- `src/frontend/hooks/useCommandPalette.ts` - Added session state, thinking indicator
-- `src/frontend/components/CommandPalette/ToolChatPage.tsx` - Added thinking UI
-- `src/frontend/types.ts` - Added ChatSSEEvent, isThinking
+Replaced the Vercel AI SDK with OpenCode: the chat API routes to OpenCode, session management carries conversation context, and OpenCode reaches tools through the MCP server. Current shape: "Rules for the Chat Flow" and "Rules for Session Management" above; see git history for per-file detail.
 
 ### 2026-01 - API Discovery Tools / Hybrid Tool Discovery (superseded)
 

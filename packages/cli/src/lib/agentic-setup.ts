@@ -439,7 +439,9 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
     ...targetPathsForTree(join(srcDir, 'scripts'), join(targetDir, 'scripts')),
   ])
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json') paths.add(join(targetDir, '.ai', 'guides', file))
+    if (file.endsWith('.md') || file === 'module-facts.json' || file === 'module-facts.v2.json') {
+      paths.add(join(targetDir, '.ai', 'guides', file))
+    }
   }
   for (const file of listFiles(join(GUIDES_DIR, 'upstream'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'upstream', relative(join(GUIDES_DIR, 'upstream'), file)))
@@ -619,7 +621,7 @@ function generateShared(config: AgenticConfig): void {
 
   // Routed conceptual guides are copied wholesale (framework-wide). Per-module
   // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
-  // module set; the combined module-facts.json sidecar is copied as-is.
+  // module set; the combined v1 and corrected v2 module-facts sidecars are copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -637,6 +639,12 @@ function generateShared(config: AgenticConfig): void {
       copyFileSync(moduleFactsPath, destPath)
     }
 
+    const moduleFactsV2Path = join(GUIDES_DIR, 'module-facts.v2.json')
+    if (existsSync(moduleFactsV2Path)) {
+      const destPath = join(guidesDestDir, 'module-facts.v2.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsV2Path, destPath)
+    }
 
     copyTree(join(GUIDES_DIR, 'upstream'), join(guidesDestDir, 'upstream'), config)
 
