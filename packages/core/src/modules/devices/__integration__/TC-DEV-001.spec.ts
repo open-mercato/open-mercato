@@ -327,6 +327,39 @@ test.describe('TC-DEV-001: Devices module registry APIs', () => {
     }
   })
 
+  test('self list does not serve an export, so the full-export scope cannot bypass the actor scope', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const employeeToken = await getAuthToken(request, 'employee')
+    const employeeScope = getTokenScope(employeeToken)
+    const adminDeviceId = uniqueDeviceId()
+    const employeeDeviceId = uniqueDeviceId()
+    let adminDevId: string | null = null
+    let employeeDevId: string | null = null
+    try {
+      adminDevId = (await registerDevice(request, adminToken, { deviceId: adminDeviceId, platform: 'ios' })).json?.id ?? null
+      employeeDevId = (await registerDevice(request, employeeToken, { deviceId: employeeDeviceId, platform: 'ios' })).json?.id ?? null
+
+      // The CRUD factory's full-export branch drops the route filters entirely instead of calling
+      // `buildFilters`, and it enables exports by default for any list that does not declare
+      // `export`. This route declares `export: { enabled: false }`, so no format is recognized and
+      // both spellings of the flag (`exportScope=full` and `full=1`) degrade to the ordinary paged
+      // list — which does run the actor scope. A download response here means the scope is bypassed.
+      await waitForDevices(request, adminToken, (its) => its.some((d) => d.id === adminDevId))
+      for (const query of ['?format=json&exportScope=full', '?format=csv&full=1']) {
+        const res = await apiRequest(request, 'GET', `${SELF_PATH}${query}`, { token: adminToken })
+        expect(res.status()).toBe(200)
+        expect(res.headers()['content-disposition']).toBeFalsy()
+        const json = await readJsonSafe<DeviceListResponse>(res)
+        const items = json?.items ?? []
+        expect(items.every((d) => d.user_id !== employeeScope.userId)).toBe(true)
+        expect(items.find((d) => d.id === employeeDevId)).toBeFalsy()
+      }
+    } finally {
+      await deleteDeviceIfExists(request, adminToken, adminDevId)
+      await deleteDeviceIfExists(request, employeeToken, employeeDevId)
+    }
+  })
+
   test('PUT updates metadata and clears a revoked push token', async ({ request }) => {
     const token = await getAuthToken(request, 'employee')
     const deviceId = uniqueDeviceId()

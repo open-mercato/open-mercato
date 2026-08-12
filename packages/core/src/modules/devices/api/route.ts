@@ -59,6 +59,15 @@ const crud = makeCrudRoute({
     // push_token is a secret and is never exposed via the list API.
     fields: deviceListFields,
     sortFieldMap: deviceListSortFieldMap,
+    // Exports are off for the self-serve list. The factory enables them for every list that does not
+    // declare `export` (resolveAvailableExportFormats falls back to csv/json/xml/markdown), and its
+    // full-export branch replaces the filters with `{}` instead of calling `buildFilters`
+    // (`baseFilters = exportFullRequested ? {} : buildFilters(...)`). On this route `buildFilters` is
+    // the only user-level boundary — automatic scoping covers tenant and organization, not the acting
+    // user — so `?format=json&exportScope=full` would return every device in the caller's org scope.
+    // With no available formats, `exportRequested` is never true and that branch is unreachable. Bulk
+    // device data belongs to the admin tree (api/admin/devices), which gates cross-user listing.
+    export: { enabled: false },
     // Self-serve: always scoped to the acting user. Cross-user listing lives in api/admin/devices.
     buildFilters: async (query, ctx) => {
       // Consume the client-supplied advanced filter here (this deletes every `filter[...]` key from
