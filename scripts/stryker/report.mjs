@@ -58,9 +58,13 @@ function sliceOriginal(source, location) {
 
 /**
  * Survivor cells carry arbitrary source text into a markdown table that is also
- * posted as a PR comment, so two characters have to be neutralised: `|` would break
- * the table structure, and a backtick would close the inline code span the cell
- * wraps its content in.
+ * posted as a PR comment, so three characters have to be neutralised: `|` would break
+ * the table structure, a backtick would close the inline code span the cell wraps its
+ * content in, and a backslash would consume the escape added for either of them.
+ *
+ * The backslash pass has to run first. Source text such as `\|` would otherwise become
+ * `\\|` — a literal backslash followed by a bare pipe — and the cell would still split
+ * the table. Escaping backslashes up front makes every later escape survive intact.
  *
  * Escaping the backtick is also what keeps `@mention` text inert. GitHub does not
  * linkify a mention inside a code span, so an intact span means a mutated line
@@ -70,6 +74,7 @@ function sliceOriginal(source, location) {
 function toSingleLine(text) {
   return String(text ?? '')
     .replace(/\s+/g, ' ')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/`/g, '\\`')
     .trim()
