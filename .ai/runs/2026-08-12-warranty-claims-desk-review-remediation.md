@@ -30,6 +30,8 @@ Make the warranty claims desk safe and ready for another review by correcting ev
 | All confirmed strict-review findings are remaining work | Strict review of exact head `f1ec3089700c`, artifact hash `9955e60eec5e58e780255010deca7699b13746fab60e06c1d6f2d3ee68f0d49b` | high |
 | A blind follow-up council found eleven additional actionable gaps | Strict review of exact head `ea625461c781`, subject hash `81031f4a325438164106cbca19eafbc5fc275270857ef0d5aa03bef01812f853`; all 18 provider candidates adjudicated | high |
 | A second blind follow-up council found final correctness, concurrency, portal, and design-system gaps | Strict review of exact head `dd883632401e`, subject hash `49a5d9f95a4859b5ab3ecd80ae372104240d9ecc0cc8075fa1bed7b48e3cd4c0`; all 29 provider candidates adjudicated | high |
+| A third blind follow-up council found nine final data-integrity, portal-recovery, lookup-concurrency, accessibility, and design-system gaps | Strict review of exact head `6a5203706326`, subject hash `da6f8bd63515ed99df0feb6b83e0c70048e8fcbaadeacbb2c5c27d7585f1060b`; all 18 provider candidates adjudicated, with nine confirmed and nine rejected | high |
+| The complete local validation gate is green for the remediation head | `build:packages`, `generate`, `build:packages`, i18n sync/usage, `typecheck`, `build:app`, warranty and UI regressions, design-system lint, hardcoded-i18n audit, diff check, and lessons check passed; the full test run's isolated native worker crash passed immediately when rerun in-band | high |
 | Security and data-integrity defects must be corrected before review | Repository authorization, event, AI mutation, module-coupling, and optimistic workflow contracts | high |
 | User-facing and integration-helper defects require regression tests | Root AGENTS.md and the PR's existing integration-test commitment | high |
 | The branch must be pushed and CI monitored to green | Explicit instruction from @haxiorz in this continuation session | high |
@@ -68,6 +70,7 @@ Make the warranty claims desk safe and ready for another review by correcting ev
 - [x] 4.1 Fix non-idempotent sales fixtures, settings restoration, accessible tabs, clipboard error handling, terminal tracker state, localized search actions, modal/radius/button design-system drift, and associated regression coverage — 6d211e46d, 748136040
 - [x] 4.2 Fix follow-up council gaps in list ID filtering, callback stability, conflict surfacing, portal pagination, batched assignee hydration, claim-type normalization, event translation, DataTable compatibility, and semantic visual tokens — 0bec828678
 - [x] 4.3 Fix final council gaps in transactional attachment persistence, first-save concurrency, external-intake retry safety, lifecycle guards, replacement pricing, organization-scope refresh, portal errors and visuals, notification parity, and regression coverage — 491f1e20a
+- [x] 4.4 Fix terminal council gaps in decimal normalization, scoped registration reads, portal compensation evidence, batched credit validation, stale lookup suppression, combobox semantics, and design-system scale usage — 0ab2d5dfe
 
 ### Phase 5: Verification and publication
 
