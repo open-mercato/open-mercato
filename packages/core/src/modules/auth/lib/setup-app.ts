@@ -34,7 +34,7 @@ async function ensureRolesInContext(
   for (const name of roleNames) {
     const existing = await findOneWithDecryption(em, Role, { name, tenantId }, {}, { tenantId, organizationId: null })
     if (existing) continue
-    em.persist(em.create(Role, { name, tenantId, createdAt: new Date() }))
+    em.persist(em.create(Role, { name, tenantId, minActiveHolders: name === 'admin' ? 1 : 0, createdAt: new Date() }))
   }
 }
 

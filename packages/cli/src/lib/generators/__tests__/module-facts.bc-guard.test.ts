@@ -114,13 +114,15 @@ describe('module-facts BC resolve guard (T2)', () => {
     // wms, staff, integrations and checkout were therefore invisible to every fact
     // consumer — `integrations` published no contributions at all. Reading them costs
     // ~28KB, which is the fix working, not drift.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_560_000)
+    // The additive EUDR module contributes its real routes, ACL, events,
+    // entities, and extension surfaces without changing the extraction shape.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_750_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_550_000)
+    expect(markdownBytes).toBeLessThan(1_650_000)
   })
 
   it('links every generated fact to an exact resolvable file, never a directory', () => {
