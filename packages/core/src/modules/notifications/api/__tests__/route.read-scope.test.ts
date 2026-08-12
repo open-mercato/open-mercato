@@ -25,9 +25,20 @@ const resolveNotificationContextMock = jest.fn(async () => ({
   },
 }))
 
-jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => ({
-  resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
-}))
+// Only the context resolution is stubbed; the guard the route relies on is the real one, so a
+// tenant-less scope exercises the shipped predicate rather than a copy of it.
+jest.mock('@open-mercato/core/modules/notifications/lib/routeHelpers', () => {
+  const actual = jest.requireActual('@open-mercato/core/modules/notifications/lib/routeHelpers')
+  return {
+    ...actual,
+    resolveNotificationContext: (...args: unknown[]) => resolveNotificationContextMock(...args),
+    resolveGuardedNotificationContext: async (req: Request) => {
+      const resolved = await resolveNotificationContextMock(req)
+      const guard = await actual.requireResolvedNotificationTenantScope(resolved.scope)
+      return guard ? { ok: false, response: guard } : { ok: true, ...resolved }
+    },
+  }
+})
 
 import { GET } from '../route'
 
@@ -84,5 +95,31 @@ describe('GET /api/notifications organization scope', () => {
     }
     expect(find).toHaveBeenCalledWith(expect.anything(), expectedFilter, expect.anything())
     expect(count).toHaveBeenCalledWith(expect.anything(), expectedFilter)
+  })
+
+  // `tenantId` is a NOT NULL uuid column, so an unresolved tenant reaching the filter fails in the
+  // driver rather than returning an empty page. Fail closed instead of dropping the predicate:
+  // querying without it would leave `recipientUserId` as the only thing keeping the read inside
+  // one tenant.
+  it.each([
+    ['explicit null', null],
+    ['omitted', undefined],
+    ['empty string', ''],
+  ])('rejects an unresolved tenant (%s) without querying', async (_label, unresolvedTenantId) => {
+    resolveNotificationContextMock.mockResolvedValue({
+      ctx: { container },
+      scope: {
+        userId,
+        ...(unresolvedTenantId === undefined ? {} : { tenantId: unresolvedTenantId }),
+        organizationId,
+        organizationIds: [organizationId],
+      },
+    } as never)
+
+    const response = await GET(new Request('https://example.test/api/notifications?pageSize=25'))
+
+    expect(response.status).toBe(403)
+    expect(find).not.toHaveBeenCalled()
+    expect(count).not.toHaveBeenCalled()
   })
 })
