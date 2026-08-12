@@ -2,26 +2,29 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | Draft (rev 4 — pre-implement remediations applied 2026-08-12) |
 | **Author** | Cursor Agent |
 | **Created** | 2026-04-15 |
-| **Related** | 2026-04-15-wms-roadmap, 2026-04-15-wms-phase-1-core-inventory, Issue #388 |
+| **Related** | 2026-04-15-wms-roadmap, 2026-04-15-wms-phase-1-core-inventory, Issue #388, ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway |
 
 ## TLDR
 **Key Points:**
-- Phase 2 adds the first warehouse-execution workflows: ASN intake, receiving, QC-aware acceptance, and directed putaway.
+- Phase 2 adds the first warehouse-execution workflows: ASN intake, receiving, QC-aware acceptance, and directed putaway tasks.
 - It turns phase-1 stock models into operational inbound flows without yet introducing outbound pick/pack execution.
-- The phase adds the inbound contracts needed for `customers`-based vendor references, `catalog` tracking enforcement, and `sales` reservation re-evaluation after receipts.
+- Phase 1 already shipped ad-hoc `wms.inventory.receive`, move-typed `putaway`, `wms.receive_inventory` ACL, and sales reservation automation — Phase 2 is **additive** and must coexist with those surfaces.
+- Inbound integrations use `customers` vendor UUID refs, `catalog` tracking enforcement (already used by ad-hoc receive), and sales re-evaluation via existing automation hooks.
 
 **Scope:**
 - `Asn`, `ReceivingLine`, `PutawayTask`
 - Receiving and putaway commands, APIs, backend UI, and lifecycle events
 - Barcode-scan-ready receiving and putaway action endpoints
 - Inbound integrations with `catalog`, `customers`, and `sales`
+- Net-new ACL: `wms.manage_asn`, `wms.manage_putaway` (extend existing `wms.receive_inventory`)
 
 **Concerns:**
-- The phase must not treat expected ASN quantity as on-hand stock until receipt acceptance succeeds.
-- QC failure, quarantine, and staging behavior must be explicit so that later picking never consumes unapproved goods.
+- The phase must not treat expected ASN quantity as on-hand stock until QC-accepted receipt succeeds.
+- QC failure must not increase available balances or spawn putaway tasks.
+- Dual paths (ad-hoc receive vs ASN receive; manual move-putaway vs `PutawayTask`) must stay consistent at the ledger layer.
 
 ---
 
@@ -35,14 +38,14 @@ The audience is receiving teams, warehouse supervisors, and implementers buildin
 
 ## Problem Statement
 
-Phase 1 knows how much stock exists, but not how stock gets there. Without an inbound workflow:
+Phase 1 delivers a durable inventory core (topology, ledger, balances, reservations) plus **ad-hoc** receive/move shortcuts. It still lacks a structured inbound execution pipeline:
 
-1. There is no distinction between expected inbound quantity and physically accepted quantity.
-2. Lot, serial, and expiration tracking rules cannot be enforced at the moment inventory first enters the system.
-3. Warehouse operators cannot route received stock into the correct target locations.
-4. Sales reservations remain blind to newly received stock until manual adjustments occur.
+1. There is no distinction between **expected** inbound quantity (ASN) and **physically accepted** quantity (receiving lines + QC).
+2. Operators cannot run QC-gated intake that keeps failed goods out of available stock while preserving an audit trail.
+3. There is no putaway **task queue** — only a manual move labeled `putaway`, with no assignment, aging, or directed completion workflow.
+4. Sales can already auto-reserve / re-run reservations, but nothing ties those hooks to ASN/putaway lifecycle events or inbound ETA projections (`_wms.inboundSummary`).
 
-This creates traceability gaps and makes future automation unreliable.
+Without Phase 2, inbound remains operator folklore on top of adjust/receive dialogs, and later pick/pack phases have no staging/QC contract to trust.
 
 ## Proposed Solution
 
@@ -61,7 +64,22 @@ Phase 2 introduces a structured inbound pipeline:
 | Keep `Asn` and `ReceivingLine` inside WMS rather than piggybacking on future purchasing modules | Inbound physical execution must exist even before a full procurement module does |
 | Treat receipt and putaway as separate operations | Reflects real warehouse staging, QC, and workload management |
 | Barcode support is API-first | Keeps scanner/mobile compatibility without blocking the backend workflow |
-| QC outcome drives stock state before putaway | Prevents quarantined or failed goods from entering available stock |
+| QC outcome drives stock state before putaway | Prevents failed goods from entering available stock |
+| Keep Phase 1 ad-hoc receive + manual move-`putaway` | Avoid breaking shipped APIs/UI; ASN/`PutawayTask` are the structured paths |
+| Reuse Phase 1 ledger helpers for stock writes | One balance/idempotency model; ASN commands compose rather than fork the ledger |
+| Inventory stock mutations stay `isUndoable: false` | Matches Phase 1 append-only ledger policy; reverse via explicit counter-actions |
+
+### Phase 1 coexistence (as of 2026-08 / `develop`)
+
+| Existing Phase 1 surface | Phase 2 rule |
+|--------------------------|--------------|
+| `POST /api/wms/inventory/receive` + `wms.inventory.receive` | **Keep.** Ad-hoc / no-ASN receive into a location. Continues to emit `wms.inventory.received`. |
+| `POST /api/wms/inventory/move` with `type: putaway` + Move dialog | **Keep.** Manual bin-to-bin putaway shortcut without a task record. |
+| ACL `wms.receive_inventory` | **Keep and extend** to ASN line receive + QC actions (already on operator/supervisor). |
+| Sales auto-reserve / `re-run-reservation` | **Reuse.** ASN/putaway subscribers call existing automation when sales integration toggle is on. |
+| Toggle `wms_integration_procurement_goods_receipt` (default `false`) | **Gate** optional `procurement.goods_receipt.created` subscriber; no-op when disabled or module absent. |
+
+ASN receive (`receiveAsnLine`) MUST share the same tracking enforcement and movement/balance write patterns as ad-hoc receive (via shared helpers), but MUST NOT remove or rename the ad-hoc command/route.
 
 ### Alternatives Considered
 
@@ -127,14 +145,15 @@ Events emitted in phase 2:
 
 Events consumed by WMS (subscribers):
 
-| Event | Source Module | WMS Action |
-|-------|-------------|------------|
-| `procurement.goods_receipt.created` | Procurement | Create ASN or trigger receiving workflow for the referenced goods receipt |
+| Event | Source Module | Gate | WMS Action |
+|-------|---------------|------|------------|
+| `procurement.goods_receipt.created` | Procurement (optional) | `wms_integration_procurement_goods_receipt` (default false) | Create/update draft ASN when enabled; otherwise no-op |
 
-Undo expectations:
-- ASN header updates are standard CRUD undo.
-- Receipt undo writes inverse movement rows and restores the pre-receipt quantity snapshots.
-- Completed putaway undo moves stock back to staging and reopens the task.
+Undo expectations (aligned with Phase 1 inventory mutation policy):
+- ASN header / line metadata CRUD may use standard command undo when no stock ledger rows were written.
+- Stock-affecting commands (`receiveAsnLine` with QC pass, `completePutawayTask`) are **`isUndoable: false`**.
+- Reversal is an explicit counter-action (e.g. adjust/move back to staging, cancel remaining putaway qty) with full audit via `buildLog` / movements — same rationale as Phase 1 `inventory-actions.ts` undo policy comment.
+- Do **not** implement generic undo that rewrites historical ledger rows.
 
 ## Data Models
 
@@ -192,19 +211,28 @@ All validators live in `data/validators.ts`:
 - `asnCreateSchema`: `warehouse_id` required, `expected_at` required, `vendor_id` must reference valid customers record when provided
 - `receivingLineSchema`: `catalog_variant_id` required, `expected_qty` positive; if `ProductInventoryProfile.track_lot = true`, lot number is required; if `track_serial = true`, serial count must match received quantity; if `track_expiration = true`, expiry-related dates must satisfy lot date ordering (`expires_at >= best_before_at >= manufactured_at`)
 
-### ACL Features (Phase 2 additions)
+### ACL Features
 
-- `wms.manage_asn` — create/edit ASNs
-- `wms.receive_inventory` — receive ASN lines and perform QC actions
-- `wms.manage_putaway` — create/assign/complete putaway tasks
+| Feature | Status | Purpose | Default roles |
+|---------|--------|---------|---------------|
+| `wms.receive_inventory` | **Already shipped (Phase 1)** | Ad-hoc receive + ASN line receive + QC actions | `operator`, `supervisor`, `admin` (`wms.*`) |
+| `wms.manage_asn` | **Net-new Phase 2** | Create/edit/close ASNs and receiving lines (master inbound docs) | `supervisor` (+ `admin`) |
+| `wms.manage_putaway` | **Net-new Phase 2** | Assign/start/complete/cancel putaway tasks; manual create-from-balance | `supervisor` (+ `admin`); operators may complete assigned tasks if granted |
+
+Mirror new IDs in `setup.ts` / `lib/roleFeatures.ts` and run `yarn mercato auth sync-role-acls` for existing tenants.
+
+### Optimistic locking
+
+`Asn`, `ReceivingLine`, and `PutawayTask` include `updated_at`. List/detail APIs return `updatedAt`. `CrudForm` pages auto-derive lock headers. Custom action endpoints that mutate these aggregates MUST enforce command-level optimistic lock on the parent ASN or task (same pattern as other WMS/command endpoints).
 
 ### Data Integrity Rules
 
 1. `ReceivingLine.received_qty` may be lower or higher than `expected_qty`, but over-receipts must be explicit.
-2. Passed quantity updates `InventoryMovement` and `InventoryBalance`.
-3. Failed quantity creates a receipt/QC audit trail but does not increase available stock.
-4. Putaway moves stock between staging and storage locations through explicit movement rows.
-5. A location marked `type = staging` or `type = dock` may hold inbound stock, but later phases must not treat that stock as pick-preferred unless configured.
+2. **QC `passed` only:** write `InventoryMovement` (`type: receipt`) + update `InventoryBalance` at the staging/dock location; then auto-create an open `PutawayTask` (MVP: target may be null until complete confirms it).
+3. **QC `failed`:** persist line QC state + emit `wms.inventory.receipt_qc_failed`; **do not** increase available balances; **do not** create putaway tasks. Dedicated quarantine location routing is **deferred**.
+4. Putaway completion moves stock staging → storage via explicit `InventoryMovement` (`type: putaway`).
+5. Locations with `type = staging` or `type = dock` may hold inbound stock; later phases must not treat that stock as pick-preferred unless configured.
+6. Directed putaway **rules** (fixed/dynamic slotting from #388) are **out of MVP** — operators confirm `targetLocationId` on complete; rules engine is a follow-up.
 
 ## API Contracts
 
@@ -262,17 +290,29 @@ Member routes:
 
 ### Barcode-Scan-Ready Endpoints
 
-Phase 2 standardizes action endpoints that accept scanned values without requiring a browser-specific session format:
+Phase 2 standardizes action endpoints that accept scanned values without requiring a browser-specific session format. Minimal contracts (Story 1–2):
 
-- `POST /api/wms/scan/resolve-location`
-- `POST /api/wms/scan/resolve-lot`
-- `POST /api/wms/scan/receive`
-- `POST /api/wms/scan/putaway`
+#### `POST /api/wms/scan/resolve-location`
+- Request: `{ "warehouseId": "uuid", "code": "string" }` (+ scope)
+- Response: `{ "ok": true, "locationId": "uuid", "code": "string", "type": "staging|dock|bin|…" }`
+- Errors: `404 not_found`
 
-These routes:
-- validate payloads with zod
-- return canonical IDs plus human-readable labels
-- remain UI-agnostic for future mobile clients
+#### `POST /api/wms/scan/resolve-lot`
+- Request: `{ "catalogVariantId": "uuid", "lotNumber": "string" }` (+ scope)
+- Response: `{ "ok": true, "lotId": "uuid", "lotNumber": "string", "expiresAt": "date|null" }`
+- Errors: `404 not_found`
+
+#### `POST /api/wms/scan/receive`
+- Request: ASN receive fields plus scanned codes resolved server-side (`asnId`, `lineId`, `locationCode`, `lotNumber`, `receivedQty`, `qcStatus`)
+- Behavior: resolve → same command path as `POST /api/wms/asns/:id/receive`
+- Response: same as ASN receive (`movementIds`, `putawayTaskIds`)
+
+#### `POST /api/wms/scan/putaway`
+- Request: `{ "taskId": "uuid", "targetLocationCode": "string", "confirmedQuantity": "string" }`
+- Behavior: resolve location → `completePutawayTask`
+- Response: `{ "ok": true, "movementId": "uuid" }`
+
+These routes validate with zod, return canonical IDs plus labels, remain UI-agnostic for future mobile clients, and use the same ACL as the non-scan action they wrap.
 
 ## Cross-Module Integration Contracts
 
@@ -294,11 +334,11 @@ Vendor data used in UI should be snapshot or enrichment-based:
 
 ### Sales
 
-Phase 2 does not yet create picks, but it does affect sales demand:
+Phase 2 does not create picks, but it feeds sales demand orchestration already present in Phase 1:
 
-- when receipt acceptance increases available stock, WMS emits events that sales-reservation orchestration can consume
-- `wms.asn.line_received` and `wms.putaway.completed` may trigger reservation re-evaluation for waiting orders
-- sales detail enrichers may show inbound ETA or recently received status via `_wms.inboundSummary`
+- On QC-pass receipt that increases available stock, emit `wms.asn.line_received` (and **also** emit `wms.inventory.received` so existing listeners stay consistent — dual-emit is intentional and additive).
+- Subscribers on `wms.asn.line_received` and `wms.putaway.completed` SHOULD invoke the existing sales-order inventory automation / re-run reservation path when `wms_integration_sales_order_inventory` is enabled.
+- Sales detail enrichers MAY add additive `_wms.inboundSummary` (open ASN count, next expected ETA).
 
 Example additive sales payload fragment:
 ```json
@@ -312,10 +352,20 @@ Example additive sales payload fragment:
 }
 ```
 
+### Procurement (optional)
+
+| Event | Gate | Behavior |
+|-------|------|----------|
+| `procurement.goods_receipt.created` | `wms_integration_procurement_goods_receipt` (default **false**) | When enabled and procurement module is present, create/update a draft ASN from the goods receipt reference. When toggle off or module absent, subscriber **no-ops** (`tryResolve` / early return). |
+
+Do not hard-require procurement in WMS module load.
+
 Out of scope for phase 2:
 - purchase-order ownership
 - carrier appointment scheduling
 - outbound picking or shipment creation
+- directed putaway slotting rules engine
+- quarantine location automation beyond QC-fail audit
 
 ## Internationalization (i18n)
 
@@ -332,45 +382,57 @@ Required key families:
 ## UI/UX
 
 Backend pages introduced in phase 2:
-- `/backend/wms/asns`
-- `/backend/wms/asns/[id]`
-- `/backend/wms/receiving`
-- `/backend/wms/putaway`
+- `/backend/wms/asns` — ASN list
+- `/backend/wms/asns/[id]` — ASN detail = **primary** receiving console (lines, QC, discrepancies, receive actions)
+- `/backend/wms/receiving` — optional work queue filtering open/in-progress ASNs (may MVP as redirect/filter on ASN list)
+- `/backend/wms/putaway` — putaway task queue
 
 UX expectations:
-- receiving detail page groups ASN header, expected lines, discrepancy state, and receipt actions
-- putaway queue page prioritizes open tasks, assignee, source, target, and aging
-- scanner-ready actions can be triggered from normal backend forms now and mobile workflows later
-- QC-failed lines must show inline `Alert` state and must not silently disappear
+- ASN detail groups header, expected lines, discrepancy state, and receipt actions (`Cmd/Ctrl+Enter` / `Escape` on dialogs)
+- Putaway queue prioritizes open tasks, assignee, source, target, and aging
+- Scanner-ready actions can be triggered from backend forms now and mobile workflows later
+- QC-failed lines show inline `Alert` / status tokens and must not silently disappear
+- Keep Phase 1 **Receive inventory** dialog available for ad-hoc (no ASN) intake; label ASN flow distinctly
+- Manual Move “put away” remains available alongside the putaway task queue
 
 ## Migration & Compatibility
 
-- Phase 2 adds new tables and routes without altering phase-1 contract surfaces.
-- `InventoryMovement.type = receipt | putaway` becomes active in this phase, but remains additive to the enum space already reserved by the roadmap.
-- Existing phase-1 balance and reservation APIs remain stable; inbound writes only increase their producer set.
-- Sales-facing `_wms.*` enrichments remain additive.
+- Phase 2 adds new tables and routes **without** altering Phase 1 contract surfaces.
+- MUST NOT remove or rename: `POST /api/wms/inventory/receive`, `wms.inventory.receive`, `wms.inventory.received`, move-with-`putaway`, or `wms.receive_inventory`.
+- `InventoryMovement.type = receipt | putaway` already exist in Phase 1 enum space; ASN/putaway commands reuse them.
+- Existing Phase 1 balance and reservation APIs remain stable; inbound writes only increase their producer set.
+- Sales-facing `_wms.*` enrichments remain additive (`inboundSummary` optional).
+- Net-new ACL IDs (`wms.manage_asn`, `wms.manage_putaway`) are additive; sync via `auth sync-role-acls`.
+- New editable entities require `updated_at` / optimistic-lock headers per platform default.
+- Search/indexer: register ASN (and putaway tasks as needed) in `search.ts` with `checksumSource`.
+- Custom write routes follow existing WMS pattern (`executeWmsCustomPostRoute` / command bus + mutation guards).
 
 ## Implementation Plan
 
 ### Story 1: ASN and receiving models
-1. Add `Asn` and `ReceivingLine` entities plus validators and CRUD APIs.
-2. Build receipt action routes and movement generation.
-3. Support discrepancy handling and close/received transitions.
+1. Add `Asn` and `ReceivingLine` entities (+ migration), validators, CRUD APIs, search, ACL `wms.manage_asn`.
+2. Implement `receiveAsnLine` / complete ASN using shared ledger helpers with ad-hoc receive; dual-emit `wms.asn.line_received` + `wms.inventory.received` on QC pass.
+3. Support discrepancy handling, QC fail (no stock / no putaway), and close/received transitions.
+4. Cover WMS-P2-INT-01…04 and INT-09 (receive feature).
 
 ### Story 2: Putaway engine
-1. Add `PutawayTask` entity and lifecycle commands.
-2. Generate tasks automatically for accepted staged stock.
-3. Complete putaway through explicit movement rows.
+1. Add `PutawayTask` entity + lifecycle commands + ACL `wms.manage_putaway`.
+2. Auto-create open tasks after QC-pass receive; complete via putaway movement.
+3. Keep manual move-`putaway` shortcut intact.
+4. Cover WMS-P2-INT-05 and putaway auth cases.
 
 ### Story 3: Backend receiving UI
-1. Add ASN list/detail pages.
-2. Add receiving work queue and line-action UX.
-3. Add putaway queue and task-completion UX.
+1. ASN list/detail as primary receiving console.
+2. Putaway queue + task completion UX (dialogs with keyboard shortcuts).
+3. Optional receiving queue page or ASN list filters.
+4. Cover WMS-P2-INT-08.
 
 ### Story 4: Cross-module handoffs
-1. Enforce catalog inventory-profile constraints during receipt.
-2. Resolve vendor references through `customers`.
-3. Emit inbound events and add optional sales inbound enrichments.
+1. Catalog tracking already enforced via shared helpers — verify on ASN path.
+2. Vendor UUID resolution via `customers` (enrichment/snapshot for display).
+3. Wire ASN/putaway events into existing sales reservation automation; add `_wms.inboundSummary`.
+4. Optional procurement subscriber behind `wms_integration_procurement_goods_receipt`.
+5. Cover WMS-P2-INT-06…07.
 
 ### Testing Strategy
 
@@ -467,9 +529,22 @@ None.
 
 ### Verdict
 
-- **Fully compliant**: Approved — ready for implementation
+- **Fully compliant after rev 4 remediations**: Ready to implement Story 1 on `feat/388-wms-phase-2`
+- See pre-implement analysis: `.ai/specs/analysis/ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway.md`
 
 ## Changelog
+
+### 2026-08-12 (rev 4) — pre-implement remediations
+- Reconciled spec with Phase 1 on `develop`: coexistence for ad-hoc `wms.inventory.receive`, move-`putaway`, and existing `wms.receive_inventory` ACL
+- Clarified net-new ACL only: `wms.manage_asn`, `wms.manage_putaway`
+- Aligned stock-mutation undo with Phase 1 (`isUndoable: false` + counter-actions)
+- Specified QC-fail semantics (no balance, no putaway task; quarantine deferred)
+- Dual-emit `wms.asn.line_received` + `wms.inventory.received` on QC-pass ASN receive
+- Gated procurement subscriber on `wms_integration_procurement_goods_receipt` (default false) + absent-module no-op
+- Added minimal scan endpoint request/response contracts
+- Wired sales re-eval to existing automation/toggles; documented optimistic lock, search/indexer, mutation-guard expectations
+- Softened Problem Statement; expanded Migration & Compatibility and implementation stories
+- Analysis: `.ai/specs/analysis/ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway.md`
 
 ### 2026-04-15 (rev 3)
 - Added explicit global entity columns note for phase-2 models to match roadmap guarantees
@@ -483,6 +558,11 @@ None.
 ### 2026-04-15
 - Initial phase-2 specification for WMS inbound receiving and putaway
 
+### Review — 2026-08-12 (pre-implement)
+- **Reviewer**: Agent (om-pre-implement-spec)
+- **Verdict**: Remediations applied in rev 4 — **ready to implement Story 1** on `feat/388-wms-phase-2`
+- Prior April review remains historical; do not treat pre-rev-4 undo/ACL text as authoritative
+
 ### Review — 2026-04-15
 - **Reviewer**: Agent
 - **Security**: Passed
@@ -490,4 +570,4 @@ None.
 - **Cache**: Passed
 - **Commands**: Passed
 - **Risks**: Passed
-- **Verdict**: Approved
+- **Verdict**: Approved (superseded in detail by 2026-08-12 rev 4)
