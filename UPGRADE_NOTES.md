@@ -42,6 +42,31 @@ echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 
 The default is unchanged at 480 minutes (one token lifetime), so a normal rolling deployment behaves as before. Deployments that have already migrated should set `JWT_LEGACY_GRACE_MINUTES=0`; fresh installs have no pre-migration tokens and should start there. Users still holding a pre-migration token older than the window are logged out and must sign in again.
 
+### Login rejects users with `isConfirmed: false` (#4541)
+
+`POST /api/auth/login` and `resolveCanonicalStaffAuthContext` now treat `isConfirmed === false` as "deactivated" and refuse the session, returning the same generic `401` as a wrong password. Deactivating a user through `PUT /api/auth/users` with `{ isConfirmed: false }` additionally deletes that user's `sessions` rows, so existing tokens stop resolving immediately.
+
+`User.isConfirmed` defaults to `true` and no seeding or invitation path sets it to `false`, so no existing account loses access on upgrade. The only in-tree producer of `false` is `deactivateDemoUsersIfSelfOnboardingEnabled`, which also nulls the password hash — those accounts could not authenticate before this change either.
+
+**Action for module authors:** if your module sets `isConfirmed` directly on `User` rows, be aware it is now an authentication gate rather than an informational flag. Code that used `isConfirmed: false` to mean "invited, not yet onboarded" while still expecting the user to be able to log in must move to its own field.
+
+### Command interceptors contribute audit context via `metadata.logContext` (#4542)
+
+`CommandInterceptorBeforeResult.metadata` gains a reserved key: when a `beforeExecute` hook returns `{ metadata: { logContext: { … } } }`, those keys are shallow-merged into the persisted `ActionLog.context_json`. This is how a downstream app stamps caller metadata (IP, user agent, request id) onto audit entries written by core CRUD commands, without wrapping core routes.
+
+```typescript
+beforeExecute: async (input, context) => ({
+  ok: true,
+  metadata: {
+    logContext: { ip: context.requestIp, userAgent: context.userAgent },
+  },
+})
+```
+
+The key is `logContext`, not `context`, specifically so that the generic `metadata` payload an interceptor already passes to its own `afterExecute` hook is never silently promoted into audit storage.
+
+**Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
+
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.
