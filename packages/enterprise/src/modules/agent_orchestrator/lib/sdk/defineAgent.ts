@@ -208,6 +208,17 @@ export interface AgentRegistryEntry {
    * the deadline sweep that consumes it lands with the external runner.
    */
   callbackTimeoutMs?: number
+  /**
+   * Which of the tenant's CONNECTOR-side named profiles this agent runs with —
+   * an ElevenLabs call profile, say. Resolved per tenant by the connector at
+   * `start()`, against the tenant's own credential record; the registry is
+   * process-global and never holds the profile's contents, only its name.
+   *
+   * Undefined means "the connector's `default` profile". `runtime: 'external'`
+   * agents (registered via `defineExternalAgent`) only. ADDITIVE — see
+   * BACKWARD_COMPATIBILITY.md.
+   */
+  profile?: string
 }
 
 const registry = new Map<string, AgentRegistryEntry>()

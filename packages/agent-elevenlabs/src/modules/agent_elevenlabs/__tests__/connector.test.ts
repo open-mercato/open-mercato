@@ -7,7 +7,7 @@ import {
   createElevenLabsVoiceConnector,
   ELEVENLABS_VOICE_CONNECTOR_ID,
 } from '../lib/connector'
-import type { ElevenLabsCredentials } from '../lib/credentials'
+import type { ElevenLabsCallProfile, ElevenLabsCredentials } from '../lib/credentials'
 import type { ElevenLabsFetch, OutboundCallRequestBody } from '../lib/api'
 import { voiceCallResultSchema } from '../data/validators'
 
@@ -17,16 +17,26 @@ const BASE_URL = 'https://api.elevenlabs.test'
 const NOW_MS = 1_800_000_000_000
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
-function credentials(overrides: Partial<ElevenLabsCredentials> = {}): ElevenLabsCredentials {
+/**
+ * A tenant with a single `default` profile — the shape every tenant configured
+ * before named profiles existed resolves to. Overrides target that profile, so
+ * these cases read exactly as they did before profiles landed.
+ */
+function credentials(overrides: Partial<Omit<ElevenLabsCallProfile, 'name'>> = {}): ElevenLabsCredentials {
   return {
     apiKey: API_KEY,
     webhookSecret: WEBHOOK_SECRET,
-    agentId: 'agent_abc123',
-    agentPhoneNumberId: 'phnum_zzz999',
-    telephonyProvider: 'twilio',
-    defaultCallerId: null,
-    callRecordingEnabled: null,
-    ...overrides,
+    profiles: {
+      default: {
+        name: 'default',
+        agentId: 'agent_abc123',
+        phoneNumberId: 'phnum_zzz999',
+        telephonyProvider: 'twilio',
+        defaultCallerId: null,
+        callRecordingEnabled: null,
+        ...overrides,
+      },
+    },
   }
 }
 

@@ -21,3 +21,17 @@ export type {
   VoiceCallResult,
 } from './modules/agent_elevenlabs/data/validators'
 export { ELEVENLABS_INTEGRATION_ID } from './modules/agent_elevenlabs/integration'
+// The profile vocabulary, so a downstream app can register its own external
+// voice agents against this tenant's named profiles.
+export {
+  DEFAULT_PROFILE_NAME,
+  PROFILES_CREDENTIAL_KEY,
+  parseElevenLabsCredentials,
+  resolveCallProfile,
+  listConfiguredProfileNames,
+  ElevenLabsProfileNotConfiguredError,
+} from './modules/agent_elevenlabs/lib/credentials'
+export type {
+  ElevenLabsCallProfile,
+  ElevenLabsCredentials,
+} from './modules/agent_elevenlabs/lib/credentials'

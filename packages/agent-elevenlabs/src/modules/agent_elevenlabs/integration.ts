@@ -2,6 +2,14 @@
  * The ElevenLabs entry in the integrations marketplace: what an operator
  * configures, per tenant, before any workflow can place a call.
  *
+ * WHY "Call Profiles" IS A JSON STRING IN A `text` FIELD and not a repeating
+ * group: `CredentialFieldType` has no list/group/json member and the admin write
+ * path (`saveCredentialsSchema`) types every credential VALUE as
+ * `string | number | boolean | null`, so a nested value is a 422 no matter what
+ * this file declares. The storage column is jsonb and would hold it happily; the
+ * FORM is the constraint. See `lib/credentials.ts`'s header for the full
+ * reasoning and the alternative that was rejected.
+ *
  * The two `secret`-typed fields are the ones that matter. Everything in the
  * credential record is encrypted at rest by the credential store regardless of
  * type; `secret` is what keeps the value masked in the admin UI and redacted out
@@ -24,6 +32,7 @@ import type {
   IntegrationBundle,
   IntegrationDefinition,
 } from '@open-mercato/shared/modules/integrations/types'
+import { PROFILES_CREDENTIAL_KEY } from './lib/credentials'
 
 export const ELEVENLABS_INTEGRATION_ID = 'agent_elevenlabs'
 
@@ -65,17 +74,17 @@ export const integration: IntegrationDefinition = {
         key: 'agentId',
         label: 'Agent ID',
         type: 'text',
-        required: true,
+        required: false,
         helpText:
-          'The ElevenLabs conversational agent that places the call. Its prompt is where the call script lives; it can reference {{brief}} and any variable the workflow node passes.',
+          'The ElevenLabs conversational agent used by the DEFAULT call profile — every agent that does not name a profile of its own dials with this one. Its prompt is where the call script lives; it can reference {{brief}} and any variable the workflow node passes. Leave blank only if you define a "default" entry under Call Profiles instead.',
       },
       {
         key: 'agentPhoneNumberId',
         label: 'Phone Number ID',
         type: 'text',
-        required: true,
+        required: false,
         helpText:
-          'ElevenLabs dashboard -> Conversational AI -> Phone Numbers. This is the ElevenLabs id of the number, not the number itself.',
+          'ElevenLabs dashboard -> Conversational AI -> Phone Numbers. This is the ElevenLabs id of the number, not the number itself. Belongs to the DEFAULT call profile, together with the Agent ID above.',
       },
       {
         key: 'telephonyProvider',
@@ -87,7 +96,7 @@ export const integration: IntegrationDefinition = {
           { value: 'sip_trunk', label: 'SIP trunk' },
         ],
         helpText:
-          'How the phone number above is wired at ElevenLabs. It selects which outbound-call endpoint is used; leave it on Twilio unless the number is on a SIP trunk.',
+          'How the DEFAULT profile phone number is wired at ElevenLabs. It selects which outbound-call endpoint is used; leave it on Twilio unless the number is on a SIP trunk. Named profiles carry their own value.',
       },
       {
         key: 'defaultCallerId',
@@ -96,7 +105,7 @@ export const integration: IntegrationDefinition = {
         required: false,
         placeholder: '+48123456789',
         helpText:
-          'Optional number presented to the person being called. Set per tenant, never per workflow — who is calling is a compliance decision.',
+          'Optional number presented to the person called by the DEFAULT profile. Set per tenant, never per workflow — who is calling is a compliance decision.',
       },
       {
         key: 'callRecordingEnabled',
@@ -104,7 +113,17 @@ export const integration: IntegrationDefinition = {
         type: 'boolean',
         required: false,
         helpText:
-          'Leave unset to use whatever the ElevenLabs agent is configured to do. Recording a call is regulated in most jurisdictions; enabling it here does not by itself satisfy a notice or consent obligation.',
+          'Applies to the DEFAULT profile. Leave unset to use whatever the ElevenLabs agent is configured to do. Recording a call is regulated in most jurisdictions; enabling it here does not by itself satisfy a notice or consent obligation.',
+      },
+      {
+        key: PROFILES_CREDENTIAL_KEY,
+        label: 'Call Profiles (JSON)',
+        type: 'text',
+        required: false,
+        placeholder:
+          '[{"name":"survey","agentId":"agent_...","phoneNumberId":"phnum_..."}]',
+        helpText:
+          'Extra named profiles, for running several voice agents from one ElevenLabs account. A JSON list of {"name","agentId","phoneNumberId"} plus the optional "telephonyProvider" ("twilio" | "sip_trunk"), "defaultCallerId" and "callRecordingEnabled". An agent picks a profile BY NAME, so rotating an ElevenLabs agent is an edit here rather than an edit of every workflow that dials it, and an agent naming a profile you have not defined fails before the call is placed instead of dialling the wrong one. The fields above are the "default" profile and keep working untouched — leave this blank if one agent and one number is all you need. Do NOT put secrets here: unlike the API key and webhook secret, this field is shown in full when the form is reloaded. Adding profiles never changes the callback URL — that one is per connector.',
       },
     ],
   },

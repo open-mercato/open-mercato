@@ -121,6 +121,50 @@ describe('defineExternalAgent', () => {
     expect(getAgentEntry('voice.owner_call')).toBe(entry)
   })
 
+  it('carries an optional connector profile, and omits the key entirely when none is declared', () => {
+    const named = defineExternalAgent({
+      id: 'voice.survey',
+      moduleId: 'voice_agents',
+      label: 'Satisfaction survey',
+      description: '',
+      connectorId: CONNECTOR_ID,
+      profile: '  survey  ',
+      result: { kind: 'researcher', schema: ownerCallEnvelope },
+      timeout: '30m',
+    })
+    expect(named.profile).toBe('survey')
+
+    const unnamed = defineExternalAgent({
+      id: 'voice.unnamed_profile',
+      moduleId: 'voice_agents',
+      label: 'No profile',
+      description: '',
+      connectorId: CONNECTOR_ID,
+      result: { kind: 'researcher', schema: ownerCallEnvelope },
+      timeout: '30m',
+    })
+    // ADDITIVE: an agent written before profiles existed is byte-identical, and
+    // the connector reads `entry.profile` across a package boundary where an
+    // explicit `undefined` would be indistinguishable from a declared value.
+    expect('profile' in unnamed).toBe(false)
+  })
+
+  it('rejects a blank profile rather than reading it as "default"', () => {
+    expect(() =>
+      defineExternalAgent({
+        id: 'voice.blank_profile',
+        moduleId: 'voice_agents',
+        label: 'Blank profile',
+        description: '',
+        connectorId: CONNECTOR_ID,
+        profile: '   ',
+        result: { kind: 'researcher', schema: ownerCallEnvelope },
+        timeout: '30m',
+      }),
+    ).toThrow(/declares a blank profile/)
+    expect(getAgentEntry('voice.blank_profile')).toBeUndefined()
+  })
+
   it('accepts ISO 8601 durations as well as the simple form', () => {
     const entry = defineExternalAgent({
       id: 'voice.iso_timeout',

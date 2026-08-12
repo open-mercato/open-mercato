@@ -15,31 +15,35 @@ const COMPLETE = {
   agentPhoneNumberId: 'phnum_zzz',
 }
 
+/** The flat legacy record always resolves to exactly one profile: `default`. */
+function defaultProfile(raw: Record<string, unknown>) {
+  return parseElevenLabsCredentials(raw).profiles.default
+}
+
 describe('parseElevenLabsCredentials', () => {
   it('defaults an unset telephony provider to twilio', () => {
-    expect(parseElevenLabsCredentials(COMPLETE).telephonyProvider).toBe('twilio')
+    expect(defaultProfile(COMPLETE).telephonyProvider).toBe('twilio')
   })
 
   it('defaults an unrecognised telephony provider to twilio rather than throwing', () => {
     // A tenant configured before the field existed, or a value from a future
     // options list, must keep placing calls on the documented default wiring.
     expect(
-      parseElevenLabsCredentials({ ...COMPLETE, telephonyProvider: 'carrier-pigeon' })
-        .telephonyProvider,
+      defaultProfile({ ...COMPLETE, telephonyProvider: 'carrier-pigeon' }).telephonyProvider,
     ).toBe('twilio')
   })
 
   it('reads sip_trunk when configured', () => {
-    expect(
-      parseElevenLabsCredentials({ ...COMPLETE, telephonyProvider: 'sip_trunk' }).telephonyProvider,
-    ).toBe('sip_trunk')
+    expect(defaultProfile({ ...COMPLETE, telephonyProvider: 'sip_trunk' }).telephonyProvider).toBe(
+      'sip_trunk',
+    )
   })
 
   it('distinguishes an unset recording preference from an explicit false', () => {
-    expect(parseElevenLabsCredentials(COMPLETE).callRecordingEnabled).toBeNull()
-    expect(
-      parseElevenLabsCredentials({ ...COMPLETE, callRecordingEnabled: false }).callRecordingEnabled,
-    ).toBe(false)
+    expect(defaultProfile(COMPLETE).callRecordingEnabled).toBeNull()
+    expect(defaultProfile({ ...COMPLETE, callRecordingEnabled: false }).callRecordingEnabled).toBe(
+      false,
+    )
   })
 
   it('throws naming the missing field, never a value', () => {
@@ -76,14 +80,19 @@ describe('redactSecrets', () => {
 
 describe('describeCredentialsForLog', () => {
   it('emits presence flags and non-secret ids only', () => {
-    const described = describeCredentialsForLog(parseElevenLabsCredentials(COMPLETE))
+    const parsed = parseElevenLabsCredentials(COMPLETE)
+    const described = describeCredentialsForLog(parsed, parsed.profiles.default)
     expect(described).toEqual({
-      agentId: 'agent_abc',
-      agentPhoneNumberId: 'phnum_zzz',
+      profile: 'default',
+      // Deliberately NOT `agentId`: the caller's log record already uses that key
+      // for the Open Mercato agent, and this map is spread over it.
+      profileAgentId: 'agent_abc',
+      profilePhoneNumberId: 'phnum_zzz',
       telephonyProvider: 'twilio',
       hasApiKey: true,
       hasWebhookSecret: true,
     })
+    expect(described).not.toHaveProperty('agentId')
     expect(JSON.stringify(described)).not.toContain('sk_secret')
     expect(JSON.stringify(described)).not.toContain('wsec_secret')
   })

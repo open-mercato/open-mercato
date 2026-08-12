@@ -36,6 +36,29 @@ export interface DefineExternalAgentInput {
   /** Id of the registered `ExternalAgentConnector` that starts and settles this agent's runs. */
   connectorId: string
   /**
+   * Which of the tenant's connector-side named profiles this agent uses — for
+   * the ElevenLabs connector, which conversational agent and which number it
+   * dials from.
+   *
+   * WHY A NAME AND NOT THE PROVIDER IDS. One connector serves many agents (the
+   * owner call, the satisfaction survey, the payment chase), and each needs a
+   * different provider-side agent. Without this, the only way to say so is to
+   * type the provider's own id into every workflow node's `input`, which puts
+   * per-tenant configuration inside workflow definitions where it cannot be
+   * rotated centrally. A NAME is tenant-independent: the same definition runs on
+   * every tenant, and each tenant maps the name to its own provider ids in the
+   * integration credentials.
+   *
+   * Omit it to use the connector's `default` profile — which is what every
+   * already-configured tenant resolves to, so an existing agent needs no change.
+   *
+   * FAILS CLOSED at RUN time, not here: profiles are per-tenant and this
+   * registry is process-global, so whether a name is configured is only knowable
+   * once a scope exists. The connector refuses before it starts the external
+   * run rather than falling back to `default`.
+   */
+  profile?: string
+  /**
    * The result envelope, exactly as `defineAgent` takes it:
    * `z.object({ kind: z.literal('researcher'), data: <outcome> })`.
    *
@@ -88,6 +111,16 @@ export function defineExternalAgent(input: DefineExternalAgentInput): AgentRegis
     throw new Error(`[internal] external agent "${input.id}" must name a connectorId`)
   }
 
+  // A blank-but-present `profile` is an authoring mistake that would otherwise
+  // read as "use default" — silently, and only on the tenant where it mattered.
+  // Absent is the way to say `default`.
+  const profile = input.profile?.trim()
+  if (input.profile !== undefined && !profile) {
+    throw new Error(
+      `[internal] external agent "${input.id}" declares a blank profile; omit it to use the connector's default profile`,
+    )
+  }
+
   const callbackTimeoutMs = resolveCallbackTimeoutMs(input.id, input.timeout)
 
   const entry: AgentRegistryEntry = {
@@ -108,6 +141,10 @@ export function defineExternalAgent(input: DefineExternalAgentInput): AgentRegis
     runtime: 'external',
     connectorId: input.connectorId,
     callbackTimeoutMs,
+    // Spread conditionally so an entry that declares no profile never carries an
+    // explicit `undefined` — the connector reads `entry.profile` across a
+    // package boundary and `'profile' in entry` must mean what it says.
+    ...(profile ? { profile } : {}),
     sampleInput: input.sampleInput,
     facts: input.facts,
   }

@@ -21,8 +21,23 @@
 import { defineExternalAgent } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/defineExternalAgent'
 import { voiceCallResultSchema } from './data/validators'
 import { ELEVENLABS_VOICE_CONNECTOR_ID } from './lib/connector'
+import { DEFAULT_PROFILE_NAME } from './lib/credentials'
 
 export const OWNER_CALL_AGENT_ID = 'voice.owner_call'
+
+/**
+ * The profile this agent dials with, and the reason it is `default`.
+ *
+ * A named profile (`'owner_call'`) would be the more expressive choice and it is
+ * the WRONG one for the agent that ships with the package: naming it would make
+ * every tenant that already configured the integration — and every tenant that
+ * configures it tomorrow by filling in Agent ID and Phone Number ID — fail
+ * closed on their first call, because `owner_call` is not a profile they have.
+ * The shipped agent therefore names the profile every tenant necessarily has,
+ * and the naming is demonstrated in the instructions for the agents a tenant
+ * writes itself.
+ */
+export const OWNER_CALL_PROFILE = DEFAULT_PROFILE_NAME
 
 defineExternalAgent({
   id: OWNER_CALL_AGENT_ID,
@@ -31,6 +46,7 @@ defineExternalAgent({
   description:
     'Places an outbound ElevenLabs voice call, states the brief, and comes back with what the conversation collected.',
   connectorId: ELEVENLABS_VOICE_CONNECTOR_ID,
+  profile: OWNER_CALL_PROFILE,
   agentType: 'researcher',
   // RESEARCHER, and structurally unable to be anything else: `defineExternalAgent`
   // rejects a proposal-kind external agent, because a third party's self-reported
@@ -46,6 +62,13 @@ defineExternalAgent({
     'Runs at ElevenLabs, not in this process. Configure the tenant credentials under',
     'Integrations -> ElevenLabs Conversational AI, and write the call script in the',
     'ElevenLabs agent prompt.',
+    '',
+    'This agent dials with the "default" call profile — the Agent ID and Phone Number ID',
+    'fields of that integration. To run a second voice agent (a satisfaction survey, a',
+    'payment chase) from the same ElevenLabs account, add a named profile under',
+    'Call Profiles and register an agent with defineExternalAgent({ profile: "<name>" }).',
+    'An agent naming a profile the tenant has not configured fails before the call is',
+    'placed, so nobody is ever rung by the wrong script.',
     '',
     'The prompt may reference {{brief}} (the node input\'s `brief`) and any key the node',
     'passes in `variables`. It must NOT reference {{om_callback_url}} — that is a reserved',

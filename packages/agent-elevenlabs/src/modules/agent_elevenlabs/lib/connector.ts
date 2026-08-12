@@ -23,6 +23,17 @@
  * they put in `variables`, and nothing else needs to be agreed between the two
  * sides.
  *
+ * ─── NAMED PROFILES DO NOT MULTIPLY WEBHOOK SETUP ────────────────────────────
+ *
+ * A tenant configures several call profiles (owner call, satisfaction survey,
+ * payment chase) and each external agent names the one it dials with. That is a
+ * START-side concern only: `ELEVENLABS_CALLBACK_PATH` is derived from the
+ * CONNECTOR id and from nothing else, so however many profiles a tenant adds,
+ * there is still exactly ONE URL to paste into the ElevenLabs workspace
+ * settings. Making the callback address profile-dependent would put a manual
+ * provider-side step behind every new profile, which is the cost profiles exist
+ * to remove. Asserted in `__tests__/profiles.test.ts`.
+ *
  * ─── CANCEL IS DELIBERATELY NOT IMPLEMENTED ──────────────────────────────────
  *
  * The verified ElevenLabs Conversational AI surface has no hang-up / abort
@@ -62,7 +73,8 @@ import {
 import {
   describeCredentialsForLog,
   redactSecrets,
-  type ElevenLabsCredentials,
+  resolveCallProfile,
+  type ElevenLabsCallProfile,
   type ElevenLabsTelephonyProvider,
 } from './credentials'
 import type { ReadElevenLabsCredentials } from './credentialsReader'
@@ -152,9 +164,18 @@ export function createElevenLabsVoiceConnector(
     async start(args: ExternalAgentConnectorStartArgs): Promise<ExternalAgentConnectorStartResult> {
       const input = parseVoiceCallInput(args.input, args.agentEntry.id)
       const credentials = await deps.readCredentials(args.scope)
-      const telephonyProvider = resolveTelephonyProvider(input, credentials)
+      // BEFORE THE DIAL, DELIBERATELY. An agent naming a profile the tenant has
+      // not configured throws here, with nothing in flight and no HTTP request
+      // made — the runner turns that into a failed run down the `error` handle.
+      // Resolving it later, or falling back to `default`, would ring a real
+      // person with the wrong agent's script.
+      const profile = resolveCallProfile(credentials, {
+        profileName: args.agentEntry.profile,
+        agentId: args.agentEntry.id,
+      })
+      const telephonyProvider = resolveTelephonyProvider(input, profile)
 
-      const body = buildOutboundCallBody({ input, credentials, callbackUrl: args.callbackUrl })
+      const body = buildOutboundCallBody({ input, profile, callbackUrl: args.callbackUrl })
 
       const response = await startOutboundCall({
         apiKey: credentials.apiKey,
@@ -188,7 +209,12 @@ export function createElevenLabsVoiceConnector(
       logger.info('placed an ElevenLabs outbound call', {
         agentId: args.agentEntry.id,
         conversationId,
-        ...describeCredentialsForLog(credentials),
+        ...describeCredentialsForLog(credentials, profile),
+        // The ids ACTUALLY sent, which differ from the profile's whenever the
+        // workflow node supplied a per-call override — without these, a wrong
+        // call is indistinguishable in the log from a right one.
+        dialledAgentId: body.agent_id,
+        dialledPhoneNumberId: body.agent_phone_number_id,
         // The destination number is PII and the callback URL carries a bearer
         // token; neither is logged.
       })
@@ -252,7 +278,7 @@ export function parseVoiceCallInput(input: unknown, agentId: string): VoiceCallI
  * documented, stable encoding of the carrier behind it, so any prefix- or
  * shape-based sniffing would be a guess that silently changes meaning the next
  * time ElevenLabs changes its id format. The per-call input override exists so a
- * tenant running both wirings can pick per workflow; the credential is the
+ * tenant running both wirings can pick per workflow; the resolved profile is the
  * default; and the credential parser's own fallback is `twilio`.
  *
  * The fallback is safe because the two options are different endpoints on the
@@ -261,24 +287,39 @@ export function parseVoiceCallInput(input: unknown, agentId: string): VoiceCallI
  */
 function resolveTelephonyProvider(
   input: VoiceCallInput,
-  credentials: ElevenLabsCredentials,
+  profile: ElevenLabsCallProfile,
 ): ElevenLabsTelephonyProvider {
-  return input.telephonyProvider ?? credentials.telephonyProvider
+  return input.telephonyProvider ?? profile.telephonyProvider
 }
 
+/**
+ * THE PRECEDENCE, spelled out field by field: a per-call `input.*` value wins
+ * over the resolved profile, and the profile is the agent's named one or
+ * `default` (`resolveCallProfile`). Full order:
+ *
+ *   per-call override  >  the agent's named profile  >  the `default` profile
+ *
+ * The per-call override is the ESCAPE HATCH and stays: an author who genuinely
+ * needs a one-off agent id still has it. What profiles change is that it is no
+ * longer the ONLY way to run more than one voice agent, so per-tenant provider
+ * ids stop accumulating inside workflow definitions where nobody can rotate them.
+ *
+ * `defaultCallerId` has no per-call override on purpose: who is calling is a
+ * tenant-level compliance decision (design R6), so it comes from the profile only.
+ */
 export function buildOutboundCallBody(args: {
   input: VoiceCallInput
-  credentials: ElevenLabsCredentials
+  profile: ElevenLabsCallProfile
   callbackUrl: string
 }): OutboundCallRequestBody {
-  const { input, credentials } = args
+  const { input, profile } = args
 
   const configOverride = buildConversationConfigOverride(input)
-  const callRecordingEnabled = input.callRecordingEnabled ?? credentials.callRecordingEnabled
+  const callRecordingEnabled = input.callRecordingEnabled ?? profile.callRecordingEnabled
 
   const body: OutboundCallRequestBody = {
-    agent_id: input.agentId ?? credentials.agentId,
-    agent_phone_number_id: input.agentPhoneNumberId ?? credentials.agentPhoneNumberId,
+    agent_id: input.agentId ?? profile.agentId,
+    agent_phone_number_id: input.agentPhoneNumberId ?? profile.phoneNumberId,
     to_number: input.toNumber,
     conversation_initiation_client_data: {
       dynamic_variables: buildDynamicVariables(input, args.callbackUrl),
@@ -289,8 +330,8 @@ export function buildOutboundCallBody(args: {
   if (callRecordingEnabled !== null && callRecordingEnabled !== undefined) {
     body.call_recording_enabled = callRecordingEnabled
   }
-  if (credentials.defaultCallerId) {
-    body.telephony_call_config = { caller_id: credentials.defaultCallerId }
+  if (profile.defaultCallerId) {
+    body.telephony_call_config = { caller_id: profile.defaultCallerId }
   }
 
   return body

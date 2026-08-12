@@ -23,6 +23,7 @@ import {
   probeConversationsEndpoint,
   type ElevenLabsFetch,
 } from './api'
+import { listConfiguredProfileNames } from './credentials'
 
 type HealthCheckStatus = 'healthy' | 'degraded' | 'unhealthy'
 
@@ -87,6 +88,13 @@ export function createElevenLabsVoiceHealthCheck(deps?: {
             agentId: typeof credentials?.agentId === 'string' ? credentials.agentId : null,
             agentPhoneNumberId:
               typeof credentials?.agentPhoneNumberId === 'string' ? credentials.agentPhoneNumberId : null,
+            // The names an agent may declare. The commonest profile failure is
+            // an agent naming one this tenant never configured, and that failure
+            // is invisible here otherwise: the key authenticates fine, the call
+            // still never happens. `listConfiguredProfileNames` never throws, so
+            // a malformed document reads as an empty list rather than an
+            // exception inside a health probe.
+            profiles: listConfiguredProfileNames(credentials ?? null),
           },
         }
       } catch (error) {
