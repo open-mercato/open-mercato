@@ -515,9 +515,10 @@ export async function restoreWarrantyClaimSettings(
       adjudicationUseRules: snapshot.adjudicationUseRules,
       quarantineGrades: snapshot.quarantineGrades,
       returnLabelProvider: snapshot.returnLabelProvider,
+      returnWindowDays: snapshot.returnWindowDays,
     },
     current?.updatedAt ?? undefined,
-  ).catch(() => undefined)
+  )
 }
 
 export async function listWarrantyRegistrations(

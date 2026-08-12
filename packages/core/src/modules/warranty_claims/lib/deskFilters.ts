@@ -3,7 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Where } from '@open-mercato/shared/lib/query/types'
 import { mergeIdFilter } from '@open-mercato/shared/lib/crud/ids'
 
-export const SLA_AT_RISK_EXCLUDED_STATUSES = ['resolved', 'closed', 'rejected', 'cancelled', 'draft'] as const
+export const SLA_EXCLUDED_STATUSES = ['resolved', 'closed', 'rejected', 'cancelled', 'draft'] as const
+export const SLA_AT_RISK_EXCLUDED_STATUSES = SLA_EXCLUDED_STATUSES
 export const SLA_AT_RISK_MATCH_LIMIT = 500
 export const SLA_AT_RISK_DEFAULT_THRESHOLD_PCT = 75
 
@@ -47,7 +48,7 @@ export function applySlaAtRiskConditions<O>(
   return query
     .where('sla_due_at', '>', now)
     .where('sla_paused_at', 'is', null)
-    .where('status', 'not in', [...SLA_AT_RISK_EXCLUDED_STATUSES])
+    .where('status', 'not in', [...SLA_EXCLUDED_STATUSES])
     .where('submitted_at', 'is not', null)
     .where(sql<boolean>`sla_due_at > submitted_at`)
     .where(sql<boolean>`extract(epoch from (${now}::timestamptz - submitted_at)) * 100 >= extract(epoch from (sla_due_at - submitted_at)) * ${pct}`)
@@ -102,7 +103,7 @@ export function buildAttentionFilter(atRiskClaimIds: string[], now: Date = new D
       sla_due_at: { $lt: now },
       sla_paused_at: { $exists: false },
       submitted_at: { $exists: true },
-      status: { $nin: [...SLA_AT_RISK_EXCLUDED_STATUSES] },
+      status: { $nin: [...SLA_EXCLUDED_STATUSES] },
     },
   ]
   if (atRiskClaimIds.length) branches.push({ id: { $in: atRiskClaimIds } })

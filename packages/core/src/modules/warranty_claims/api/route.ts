@@ -25,6 +25,7 @@ import {
   buildDateRangeFilter,
   findSlaAtRiskClaimIds,
   narrowFiltersToClaimIds,
+  SLA_EXCLUDED_STATUSES,
 } from '../lib/deskFilters'
 import { decorateItemsWithAssigneeNames } from '../lib/assigneeNames'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
@@ -110,8 +111,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-const TERMINAL_STATUSES = ['closed', 'cancelled'] as const
 
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -387,7 +386,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       const statusFilter: Record<string, unknown> = {}
       if (statuses.length) statusFilter.$in = statuses
       if (query.overdueOnly === true) {
-        statusFilter.$nin = [...TERMINAL_STATUSES]
+        statusFilter.$nin = [...SLA_EXCLUDED_STATUSES]
         filters.sla_due_at = { $lt: new Date() }
         filters.sla_paused_at = { $exists: false }
       }
@@ -443,6 +442,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       await decorateItemsWithAssigneeNames(items, {
         container: ctx.container,
         tenantId: ctx.auth?.tenantId ?? null,
+        organizationId: ctx.auth?.orgId ?? null,
       })
     },
   },

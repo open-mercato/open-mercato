@@ -8,6 +8,7 @@ import type {
 } from '@open-mercato/shared/modules/search'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('warranty_claims')
 
@@ -57,26 +58,35 @@ function resolvePresenter(record: Record<string, unknown>): SearchResultPresente
 async function loadClaimLineRows(ctx: SearchContext, claimId: string): Promise<Array<Record<string, unknown>>> {
   if (!ctx.queryEngine) return []
   try {
-    const result = await ctx.queryEngine.query<Record<string, unknown>>(E.warranty_claims.warranty_claim_line, {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId ?? undefined,
-      filters: { claim_id: { $eq: claimId } },
-      fields: [
-        'id',
-        'line_no',
-        'sku',
-        'product_name',
-        'serial_number',
-        'lot_number',
-        'fault_code',
-        'warranty_status',
-        'disposition',
-        'line_status',
-      ],
-      page: { page: 1, pageSize: 200 },
-      sort: [{ field: 'line_no', dir: SortDir.Asc }],
-    })
-    return result.items
+    const rows: Array<Record<string, unknown>> = []
+    const pageSize = 100
+    for (let page = 1; ; page += 1) {
+      const result = await ctx.queryEngine.query<Record<string, unknown>>(E.warranty_claims.warranty_claim_line, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId ?? undefined,
+        filters: { claim_id: { $eq: claimId } },
+        fields: [
+          'id',
+          'line_no',
+          'sku',
+          'product_name',
+          'serial_number',
+          'lot_number',
+          'fault_code',
+          'warranty_status',
+          'disposition',
+          'line_status',
+        ],
+        page: { page, pageSize },
+        sort: [
+          { field: 'line_no', dir: SortDir.Asc },
+          { field: 'id', dir: SortDir.Asc },
+        ],
+      })
+      rows.push(...result.items)
+      if (result.items.length < pageSize || rows.length >= result.total) break
+    }
+    return rows
   } catch (err) {
     logger.warn('[search.warranty_claims] Failed to load claim lines', {
       claimId,
@@ -150,9 +160,11 @@ export const searchConfig: SearchModuleConfig = {
 
       resolveUrl: (ctx: SearchBuildContext): string | null => buildClaimUrl(ctx.record),
 
-      resolveLinks: (ctx: SearchBuildContext): SearchResultLink[] | null => {
+      resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
         const url = buildClaimUrl(ctx.record)
-        return url ? [{ href: url, label: 'Open claim', kind: 'secondary' }] : null
+        if (!url) return null
+        const { t } = await resolveTranslations()
+        return [{ href: url, label: t('warranty_claims.search.openClaim', 'Open claim'), kind: 'secondary' }]
       },
 
       fieldPolicy: {

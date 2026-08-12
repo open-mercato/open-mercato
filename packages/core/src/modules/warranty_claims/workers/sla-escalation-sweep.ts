@@ -6,18 +6,17 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
-import { CLAIM_STATUSES, type WarrantyClaimStatus } from '../data/validators'
 import { WarrantyClaim } from '../data/entities'
 import { emitWarrantyClaimsEvent } from '../events'
 import { businessMillisBetween, slaProgressPctFromDue } from '../lib/businessHours'
 import {
   isSlaEscalationCandidate,
-  isSlaEscalationTerminalStatus,
   parseEscalationTiers,
   tiersToFire,
   type EscalationTier,
 } from '../lib/escalation'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
+import { SLA_EXCLUDED_STATUSES } from '../lib/deskFilters'
 import { notificationTypes } from '../notifications'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -56,10 +55,6 @@ type SweepScope = {
   tenantId: string
   organizationId: string
 }
-
-const ACTIVE_SLA_STATUSES = CLAIM_STATUSES.filter(
-  (status): status is WarrantyClaimStatus => !isSlaEscalationTerminalStatus(status),
-)
 
 // The active-SLA backlog grows with the tenant, so the sweep walks it in keyset
 // pages instead of decrypting every claim into memory in one query.
@@ -151,6 +146,38 @@ async function stampSlaSignal(
   )
 }
 
+async function deliverSlaSignal(
+  em: EntityManager,
+  eventId: 'warranty_claims.claim.sla_at_risk' | 'warranty_claims.claim.sla_breached',
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  progressPct: number,
+  elapsedBusinessMillis: number,
+  now: Date,
+): Promise<void> {
+  const stamps = eventId === 'warranty_claims.claim.sla_breached'
+    ? {
+        slaBreachedNotifiedAt: now,
+        slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
+      }
+    : { slaAtRiskNotifiedAt: now }
+  await stampSlaSignal(em, claim, scope, stamps)
+  Object.assign(claim, stamps)
+  try {
+    await emitSlaSignal(eventId, claim, scope, progressPct, elapsedBusinessMillis)
+  } catch (error) {
+    const rollback = eventId === 'warranty_claims.claim.sla_breached'
+      ? {
+          slaBreachedNotifiedAt: null,
+          slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt === now ? null : claim.slaAtRiskNotifiedAt,
+        }
+      : { slaAtRiskNotifiedAt: null }
+    await stampSlaSignal(em, claim, scope, rollback)
+    Object.assign(claim, rollback)
+    throw error
+  }
+}
+
 function buildCommandContext(container: ResolverContainer, scope: SweepScope): CommandRuntimeContext {
   return {
     container: container as unknown as AwilixContainer,
@@ -206,6 +233,9 @@ async function runEscalationTier(
   tier: EscalationTier,
   progressPct: number,
 ): Promise<void> {
+  if (tier.action === 'notify') {
+    await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+  }
   const commandBus = container.resolve<CommandBus>('commandBus')
   const input: EscalateClaimCommandInput = {
     id: claim.id,
@@ -221,9 +251,6 @@ async function runEscalationTier(
   if (!result.escalated) return
   if (tier.action === 'reassign' && tier.toUserId) {
     claim.assigneeUserId = tier.toUserId
-  }
-  if (tier.action === 'notify') {
-    await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
   }
 }
 
@@ -254,7 +281,7 @@ export default async function handle(
     slaPausedAt: null,
     slaDueAt: { $ne: null },
     submittedAt: { $ne: null },
-    status: { $in: ACTIVE_SLA_STATUSES },
+    status: { $nin: [...SLA_EXCLUDED_STATUSES] },
   }
 
   let cursor: SweepCursor = null
@@ -284,15 +311,26 @@ export default async function handle(
           progressPct < 100 &&
           !claim.slaAtRiskNotifiedAt
         ) {
-          await emitSlaSignal('warranty_claims.claim.sla_at_risk', claim, scope, progressPct, elapsedBusinessMillis)
-          await stampSlaSignal(em, claim, scope, { slaAtRiskNotifiedAt: now })
+          await deliverSlaSignal(
+            em,
+            'warranty_claims.claim.sla_at_risk',
+            claim,
+            scope,
+            progressPct,
+            elapsedBusinessMillis,
+            now,
+          )
         }
         if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
-          await emitSlaSignal('warranty_claims.claim.sla_breached', claim, scope, progressPct, elapsedBusinessMillis)
-          await stampSlaSignal(em, claim, scope, {
-            slaBreachedNotifiedAt: now,
-            slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
-          })
+          await deliverSlaSignal(
+            em,
+            'warranty_claims.claim.sla_breached',
+            claim,
+            scope,
+            progressPct,
+            elapsedBusinessMillis,
+            now,
+          )
         }
 
         const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)

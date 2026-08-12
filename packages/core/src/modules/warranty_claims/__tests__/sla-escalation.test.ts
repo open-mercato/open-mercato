@@ -19,6 +19,8 @@ import type { WarrantyClaimEffectiveSettings } from '../lib/settings'
 const emitWarrantyClaimsEventMock = jest.fn<Promise<void>, [string, unknown, unknown?]>()
 const resolveEffectiveWarrantyClaimSettingsMock = jest.fn<Promise<WarrantyClaimEffectiveSettings>, [unknown, unknown]>()
 const enforceWithGuardsMock = jest.fn<Promise<void>, [unknown, Record<string, unknown>]>()
+const createNotificationMock = jest.fn()
+const createForFeatureNotificationMock = jest.fn()
 
 let mockClaims: WarrantyClaim[] = []
 
@@ -33,16 +35,19 @@ jest.mock('../lib/settings', () => ({
 }))
 
 jest.mock('../../notifications/lib/notificationBuilder', () => ({
-  buildFeatureNotificationFromType: jest.fn(),
-  buildNotificationFromType: jest.fn(),
+  buildFeatureNotificationFromType: jest.fn((_type, input) => input),
+  buildNotificationFromType: jest.fn((_type, input) => input),
 }))
 
 jest.mock('../../notifications/lib/notificationService', () => ({
-  resolveNotificationService: jest.fn(),
+  resolveNotificationService: jest.fn(() => ({
+    create: createNotificationMock,
+    createForFeature: createForFeatureNotificationMock,
+  })),
 }))
 
 jest.mock('../notifications', () => ({
-  notificationTypes: [],
+  notificationTypes: [{ type: 'warranty_claims.claim.escalated' }],
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
@@ -269,6 +274,10 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     emitWarrantyClaimsEventMock.mockResolvedValue(undefined)
     resolveEffectiveWarrantyClaimSettingsMock.mockReset()
     resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({ ...sweepSettings })
+    createNotificationMock.mockReset()
+    createNotificationMock.mockResolvedValue(undefined)
+    createForFeatureNotificationMock.mockReset()
+    createForFeatureNotificationMock.mockResolvedValue([])
   })
 
   test('first sweep emits at-risk once and stamps it; second sweep does not re-emit', async () => {
@@ -313,6 +322,28 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_breached'])
+  })
+
+  test('rolls back a signal stamp when enqueue fails so the next sweep retries', async () => {
+    mockClaims = [makeSweepClaim()]
+    const { ctx, nativeUpdate } = makeSweepContext()
+    emitWarrantyClaimsEventMock
+      .mockRejectedValueOnce(new Error('event queue unavailable'))
+      .mockResolvedValueOnce(undefined)
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(mockClaims[0].slaAtRiskNotifiedAt).toBeNull()
+    expect(nativeUpdate).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { slaAtRiskNotifiedAt: null },
+    )
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledTimes(2)
+    expect(mockClaims[0].slaAtRiskNotifiedAt).toBeInstanceOf(Date)
   })
 
   test('sweep honors the pause-shifted due date instead of elapsed-since-submission', async () => {
@@ -365,6 +396,39 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(executeMock.mock.calls[1][1].input.reassignToUserId).toBeUndefined()
     expect(mockClaims[0].assigneeUserId).toBe(USER_ID)
   })
+
+  test('does not commit a notify escalation until idempotent notification delivery succeeds', async () => {
+    mockClaims = [makeSweepClaim({
+      submittedAt: new Date(Date.now() - 6 * HOUR_MS),
+      slaDueAt: new Date(Date.now() + 2 * HOUR_MS),
+      slaAtRiskNotifiedAt: new Date(),
+    })]
+    resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({
+      ...sweepSettings,
+      escalationTiers: [{ atPct: 50, action: 'notify' }],
+    })
+    const executeMock = jest.fn(async (_commandId: string, { input }: { input: { id: string; toLevel: number } }) => ({
+      result: { claimId: input.id, escalationLevel: input.toLevel, escalated: true },
+    }))
+    const em = { nativeUpdate: jest.fn(async () => 1) } as unknown as EntityManager
+    const ctx = {
+      resolve: <T = unknown>(name: string): T => {
+        if (name === 'em') return em as T
+        if (name === 'commandBus') return { execute: executeMock } as T
+        throw new Error(`[internal] unexpected sweep dependency ${name}`)
+      },
+    } as unknown as SweepHandlerArgs[1]
+    createForFeatureNotificationMock
+      .mockRejectedValueOnce(new Error('notification store unavailable'))
+      .mockResolvedValueOnce([])
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+    expect(executeMock).not.toHaveBeenCalled()
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+    expect(createForFeatureNotificationMock).toHaveBeenCalledTimes(2)
+    expect(executeMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 function makeCommandFork(): EntityManager {
@@ -412,6 +476,10 @@ describe('warranty claim SLA resume re-arms notification stamps', () => {
     resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({ ...sweepSettings })
     enforceWithGuardsMock.mockReset()
     enforceWithGuardsMock.mockResolvedValue(undefined)
+    createNotificationMock.mockReset()
+    createNotificationMock.mockResolvedValue(undefined)
+    createForFeatureNotificationMock.mockReset()
+    createForFeatureNotificationMock.mockResolvedValue([])
   })
 
   test('resuming from info_requested clears both notification stamps', async () => {

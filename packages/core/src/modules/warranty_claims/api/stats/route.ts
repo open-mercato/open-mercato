@@ -9,6 +9,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveEffectiveWarrantyClaimSettings } from '../../lib/settings'
+import { SLA_EXCLUDED_STATUSES } from '../../lib/deskFilters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('warranty_claims')
@@ -54,7 +55,6 @@ const OPEN_STATUSES = [
   'inspecting',
 ]
 
-const OVERDUE_EXCLUDED_STATUSES = ['resolved', 'closed', 'rejected', 'cancelled', 'draft']
 const RESOLUTION_STATUSES = ['resolved', 'closed']
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -168,7 +168,7 @@ export async function GET(req: Request) {
         .select(sql<NumericAggregateValue>`count(*)`.as('count'))
         .where('sla_due_at', '<', now)
         .where('sla_paused_at', 'is', null)
-        .where('status', 'not in', OVERDUE_EXCLUDED_STATUSES),
+        .where('status', 'not in', [...SLA_EXCLUDED_STATUSES]),
       context,
     ).executeTakeFirst()
     const overdue = Math.trunc(parseNumeric(overdueRow?.count))
@@ -179,7 +179,7 @@ export async function GET(req: Request) {
         .select(sql<NumericAggregateValue>`count(*)`.as('count'))
         .where('sla_due_at', '>', now)
         .where('sla_paused_at', 'is', null)
-        .where('status', 'not in', OVERDUE_EXCLUDED_STATUSES)
+        .where('status', 'not in', [...SLA_EXCLUDED_STATUSES])
         .where('submitted_at', 'is not', null)
         .where(sql<boolean>`sla_due_at > submitted_at`)
         .where(sql<boolean>`extract(epoch from (${now}::timestamptz - submitted_at)) * 100 >= extract(epoch from (sla_due_at - submitted_at)) * ${effectiveSettings.slaAtRiskThresholdPct}`),

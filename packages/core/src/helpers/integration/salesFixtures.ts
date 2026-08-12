@@ -19,25 +19,6 @@ function readId(payload: unknown, keys: string[]): string | null {
   return null;
 }
 
-// Create-heavy suites can exhaust the ephemeral Postgres connection budget, which
-// surfaces as a transient 5xx. Retry only that signature — a genuine 500 regression
-// must still fail on the first attempt instead of being masked by three retries.
-const CONNECTION_EXHAUSTION_MARKERS = [
-  'too many clients',
-  'remaining connection slots',
-  'connection terminated',
-  'connection pool',
-  'econnreset',
-  'etimedout',
-];
-
-function isTransientInfrastructureFailure(status: number, body: string): boolean {
-  if (status === 503) return true;
-  if (status !== 500) return false;
-  const haystack = body.toLowerCase();
-  return CONNECTION_EXHAUSTION_MARKERS.some((marker) => haystack.includes(marker));
-}
-
 async function createEntity(
   request: APIRequestContext,
   token: string,
@@ -45,17 +26,8 @@ async function createEntity(
   data: Record<string, unknown>,
   idKeys: string[],
 ): Promise<string> {
-  let response = await apiRequest(request, 'POST', path, { token, data });
-  let bodyText = await response.text();
-  for (
-    let attempt = 0;
-    attempt < 3 && isTransientInfrastructureFailure(response.status(), bodyText);
-    attempt += 1
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
-    response = await apiRequest(request, 'POST', path, { token, data });
-    bodyText = await response.text();
-  }
+  const response = await apiRequest(request, 'POST', path, { token, data, retryTransport: false });
+  const bodyText = await response.text();
   expect(
     response.ok(),
     `Failed POST ${path}: ${response.status()} ${bodyText.slice(0, 500)}`,
@@ -207,4 +179,3 @@ export async function deleteSalesEntityIfExists(
     return;
   }
 }
-
