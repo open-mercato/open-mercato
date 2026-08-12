@@ -1326,3 +1326,25 @@ not from the stale deferred/blocker labels above.
   remeasured against packed and current-source controllers, rounded to the next 4 KiB, and the bounded
   catalog ceiling was raised to 1 MiB. The corrected generated controller passes 228/228 deterministic
   cases; focused evaluator, budget, build, and fresh-scaffold tests pass 164/164.
+- [x] Hosted-CI stabilization of the four failures on run 31537975925 (head `2a4765f33`), each at its
+  own root cause rather than by relaxing an assertion. (a) The example `crud-validation` widget's
+  `transformDisplayData` rewrote every title it saw. It had been dead code: CrudForm keyed its
+  initial-values effect without injection-widget ids, so widgets resolving asynchronously never
+  re-ran it. This branch added `injectionWidgetIds` to that key — the documented behaviour — and the
+  blanket `toUpperCase()` then reached every CrudForm host that mounts the widget, including
+  `crud-form:catalog.product` / `catalog.variant`, whose forms also carry a `title`. Because CrudForm
+  writes the transform's result into the form's own values, the next submit would have persisted it.
+  The handler now opts in on a `[display]` marker, mirroring `transformFormData`'s `[transform]`;
+  TC-EXAMPLE-017 marks its records and gained a counter-check that an unmarked record is untouched,
+  plus a six-case unit test that a restored unconditional rewrite kills 3 of. (b)
+  `todoBulkComplete.loop.test.ts` slept a fixed 20ms and asserted a 5ms heartbeat had ticked, so it
+  measured runner scheduling latency; both affected cases now poll. (c) TC-EXAMPLE-015's queued-
+  delivery case declared two 20s polls, a CLI-spawning drain and two 5s stability windows inside the
+  suite's flat 20s budget — it takes 11.6s on an idle machine, so it could not survive a loaded
+  worker; it is now `test.slow()`. (d) TC-AUTH-041 provisions two tenants (each running every
+  module's `onTenantCreated`), three organizations and three users under the same 20s budget; also
+  `test.slow()`. The `apps/docs` `search-index.json` ENOENT in the same job needed no fix: develop's
+  green run reaches "Compiled successfully", the failing run stops after "Compiling Server" — turbo
+  cancelled the docs build when `@open-mercato/app#test` failed. Verified locally on an ephemeral
+  environment with enterprise modules and `OM_OPTIMISTIC_LOCK=all`: TC-UMES-003, TC-UMES-009,
+  TC-EXAMPLE-011, TC-EXAMPLE-015, TC-EXAMPLE-017 and TC-AUTH-041 pass 37/37 with zero flakes.
