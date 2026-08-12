@@ -13,6 +13,10 @@
  *   post_call_transcription   the real answer  →  a full outcome
  *   call_initiation_failure   the call never happened  →  an outcome with reached=false
  *   post_call_audio           the recording only  →  THROWS (see below)
+ *
+ * All three also carry `data.conversation_id`, which is how the static
+ * connector-addressed callback route finds the run at all — see
+ * `extractElevenLabsConversationId` below.
  */
 
 import { z } from 'zod'
@@ -116,6 +120,40 @@ const initiationFailurePayloadSchema = z.object({
 const audioPayloadSchema = z.object({ type: z.literal('post_call_audio') })
 
 const callbackTypeSchema = z.object({ type: z.string() })
+
+/**
+ * The shallow read the STATIC callback route uses to find which run a payload
+ * belongs to (`ExternalAgentConnector.extractExternalRunId`, tracker task 2.12).
+ *
+ * All three ElevenLabs post-call webhook types carry the same address in the
+ * same place — `data.conversation_id` — which is exactly the value `start()`
+ * returned as the run's `externalRunId`:
+ *
+ *   post_call_transcription   data.conversation_id   (the real answer)
+ *   post_call_audio           data.conversation_id   (the recording)
+ *   call_initiation_failure   data.conversation_id   (the call never happened)
+ *
+ * So the extractor deliberately does NOT switch on `type`: it reads the one
+ * field, and a fourth webhook type ElevenLabs adds later still resolves to the
+ * right run instead of being dropped as unaddressable. Deciding what to DO with
+ * a payload stays `normalize`'s job, which does switch on `type` and is called
+ * only after the signature verified.
+ *
+ * It runs on UNVERIFIED, merely size-bounded input, so it is total: every shape
+ * that is not an object carrying a non-empty string there yields `null`, and
+ * nothing throws. `null` means "this connector cannot address this payload",
+ * which the route answers with a 400 — it never means "settle something else".
+ */
+const conversationIdSchema = z.object({
+  data: z.object({ conversation_id: z.string() }),
+})
+
+export function extractElevenLabsConversationId(rawPayload: unknown): string | null {
+  const parsed = conversationIdSchema.safeParse(rawPayload)
+  if (!parsed.success) return null
+  const conversationId = parsed.data.data.conversation_id.trim()
+  return conversationId.length ? conversationId : null
+}
 
 /**
  * The connector's `normalize`. Returns the ENVELOPE (`{ kind, data }`), because

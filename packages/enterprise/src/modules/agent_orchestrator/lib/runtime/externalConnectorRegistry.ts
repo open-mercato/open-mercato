@@ -106,6 +106,39 @@ export interface ExternalAgentConnector {
   normalize(rawPayload: unknown): unknown
 
   /**
+   * Optional: extract the PROVIDER's own run id from a raw callback payload, so a
+   * callback that carries no per-run token can still find its correlation row.
+   *
+   * WHY THIS IS NOT REDUNDANT WITH THE TOKEN. The primary route
+   * (`external-runs/[token]/callback`) addresses a run by a single-use bearer the
+   * runner minted and handed to the provider at `start()`. That is the stronger
+   * design and stays the default — but it only works for a provider that accepts
+   * a per-call callback URL. ElevenLabs does not: its post-call webhook
+   * destination is configured at the WORKSPACE/AGENT level and the outbound-call
+   * request body has no webhook field, so the per-run URL can never be delivered
+   * and no callback would ever arrive at the token route. Such a provider posts
+   * every tenant's answer to one static URL, and the only thing in the payload
+   * that identifies the run is the provider's own id (an ElevenLabs
+   * `conversation_id`) — which is exactly what `start()` returned as
+   * `externalRunId` and what the correlation row already indexes under
+   * `(organization_id, connector_id, external_run_id)`.
+   *
+   * Implementing it OPTS THE CONNECTOR IN to the second, static entry point
+   * (`external-runs/connectors/[connectorId]/callback`). A connector that cannot
+   * self-address simply omits it and stays token-addressed; the static route
+   * answers 404 for it, so opting in is always explicit.
+   *
+   * CONTRACT. The argument is the PARSED body (same as `normalize`), parsed
+   * before any signature has been checked — so an implementation must be a cheap,
+   * total, shallow read that never throws and never interprets the payload.
+   * Return `null` for anything it cannot address. The id is used only as a
+   * database lookup key: the tenancy that authorises the settlement still comes
+   * from the row, and the row is only accepted once THIS tenant's signature has
+   * verified over the raw bytes.
+   */
+  extractExternalRunId?(rawPayload: unknown): string | null
+
+  /**
    * Optional: cancel/hang up the external run when the step is cancelled or the
    * callback deadline passes. A connector without it simply leaves the provider
    * to finish on its own; the platform still fails the run and resumes the
@@ -134,6 +167,21 @@ export interface ExternalAgentConnector {
    * nothing downstream can mistake it for something that happened.
    */
   mock?(args: ExternalAgentConnectorStartArgs): unknown
+}
+
+/**
+ * Path of the STATIC, connector-addressed callback route — one stable URL per
+ * connector, pasted once into the provider's own workspace webhook settings.
+ *
+ * Declared next to the interface for the same reason
+ * `buildExternalRunCallbackPath` sits next to the token hash: the path an
+ * operator is told to paste and the path this deployment actually serves must be
+ * the same string, and a drift between them is only discovered when a real call
+ * comes back to a 404. A connector's integration help text builds its URL from
+ * here rather than spelling it out.
+ */
+export function buildExternalConnectorCallbackPath(connectorId: string): string {
+  return `/api/agent_orchestrator/external-runs/connectors/${encodeURIComponent(connectorId)}/callback`
 }
 
 const registry = new Map<string, ExternalAgentConnector>()

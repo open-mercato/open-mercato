@@ -5,6 +5,7 @@ export { metadata } from './modules/agent_elevenlabs/index'
 export {
   createElevenLabsVoiceConnector,
   ELEVENLABS_VOICE_CONNECTOR_ID,
+  ELEVENLABS_CALLBACK_PATH,
   CALLBACK_URL_VARIABLE,
   RESERVED_DYNAMIC_VARIABLE_PREFIX,
 } from './modules/agent_elevenlabs/lib/connector'

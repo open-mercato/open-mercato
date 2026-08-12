@@ -8,6 +8,16 @@
  * of the read-back API. The API key and the webhook secret are the only two
  * values here that would let someone else place calls on this tenant's account
  * or forge a settlement, so they are the only two typed `secret`.
+ *
+ * THE ONE MANUAL STEP THIS INTEGRATION CANNOT DO FOR THE OPERATOR is pointing
+ * ElevenLabs at us. ElevenLabs' post-call webhook destination is a workspace (or
+ * agent) setting, not a per-call parameter, so the operator pastes ONE static
+ * URL there — `<deployment origin>` + `ELEVENLABS_CALLBACK_PATH` — and every
+ * conversation's answer arrives at it. Without that step a call is placed, the
+ * person answers, and the workflow stays parked until the deadline sweep fails
+ * it, so it is stated in the webhook-secret help text where an operator is
+ * already looking. The path constant is asserted against the help text in
+ * `__tests__/normalize.test.ts`, so the two cannot drift.
  */
 
 import type {
@@ -49,7 +59,7 @@ export const integration: IntegrationDefinition = {
         required: true,
         placeholder: 'wsec_...',
         helpText:
-          'ElevenLabs dashboard -> Settings -> Webhooks, the signing secret of the post-call webhook. Every callback is HMAC-verified against it before a workflow is resumed; a call whose signature does not verify is discarded. Point that webhook at this deployment, or no call will ever resume its workflow.',
+          'ElevenLabs dashboard -> Settings -> Webhooks, the signing secret of the post-call webhook. REQUIRED SETUP: point that webhook at https://<your-deployment>/api/agent_orchestrator/external-runs/connectors/elevenlabs.voice/callback — one static URL, pasted once, shared by every call. Until you do, calls are placed but no workflow ever resumes. This secret is the ONLY credential that callback carries: every payload is HMAC-verified against it, it is what proves the answer belongs to this tenant, and anything that fails to verify is discarded.',
       },
       {
         key: 'agentId',

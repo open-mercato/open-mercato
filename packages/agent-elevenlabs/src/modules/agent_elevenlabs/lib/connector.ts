@@ -44,11 +44,12 @@
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type {
-  ExternalAgentConnector,
-  ExternalAgentConnectorScope,
-  ExternalAgentConnectorStartArgs,
-  ExternalAgentConnectorStartResult,
+import {
+  buildExternalConnectorCallbackPath,
+  type ExternalAgentConnector,
+  type ExternalAgentConnectorScope,
+  type ExternalAgentConnectorStartArgs,
+  type ExternalAgentConnectorStartResult,
 } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/runtime/externalConnectorRegistry'
 import { voiceCallInputSchema, type VoiceCallInput } from '../data/validators'
 import {
@@ -65,7 +66,7 @@ import {
   type ElevenLabsTelephonyProvider,
 } from './credentials'
 import type { ReadElevenLabsCredentials } from './credentialsReader'
-import { normalizeElevenLabsCallback } from './normalize'
+import { extractElevenLabsConversationId, normalizeElevenLabsCallback } from './normalize'
 import { ELEVENLABS_SIGNATURE_HEADER, verifyElevenLabsSignature } from './signature'
 
 const logger = createLogger('agent_elevenlabs').child({ component: 'voice-connector' })
@@ -81,30 +82,46 @@ export const ELEVENLABS_VOICE_CONNECTOR_ID = 'elevenlabs.voice'
 export const RESERVED_DYNAMIC_VARIABLE_PREFIX = 'om_'
 
 /**
- * The platform's per-run callback URL, handed to ElevenLabs as a dynamic
- * variable.
+ * The platform's per-run callback URL, echoed to ElevenLabs as a dynamic
+ * variable. CORRELATION ONLY — it is not how an answer gets home.
  *
  * READ THIS BEFORE DEPLOYING. ElevenLabs' post-call webhook destination is
  * configured in the ElevenLabs workspace/agent settings, NOT in the
  * outbound-call request body — the verified request body has no webhook field.
- * The platform, on the other hand, mints a single-use per-run URL and expects
- * the provider to post to exactly that. The two do not meet on their own.
+ * So the platform's single-use per-run URL can never be delivered to ElevenLabs,
+ * and nothing this connector puts in the call payload changes that.
  *
- * Passing the URL as a reserved dynamic variable is what this connector can
- * honestly do inside the verified surface: it costs nothing, it makes the
- * per-run address visible in the conversation record for correlation and
- * debugging, and it is echoed back on the post-call payload under
- * `conversation_initiation_client_data`. It does NOT by itself make ElevenLabs
- * post there. A deployment must additionally point its ElevenLabs post-call
- * webhook at this deployment; until the provider supports a per-conversation
- * destination, that is an operator step, and it is called out in the
- * integration's help text.
+ * WHAT ACTUALLY SETTLES A RUN is the static, connector-addressed callback route
+ * (tracker task 2.12): the operator pastes ONE URL —
+ * `<APP_URL>` + `buildExternalConnectorCallbackPath('elevenlabs.voice')` — into
+ * their ElevenLabs workspace (or agent) post-call webhook settings, once, and
+ * every conversation's answer arrives there. That route finds the run by the
+ * `conversation_id` in the payload (`extractExternalRunId`) and proves who sent
+ * it with the per-tenant HMAC. On that route the HMAC is the ONLY credential
+ * there is: the per-run token plays no part, so the webhook secret is what
+ * stands between a stranger and a settled workflow.
+ *
+ * The variable is kept because it costs nothing and earns its place in
+ * debugging: it makes the per-run address visible in the conversation record and
+ * is echoed back on the post-call payload under
+ * `conversation_initiation_client_data`, which is how an operator ties a
+ * conversation in the ElevenLabs dashboard to a run here.
  *
  * The value is a bearer credential (the callback token is in its path), so the
  * ElevenLabs agent prompt must never reference `{{om_callback_url}}` — a prompt
  * that does could speak it aloud.
  */
 export const CALLBACK_URL_VARIABLE = 'om_callback_url'
+
+/**
+ * The static URL an operator pastes into the ElevenLabs workspace/agent
+ * post-call webhook settings, relative to the deployment's own origin. Built
+ * from the platform's own path helper so the address in the help text can never
+ * drift from the route that serves it.
+ */
+export const ELEVENLABS_CALLBACK_PATH = buildExternalConnectorCallbackPath(
+  ELEVENLABS_VOICE_CONNECTOR_ID,
+)
 
 export type ElevenLabsVoiceConnectorDeps = {
   readCredentials: ReadElevenLabsCredentials
@@ -199,6 +216,20 @@ export function createElevenLabsVoiceConnector(
 
     normalize(rawPayload: unknown): unknown {
       return normalizeElevenLabsCallback(rawPayload)
+    },
+
+    /**
+     * What makes this connector reachable at all (tracker task 2.12).
+     *
+     * ElevenLabs posts every tenant's answer to ONE workspace-level URL, so the
+     * platform's per-run token never travels and the token-addressed callback
+     * route can never be reached. Implementing this opts the connector in to the
+     * static route, which resolves the run from the provider's own
+     * `conversation_id` — the value `start()` returned as `externalRunId` — and
+     * lets the per-tenant HMAC decide which tenant's run it settles.
+     */
+    extractExternalRunId(rawPayload: unknown): string | null {
+      return extractElevenLabsConversationId(rawPayload)
     },
   }
 }

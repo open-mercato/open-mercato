@@ -1,8 +1,11 @@
 import {
   ElevenLabsAudioOnlyCallbackError,
   ElevenLabsCallbackShapeError,
+  extractElevenLabsConversationId,
   normalizeElevenLabsCallback,
 } from '../lib/normalize'
+import { ELEVENLABS_CALLBACK_PATH } from '../lib/connector'
+import { integration } from '../integration'
 import { voiceCallResultSchema } from '../data/validators'
 
 /**
@@ -180,5 +183,90 @@ describe('normalizeElevenLabsCallback — post_call_audio and unknown types', ()
 
   it('throws when the payload has no type at all', () => {
     expect(() => normalizeElevenLabsCallback({ data: {} })).toThrow(ElevenLabsCallbackShapeError)
+  })
+})
+
+/**
+ * The address the STATIC connector-addressed callback route resolves a run by
+ * (tracker task 2.12). It runs on UNVERIFIED input, so "never throws" is part of
+ * its contract, and it must work for every webhook type ElevenLabs delivers —
+ * including the two `normalize` refuses, because a payload that cannot be
+ * addressed cannot even be answered `already_settled`.
+ */
+describe('extractElevenLabsConversationId', () => {
+  it('finds the conversation id in a post_call_transcription payload', () => {
+    expect(extractElevenLabsConversationId(TRANSCRIPTION_PAYLOAD)).toBe('conv_9f2c')
+  })
+
+  it('finds the conversation id in a post_call_audio payload', () => {
+    // `normalize` throws for this type; the extractor must still address it, so a
+    // recording delivery is answered by the single-shot claim rather than a 400.
+    expect(
+      extractElevenLabsConversationId({
+        type: 'post_call_audio',
+        data: { agent_id: 'agent_abc123', conversation_id: 'conv_9f2c', full_audio: 'SUQzBA==' },
+      }),
+    ).toBe('conv_9f2c')
+  })
+
+  it('finds the conversation id in a call_initiation_failure payload', () => {
+    expect(
+      extractElevenLabsConversationId({
+        type: 'call_initiation_failure',
+        data: { conversation_id: 'conv_dead', failure_reason: 'destination number is not reachable' },
+      }),
+    ).toBe('conv_dead')
+  })
+
+  it('addresses a webhook type it has never seen, because it does not switch on type', () => {
+    expect(
+      extractElevenLabsConversationId({
+        type: 'post_call_telepathy',
+        data: { conversation_id: 'conv_9f2c' },
+      }),
+    ).toBe('conv_9f2c')
+  })
+
+  it('returns null — never throws — for anything it cannot address', () => {
+    for (const payload of [
+      null,
+      undefined,
+      'conv_9f2c',
+      42,
+      {},
+      { data: {} },
+      { data: { conversation_id: '' } },
+      { data: { conversation_id: '   ' } },
+      { data: { conversation_id: 42 } },
+      { data: null },
+      { conversation_id: 'conv_9f2c' },
+    ]) {
+      expect(extractElevenLabsConversationId(payload)).toBeNull()
+    }
+  })
+
+  it('trims surrounding whitespace so the id matches the stored column exactly', () => {
+    expect(extractElevenLabsConversationId({ data: { conversation_id: ' conv_9f2c \n' } })).toBe(
+      'conv_9f2c',
+    )
+  })
+})
+
+/**
+ * The one setup step no code can perform for the operator: ElevenLabs' post-call
+ * webhook is a workspace setting, so somebody must paste this deployment's URL
+ * into it. A wrong URL in the help text means calls that are placed, answered
+ * and then never settle, so the address is asserted against the route it names.
+ */
+describe('the static callback URL an operator pastes into ElevenLabs', () => {
+  it('is the path the platform actually serves for this connector', () => {
+    expect(ELEVENLABS_CALLBACK_PATH).toBe(
+      '/api/agent_orchestrator/external-runs/connectors/elevenlabs.voice/callback',
+    )
+  })
+
+  it('is stated verbatim in the webhook-secret help text, so the two cannot drift', () => {
+    const field = integration.credentials?.fields.find((entry) => entry.key === 'webhookSecret')
+    expect(field?.helpText).toContain(ELEVENLABS_CALLBACK_PATH)
   })
 })
