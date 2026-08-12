@@ -142,15 +142,21 @@ export async function PUT(req: Request) {
   // MikroORM drops: the update and clear paths then matched whichever row
   // happened to exist, in any tenant, and the create path hit a NOT NULL
   // violation.
-  // `auth:user` carries encrypted columns, so the module reads it through the
-  // decryption helper even when — as here — only the plaintext tenant is needed.
-  const targetUser = await findOneWithDecryption(
-    em as EntityManager,
-    User,
-    { id: parsed.data.userId } as FilterQuery<User>,
-    {},
-    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-  )
+  // Only the tenant-less actor needs this read, so it is gated on that case:
+  // otherwise every PUT paid for a decrypting lookup whose result the `??`
+  // below discards, and an id from another tenant was decrypted under the
+  // actor's scope — the same cross-tenant read `loadTarget` in `commands/acl.ts`
+  // avoids. `auth:user` carries encrypted columns, so it still goes through the
+  // decryption helper even though only the plaintext tenant is needed here.
+  const targetUser = auth.tenantId
+    ? null
+    : await findOneWithDecryption(
+        em as EntityManager,
+        User,
+        { id: parsed.data.userId } as FilterQuery<User>,
+        {},
+        { tenantId: null, organizationId: auth.orgId ?? null },
+      )
   const tenantId: string | null =
     auth.tenantId ?? (targetUser?.tenantId ? String(targetUser.tenantId) : null)
   if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
@@ -258,24 +264,37 @@ export async function PUT(req: Request) {
   // actor does hold — and it leaves before/after identical, so the audit entry
   // would otherwise be indistinguishable from a no-op and skipped as one.
   //
+  // Features are the only axis that can be trimmed. A super-admin request is
+  // either honoured or refused outright above, never silently downgraded, so
+  // comparing the two flags here would be dead weight.
+  //
   // Deliberately independent of the `sanitized` response flag below:
   // `hasRestrictedChanges` stays false when the trimmed result equals the
   // existing ACL, to avoid nagging the user about a save that changed nothing —
   // but that is precisely an attempt the trail must keep.
   const strippedFeatures = requestedFeatures.filter((feature) => !effectiveFeatures.includes(feature))
-  const requestedMoreThanApplied =
-    strippedFeatures.length > 0 || requestedIsSuperAdmin !== effectiveIsSuperAdmin
 
   // Route the write through the command bus so the permission change lands in
   // the action log. The command owns the transactional write (or removal) and
   // the RBAC cache invalidation that used to live here.
   const commandBus = container.resolve('commandBus') as CommandBus
+  // A tenant-less actor edits an override in the target user's tenant, so their
+  // organization belongs to a tenant the entry is not about. The bus resolves
+  // the log row's organization as `metadata.organizationId ??
+  // ctx.selectedOrganizationId ?? ctx.auth.orgId` — a `??` chain, so the
+  // handler's `resolveOrganizationId` cannot express "explicitly no
+  // organization" and the actor's would be restored. Strip it from the context
+  // instead, exactly as the roles route does: otherwise the entry carries a
+  // (target tenant, foreign organization) pair that `ActionLogService` — which
+  // filters organization with strict equality — can never surface for anyone.
+  const isForeignTenant = tenantId !== (auth.tenantId ?? null)
+  const actorOrgId = isForeignTenant ? null : auth.orgId ?? null
   const commandCtx: CommandRuntimeContext = {
     container,
-    auth,
+    auth: isForeignTenant ? { ...auth, orgId: null } : auth,
     organizationScope: null,
-    selectedOrganizationId: auth.orgId ?? null,
-    organizationIds: auth.orgId ? [auth.orgId] : null,
+    selectedOrganizationId: actorOrgId,
+    organizationIds: actorOrgId ? [actorOrgId] : null,
     request: req,
   }
   await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
@@ -286,9 +305,7 @@ export async function PUT(req: Request) {
       features: effectiveFeatures,
       organizations,
       clear: !hasCustomAcl,
-      requested: requestedMoreThanApplied
-        ? { isSuperAdmin: requestedIsSuperAdmin, features: requestedFeatures }
-        : null,
+      requested: strippedFeatures.length ? { features: requestedFeatures } : null,
     },
     ctx: commandCtx,
   })

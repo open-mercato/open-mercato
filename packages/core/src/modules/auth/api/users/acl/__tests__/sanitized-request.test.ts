@@ -66,10 +66,10 @@ function putRequest(features: string[]) {
   })
 }
 
-function commandInput(): { requested: { isSuperAdmin: boolean; features: string[] } | null } {
+function commandInput(): { requested: { features: string[] } | null } {
   const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [
     string,
-    { input: { requested: { isSuperAdmin: boolean; features: string[] } | null } },
+    { input: { requested: { features: string[] } | null } },
   ]
   return options.input
 }
@@ -98,10 +98,7 @@ describe('user ACL sanitized-request reporting', () => {
     const res = await PUT(putRequest(['catalog.view', RESTRICTED_FEATURE]))
 
     expect(res.status).toBe(200)
-    expect(commandInput().requested).toEqual({
-      isSuperAdmin: false,
-      features: ['catalog.view', RESTRICTED_FEATURE],
-    })
+    expect(commandInput().requested).toEqual({ features: ['catalog.view', RESTRICTED_FEATURE] })
   })
 
   it('reports nothing when the request was applied as submitted', async () => {

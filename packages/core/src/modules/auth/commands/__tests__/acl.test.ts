@@ -15,6 +15,19 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 // The target lookup only needs the plaintext identity here; decryption itself
 // is covered by the encryption suite.
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -90,6 +103,7 @@ describe('auth ACL audit commands', () => {
     options: {
       failWrite?: boolean
       failInvalidate?: boolean
+      failTagPurge?: boolean
       failTargetLookup?: boolean
       role?: TargetRow | null
       user?: TargetRow | null
@@ -164,6 +178,7 @@ describe('auth ACL audit commands', () => {
 
     const cache = {
       deleteByTags: async (tags: string[]) => {
+        if (options.failTagPurge) throw new Error('tag purge failed')
         deletedTags.push(...tags)
         order.push('deleteByTags')
       },
@@ -322,6 +337,28 @@ describe('auth ACL audit commands', () => {
       expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
       expect(harness.calls.commit).toBe(1)
       expect(harness.invalidatedTenants).toEqual([])
+    })
+
+    it('does not lose the entry when the nav cache tag purge fails', async () => {
+      // The tag purge used to swallow its own failure at debug level, so half of
+      // one invalidation was alarmable and the other half invisible. It now
+      // reaches the same error-level guard, which must still let the command
+      // return a loggable result.
+      const harness = makeHarness(null, { failTagPurge: true })
+
+      mockLoggerInstance.error.mockClear()
+
+      const result = await roleHandler().execute(roleInput, harness.ctx)
+
+      expect(result).toEqual({ resourceId: roleId, tenantId, organizationId: 'org-1' })
+      expect(harness.calls.commit).toBe(1)
+      expect(harness.deletedTags).toEqual([])
+      // At `error`, not `debug`: a nav cache still serving revoked grants has to
+      // be alarmable, like the `rbacService` half of the same invalidation.
+      expect(mockLoggerInstance.error).toHaveBeenCalledWith(
+        'ACL cache invalidation failed after a committed permission change',
+        expect.objectContaining({ commandId: 'auth.role-acl.update', resourceId: roleId }),
+      )
     })
 
     it('rolls back and leaves caches untouched when the write fails', async () => {
@@ -536,7 +573,7 @@ describe('auth ACL audit commands', () => {
       const harness = makeHarness(existing)
       const trimmed: UserAclUpdateInput = {
         ...userInput,
-        requested: { isSuperAdmin: false, features: ['audit_logs.view_self', 'directory.tenants.manage'] },
+        requested: { features: ['audit_logs.view_self', 'directory.tenants.manage'] },
       }
 
       const metadata = await runAndBuildLog(userHandler(), trimmed, harness)
@@ -545,10 +582,7 @@ describe('auth ACL audit commands', () => {
       expect(metadata.snapshotBefore).toEqual(metadata.snapshotAfter)
       expect(metadata.context).toEqual({
         target: { kind: 'user', id: userId, email: 'qa-target@example.com', name: 'QA Target' },
-        sanitizedRequest: {
-          isSuperAdmin: false,
-          features: ['audit_logs.view_self', 'directory.tenants.manage'],
-        },
+        sanitizedRequest: { features: ['audit_logs.view_self', 'directory.tenants.manage'] },
       })
     })
 
@@ -565,7 +599,7 @@ describe('auth ACL audit commands', () => {
       const harness = makeHarness(existing)
       const trimmed: UserAclUpdateInput = {
         ...userInput,
-        requested: { isSuperAdmin: true, features: ['audit_logs.view_self'] },
+        requested: { features: ['audit_logs.view_self', 'directory.tenants.manage'] },
       }
 
       const metadata = await runAndBuildLog(userHandler(), trimmed, harness)

@@ -118,6 +118,54 @@ describe('user ACL tenant resolution', () => {
     expect(aclLookup?.[1]).toMatchObject({ tenantId: TARGET_TENANT_ID })
   })
 
+  it('does not read the target user when the actor has a tenant', async () => {
+    // The fallback short-circuits on the actor's tenant, so the common path was
+    // paying for a decrypting read it discarded — and decrypting a possibly
+    // foreign user under the actor's scope while doing it.
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: ACTOR_TENANT_ID, orgId: 'org-1' })
+    wireEm({ targetUserTenantId: TARGET_TENANT_ID })
+
+    await PUT(putRequest())
+
+    expect(mockEm.findOne.mock.calls.some(([ctor]) => ctor === User)).toBe(false)
+  })
+
+  it('strips the actor organization when the override lands in another tenant', async () => {
+    // `CommandBus.persistLog` resolves the row's organization through a `??`
+    // chain, so the handler cannot express "explicitly no organization" — the
+    // route has to, exactly as the roles route does. Otherwise the entry pairs
+    // the target tenant with an organization from elsewhere and no reader can
+    // ever match it.
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: null, orgId: 'org-actor' })
+    wireEm({ targetUserTenantId: TARGET_TENANT_ID })
+
+    const res = await PUT(putRequest())
+
+    expect(res.status).toBe(200)
+    const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [
+      string,
+      { ctx: { selectedOrganizationId: string | null; organizationIds: string[] | null; auth: { orgId: string | null } } },
+    ]
+    expect(options.ctx.selectedOrganizationId).toBeNull()
+    expect(options.ctx.organizationIds).toBeNull()
+    expect(options.ctx.auth.orgId).toBeNull()
+  })
+
+  it('keeps the actor organization on a same-tenant override', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: ACTOR_TENANT_ID, orgId: 'org-actor' })
+    wireEm({ targetUserTenantId: ACTOR_TENANT_ID })
+
+    const res = await PUT(putRequest())
+
+    expect(res.status).toBe(200)
+    const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [
+      string,
+      { ctx: { selectedOrganizationId: string | null; organizationIds: string[] | null } },
+    ]
+    expect(options.ctx.selectedOrganizationId).toBe('org-actor')
+    expect(options.ctx.organizationIds).toEqual(['org-actor'])
+  })
+
   it('refuses only when neither the actor nor the target has a tenant', async () => {
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: null, orgId: null })
     wireEm({ targetUserTenantId: null })

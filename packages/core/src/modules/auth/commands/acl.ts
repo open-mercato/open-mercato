@@ -93,12 +93,13 @@ type AclTarget =
  * which `buildLog` skips. Recording the original request both keeps the attempt
  * visible and exempts the entry from that guard.
  *
- * Organizations are deliberately absent: they are never why the route trims,
- * but they differ from `after.organizations` on every organizations-only save,
- * which would invite a reader to diff the two and conclude a grant was refused.
+ * Features are the only axis carried, because they are the only one the route
+ * can trim: a super-admin request is honoured or refused outright, and
+ * organizations are never sanitized. Recording either would put a value next to
+ * the snapshots that always matches them, inviting a reader to diff the two and
+ * conclude a grant was refused.
  */
 type SanitizedAclRequest = {
-  isSuperAdmin: boolean
   features: string[]
 }
 
@@ -110,6 +111,12 @@ type AclChangeEffect = 'granted' | 'changed' | 'revoked'
  * audit records, so the ordering must not shift with the runtime's default
  * locale. Feature and organization ids are opaque ASCII identifiers that are
  * never shown in this order to a user.
+ *
+ * The default comparator would coerce and compare the same way today, but
+ * omitting one is banned repo-wide (`explicit-sort-comparators.test.ts`,
+ * #3620): the ordering must be stated rather than inherited, so it cannot
+ * silently change meaning if a call site ever drifts to non-strings. This is
+ * the canonical-key form that audit prescribes.
  */
 function compareIdentifiers(left: string, right: string): number {
   if (left === right) return 0
@@ -161,15 +168,24 @@ function resolveOrganizationId(ctx: CommandRuntimeContext, tenantId: string): st
   return ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
 }
 
+/**
+ * A runtime with no cache registered (CLI, workers, tests) is a configuration,
+ * not a failure, so resolution is guarded here. An adapter that *is* wired and
+ * then throws is a failure, and it propagates to the single error-level guard
+ * in `execute` — the same one that covers the `rbacService` half of this
+ * invalidation. Reporting one half at `debug` and the other at `error` would
+ * hide a nav cache still serving revoked grants.
+ */
 async function deleteCacheTags(ctx: CommandRuntimeContext, tags: string[]): Promise<void> {
+  let cache: TaggableCache | undefined
   try {
-    const cache = ctx.container.resolve('cache') as TaggableCache | undefined
-    if (cache?.deleteByTags) await cache.deleteByTags(tags)
+    cache = ctx.container.resolve('cache') as TaggableCache | undefined
   } catch (err) {
-    // Best-effort: a stale nav cache must never fail a committed ACL write, but
-    // a misconfigured adapter should not look identical to "no cache wired".
-    logger.debug('ACL cache tag invalidation failed', { err, tags })
+    logger.debug('No cache registered for ACL tag invalidation', { err, tags })
+    return
   }
+  if (!cache?.deleteByTags) return
+  await cache.deleteByTags(tags)
 }
 
 type AclCommandValues = {
