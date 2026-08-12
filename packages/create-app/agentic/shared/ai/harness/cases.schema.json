@@ -3,8 +3,8 @@
   "$id": "https://open-mercato.dev/schemas/standalone-harness-cases.schema.json",
   "title": "Open Mercato standalone harness case catalog",
   "type": "array",
-  "minItems": 215,
-  "maxItems": 215,
+  "minItems": 216,
+  "maxItems": 216,
   "items": {
     "type": "object",
     "additionalProperties": false,
@@ -15,7 +15,7 @@
       "maxTotalContextBytes", "relatedCases"
     ],
     "properties": {
-      "id": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-9][0-9]|20[0-9]|21[0-5])$" },
+      "id": { "type": "string", "pattern": "^OMH-(00[1-9]|0[1-9][0-9]|1[0-9][0-9]|20[0-9]|21[0-6])$" },
       "title": { "type": "string", "minLength": 12, "maxLength": 180 },
       "family": { "enum": ["architecture", "module", "umes", "integration", "ai-workflow", "bugfix", "business", "testing"] },
       "mode": { "enum": ["analysis", "one-shot", "spec", "bugfix", "review"] },
