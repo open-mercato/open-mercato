@@ -1,3 +1,101 @@
+# 0.7.0 (2026-08-12)
+
+## Highlights
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ Filter the documents list by several sales channels. (#5198) *(@maxidragon)*
+- ✨ EUDR compliance module — evidence, plots, risk, DDS lifecycle and reporting. (#4358) *(@haxiorz)*
+- ✨ StrykerJS diff-scoped mutation testing gate (advisory; enforcement dormant). (#4932) *(@adeptofvoltron)*
+- ✨ Expose a public save-view and dirty-state API on DataTable (#5047). (#5074) *(@wojciechszyjka)*
+- ✨ Warn when a $like filter targets an encrypted-at-rest column (#5051). (#5069) *(@wojciechszyjka)*
+
+## 🔒 Security
+- 🔒 Complete the canonical example and standalone harness. (#4897) *(@pkarw)*
+- 🔒 Add protected role floor guards and audit log interceptor context seam. (#4958) *(@haxiorz)*
+- 🔒 Sync main back into develop — DO NOT SQUASH, merge commit required. (#5127) *(@patzick)*
+- 🔒 Expose the caller's userId on AiAgentPageContextInput (#5049). (#5065) *(@wojciechszyjka)*
+
+## 🐛 Fixes
+- 🔐 Stabilize develop for release (login state loss, CodeQL, audit gate). (#5217) *(@pkarw)*
+- 🔧 Make local queue writes atomic and cross-process safe (#5149). (#5204) *(@pkarw)*
+- 🐛 Honour OR groups for custom-field filters (#5039). (#5056) *(@wojciechszyjka)*
+- 🐛 Prevent duplicate custom-field errors. (#5063) *(@szymon-sapiecha)*
+- 📦 Remove the dist/agentic build race and make truncated runs self-explanatory. (#5064) *(@wojciechszyjka)*
+- 🔄 Sync deal closure with funnel stage (#5106). (#5140) *(@haxiorz)*
+- 🔧 Dispatch queued events through the DI event bus. (#5071) *(@patrykbojczuk)*
+- 🐛 Give preset apps a working Cmd+K palette (#5164, #5163). (#5167) *(@pkarw)*
+- 🔐 Guard apiFetch's session-refresh redirect against endless loops. (#5191) *(@adeptofvoltron)*
+- 🐛 Clear AppShell breadcrumb in a layout effect so prefetched navigations keep it (#4680). (#5124) *(@migsilva89)*
+- 🔐 Carry pageOrder in the admin nav payload and sort items server-side (#4845). (#4972) *(@adeptofvoltron)*
+- 🐛 Stop ThemeProvider from remounting the app subtree after hydration. (#5055) *(@wojciechszyjka)*
+- 💰 Show line-level discounts in the document items table. (#5006) *(@maxidragon)*
+- 🔧 Retrieve Codex sessions through app-server. (#5162) *(@pkarw)*
+- 🐛 Accept a plain millisecond timeout from the activity editor (supersedes #4502). (#5013) *(@wojciechszyjka, via @pkarw)*
+- 📦 Align skill setup message indentation. (#5158) *(@pkarw)*
+- 🔧 Unblock the dependency audit gate (unpatched image-size CVEs + real nanoid bump). (#5157) *(@adeptofvoltron)*
+- 🔧 Avoid polling missing generate watch roots. (#5134) *(@andrzejewsky)*
+- 🐛 Let a command interceptor's rejection carry an HTTP status (#5045). (#5067) *(@wojciechszyjka)*
+- 🐛 Never persist a layout trim computed from an empty widget registry. (#5054) *(@wojciechszyjka)*
+- 📦 Fail fast with a clear message when Playwright browsers are missing (supersedes #4971). (#5130) *(@mikoajp, via @wojciechszyjka)*
+- 🐛 Mark a degraded agent models response as degraded (#5021). (#5028) *(@adeptofvoltron)*
+- 🔐 Scope channel reads to the selected organization (#5012). (#5031) *(@adeptofvoltron)*
+- 🔐 Carry trusted tenant/org scope in deal closure event options (#4731). (#4963) *(@adeptofvoltron)*
+- 🐛 Derive the Push column from adapter capabilities (#4980). (#4992) *(@wojciechszyjka)*
+- 🐛 Stop double-wiring onStepFinish on the tool-loop-agent path. (#5053) *(@wojciechszyjka)*
+- 🔄 Invalidate the CRUD list cache on timesheet direct writes (#4970). (#5023) *(@adeptofvoltron)*
+- 🐛 Include source-less canonical tasks in the task aggregate (#4868). (#5026) *(@adeptofvoltron)*
+- 🐛 Compare doc-backed fields to null with IS NULL (#4841). (#4964) *(@adeptofvoltron)*
+- 🐛 Compare null aggregation filters with IS NULL (#5016). (#5022) *(@adeptofvoltron)*
+- 🐛 Handle errors from the AI chat fire-and-forget fetches (#4703). (#4967) *(@adeptofvoltron)*
+- 🔐 Emit null index scope for the global Tenant entity (#4906). (#4965) *(@adeptofvoltron)*
+- 💰 Order document lines by line_number, not a random uuid. (#4996) *(@maxidragon)*
+- 🐛 Surface pending portal invitations on the person card (#4950). (#4956) *(@patzick)*
+- 🐛 Align the 0.6.6 → 0.6.7 upgrade window with the released changelog date. (#5032) *(@adeptofvoltron)*
+- 🐛 Reduce standalone telemetry rebuild churn. (#4922) *(@andrzejewsky)*
+- 🐛 Run the theme initializer before first paint (#4962, #4961). (#4987) *(@pkarw)*
+- 🐛 Stabilize TC-CAT-035 and TC-CRM-085 against the UI they assert. (#5008) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Index tag assignments by document_id and stop rewriting unchanged tag sets. (#5145) *(@maxidragon)*
+- 🛠️ Port the major dependency group from #5147 onto develop. (#5161) *(@pkarw)*
+- 🛠️ Version DS health reports as one rolling file (#5033). (#5072) *(@adeptofvoltron)*
+- 🛠️ Assert the module facts the catalog only allows. (#5038) *(@wojciechszyjka)*
+- 🛠️ Scope users role-link lookup before materializing ids (#4914). (#5027) *(@adeptofvoltron)*
+- 🛠️ Reduce regeneration and module graph overhead. (#4170) *(@andrzejewsky)*
+- 🛠️ Harden the AST emitter test harness (#4851). (#5029) *(@adeptofvoltron)*
+- 🛠️ Derive TC-UNDO-003 expectedCloseAt fixtures from the run clock (#5060). (#5061) *(@adeptofvoltron)*
+- 🛠️ Upgrade Next.js to 16.3.0 for lower dev memory. (#5020) *(@patzick)*
+- 🛠️ Localize the remaining route error responses (#4830). (#4993) *(@wojciechszyjka)*
+- 🛠️ Sync main (v0.6.7) back into develop. (#5014) *(@patzick)*
+
+## 🧪 Testing
+- 🧪 Guard against duplicate CHANGELOG version headings. (#5024) *(@adeptofvoltron)*
+- 🧪 Enforce workspace version alignment on the PR path (#5018). (#5025) *(@adeptofvoltron)*
+
+## 📝 Specs & Documentation
+- 📝 Record the before/after QA test-env traps in om-prepare-test-env. (#4999) *(@wojciechszyjka)*
+- 📝 Correct the Discord spec's backward-compatibility claim (#4975). (#4998) *(@wojciechszyjka)*
+- 📝 Document why checkout link slugs stay globally unique. (#4974) *(@Pallavikumarimdb)*
+- 📝 Settle the routing duration-budget contract. (#5068) *(@wojciechszyjka)*
+
+## 👥 Contributors
+
+- @maxidragon
+- @haxiorz
+- @adeptofvoltron
+- @wojciechszyjka
+- @pkarw
+- @patzick
+- @szymon-sapiecha
+- @patrykbojczuk
+- @migsilva89
+- @andrzejewsky
+- @mikoajp
+- @Pallavikumarimdb
+
+---
+
 # 0.6.7 (2026-08-05)
 
 ## Highlights
