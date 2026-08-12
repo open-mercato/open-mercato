@@ -10,13 +10,11 @@ import {
   type CitableSource,
   type GuardResults,
   type GuardrailSetBody,
-  type UntrustedSpan,
 } from '../../data/validators'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
-import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
-import { resolveContextModule } from '../context/registry'
+import { assembleRunContextSpans, screenRunInput } from './runPreflight'
 import { withRunContext } from './runContext'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
@@ -45,11 +43,11 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
 
 /**
- * Default token budget for a TDCR context assembly when the caller does not pass
- * one (Phase 1 — the INVOKE_AGENT node config wires a per-capability budget in a
- * later phase). Conservative; the packer prunes optional fill that exceeds it.
+ * Re-exported from `./runPreflight`, where the shared context-assembly front half
+ * now lives, so both `from './nativeAgentRunner'` and the `agentRuntime`
+ * re-export keep resolving it (BC).
  */
-export const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000
+export { DEFAULT_CONTEXT_TOKEN_BUDGET } from './runPreflight'
 
 export type NativeAgentRunnerDeps = {
   container: AwilixContainer
@@ -125,66 +123,24 @@ export class NativeAgentRunner {
       }
     }
 
-    // Context overlay (Phase 1): assemble + persist one append-only
-    // AgentContextBundle for this run BEFORE the model call (TDCR is on the
-    // synchronous INVOKE_AGENT path). Called directly from the run path — there
-    // is no pluggable workflow activity registry. Capability = the agent id. Only
-    // capabilities that declare a ContextModule get a bundle; the rest are a safe
-    // no-op so existing toolless agents are unaffected. Best-effort: an assembly
-    // failure must not abort the run (the bundle is evidence, not a gate in P1).
-    let untrustedSpans: UntrustedSpan[] = []
-    let citableSources: CitableSource[] = []
-    if (resolveContextModule(agentId)) {
-      try {
-        const contextEm = (this.container.resolve('em') as EntityManager).fork()
-        const resolver = new ContextResolverImpl(this.container)
-        const assembled = await resolver.assemble(contextEm, {
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-          agentRunId: runId,
-          processId: ctx.processId ?? null,
-          stepId: ctx.stepId ?? null,
-          capability: agentId,
-          budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
-        })
-        untrustedSpans = assembled.untrustedSpans
-        citableSources = assembled.citableSources
-      } catch (contextErr) {
-        if (!(contextErr instanceof ContextModuleNotFoundError)) {
-          logger.warn('context assembly failed', {
-            error: contextErr instanceof Error ? contextErr.message : String(contextErr),
-          })
-        }
-      }
-    }
-
-    // PRE-CALL input guardrail (Wave 3, Phase 3): screen the UNTRUSTED
-    // document/retrieval spans assembled above for injected-instruction patterns
-    // BEFORE the model call. A `block` persists the prompt_injection check + emits
-    // `guardrail.tripped`, then fails the step with a typed reason (never reaches
-    // disposition); a `warn`/`pass` records the audit rows and proceeds. The
-    // always-on output tool-scope backstop holds even if this layer is evaded.
-    const inputGuardrail = new GuardrailService(this.container)
-    const inputVerdict = await inputGuardrail.checkInput({ capability: agentId, untrustedSpans })
-    if (inputVerdict.checks.length > 0) {
-      const inputGuardEm = (this.container.resolve('em') as EntityManager).fork()
-      const inputScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
-      await persistVerdict({ em: inputGuardEm }, inputScope, {
-        verdict: inputVerdict,
-        capability: agentId,
-        phase: 'input',
-        proposalId: null,
-      })
-      if (inputVerdict.result === 'block' && inputVerdict.blockedReason) {
-        const detail = '[internal] pre-call guardrail block (prompt_injection)'
-        await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
-        throw new AgentGuardrailBlockedError(agentId, detail, {
-          phase: inputVerdict.blockedReason.phase,
-          kind: inputVerdict.blockedReason.kind,
-          guardrailSetVersion: GUARDRAIL_SET_VERSION,
-        })
-      }
-    }
+    // Context bundle + PRE-CALL input guardrail, shared verbatim with the
+    // external runner (see `./runPreflight`). A guardrail `block` fails the run
+    // inside `screenRunInput` and throws AgentGuardrailBlockedError.
+    const { untrustedSpans, citableSources } = await assembleRunContextSpans({
+      container: this.container,
+      agentId,
+      runId,
+      ctx,
+    })
+    await screenRunInput({
+      container: this.container,
+      commandBus: this.commandBus,
+      commandCtx,
+      agentId,
+      runId,
+      ctx,
+      untrustedSpans,
+    })
 
     // Load the caller's effective ACL so the agent's read-only tools (e.g.
     // customers.get_deal, gated by customers.deals.view) pass their feature

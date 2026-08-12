@@ -165,6 +165,44 @@ export async function createRun(
 }
 
 /**
+ * Persist the `agent_external_runs` correlation row that links a suspended run to
+ * the provider answering it later. Goes through the audited Command path for the
+ * same reason `createRun` does — and here it is not optional: the flush-time
+ * no-bypass guard rejects any write reaching `em.flush()` under an agent-actor
+ * scope that is not nested in an audited Command.
+ */
+export async function createExternalRunRow(
+  commandBus: CommandBus,
+  commandCtx: CommandRuntimeContext,
+  input: {
+    tenantId: string
+    organizationId: string
+    runId: string
+    agentId: string
+    connectorId: string
+    /** LOWERCASE SHA-256 hex digest of the callback token — never the token. */
+    callbackTokenHash: string
+    externalRunId?: string | null
+    /** The workflow resume triple; all three or none (validator invariant, T2.1). */
+    processId?: string | null
+    stepId?: string | null
+    signalName?: string | null
+    status?: 'pending' | 'completed' | 'failed' | 'expired' | 'cancelled'
+    expiresAt: Date
+    requestPayload?: unknown
+    resultPayload?: unknown
+  },
+): Promise<string> {
+  const { result } = await withAuditedCommand(() =>
+    commandBus.execute<typeof input, { externalRunRowId: string }>(
+      'agent_orchestrator.external_runs.create',
+      { input, ctx: commandCtx },
+    ),
+  )
+  return result.externalRunRowId
+}
+
+/**
  * Optional usage/cost stamp attached at a run's terminal transition (data-honesty
  * spec §3.2). Absent fields leave the run columns untouched, so pre-existing
  * callers are byte-for-byte unaffected. Cost is the caller-computed ESTIMATE
