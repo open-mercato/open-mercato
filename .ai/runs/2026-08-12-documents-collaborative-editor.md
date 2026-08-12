@@ -60,5 +60,5 @@ The current PR branch, its conflicts with `upstream/develop`, all unresolved act
 
 ### Phase 4: Publish and monitor
 
-- [ ] 4.1 Push the completed branch, update the PR summary and labels, and request re-review where required
+- [x] 4.1 Push the completed branch, update the PR summary and labels, and request re-review where required — 077fc5007
 - [ ] 4.2 Monitor required CI checks to a terminal result and address any branch-caused failure
