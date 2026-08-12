@@ -50,8 +50,8 @@ The current PR branch, its conflicts with `upstream/develop`, all unresolved act
 
 ### Phase 2: Reconcile current develop
 
-- [ ] 2.1 Merge current `upstream/develop` and resolve every conflict while preserving both branch contracts
-- [ ] 2.2 Audit the merged diff for semantic regressions and add focused tests for any behavior changed by the resolution
+- [x] 2.1 Merge current `upstream/develop` and resolve every conflict while preserving both branch contracts — d75fd0082
+- [x] 2.2 Audit the merged diff for semantic regressions and add focused tests for any behavior changed by the resolution — d75fd0082
 
 ### Phase 3: Verify review readiness
 
