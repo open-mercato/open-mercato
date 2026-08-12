@@ -1494,3 +1494,66 @@ export const evalCaseUpdateSchema = z
   .object({ id: z.string().uuid() })
   .merge(evalCaseCreateSchema.partial())
 export type EvalCaseUpdateInput = z.infer<typeof evalCaseUpdateSchema>
+
+// ── External agent runs (spec next/2026-08-12-external-agent-invocation-analysis) ──
+
+/**
+ * Single-shot lifecycle of one `agent_external_runs` row. Only `pending` accepts a
+ * completion, which is what makes a replayed provider webhook a no-op instead of a
+ * second resume of the same parked workflow step.
+ */
+export const agentExternalRunStatusSchema = z.enum([
+  'pending',
+  'completed',
+  'failed',
+  'expired',
+  'cancelled',
+])
+export type AgentExternalRunStatusInput = z.infer<typeof agentExternalRunStatusSchema>
+
+/**
+ * A SHA-256 hex digest and nothing else — the column stores the hash of the
+ * single-use callback token, never the token. Pinning the shape here keeps a
+ * caller from persisting the plaintext by accident, which would make every stored
+ * correlation row a forgeable callback (design §7 risk R3).
+ */
+export const AGENT_EXTERNAL_RUN_TOKEN_HASH_LENGTH = 64
+
+export const agentExternalRunTokenHashSchema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/, 'Expected a lowercase SHA-256 hex digest')
+
+/**
+ * The validated shape of one correlation row: which run is suspended, which parked
+ * workflow step resumes it, when we give up, and what came back.
+ *
+ * `requestPayload`/`resultPayload` stay `unknown` — each connector normalizes its
+ * own provider payload and the agent's OUTCOME schema is what constrains the
+ * result downstream. Both columns, and `failureReason`, are ENCRYPTED at rest via
+ * the module's `defaultEncryptionMaps`.
+ *
+ * The workflow correlation triple is all-or-nothing: a row naming a step but no
+ * process (or vice versa) can never be resumed, so the completion path would park
+ * the instance forever rather than fail loudly.
+ */
+export const agentExternalRunSchema = z
+  .object({
+    runId: z.string().uuid(),
+    agentId: z.string().min(1).max(100),
+    connectorId: z.string().min(1).max(100),
+    callbackTokenHash: agentExternalRunTokenHashSchema,
+    externalRunId: z.string().min(1).max(200).nullable().optional(),
+    processId: z.string().uuid().nullable().optional(),
+    stepId: z.string().min(1).max(100).nullable().optional(),
+    signalName: z.string().min(1).max(150).nullable().optional(),
+    status: agentExternalRunStatusSchema.default('pending'),
+    expiresAt: z.coerce.date(),
+    requestPayload: z.unknown().optional(),
+    resultPayload: z.unknown().optional(),
+    failureReason: z.string().max(4000).nullable().optional(),
+  })
+  .refine(
+    (row) => [row.processId, row.stepId, row.signalName].filter((value) => !!value).length % 3 === 0,
+    { message: 'processId, stepId and signalName must be declared together', path: ['stepId'] },
+  )
+export type AgentExternalRunInput = z.infer<typeof agentExternalRunSchema>

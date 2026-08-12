@@ -98,6 +98,23 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'caption' },
     ],
   },
+  {
+    // The external-run correlation row's payload columns. `result_payload` is the
+    // worst case in this file: a normalized call transcript is free text ABOUT a
+    // real person, spoken by them. `request_payload` carries the brief we sent the
+    // provider (phone number, case summary) and `failure_reason` can quote either
+    // back on a validation or connector failure. `callback_token_hash` is
+    // deliberately NOT here — it is already a one-way digest and must stay
+    // SQL-queryable, since resolving a callback is a lookup by that column.
+    // Same unchecked-string hazard as the entries above: this key must move with
+    // any rename of AgentExternalRun or these columns.
+    entityId: 'agent_orchestrator:agent_external_run',
+    fields: [
+      { field: 'request_payload' },
+      { field: 'result_payload' },
+      { field: 'failure_reason' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

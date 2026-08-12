@@ -1897,3 +1897,130 @@ export class AgentEvalCaseRun {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+
+// ── External plane: runs an external provider answers minutes later ──────────
+
+/**
+ * Single-shot lifecycle of one external invocation. `pending` is the only state a
+ * callback may complete from, which is what makes a replayed webhook a no-op
+ * rather than a second resume of the same workflow step.
+ */
+export type AgentExternalRunStatus = 'pending' | 'completed' | 'failed' | 'expired' | 'cancelled'
+
+/**
+ * The durable correlation between a SUSPENDED agent run and the external provider
+ * that will answer it (spec `.ai/specs/enterprise/agent-orchestrator/next/
+ * 2026-08-12-external-agent-invocation-analysis.md` §5.5).
+ *
+ * A sibling of `AgentRunSession`, deliberately NOT a reuse of it: the OpenCode
+ * session store is `dispose()`d in a `finally`, has no deadline, and knows nothing
+ * about the parked workflow step. This row outlives the worker that created it —
+ * it is what a callback arriving ten minutes later resolves against.
+ *
+ * The row TRANSITIONS (`pending` → terminal), so it carries `updated_at` for
+ * optimistic locking, unlike the append-only trace rows.
+ *
+ * `callback_token_hash` stores a SHA-256 HEX DIGEST — the plaintext callback token
+ * is handed to the provider and NEVER persisted, so a database read cannot forge a
+ * callback. The route hashes the token it received and looks the row up by that
+ * digest (design §7 risk R3). The verified provider signature, not the body,
+ * establishes the tenant scope.
+ *
+ * `expires_at` is what stops risk R2: a call nobody answers must never leave a
+ * workflow parked forever, so the deadline sweep probes
+ * (`organization_id`, `status`, `expires_at`) and fails the run down the `error`
+ * route. Other modules and rows are referenced by FK id only — never a relation.
+ */
+@Entity({ tableName: 'agent_external_runs' })
+@Index({ name: 'agent_external_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_external_runs_run_idx', properties: ['runId'] })
+@Index({ name: 'agent_external_runs_deadline_idx', properties: ['organizationId', 'status', 'expiresAt'] })
+@Unique({ name: 'agent_external_runs_token_uq', properties: ['callbackTokenHash'] })
+// The provider's own id is unique within the PROVIDER ACCOUNT, not globally: two
+// tenants running their own ElevenLabs workspace can legitimately mint the same
+// `conversation_id`, so the constraint is scoped by org + connector. Nullable
+// columns make it behave as a partial unique for free (Postgres treats NULLs as
+// distinct), so no `@Index({ expression })` is needed — the `agent_runs_runtime_
+// external_uq` precedent over the equally-nullable `(runtime, external_run_id)`.
+@Unique({
+  name: 'agent_external_runs_connector_external_uq',
+  properties: ['organizationId', 'connectorId', 'externalRunId'],
+})
+export class AgentExternalRun {
+  [OptionalProps]?:
+    | 'externalRunId'
+    | 'processId'
+    | 'stepId'
+    | 'signalName'
+    | 'status'
+    | 'requestPayload'
+    | 'resultPayload'
+    | 'failureReason'
+    | 'createdAt'
+    | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_runs; NOT an ORM relation. */
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  /** Registry agent id (`voice.owner_call`), snapshotted so the row reads without the registry. */
+  @Property({ name: 'agent_id', type: 'varchar', length: 100 })
+  agentId!: string
+
+  /** Which `ExternalAgentConnector` started the run and must verify its callback. */
+  @Property({ name: 'connector_id', type: 'varchar', length: 100 })
+  connectorId!: string
+
+  /** SHA-256 hex digest of the single-use callback token; the token itself is never stored. */
+  @Property({ name: 'callback_token_hash', type: 'varchar', length: 64 })
+  callbackTokenHash!: string
+
+  /** The provider's own run id (an ElevenLabs `conversation_id`) — idempotency + cancellation. */
+  @Property({ name: 'external_run_id', type: 'varchar', length: 200, nullable: true })
+  externalRunId?: string | null
+
+  /** FK id → workflows instance holding the parked step; null for a non-workflow invocation. */
+  @Property({ name: 'process_id', type: 'uuid', nullable: true })
+  processId?: string | null
+
+  @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
+  stepId?: string | null
+
+  /** The signal that resumes the parked step (`agent_orchestrator.proposal.ready`). */
+  @Property({ name: 'signal_name', type: 'varchar', length: 150, nullable: true })
+  signalName?: string | null
+
+  @Property({ name: 'status', type: 'varchar', length: 20, default: 'pending' })
+  status: AgentExternalRunStatus = 'pending'
+
+  /** Deadline after which the sweep gives up on this invocation. */
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  /** What was sent to the provider; encrypted (encryption.ts) — it carries the brief. */
+  @Property({ name: 'request_payload', type: 'jsonb', nullable: true })
+  requestPayload?: unknown | null
+
+  /** The connector-normalized result; encrypted — a transcript is free text about a person. */
+  @Property({ name: 'result_payload', type: 'jsonb', nullable: true })
+  resultPayload?: unknown | null
+
+  /** May quote provider or validation detail about the call; encrypted. */
+  @Property({ name: 'failure_reason', type: 'text', nullable: true })
+  failureReason?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
