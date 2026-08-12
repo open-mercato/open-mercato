@@ -9,7 +9,7 @@ import type {
   ModuleOwnedContractFact,
 } from './module-facts'
 import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
-import { getFrameworkOverrideModes } from './module-extension-facts'
+import { getFrameworkOverrideHostOperations } from './module-extension-facts'
 
 /**
  * Exact module-specific unified override targets.
@@ -26,11 +26,26 @@ import { getFrameworkOverrideModes } from './module-extension-facts'
  * `nav.groupOrder` are never module targets.
  */
 
-export type ModuleOverrideMode = 'disable-replace' | 'replace' | 'additive'
+/**
+ * Closed mode/note/diagnostic sets, published as `as const` ledgers whose types
+ * derive from them. The `factCoverage` ledger enumerates these at runtime, so a
+ * value added here without a ledger row fails the coverage contract test instead
+ * of silently widening the public surface.
+ */
+export const MODULE_OVERRIDE_MODES = ['disable-replace', 'replace', 'additive'] as const
 
-export type ModuleOverrideTargetNote =
-  | 'safe-metadata-only'
-  | 'page-middleware-not-mutation-guard'
+export type ModuleOverrideMode = (typeof MODULE_OVERRIDE_MODES)[number]
+
+export const MODULE_OVERRIDE_TARGET_NOTES = [
+  'safe-metadata-only',
+  'page-middleware-not-mutation-guard',
+] as const
+
+export type ModuleOverrideTargetNote = (typeof MODULE_OVERRIDE_TARGET_NOTES)[number]
+
+function isModuleOverrideMode(value: string): value is ModuleOverrideMode {
+  return (MODULE_OVERRIDE_MODES as readonly string[]).includes(value)
+}
 
 export type ModuleOverrideTarget = {
   id: string
@@ -43,11 +58,15 @@ export type ModuleOverrideTarget = {
   notes?: ModuleOverrideTargetNote[]
 }
 
-export type ModuleOverrideTargetDiagnosticCode =
-  | 'missing-owned-fact'
-  | 'missing-source'
-  | 'unsupported-dynamic-key'
-  | 'unknown-framework-domain'
+export const MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES = [
+  'missing-owned-fact',
+  'missing-source',
+  'unsupported-dynamic-key',
+  'unknown-framework-domain',
+  'unknown-framework-mode',
+] as const
+
+export type ModuleOverrideTargetDiagnosticCode = (typeof MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES)[number]
 
 export type ModuleOverrideTargetDiagnostic = {
   code: ModuleOverrideTargetDiagnosticCode
@@ -82,17 +101,35 @@ type InternalAdapter = {
   run(moduleFacts: ModuleFactsJsonEntry, resolveFactSource: FactSourceLookup): AdapterResult
 }
 
-const OVERRIDE_MODES = getFrameworkOverrideModes()
+const OVERRIDE_HOST_OPERATIONS = getFrameworkOverrideHostOperations()
+
+/**
+ * Why a dotted host produced no modes. The two failure causes are distinct and a
+ * downstream app needs to tell them apart: an absent host means the catalog never
+ * described this override surface, while an unrecognized mode means the catalog
+ * *does* describe it but names an operation this generator cannot map to a public
+ * {@link ModuleOverrideMode}. Collapsing the second into the first would report a
+ * catalog the generator has fallen behind as a surface that does not exist.
+ */
+export type FrameworkOverrideModeResolution =
+  | { outcome: 'resolved'; modes: ModuleOverrideMode[] }
+  | { outcome: 'unknown-framework-domain' }
+  | { outcome: 'unknown-framework-mode'; operation: string }
 
 /**
  * Supported modes come from the framework catalog only. A host the catalog does not
- * describe is never guessed: the caller emits an `unknown-framework-domain`
- * diagnostic and no target, so a downstream app is not told a key is overridable in
- * a mode the runtime may not support.
+ * describe is never guessed, and neither is a host whose declared operation is not a
+ * known mode: both produce no target, so a downstream app is never told a key is
+ * overridable in a mode the runtime may not support.
  */
-function modesFor(dottedHost: string): ModuleOverrideMode[] | null {
-  const mode = OVERRIDE_MODES[dottedHost]
-  return mode ? [mode] : null
+export function resolveFrameworkOverrideModes(operation: string | undefined): FrameworkOverrideModeResolution {
+  if (operation === undefined) return { outcome: 'unknown-framework-domain' }
+  if (!isModuleOverrideMode(operation)) return { outcome: 'unknown-framework-mode', operation }
+  return { outcome: 'resolved', modes: [operation] }
+}
+
+function modesFor(dottedHost: string): FrameworkOverrideModeResolution {
+  return resolveFrameworkOverrideModes(OVERRIDE_HOST_OPERATIONS[dottedHost])
 }
 
 /**
@@ -146,9 +183,13 @@ type MakeTargetInput = {
   notes?: ModuleOverrideTargetNote[]
 }
 
-function makeTarget(input: MakeTargetInput): ModuleOverrideTarget | null {
-  const modes = modesFor(input.dottedHost)
-  if (!modes) return null
+/** The resolution outcomes that yield no target; each names its own diagnostic code. */
+type UnresolvedOverrideMode = Exclude<FrameworkOverrideModeResolution, { outcome: 'resolved' }>
+
+function makeTarget(input: MakeTargetInput): ModuleOverrideTarget | UnresolvedOverrideMode {
+  const resolution = modesFor(input.dottedHost)
+  if (resolution.outcome !== 'resolved') return resolution
+  const { modes } = resolution
   const target: ModuleOverrideTarget = {
     id: computeOverrideTargetId(input.moduleId, input.domain, input.path),
     domain: input.domain,
@@ -163,21 +204,24 @@ function makeTarget(input: MakeTargetInput): ModuleOverrideTarget | null {
 }
 
 /**
- * Emits the target, or an `unknown-framework-domain` diagnostic when the framework
- * catalog does not describe the target's dotted host.
+ * Emits the target, or the diagnostic matching why the framework catalog yielded no
+ * modes: `unknown-framework-domain` when the catalog does not describe the target's
+ * dotted host at all, `unknown-framework-mode` when it describes the host but names
+ * an operation that is not a public {@link ModuleOverrideMode}. Neither case guesses
+ * a target.
  */
 function pushTarget(
   targets: ModuleOverrideTarget[],
   diagnostics: ModuleOverrideTargetDiagnostic[],
   input: MakeTargetInput,
 ): void {
-  const target = makeTarget(input)
-  if (target) {
-    targets.push(target)
+  const result = makeTarget(input)
+  if (!('outcome' in result)) {
+    targets.push(result)
     return
   }
   diagnostics.push({
-    code: 'unknown-framework-domain',
+    code: result.outcome,
     moduleId: input.moduleId,
     domain: input.domain,
     candidatePath: input.path,

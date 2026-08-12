@@ -5,6 +5,7 @@ import test from 'node:test'
 
 const packagePreviewWorkflowPath = path.resolve('.github/workflows/package-previews.yml')
 const npmSnapshotPreviewWorkflowPath = path.resolve('.github/workflows/npm-snapshot-preview.yml')
+const snapshotWorkflowPath = path.resolve('.github/workflows/snapshot.yml')
 const autoPublishSkillPath = path.resolve('.ai/skills/om-auto-publish-pr/SKILL.md')
 const skillTiersPath = path.resolve('.ai/skills/tiers.json')
 
@@ -14,6 +15,29 @@ function readText(filePath) {
 
 function countOccurrences(text, fragment) {
   return text.split(fragment).length - 1
+}
+
+function stepIndex(workflow, stepName) {
+  const index = workflow.indexOf(`- name: ${stepName}`)
+  assert.notEqual(index, -1, `Expected workflow to contain step "${stepName}"`)
+  return index
+}
+
+function assertStandaloneExampleActivationLane(workflow) {
+  const baselineIndex = stepIndex(workflow, 'Generate runtime-disabled standalone baseline')
+  const activationIndex = stepIndex(workflow, 'Verify disabled baseline and activate example integration fixture')
+  const activatedGenerationIndex = stepIndex(workflow, 'Generate activated standalone app modules')
+  const buildIndex = stepIndex(workflow, 'Build standalone app')
+  const startIndex = stepIndex(workflow, 'Start standalone app')
+  const integrationIndex = stepIndex(workflow, 'Run integration tests')
+
+  assert.ok(baselineIndex < activationIndex, 'The published scaffold must generate once while example is disabled')
+  assert.ok(activationIndex < activatedGenerationIndex, 'The example fixture must be activated before regeneration')
+  assert.ok(activatedGenerationIndex < buildIndex, 'The activated fixture must be generated before the app build')
+  assert.ok(buildIndex < startIndex, 'The activated app must be built before it is started')
+  assert.ok(startIndex < integrationIndex, 'The activated app must be running before TC-EXAMPLE-016 executes')
+  assert.match(workflow, /run: yarn tsx scripts\/prepare-standalone-example-integration\.ts \/tmp\/standalone-app/)
+  assert.match(workflow, /OM_TEST_APP_ROOT: \/tmp\/standalone-app/)
 }
 
 test('package previews are explicit same-repository workflow dispatches', () => {
@@ -53,6 +77,12 @@ test('npm snapshot previews preserve PR canary behavior behind manual dispatch',
   assert.equal(countOccurrences(workflow, 'ref: ${{ needs.resolve-pr.outputs.head_sha }}'), 2)
   assert.match(workflow, /const issueNumber = Number\(process\.env\.PR_NUMBER\);/)
   assert.doesNotMatch(workflow, /issue_number: context\.issue\.number/)
+})
+
+test('published standalone lanes verify the disabled baseline before activating TC-EXAMPLE-016', () => {
+  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
+    assertStandaloneExampleActivationLane(readText(workflowPath))
+  }
 })
 
 test('auto publish skill only dispatches pkg.pr.new previews and is tiered as automation', () => {

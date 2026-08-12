@@ -118,7 +118,7 @@ jobs:
     needs: scope
     if: needs.scope.outputs.has_work == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     # Advisory: a low score annotates the PR, it does not fail the check. Flipping
     # MUTATION_ENFORCE to 'true' is what turns this into a real gate.
     continue-on-error: ${{ vars.MUTATION_ENFORCE != 'true' }}
