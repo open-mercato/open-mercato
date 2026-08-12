@@ -348,6 +348,7 @@ import type {
   ModuleWorker,
 } from './registry'
 import { createLogger } from '../lib/logger'
+import { resolveDeclaredPageRouteMetadata } from './pageRouteMetadata'
 import type { ModuleInjectionTable } from './widgets/injection'
 import type { ComponentOverride } from './widgets/component-registry'
 import type { NotificationHandler } from './notifications/handler'
@@ -1058,6 +1059,14 @@ export function applyApiOverridesToManifests<T extends ApiRouteManifestEntry>(
   return result
 }
 
+/**
+ * A manifest entry holds *resolved* metadata (`order`, `title`, `group`), while an override
+ * declares *authored* metadata, which may use the `page*` aliases (`pageOrder`, `pageTitle`).
+ * Spreading the raw override alone left those aliases on keys nothing reads, so an override
+ * could retitle a page through `pageTitleKey` yet never reposition it through `pageOrder`
+ * (#4845). The raw metadata is still spread first so unrecognized keys keep reaching the
+ * entry, then the resolved-and-declared subset lands on top.
+ */
 export function applyPageOverridesToManifests<T extends BackendRouteManifestEntry | FrontendRouteManifestEntry>(
   routes: readonly T[],
   overrides: Readonly<PageRouteOverridesMap>,
@@ -1113,7 +1122,7 @@ export function applyPageOverridesToManifests<T extends BackendRouteManifestEntr
         ? async () => override.Component!
         : entry.load
 
-    result.push({ ...entry, ...metadata, load })
+    result.push({ ...entry, ...metadata, ...resolveDeclaredPageRouteMetadata(metadata), load })
   }
 
   warnStaleOverrides('routes.pages', Object.fromEntries(

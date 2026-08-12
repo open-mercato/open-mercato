@@ -78,6 +78,7 @@ describe('Queue - async strategy', () => {
         db: 1,
         tls: {},
         family: undefined,
+        protocol: 2,
       },
     })
     expect(workerCtor).toHaveBeenCalledWith(
@@ -92,6 +93,7 @@ describe('Queue - async strategy', () => {
           db: 1,
           tls: {},
           family: undefined,
+          protocol: 2,
         },
         concurrency: 3,
       },
@@ -116,6 +118,7 @@ describe('Queue - async strategy', () => {
         db: 4,
         tls: {},
         family: 6,
+        protocol: 2,
       },
     })
   })

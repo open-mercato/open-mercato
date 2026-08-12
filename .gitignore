@@ -130,8 +130,13 @@ docker/opencode/opencode.jsonc
 
 # MCPs
 .playwright-mcp
-# Local CI / agent investigation logs (not source)
-.ai/reports/
+# Local CI / agent investigation logs (not source), except the versioned DS
+# health metrics the om-ds-guardian check reads back as its trend baseline.
+# The glob must be `.ai/reports/*`, not `.ai/reports/` — git cannot re-include a
+# file whose parent directory is excluded.
+.ai/reports/*
+!.ai/reports/ds-health-baseline-*.txt
+!.ai/reports/ds-health-latest.txt
 .ai/qa/ephemeral-env.lock/owner.json
 .ai/qa/ephemeral-env.lock/*
 .ai/qa/ephemeral*
@@ -141,6 +146,7 @@ docker/opencode/opencode.jsonc
 .ai/qa/test-env.lock/
 .ai/qa/test-env-boot.log
 .ai/qa/artifacts_*/
+.ai/qa/email-capture.jsonl
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*
@@ -162,3 +168,9 @@ apps/mercato/src/module-facts.generated.json
 
 # skills CLI lockfile (external skills are re-resolved on each install)
 skills-lock.json
+
+# StrykerJS mutation testing (scripts/stryker/). Without these, a local
+# `yarn mutation:changed` run leaves untracked output that makes the wrapper's
+# clean-tree guard refuse the next run.
+.stryker-tmp/
+**/reports/mutation/

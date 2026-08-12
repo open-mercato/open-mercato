@@ -1947,6 +1947,7 @@ export class SalesDocumentTag {
 
 @Entity({ tableName: 'sales_document_tag_assignments' })
 @Index({ name: 'sales_document_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'sales_document_tag_assignments_document_idx', properties: ['documentId'] })
 @Unique({
   name: 'sales_document_tag_assignments_unique',
   properties: ['tag', 'documentId', 'documentKind'],
