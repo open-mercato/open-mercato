@@ -960,6 +960,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     dirtyBaselineSnapshotRef.current = createDirtySnapshot(source)
     dirtyBaselineValuesRef.current = { ...source }
     userEditedFieldIdsRef.current.clear()
+    everEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -1857,6 +1858,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
     if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
+    if (!everEditedFieldIdsRef.current.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
     const nextFieldErrors: Record<string, string> = {}
@@ -2309,6 +2311,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return
     }
     userEditedFieldIdsRef.current.add(id)
+    everEditedFieldIdsRef.current.add(id)
   }, [])
 
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
@@ -2446,6 +2449,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
   const dirtyBaselineValuesRef = React.useRef<Record<string, unknown> | undefined>(undefined)
   const userEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
+  const everEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
   React.useLayoutEffect(() => {
     if (!initialValues) return
     const snapshot = JSON.stringify({
@@ -3093,13 +3097,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }
 
   const renderFields = (fieldList: CrudField[]) => {
-    const usesResponsive = fieldList.some(
+    const visibleFieldList = fieldList.filter(
+      (field) => !hiddenBaseFieldIds.has(field.id) && !hiddenInjectedFieldIds.has(field.id)
+    )
+    const usesResponsive = visibleFieldList.some(
       (field) => field.layout === 'half' || field.layout === 'third'
     )
     const gridClass = usesResponsive ? 'grid grid-cols-1 gap-4 md:grid-cols-6' : 'grid grid-cols-1 gap-4'
     return (
       <div className={gridClass}>
-        {fieldList.map((f) => {
+        {visibleFieldList.map((f) => {
           const layout = f.layout ?? 'full'
           const wrapperClassName = usesResponsive ? resolveLayoutClass(layout) : undefined
           return (
