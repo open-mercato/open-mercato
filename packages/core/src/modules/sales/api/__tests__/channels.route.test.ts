@@ -1,10 +1,22 @@
-import { buildSearchFilters, decorateChannelsWithOfferCounts, parseIdList } from '../channels/route'
+import { buildSearchFilters, decorateChannelsWithOfferCounts, metadata, parseIdList } from '../channels/route'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
   }),
 }))
+
+describe('sales channels route metadata', () => {
+  it('should let any channel viewer read the list', () => {
+    expect(metadata.GET.requireFeatures).toEqual(['sales.channels.view'])
+  })
+
+  it('should keep writes behind sales.channels.manage', () => {
+    expect(metadata.POST.requireFeatures).toEqual(['sales.channels.manage'])
+    expect(metadata.PUT.requireFeatures).toEqual(['sales.channels.manage'])
+    expect(metadata.DELETE.requireFeatures).toEqual(['sales.channels.manage'])
+  })
+})
 
 describe('sales channels route helpers', () => {
   it('parses UUID lists and discards invalid entries', () => {
