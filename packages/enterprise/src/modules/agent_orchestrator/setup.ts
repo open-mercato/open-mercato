@@ -5,7 +5,10 @@ import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
 import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
-import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
+import {
+  AGENT_ORCHESTRATOR_EXTERNAL_RUN_SWEEP_QUEUE,
+  AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE,
+} from './lib/queue'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'setup' })
 
@@ -168,8 +171,38 @@ export const setup: ModuleSetupConfig = {
         sourceModule: 'agent_orchestrator',
         isEnabled: true,
       })
+
+      // T2.7: the SELF-HEALING half of the external-run deadline enforcement
+      // (design §5.5, risk R2). The precise half is a delayed job the runner
+      // enqueues per call; this tick is what catches the runs whose job the
+      // queue backend lost, whose enqueue failed after the provider had already
+      // been dialled, or that were written before this feature shipped. It reads
+      // the `(organization_id, status, expires_at)` index T2.1 built for it, so a
+      // tick with nothing to do costs one indexed probe.
+      //
+      // 60s rather than the rollup's 300s: this is the interval by which a
+      // workflow's release can be late when the delayed job is the thing that
+      // failed, and the query is far cheaper than a metrics pass.
+      await schedulerService.register({
+        id: stableScheduleUuid(`agent_orchestrator:external-run-sweep:${ctx.organizationId}`),
+        name: 'External agent run deadline sweep',
+        description:
+          'Fails external agent runs whose provider never called back, so a parked workflow step is always released.',
+        scopeType: 'organization',
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        scheduleType: 'interval',
+        scheduleValue: '60s',
+        timezone: 'UTC',
+        targetType: 'queue',
+        targetQueue: AGENT_ORCHESTRATOR_EXTERNAL_RUN_SWEEP_QUEUE,
+        targetPayload: { scope },
+        sourceType: 'module',
+        sourceModule: 'agent_orchestrator',
+        isEnabled: true,
+      })
     } catch (error) {
-      logger.warn('failed to register metric-rollup schedule', {
+      logger.warn('failed to register agent_orchestrator schedules', {
         error: error instanceof Error ? error.message : String(error),
       })
     }

@@ -10,6 +10,7 @@ import {
   type ExternalAgentConnectorScope,
 } from './externalConnectorRegistry'
 import { assembleRunContextSpans, screenRunInput } from './runPreflight'
+import { enqueueExternalRunDeadlineSweep } from './externalRunSweep'
 import { buildExternalRunCallbackPath, hashCallbackToken } from './callbackToken'
 import {
   completeExternalRun,
@@ -204,7 +205,7 @@ export class ExternalAgentRunner {
     const expiresAt = new Date(Date.now() + callbackTimeoutMs)
 
     if (started.expectsCallback) {
-      await createExternalRunRow(this.commandBus, commandCtx, {
+      const externalRunRowId = await createExternalRunRow(this.commandBus, commandCtx, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         runId,
@@ -220,6 +221,19 @@ export class ExternalAgentRunner {
         status: 'pending',
         expiresAt,
         requestPayload: input,
+      })
+
+      // The deadline (T2.7). Enqueued AFTER the row exists, because the job
+      // addresses that row, and swallowing its own failures because at this point
+      // the call is already live — see `enqueueExternalRunDeadlineSweep`. The
+      // periodic per-organization sweep is the self-healing backstop for
+      // everything this delayed job can lose.
+      await enqueueExternalRunDeadlineSweep({
+        externalRunRowId,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        runId,
+        expiresAt,
       })
 
       logger.info('external agent run started; suspending until the provider calls back', {
@@ -351,9 +365,34 @@ export class ExternalAgentRunner {
         'the registry entry carries no positive callbackTimeoutMs; a call nobody answers would park the workflow forever',
       )
     }
+    if (timeoutMs > IMPLAUSIBLE_CALLBACK_TIMEOUT_MS) {
+      // WARN, NOT REFUSE. `callbackTimeoutMs` has no upper bound (T2.2), and
+      // capping one here would fail runs an author deliberately configured — a
+      // multi-day external agent is unusual, not invalid, and this runner is the
+      // wrong place to overrule the registry. What IS worth saying out loud is
+      // that the guarantee weakens past this point: the delayed deadline job has
+      // to survive in the queue backend for the whole window, and days of Redis
+      // or `.mercato/queue` retention across deploys is not something to rely on.
+      // Such a run leans entirely on the periodic sweep — which is another reason
+      // both halves ship. One line per run is affordable: external runs place
+      // real-world calls, so they are low-volume by nature.
+      logger.warn('external agent declares an implausibly long callback deadline', {
+        agentId,
+        callbackTimeoutMs: timeoutMs,
+        thresholdMs: IMPLAUSIBLE_CALLBACK_TIMEOUT_MS,
+      })
+    }
     return timeoutMs
   }
 }
+
+/**
+ * Above 24 hours a deadline stops being a deadline and starts being a leak. The
+ * driving use case is a phone call measured in minutes, and no plausible external
+ * agent parks a business process for longer than a day without somebody wanting
+ * to know.
+ */
+const IMPLAUSIBLE_CALLBACK_TIMEOUT_MS = 24 * 60 * 60 * 1000
 
 function mintCallbackToken(): string {
   return `xrun_${randomBytes(32).toString('hex')}`

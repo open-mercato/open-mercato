@@ -65,6 +65,17 @@ jest.mock('../lib/runtime/persistence', () => {
   }
 })
 
+/**
+ * The deadline job the runner enqueues once the call is placed (T2.7). Mocked
+ * because the real helper reaches the module queue, and a unit test must not
+ * write into `.mercato/queue`; what the DEADLINE then does with the job is
+ * `external-run-expiry.test.ts`'s subject.
+ */
+const enqueueDeadlineSweepMock = jest.fn<Promise<void>, unknown[]>()
+jest.mock('../lib/runtime/externalRunSweep', () => ({
+  enqueueExternalRunDeadlineSweep: (...args: unknown[]) => enqueueDeadlineSweepMock(...args),
+}))
+
 const checkInputMock = jest.fn(async () => ({ result: 'pass', checks: [] as unknown[] }))
 jest.mock('../lib/guardrails/guardrailService', () => ({
   GUARDRAIL_SET_VERSION: 'test-version',
@@ -194,6 +205,7 @@ beforeEach(() => {
   completeRunMock.mockReset().mockResolvedValue(undefined)
   failRunMock.mockReset().mockResolvedValue(undefined)
   createExternalRunRowMock.mockReset().mockResolvedValue('external-row-1')
+  enqueueDeadlineSweepMock.mockReset().mockResolvedValue(undefined)
   claimExternalRunRowMock.mockReset().mockResolvedValue(true)
   settleExternalRunRowMock.mockReset().mockResolvedValue(true)
   runAiAgentObjectMock.mockReset()
@@ -256,6 +268,19 @@ describe('starting an external agent run', () => {
     // Suspended means UNSETTLED: the run stays `running` until the callback.
     expect(completeRunMock).not.toHaveBeenCalled()
     expect(failRunMock).not.toHaveBeenCalled()
+
+    // A suspension is only safe because something will come back for it. The
+    // deadline job is enqueued for THIS correlation row, with the same deadline
+    // the row carries, so a call nobody answers is released rather than parking
+    // the workflow forever (T2.7, risk R2).
+    expect(enqueueDeadlineSweepMock).toHaveBeenCalledTimes(1)
+    expect(enqueueDeadlineSweepMock.mock.calls[0][0]).toEqual({
+      externalRunRowId: 'external-row-1',
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      runId: 'run-1',
+      expiresAt: rowInput.expiresAt,
+    })
   })
 
   it('writes no resume triple for a non-workflow invocation', async () => {
@@ -389,6 +414,9 @@ describe('a connector that answers inside start()', () => {
     // Nothing will call back, so it carries no resume triple — the step never parked.
     expect(rowInput.processId).toBeNull()
     expect(rowInput.signalName).toBeNull()
+    // And no deadline job: the answer is already here, so there is no wait to
+    // enforce and a job would only wake to find the row settled.
+    expect(enqueueDeadlineSweepMock).not.toHaveBeenCalled()
 
     expect(claimExternalRunRowMock).toHaveBeenCalledTimes(1)
     expect((claimExternalRunRowMock.mock.calls[0][2] as { status: string }).status).toBe('completed')

@@ -84,14 +84,26 @@ export type ExternalRunCorrelation = {
 }
 
 /**
- * What came back. A connector reports EITHER a normalized payload or a failure it
- * already classified (the provider said the call was never answered, the callback
- * carried a `call_initiation_failure`, the deadline passed). Both settle the run;
- * they differ in which outcome handle the parked step takes.
+ * What came back — or the fact that nothing did.
+ *
+ * `result` is a normalized provider payload. `failure` is one the connector
+ * already classified (the provider reported the call was never answered, the
+ * callback carried a `call_initiation_failure`, `normalize()` could not map the
+ * body). `expired` is the deadline sweep (T2.7) reporting that nobody ever
+ * called: no payload exists and none is coming.
+ *
+ * All three settle the run and free the parked step. `result` differs in that it
+ * has something to validate and screen; the other two go straight to the failure
+ * arm. `expired` differs from `failure` in ONE respect — the terminal status
+ * written on the correlation row — because "the provider told us it failed" and
+ * "we gave up waiting" are different operational facts and an operator reading
+ * the row must be able to tell them apart. The run and the workflow see the same
+ * thing either way: a failed run down the `error` handle.
  */
 export type ExternalRunSettlement =
   | { kind: 'result'; payload: unknown }
   | { kind: 'failure'; reason: string }
+  | { kind: 'expired'; reason: string }
 
 /** Why a settlement failed — reported so a caller can raise the right typed error. */
 export type ExternalRunFailureCause =
@@ -99,6 +111,7 @@ export type ExternalRunFailureCause =
   | 'agent_not_registered'
   | 'schema_invalid'
   | 'guardrail_blocked'
+  | 'deadline_expired'
 
 /**
  * Which of core's five agent-outcome handles the parked step is resumed down.
@@ -203,7 +216,7 @@ export async function completeExternalRun(
     externalRunRowId: row.id,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-    status: settlement.kind === 'result' ? 'completed' : 'failed',
+    status: claimStatusFor(settlement),
   })
   if (!claimed) {
     logger.info('external run callback ignored; the run was already settled', {
@@ -227,7 +240,14 @@ export async function completeExternalRun(
       externalRunRowId: row.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      status: 'failed',
+      // The ROW keeps the distinction the run and the workflow deliberately drop:
+      // an expired row is the one NOBODY EVER ANSWERED, which is what the
+      // cockpit, the deadline metrics and an operator triaging a stuck provider
+      // need to see — a `failed` row means somebody answered badly. Note this is
+      // not simply the claim's status: a `result` settlement claims `completed`
+      // provisionally and lands here only when its payload turned out to be
+      // schema-invalid or guardrail-blocked, which is a `failed` row.
+      status: settlement.kind === 'expired' ? 'expired' : 'failed',
       failureReason: `${cause}: ${detail}`.slice(0, FAILURE_REASON_CHAR_LIMIT),
     })
     const resume = await resumeParkedStep({
@@ -251,6 +271,17 @@ export async function completeExternalRun(
 
   if (settlement.kind === 'failure') {
     return settleFailed('connector_failure', settlement.reason)
+  }
+
+  // The deadline sweep (T2.7) got here first: nobody called back before
+  // `expires_at`. Structurally identical to a connector-reported failure — there
+  // is no payload to validate and no guardrail to run, so the run fails and the
+  // parked step wakes down the `error` handle. An unanswered call is a failure to
+  // OBTAIN the answer, not a guardrail matter: nothing was refused on content, so
+  // routing it to `guardrailBlocked` would send it to the human-escalation path
+  // for a fact the author's own error route already handles.
+  if (settlement.kind === 'expired') {
+    return settleFailed('deadline_expired', settlement.reason)
   }
 
   // 2. The agent's declared contract. Resolving it can fail legitimately: the run
@@ -355,6 +386,23 @@ export async function completeExternalRun(
   })
 
   return { status: 'completed', runId: row.runId, result, outcomeHandle: 'researcher', resume }
+}
+
+/**
+ * The terminal status the CLAIM writes — the transition out of `pending` that
+ * decides which caller proceeds.
+ *
+ * For a `result` it is provisional (`settleFailed` corrects it to `failed` if the
+ * payload turns out not to hold up); for `failure` and `expired` it is already
+ * final. What matters at this point is only that the row leaves `pending` exactly
+ * once, so an inaccurate intermediate value is harmless — but an `expired` claim
+ * that wrote `failed` would leave a window in which the row lied about why it was
+ * settled, and a crash between the two writes would make that permanent.
+ */
+function claimStatusFor(settlement: ExternalRunSettlement): 'completed' | 'failed' | 'expired' {
+  if (settlement.kind === 'result') return 'completed'
+  if (settlement.kind === 'expired') return 'expired'
+  return 'failed'
 }
 
 /**
