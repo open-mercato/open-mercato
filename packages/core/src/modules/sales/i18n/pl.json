@@ -1031,6 +1031,8 @@
   "sales.documents.items.variantSearch": "Szukaj wariantu",
   "sales.documents.list.errors.load": "Nie udało się wczytać dokumentów.",
   "sales.documents.list.filters.channel": "Kanał",
+  "sales.documents.list.filters.channelPlaceholder": "Szukaj kanałów",
+  "sales.documents.list.filters.channelUnassigned": "(Brak kanału)",
   "sales.documents.list.filters.customer": "ID klienta",
   "sales.documents.list.filters.customerPlaceholder": "ID klienta",
   "sales.documents.list.filters.date": "Data",

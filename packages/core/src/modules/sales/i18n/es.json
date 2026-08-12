@@ -1031,6 +1031,8 @@
   "sales.documents.items.variantSearch": "Buscar variante",
   "sales.documents.list.errors.load": "No se pudieron cargar los documentos.",
   "sales.documents.list.filters.channel": "Canal",
+  "sales.documents.list.filters.channelPlaceholder": "Buscar canales",
+  "sales.documents.list.filters.channelUnassigned": "(Sin canal)",
   "sales.documents.list.filters.customer": "ID de cliente",
   "sales.documents.list.filters.customerPlaceholder": "ID de cliente",
   "sales.documents.list.filters.date": "Fecha",

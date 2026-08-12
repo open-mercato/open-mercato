@@ -53,6 +53,7 @@ type ApiDocument = {
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
   channelId?: string | null
+  channelName?: string | null
   lineItemCount?: number | null
   grandTotalNetAmount?: number | null
   grandTotalGrossAmount?: number | null
@@ -77,6 +78,7 @@ type SalesDocumentRow = {
   customerName?: string | null
   customerEmail?: string | null
   channelId?: string | null
+  channelName?: string | null
   lineItemCount?: number | null
   totalNet?: number | null
   totalGross?: number | null
@@ -86,6 +88,20 @@ type SalesDocumentRow = {
 }
 
 const PAGE_SIZE = 20
+
+// Not a uuid on purpose: the API drops non-uuid entries from channelIds, so a leak of this sentinel
+// into the id list narrows the filter instead of erroring.
+const UNASSIGNED_CHANNEL_VALUE = '__unassigned__'
+
+// Perspectives persist filterValues, so snapshots saved while this filter was a single-value select
+// hold a bare string. Without this the multi-select would read it as an unknown shape and silently
+// clear the user's saved filter.
+function normalizeChannelSelection(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  return raw
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry || '').trim()))
+    .filter((entry) => entry.length > 0)
+}
 
 function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined, fallback?: string | null) {
   if (!snapshot) return fallback ?? null
@@ -276,6 +292,30 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     [fetchChannelOptions]
   )
 
+  const unassignedChannelOption = React.useMemo<FilterOption>(
+    () => ({
+      value: UNASSIGNED_CHANNEL_VALUE,
+      label: t('sales.documents.list.filters.channelUnassigned', '(No channel)'),
+    }),
+    [t]
+  )
+
+  // The sentinel is offered alongside the real channels so "these channels or unassigned" is one
+  // selection. It is stripped back out when the query is built — the API takes it as a separate
+  // channelIdsEmpty flag, not as an id.
+  const channelFilterOptions = React.useMemo<FilterOption[]>(
+    () => [unassignedChannelOption, ...channelOptions],
+    [channelOptions, unassignedChannelOption]
+  )
+
+  const loadChannelFilterOptions = React.useCallback(
+    async (query?: string) => {
+      const opts = await loadChannelOptions(query)
+      return [unassignedChannelOption, ...opts]
+    },
+    [loadChannelOptions, unassignedChannelOption]
+  )
+
   const loadTagOptions = React.useCallback(
     async (query?: string) => {
       const opts = await fetchTagOptions(query)
@@ -305,9 +345,14 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     ...(channelsEnabled ? [{
       id: 'channelId',
       label: t('sales.documents.list.filters.channel', 'Channel'),
-      type: 'select',
-      options: channelOptions,
-      loadOptions: loadChannelOptions,
+      type: 'tags',
+      options: channelFilterOptions,
+      loadOptions: loadChannelFilterOptions,
+      placeholder: t('sales.documents.list.filters.channelPlaceholder', 'Search channels'),
+      formatValue: (val: string) =>
+        val === UNASSIGNED_CHANNEL_VALUE
+          ? t('sales.documents.list.filters.channelUnassigned', '(No channel)')
+          : channelOptions.find((opt) => opt.value === val)?.label ?? val,
     } satisfies FilterDef] : []),
     {
       id: 'date',
@@ -365,7 +410,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
       formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
     },
-  ], [channelsEnabled, channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
+  ], [channelsEnabled, channelFilterOptions, channelOptions, loadChannelFilterOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -377,8 +422,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       params.set('sortField', sort.id)
       params.set('sortDir', sort.desc ? 'desc' : 'asc')
     }
-    const channelId = typeof filterValues.channelId === 'string' ? filterValues.channelId : ''
-    if (channelId) params.set('channelId', channelId)
+    const channelSelection = normalizeChannelSelection(filterValues.channelId)
+    const channelIds = channelSelection.filter((value) => value !== UNASSIGNED_CHANNEL_VALUE)
+    if (channelIds.length > 0) params.set('channelIds', channelIds.join(','))
+    if (channelSelection.includes(UNASSIGNED_CHANNEL_VALUE)) params.set('channelIdsEmpty', 'true')
     const customerIds = Array.isArray(filterValues.customerId)
       ? filterValues.customerId
           .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
@@ -467,6 +514,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         customerName,
         customerEmail,
         channelId: doc.channelId ?? null,
+        channelName: doc.channelName ?? null,
         lineItemCount: doc.lineItemCount ?? null,
         totalNet,
         totalGross,
@@ -623,9 +671,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       cell: ({ row }) => {
         const channelId = row.original.channelId
         if (!channelId) return <span className="text-xs text-muted-foreground">{t('sales.documents.list.table.unassigned', 'Unassigned')}</span>
-        const channel = channelOptions.find((opt) => opt.value === channelId)
+        // Server-resolved, so this no longer depends on the channel being inside the options page.
+        // The uuid remains only for a channel the list response could not resolve.
         return (
-          <span className="text-sm">{channel?.label ?? channelId}</span>
+          <span className="text-sm">{row.original.channelName ?? channelId}</span>
         )
       },
       enableSorting: false,
@@ -663,7 +712,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [channelsEnabled, channelOptions, kind, statusMap, t])
+  ], [channelsEnabled, kind, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')
