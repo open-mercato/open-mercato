@@ -25,13 +25,14 @@ top of that seam.
 | 2.1 | Data: `AgentExternalRun` entity + validators + migration + snapshot + encryption map | DONE | `a8e8aba9a` |
 | 2.2 | SDK: `ExternalAgentConnector` registry + `defineExternalAgent` | DONE | `a99804cf2` |
 | 2.3 | Runtime: `ExternalAgentRunner` (start half) + `agentRuntime` dispatch arm for `runtime: 'external'` | DONE | `b1281e472` |
-| 2.4 | Runtime: `completeExternalRun` (validate → output guardrail → complete run → resume workflow) | TODO | |
+| 2.4 | Runtime: `completeExternalRun` (validate → output guardrail → complete run → resume workflow) | DONE | `5abf31a3f` |
 | 2.5 | Bridge: `invokeAgentForWorkflow` returns `{ kind: 'suspended' }` | TODO | |
 | 2.6 | API: callback route + command (unauthenticated, connector-verified, idempotent, `openApi`) | TODO | |
 | 2.7 | Deadline: delayed sweep job → cancel + fail + resume down the `error` route | TODO | |
 | 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (4 locales) | TODO | |
 | 2.9 | Package: `@open-mercato/agent-elevenlabs` — integration provider + voice connector | TODO | |
 | 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | TODO | |
+| 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | TODO | |
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript + recording captured as `AgentRunArtifact`s | TODO | |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
@@ -147,6 +148,31 @@ Verified against the live ElevenLabs docs (2026-08-12):
 - Credentials via the `integrations` module (`secret`-typed API key + webhook secret, plus agent id and
   phone-number id), per-tenant, read with `findOneWithDecryption`. Provider lives in its own workspace
   package — never inside `packages/core/src/modules/`.
+
+**2.11 — thread `outputMapping` to the external resume** *(added 2026-08-12 after T2.4)*
+
+Found by T2.4: an external step currently lands on the LEGACY fixed context keys (`disposition`,
+`agentId`, `<stepId>_agent`), because `outputMapping` never reaches the callback.
+
+Why it happens: on the normal parked path the mapping rides the `invoke_agent` QUEUE JOB, and the worker
+applies `mapAgentResultToContext` itself after the bridge returns. A suspended run returns before that,
+and the resume happens in a different process (the callback) from a correlation row that carries no
+mapping.
+
+Why it matters: the driving use case is `outputMapping: { call: 'data.transcript' }` on the voice node —
+the whole point of §1's graph is that the next agent reads `{{context.call}}`. Without this the author
+falls back to `{{context.<stepId>_agent}}`, which the Studio ledger types as `unknown`.
+
+Work:
+- core `workflows`: the bridge ctx (`AgentWorkflowBridgeLike` in BOTH declaring files) gains an optional
+  `outputMapping`; `handleInvokeAgentJob` passes `payload.outputMapping` it already holds. Additive.
+- enterprise: new `output_mapping` jsonb column on `agent_external_runs` (+ migration + snapshot),
+  persisted by the runner, applied by `completeExternalRun` before `sendSignal` using the SAME envelope
+  contract `mapAgentResultToContext` implements.
+- The envelope for an external researcher answer is `{ kind: 'researcher', data: <outcome> }`, so
+  `data.*` paths must resolve exactly as they do for a native researcher agent.
+- Tests: an external run with a declared mapping lands the mapped keys; with none, the legacy keys —
+  byte-identical to today.
 
 **2.10 — tests**
 - Unit: HMAC verify (good/bad/stale), normalize, suspend→callback→resume, single-shot idempotency,
@@ -298,3 +324,30 @@ Append one entry per task as it lands — decisions made, surprises found, devia
 - 2026-08-12 — **Still open after T2.3:** a connector answering synchronously (`expectsCallback: false`)
   is schema-checked but NOT output-guardrail screened; T2.4 must route that arm through the same
   completion function. No connector ships until T2.9, so nothing takes that path yet.
+- 2026-08-12 — **T2.4 done. A subtle data-safety trap avoided: `em.nativeUpdate` bypasses the encryption
+  subscriber's `beforeUpdate`.** The atomic single-shot claim has to be a native conditional UPDATE, but
+  `result_payload` / `failure_reason` are in `defaultEncryptionMaps` — writing a transcript that way would
+  persist PII in PLAINTEXT, in green CI. Hence TWO commands: `external_runs.claim` (native, atomic, status
+  only) and `external_runs.settle` (managed write, encrypted columns). Anyone adding a native write to an
+  encrypted column anywhere in this module hits the same trap.
+- 2026-08-12 — T2.4 followed `closeAgentDispositionTask`'s conditional-UPDATE precedent, NOT
+  `AgentRunSessionStore.completeOutcome` — the latter is read-then-write through the identity map with a
+  race between the two statements, and its single-shot guarantee holds only because the OpenCode store is
+  single-process. A webhook redelivery is not.
+- 2026-08-12 — **T2.4 arm split (divergence from the native runner, deliberate).** Native collapses
+  schema-invalid into the guardrail-block error. Here they are separate: a payload that does not match the
+  declared envelope means the connector's `normalize()` is wrong — an integration defect, `error` handle —
+  while a block is a well-formed answer refused on content, `guardrailBlocked` handle. Collapsing them
+  would route every connector bug to the human escalation path.
+- 2026-08-12 — **T2.4: grounding is deliberately SKIPPED for external answers.**
+  `resolveCurrentGroundingSet`'s cite-or-abstain check scores claims against the run's citable sources,
+  assembled in another process half an hour earlier and not reconstructible in the callback. Running it
+  would block every external answer for citing nothing. Screening the transcript as untrusted text is the
+  DOWNSTREAM agent's input guardrail (design §7 R5), which already happens.
+- 2026-08-12 — T2.4: if `sendSignal` fails after a completed run, the run stays terminal and truthful and
+  the instance stays PAUSED — it surfaces in the workflows attention/parked views and is recoverable with
+  a manual signal. Not re-failed, not retried (the row is claimed, so a redelivery reports
+  `already_settled`). Mirrors core's own `handleInvokeAgentJob` resume-failure intent.
+- 2026-08-12 — **T2.7 note from T2.4:** the sweep should claim with `status: 'expired'`; add a third
+  `settlement` kind (`{ kind: 'expired'; reason }`) that claims `expired` and otherwise reuses the
+  connector-failure arm verbatim.
