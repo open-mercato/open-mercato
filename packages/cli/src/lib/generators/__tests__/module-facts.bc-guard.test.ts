@@ -82,14 +82,20 @@ describe('module-facts BC resolve guard (T2)', () => {
     // pathological regression from ordinary hardware variance and failed
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
+    //
+    // Whole-repo output caps include the additive EUDR module. Measured with the
+    // same extractor, EUDR adds 147,395 JSON bytes and 66,037 Markdown bytes for
+    // its real routes, ACL, events, entities, and extension surfaces; removing
+    // only EUDR leaves 3,486,786 JSON bytes and 1,519,856 Markdown bytes. The
+    // extension-only delta remains below its existing 1.8 MB blow-up guard.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_500_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_750_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_550_000)
+    expect(markdownBytes).toBeLessThan(1_650_000)
   })
 
   it('discovers a superset of the historical core modules', () => {

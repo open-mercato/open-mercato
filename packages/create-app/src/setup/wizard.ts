@@ -197,7 +197,11 @@ function installSkills(targetDir: string): void {
   if (!existsSync(installScript)) return
   console.log('')
   console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
-  const result = spawnSync(process.execPath, [installScript], { cwd: targetDir, stdio: 'inherit' })
+  const result = spawnSync(process.execPath, [installScript], {
+    cwd: targetDir,
+    stdio: 'inherit',
+    env: { ...process.env, OM_SKILLS_OUTPUT_INDENT: '3' },
+  })
   if (result.error || result.status !== 0) {
     console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
   }
