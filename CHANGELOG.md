@@ -64,6 +64,8 @@ Several major platform capabilities arrive around those themes. Inbound webhooks
 - 🔒 Enforce cumulative capture ceiling (#4487). (#4508) *(@wojciechszyjka)*
 
 ## 🐛 Fixes
+- 🔐 Fail closed when a request has no resolved tenant. (#5122) *(@Frshy)*
+- 🐛 Let route-declared responses win over inferred defaults. (#5216) *(@Frshy)*
 - 🔐 Stabilize develop for release (login state loss, CodeQL, audit gate). (#5217) *(@pkarw)*
 - 🔧 Make local queue writes atomic and cross-process safe (#5149). (#5204) *(@pkarw)*
 - 🐛 Honour OR groups for custom-field filters (#5039). (#5056) *(@wojciechszyjka)*
@@ -216,6 +218,7 @@ Several major platform capabilities arrive around those themes. Inbound webhooks
 - 🐛 Preapprove @open-mercato past yarn's minimum release age gate. (#4644) *(@patzick)*
 
 ## 🛠️ Improvements
+- 🛠️ Bump nanoid to 3.3.18 on develop. (#5218) *(@pkarw)*
 - 🛠️ Index tag assignments by document_id and stop rewriting unchanged tag sets. (#5145) *(@maxidragon)*
 - 🛠️ Port the major dependency group from #5147 onto develop. (#5161) *(@pkarw)*
 - 🛠️ Version DS health reports as one rolling file (#5033). (#5072) *(@adeptofvoltron)*
@@ -246,6 +249,7 @@ Several major platform capabilities arrive around those themes. Inbound webhooks
 - 🧪 Mock i18n in the app-level storage_s3 route suite (#4926). (#4931) *(@wojciechszyjka)*
 
 ## 📝 Specs & Documentation
+- 📝 Address-level contact details and tax identifiers. (#5197) *(@kamwro)*
 - 📝 Record the before/after QA test-env traps in om-prepare-test-env. (#4999) *(@wojciechszyjka)*
 - 📝 Correct the Discord spec's backward-compatibility claim (#4975). (#4998) *(@wojciechszyjka)*
 - 📝 Document why checkout link slugs stay globally unique. (#4974) *(@Pallavikumarimdb)*
@@ -295,6 +299,7 @@ Several major platform capabilities arrive around those themes. Inbound webhooks
 - @MStaniaszek1998
 - @patzick
 - @KubaBir
+- @Frshy
 - @szymon-sapiecha
 - @patrykbojczuk
 - @migsilva89
@@ -311,6 +316,7 @@ Several major platform capabilities arrive around those themes. Inbound webhooks
 - @Paul-Mlodochowki
 - @piotrchabros
 - @tomaszscigalacshark
+- @kamwro
 - @KramarSellision
 - @PatrickMade
 
