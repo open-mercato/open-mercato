@@ -24,6 +24,109 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### Login rejects users with `isConfirmed: false` (#4541)
+
+`POST /api/auth/login` and `resolveCanonicalStaffAuthContext` now treat `isConfirmed === false` as "deactivated" and refuse the session, returning the same generic `401` as a wrong password. Deactivating a user through `PUT /api/auth/users` with `{ isConfirmed: false }` additionally deletes that user's `sessions` rows, so existing tokens stop resolving immediately.
+
+`User.isConfirmed` defaults to `true` and no seeding or invitation path sets it to `false`, so no existing account loses access on upgrade. The only in-tree producer of `false` is `deactivateDemoUsersIfSelfOnboardingEnabled`, which also nulls the password hash — those accounts could not authenticate before this change either.
+
+**Action for module authors:** if your module sets `isConfirmed` directly on `User` rows, be aware it is now an authentication gate rather than an informational flag. Code that used `isConfirmed: false` to mean "invited, not yet onboarded" while still expecting the user to be able to log in must move to its own field.
+
+### Command interceptors contribute audit context via `metadata.logContext` (#4542)
+
+`CommandInterceptorBeforeResult.metadata` gains a reserved key: when a `beforeExecute` hook returns `{ metadata: { logContext: { … } } }`, those keys are shallow-merged into the persisted `ActionLog.context_json`. This is how a downstream app stamps caller metadata (IP, user agent, request id) onto audit entries written by core CRUD commands, without wrapping core routes.
+
+```typescript
+beforeExecute: async (input, context) => ({
+  ok: true,
+  metadata: {
+    logContext: { ip: context.requestIp, userAgent: context.userAgent },
+  },
+})
+```
+
+The key is `logContext`, not `context`, specifically so that the generic `metadata` payload an interceptor already passes to its own `afterExecute` hook is never silently promoted into audit storage.
+
+**Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
+
+### Global search is gated on `search.global` and filters results per entity (#5163)
+
+Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.
+
+**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus the unchanged `GET /api/search/search`.
+
+**Action for API consumers:** this is a **narrowing** for any integration that calls the global endpoint with a token holding `search.view` alone. Grant those callers `search.global`. Because the new employee default (below) only reaches existing roles through a sync, run `yarn mercato auth sync-role-acls` after upgrading.
+
+**Results are now filtered by the caller's per-entity view features.** The single feature gate authorizes *using* search, not *reading every indexed record*: a caller who passed it previously received presenter titles, subtitles and deep links for every indexed entity type, including ones the caller could not open. Each searchable entity now declares the owning module's view feature in `aclFeatures` in its module's `search.ts`, and the route drops results the caller has no grant for before they leave the server. This is the same rule the `search_get` / `search_aggregate` AI tools have applied since #2715; the `search_query` AI tool now applies it too. Superadmins are exempt.
+
+**Action for module authors:** the filter **fails closed**. An entity type whose config declares no `aclFeatures` — or that no `search.ts` declares at all, which includes user-defined custom entities projected into `search_tokens` by `query_index` — no longer appears in global-search results for any non-superadmin caller. Every enabled entity shipped by `@open-mercato/core` and `@open-mercato/checkout` has been backfilled. `messages:message`, `sales:sales_note`, and `sales:sales_document_address` are disabled because their APIs enforce participant-, record-, or document-kind-specific access that a static entity feature cannot represent safely; they can return only after search supports the same row-aware checks. If results disappeared for your own module, add `aclFeatures: ['<module>.<entity>.view']` to that entity's config; run with `OM_SEARCH_DEBUG=true` and look for `search.api.global entity-filtered` to see which entity types were dropped and why.
+
+### The `empty` and `crm` starter presets now enable the `search` module (#5164)
+
+`create-mercato-app --preset crm` and `--preset empty` produced apps with no Cmd+K palette at all, not even for a superadmin: the app shell renders the palette on `search.global`, and `filterGrantsByEnabledModules` strips every feature whose owning module is absent from the enabled-modules registry, so the grant never survived. Only the `classic` preset — which keeps the template's own `src/modules.ts` — had it.
+
+**Action:** none for existing apps. This changes only what *new* scaffolds generate. An app already scaffolded from `crm` or `empty` can add `{ id: 'search', from: '@open-mercato/search' }` to its `src/modules.ts`; the package is already pinned in the generated `package.json`, and the token strategy runs on the `search_tokens` table `query_index` maintains, so no Meilisearch and no embedding provider are needed.
+### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
+
+The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.
+
+v9 ships an official v8 compatibility entry point, and that is what the platform's own `DataTable` uses.
+
+**Action for module authors:** repoint type-only imports.
+
+```diff
+-import type { ColumnDef } from '@tanstack/react-table'
++import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+```
+
+State types that live in `table-core` are unaffected and keep their root import — `SortingState`, `RowSelectionState`, `SortFn`. Two renames to be aware of if you used them: `VisibilityState` is now `ColumnVisibilityState`, and `SortingFn<TData>` is now `SortFn<TFeatures, TData>` (pair it with `LegacyFeatures` from the legacy entry point to keep v8 semantics).
+
+If you call the table hook yourself rather than using `DataTable`:
+
+```diff
+-import { useReactTable, getCoreRowModel, getSortedRowModel } from '@tanstack/react-table'
++import { useLegacyTable, getCoreRowModel, getSortedRowModel } from '@tanstack/react-table/legacy'
+```
+
+`useLegacyTable` registers the full stock feature set, so column visibility/ordering/sizing/pinning/resizing, row selection, sorting and pagination behave exactly as they did on v8. `flexRender` stays on the package root.
+
+Two further consequences may reach your code:
+
+- **`RowData` narrowed** from `unknown` to `Record<string, any> | Array<any>`. A helper generic over its row type now needs a constraint — `function myHelper<T extends RowData>(...)`. The platform's own `DataTableProps<T>`, `useAutoDiscoveredFields` and `applyCustomFieldVisibility` gained that constraint for the same reason; the latter two default their new type parameter, so bare references keep compiling.
+- **v9 ships ESM-only** where v8 shipped CJS. If you run Jest, add the table packages to your `transformIgnorePatterns` allowlist, mirroring the scaffolded template:
+
+  ```
+  '/node_modules/(?!(@open-mercato|@mikro-orm|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)'
+  ```
+
+Migrating to the v9-native feature-slot API (`tableFeatures`, `createColumnHelper`, `table.Subscribe`) is optional and can happen per module at your own pace; the legacy entry point is supported by upstream for exactly this transition.
+
+### ioredis upgraded to v6 — the platform pins RESP2
+
+The platform now depends on `ioredis@^6.0.0`. v6's one breaking change is that it negotiates **RESP3 by default**, which reshapes map-style replies and moves pub/sub onto push frames. BullMQ and `rate-limiter-flexible` do not declare RESP3 support, so every Redis client the platform constructs now passes `protocol: 2` explicitly.
+
+**Action for module authors:** none, if you obtain connection options from `parseRedisUrl`/`resolveRedisConnection` in `@open-mercato/shared/lib/redis/connection` — they now carry `protocol: 2` for you. If you construct an `ioredis` client directly, pass the shared constant so your client does not silently diverge onto RESP3:
+
+```ts
+import { REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+
+const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
+```
+
+`ParsedRedisConnection` gained an optional `protocol?: RedisProtocolVersion` field — additive, so existing consumers are unaffected.
+
+### Sales line list endpoints now default to `line_number` order
+
+`GET /api/sales/order-lines` and `GET /api/sales/quote-lines` previously inherited the CRUD factory's `sortField = 'id'` fallback. Line ids are `gen_random_uuid()` v4 UUIDs, so a document's lines came back in an arbitrary order — and any integration that rewrites lines by delete-and-reinsert got a different order after every sync. Both endpoints now default to `line_number ASC, id ASC`.
+
+**Action for API consumers:** none, unless you relied on the previous order. Nothing about the route, method, or response shape changed, and result ordering is not a contract surface under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) — but the bytes on the wire do come back in a different sequence. A caller that needs the old behavior can pass `?sortField=id` explicitly.
+
+**Note for deployments:** the CRUD list cache keys on the incoming request, and the admin items table sends no sort param, so a payload cached before the upgrade keeps its key afterwards and keeps serving the old ordering until a write invalidates its tag or the TTL expires. Documents that get touched resolve immediately; a static archived order may hold the old order for the remainder of its TTL. Nothing to configure — just don't read a stale cached document as the fix having failed.
+
+**Note on legacy documents:** `line_number` is `integer NOT NULL DEFAULT 0`, so rows written before line numbers were assigned all tie at `0`. For those documents the `id` tiebreak makes the order *stable and repeatable* rather than *meaningful* — which is the intended behavior, but it means a legacy document can look unchanged after the upgrade.
+
+**For module authors:** the mechanism is two new optional `list` options on `makeCrudRoute`, `defaultSort` and `tiebreakSortField`. Both are opt-in; a route that sets neither is unaffected. See [the CRUD factory docs](https://docs.openmercato.com/docs/framework/api/crud-factory) → "Default and tiebreak sorting".
+
 ### Workflow activities now fail on unresolved `{{...}}` templates (#4334)
 
 `interpolateVariables()` returns the **original string** when a context path is missing, so a workflow definition referencing a key its start path never seeds passed the literal `"{{context.orderId}}"` downstream. With `continueOnActivityFailure: true` the resulting command rejection was swallowed: the workflow advanced, the user saw the decision accepted, and nothing happened. `UPDATE_ENTITY` inputs and `EMIT_EVENT` payloads are now scanned at every depth, and an activity carrying an unresolved template fails loudly instead — naming the offending key path.
@@ -74,6 +177,20 @@ Scope limits worth knowing:
 **Action for downstream:** none for modules that already follow the documented dashboard-widget convention. If one of your dashboard widgets reaches its browser component through a *static* import in `widget.ts`, switch it to `lazyDashboardWidget(() => import('./widget.client'))` — that is what makes the CLI bundle safe. If you dynamically `import()` a server-side module whose name ends in `.client`, rename it or import it statically; a dynamic import of such a path now resolves to the stub and throws `[internal] Client-only module … is not available in the CLI runtime` when called.
 
 ---
+
+### Events worker dispatches through the DI event bus instead of the CLI-only module registry
+
+The events worker used to build its own subscriber map from `getCliModules()` - a registry populated **only** by `registerCliModules()` inside the `mercato` bin. Any worker started another way (a custom entrypoint, an in-process runner, a container whose command bypasses the CLI) resolved zero subscribers, returned early, and marked the job **completed**: no error, no log. Because default-on single-delivery had already skipped those subscribers inline, the side effect vanished - taking every wildcard `event: '*'` persistent subscriber with it (outbound webhooks, workflow event triggers, business-rule CRUD triggers).
+
+The worker now resolves `eventBus` from its per-job DI container and calls the new `EventBus.dispatchQueued(event, payload, options, resolve)`, passing its own `ctx.resolve` as the last argument so subscribers bind to the container that job runs in. The bus owns subscriber selection for both halves of single-delivery, so they cannot disagree. `packages/cli`-launched workers are unaffected: `mercato queue worker` already bootstraps the app module registry (`registerModules`) before the CLI one, from the same array.
+
+Two related changes:
+
+- **The worker fails loudly instead of silently.** If `eventBus` cannot be resolved (or predates `dispatchQueued`), `handle()` throws. The job retries and dead-letters with an actionable message rather than disappearing.
+- **Turning single-delivery off no longer dual-dispatches.** The producer stamps the queued job `persistentDeliveredInline: true` when it delivered inline, and the worker skips such jobs, so `OM_EVENTS_SINGLE_DELIVERY=false` now means inline-only rather than inline *and* worker. Retry is preserved: the stamp is only written when every persistent subscriber succeeded inline, so a handler that threw leaves the job unstamped and the worker runs it with the queue's retry and dead-lettering. Note that a retried job re-runs the persistent subscribers that already succeeded inline, which is why persistent subscribers must be idempotent (`packages/events/AGENTS.md`).
+- **The worker dispatches persistent subscribers only.** It used to select by exact event name and run *every* subscriber registered under it. That difference is invisible on the normal path - with single-delivery on, ephemeral subscribers have already run inline - but one combination changes: an enqueue-only emit (`{ persistent: true, deliverInline: false }`) with `OM_EVENTS_SINGLE_DELIVERY=false` skips inline delivery entirely, so an *ephemeral* subscriber registered on that exact event name no longer runs at all. `packages/events/AGENTS.md` already restricts enqueue-only to events whose subscribers are all `persistent: true`, so a conforming caller is unaffected; if you carry that combination, mark the subscriber `persistent: true` or drop `deliverInline: false`.
+
+**Action for downstream:** none for delivery semantics - `OM_EVENTS_SINGLE_DELIVERY` is read exactly as before. Custom `EventBus` implementations must add `dispatchQueued`; the worker's exported `clearListenerCache()` is now a deprecated no-op and will be removed in a later release. If you carry a local patch swapping the worker's `getCliModules()` for `getModules()`, remove it - `patch-package` will fail to apply against this release.
 
 ### Query index reindex now fails when a batch loses records
 

@@ -72,6 +72,7 @@ const userUpdateSchema = z.object({
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
+  isConfirmed: z.boolean().optional(),
 })
 
 const userListItemSchema = z.object({
@@ -85,6 +86,7 @@ const userListItemSchema = z.object({
   roles: z.array(z.string()),
   roleIds: z.array(z.string().uuid()).optional(),
   hasPassword: z.boolean().optional(),
+  isConfirmed: z.boolean(),
   updatedAt: z.string().nullable().optional(),
 })
 
@@ -101,6 +103,25 @@ const errorResponseSchema = z.object({ error: z.string() })
 
 type CrudInput = Record<string, unknown>
 type UserListFilter = Record<string, unknown>
+
+// UserRole carries no tenant/organization columns of its own, so the caller's scope has to be
+// expressed as a predicate on the `user` relation — MikroORM compiles that into a database-side
+// join against `users` with the scope predicates in the WHERE clause, keeping the link lookup
+// bounded to the scope instead of every tenant holding the role.
+function buildRoleLinkFilter(
+  roleIdList: string[],
+  userScope: UserListFilter[],
+  candidateUserIds: Set<string> | null,
+): UserListFilter {
+  const scope = candidateUserIds
+    ? [...userScope, { id: { $in: Array.from(candidateUserIds) } }]
+    : userScope
+  return {
+    role: { $in: roleIdList },
+    deletedAt: null,
+    user: scope.length > 1 ? { $and: scope } : scope[0],
+  }
+}
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
@@ -265,21 +286,27 @@ export async function GET(req: Request) {
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
-    const linksForRoles = await em.find(UserRole, { role: { $in: uniqueRoleIds as any } } as any)
+    const linksForRoles = await em.find(
+      UserRole,
+      buildRoleLinkFilter(uniqueRoleIds, filters, idFilter) as any,
+    )
     const roleUserIds = new Set<string>()
     for (const link of linksForRoles) {
       const uid = String((link as any).user?.id || (link as any).user || '')
       if (uid) roleUserIds.add(uid)
     }
-    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (roleUserIds.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
     if (idFilter) {
+      // buildRoleLinkFilter already constrains the lookup to `user.id IN idFilter`, so this
+      // intersection is enforced database-side; the loop stays as an application-level backstop
+      // so the `?id=` + `?roleId=` contract does not depend on that predicate alone.
       for (const uid of Array.from(idFilter)) {
         if (!roleUserIds.has(uid)) idFilter.delete(uid)
       }
     } else {
       idFilter = roleUserIds
     }
-    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
+    if (!idFilter || idFilter.size === 0) return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
   }
   const trimmedSearch = typeof search === 'string' ? search.trim() : ''
   if (trimmedSearch) {
@@ -328,7 +355,7 @@ export async function GET(req: Request) {
     if (matchingRoleIds.length) {
       const roleSearchLinks = await em.find(
         UserRole,
-        { role: { $in: matchingRoleIds as any } } as any,
+        buildRoleLinkFilter(matchingRoleIds, filters, idFilter) as any,
       )
       const matchingRoleUserIds = Array.from(new Set(
         roleSearchLinks
@@ -362,7 +389,7 @@ export async function GET(req: Request) {
     ? await findWithDecryption(
         em,
         UserRole,
-        { user: { $in: userIds as any } } as any,
+        { user: { $in: userIds as any }, deletedAt: null } as any,
         { populate: ['role'] },
         {
           tenantId: effectiveTenantId ?? auth.tenantId ?? null,
@@ -451,6 +478,7 @@ export async function GET(req: Request) {
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
       ...(id ? { hasPassword: !!u.passwordHash } : {}),
+      isConfirmed: u.isConfirmed !== false,
       updatedAt: u.updatedAt instanceof Date ? u.updatedAt.toISOString() : null,
       ...(cfByUser[uid] || {}),
     }
@@ -637,7 +665,8 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user',
-      description: 'Updates profile fields including display name, organization assignment, credentials, or role memberships.',
+      description:
+        'Updates profile fields including display name, organization assignment, credentials, or role memberships. Setting isConfirmed=false deactivates the account: the user can no longer sign in and every active session is revoked; isConfirmed=true reactivates it. A tenant cannot drop below a protected role\'s minimum active holder count, so revoking the role from, deactivating, moving, or deleting the last active administrator is rejected.',
       requestBody: {
         contentType: 'application/json',
         schema: userUpdateSchema,
@@ -646,7 +675,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'User updated', schema: okResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload', schema: errorResponseSchema },
+        { status: 400, description: 'Invalid payload, duplicate email, or the update would remove the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
         { status: 404, description: 'User not found', schema: errorResponseSchema },
@@ -654,13 +683,13 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       summary: 'Delete user',
-      description: 'Deletes a user by identifier. Undo support is provided via the command bus.',
+      description: 'Deletes a user by identifier. Rejected when the target is the last active holder of a protected role in the tenant. Undo support is provided via the command bus.',
       query: z.object({ id: z.string().uuid().describe('User identifier') }),
       responses: [
         { status: 200, description: 'User deleted', schema: okResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'User cannot be deleted', schema: errorResponseSchema },
+        { status: 400, description: 'User cannot be deleted, or is the last active holder of a protected role', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 404, description: 'User not found', schema: errorResponseSchema },
       ],

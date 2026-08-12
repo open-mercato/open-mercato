@@ -89,7 +89,13 @@ export default [
   },
   // --- escalation overrides — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md ---
   // A module enters this list when its counter for the rule reads zero in two
-  // consecutive health reports (.ai/reports/ds-health-*.txt). Entries are
+  // consecutive runs of the rolling report .ai/reports/ds-health-latest.txt —
+  // the current file and its previous committed revision:
+  //   git show "$(git log -2 --format=%H -- .ai/reports/ds-health-latest.txt \
+  //     | tail -1):.ai/reports/ds-health-latest.txt"
+  // Never match on a ds-health-*.txt glob: it also selects the April 2026
+  // ds-health-baseline-*.txt anchor, whose metric definitions predate the
+  // 2026-07-17 HC_PATTERN/scan-root change and are not comparable. Entries are
   // removed only when the rule flips to `error` in configs.recommended (all
   // modules at zero). Later blocks win in flat config, so overrides layer
   // cleanly on the `warn` baseline. Example shape:

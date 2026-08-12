@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 116 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 123 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
 
 ## How to use this catalog
 
@@ -35,9 +35,10 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
 - [Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile](lessons/generator-manifests-must-fall-back-to-source-parsing.md) — area:architecture,integration,module-data; module:cli,query_index,queue; topic:events,generated-files,query-index
 - [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
+- [Hand-written custom routes resolve org scope via `resolveOrganizationScopeForRequest`, not `auth.orgId`](lessons/custom-routes-resolve-org-scope-via-the-directory-helper.md) — area:architecture,module-data; module:eudr,directory,customers; topic:data-scoping,access-control
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui; module:create_app,ui; topic:template-sync,ui-components
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
-- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,events,cli; topic:events,generated-files,package-runtime
+- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,events,cli; topic:events,generated-files,package-runtime,session-export
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
@@ -64,8 +65,10 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Docker initialization should treat the existing-users CLI abort as already initialized](lessons/docker-initialization-should-treat-the-existing-users.md) — area:module-data,architecture,debugging; module:cli,create_app; topic:package-runtime,runtime-startup,template-sync
 - [Duplicate migration creation causes initialize failures in fresh databases](lessons/duplicate-migration-creation-causes-initialize-failures.md) — area:module-data,testing,architecture; module:customers; topic:database-migrations,runtime-startup,testing
 - [Flush entity updates before running relation syncs that query](lessons/flush-entity-updates-before-running-relation-syncs-that.md) — area:module-data; module:catalog; topic:command-pattern,data-integrity
+- [JSON column defaults, twice-parsed command inputs, and scale-padded numerics](lessons/orm-json-defaults-double-parsed-inputs-and-numeric-padding.md) — area:module-data,debugging; module:eudr; topic:database-migrations,command-pattern,generated-files
 - [Keep fallible document preparation outside encryption guards](lessons/keep-fallible-document-preparation-outside-encryption.md) — area:module-data,debugging; module:query_index,search; topic:data-integrity,encryption,query-index
 - [Keep raw SQL out of API route handlers](lessons/keep-raw-sql-out-of-api-route-handlers.md) — area:module-data,integration,testing; module:customer_accounts,customers; topic:data-scoping,filters,testing
+- [makeCrudRoute `sortField` must be `z.string()` + `sortFieldMap`, not a strict enum](lessons/makecrudroute-sortfield-is-a-string-with-a-sortfieldmap.md) — area:module-data,backend-ui; module:eudr,customers; topic:crud-factory,query-index
 - [MikroORM 6 does NOT generate UUIDs client-side — assign PKs before referencing](lessons/mikroorm-6-does-not-generate-uuids-client-side-assign.md) — area:module-data; module:cli,shared; topic:data-integrity,testing,validation-errors
 - [MikroORM string defaults must be plain values, not pre-quoted SQL fragments](lessons/mikroorm-string-defaults-must-be-plain-values-not-pre.md) — area:module-data; module:entities; topic:generated-files,database-migrations,runtime-startup
 - [Normalize raw SQL result types before JSON responses](lessons/normalize-raw-sql-result-types-before-json-responses.md) — area:module-data; module:platform; topic:testing,type-normalization
@@ -97,6 +100,8 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
 - [Async select controls must not treat synthetic empty changes as user clears](lessons/async-select-controls-must-not-treat-synthetic-empty.md) — area:backend-ui,testing,module-data; module:ui,catalog,events; topic:command-pattern,events,testing
 - [Auto-discovered DataTable fields must only advertise controls the table can actually honor](lessons/auto-discovered-datatable-fields-must-only-advertise.md) — area:backend-ui,umes,module-data; module:ui,customers,entities; topic:custom-fields,filters,ui-components
+- [Backend `[id]` pages read the route param from the `params` prop, never `useParams()`](lessons/backend-dynamic-pages-read-the-route-param-from-props.md) — area:backend-ui,umes; module:eudr,customers; topic:routing,generated-files
+- [Blur suppression must guard the whole validation pipeline](lessons/blur-suppression-must-guard-the-whole-validation-pipeline.md) — area:backend-ui,testing; module:ui; topic:schema-composition,testing,validation-errors
 - [Browser SSE bridges must work across worker and web processes](lessons/browser-sse-bridges-must-work-across-worker-and-web.md) — area:backend-ui,module-data,integration; module:events,queue,catalog; topic:data-import,events,realtime
 - [Component-scoped notification effects must not depend on header chrome](lessons/component-scoped-notification-effects-must-not-depend.md) — area:backend-ui,integration,testing; module:notifications,events,ui; topic:access-control,data-scoping,events
 - [Detail sections must route writes through page-level guarded mutations](lessons/detail-sections-must-route-writes-through-page-level.md) — area:backend-ui,umes,module-data; module:customers,events,ui; topic:events,network-security,testing
@@ -149,7 +154,9 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 - [Anchor repeated route-handler edits to unique context](lessons/anchor-repeated-route-handler-edits-to-unique-context.md) — area:debugging,testing; module:messages; topic:route-coverage,testing
 - [Compose startup commands must not hard-depend on newly added image scripts](lessons/compose-startup-commands-must-not-hard-depend-on-newly.md) — area:debugging,module-data,architecture; module:create_app; topic:command-pattern,runtime-startup,template-sync
+- [Embedded CLI output must inherit its caller's presentation margin](lessons/embedded-cli-output-must-inherit-its-callers-presentation.md) — area:debugging; module:create_app,cli; topic:runtime-startup,testing
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations
+- [Stale package dist and cached RBAC make a correct fix look broken in dev](lessons/stale-dist-and-cached-rbac-hide-code-changes-in-dev.md) — area:debugging,ai-workflow; module:eudr,auth; topic:build-output,access-control,spec-pr
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
 
 ### testing
@@ -161,7 +168,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
-- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform; topic:testing,node-runtime
+- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
 
 ### framework-context

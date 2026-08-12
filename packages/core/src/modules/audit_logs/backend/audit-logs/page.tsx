@@ -146,11 +146,11 @@ export default function AuditLogsPage() {
     </Button>
   ), [loadWithState, actionsPage, actionsPageSize, accessPage, accessPageSize, loading, t])
 
-  const handleUndoError = React.useCallback(() => {
-    setError(t('audit_logs.error.undo'))
+  const handleUndoError = React.useCallback((reason?: string) => {
+    setError(reason || t('audit_logs.error.undo'))
   }, [t])
-  const handleRedoError = React.useCallback(() => {
-    setError(t('audit_logs.error.redo'))
+  const handleRedoError = React.useCallback((reason?: string) => {
+    setError(reason || t('audit_logs.error.redo'))
   }, [t])
 
   const handleActionsPageChange = React.useCallback((nextPage: number) => {
