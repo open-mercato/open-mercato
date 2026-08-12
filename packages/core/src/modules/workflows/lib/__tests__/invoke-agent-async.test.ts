@@ -205,6 +205,33 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     expect(sendSignalMock).not.toHaveBeenCalled()
   })
 
+  it('leaves the step parked for a suspended outcome (an external run answers out of band)', async () => {
+    const instance = { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }
+    const { em, container, invokeAgentForWorkflow } = makeDeps(instance, {
+      kind: 'suspended',
+      runId: 'run-9',
+      externalRunId: 'conversation-9',
+    })
+
+    await expect(handleInvokeAgentJob(em, container, makeJob())).resolves.toBeUndefined()
+
+    expect(invokeAgentForWorkflow).toHaveBeenCalledTimes(1)
+    expect(sendSignalMock).not.toHaveBeenCalled()
+    expect(completeWorkflowMock).not.toHaveBeenCalled()
+    expect(instance).toEqual({ id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId })
+  })
+
+  it('does not map a suspended outcome into context even when outputMapping is declared', async () => {
+    const { em, container } = makeDeps(
+      { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
+      { kind: 'suspended', runId: 'run-10' },
+    )
+
+    await handleInvokeAgentJob(em, container, { ...makeJob(), outputMapping: { call: 'data' } })
+
+    expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
   it('fail-stops the instance (no resume, no rethrow) when the agent run throws', async () => {
     const invokeAgentForWorkflow = jest.fn().mockRejectedValue(new Error('unknown agent id "claims.liability.policy_check"'))
     const em = { findOne: jest.fn().mockResolvedValue({ id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }) } as unknown as EntityManager

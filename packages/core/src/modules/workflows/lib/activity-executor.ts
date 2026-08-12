@@ -1381,6 +1381,12 @@ type AgentWorkflowBridgeLike = {
     | { kind: 'user_task'; proposalId: string }
     // The agent proposed nothing: terminal like `researcher`, never parked.
     | { kind: 'none_proposed'; proposalId: string; payload: unknown }
+    // The agent STARTED but answers out of band — an external runtime whose
+    // provider calls back minutes later. No result exists yet, so nothing is
+    // mapped into workflow context and the step stays parked on
+    // INVOKE_AGENT_SIGNAL_NAME until that callback fires the same
+    // proposal-ready signal the human dispose path fires.
+    | { kind: 'suspended'; runId: string; externalRunId?: string }
   >
 }
 
@@ -1471,6 +1477,16 @@ export async function executeInvokeAgent(
     }
     if (outcome.kind === 'auto_approved' || outcome.kind === 'none_proposed') {
       return { kind: outcome.kind, agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
+    }
+    if (outcome.kind === 'suspended') {
+      // This inline path resolves the bridge synchronously and cannot park a
+      // branch, so an out-of-band answer would never reach it. Refuse loudly
+      // instead of resuming the branch with no data.
+      throw new Error(
+        `[INVOKE_AGENT] Agent "${agentId}" answers out of band (run ${outcome.runId}) and cannot ` +
+        `run inside a parallel branch, which resolves the agent inline and cannot be resumed by ` +
+        `an instance-level signal. Author this agent outside a parallel branch.`
+      )
     }
     return {
       kind: 'user_task',

@@ -339,6 +339,11 @@ type AgentWorkflowBridgeLike = {
     | { kind: 'user_task'; proposalId: string }
     // The agent proposed nothing: terminal like `researcher`, never parked.
     | { kind: 'none_proposed'; proposalId: string; payload: unknown }
+    // The agent STARTED but answers out of band — an external runtime whose
+    // provider calls back minutes later; see the identical declaration in
+    // `lib/activity-executor.ts`. No result exists yet, so nothing is mapped
+    // into workflow context and the step stays parked.
+    | { kind: 'suspended'; runId: string; externalRunId?: string }
   >
 }
 
@@ -464,6 +469,20 @@ export async function handleInvokeAgentJob(
     logger.info('invoke_agent routed to human; leaving instance parked', {
       agentId: payload.agentId,
       proposalId: outcome.proposalId,
+      workflowInstanceId: payload.workflowInstanceId,
+    })
+    return
+  }
+
+  // suspended: the agent started but will answer out of band (an external
+  // runtime whose provider calls back later). Nothing has been produced to map,
+  // so leave the step parked exactly like `user_task` — the callback resumes it
+  // by firing the same proposal-ready signal. Firing a signal here would advance
+  // the run down the researcher handle with an empty payload.
+  if (outcome.kind === 'suspended') {
+    logger.info('invoke_agent suspended; leaving instance parked until the external run answers', {
+      agentId: payload.agentId,
+      runId: outcome.runId,
       workflowInstanceId: payload.workflowInstanceId,
     })
     return
