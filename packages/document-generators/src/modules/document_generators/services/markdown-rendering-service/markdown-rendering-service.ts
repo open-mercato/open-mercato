@@ -1,4 +1,5 @@
-import type { DocumentRenderOutput, MarkdownRenderInput } from '../../lib/interfaces'
+import type { DocumentRenderOutput } from '../../lib/interfaces'
+import type { MarkdownRenderInput } from './types'
 
 /** Renders an already loaded and normalized Markdown template to UTF-8 bytes. */
 export class MarkdownRenderingService {

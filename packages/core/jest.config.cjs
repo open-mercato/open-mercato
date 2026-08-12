@@ -14,6 +14,8 @@ module.exports = {
     '^@open-mercato/core/generated/entities\\.ids\\.generated$': '<rootDir>/jest.mocks/entities.ids.generated.js',
     '^@open-mercato/core/generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/src/$1',
+    '^@open-mercato/document-generators$': '<rootDir>/../document-generators/src/index.ts',
+    '^@open-mercato/document-generators/(.*)$': '<rootDir>/../document-generators/src/$1',
     '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
     '^@open-mercato/queue/worker$': '<rootDir>/../queue/src/worker/runner.ts',

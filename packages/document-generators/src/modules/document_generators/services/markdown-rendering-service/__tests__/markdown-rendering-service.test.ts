@@ -1,4 +1,4 @@
-import type { MarkdownRenderInput } from '../../../lib/interfaces'
+import type { MarkdownRenderInput } from '../types'
 import { MarkdownRenderingService } from '..'
 
 function makeInput(overrides: Partial<MarkdownRenderInput> = {}): MarkdownRenderInput {

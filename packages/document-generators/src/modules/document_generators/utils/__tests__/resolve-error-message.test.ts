@@ -19,8 +19,8 @@ describe('resolveErrorMessage', () => {
   })
 
   it('surfaces a server-provided message when present', async () => {
-    const res = jsonResponse({ message: 'Quote is archived and cannot be exported.' })
-    await expect(resolveErrorMessage(res, t)).resolves.toBe('Quote is archived and cannot be exported.')
+    const res = jsonResponse({ message: 'Record is archived and cannot be exported.' })
+    await expect(resolveErrorMessage(res, t)).resolves.toBe('Record is archived and cannot be exported.')
   })
 
   it('falls back to generic for a non-JSON body (e.g. a PDF stream)', async () => {

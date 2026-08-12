@@ -5,7 +5,7 @@ jest.mock('@react-pdf/renderer', () => ({
 }))
 
 import { renderToBuffer } from '@react-pdf/renderer'
-import type { PdfRenderInput } from '../../../lib/interfaces'
+import type { PdfRenderInput } from '../types'
 import { PdfRenderingService } from '..'
 
 const mockedRenderToBuffer = renderToBuffer as jest.Mock

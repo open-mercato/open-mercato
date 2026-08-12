@@ -2,16 +2,16 @@ import { generateSchema, listDocumentsSchema } from '../validators'
 
 describe('generateSchema', () => {
   it('accepts template_id and data', () => {
-    const r = generateSchema.safeParse({ template_id: 'order-invoice', data: { id: 'abc' } })
+    const r = generateSchema.safeParse({ template_id: 'sample-report', data: { id: 'abc' } })
     expect(r.success).toBe(true)
   })
 
   it('strips client-supplied resource identity so it remains server-derived', () => {
     const r = generateSchema.parse({
-      template_id: 'order-invoice',
+      template_id: 'sample-report',
       data: { id: 'abc' },
-      resource_kind: 'sales.order',
-      resource_id: 'ord-1',
+      resource_kind: 'example.record',
+      resource_id: 'record-1',
       resource_label: 'spoofed label',
     })
 
@@ -29,7 +29,7 @@ describe('generateSchema', () => {
   })
 
   it('rejects a missing data object', () => {
-    expect(generateSchema.safeParse({ template_id: 'order-invoice' }).success).toBe(false)
+    expect(generateSchema.safeParse({ template_id: 'sample-report' }).success).toBe(false)
   })
 })
 
@@ -45,8 +45,8 @@ describe('listDocumentsSchema', () => {
   })
 
   it('keeps optional resource filters', () => {
-    const r = listDocumentsSchema.parse({ resource_kind: 'sales.order', resource_id: 'ord-1' })
-    expect(r).toMatchObject({ resource_kind: 'sales.order', resource_id: 'ord-1' })
+    const r = listDocumentsSchema.parse({ resource_kind: 'example.record', resource_id: 'record-1' })
+    expect(r).toMatchObject({ resource_kind: 'example.record', resource_id: 'record-1' })
   })
 
   it('rejects pageSize above the cap', () => {

@@ -14,17 +14,19 @@ function makeCreateInput(overrides: Partial<CreateGeneratedDocumentInput> = {}):
   return {
     scope,
     templateId: 'sales-offer',
-    templateLabel: 'Sales Offer',
-    resourceKind: 'sales.quote',
-    resourceId: 'quote-7',
-    resourceLabel: 'Quote #7',
+    templateLabel: 'Sample Report',
+    resourceKind: 'example.record',
+    resourceId: 'record-7',
+    resourceLabel: 'Record #7',
     generatedBy: 'user-1',
+    format: 'pdf',
+    mimeType: 'application/pdf',
     ...overrides,
   }
 }
 
 describe('GenerationHistoryService.create', () => {
-  it('creates a GeneratedDocument with the scope and defaults, then flushes', async () => {
+  it('creates a GeneratedDocument with explicit output metadata, then flushes', async () => {
     const created = {}
     const em = {
       create: jest.fn().mockReturnValue(created),
@@ -37,11 +39,11 @@ describe('GenerationHistoryService.create', () => {
     expect(em.create).toHaveBeenCalledWith(GeneratedDocument, {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
-      resourceKind: 'sales.quote',
-      resourceId: 'quote-7',
-      resourceLabel: 'Quote #7',
+      resourceKind: 'example.record',
+      resourceId: 'record-7',
+      resourceLabel: 'Record #7',
       templateId: 'sales-offer',
-      templateLabel: 'Sales Offer',
+      templateLabel: 'Sample Report',
       format: 'pdf',
       mimeType: 'application/pdf',
       generatedBy: 'user-1',
@@ -50,7 +52,7 @@ describe('GenerationHistoryService.create', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
-  it('honors explicit format and mimeType overrides', async () => {
+  it('persists another explicit format and mimeType', async () => {
     const em = {
       create: jest.fn().mockReturnValue({}),
       persist: jest.fn(),
@@ -82,11 +84,11 @@ describe('GenerationHistoryService.listAndCount', () => {
     const generatedAt = new Date('2026-08-09T10:00:00.000Z')
     const row = {
       id: 'doc-1',
-      resourceKind: 'sales.quote',
-      resourceId: 'quote-7',
-      resourceLabel: 'Quote #7',
+      resourceKind: 'example.record',
+      resourceId: 'record-7',
+      resourceLabel: 'Record #7',
       templateId: 'sales-offer',
-      templateLabel: 'Sales Offer',
+      templateLabel: 'Sample Report',
       format: 'pdf',
       generatedBy: 'user-1',
       generatedAt,
@@ -115,13 +117,13 @@ describe('GenerationHistoryService.listAndCount', () => {
       scope,
       page: 1,
       pageSize: 10,
-      resourceKind: 'sales.quote',
-      resourceId: 'quote-7',
+      resourceKind: 'example.record',
+      resourceId: 'record-7',
     })
 
     expect(findAndCount).toHaveBeenCalledWith(
       GeneratedDocument,
-      { organizationId: 'org-1', tenantId: 'tenant-1', resourceKind: 'sales.quote', resourceId: 'quote-7' },
+      { organizationId: 'org-1', tenantId: 'tenant-1', resourceKind: 'example.record', resourceId: 'record-7' },
       expect.objectContaining({ limit: 10, offset: 0 }),
     )
   })

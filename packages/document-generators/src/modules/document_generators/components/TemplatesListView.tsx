@@ -1,6 +1,6 @@
 'use client'
 
-import type { TemplateMeta } from '../lib/interfaces'
+import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import { TemplateListItem } from './TemplateListItem'
 
 interface TemplatesListViewProps {

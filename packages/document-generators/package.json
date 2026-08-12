@@ -13,6 +13,10 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./modules/document_generators/providers/react-pdf": {
+      "types": "./src/modules/document_generators/providers/react-pdf/index.ts",
+      "default": "./dist/modules/document_generators/providers/react-pdf/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"

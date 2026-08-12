@@ -26,8 +26,8 @@ export class GenerationHistoryService {
       resourceLabel: input.resourceLabel,
       templateId: input.templateId,
       templateLabel: input.templateLabel,
-      format: input.format ?? 'pdf',
-      mimeType: input.mimeType ?? 'application/pdf',
+      format: input.format,
+      mimeType: input.mimeType,
       generatedBy: input.generatedBy,
     })
     this.em.persist(doc)

@@ -66,6 +66,7 @@ When you need shared type definitions, import from these:
 | Dashboard widget types | `@open-mercato/shared/modules/dashboard/widgets` |
 | DSL helpers (`defineLink`, `entityId`, `cf.*`) | `@open-mercato/shared/modules/dsl` |
 | Event declarations (`createModuleEvents`) | `@open-mercato/shared/modules/events` |
+| Document template contracts and `BaseDocumentService` | `@open-mercato/shared/modules/document-generators` |
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |

@@ -7,8 +7,8 @@ function makeDocument(overrides: Partial<RenderedDocument> = {}): RenderedDocume
     filename: 'invoice-Żółć.pdf',
     format: 'pdf',
     mimeType: 'application/pdf',
-    template: { id: 'order-invoice', label: 'Order Invoice' },
-    resource: { kind: 'sales.order', id: 'ord-1', label: 'ORD-1' },
+    template: { id: 'sample-report', label: 'Sample Report' },
+    resource: { kind: 'example.record', id: 'record-1', label: 'RECORD-1' },
     ...overrides,
   }
 }

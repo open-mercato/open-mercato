@@ -1,6 +1,5 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { NextResponse } from 'next/server'
-import '../../../config/registry' // registers built-in templates as side effect
 import { templateRegistry } from '../../../lib/template-registry'
 
 export const metadata = {

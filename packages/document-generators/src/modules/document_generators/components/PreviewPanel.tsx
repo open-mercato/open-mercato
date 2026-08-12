@@ -12,7 +12,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { TemplateMeta } from '../lib/interfaces'
+import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import { Preview } from './Preview'
 import { Loader } from './Loader'
 import { downloadBlob } from '../utils/downloadBlob'

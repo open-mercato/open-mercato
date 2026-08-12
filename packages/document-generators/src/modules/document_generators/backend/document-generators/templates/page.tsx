@@ -7,7 +7,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
-import type { TemplateMeta } from '../../../lib/interfaces'
+import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 
 type TemplatesResponse = { internal: TemplateMeta[]; external: TemplateMeta[] }
 

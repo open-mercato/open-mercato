@@ -1,6 +1,14 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { TemplateMeta, TemplateEntry, TemplateLoadContext, TemplateRegistry as TemplateRegistryInterface, LoadedTemplate } from './interfaces'
+import type {
+  TemplateEntry,
+  TemplateMeta,
+} from '@open-mercato/shared/modules/document-generators'
+import type {
+  LoadedTemplate,
+  TemplateLoadContext,
+  TemplateRegistry as TemplateRegistryInterface,
+} from './interfaces'
 
 export class UnknownTemplateError extends Error {
   constructor(id: string) {
@@ -54,7 +62,7 @@ class TemplateRegistry implements TemplateRegistryInterface {
    */
   listTemplates(): { internal: TemplateMeta[]; external: TemplateMeta[] } {
     const toMeta = ({ id, label, description, module, resourceKind, documentType, format, tags, note }: TemplateEntry): TemplateMeta =>
-      ({ id, label, description, module, resourceKind, documentType, format: format ?? 'pdf', tags, note })
+      ({ id, label, description, module, resourceKind, documentType, format, tags, note })
     return {
       internal: this.getInternal().map(toMeta),
       external: this.getExternal().map(toMeta),
@@ -96,11 +104,6 @@ class TemplateRegistry implements TemplateRegistryInterface {
     const entry = this.findTemplate(id)
     const enriched = await this.enrich({ id, data: rawData }, { container, auth })
     const source = await entry.load()
-    const sourceFormat = source.type === 'markdown' ? 'md' : 'pdf'
-    const declaredFormat = entry.format ?? 'pdf'
-    if (declaredFormat !== sourceFormat) {
-      throw new Error(`[internal] Template ${entry.id} declares ${declaredFormat} but loads ${sourceFormat}`)
-    }
     const data = entry.fromRecord(enriched, { locale, translate })
     const filename = entry.filename({ data })
     const resourceId = entry.resourceId({ data })
@@ -111,11 +114,10 @@ class TemplateRegistry implements TemplateRegistryInterface {
       resource: { kind: entry.resourceKind, id: resourceId, label: resourceLabel },
     }
 
-    if (source.type === 'markdown') {
-      return { ...loadedBase, render: { format: 'md', source, data } }
+    return {
+      ...loadedBase,
+      render: { format: entry.format, source, data },
     }
-
-    return { ...loadedBase, render: { format: 'pdf', source, data } }
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { FileText } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import type { TemplateMeta } from '../lib/interfaces'
+import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 
 interface TemplateListItemProps {
   template: TemplateMeta

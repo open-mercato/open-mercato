@@ -64,6 +64,10 @@
       "types": "./src/modules/generators/index.ts",
       "default": "./dist/modules/generators/index.js"
     },
+    "./modules/document-generators": {
+      "types": "./src/modules/document-generators/index.ts",
+      "default": "./dist/modules/document-generators/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"

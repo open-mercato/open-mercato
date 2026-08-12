@@ -3,25 +3,25 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { templateRegistry, UnknownTemplateError } from '../template-registry'
-import type { TemplateEntry } from '../interfaces'
+import type { TemplateEntry } from '@open-mercato/shared/modules/document-generators'
 
 // Minimal React-PDF-like component stand-in — the registry only stores and returns it.
 const FakeComponent: ComponentType<{ data: Record<string, unknown> }> = () => null
 
 function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
   return {
-    id: 'order-invoice',
-    label: 'Order Invoice',
-    description: 'Invoice for an order',
-    module: 'sales',
-    resourceKind: 'sales.order',
-    documentType: 'invoice',
+    id: 'sample-report',
+    label: 'Sample Report',
+    description: 'Report for a record',
+    module: 'example',
+    resourceKind: 'example.record',
+    documentType: 'report',
     format: 'pdf',
-    tags: ['sales', 'invoice'],
+    tags: ['example', 'report'],
     note: undefined,
     fromRecord: (data: unknown) => data as Record<string, unknown>,
-    filename: () => 'invoice.pdf',
-    resourceId: () => 'ord-1',
+    filename: () => 'report.pdf',
+    resourceId: () => 'record-1',
     load: async () => ({ type: 'react-pdf', component: FakeComponent }),
     ...overrides,
   }
@@ -54,10 +54,10 @@ describe('templateRegistry.listTemplates', () => {
     expect(internal[0]).not.toHaveProperty('fetchData')
     expect(internal[0]).toMatchObject({
       id: 'internal-1',
-      label: 'Order Invoice',
-      module: 'sales',
-      resourceKind: 'sales.order',
-      documentType: 'invoice',
+      label: 'Sample Report',
+      module: 'example',
+      resourceKind: 'example.record',
+      documentType: 'report',
       format: 'pdf',
     })
   })
@@ -87,15 +87,15 @@ describe('templateRegistry.load', () => {
     })
     const filename = jest.fn(() => {
       calls.push('filename')
-      return 'invoice-42.pdf'
+      return 'report-42.pdf'
     })
     const resourceId = jest.fn(() => {
       calls.push('resourceId')
-      return 'ord-42'
+      return 'record-42'
     })
     const resourceLabel = jest.fn(() => {
       calls.push('resourceLabel')
-      return 'ORD-42'
+      return 'RECORD-42'
     })
     const load = jest.fn(async () => {
       calls.push('load')
@@ -103,16 +103,16 @@ describe('templateRegistry.load', () => {
     })
     templateRegistry.registerInternal([makeEntry({ fetchData, fromRecord, filename, resourceId, resourceLabel, load })])
 
-    const result = await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, ctx)
+    const result = await templateRegistry.load({ id: 'sample-report', data: { id: 'abc' } }, ctx)
 
     expect(calls).toEqual(['fetchData', 'load', 'fromRecord', 'filename', 'resourceId', 'resourceLabel'])
     expect(result.render.source).toEqual({ type: 'react-pdf', component: FakeComponent })
     expect(result.render.format).toBe('pdf')
     expect(result.render.data).toMatchObject({ normalized: true, locale: 'en', label: 'translated:document.label', id: 'abc', enriched: true })
     expect(fromRecord).toHaveBeenCalledWith(expect.anything(), { locale: 'en', translate })
-    expect(result.filename).toBe('invoice-42.pdf')
-    expect(result.template).toEqual({ id: 'order-invoice', label: 'Order Invoice' })
-    expect(result.resource).toEqual({ kind: 'sales.order', id: 'ord-42', label: 'ORD-42' })
+    expect(result.filename).toBe('report-42.pdf')
+    expect(result.template).toEqual({ id: 'sample-report', label: 'Sample Report' })
+    expect(result.resource).toEqual({ kind: 'example.record', id: 'record-42', label: 'RECORD-42' })
   })
 
   it('passes the request-scoped container and auth context to fetchData', async () => {
@@ -121,7 +121,7 @@ describe('templateRegistry.load', () => {
     const container = { resolve: () => undefined } as unknown as AppContainer
     templateRegistry.registerInternal([makeEntry({ fetchData })])
 
-    await templateRegistry.load({ id: 'order-invoice', data: { id: 'abc' } }, { container, auth, locale: 'de', translate })
+    await templateRegistry.load({ id: 'sample-report', data: { id: 'abc' } }, { container, auth, locale: 'de', translate })
 
     expect(fetchData).toHaveBeenCalledWith({ data: { id: 'abc' } }, { container, auth })
   })
@@ -130,7 +130,7 @@ describe('templateRegistry.load', () => {
     const fromRecord = jest.fn((data: unknown) => data as Record<string, unknown>)
     templateRegistry.registerInternal([makeEntry({ fetchData: undefined, fromRecord })])
 
-    await templateRegistry.load({ id: 'order-invoice', data: { id: 'raw' } }, ctx)
+    await templateRegistry.load({ id: 'sample-report', data: { id: 'raw' } }, ctx)
 
     expect(fromRecord).toHaveBeenCalledWith({ id: 'raw' }, { locale: 'en', translate })
   })
@@ -143,7 +143,7 @@ describe('templateRegistry.load', () => {
     templateRegistry.registerInternal([makeEntry({ fetchData, load, fromRecord })])
 
     await expect(
-      templateRegistry.load({ id: 'order-invoice', data: { id: 'untrusted' } }, ctx),
+      templateRegistry.load({ id: 'sample-report', data: { id: 'untrusted' } }, ctx),
     ).rejects.toBe(failure)
 
     expect(load).not.toHaveBeenCalled()
@@ -151,9 +151,9 @@ describe('templateRegistry.load', () => {
   })
 
   it('resolves templates registered by external modules', async () => {
-    templateRegistry.registerExternal([makeEntry({ id: 'custom-doc', module: 'my_module' })])
+    templateRegistry.registerExternal([makeEntry({ id: 'custom-report', module: 'my_module' })])
 
-    const result = await templateRegistry.load({ id: 'custom-doc', data: {} }, ctx)
+    const result = await templateRegistry.load({ id: 'custom-report', data: {} }, ctx)
 
     expect(result.render.source).toEqual({ type: 'react-pdf', component: FakeComponent })
   })
@@ -161,16 +161,16 @@ describe('templateRegistry.load', () => {
   it('loads a Markdown source as a Markdown template', async () => {
     const render = jest.fn(() => '# Document')
     templateRegistry.registerInternal([makeEntry({
-      id: 'order-invoice-markdown',
+      id: 'sample-report-markdown',
       format: 'md',
-      filename: () => 'invoice.md',
+      filename: () => 'report.md',
       load: async () => ({ type: 'markdown', render }),
     })])
 
-    const result = await templateRegistry.load({ id: 'order-invoice-markdown', data: {} }, ctx)
+    const result = await templateRegistry.load({ id: 'sample-report-markdown', data: {} }, ctx)
 
     expect(result.render.format).toBe('md')
-    expect(result.filename).toBe('invoice.md')
+    expect(result.filename).toBe('report.md')
     expect(result.render.source).toEqual({ type: 'markdown', render })
   })
 
@@ -186,7 +186,7 @@ describe('templateRegistry.load', () => {
   })
 
   it('throws "Unknown template" for an unregistered id', async () => {
-    templateRegistry.registerInternal([makeEntry({ id: 'order-invoice' })])
+    templateRegistry.registerInternal([makeEntry({ id: 'sample-report' })])
 
     await expect(
       templateRegistry.load({ id: 'does-not-exist', data: {} }, ctx),

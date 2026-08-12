@@ -13,8 +13,8 @@ export interface CreateGeneratedDocumentInput {
   resourceId: string
   resourceLabel: string
   generatedBy: string
-  format?: string
-  mimeType?: string
+  format: string
+  mimeType: string
 }
 
 /** Input for a paginated history read. */

@@ -2,36 +2,32 @@ export { metadata } from './modules/document_generators/index'
 
 // Public API for external template authors
 export { templateRegistry } from './modules/document_generators/lib/template-registry'
+/** @deprecated Import from `@open-mercato/shared/modules/document-generators` instead. */
+export { BaseDocumentService } from '@open-mercato/shared/modules/document-generators'
+/** @deprecated Import these types from `@open-mercato/shared/modules/document-generators` instead. */
 export type {
+  DocumentTemplateEntry,
+  DocumentTemplateSource,
+  TemplateDataContext,
   TemplateEntry,
-  TemplateRegistryEntry,
   TemplateMeta,
+  TemplateRegistryEntry,
+} from '@open-mercato/shared/modules/document-generators'
+export type {
+  DocumentRenderInput,
+  DocumentRenderOutput,
+  LoadedDocumentTemplateBase,
+  LoadedTemplate,
+  RenderedDocument,
   TemplateFilter,
   TemplateLoadContext,
-  TemplateDataContext,
-  DocumentFormat,
+  TemplateRegistry,
 } from './modules/document_generators/lib/interfaces'
 export {
-  BaseDocumentService,
   DocumentRenderer,
   MarkdownRenderingService,
   PdfRenderingService,
 } from './modules/document_generators/services'
-export type { DocumentTemplateEntry } from './modules/document_generators/services'
-export type {
-  DocumentTemplateSource,
-  DocumentRenderInput,
-  DocumentRenderOutput,
-  LoadedDocumentTemplateBase,
-  LoadedMarkdownTemplate,
-  LoadedPdfTemplate,
-  LoadedTemplate,
-  MarkdownTemplateSource,
-  MarkdownRenderInput,
-  PdfRenderInput,
-  ReactPdfTemplateSource,
-  RenderedDocument,
-} from './modules/document_generators/lib/interfaces'
 export { TemplatesList } from './modules/document_generators/components/TemplatesList'
 export { formatDate } from './modules/document_generators/utils/formatDate'
 // Shared PDF UI — import in external templates to get Inter font + brand components

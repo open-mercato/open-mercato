@@ -1,3 +1,3 @@
 export const integrationMeta = {
-  dependsOnModules: ['sales', 'document_generators'],
+  dependsOnModules: ['document_generators'],
 }

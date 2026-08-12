@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { TemplateMeta, TemplateFilter } from '../lib/interfaces'
+import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
+import type { TemplateFilter } from '../lib/interfaces'
 import { PreviewPanel } from './PreviewPanel'
 import { TemplatesListView } from './TemplatesListView'
 import { TemplatesListLoader } from './TemplatesListLoader'
@@ -18,7 +19,7 @@ function applyFilter(templates: TemplateMeta[], filter?: TemplateFilter): Templa
   return templates.filter((t) => {
     if (filter.resourceKind && t.resourceKind !== filter.resourceKind) return false
     if (filter.documentType && t.documentType !== filter.documentType) return false
-    if (filter.format && (t.format ?? 'pdf') !== filter.format) return false
+    if (filter.format && t.format !== filter.format) return false
     if (filter.tags && filter.tags.length > 0 && !filter.tags.some((tag) => t.tags.includes(tag))) return false
     return true
   })

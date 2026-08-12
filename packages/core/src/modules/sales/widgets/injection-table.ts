@@ -3,6 +3,12 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
 export const injectionTable: ModuleInjectionTable = {
   'sales.document.detail.order:tabs': [
     {
+      widgetId: 'sales.injection.document-generators-order-tab',
+      kind: 'tab',
+      groupLabel: 'sales.documents.templates.tabLabel',
+      priority: 10,
+    },
+    {
       widgetId: 'sales.injection.document-history',
       kind: 'tab',
       groupLabel: 'sales.documents.history.tabLabel',
@@ -10,6 +16,12 @@ export const injectionTable: ModuleInjectionTable = {
     },
   ],
   'sales.document.detail.quote:tabs': [
+    {
+      widgetId: 'sales.injection.document-generators-quote-tab',
+      kind: 'tab',
+      groupLabel: 'sales.documents.templates.tabLabel',
+      priority: 10,
+    },
     {
       widgetId: 'sales.injection.document-history',
       kind: 'tab',
