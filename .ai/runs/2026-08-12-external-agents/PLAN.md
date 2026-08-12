@@ -42,8 +42,9 @@ top of that seam.
 | 3.4 | Cockpit: external-run surfacing on the run detail + agents registry | TODO | |
 | **Phase 4 — generalize the seam** | | | |
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | TODO | |
-| 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | TODO | |
+| 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
 | 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | TODO | |
+| 4.4 | **Server-side out-of-band flag** (added 2026-08-12 — the AI draft agent can still author T4.2's mistake) | TODO | |
 
 ---
 
@@ -245,6 +246,21 @@ normalization — proving the interface is not ElevenLabs-shaped.
 issue, so 1.2's runtime refusal is caught before a run.
 **4.3** docs: a framework docs page, `AGENTS.md` updates for both modules, and a changelog entry on
 `next/2026-06-19-agent-dispatch.md` recording what the connector seam settles for its runtime-adapter layer.
+
+**4.4 — server-side out-of-band flag** *(added 2026-08-12 after T4.2)*
+
+T4.2's guard is BROWSER-ONLY, by necessity: the agents REST endpoint already carries `runtime` per item, but
+the only SERVER-side seam from core to the peer is `listAgentOutcomeContracts()`, which projects
+`agentId` / `resultKind` / `schema` and no runtime. So `evaluateWorkflowDefinition` — used by the definitions
+API, the `validate_workflow_definition` AI tool, and the in-Studio prompt-to-draft agent — cannot run the
+check. **Consequence: the AI draft agent can still author the mistake, and only a human opening the Studio
+sees it.**
+
+Work: one ADDITIVE field on `AgentOutcomeContractSnapshot` (`suspends: boolean`, better than `runtime` —
+it names the property that matters rather than the implementation), cached beside `agentOutcomeContracts`
+in `lib/server-output-contract.ts`, and consumed by `evaluateWorkflowDefinition` so the server path raises
+the same warning. Must stay optional on the interface so an older bridge implementation is still valid, and
+must degrade to silence when absent — exactly as `listAgentOutcomeContracts` already does.
 
 ---
 
@@ -595,6 +611,21 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   names and dot-paths that `workflow_definitions.definition` already stores in plaintext. Encrypting a copy
   of public configuration buys nothing, adds a decrypt hop on the resume path, and adds one more column to
   T2.4's native-write plaintext trap. Guarded by an assertion.
+- 2026-08-12 — **T4.2 done — and NOTHING had to be widened.** The agents REST endpoint already serves
+  `runtime` per item and core's own `AgentSelector` already declares it, so the descriptor reaching the
+  browser already carried what the check needs. The branch-region walk mirrors the ENGINE's `openFork`
+  (seed from the fork's `auto` transitions, stop at the join, exclude non-normal routes) so the warning and
+  the runtime agree by construction.
+- 2026-08-12 — **T4.2 gap → new task 4.4.** The guard is BROWSER-ONLY: `listAgentOutcomeContracts()` is the
+  only server-side seam to the peer and carries no runtime, so `evaluateWorkflowDefinition` (definitions API,
+  the `validate_workflow_definition` AI tool, and the in-Studio draft agent) cannot run it. The AI draft
+  agent can therefore still author the mistake.
+- 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
+  `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
+  the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
+- 2026-08-12 — T4.2 scope limit, deliberate: step activities only. An INVOKE_AGENT hand-authored onto a
+  TRANSITION also runs with the branch token, but its subject is a route, and naming the route's source step
+  would be wrong for a fork's own branch-opening transitions.
 - 2026-08-12 — **Recurring test hazard in this module:** a PARTIAL `jest.mock('../lib/runtime/persistence')`
   silently turns a NEW export into `undefined`, which surfaced as `resume: 'failed'` in three unrelated
   suites. Any task adding an export to a widely-mocked module must top up those mocks.
