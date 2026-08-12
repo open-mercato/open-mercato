@@ -43,7 +43,7 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 >
 > **Rejected:** an email on the address — two of the three commerce platforms deliberately keep it on the order, and an order-level email is the better home; splicing contact details into the postal address lines — nobody does this, and it corrupts every one-line summary built from those lines.
 
-**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, `packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx` (second `normalizeAddressDraft` on the document create/edit path — Phase 0), sales i18n (5 locales), Phase 3 only: `customers` address entities + migration.
+**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, sales i18n (5 locales), Phase 3 only: `customers` address entities + migration.
 
 **Not touched:** `sales_document_addresses` schema (explicitly rejected — see Alternatives), `addressSnapshotSchema` (stays free-form), search indexing config outside the tax-id rules, per-country address formats, VIES calls, address filterability (blocked by encryption at rest), `buildingNumber`/`flatNumber` logic (house numbers are conventionally written into the street line, and the field is near-empty in practice — see Appendix).
 
@@ -54,7 +54,7 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 3. **Contact details are per-address, not per-customer.** One customer has a home address, an office address and a warehouse, each with a different person to call. Holding one phone on the customer answers the wrong question.
 4. **A bare tax identifier is ambiguous.** `1234567890` may be a Polish NIP, an EU VAT number missing its country prefix, or a local tax number of a business that is not VAT-registered at all. Stripe treats these as *distinct types* (`pl_nip` vs `eu_vat`, examples `1234567890` vs `PL1234567890`) precisely because display, tax calculation and validation all diverge on the answer.
 5. **Locked documents render an editable editor.** `AddressEditor` does accept a `disabled` prop (`customers/components/AddressEditor.tsx:82`, and its `ui` twin at `:97`), but neither snapshot call site passes it (`AddressesSection.tsx:1070`, `:1137`) — while every sibling control in that component is already locked (`:1057`, `:1082`, `:1113`, `:1132`) and a `lockedReason` banner renders above them at `:1018-1026`. A deployment that locks document addresses (`order_address_editable_statuses = []`) therefore presents a fully editable form over data the API will refuse to change.
-6. **Unknown snapshot keys do not survive a save.** `normalizeAddressDraft` rebuilds the snapshot from the twelve fields the editor models, destroying every other key on the first manual save — silent data loss for exactly the keys this feature depends on. Two independent copies of the helper do this: `AddressesSection.tsx:78-99` (document detail Addresses tab) and `SalesDocumentForm.tsx:438-459` (document create/edit form, reached from `:1446-1447`). Fixing one and not the other makes the loss depend on which screen the user saved from. *(Outstanding in this repository — Phase 0.)*
+6. **Unknown snapshot keys do not survive a save.** `normalizeAddressDraft` (`AddressesSection.tsx:78-99`) rebuilds the snapshot from the twelve fields the editor models, destroying every other key on the first manual save — silent data loss for exactly the keys this feature depends on. A second copy of the helper exists on `SalesDocumentForm.tsx:438-459`, but that component is mounted only by `backend/sales/documents/create/page.tsx` and submits through `createCrud`: on a document that does not exist yet there is no prior snapshot to preserve, so the defect is not reachable there. The duplication is worth collapsing on its own merits; it is not a second instance of this bug. *(Outstanding in this repository — Phase 0.)*
 
 ## Proposed Solution
 
@@ -157,10 +157,9 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 ### Phase 0 — snapshot key preservation *(outstanding; first implementable step)*
 1. `normalizeAddressDraft` in `AddressesSection.tsx:78-99` takes the previous snapshot and merges back keys outside the twelve it owns; a cleared address still normalizes to `null`.
-2. The same for the second copy in `SalesDocumentForm.tsx:438-459`, used on the document create/edit path at `:1446-1447`. Both must land together — fixing one leaves the data loss reachable from the other screen.
-3. Round-trip tests on both save paths.
+2. A round-trip test on that save path, asserting an unowned key survives.
 
-*Prior art: this fix exists on the Full Stack House fork as [fullstackhouse/open-mercato#69](https://github.com/fullstackhouse/open-mercato/pull/69), covering the `AddressesSection` copy only. It is not merged in this repository, and the `SalesDocumentForm` copy is not covered there.*
+The `SalesDocumentForm.tsx:438-459` copy is deliberately left alone: it runs only on document creation, where no prior snapshot exists, so a merge-back there would be permanently inert. Collapsing the two copies is separate work with its own justification.
 
 ### Phase 1 — contact fields and render
 1. `AddressValue` + `formatAddressContactPairs` + `AddressView` contact block, with postal-purity and self-hiding tests.
@@ -184,7 +183,7 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 ## Integration Coverage
 
-Unit (`packages/core`): postal lines unchanged when contacts present (**the safety property**); per-field label gate; null-render preserved; snapshot round-trip keeps unowned keys — asserted separately against **both** `normalizeAddressDraft` copies, since a single-path test passes while the other still drops keys.
+Unit (`packages/core`): postal lines unchanged when contacts present (**the safety property**); per-field label gate; null-render preserved; snapshot round-trip keeps unowned keys, asserted through the document detail save path — the only path on which a prior snapshot exists.
 
 Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` — order created via API with a snapshot carrying `phone`/`taxId`; detail page renders both; save round-trips them from the detail tab and from the document form; a locked document renders the address inputs in their disabled state. Self-contained fixtures, no seeded data.
 
@@ -271,8 +270,11 @@ Two observations that shaped decisions above: the order-level tax-id rate exceed
 
 ## Changelog
 
+### 2026-08-12
+- Corrected the scope of Problem 6. The second `normalizeAddressDraft`, on `SalesDocumentForm.tsx`, is not a second instance of the data loss: that component is mounted only by the document *create* page and submits through `createCrud`, so no prior snapshot exists for it to drop. Phase 0 covers the document detail path alone; the duplication is recorded as work that needs its own justification.
+
 ### 2026-08-11
-- Every claim about current behaviour re-verified against `develop` and corrected. Phase 0 is stated as outstanding work in this repository rather than shipped; a second `normalizeAddressDraft` on `SalesDocumentForm.tsx` is brought into scope, since fixing one copy leaves the data loss reachable from the other screen; Problem 5 is restated as the narrower true defect — `AddressEditor` accepts `disabled` and the two snapshot call sites simply do not pass it — and the two-line fix replaces the proposed read-only render path, which moves to Alternatives; the removal of a nonexistent `…addresses.email` i18n key is dropped; fork pull requests are labelled and linked as such.
+- Every claim about current behaviour re-verified against `develop` and corrected. Phase 0 is stated as outstanding work in this repository rather than shipped; a second `normalizeAddressDraft` on `SalesDocumentForm.tsx` is examined and recorded; Problem 5 is restated as the narrower true defect — `AddressEditor` accepts `disabled` and the two snapshot call sites simply do not pass it — and the two-line fix replaces the proposed read-only render path, which moves to Alternatives; the removal of a nonexistent `…addresses.email` i18n key is dropped; fork pull requests are labelled and linked as such.
 - Open Questions resolved and the block replaced by a decisions record: one spec phased, and `taxIdType` takes the Stripe-shaped `{country}_{kind}` seeded `eu_vat` / `pl_nip` / `other`, because a minimal enum's `local` is uninterpretable while `country` stays unconstrained and leaves the display gate nothing to key on. Compliance verdict moves from Blocked to implementation-ready.
 
 ### 2026-08-10
