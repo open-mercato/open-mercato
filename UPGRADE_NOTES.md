@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.7 → 0.6.8 (unreleased)
+## 0.6.7 → 0.7.0 (2026-08-12)
 
 ### Login rejects users with `isConfirmed: false` (#4541)
 
