@@ -15,7 +15,18 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+// The target lookup only needs the plaintext identity here; decryption itself
+// is covered by the encryption suite.
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: async (
+    em: { findOne: (entity: unknown, where: unknown) => Promise<unknown> },
+    entity: unknown,
+    where: unknown,
+  ) => em.findOne(entity, where),
+}))
+
 import '@open-mercato/core/modules/auth/commands/acl'
+import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type {
   CommandHandler,
@@ -51,6 +62,8 @@ describe('auth ACL audit commands', () => {
     updatedAt?: Date | null
   }
 
+  type TargetRow = { id: string; name?: string | null; email?: string | null; tenantId?: string | null }
+
   type Harness = {
     ctx: CommandRuntimeContext
     rows: AclRow[]
@@ -61,11 +74,26 @@ describe('auth ACL audit commands', () => {
     deletedTags: string[]
     order: string[]
     findOneFilters: unknown[]
+    targetFilters: unknown[]
+  }
+
+  const targetRole: TargetRow = { id: roleId, name: 'qa-auditors', tenantId }
+  const targetUser: TargetRow = {
+    id: userId,
+    name: 'QA Target',
+    email: 'qa-target@example.com',
+    tenantId,
   }
 
   function makeHarness(
     existing: AclRow | null,
-    options: { failWrite?: boolean; failInvalidate?: boolean } = {},
+    options: {
+      failWrite?: boolean
+      failInvalidate?: boolean
+      failTargetLookup?: boolean
+      role?: TargetRow | null
+      user?: TargetRow | null
+    } = {},
   ): Harness {
     const rows: AclRow[] = existing ? [existing] : []
     const removed: AclRow[] = []
@@ -75,10 +103,21 @@ describe('auth ACL audit commands', () => {
     const deletedTags: string[] = []
     const order: string[] = []
     const findOneFilters: unknown[] = []
+    const targetFilters: unknown[] = []
 
     const em = {
       fork: () => em,
-      findOne: async (_entity: unknown, where: unknown) => {
+      findOne: async (entity: unknown, where: unknown) => {
+        if (entity === Role || entity === User) {
+          targetFilters.push(where)
+          if (options.failTargetLookup) throw new Error('target lookup failed')
+          // `undefined` means "use the default row"; an explicit `null` is the
+          // out-of-scope target the lookup must not resolve.
+          const row = entity === Role
+            ? (options.role !== undefined ? options.role : targetRole)
+            : (options.user !== undefined ? options.user : targetUser)
+          return row
+        }
         findOneFilters.push(where)
         return rows[0] ?? null
       },
@@ -156,7 +195,25 @@ describe('auth ACL audit commands', () => {
       deletedTags,
       order,
       findOneFilters,
+      targetFilters,
     }
+  }
+
+  /** Mirrors what the bus does: prepare → execute → captureAfter → buildLog. */
+  async function runAndBuildLog<TInput extends RoleAclUpdateInput | UserAclUpdateInput>(
+    handler: CommandHandler<TInput, AclUpdateResult>,
+    input: TInput,
+    harness: Harness,
+  ): Promise<CommandLogMetadata> {
+    const before = await handler.prepare!(input, harness.ctx)
+    const result = await handler.execute(input, harness.ctx)
+    const after = await handler.captureAfter!(input, result, harness.ctx)
+    return (await handler.buildLog!({
+      input,
+      result,
+      ctx: harness.ctx,
+      snapshots: { before: before?.before, after },
+    })) as CommandLogMetadata
   }
 
   function roleHandler(): CommandHandler<RoleAclUpdateInput, AclUpdateResult> {
@@ -280,16 +337,7 @@ describe('auth ACL audit commands', () => {
 
     it('builds an audit entry scoped to the role ACL resource', async () => {
       const harness = makeHarness(null)
-      const before = await roleHandler().prepare!(roleInput, harness.ctx)
-      const result = await roleHandler().execute(roleInput, harness.ctx)
-      const after = await roleHandler().captureAfter!(roleInput, result, harness.ctx)
-
-      const metadata = (await roleHandler().buildLog!({
-        input: roleInput,
-        result,
-        ctx: harness.ctx,
-        snapshots: { before: before?.before, after },
-      })) as CommandLogMetadata
+      const metadata = await runAndBuildLog(roleHandler(), roleInput, harness)
 
       expect(metadata.resourceKind).toBe('auth.role_acl')
       expect(metadata.resourceId).toBe(roleId)
@@ -302,6 +350,59 @@ describe('auth ACL audit commands', () => {
         features: ['audit_logs.view_self', 'auth.acl.manage'],
         organizations: null,
       })
+      // `action_logs` has no label column, so an entry that names the role only
+      // by uuid stops being readable once the role is deleted.
+      expect(metadata.context).toEqual({
+        target: { kind: 'role', id: roleId, name: 'qa-auditors' },
+        effect: 'granted',
+      })
+    })
+
+    it('records no entry when the submitted ACL matches the stored one', async () => {
+      // The admin forms re-submit the ACL on every save, so an unchanged grant
+      // set would otherwise bury real permission changes under empty entries.
+      const existing: AclRow = {
+        id: 'acl-1',
+        isSuperAdmin: false,
+        featuresJson: ['audit_logs.view_self', 'auth.acl.manage'],
+        organizationsJson: null,
+        tenantId,
+      }
+      const harness = makeHarness(existing)
+
+      const metadata = await runAndBuildLog(roleHandler(), roleInput, harness)
+
+      expect(metadata).toEqual({ skipLog: true })
+      // The skipped entry must not pay for the enrichment either.
+      expect(harness.targetFilters).toEqual([])
+    })
+
+    it('labels a cleared grant set as revoked', async () => {
+      const existing: AclRow = {
+        id: 'acl-1',
+        isSuperAdmin: false,
+        featuresJson: ['auth.acl.manage'],
+        organizationsJson: null,
+        tenantId,
+      }
+      const harness = makeHarness(existing)
+
+      const metadata = await runAndBuildLog(roleHandler(), { ...roleInput, features: [] }, harness)
+
+      expect(metadata.skipLog).toBeFalsy()
+      expect((metadata.context as { effect?: string }).effect).toBe('revoked')
+    })
+
+    it('still records the entry when the target lookup fails', async () => {
+      // The write has already committed by the time `buildLog` runs, so a
+      // failed enrichment must cost the label, never the entry.
+      const harness = makeHarness(null, { failTargetLookup: true })
+
+      const metadata = await runAndBuildLog(roleHandler(), roleInput, harness)
+
+      expect(metadata.skipLog).toBeFalsy()
+      expect(metadata.resourceId).toBe(roleId)
+      expect(metadata.context).toEqual({ effect: 'granted' })
     })
 
     it('normalizes grant order so a re-ordered feature list is not a change', async () => {
@@ -382,16 +483,7 @@ describe('auth ACL audit commands', () => {
       const harness = makeHarness(existing)
       const cleared: UserAclUpdateInput = { ...userInput, clear: true, isSuperAdmin: false, features: [] }
 
-      const before = await userHandler().prepare!(cleared, harness.ctx)
-      const result = await userHandler().execute(cleared, harness.ctx)
-      const after = await userHandler().captureAfter!(cleared, result, harness.ctx)
-
-      const metadata = (await userHandler().buildLog!({
-        input: cleared,
-        result,
-        ctx: harness.ctx,
-        snapshots: { before: before?.before, after },
-      })) as CommandLogMetadata
+      const metadata = await runAndBuildLog(userHandler(), cleared, harness)
 
       expect(metadata.resourceKind).toBe('auth.user_acl')
       expect(metadata.resourceId).toBe(userId)
@@ -402,6 +494,111 @@ describe('auth ACL audit commands', () => {
         organizations: null,
       })
       expect(metadata.snapshotAfter).toEqual({ isSuperAdmin: false, features: [], organizations: null })
+      expect(metadata.context).toEqual({
+        target: { kind: 'user', id: userId, email: 'qa-target@example.com', name: 'QA Target' },
+        effect: 'revoked',
+      })
+    })
+
+    it('scopes the target lookup to the tenant the entry is written in', async () => {
+      // `userId` comes from the request body and the row carries encrypted
+      // personal data: an id from another tenant must not be decrypted under
+      // this scope and stamped into this tenant's trail.
+      const harness = makeHarness(null)
+
+      await runAndBuildLog(userHandler(), userInput, harness)
+
+      expect(harness.targetFilters).toEqual([
+        { id: userId, $or: [{ tenantId }, { tenantId: null }] },
+      ])
+    })
+
+    it('records the entry without a target when the user is out of scope', async () => {
+      const harness = makeHarness(null, { user: null })
+
+      const metadata = await runAndBuildLog(userHandler(), userInput, harness)
+
+      expect(metadata.skipLog).toBeFalsy()
+      expect(metadata.context).toEqual({ effect: 'granted' })
+    })
+
+    it('keeps a silently trimmed grant attempt out of the no-op guard', async () => {
+      // `sanitizeTenantFeatures` drops restricted grants instead of refusing
+      // them, so the attempt leaves before and after identical. Suppressing it
+      // as a no-op would make the escalation attempt less visible than before.
+      const existing: AclRow = {
+        id: 'acl-9',
+        isSuperAdmin: false,
+        featuresJson: ['audit_logs.view_self'],
+        organizationsJson: ['org-1'],
+        tenantId,
+      }
+      const harness = makeHarness(existing)
+      const trimmed: UserAclUpdateInput = {
+        ...userInput,
+        requested: { isSuperAdmin: false, features: ['audit_logs.view_self', 'directory.tenants.manage'] },
+      }
+
+      const metadata = await runAndBuildLog(userHandler(), trimmed, harness)
+
+      expect(metadata.skipLog).toBeFalsy()
+      expect(metadata.snapshotBefore).toEqual(metadata.snapshotAfter)
+      expect(metadata.context).toEqual({
+        target: { kind: 'user', id: userId, email: 'qa-target@example.com', name: 'QA Target' },
+        sanitizedRequest: {
+          isSuperAdmin: false,
+          features: ['audit_logs.view_self', 'directory.tenants.manage'],
+        },
+      })
+    })
+
+    it('does not label an unchanged ACL with an effect', async () => {
+      // The entry exists *because* nothing changed; an effect label would have
+      // it assert a permission change that never happened.
+      const existing: AclRow = {
+        id: 'acl-9',
+        isSuperAdmin: false,
+        featuresJson: ['audit_logs.view_self'],
+        organizationsJson: ['org-1'],
+        tenantId,
+      }
+      const harness = makeHarness(existing)
+      const trimmed: UserAclUpdateInput = {
+        ...userInput,
+        requested: { isSuperAdmin: true, features: ['audit_logs.view_self'] },
+      }
+
+      const metadata = await runAndBuildLog(userHandler(), trimmed, harness)
+
+      expect((metadata.context as { effect?: string }).effect).toBeUndefined()
+    })
+
+    it('records no entry when the override is re-saved unchanged', async () => {
+      const existing: AclRow = {
+        id: 'acl-9',
+        isSuperAdmin: false,
+        featuresJson: ['audit_logs.view_self'],
+        organizationsJson: ['org-1'],
+        tenantId,
+      }
+      const harness = makeHarness(existing)
+
+      expect(await runAndBuildLog(userHandler(), userInput, harness)).toEqual({ skipLog: true })
+    })
+
+    it('records no entry when a user without an override is saved again', async () => {
+      // The most common shape by far: the user-edit page PUTs the ACL on every
+      // save and almost nobody carries a per-user override, so both snapshots
+      // are the empty ACL.
+      const harness = makeHarness(null)
+      const cleared: UserAclUpdateInput = {
+        ...userInput,
+        clear: true,
+        features: [],
+        organizations: null,
+      }
+
+      expect(await runAndBuildLog(userHandler(), cleared, harness)).toEqual({ skipLog: true })
     })
 
     it('invalidates the per-user RBAC caches after the commit', async () => {

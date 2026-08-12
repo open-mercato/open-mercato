@@ -24,10 +24,12 @@
 // =============================================================================
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { snapshotsEqual } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -68,6 +70,42 @@ const EMPTY_ACL_SNAPSHOT: AclSnapshot = {
 }
 
 /**
+ * Identity of the role or user an entry is about.
+ *
+ * `action_logs` keeps only `resource_id`, so an entry degrades to a bare UUID
+ * the moment the role or account is deleted — exactly when the trail matters
+ * most. This rides in `context` rather than in the snapshots because the
+ * command bus derives `changes` from the two snapshots with a deep comparison:
+ * a target renamed between two ACL edits would otherwise be reported as a
+ * permission change, and the no-op guard below would stop recognising an
+ * unchanged ACL.
+ */
+type AclTarget =
+  | { kind: 'user'; id: string; email: string | null; name: string | null }
+  | { kind: 'role'; id: string; name: string | null }
+
+/**
+ * What the caller asked for when the route trimmed the request instead of
+ * refusing it.
+ *
+ * `sanitizeTenantFeatures` drops restricted grants silently, so such a request
+ * leaves `before` and `after` identical and is indistinguishable from a no-op —
+ * which `buildLog` skips. Recording the original request both keeps the attempt
+ * visible and exempts the entry from that guard.
+ *
+ * Organizations are deliberately absent: they are never why the route trims,
+ * but they differ from `after.organizations` on every organizations-only save,
+ * which would invite a reader to diff the two and conclude a grant was refused.
+ */
+type SanitizedAclRequest = {
+  isSuperAdmin: boolean
+  features: string[]
+}
+
+/** How the change reads at a glance, without diffing two grant lists. */
+type AclChangeEffect = 'granted' | 'changed' | 'revoked'
+
+/**
  * Codepoint ordering rather than `localeCompare`: these snapshots are persisted
  * audit records, so the ordering must not shift with the runtime's default
  * locale. Feature and organization ids are opaque ASCII identifiers that are
@@ -90,6 +128,16 @@ function captureAclSnapshot(acl: AclRecord | null | undefined): AclSnapshot {
     features: toSortedList(acl.featuresJson),
     organizations: Array.isArray(acl.organizationsJson) ? toSortedList(acl.organizationsJson) : null,
   }
+}
+
+function holdsGrants(snapshot: AclSnapshot): boolean {
+  return snapshot.isSuperAdmin || snapshot.features.length > 0
+}
+
+function resolveEffect(before: AclSnapshot, after: AclSnapshot): AclChangeEffect {
+  if (!holdsGrants(before) && holdsGrants(after)) return 'granted'
+  if (holdsGrants(before) && !holdsGrants(after)) return 'revoked'
+  return 'changed'
 }
 
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
@@ -140,6 +188,8 @@ export type UserAclUpdateInput = AclCommandInput & {
   userId: string
   /** Mirrors the route's `!hasCustomAcl`: drop the override row instead of upserting it. */
   clear: boolean
+  /** Set by the route only when it wrote less than the caller asked for. */
+  requested?: SanitizedAclRequest | null
 }
 
 export type AclUpdateResult = {
@@ -166,6 +216,48 @@ type AclCommandConfig<TInput extends AclCommandInput> = {
    * the re-read failed, which must be logged as "unknown" rather than guessed.
    */
   snapshotWhenAbsent: (input: TInput) => AclSnapshot | null
+  /** Human-readable identity of the target; `null` when it cannot be resolved. */
+  loadTarget: (em: EntityManager, input: TInput, ctx: CommandRuntimeContext) => Promise<AclTarget | null>
+  /** Only the user route sanitizes, so only it can report a trimmed request. */
+  sanitizedRequest?: (input: TInput) => SanitizedAclRequest | null
+}
+
+/**
+ * Enrichment must never cost the entry.
+ *
+ * The bus persists the log after `execute` has already committed the permission
+ * change, so a throw from the target lookup would leave the write recorded
+ * nowhere — the same "committed but unaudited" hole the cache-invalidation
+ * guard in `execute` closes. A missing label is a far smaller loss.
+ */
+async function loadTargetSafely<TInput extends AclCommandInput>(
+  config: AclCommandConfig<TInput>,
+  input: TInput,
+  ctx: CommandRuntimeContext,
+): Promise<AclTarget | null> {
+  try {
+    return await config.loadTarget(resolveEm(ctx).fork(), input, ctx)
+  } catch (err) {
+    logger.warn('Could not resolve the ACL target for the audit entry', {
+      err,
+      commandId: config.id,
+      resourceId: config.resourceId(input),
+      tenantId: input.tenantId,
+    })
+    return null
+  }
+}
+
+function buildAuditContext(params: {
+  target: AclTarget | null
+  effect: AclChangeEffect | null
+  sanitizedRequest: SanitizedAclRequest | null
+}): Record<string, unknown> | null {
+  const context: Record<string, unknown> = {}
+  if (params.target) context.target = params.target
+  if (params.effect) context.effect = params.effect
+  if (params.sanitizedRequest) context.sanitizedRequest = params.sanitizedRequest
+  return Object.keys(context).length ? context : null
 }
 
 /**
@@ -225,16 +317,40 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
       if (persisted) return captureAclSnapshot(persisted)
       return config.snapshotWhenAbsent(input)
     },
-    buildLog: async ({ result, snapshots }) => {
+    buildLog: async ({ input, result, ctx, snapshots }) => {
+      const before = (snapshots.before as AclSnapshot | undefined) ?? null
+      const after = (snapshots.after as AclSnapshot | undefined) ?? null
+      // An unknown post-state (`after: null`, the failed re-read) counts as a
+      // change: it is the one case where the entry is the only evidence left.
+      // Both snapshots leave `captureAclSnapshot` with their grant lists sorted,
+      // so the shared order-sensitive comparison is a set comparison here.
+      const changed = !before || !after || !snapshotsEqual(before, after)
+      const sanitizedRequest = config.sanitizedRequest?.(input) ?? null
+      // The admin user-edit page PUTs the ACL on every save, even when only the
+      // name or the roles changed, and most accounts carry no per-user override
+      // at all — so recording an unchanged ACL faithfully buries the real
+      // permission changes under identical empty entries. A request the route
+      // trimmed rather than refused also arrives with `before == after`; that
+      // one is an escalation attempt and must survive this guard.
+      if (!changed && !sanitizedRequest) return { skipLog: true }
       const { translate } = await resolveTranslations()
+      const target = await loadTargetSafely(config, input, ctx)
       return {
         actionLabel: translate(config.labelKey, config.labelFallback),
         resourceKind: config.resourceKind,
         resourceId: result.resourceId,
         tenantId: result.tenantId,
         organizationId: result.organizationId,
-        snapshotBefore: (snapshots.before as AclSnapshot | undefined) ?? null,
-        snapshotAfter: (snapshots.after as AclSnapshot | undefined) ?? null,
+        snapshotBefore: before,
+        snapshotAfter: after,
+        context: buildAuditContext({
+          target,
+          // A sanitized-only entry is written *because* nothing changed, so
+          // labelling it would have the trail assert a permission change that
+          // never happened.
+          effect: changed && before && after ? resolveEffect(before, after) : null,
+          sanitizedRequest,
+        }),
       }
     },
   }
@@ -279,6 +395,14 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
     await deleteCacheTags(ctx, [`rbac:tenant:${input.tenantId}`])
   },
   snapshotWhenAbsent: () => null,
+  // Looked up by id alone: the entry already names this role through
+  // `resource_id`, and a tenant predicate would only blank the label when a
+  // super admin edits a role from outside the tenant scope they are writing in.
+  loadTarget: async (em, input) => {
+    const role = await em.findOne(Role, { id: input.roleId } as FilterQuery<Role>)
+    if (!role) return null
+    return { kind: 'role', id: input.roleId, name: role.name ?? null }
+  },
 })
 
 const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
@@ -332,6 +456,23 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
   },
   // Clearing removes the row, so an absent row is the real post-state here.
   snapshotWhenAbsent: (input) => (input.clear ? { ...EMPTY_ACL_SNAPSHOT } : null),
+  // `userId` arrives in the request body and `auth:user` carries encrypted
+  // personal data, so the lookup is tenant-scoped: an id belonging to another
+  // tenant must not be decrypted under this scope and stamped into this
+  // tenant's trail. A global account (`users.tenant_id` is nullable) still
+  // resolves, mirroring how the role route widens its own lookup.
+  loadTarget: async (em, input, ctx) => {
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: input.userId, $or: [{ tenantId: input.tenantId }, { tenantId: null }] } as FilterQuery<User>,
+      {},
+      { tenantId: input.tenantId, organizationId: ctx.auth?.orgId ?? null },
+    )
+    if (!user) return null
+    return { kind: 'user', id: input.userId, email: user.email ?? null, name: user.name ?? null }
+  },
+  sanitizedRequest: (input) => input.requested ?? null,
 })
 
 registerCommand(updateRoleAclCommand)

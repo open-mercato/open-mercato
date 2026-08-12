@@ -252,6 +252,20 @@ export async function PUT(req: Request) {
 
   const hasCustomAcl = effectiveIsSuperAdmin || effectiveFeatures.length > 0
 
+  // What the caller asked for, handed to the command only when it exceeds what
+  // is about to be written. `assertActorCanGrantAcl` above refuses the blatant
+  // escalations; what reaches the strip is quieter — a restricted grant the
+  // actor does hold — and it leaves before/after identical, so the audit entry
+  // would otherwise be indistinguishable from a no-op and skipped as one.
+  //
+  // Deliberately independent of the `sanitized` response flag below:
+  // `hasRestrictedChanges` stays false when the trimmed result equals the
+  // existing ACL, to avoid nagging the user about a save that changed nothing —
+  // but that is precisely an attempt the trail must keep.
+  const strippedFeatures = requestedFeatures.filter((feature) => !effectiveFeatures.includes(feature))
+  const requestedMoreThanApplied =
+    strippedFeatures.length > 0 || requestedIsSuperAdmin !== effectiveIsSuperAdmin
+
   // Route the write through the command bus so the permission change lands in
   // the action log. The command owns the transactional write (or removal) and
   // the RBAC cache invalidation that used to live here.
@@ -272,6 +286,9 @@ export async function PUT(req: Request) {
       features: effectiveFeatures,
       organizations,
       clear: !hasCustomAcl,
+      requested: requestedMoreThanApplied
+        ? { isSuperAdmin: requestedIsSuperAdmin, features: requestedFeatures }
+        : null,
     },
     ctx: commandCtx,
   })

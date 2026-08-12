@@ -30,6 +30,10 @@ type AuditEntry = {
   snapshotBefore: { isSuperAdmin?: boolean; features?: string[]; organizations?: string[] | null } | null;
   snapshotAfter: { isSuperAdmin?: boolean; features?: string[]; organizations?: string[] | null } | null;
   changes: Record<string, unknown> | null;
+  context: {
+    effect?: string;
+    target?: { kind?: string; id?: string; email?: string | null; name?: string | null };
+  } | null;
 };
 
 async function findAuditEntries(
@@ -94,6 +98,12 @@ test.describe('TC-AUTH-058: ACL changes are audited', () => {
         GRANTED_FEATURE,
       );
       expect(entry.undoToken, 'ACL commands are log-only, so no undo token is minted').toBeNull();
+      // `resource_id` is a bare uuid and `action_logs` has no label column, so
+      // the entry would stop being readable once the role is deleted.
+      expect(entry.context?.target?.name, 'entry should name the role it is about').toBe(
+        `qa-tc-auth-058-${stamp}`,
+      );
+      expect(entry.context?.effect, 'a first grant reads as granted').toBe('granted');
     } finally {
       await deleteRoleIfExists(request, superadminToken, roleId);
     }
@@ -155,6 +165,27 @@ test.describe('TC-AUTH-058: ACL changes are audited', () => {
       );
       expect(clearEntry.snapshotAfter?.features ?? [], 'after-snapshot should be empty once cleared').toEqual([]);
       expect(clearEntry.undoToken, 'ACL commands are log-only').toBeNull();
+      expect(clearEntry.context?.target?.email, 'entry should name the account it is about').toBe(targetEmail);
+      expect(clearEntry.context?.effect, 'dropping the last grant reads as revoked').toBe('revoked');
+
+      // The user-edit page PUTs the ACL on every save, so an unchanged ACL is
+      // the most common request by far — recording it would bury the two
+      // entries above under identical empty ones.
+      const repeat = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
+        token: superadminToken,
+        data: { userId: targetUserId, features: [] },
+      });
+      expect(repeat.status(), 're-saving an unchanged ACL should still succeed').toBe(200);
+
+      // "Nothing was written" can only be established by waiting, so exhaust
+      // the poll window deliberately and assert the count never moved.
+      const afterNoOp = await findAuditEntries(
+        request,
+        superadminToken,
+        { resourceKind: 'auth.user_acl', resourceId: targetUserId },
+        () => false,
+      );
+      expect(afterNoOp.length, 'an unchanged ACL should add no entry').toBe(afterClear.length);
     } finally {
       await deleteUserIfExists(request, superadminToken, targetUserId);
     }

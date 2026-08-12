@@ -115,6 +115,34 @@ The after-snapshot is re-read from the committed row rather than echoed from the
 
 `changes` is left to the bus to derive from the two snapshots — the handler returns no `changes` of its own.
 
+### Entry context
+
+Three optional keys ride in `context_json`, which the audit dialog already renders as a collapsible JSON section:
+
+```ts
+type AclAuditContext = {
+  target?:
+    | { kind: 'user'; id: string; email: string | null; name: string | null }
+    | { kind: 'role'; id: string; name: string | null }
+  effect?: 'granted' | 'changed' | 'revoked'
+  sanitizedRequest?: { isSuperAdmin: boolean; features: string[] }
+}
+```
+
+`target` exists because `action_logs` stores only `resource_id` and has no label column (`formatResource` renders `kind · uuid`), so an entry degrades to a bare UUID the moment the account or role is deleted — exactly when the trail matters most. It lives in `context` rather than in the snapshots: the bus derives `changes` from the snapshots with a deep comparison, so a target renamed between two ACL edits would otherwise be reported as a permission change, and the no-op guard below would stop recognising an unchanged ACL. The user lookup goes through `findOneWithDecryption` scoped to `input.tenantId` (or a null-tenant global account), so an id from another tenant is never decrypted under this scope and stamped into this tenant's trail; the role lookup is by id alone, since the entry already names that role and a tenant predicate would only blank the label for a legitimate cross-tenant super-admin edit. Raw email matches the encryption posture of the row itself — `snapshot_*` and `context_json` are both in `audit_logs`' `defaultEncryptionMaps`. The lookup is wrapped: the write has already committed by the time `buildLog` runs, so a failed enrichment costs the label, never the entry.
+
+This is deliberately **not** routed through `loadAuditLogDisplayMaps`, the read-time resolver behind `actorUserName` / `tenantName` / `organizationName`. That helper filters `deletedAt: null`, so it blanks out in precisely the case this block exists for, and it knows nothing about `resourceKind` — teaching it to resolve `resource_id` would make `audit_logs` learn auth's resource kinds, the coupling direction `packages/core/AGENTS.md` forbids. Write-time capture instead follows the convention the entity commands already use (`loadPersonSnapshot` embeds the record so its entries survive deletion). A reader rendering the block should apply the same rule as that helper: `name` when present, `email` otherwise.
+
+`effect` is set only when the ACL actually changed, so a sanitized-only entry cannot assert a permission change that never happened. It is orthogonal to the `actionType` projection, which derives `edit` from the `.update` command-id suffix and stays correct either way. Neither key collides with the two reserved ones: `context.source` (read by `deriveActionLogSource`) and `context.cacheAliases` (read by the bus).
+
+### No-op suppression
+
+`buildLog` returns `{ skipLog: true }` when both snapshots are present and equal, matching the convention `customers.people.update` and `customers.companies.update` already follow, and reusing the shared `snapshotsEqual` (the sorted snapshots make its order-sensitive comparison a set comparison). Returning `null` instead would **not** work: the bus re-attaches the snapshots to an empty metadata object (`command-bus.ts`) and `persistLog` writes a row carrying nothing but `command_id`.
+
+The guard is load-bearing rather than cosmetic. `backend/users/[id]/edit/page.tsx` PUTs the ACL on every user save — even when only the name or the roles changed — and most accounts carry no per-user override at all, so without it the real permission changes are buried under identical `{ isSuperAdmin: false, features: [], organizations: null }` entries.
+
+One request must survive the guard. `sanitizeTenantFeatures` trims a restricted grant instead of refusing it, which leaves `before` and `after` identical, so suppressing no-ops would make a silent escalation attempt *less* visible than before. The route therefore passes what the caller asked for as `input.requested` whenever it wrote less than was submitted, and the command records it as `context.sanitizedRequest` and exempts the entry. That flag is deliberately **not** the route's `sanitized` response flag: `hasRestrictedChanges` returns false when the trimmed result equals the existing ACL, to avoid nagging the user about a save that changed nothing — but that is precisely an attempt the trail must keep. Organizations are excluded from the block: they are never why the route trims, but they differ from `after.organizations` on every organizations-only save, which would invite a reader to diff the two and conclude a grant was refused. Only the user route sanitizes; the role route reports `sanitized: false` unconditionally and passes no such block.
+
 When the post-write re-read finds no row and the command did not intend a removal, `captureAfter` returns `null` rather than falling back to the request. The bus tolerates a null after-snapshot, so the entry records "unknown" instead of a post-state that was never verified as persisted.
 
 ### Log scope
@@ -133,7 +161,7 @@ Request schemas and success response bodies (`{ ok, sanitized }`) are unchanged.
 
 The observable differences:
 
-- A `PUT` to either endpoint now appends an `ActionLog` row, visible through `GET /api/audit_logs/audit-logs/actions` filtered by `resourceKind=auth.role_acl` / `auth.user_acl`.
+- A `PUT` to either endpoint appends an `ActionLog` row whenever it changes the stored ACL — or leaves it unchanged only because the route trimmed the request — visible through `GET /api/audit_logs/audit-logs/actions` filtered by `resourceKind=auth.role_acl` / `auth.user_acl`. A submit that changes nothing writes no row.
 - Those rows have `undoToken: null` and are absent from `?undoableOnly=true` listings; the audit-log UI renders no Undo action for them.
 - Both endpoints now emit the standard command operation metadata header, as every other command-backed route does.
 
@@ -174,6 +202,8 @@ Non-goals, deliberately left out:
 | `PUT /api/auth/users/acl` (grant) | `TC-AUTH-058` — per-user override produces an entry with the granted feature |
 | `PUT /api/auth/users/acl` (clear) | `TC-AUTH-058` — clearing every grant is audited with the emptied after-snapshot |
 | `GET /api/audit_logs/audit-logs/actions` | `TC-AUTH-058` — entries are retrievable by `resourceKind` + `resourceId` |
+| `PUT /api/auth/users/acl` (unchanged re-save) | `TC-AUTH-058` — re-submitting an unchanged ACL adds no entry |
+| Entry context | `TC-AUTH-058` — role and user entries name their target and carry `granted` / `revoked` |
 
 ## Changelog
 
@@ -182,3 +212,4 @@ Non-goals, deliberately left out:
 - **2026-08-07** — Narrowed the user-ACL tenant guard so it stops removing a working capability. `users.tenant_id` is nullable, so a tenant-less global account is reachable through normal login, and refusing on the actor's tenant alone would have broken its ability to edit or clear an existing override. Scope now falls back to the target user's tenant, matching the role route's derive-then-refuse pattern; only an unresolvable pair returns 400.
 - **2026-08-07** — Completed the foreign-tenant organization fix. The handler's explicit `organizationId: null` was silently overridden by `persistLog`'s `??` fallback to the actor's organization, so the earlier change had no effect on the persisted row; the route now strips the organization from the command context on a cross-tenant edit. Added route-level and bus-level coverage, since the original test asserted only the handler's return value and passed either way.
 - **2026-08-07** — Stopped cache-invalidation failures from suppressing the audit entry. The bus persists the log only after `execute` resolves, so a throw from `invalidateTenantCache` / `invalidateUserCache` committed the permission change and then lost its record — the same hole these commands close, opening exactly when infrastructure is degraded. Invalidation is now wrapped and logged at error level.
+- **2026-08-12** — Made the entries worth reading. Unchanged ACLs are no longer recorded: the user-edit page PUTs the ACL on every user save and most accounts carry no override, so identical empty entries were burying the real permission changes; `buildLog` now returns `{ skipLog: true }` through the shared `snapshotsEqual`, following `customers.people.update`. Entries name their target (`context.target`, resolved tenant-scoped through `findOneWithDecryption` and best-effort so a failed lookup costs the label, never the entry) and label the change `granted` / `changed` / `revoked` (`context.effect`). A grant the user route trims rather than refuses is exempt from the no-op guard and recorded as `context.sanitizedRequest`; without it, suppressing no-ops would have made a silent escalation attempt *less* visible than before.
