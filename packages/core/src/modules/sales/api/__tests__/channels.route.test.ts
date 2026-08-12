@@ -16,6 +16,15 @@ describe('sales channels route metadata', () => {
     expect(metadata.PUT.requireFeatures).toEqual(['sales.channels.manage'])
     expect(metadata.DELETE.requireFeatures).toEqual(['sales.channels.manage'])
   })
+
+  // Widening the read gate is only safe while the route still demands a session at all:
+  // dropping requireAuth would turn `sales.channels.view` into a public endpoint, and a test
+  // that checks features alone would stay green through it.
+  it('should still require authentication on every method', () => {
+    for (const method of ['GET', 'POST', 'PUT', 'DELETE'] as const) {
+      expect(metadata[method].requireAuth).toBe(true)
+    }
+  })
 })
 
 describe('sales channels route helpers', () => {
