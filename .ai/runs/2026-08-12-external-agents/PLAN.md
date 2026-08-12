@@ -26,13 +26,14 @@ top of that seam.
 | 2.2 | SDK: `ExternalAgentConnector` registry + `defineExternalAgent` | DONE | `a99804cf2` |
 | 2.3 | Runtime: `ExternalAgentRunner` (start half) + `agentRuntime` dispatch arm for `runtime: 'external'` | DONE | `b1281e472` |
 | 2.4 | Runtime: `completeExternalRun` (validate → output guardrail → complete run → resume workflow) | DONE | `5abf31a3f` |
-| 2.5 | Bridge: `invokeAgentForWorkflow` returns `{ kind: 'suspended' }` | TODO | |
-| 2.6 | API: callback route + command (unauthenticated, connector-verified, idempotent, `openApi`) | TODO | |
-| 2.7 | Deadline: delayed sweep job → cancel + fail + resume down the `error` route | TODO | |
-| 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (4 locales) | TODO | |
-| 2.9 | Package: `@open-mercato/agent-elevenlabs` — integration provider + voice connector | TODO | |
+| 2.5 | Bridge: `invokeAgentForWorkflow` returns `{ kind: 'suspended' }` | DONE | `5d0204bc6` |
+| 2.6 | API: callback route + command (unauthenticated, connector-verified, idempotent, `openApi`) | DONE | `e3057ada1` |
+| 2.7 | Deadline: delayed sweep job → cancel + fail + resume down the `error` route | DONE | `b3618aee1` |
+| 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (4 locales) | DONE | `17e444185` |
+| 2.9 | Package: `@open-mercato/agent-elevenlabs` — integration provider + voice connector | DONE | `a89629580` |
 | 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | TODO | |
 | 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | TODO | |
+| 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | TODO | |
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript + recording captured as `AgentRunArtifact`s | TODO | |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
@@ -173,6 +174,34 @@ Work:
   `data.*` paths must resolve exactly as they do for a native researcher agent.
 - Tests: an external run with a declared mapping lands the mapped keys; with none, the legacy keys —
   byte-identical to today.
+
+**2.12 — static, connector-addressed callback route** *(added 2026-08-12 after T2.9 — BLOCKS the end-to-end demo)*
+
+Found by T2.9 and confirmed against the live docs: **ElevenLabs post-call webhooks are configured at the
+workspace and agent level, not per conversation.** The verified outbound-call body has no webhook field.
+So the per-run single-use URL T2.3 mints and T2.6's `[token]` route resolves can never be delivered to
+ElevenLabs — the two halves do not meet, and no real call can resume a workflow today.
+
+The token route stays (it is right for any provider that accepts a per-call URL, and T4.1's generic
+connector will use it). Add a SECOND, static entry point beside it:
+
+- `POST /api/agent_orchestrator/external-runs/connectors/[connectorId]/callback` — one stable URL per
+  connector, pasted once into the provider's workspace settings.
+- Resolve the run by the provider's own id: `connector.extractExternalRunId(rawPayload)` (a new optional
+  interface member — a connector that cannot self-address simply does not implement it) against the
+  `(organization_id, connector_id, external_run_id)` index T2.1 already built.
+- **Tenancy without a token.** That unique is per-org, so the same `conversation_id` could in principle
+  exist in two orgs. Resolve ALL candidate rows, then let the SIGNATURE disambiguate: verify against each
+  candidate tenant's own webhook secret and accept the one that verifies. Exactly one can, because the
+  secret is per-tenant. Zero verifying candidates ⇒ 401 with no detail.
+- Everything after resolution reuses `completeExternalRun` unchanged — single-shot claim, guardrails,
+  resume. No second settlement path.
+- Security note to write down: on this route the HMAC is the ONLY credential (there is no token), which
+  is how every ordinary webhook integration works, but it means the per-run secret defence is gone and
+  the per-tenant webhook secret carries the whole weight. Rate-limit per connector + per resolved org.
+- Tests: two orgs holding the same `conversation_id` → only the correctly-signed one settles (the
+  mandatory cross-tenant case for this route); unknown conversation id → 404, no detail; a payload the
+  connector cannot self-address → 400.
 
 **2.10 — tests**
 - Unit: HMAC verify (good/bad/stale), normalize, suspend→callback→resume, single-shot idempotency,
@@ -351,3 +380,156 @@ Append one entry per task as it lands — decisions made, surprises found, devia
 - 2026-08-12 — **T2.7 note from T2.4:** the sweep should claim with `status: 'expired'`; add a third
   `settlement` kind (`{ kind: 'expired'; reason }`) that claims `expired` and otherwise reuses the
   connector-failure arm verbatim.
+- 2026-08-12 — **T2.5 done. The end-to-end park/resume chain is now verified link by link**, not assumed:
+  bridge `ctx.processId`/`ctx.stepId` → `AgentRunCtx` → `ExternalAgentRunner` writes the triple
+  all-or-nothing → `EXTERNAL_RUN_RESUME_SIGNAL` is byte-identical to core's `INVOKE_AGENT_SIGNAL_NAME`
+  (`'agent_orchestrator.proposal.ready'`), which is the signal the step actually parks on. The suspended
+  arm also matches core's two duck-typed declarations field for field — nothing type-checks across that
+  boundary, so a field-name drift would fail silently at runtime.
+- 2026-08-12 — T2.5: `externalRunId` is spread conditionally, so the returned object never carries an
+  explicit `undefined` across the duck-typed boundary. Asymmetry worth knowing: the enterprise runner
+  declares it REQUIRED while the bridge and core declare it optional — assignable in that direction, so
+  correct, just not symmetric.
+- 2026-08-12 — T2.5: `run-as-propagation.test.ts` changed only to retarget its `agentRuntime` fake from
+  `run` to `runOrSuspend`; assertions untouched. Not scope creep — a forced consequence of the switch.
+- 2026-08-12 — **Housekeeping fact:** ~35 PRE-EXISTING type errors live in other `agent_orchestrator`
+  test files, which is why the package `typecheck` excludes `**/__tests__/**`. Every task here typechecks
+  its own test files through a temporary config instead; T2.3 and T2.5 both found real bugs that way.
+- 2026-08-12 — **T2.6 done. Mutation guards are deliberately NOT wired on the callback route** — reported,
+  not skipped. `trace/ingest` (the module's only other unauthenticated write) does not wire them either,
+  and no route in `agent_orchestrator` calls `runMutationGuards`. With no user, `userFeatures` is `[]` so
+  every feature-gated guard filters out, and `userId` would have to be fabricated. Worse, it would be
+  ACTIVELY HARMFUL: guards read `input.requestHeaders`, which here are entirely third-party-supplied, and
+  `customers`' `optimisticLockGuard` targets `'*'` — a provider's stray header could 409 a correctly signed
+  settlement and park the workflow until the deadline sweep, turning a human-concurrency mechanism into a
+  machine-path availability bug. The write path still runs through Commands, so interceptors, audit and
+  column encryption all apply.
+- 2026-08-12 — T2.6: rate-limit + bounded-body helpers live in `@open-mercato/shared`
+  (`lib/ratelimit/helpers`, `lib/webhooks`), NOT in the webhooks module — `shipping_carriers`' provider
+  webhook is the precedent. So reuse cost no cross-module dependency, and riding the webhooks module's
+  `WebhookEndpointAdapter` (the design's open question) would have been the real coupling. Two buckets:
+  per-IP and per-TOKEN-DIGEST (per-run granularity, so no run's budget is exhausted by traffic aimed at
+  another). A null client IP SKIPS the IP bucket rather than sharing an `'unknown'` bucket, which would
+  let one attacker lock out every legitimate provider.
+- 2026-08-12 — T2.6: `hashCallbackToken` / `buildExternalRunCallbackPath` moved to a zero-dependency leaf
+  `lib/runtime/callbackToken.ts` (re-exported from the runner for BC) so the PUBLIC route does not pull
+  the whole start path — runPreflight, the TDCR bundle resolver, the input guardrail — into its module graph.
+- 2026-08-12 — **T2.6 verification worth imitating: behavioural negative controls.** Deliberately breaking
+  the route two ways proved the tests actually bind — deriving scope from request headers instead of the
+  row failed 3 tests; passing `JSON.stringify(JSON.parse(rawBody))` to `verifyCallback` failed 7. Both
+  reverted. The second is the single easiest way to silently break every signature check.
+- 2026-08-12 — T2.6 decisions beyond the brief, both tested: a `normalize()` that THROWS settles as a
+  connector failure with **200** (the payload is deterministic, so redelivery cannot help — wake the step
+  down `error` now rather than parking for the full deadline); a MISSING connector returns **503** with the
+  row untouched and still `pending`, so a redelivery after the deploy is fixed settles normally.
+- 2026-08-12 — T2.6 new env var for T2.8/T4.3 to document:
+  `OM_AGENT_EXTERNAL_CALLBACK_MAX_BODY_BYTES` (default 8 MiB — sized for ElevenLabs' base64-mp3
+  `post_call_audio`, ~3.2 MB for a ten-minute call).
+- 2026-08-12 — **T2.9 contract:** the route hands `verifyCallback` the exact received bytes (asserted
+  byte-identical and cross-checked with an HMAC over those bytes), so ElevenLabs' `${timestamp}.${rawBody}`
+  canonical string works as specified. The 1800 s replay window is the CONNECTOR's to enforce — the route
+  does no timestamp check of its own, since only the provider's package knows its header format.
+- 2026-08-12 — **T2.7 done. BOTH scheduling arms ship, because their failure modes do not overlap.** A
+  delayed job is precise but is lost if the queue backend drops it (Redis eviction, wiped `.mercato/queue`,
+  a strategy change) and cannot cover rows written before it existed. A periodic per-org tick is
+  self-healing but depends on `@open-mercato/scheduler`, an OPTIONAL peer `setup.ts` no-ops without — a
+  High-severity "must never happen" cannot rest on an optional package. Delayed-only also leaves a real
+  hole: `connector.start()` has already dialled by the time the enqueue runs, so an enqueue failure must be
+  swallowed, and without a second mechanism that run parks forever. Running both costs nothing: the
+  settlement is single-shot in SQL, so a double fire is a no-op, and one queue with two payload shapes
+  (the `task-run-executor` precedent) adds no concurrency lane.
+- 2026-08-12 — **T2.7 race analysis: the CLAIM is the guarantee, the SELECT is only an optimisation.**
+  Under READ COMMITTED two concurrent updates of one row serialise on the row lock and the loser
+  re-evaluates its `status = 'pending'` predicate against the committed result (EvalPlanQual) — a mutex,
+  not last-write-wins. The sweep introduces NO new decision point: it settles through the same
+  `completeExternalRun` a redelivered webhook does. All six interleavings traced; the only one the status
+  filter cannot cover (callback claims mid-sweep) is caught by the claim returning `claimed: false`.
+- 2026-08-12 — **T2.7 product behaviour worth naming in the docs (T4.3): late answers are DROPPED.** When
+  the sweep wins, a genuine correctly-signed callback arriving afterwards gets 200 and its transcript is
+  NOT persisted — recording it would contradict the row's `expired` status, and the workflow has already
+  branched down `error`.
+- 2026-08-12 — T2.7: `connector.cancel` runs LAST, inside its own try/catch, and only for the claim winner.
+  Cancelling first could hang up on a call whose answer already arrived; and the likeliest reason we are
+  expiring is that the provider is unreachable, so its `cancel` is the call most likely to hang — it must
+  never delay the resume. Three no-op arms log differently on purpose: no `cancel` implemented → info,
+  no provider id → warn, **`cancel` threw → error** (a call may still be live, still billing, now unattributed).
+- 2026-08-12 — T2.7: `callbackTimeoutMs` WARNS above 24 h rather than being capped — a cap would fail runs
+  an author deliberately configured, and the runner is the wrong place to overrule the registry. 24 h is
+  where the guarantee genuinely weakens (the delayed job would have to survive days and deploys, so the run
+  leans entirely on the periodic sweep).
+- 2026-08-12 — **T2.7 found a PRE-EXISTING defect, not ours to fix here:** all four existing workers in this
+  module (`metric-rollup`, `task-run-executor`, `llm-judge`, `eval-suite-runner`) declare `metadata.queue`
+  from an IMPORTED constant, but the generator's `buildVariableInitializerMap` walks only same-file
+  `VariableDeclaration` nodes — so those four already emit `unresolved-static-contract` diagnostics. The new
+  sweep worker uses a string literal per the documented rule. Follow-up for T4.3 or the harness.
+- 2026-08-12 — **T2.7 touched `setup.ts`, which T2.8 owns** (per-org 60 s sweep schedule alongside the metric
+  rollup). T2.8 keeps the schedule and adds ACL/events/i18n around it. The shared catch message is now
+  plural; existing tenants need `seedDefaults` re-run to pick the schedule up. `external_run.expired` is NOT
+  yet emitted — `expireExternalRun` in `lib/runtime/externalRunSweep.ts` is the emit point.
+- 2026-08-12 — T2.7 tunables for T2.8/T4.3 to document: 60 s sweep interval,
+  `EXTERNAL_RUN_EXPIRY_GRACE_MS` (5 s), `SWEEP_BATCH_LIMIT` (100 rows/tick/org), 24 h deadline warning.
+- 2026-08-12 — **T2.8 done. The ACL gate IS genuinely enforceable** — the open question is answered. Core's
+  `executeInvokeAgent` refuses to run a step without a traceable human (instance `initiatedBy`, else the
+  definition author, no anonymous fallback), and that user id rides the queue job → bridge `ctx.userId` →
+  `AgentRunCtx`, so `resolveCallerAcl` (which fails closed to `{ features: [], isSuperAdmin: false }`)
+  gives the runner the caller's real grants. The gate runs in `ExternalAgentRunner.run()` before the run
+  row opens and long before the connector dials. Core sets the same precedent for `UPDATE_ENTITY`.
+- 2026-08-12 — T2.8: "default-off" is expressed in `setup.ts`, NOT `acl.ts` — `web_search`/`web_fetch`
+  carry no flag; they are declared and then deliberately OMITTED from every persona list, reachable only
+  via the `agent_orchestrator.*` wildcard. `external_agents.invoke` follows that literally, with a named
+  block in `setup.ts` explaining why adding it to a persona would defeat the point.
+- 2026-08-12 — **T2.8 security decision: all four `external_run.*` events are `clientBroadcast: false`.**
+  The DOM event bridge forwards to every backoffice connection in the tenant + org WITHOUT evaluating ACL
+  features (the documented reason task events stay off it), so a live org-wide feed of who is being phoned
+  would undo the default-off gate. Payloads are built key by key from the exported
+  `EXTERNAL_RUN_EVENT_PAYLOAD_KEYS`: ids and a classified cause only — never transcript, phone number or
+  token. Turning broadcast on later must be a deliberate decision against that argument, not a default.
+- 2026-08-12 — T2.8 deviation from T2.7's handover: `external_run.expired` is emitted from
+  `completeExternalRun`'s settle path, NOT `expireExternalRun` — that side of the conditional claim is the
+  only place all four facts are exactly-once, so a sweep that loses the race announces nothing.
+- 2026-08-12 — T2.8: no i18n keys and no DI entry were added, deliberately. ACL feature titles are rendered
+  RAW by `AclEditor.tsx` (features are not translated anywhere in the platform) and event labels are
+  metadata, not UI copy; the one new error message is `[internal]`-prefixed. The external path resolves
+  only already-registered services. Cockpit copy is T3.4's.
+- 2026-08-12 — **T2.8 behaviour change T2.9's demo will hit first:** every external run now requires the
+  grant, so on a tenant that has not granted it an `INVOKE_AGENT` step naming an external agent fails down
+  the `error` handle instead of dialling. The demo tenant must run
+  `yarn mercato auth sync-role-acls` and hold `agent_orchestrator.external_agents.invoke` (or be superadmin).
+- 2026-08-12 — **T2.8 open governance question:** a DENIED invocation leaves no `AgentRun` row (matching
+  the "nothing was attempted" precedent), so a WARN log line is a tenant's only record of an attempted
+  outbound contact. If governance wants a durable audit trail of refusals, that needs a row, not a log —
+  real follow-up, not in scope here.
+- 2026-08-12 — **T2.9 done. THE GAP THAT BLOCKS THE END-TO-END DEMO (→ new task 2.12).** ElevenLabs
+  post-call webhooks are a WORKSPACE/AGENT setting, not a per-call parameter — confirmed against the live
+  docs — and the verified outbound-call body has no webhook field. So the per-run single-use URL T2.3 mints
+  and T2.6's `[token]` route resolves **cannot be delivered to ElevenLabs**, and no real call can resume a
+  workflow yet. The connector sends it as a reserved `om_callback_url` dynamic variable (inert, echoed back
+  for correlation) but that does not make ElevenLabs post there. Fix is T2.12: a static per-connector route
+  resolving the run by `conversation_id`, with the signature disambiguating tenancy.
+- 2026-08-12 — **T2.9: `cancel` is genuinely NOT supported by the API and is deliberately omitted.** There
+  is no hang-up/abort endpoint for a live conversation; the nearest thing (deleting the conversation record)
+  would destroy the transcript and audit trail WITHOUT ending the call, leaving it connected, billing and
+  unattributed. T2.7 already handles a connector without one — an honest "we stopped waiting" beats a false
+  "we hung up". `mock` is omitted too, so dry runs and eval replays REFUSE rather than dial (T3.3's scope).
+- 2026-08-12 — **T2.9 found a real leak the tests were written to catch:** ElevenLabs' `success: false`
+  `message` was interpolated verbatim into a thrown error, and a provider error body can echo the API key
+  back — into a string that gets PERSISTED on the run and rendered in the cockpit. Fixed with
+  `redactSecrets`. Anything that interpolates a provider response into an error needs the same treatment.
+- 2026-08-12 — **T2.9 seam gap worth fixing upstream before T4.1 re-solves it differently:**
+  `ExternalAgentConnector` carries no container/EM on `start`, `verifyCallback` or `normalize`, so a
+  connector cannot reach the tenant's credentials. Closing over the registration-time container is WRONG
+  (it is a per-request container holding a forked `em` from a finished request → intermittent stale reads
+  through a dead identity map), so the connector builds one on demand per credential read. The smallest
+  honest fix is an additive optional `container`/`resolve` on `ExternalAgentConnectorStartArgs` and on
+  `verifyCallback`'s third argument — both call sites already hold one.
+- 2026-08-12 — T2.9 registry drift caught: a new workspace package is picked up automatically by the
+  workspaces glob, `build:packages`, `typecheck` and `test`, but THREE hand-maintained lists would have
+  silently drifted — the three `COPY packages/<x>/package.json` lines in `Dockerfile`, the alphabetical
+  list in `.github/workflows/package-previews.yml`, and `scripts/check-version-alignment.sh` (version must
+  equal `packages/shared`). First two updated; third satisfied by matching the version.
+- 2026-08-12 — T2.9: `apps/mercato/src/modules.ts` was deliberately NOT touched — it is in
+  `template-sync`'s `SYNC_ROOT_FILES`, so editing it drags in the create-app template mirror. To enable:
+  push `{ id: 'agent_elevenlabs', from: '@open-mercato/agent-elevenlabs' }` inside the
+  `enterpriseModulesEnabled && enterpriseAgentsEnabled` block, mirror into the template, and add the
+  package to `scripts/template-sync.ts`. The integration also ships DISABLED by default from the env
+  preset — dialling is never enabled just by deploying.
