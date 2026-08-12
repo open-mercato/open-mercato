@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -121,6 +122,14 @@ export async function POST(req: Request) {
     await commandBus.undo(undoToken, ctx)
     return NextResponse.json({ ok: true, logId: target.id })
   } catch (err) {
+    // A command can refuse an undo for a domain reason the operator can act on — e.g.
+    // reverting a role grant would drop a tenant below a protected role's active-holder
+    // floor. Those arrive as CrudHttpError with an already-localized body, so pass them
+    // through verbatim instead of flattening every failure to a generic message.
+    if (isCrudHttpError(err)) {
+      logger.warn('Undo rejected', { err, logId: target.id })
+      return NextResponse.json(err.body, { status: err.status })
+    }
     // A beforeUndo interceptor that blocked with an explicit status is a deliberate business
     // rejection, not an undo failure — surface its status and message (issue #5045).
     const interceptorRejection = getCommandInterceptorHttpRejection(err)

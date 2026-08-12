@@ -1,11 +1,28 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
-import type {
-  ModuleExtensionContributionFact,
-  ModuleExtensionHostFact,
-  ModuleExtensionSurfaceFacts,
-  ModuleExtensionTargetRef,
+import {
+  COMPONENT_OVERRIDE_MODES,
+  CRUD_FORM_EXTENSION_SURFACE_KEYS,
+  CRUD_FORM_LIFECYCLE_PHASES,
+  CRUD_FORM_OPERATIONS,
+  DATA_TABLE_EXTENSION_SURFACE_KEYS,
+  EXTENSION_HOST_ACTIVATIONS,
+  EXTENSION_HOST_CAPABILITIES,
+  EXTENSION_HOST_FAMILIES,
+  MODULE_EXTENSION_ACTIVATION_KINDS,
+  MODULE_EXTENSION_CONTRIBUTION_KINDS,
+  MODULE_EXTENSION_HOST_RESOLUTIONS,
+  MODULE_EXTENSION_RESOLUTIONS,
+  MODULE_EXTENSION_TARGET_KINDS,
+  MODULE_EXTENSION_TARGET_RESOLUTIONS,
+  MODULE_EXTENSION_UNRESOLVED_REASONS,
+  MODULE_SPECIALIZED_REGISTRIES,
+  type ModuleExtensionContributionFact,
+  type ModuleExtensionHostFact,
+  type ModuleExtensionSurfaceFacts,
+  type ModuleExtensionTargetRef,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import { toSnake } from '../utils'
 import { extractCommandIdsFromSource } from './module-registry'
@@ -23,11 +40,16 @@ import {
   withModuleExtensionFactExtractionCache,
 } from './module-extension-facts'
 import {
+  ALL_OVERRIDE_DOMAINS,
+  MODULE_OVERRIDE_MODES,
+  MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
+  MODULE_OVERRIDE_TARGET_NOTES,
   collectModuleOverrideTargets,
   type ModuleOverrideTarget,
   type ModuleOverrideTargetDiagnostic,
 } from './module-override-targets'
 import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
+import { appendLocalReferenceModuleSource } from './module-facts-discovery'
 
 export interface ModuleEntityFact {
   id: string
@@ -117,45 +139,57 @@ export type ModuleFactRef = {
   factKey: string
 }
 
-export type ModuleFactSourceKind =
-  | 'module-metadata'
-  | 'entity'
-  | 'event'
-  | 'acl-feature'
-  | 'api-route'
-  | 'di-registration'
-  | 'search'
-  | 'vector'
-  | 'notification'
-  | 'cli-command'
-  | 'backend-page'
-  | 'frontend-page'
-  | 'ai-tool'
-  | 'ai-agent'
-  | 'ai-extension'
-  | 'command'
-  | 'subscriber'
-  | 'worker'
-  | 'page-middleware'
-  | 'setup'
-  | 'encryption'
-  | 'custom-entity'
-  | 'integration'
-  | 'generator-plugin'
-  | 'extension-host'
-  | 'extension-contribution'
+/**
+ * Closed provenance/contract sets, published as `as const` ledgers whose types
+ * derive from them. The `factCoverage` ledger enumerates these at runtime, so a
+ * kind added here without a ledger row fails the coverage contract test rather
+ * than silently joining the public surface unclassified.
+ */
+export const MODULE_FACT_SOURCE_KINDS = [
+  'module-metadata',
+  'entity',
+  'event',
+  'acl-feature',
+  'api-route',
+  'di-registration',
+  'search',
+  'vector',
+  'notification',
+  'cli-command',
+  'backend-page',
+  'frontend-page',
+  'ai-tool',
+  'ai-agent',
+  'ai-extension',
+  'command',
+  'subscriber',
+  'worker',
+  'page-middleware',
+  'setup',
+  'encryption',
+  'custom-entity',
+  'integration',
+  'generator-plugin',
+  'extension-host',
+  'extension-contribution',
+] as const
 
-export type ModuleOwnedContractKind =
-  | 'module-metadata'
-  | 'command'
-  | 'worker'
-  | 'page-middleware'
-  | 'setup'
-  | 'encryption'
-  | 'di-registration'
-  | 'custom-entity'
-  | 'ai-extension'
-  | 'generator-plugin'
+export type ModuleFactSourceKind = (typeof MODULE_FACT_SOURCE_KINDS)[number]
+
+export const MODULE_OWNED_CONTRACT_KINDS = [
+  'module-metadata',
+  'command',
+  'worker',
+  'page-middleware',
+  'setup',
+  'encryption',
+  'di-registration',
+  'custom-entity',
+  'ai-extension',
+  'generator-plugin',
+] as const
+
+export type ModuleOwnedContractKind = (typeof MODULE_OWNED_CONTRACT_KINDS)[number]
 
 export type ModuleFactSafeScalar = string | number | boolean | null
 
@@ -192,8 +226,12 @@ export type ModuleFactSourceEntry = {
   factRef?: ModuleFactIndexRef
 }
 
+export const MODULE_FACT_DIAGNOSTIC_CODES = ['duplicate-source', 'unresolved-static-contract'] as const
+
+export type ModuleFactDiagnosticCode = (typeof MODULE_FACT_DIAGNOSTIC_CODES)[number]
+
 export type ModuleFactDiagnostic = {
-  code: 'duplicate-source' | 'unresolved-static-contract'
+  code: ModuleFactDiagnosticCode
   kind: ModuleFactSourceKind
   id: string
   source?: ModuleFactSourceRef
@@ -208,6 +246,15 @@ export type ModuleDiRegistrationFact = {
   source: ModuleFactSourceRef
 }
 
+/**
+ * How the extracted module reached the batch. `package` is the implicit default for
+ * every installed `@open-mercato/*` module and never appears in emitted output, so the
+ * package sidecar contract stays byte-identical. `local-reference` marks an app-local
+ * module projected into the explicit reference bundle; it is an independent discriminator
+ * from `sourcePackage`, which keeps its legacy "null means core package" meaning.
+ */
+export type ModuleFactProjectionSourceKind = 'package' | 'local-reference'
+
 export interface ModuleFacts {
   module: string
   title: string | null
@@ -216,6 +263,8 @@ export interface ModuleFacts {
   sourcePackage: string | null
   sourceVersion: string | null
   sourceRoot: string
+  /** Present only for `local-reference` projections; package modules omit it entirely. */
+  sourceKind?: ModuleFactProjectionSourceKind
   entities: ModuleEntityFact[]
   events: ModuleEventFact[]
   aclFeatures: string[]
@@ -255,6 +304,15 @@ export interface ExtractModuleFactsOptions {
   sourceVersion?: string | null
   registryPath?: string | null
   registrySource?: string | null
+  /**
+   * App-root-relative POSIX root written into every emitted source path. Overrides the
+   * default `node_modules/<package>/src/modules/<moduleId>` layout so an app-local module
+   * emits `src/modules/<moduleId>` instead of a package path it does not live in.
+   */
+  portableSourceRoot?: string
+  sourceKind?: ModuleFactProjectionSourceKind
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 /** A discovered module and the source directory its facts are extracted from. */
@@ -263,6 +321,8 @@ export interface ModuleFactSource {
   moduleRoot: string
   from?: string
   packageVersion?: string | null
+  portableSourceRoot?: string
+  sourceKind?: ModuleFactProjectionSourceKind
 }
 
 function readSourceFile(filePath: string): ts.SourceFile | null {
@@ -343,46 +403,61 @@ function classHasUpdatedAtColumn(node: ts.ClassDeclaration): boolean {
   return false
 }
 
+function readStaticAccessPath(candidate: ts.Expression): string[] | null {
+  const access = unwrapExpression(candidate)
+  if (ts.isIdentifier(access)) return [access.text]
+  if (ts.isPropertyAccessExpression(access)) {
+    const parent = readStaticAccessPath(access.expression)
+    return parent ? [...parent, access.name.text] : null
+  }
+  if (ts.isElementAccessExpression(access) && access.argumentExpression) {
+    const parent = readStaticAccessPath(access.expression)
+    const key = unwrapExpression(access.argumentExpression)
+    return parent && ts.isStringLiteralLike(key) ? [...parent, key.text] : null
+  }
+  return null
+}
+
+/**
+ * Resolves an entity-id expression to its literal `module:entity` value.
+ *
+ * Modules reference entity ids three ways and all three are statically knowable:
+ * a string literal, `E.<module>.<entity>` from the generated entity-id registry
+ * (`entity-ids.ts` emits `E[module][entity] = '<module>:<entity>'`), and — when
+ * `initializers` is supplied — a same-file `const ENTITY_ID = 'module:entity'`.
+ * Anything else stays undefined: a guessed id is worse than a missing one.
+ */
+function resolveEntityIdReference(
+  expression: ts.Expression,
+  initializers?: Map<string, ts.Expression>,
+  visitedIdentifiers: Set<string> = new Set(),
+): string | undefined {
+  const current = unwrapExpression(expression)
+  if (ts.isStringLiteralLike(current)) return current.text
+  const accessPath = readStaticAccessPath(current)
+  if (accessPath?.length === 3 && accessPath[0] === 'E') {
+    return `${accessPath[1]}:${accessPath[2]}`
+  }
+  if (initializers && ts.isIdentifier(current) && !visitedIdentifiers.has(current.text)) {
+    visitedIdentifiers.add(current.text)
+    const declaration = initializers.get(current.text)
+    if (declaration) return resolveEntityIdReference(declaration, initializers, visitedIdentifiers)
+  }
+  return undefined
+}
+
 function collectCustomFieldEntityIds(ceFilePath: string | null): Set<string> {
   const result = new Set<string>()
   if (!ceFilePath) return result
   const sourceFile = readSourceFile(ceFilePath)
   if (!sourceFile) return result
 
-  const readEntityId = (expression: ts.Expression): string | undefined => {
-    const current = unwrapExpression(expression)
-    if (ts.isStringLiteralLike(current)) {
-      return current.text.includes(':') ? current.text : undefined
-    }
-
-    const readAccessPath = (candidate: ts.Expression): string[] | null => {
-      const access = unwrapExpression(candidate)
-      if (ts.isIdentifier(access)) return [access.text]
-      if (ts.isPropertyAccessExpression(access)) {
-        const parent = readAccessPath(access.expression)
-        return parent ? [...parent, access.name.text] : null
-      }
-      if (ts.isElementAccessExpression(access) && access.argumentExpression) {
-        const parent = readAccessPath(access.expression)
-        const key = unwrapExpression(access.argumentExpression)
-        return parent && ts.isStringLiteralLike(key) ? [...parent, key.text] : null
-      }
-      return null
-    }
-
-    const accessPath = readAccessPath(current)
-    if (accessPath?.length === 3 && accessPath[0] === 'E') {
-      return `${accessPath[1]}:${accessPath[2]}`
-    }
-    return undefined
-  }
-
   const visit = (node: ts.Node): void => {
     if (ts.isObjectLiteralExpression(node)) {
       const initializer = getObjectPropertyInitializer(node, 'id')
       if (initializer) {
-        const id = readEntityId(initializer)
-        if (id) result.add(id)
+        const id = resolveEntityIdReference(initializer)
+        if (id && id.includes(':')) result.add(id)
       }
     }
     node.forEachChild(visit)
@@ -443,7 +518,36 @@ function getPropertyName(property: ts.ObjectLiteralElementLike): string | undefi
   if (!name) return undefined
   if (ts.isIdentifier(name)) return name.text
   if (ts.isStringLiteralLike(name)) return name.text
+  // A computed key whose expression is a string literal or a same-file `const NAME = 'token'`
+  // is still a statically known token. Without this, `{ [SERVICE_TOKEN]: asFunction(...) }` —
+  // the idiomatic, type-safe way to register a DI token from an exported const — yielded
+  // undefined and the registration vanished from module facts with NO diagnostic, because the
+  // unresolved-token path is only reached for a NAMED token whose Awilix kind is unrecognised.
+  if (ts.isComputedPropertyName(name)) return resolveComputedPropertyKey(name.expression)
   return undefined
+}
+
+/** Resolves a computed key to its literal token when the value is statically knowable. */
+function resolveComputedPropertyKey(expression: ts.Expression): string | undefined {
+  if (ts.isStringLiteralLike(expression)) return expression.text
+  // `X as const` / `X satisfies Y` wrappers.
+  if (ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
+    return resolveComputedPropertyKey(expression.expression)
+  }
+  if (ts.isParenthesizedExpression(expression)) return resolveComputedPropertyKey(expression.expression)
+  if (!ts.isIdentifier(expression)) return undefined
+  const sourceFile = expression.getSourceFile()
+  if (!sourceFile) return undefined
+  let resolved: string | undefined
+  const visit = (node: ts.Node): void => {
+    if (resolved) return
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === expression.text) {
+      if (node.initializer) resolved = resolveComputedPropertyKey(node.initializer)
+    }
+    node.forEachChild(visit)
+  }
+  sourceFile.forEachChild(visit)
+  return resolved
 }
 
 function getObjectPropertyInitializer(
@@ -807,15 +911,29 @@ function extractSearchEntities(searchFilePath: string | null, warnings: string[]
     return []
   }
 
+  // `entityId` is rarely a bare string literal: modules reference the entity through
+  // `E.<module>.<entity>` or a same-file `const ENTITY_ID`. Reading only string literals
+  // dropped every such entry with NO diagnostic, so a module shipping `search.ts` scored
+  // zero search facts while looking healthy. Unresolvable entries now warn instead.
+  const initializers = buildVariableInitializerMap(sourceFile)
   const entityIds: string[] = []
   const seen = new Set<string>()
   for (const element of entitiesArray.elements) {
     if (!ts.isObjectLiteralExpression(element)) continue
-    const entityId = readStringPropertyInitializer(element, 'entityId')
-    if (entityId && !seen.has(entityId)) {
-      seen.add(entityId)
-      entityIds.push(entityId)
+    const initializer = getObjectPropertyInitializer(element, 'entityId')
+    const location = `${searchFilePath}:${nodeLine(sourceFile, element)}`
+    if (!initializer) {
+      warnings.push(`[module-facts] searchConfig entity declares no entityId: ${location}`)
+      continue
     }
+    const entityId = resolveEntityIdReference(initializer, initializers)
+    if (!entityId) {
+      warnings.push(`[module-facts] searchConfig entityId is not statically resolvable: ${location}`)
+      continue
+    }
+    if (seen.has(entityId)) continue
+    seen.add(entityId)
+    entityIds.push(entityId)
   }
   return entityIds
 }
@@ -909,6 +1027,26 @@ function listSourceFilesRecursive(directory: string): string[] {
 
 function toPortableSourceRoot(moduleId: string, sourcePackage: string | null): string {
   return path.posix.join('node_modules', sourcePackage ?? '@open-mercato/core', 'src', 'modules', moduleId)
+}
+
+/**
+ * An explicit portable root must stay app-root-relative and POSIX-shaped: every emitted
+ * fact path and markdown link is resolved against the generated app root, so an absolute
+ * path, a Windows separator, or a traversal segment would emit an unclickable or
+ * machine-specific reference into a distributed artifact.
+ */
+export function assertPortableSourceRoot(moduleId: string, portableSourceRoot: string): string {
+  const invalid = portableSourceRoot.length === 0
+    || path.posix.isAbsolute(portableSourceRoot)
+    || /^[A-Za-z]:/.test(portableSourceRoot)
+    || portableSourceRoot.includes('\\')
+    || portableSourceRoot.split('/').includes('..')
+  if (invalid) {
+    throw new Error(
+      `[module-facts] portableSourceRoot for module "${moduleId}" must be a relative POSIX app path, received "${portableSourceRoot}"`,
+    )
+  }
+  return portableSourceRoot
 }
 
 function toPortableSourcePath(moduleRoot: string, sourceRoot: string, filePath: string): string {
@@ -1451,6 +1589,42 @@ function readResolvedStringProperty(
   return undefined
 }
 
+function readImportedStringIdentifier(
+  sourceFile: ts.SourceFile,
+  sourcePath: string,
+  identifier: string,
+): string | undefined {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue
+    const importClause = statement.importClause
+    const bindings = importClause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    const imported = bindings.elements.find((element) => element.name.text === identifier)
+    if (!imported) continue
+    const request = statement.moduleSpecifier.text
+    if (!request.startsWith('.')) return undefined
+    const basePath = path.resolve(path.dirname(sourcePath), request)
+    const candidates = [
+      `${basePath}.ts`,
+      `${basePath}.tsx`,
+      path.join(basePath, 'index.ts'),
+      path.join(basePath, 'index.tsx'),
+    ]
+    const importedPath = candidates.find((candidate) => fs.existsSync(candidate))
+    if (!importedPath) return undefined
+    const importedSource = readSourceFile(importedPath)
+    if (!importedSource) return undefined
+    const exportName = imported.propertyName?.text ?? imported.name.text
+    const declaration = importedSource.statements
+      .filter(ts.isVariableStatement)
+      .flatMap((variable) => [...variable.declarationList.declarations])
+      .find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === exportName)
+    const initializer = declaration?.initializer ? unwrapExpression(declaration.initializer) : null
+    return initializer && ts.isStringLiteralLike(initializer) ? initializer.text : undefined
+  }
+  return undefined
+}
+
 function extractWorkerContracts(
   moduleId: string,
   moduleRoot: string,
@@ -1474,7 +1648,11 @@ function extractWorkerContracts(
     // Runtime skips any worker without a queue, so a worker missing the required
     // property is not a contract; a present-but-dynamic queue is reported instead.
     const hasQueueProperty = getObjectPropertyInitializer(metadata, 'queue') !== undefined
+    const queueInitializer = getObjectPropertyInitializer(metadata, 'queue')
     const queue = readResolvedStringProperty(metadata, 'queue', initializers)
+      ?? (queueInitializer && ts.isIdentifier(unwrapExpression(queueInitializer))
+        ? readImportedStringIdentifier(sourceFile, filePath, (unwrapExpression(queueInitializer) as ts.Identifier).text)
+        : undefined)
     if (!hasQueueProperty) {
       unresolved.push({ code: 'unresolved-static-contract', kind: 'worker', id: workerId, source })
       continue
@@ -1897,7 +2075,9 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
   if (!moduleRoot) {
     throw new Error(`[internal] extractModuleFacts requires moduleRoot or coreSrcRoot for module "${moduleId}"`)
   }
-  const sourceRoot = toPortableSourceRoot(moduleId, sourcePackage)
+  const sourceRoot = options.portableSourceRoot
+    ? assertPortableSourceRoot(moduleId, options.portableSourceRoot)
+    : toPortableSourceRoot(moduleId, sourcePackage)
 
   const entitiesFilePath =
     resolveConventionFile(path.join(moduleRoot, 'data'), 'entities') ??
@@ -1960,6 +2140,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     notifications,
     aiTools,
     aiAgents,
+    factsContractVersion: options.factsContractVersion ?? 2,
   })
 
   const indexSourcePath = portableOf(indexFilePath)
@@ -2166,6 +2347,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     sourcePackage,
     sourceVersion,
     sourceRoot,
+    ...(options.sourceKind === 'local-reference' ? { sourceKind: options.sourceKind } : {}),
     entities,
     events,
     aclFeatures,
@@ -2212,6 +2394,8 @@ export interface ModuleFactsJsonEntry {
   sourcePackage: string | null
   sourceVersion: string | null
   sourceRoot: string
+  /** Present only for `local-reference` projections; package sidecar entries omit it. */
+  sourceKind?: ModuleFactProjectionSourceKind
   entities: ModuleEntityFact[]
   events: ModuleFactsJsonEvent[]
   aclFeatures: string[]
@@ -2289,13 +2473,26 @@ function renderSourceLinkedListSection(
   return [heading, '', `| ${idColumnLabel} | Source |`, '|---|---|', ...rows].join('\n')
 }
 
+/**
+ * A generated fact only earns a markdown link when it names an exact module code
+ * file. Directory-valued provenance (the module source root, framework hosts that
+ * only know their owning package folder) renders as plain text: a link to a folder
+ * resolves to nothing in an editor or on the repository browser, so emitting one
+ * costs a consumer a dead click instead of taking them to the declaration site.
+ */
+export function isExactSourceFilePath(sourcePath: string): boolean {
+  return MODULE_CODE_EXTENSIONS.some((extension) => sourcePath.endsWith(extension))
+}
+
 function renderSourceLink(sourcePath: string): string {
+  if (!isExactSourceFilePath(sourcePath)) return sourcePath
   return `[${sourcePath}](../../../${sourcePath})`
 }
 
 function renderSourceRefLink(source: ModuleFactSourceRef): string {
   const anchor = source.line ? `#L${source.line}` : ''
   const label = source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
+  if (!isExactSourceFilePath(source.sourcePath)) return label
   return `[${label}](../../../${source.sourcePath}${anchor})`
 }
 
@@ -2542,13 +2739,44 @@ function renderOverrideTargetsSection(targets: readonly ModuleOverrideTarget[] |
   return ['## Exact override targets', '', header, divider, ...rows].join('\n')
 }
 
-export function renderModuleFactsMarkdown(facts: ModuleFacts): string {
+export interface ReferenceProjectionFingerprints {
+  sourceFingerprint: string
+  taxonomyFingerprint: string
+}
+
+/**
+ * Header for a `local-reference` projection. It never claims a package version — the
+ * module is app-local — and it states in the document itself that the activations and
+ * exact override targets below describe behavior only after the module is opted in,
+ * because the artifact is generated while the module is disabled.
+ */
+function renderReferenceProjectionHeader(
+  facts: ModuleFacts,
+  fingerprints: ReferenceProjectionFingerprints,
+): string[] {
+  return [
+    `# ${facts.module} — module facts (generated reference projection, do not edit)`,
+    `<!-- generated from local reference ${facts.sourceRoot}; source-fingerprint ${fingerprints.sourceFingerprint}; taxonomy-fingerprint ${fingerprints.taxonomyFingerprint} — R1 staleness stamp -->`,
+    `> Reference projection: \`${facts.module}\` is not selected by the current runtime. Its activations and exact override targets describe behavior only after opt-in in \`src/modules.ts\`.`,
+    `Source root: ${renderSourceLink(facts.sourceRoot)}`,
+  ]
+}
+
+export function renderModuleFactsMarkdown(
+  facts: ModuleFacts,
+  referenceProjection?: ReferenceProjectionFingerprints,
+): string {
   const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
   const lookup = buildFactSourceLookup(facts)
+  const header = facts.sourceKind === 'local-reference' && referenceProjection
+    ? renderReferenceProjectionHeader(facts, referenceProjection)
+    : [
+        `# ${facts.module} — module facts (generated, do not edit)`,
+        renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
+        `Source root: ${renderSourceLink(facts.sourceRoot)}`,
+      ]
   const sections = [
-    `# ${facts.module} — module facts (generated, do not edit)`,
-    renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
-    `Source root: ${renderSourceLink(facts.sourceRoot)}`,
+    ...header,
     '',
     renderEntitiesSection(facts.entities, lookup),
     '',
@@ -2624,6 +2852,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     sourcePackage: facts.sourcePackage,
     sourceVersion: facts.sourceVersion,
     sourceRoot: facts.sourceRoot,
+    ...(facts.sourceKind === 'local-reference' ? { sourceKind: facts.sourceKind } : {}),
     entities: facts.entities,
     events: facts.events.map((event) => ({
       id: event.id,
@@ -2675,6 +2904,274 @@ export function renderModuleFactsJson(factsByModule: Record<string, ModuleFacts>
   return `${JSON.stringify(buildModuleFactsJsonObject(factsByModule), null, 2)}\n`
 }
 
+/**
+ * The normal package sidecar (`module-facts.json`) and the enabled-filtered package
+ * markdown subset carry package-provided modules only. An app-local module reaching
+ * either output would publish `bound` activations and exact override targets for code
+ * the runtime does not select, so it fails the build instead of shipping.
+ */
+export function assertPackageModuleFactsOnly(factsByModule: Record<string, ModuleFacts>): void {
+  const offenders = Object.values(factsByModule)
+    .filter((facts) => facts.sourceKind === 'local-reference' || !facts.sourceRoot.startsWith('node_modules/'))
+    .map((facts) => `${facts.module} (${facts.sourceRoot})`)
+    .sort((left, right) => left.localeCompare(right))
+  if (offenders.length > 0) {
+    throw new Error(
+      `[module-facts] normal package output must not contain app-local modules: ${offenders.join(', ')}`,
+    )
+  }
+}
+
+function sha256Hex(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+/**
+ * Canonical form used by both reference fingerprints: object keys are recursively sorted
+ * and set-valued arrays are sorted by their own canonical text. Structured `path` arrays
+ * are ordered tuples whose segment order is part of the public target identity, so they
+ * retain their declared order.
+ */
+function canonicalizeFingerprintValue(value: unknown, propertyName?: string): unknown {
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => {
+        const canonical = canonicalizeFingerprintValue(item)
+        return { canonical, text: JSON.stringify(canonical) ?? '' }
+      })
+    if (propertyName === 'path') return items.map((item) => item.canonical)
+    return items
+      .sort((left, right) => (left.text < right.text ? -1 : left.text > right.text ? 1 : 0))
+      .map((item) => item.canonical)
+  }
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const result: Record<string, unknown> = {}
+    for (const key of Object.keys(record).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
+      if (record[key] === undefined) continue
+      result[key] = canonicalizeFingerprintValue(record[key], key)
+    }
+    return result
+  }
+  return value
+}
+
+function canonicalFingerprintJson(value: unknown): string {
+  return JSON.stringify(canonicalizeFingerprintValue(value))
+}
+
+const REFERENCE_FINGERPRINT_SKIPPED_DIRECTORIES = new Set(['__tests__', '__integration__', 'node_modules'])
+
+/**
+ * SHA-256 over the canonical JSON of `{ path, sha256 }` records sorted by path, where
+ * `path` is the portable app-relative path so the value is identical across the
+ * authoring, template, and emitted roots. Test-only directories are excluded because the
+ * scaffold does not emit them, so including them would make the emitted app's recomputed
+ * fingerprint disagree with the one built from the template.
+ */
+export function computeModuleSourceFingerprint(moduleRoot: string, portableSourceRoot: string): string {
+  assertPortableSourceRoot(path.basename(portableSourceRoot), portableSourceRoot)
+  const records: { path: string; sha256: string }[] = []
+  const walk = (directory: string): void => {
+    const entries = fs.readdirSync(directory, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name)
+      if (entry.isDirectory()) {
+        if (REFERENCE_FINGERPRINT_SKIPPED_DIRECTORIES.has(entry.name)) continue
+        walk(fullPath)
+        continue
+      }
+      if (!entry.isFile()) continue
+      records.push({
+        path: toPortableSourcePath(moduleRoot, portableSourceRoot, fullPath),
+        sha256: sha256Hex(fs.readFileSync(fullPath)),
+      })
+    }
+  }
+  walk(moduleRoot)
+  records.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+  return sha256Hex(canonicalFingerprintJson(records))
+}
+
+/**
+ * Provenance and release metadata are not taxonomy: a version bump must not invalidate
+ * the classification fingerprint. Every remaining section of the emitted entry is a
+ * classified set and contributes.
+ */
+const TAXONOMY_EXCLUDED_SECTIONS = new Set([
+  'title',
+  'description',
+  'coreVersion',
+  'sourcePackage',
+  'sourceVersion',
+  'sourceRoot',
+  'sourceKind',
+])
+
+function collectTaxonomyRecords(
+  setName: string,
+  value: unknown,
+  records: { setName: string; value: unknown }[],
+): void {
+  if (value === undefined) return
+  if (Array.isArray(value)) {
+    for (const item of value) records.push({ setName, value: canonicalizeFingerprintValue(item) })
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      collectTaxonomyRecords(`${setName}.${key}`, child, records)
+    }
+    return
+  }
+  records.push({ setName, value })
+}
+
+/**
+ * SHA-256 over the canonical JSON of `{ setName, value }` records sorted by set name and
+ * canonicalized value. Each record carries a complete literal or structured entry — key,
+ * suffix, capabilities, `bound`, phases, operations included — so no delimiter-joined
+ * tuple can collapse two distinct classifications into one fingerprint input.
+ */
+export function computeModuleTaxonomyFingerprint(entry: ModuleFactsJsonEntry): string {
+  const records: { setName: string; value: unknown }[] = []
+  for (const [setName, value] of Object.entries(entry as unknown as Record<string, unknown>)) {
+    if (TAXONOMY_EXCLUDED_SECTIONS.has(setName)) continue
+    collectTaxonomyRecords(setName, value, records)
+  }
+  const decorated = records
+    .map((record) => ({ record, text: JSON.stringify(record.value) ?? '' }))
+    .sort((left, right) =>
+      left.record.setName < right.record.setName
+        ? -1
+        : left.record.setName > right.record.setName
+          ? 1
+          : left.text < right.text
+            ? -1
+            : left.text > right.text
+              ? 1
+              : 0,
+    )
+  return sha256Hex(JSON.stringify(decorated.map((item) => item.record)))
+}
+
+export interface ReferenceModuleFactsEntry {
+  moduleId: string
+  projectionKind: 'activated-reference'
+  sourceKind: 'local-reference'
+  runtimeSelected: false
+  sourceFingerprint: string
+  taxonomyFingerprint: string
+  /**
+   * The enum-derived classification of every taxonomy `facts` is expressed in, built
+   * by the same generation run. It travels with the projection so a reader of the
+   * emitted sheet can tell a value the example really emits from one that is only
+   * reserved, pending, or reachable through a negative fixture.
+   */
+  factCoverage: ModuleFactCoverageFamily[]
+  facts: ModuleFactsJsonEntry
+}
+
+export type ReferenceModuleFactsJson = Record<string, ReferenceModuleFactsEntry>
+
+export function renderReferenceModuleFactsJson(bundle: ReferenceModuleFactsJson): string {
+  const ordered: ReferenceModuleFactsJson = {}
+  for (const moduleId of Object.keys(bundle).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
+    ordered[moduleId] = bundle[moduleId]
+  }
+  return `${JSON.stringify(ordered, null, 2)}\n`
+}
+
+export interface ExtractLocalReferenceModuleFactsOptions {
+  /** Package-provided sources, exactly as the normal batch receives them. */
+  packageSources: readonly ModuleFactSource[]
+  /** The app-local module projected into the reference bundle. */
+  reference: ModuleFactSource
+  registryPath?: string | null
+  registrySource?: string | null
+  coreVersion?: string | null
+}
+
+export interface LocalReferenceModuleFactsResult {
+  entry: ReferenceModuleFactsEntry
+  markdown: string
+  warnings: string[]
+  /**
+   * First-party targets the activated projection could not correlate. They also remain in
+   * the emitted `facts.extensionSurfaces.unresolved`, so the artifact states its own gaps
+   * rather than presenting a partial surface as complete.
+   */
+  unresolvedTargets: string[]
+}
+
+/**
+ * Produces the reference projection of an app-local module from an explicitly activated,
+ * disposable selection context: the local source is appended to the package sources and
+ * the whole set runs through the same `extractAllModuleFacts` selection and correlation
+ * batch, so incoming contributions and optional targets resolve exactly as they would
+ * after opt-in. Merging an independently extracted object into a finished batch is
+ * forbidden — it would silently drop both resolutions. The batch is disposable: the
+ * caller keeps only this module's projection and never writes the rest, which is why the
+ * normal package outputs stay byte-identical.
+ */
+export function extractLocalReferenceModuleFacts(
+  options: ExtractLocalReferenceModuleFactsOptions,
+): LocalReferenceModuleFactsResult {
+  const { reference } = options
+  if (reference.sourceKind !== 'local-reference') {
+    throw new Error(
+      `[module-facts] reference source "${reference.moduleId}" must declare sourceKind "local-reference"`,
+    )
+  }
+  const portableSourceRoot = reference.portableSourceRoot
+  if (!portableSourceRoot) {
+    throw new Error(`[module-facts] reference source "${reference.moduleId}" must declare portableSourceRoot`)
+  }
+  assertPortableSourceRoot(reference.moduleId, portableSourceRoot)
+
+  const sources = appendLocalReferenceModuleSource(options.packageSources, reference)
+  const activated = extractAllModuleFacts({
+    sources,
+    registryPath: options.registryPath ?? null,
+    registrySource: options.registrySource ?? null,
+    coreVersion: options.coreVersion ?? null,
+    // The disposable projection collects rather than throws: an app-local module can name
+    // a target whose classification is still missing from the shared extension reader, and
+    // aborting there would delete the whole reference bundle instead of publishing the
+    // exact gap. Normal package output keeps the strict default.
+    unresolvedFirstPartyTargets: 'collect',
+  })
+  const facts = activated.factsByModule[reference.moduleId]
+  if (!facts) {
+    throw new Error(`[module-facts] reference module "${reference.moduleId}" produced no facts`)
+  }
+  if (facts.sourceRoot !== portableSourceRoot) {
+    throw new Error(
+      `[module-facts] reference module "${reference.moduleId}" emitted non-portable source root "${facts.sourceRoot}"`,
+    )
+  }
+
+  const jsonEntry = toModuleFactsJsonEntry(facts)
+  const fingerprints: ReferenceProjectionFingerprints = {
+    sourceFingerprint: computeModuleSourceFingerprint(reference.moduleRoot, portableSourceRoot),
+    taxonomyFingerprint: computeModuleTaxonomyFingerprint(jsonEntry),
+  }
+  return {
+    entry: {
+      moduleId: reference.moduleId,
+      projectionKind: 'activated-reference',
+      sourceKind: 'local-reference',
+      runtimeSelected: false,
+      ...fingerprints,
+      factCoverage: activated.factCoverage ?? buildModuleFactCoverageLedger(),
+      facts: jsonEntry,
+    },
+    markdown: renderModuleFactsMarkdown(facts, fingerprints),
+    warnings: activated.warnings,
+    unresolvedTargets: activated.unresolvedFirstPartyTargets ?? [],
+  }
+}
+
 export interface ExtractAllModuleFactsOptions {
   /**
    * Discovered module sources (auto-discovery path). When provided, each entry's
@@ -2688,6 +3185,15 @@ export interface ExtractAllModuleFactsOptions {
   coreVersion?: string | null
   /** @deprecated Legacy explicit module-id list; only consulted when `sources` is absent. */
   moduleIds?: readonly string[]
+  /**
+   * `throw` (the default, and the only value any normal package output uses) aborts the
+   * batch when a first-party extension target does not correlate. `collect` keeps the
+   * unresolved entries in `extensionSurfaces.unresolved` and reports them on the result
+   * so a disposable projection can publish the gap instead of silently dropping it.
+   */
+  unresolvedFirstPartyTargets?: 'throw' | 'collect'
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 export interface ExtractAllModuleFactsResult {
@@ -2695,6 +3201,31 @@ export interface ExtractAllModuleFactsResult {
   markdownByModule: Record<string, string>
   warnings: string[]
   frameworkMarkdown: string
+  /** Always empty under the default `throw` policy, which aborts before returning. */
+  unresolvedFirstPartyTargets?: string[]
+  /**
+   * The enum-derived coverage ledger for the taxonomies these facts are expressed
+   * in, built during generation so an enum value with no classification aborts the
+   * run instead of shipping an unclassified public value.
+   */
+  factCoverage?: ModuleFactCoverageFamily[]
+}
+
+/**
+ * `<moduleId>:<contributionId>:<targetId>` for every first-party contribution target that
+ * did not correlate — the same identity {@link assertNoUnresolvedExtensionTargets} throws
+ * with, so a collected batch reports exactly what a strict batch would have refused.
+ */
+export function collectUnresolvedFirstPartyTargets(
+  surfacesByModule: Readonly<Record<string, ModuleExtensionSurfaceFacts>>,
+): string[] {
+  return Object.entries(surfacesByModule)
+    .flatMap(([moduleId, surface]) =>
+      surface.unresolved
+        .filter((entry) => entry.reason === 'unresolved-first-party-target')
+        .map((entry) => `${moduleId}:${entry.key}`),
+    )
+    .sort((left, right) => left.localeCompare(right))
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
@@ -2702,6 +3233,7 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
 }
 
 function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
+  const factCoverage = buildModuleFactCoverageLedger()
   const sources: ModuleFactSource[] = options.sources
     ? [...options.sources]
     : (options.coreSrcRoot
@@ -2723,6 +3255,9 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       sourceVersion: source.packageVersion ?? null,
       registryPath: options.registryPath ?? null,
       registrySource: options.registrySource ?? null,
+      ...(source.portableSourceRoot ? { portableSourceRoot: source.portableSourceRoot } : {}),
+      ...(source.sourceKind ? { sourceKind: source.sourceKind } : {}),
+      factsContractVersion: options.factsContractVersion ?? 2,
     })
     factsByModule[source.moduleId] = facts
     warnings.push(...facts.warnings)
@@ -2742,8 +3277,10 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       ...sources.flatMap((source) => extractKnownApiRouteIds(source.moduleId, source.moduleRoot)),
     ]),
     commandIds: new Set(sources.flatMap((source) => extractKnownCommandIds(source.moduleId, source.moduleRoot))),
+    factsContractVersion: options.factsContractVersion ?? 2,
   })
-  assertNoUnresolvedExtensionTargets(correlated)
+  const unresolvedFirstPartyTargets = collectUnresolvedFirstPartyTargets(correlated)
+  if ((options.unresolvedFirstPartyTargets ?? 'throw') === 'throw') assertNoUnresolvedExtensionTargets(correlated)
   const apiRouteOwners = new Map<string, {
     moduleId: string
     source: ModuleFactSourceRef
@@ -2779,5 +3316,712 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,
     ))
   }
-  return { factsByModule, markdownByModule, warnings, frameworkMarkdown: renderFrameworkExtensionPointsMarkdown() }
+  return {
+    factsByModule,
+    markdownByModule,
+    warnings,
+    frameworkMarkdown: renderFrameworkExtensionPointsMarkdown(),
+    unresolvedFirstPartyTargets,
+    factCoverage,
+  }
+}
+
+/**
+ * Enum-derived `factCoverage` ledger — spec
+ * `.ai/specs/2026-07-31-standalone-canonical-example-module.md`,
+ * § PR #4883 Module-Fact and Extension-Topology Contract.
+ *
+ * Every finite public set is enumerated from the `as const` ledger that also derives
+ * its type, so an added enum value has no ledger row and fails
+ * {@link buildModuleFactCoverageLedger} instead of joining the public surface
+ * unclassified. The purpose of the ledger is to make a *silent zero* impossible: a
+ * family cannot claim canonical coverage while the real extractor publishes no
+ * contribution for it.
+ */
+export type ModuleFactCoverageStatus =
+  /** The canonical example really emits it; a real extraction proves a non-zero count. */
+  | 'emitted-example'
+  /** A framework/app-level setting that never becomes a module contribution. */
+  | 'framework-only'
+  /** Described by the framework catalog only; the example contributes nothing for it. */
+  | 'catalog-only'
+  /** In the closed public set, but no generator code path emits it today. */
+  | 'currently-unbound'
+  /**
+   * Required to be `emitted-example` by the spec but NOT emitted yet. The status
+   * itself states the gap, so a machine reader keying on `status` alone is never
+   * told the example emits something it does not.
+   */
+  | 'pending-emission'
+  /** Only a deliberately broken fixture produces it; canonical output emits none. */
+  | 'negative-fixture'
+
+export type ModuleFactCoverageRow = {
+  value: string
+  status: ModuleFactCoverageStatus
+  note: string
+  /**
+   * Names the slice that owns closing a `pending-emission` gap. A pending row is
+   * asserted to have a *zero* real count, so it can never be mistaken for proven
+   * coverage and cannot go stale once the gap closes.
+   */
+  pendingEmission?: string
+  /**
+   * Set when the value is extractable only from the generated module registry rather
+   * than from module source, so a source-only extraction legitimately reports zero.
+   *
+   * This is the only way a row skips the non-zero proof, so the flag is proven rather
+   * than trusted: `module-facts.example-fact-coverage.test.ts` asserts every row
+   * carrying it counts zero from a source-only extraction of the example AND non-zero
+   * once the same extraction is handed a module registry.
+   */
+  requiresGeneratedRegistry?: true
+}
+
+export type ModuleFactCoverageFamily = {
+  family: string
+  enumSource: string
+  rows: ModuleFactCoverageRow[]
+}
+
+const FACT_SOURCE_KIND_COVERAGE: Record<ModuleFactSourceKind, ModuleFactCoverageRow> = {
+  'module-metadata': { value: 'module-metadata', status: 'emitted-example', note: 'example/index.ts ModuleInfo export' },
+  entity: { value: 'entity', status: 'emitted-example', note: 'example/data/entities.ts ORM entities' },
+  event: { value: 'event', status: 'emitted-example', note: 'example/events.ts typed event definitions' },
+  'acl-feature': { value: 'acl-feature', status: 'emitted-example', note: 'example/acl.ts RBAC features' },
+  'api-route': {
+    value: 'api-route',
+    status: 'emitted-example',
+    note: 'example/api/**/route.ts; route facts are read from the generated module registry, not from module source',
+    requiresGeneratedRegistry: true,
+  },
+  'di-registration': { value: 'di-registration', status: 'emitted-example', note: 'example/di.ts Awilix container.register' },
+  search: { value: 'search', status: 'emitted-example', note: 'example/search.ts indexed entity declaration' },
+  vector: {
+    value: 'vector',
+    status: 'emitted-example',
+    note: 'example/vector.ts deterministic Todo vector declaration',
+  },
+  notification: { value: 'notification', status: 'emitted-example', note: 'example/notifications.ts notification types' },
+  'cli-command': { value: 'cli-command', status: 'emitted-example', note: 'example/cli.ts module commands' },
+  'backend-page': { value: 'backend-page', status: 'emitted-example', note: 'example/backend/**/page.tsx admin pages' },
+  'frontend-page': { value: 'frontend-page', status: 'emitted-example', note: 'example/frontend/**/page.tsx portal pages' },
+  'ai-tool': { value: 'ai-tool', status: 'emitted-example', note: 'example/ai-tools.ts defineAiTool declarations' },
+  'ai-agent': { value: 'ai-agent', status: 'emitted-example', note: 'example/ai-agents.ts defineAiAgent declarations' },
+  'ai-extension': { value: 'ai-extension', status: 'emitted-example', note: 'example AI agent/tool override and extension records' },
+  command: { value: 'command', status: 'emitted-example', note: 'example/commands/todos.ts command handlers' },
+  subscriber: { value: 'subscriber', status: 'emitted-example', note: 'example/subscribers/*.ts event subscribers' },
+  worker: { value: 'worker', status: 'emitted-example', note: 'example/workers/*.ts queue workers' },
+  'page-middleware': { value: 'page-middleware', status: 'emitted-example', note: 'example/backend/middleware.ts page guard' },
+  setup: { value: 'setup', status: 'emitted-example', note: 'example/setup.ts tenant setup hooks' },
+  encryption: { value: 'encryption', status: 'emitted-example', note: 'example/encryption.ts field encryption map' },
+  'custom-entity': { value: 'custom-entity', status: 'emitted-example', note: 'example/ce.ts custom entity and field DSL' },
+  integration: { value: 'integration', status: 'emitted-example', note: 'example/lib/mock-*-adapter.ts integration registrations' },
+  'generator-plugin': {
+    value: 'generator-plugin',
+    status: 'emitted-example',
+    note: 'example/generators.ts deterministic reference-index generator plugin',
+  },
+  'extension-host': { value: 'extension-host', status: 'emitted-example', note: 'example/extension-points.ts declared hosts' },
+  'extension-contribution': {
+    value: 'extension-contribution',
+    status: 'emitted-example',
+    note: 'example widget, DataTable, CrudForm, interceptor and enricher contributions',
+  },
+}
+
+const OWNED_CONTRACT_KIND_COVERAGE: Record<ModuleOwnedContractKind, ModuleFactCoverageRow> = {
+  'module-metadata': { value: 'module-metadata', status: 'emitted-example', note: 'ModuleInfo owned contract' },
+  command: { value: 'command', status: 'emitted-example', note: 'example/commands/todos.ts' },
+  worker: { value: 'worker', status: 'emitted-example', note: 'example/workers/*.ts' },
+  'page-middleware': { value: 'page-middleware', status: 'emitted-example', note: 'example/backend/middleware.ts' },
+  setup: { value: 'setup', status: 'emitted-example', note: 'example/setup.ts' },
+  encryption: { value: 'encryption', status: 'emitted-example', note: 'example/encryption.ts' },
+  'di-registration': {
+    value: 'di-registration',
+    status: 'emitted-example',
+    note: 'example/di.ts scoped Todo summary cache service consumed by a route',
+  },
+  'custom-entity': { value: 'custom-entity', status: 'emitted-example', note: 'example/ce.ts' },
+  'ai-extension': { value: 'ai-extension', status: 'emitted-example', note: 'example AI override/extension record' },
+  'generator-plugin': {
+    value: 'generator-plugin',
+    status: 'emitted-example',
+    note: 'example/generators.ts deterministic reference-index generator plugin',
+  },
+}
+
+const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  ai: { value: 'ai', status: 'emitted-example', note: 'ai.agents, ai.tools and ai.extensions targets' },
+  routes: { value: 'routes', status: 'emitted-example', note: 'routes.api and routes.pages targets' },
+  events: { value: 'events', status: 'emitted-example', note: 'events.subscribers targets' },
+  workers: { value: 'workers', status: 'emitted-example', note: 'workers targets' },
+  widgets: { value: 'widgets', status: 'emitted-example', note: 'widgets.injection, .components and .dashboard targets' },
+  notifications: { value: 'notifications', status: 'emitted-example', note: 'notifications.types and notifications.handlers targets' },
+  interceptors: { value: 'interceptors', status: 'emitted-example', note: 'API interceptor targets' },
+  commandInterceptors: { value: 'commandInterceptors', status: 'emitted-example', note: 'command interceptor targets' },
+  enrichers: { value: 'enrichers', status: 'emitted-example', note: 'response enricher targets' },
+  guards: { value: 'guards', status: 'emitted-example', note: 'page-middleware guard targets' },
+  cli: { value: 'cli', status: 'emitted-example', note: 'CLI command targets' },
+  setup: { value: 'setup', status: 'emitted-example', note: 'setup hook and default-role targets' },
+  acl: { value: 'acl', status: 'emitted-example', note: 'acl.features targets' },
+  di: { value: 'di', status: 'emitted-example', note: 'DI token targets' },
+  encryption: { value: 'encryption', status: 'emitted-example', note: 'encryption.maps targets' },
+  nav: {
+    value: 'nav',
+    status: 'framework-only',
+    note: 'nav.groupOrder is an app-level framework setting; no module target is ever emitted for it',
+  },
+}
+
+const OVERRIDE_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'disable-replace': {
+    value: 'disable-replace',
+    status: 'emitted-example',
+    note: 'default mode for most example override hosts',
+  },
+  replace: { value: 'replace', status: 'emitted-example', note: 'the setup host replaces wholesale' },
+  additive: { value: 'additive', status: 'emitted-example', note: 'the ai.extensions host merges additively' },
+}
+
+const OVERRIDE_NOTE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'safe-metadata-only': {
+    value: 'safe-metadata-only',
+    status: 'emitted-example',
+    note: 'emitted on the metadata-only override target',
+  },
+  'page-middleware-not-mutation-guard': {
+    value: 'page-middleware-not-mutation-guard',
+    status: 'emitted-example',
+    note: 'emitted on the guards target so a page guard is not read as a mutation guard',
+  },
+}
+
+/**
+ * Every `negative-fixture` row here names a code that a real fixture in
+ * `module-override-targets.diagnostic-wiring.test.ts` drives out of
+ * `collectModuleOverrideTargets`; the coverage test asserts that fixture set matches
+ * these rows exactly, so a row can never claim a fixture that does not exist.
+ */
+const OVERRIDE_DIAGNOSTIC_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'missing-owned-fact': {
+    value: 'missing-owned-fact',
+    status: 'currently-unbound',
+    note: 'reserved by the spec\'s closed diagnostic set; no adapter emits it today, so not even a broken fixture can produce it',
+  },
+  'missing-source': {
+    value: 'missing-source',
+    status: 'negative-fixture',
+    note: 'a fact whose provenance cannot be proven yields this and no target; activated canonical output emits none',
+  },
+  'unsupported-dynamic-key': {
+    value: 'unsupported-dynamic-key',
+    status: 'negative-fixture',
+    note: 'a key the runtime cannot address yields this and no target; activated canonical output emits none',
+  },
+  'unknown-framework-domain': {
+    value: 'unknown-framework-domain',
+    status: 'negative-fixture',
+    note: 'the framework catalog does not describe the dotted host at all',
+  },
+  'unknown-framework-mode': {
+    value: 'unknown-framework-mode',
+    status: 'negative-fixture',
+    note: 'the framework catalog describes the host but names an operation that is not a public mode',
+  },
+}
+
+const CONTRIBUTION_KIND_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  widget: { value: 'widget', status: 'emitted-example', note: 'example widget injection and dashboard registrations' },
+  'data-table': { value: 'data-table', status: 'emitted-example', note: 'example DataTable extension entries' },
+  'crud-form': { value: 'crud-form', status: 'emitted-example', note: 'example CrudForm field and lifecycle entries' },
+  'component-override': { value: 'component-override', status: 'emitted-example', note: 'example replace, wrapper and props component entries' },
+  'response-enricher': { value: 'response-enricher', status: 'emitted-example', note: 'example customer priority response enricher' },
+  'api-interceptor': { value: 'api-interceptor', status: 'emitted-example', note: 'example CRUD API interceptor entries' },
+  'command-interceptor': { value: 'command-interceptor', status: 'emitted-example', note: 'example command interceptor entries' },
+  'mutation-guard': { value: 'mutation-guard', status: 'emitted-example', note: 'example Todo mutation guard' },
+  'entity-extension': { value: 'entity-extension', status: 'emitted-example', note: 'example customer entity extension' },
+  subscriber: { value: 'subscriber', status: 'emitted-example', note: 'example synchronous and asynchronous subscribers' },
+  'browser-reaction': { value: 'browser-reaction', status: 'emitted-example', note: 'example client, portal and notification reactions' },
+  'specialized-registry': { value: 'specialized-registry', status: 'emitted-example', note: 'example notification, search, AI and mock adapter registries' },
+  'module-override': { value: 'module-override', status: 'catalog-only', note: 'app-owned configuration is not an outgoing module contribution' },
+}
+
+const ACTIVATION_KIND_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'crud-response-enricher': { value: 'crud-response-enricher', status: 'currently-unbound', note: 'example contributes a response enricher but owns no CRUD response call site for its customer target' },
+  'query-enricher': { value: 'query-enricher', status: 'currently-unbound', note: 'example contributes a query enricher but owns no query-engine call site for its customer target' },
+  'mutation-guard': { value: 'mutation-guard', status: 'emitted-example', note: 'Todo mutation-guard route bridge' },
+  'api-interceptor-bridge': { value: 'api-interceptor-bridge', status: 'emitted-example', note: 'CRUD route interceptor pipeline' },
+  'command-interceptor-bridge': { value: 'command-interceptor-bridge', status: 'emitted-example', note: 'exact Todo command bus target' },
+  'widget-injection-consumer': { value: 'widget-injection-consumer', status: 'emitted-example', note: 'bound injection host consumer' },
+  'component-extension-consumer': { value: 'component-extension-consumer', status: 'emitted-example', note: 'bound component handle consumer' },
+  'dashboard-host-consumer': { value: 'dashboard-host-consumer', status: 'emitted-example', note: 'framework dashboard registry consumer' },
+}
+
+const HOST_FAMILY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  generic: { value: 'generic', status: 'emitted-example', note: 'example headless injection host' },
+  menu: { value: 'menu', status: 'framework-only', note: 'framework menu hosts consumed by example widgets' },
+  'data-table': { value: 'data-table', status: 'emitted-example', note: 'example Todo DataTable host' },
+  'crud-form': { value: 'crud-form', status: 'emitted-example', note: 'example Todo CrudForm host' },
+  detail: { value: 'detail', status: 'framework-only', note: 'framework detail hosts consumed by example widgets' },
+  'portal-page': { value: 'portal-page', status: 'framework-only', note: 'framework portal host consumed by example widgets' },
+  'component-handle': { value: 'component-handle', status: 'emitted-example', note: 'example replaceable component host' },
+  entity: { value: 'entity', status: 'emitted-example', note: 'example entity fact-reference hosts' },
+  'api-route': { value: 'api-route', status: 'framework-only', note: 'API route hosts are owned by the target module and consumed by example interceptors' },
+  command: { value: 'command', status: 'framework-only', note: 'command hosts are owned by the target module and consumed by example interceptors' },
+  event: { value: 'event', status: 'emitted-example', note: 'example event fact-reference hosts' },
+  'query-lifecycle': { value: 'query-lifecycle', status: 'emitted-example', note: 'example Todo query lifecycle hosts' },
+  dashboard: { value: 'dashboard', status: 'framework-only', note: 'framework dashboard host consumed by example widgets' },
+  notification: { value: 'notification', status: 'framework-only', note: 'framework notification host consumed by the example registry' },
+  integration: { value: 'integration', status: 'framework-only', note: 'framework integration detail host consumed by example widgets' },
+  'specialized-registry': { value: 'specialized-registry', status: 'framework-only', note: 'framework-owned specialist registries accept example entries' },
+  'module-override': { value: 'module-override', status: 'framework-only', note: 'framework override catalog owns these hosts' },
+}
+
+const HOST_CAPABILITY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'render-widget': { value: 'render-widget', status: 'emitted-example', note: 'example render widget host and contributions' },
+  'headless-widget': { value: 'headless-widget', status: 'currently-unbound', note: 'injection-table facts do not yet distinguish headless widget payloads' },
+  'menu-item': { value: 'menu-item', status: 'currently-unbound', note: 'injection-table facts do not yet distinguish menu item payloads' },
+  'column-widget': { value: 'column-widget', status: 'emitted-example', note: 'example DataTable column host' },
+  'row-action': { value: 'row-action', status: 'emitted-example', note: 'example DataTable row-action host' },
+  'bulk-action': { value: 'bulk-action', status: 'emitted-example', note: 'example DataTable bulk-action host' },
+  'filter-widget': { value: 'filter-widget', status: 'emitted-example', note: 'example DataTable filter host' },
+  'toolbar-widget': { value: 'toolbar-widget', status: 'emitted-example', note: 'example DataTable toolbar host' },
+  'field-widget': { value: 'field-widget', status: 'emitted-example', note: 'example CrudForm field host' },
+  'lifecycle-handler': { value: 'lifecycle-handler', status: 'emitted-example', note: 'example CrudForm lifecycle host' },
+  'component-replacement': { value: 'component-replacement', status: 'emitted-example', note: 'example replaceable DataTable, CrudForm and component hosts' },
+  'response-enricher': { value: 'response-enricher', status: 'emitted-example', note: 'example entity enricher host' },
+  'query-enricher': { value: 'query-enricher', status: 'emitted-example', note: 'example query-enricher host' },
+  'api-interceptor': { value: 'api-interceptor', status: 'emitted-example', note: 'example API interceptor contribution and route bridge' },
+  'command-interceptor': { value: 'command-interceptor', status: 'emitted-example', note: 'example command interceptor and exact command owner' },
+  'mutation-guard': { value: 'mutation-guard', status: 'emitted-example', note: 'example entity mutation guard host' },
+  'entity-extension': { value: 'entity-extension', status: 'emitted-example', note: 'example entity extension host' },
+  'async-subscriber': { value: 'async-subscriber', status: 'emitted-example', note: 'example event subscriber host' },
+  'sync-subscriber': { value: 'sync-subscriber', status: 'emitted-example', note: 'example synchronous event subscriber host' },
+  'browser-client': { value: 'browser-client', status: 'emitted-example', note: 'example client-broadcast event host' },
+  'browser-portal': { value: 'browser-portal', status: 'emitted-example', note: 'example portal-broadcast event host' },
+  'registry-contribution': { value: 'registry-contribution', status: 'emitted-example', note: 'example specialized registry contributions' },
+  'module-override': { value: 'module-override', status: 'framework-only', note: 'framework override hosts; app configuration is not a contribution' },
+}
+
+const HOST_ACTIVATION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  always: { value: 'always', status: 'emitted-example', note: 'always-active example declarations' },
+  'host-opt-in': { value: 'host-opt-in', status: 'emitted-example', note: 'example entity extension and response-enricher hosts' },
+  'caller-opt-in': { value: 'caller-opt-in', status: 'emitted-example', note: 'example query lifecycle and query enricher' },
+  'feature-gated': { value: 'feature-gated', status: 'currently-unbound', note: 'feature requirements are emitted but are not a distinct activation value' },
+}
+
+const TARGET_KIND_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  module: { value: 'module', status: 'emitted-example', note: 'example module-scoped registry target' },
+  entity: { value: 'entity', status: 'emitted-example', note: 'example entity extension, enricher and guard targets' },
+  'api-route': { value: 'api-route', status: 'emitted-example', note: 'example API interceptor targets' },
+  command: { value: 'command', status: 'emitted-example', note: 'example exact and wildcard command targets' },
+  'widget-spot': { value: 'widget-spot', status: 'emitted-example', note: 'example injection targets' },
+  component: { value: 'component', status: 'emitted-example', note: 'example component override targets' },
+  event: { value: 'event', status: 'emitted-example', note: 'example subscriber targets' },
+  notification: { value: 'notification', status: 'emitted-example', note: 'example notification registry target' },
+  wildcard: { value: 'wildcard', status: 'emitted-example', note: 'example wildcard subscriber and interceptor targets' },
+}
+
+const HOST_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  exact: { value: 'exact', status: 'emitted-example', note: 'example exact declared hosts' },
+  pattern: { value: 'pattern', status: 'emitted-example', note: 'example patterned host surfaces' },
+  framework: { value: 'framework', status: 'framework-only', note: 'framework catalog host identity' },
+  'fact-ref': { value: 'fact-ref', status: 'emitted-example', note: 'example entity, event and query fact-reference hosts' },
+}
+
+const TARGET_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  exact: { value: 'exact', status: 'emitted-example', note: 'example exact target correlation' },
+  pattern: { value: 'pattern', status: 'emitted-example', note: 'example wildcard and patterned target correlation' },
+  framework: { value: 'framework', status: 'emitted-example', note: 'example contribution to a framework host' },
+  'fact-ref': { value: 'fact-ref', status: 'emitted-example', note: 'example contribution to a generated fact owner' },
+  'optional-external': { value: 'optional-external', status: 'emitted-example', note: 'example optional module target remains fail-soft' },
+  unresolved: { value: 'unresolved', status: 'negative-fixture', note: 'only malformed targets remain unresolved' },
+}
+
+const TOPOLOGY_RESOLUTION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  bound: { value: 'bound', status: 'emitted-example', note: 'example contribution reaches a verified runtime activation' },
+  'capability-only': { value: 'capability-only', status: 'emitted-example', note: 'declaration-backed capability without a separate caller activation' },
+  'optional-target-missing': { value: 'optional-target-missing', status: 'emitted-example', note: 'optional external target absent from the selected module set' },
+  wildcard: { value: 'wildcard', status: 'emitted-example', note: 'wildcard contribution resolves against selected targets' },
+  unresolved: { value: 'unresolved', status: 'negative-fixture', note: 'only malformed first-party targets remain unresolved' },
+}
+
+const SPECIALIZED_REGISTRY_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  notification: { value: 'notification', status: 'emitted-example', note: 'example notification type registry' },
+  integration: { value: 'integration', status: 'emitted-example', note: 'example credential-free integration bundle identity' },
+  search: { value: 'search', status: 'emitted-example', note: 'example Todo search registry' },
+  vector: { value: 'vector', status: 'emitted-example', note: 'example deterministic Todo vector registry' },
+  ai: { value: 'ai', status: 'emitted-example', note: 'example AI tool and agent registries' },
+  payment: { value: 'payment', status: 'emitted-example', note: 'example mock payment descriptors' },
+  shipping: { value: 'shipping', status: 'emitted-example', note: 'example mock shipping registry identity' },
+  currency: { value: 'currency', status: 'emitted-example', note: 'example deterministic currency provider identity' },
+  workflow: { value: 'workflow', status: 'emitted-example', note: 'example event-triggered Todo workflow identity' },
+}
+
+const COMPONENT_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  replace: { value: 'replace', status: 'emitted-example', note: 'example replacement component' },
+  wrapper: { value: 'wrapper', status: 'emitted-example', note: 'example decorating wrapper component' },
+  props: { value: 'props', status: 'emitted-example', note: 'example props-transform component' },
+}
+
+const FACT_DIAGNOSTIC_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'duplicate-source': { value: 'duplicate-source', status: 'negative-fixture', note: 'duplicate provenance fixture; canonical output emits none' },
+  'unresolved-static-contract': { value: 'unresolved-static-contract', status: 'negative-fixture', note: 'dynamic contract fixture; canonical output emits none' },
+}
+
+const UNRESOLVED_REASON_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  'unclassified-binding': { value: 'unclassified-binding', status: 'negative-fixture', note: 'malformed extension declaration fixture' },
+  'unbound-declaration': { value: 'unbound-declaration', status: 'negative-fixture', note: 'declared host without a real caller fixture' },
+  'dynamic-without-pattern': { value: 'dynamic-without-pattern', status: 'negative-fixture', note: 'dynamic host without a declared pattern fixture' },
+  'unresolved-first-party-target': { value: 'unresolved-first-party-target', status: 'negative-fixture', note: 'broken first-party target fixture' },
+}
+
+const DATA_TABLE_SURFACE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  header: { value: 'header', status: 'emitted-example', note: 'bound Todo table header' },
+  footer: { value: 'footer', status: 'emitted-example', note: 'bound Todo table footer' },
+  toolbar: { value: 'toolbar', status: 'emitted-example', note: 'bound Todo table toolbar' },
+  searchTrailing: { value: 'searchTrailing', status: 'emitted-example', note: 'bound Todo table search trailing surface' },
+  columns: { value: 'columns', status: 'emitted-example', note: 'bound Todo table columns' },
+  rowActions: { value: 'rowActions', status: 'emitted-example', note: 'bound Todo table row actions' },
+  bulkActions: { value: 'bulkActions', status: 'emitted-example', note: 'bound Todo table bulk actions' },
+  filters: { value: 'filters', status: 'emitted-example', note: 'bound Todo table filters' },
+  replacement: { value: 'replacement', status: 'emitted-example', note: 'bound Todo table replacement' },
+  emptyState: { value: 'emptyState', status: 'currently-unbound', note: 'catalog-declared DataTable surface has no runtime host' },
+}
+
+const CRUD_FORM_SURFACE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  base: { value: 'base', status: 'emitted-example', note: 'bound Todo form base' },
+  header: { value: 'header', status: 'emitted-example', note: 'bound Todo form header' },
+  fields: { value: 'fields', status: 'emitted-example', note: 'bound Todo form fields' },
+  replacement: { value: 'replacement', status: 'emitted-example', note: 'bound Todo form replacement' },
+  beforeFields: { value: 'beforeFields', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  afterFields: { value: 'afterFields', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  footer: { value: 'footer', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  sidebar: { value: 'sidebar', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  group: { value: 'group', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  fieldBefore: { value: 'fieldBefore', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+  fieldAfter: { value: 'fieldAfter', status: 'currently-unbound', note: 'catalog-declared CrudForm surface has no runtime host' },
+}
+
+const CRUD_FORM_LIFECYCLE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  transformValidation: { value: 'transformValidation', status: 'emitted-example', note: 'example Todo form lifecycle transformValidation' },
+  transformDisplayData: { value: 'transformDisplayData', status: 'emitted-example', note: 'example Todo form lifecycle transformDisplayData' },
+  onBeforeNavigate: { value: 'onBeforeNavigate', status: 'emitted-example', note: 'example Todo form lifecycle onBeforeNavigate' },
+  onAppEvent: { value: 'onAppEvent', status: 'emitted-example', note: 'example Todo form lifecycle onAppEvent' },
+  onVisibilityChange: { value: 'onVisibilityChange', status: 'emitted-example', note: 'example Todo form lifecycle onVisibilityChange' },
+  onBeforeDelete: { value: 'onBeforeDelete', status: 'emitted-example', note: 'example Todo form lifecycle onBeforeDelete' },
+  onDelete: { value: 'onDelete', status: 'emitted-example', note: 'example Todo form lifecycle onDelete' },
+  onAfterDelete: { value: 'onAfterDelete', status: 'emitted-example', note: 'example Todo form lifecycle onAfterDelete' },
+  onDeleteError: { value: 'onDeleteError', status: 'emitted-example', note: 'example Todo form lifecycle onDeleteError' },
+  onFieldChange: { value: 'onFieldChange', status: 'emitted-example', note: 'example Todo form lifecycle onFieldChange' },
+  transformFormData: { value: 'transformFormData', status: 'emitted-example', note: 'example Todo form lifecycle transformFormData' },
+  onBeforeSave: { value: 'onBeforeSave', status: 'emitted-example', note: 'example Todo form lifecycle onBeforeSave' },
+  onSave: { value: 'onSave', status: 'emitted-example', note: 'example Todo form lifecycle onSave' },
+  onAfterSave: { value: 'onAfterSave', status: 'emitted-example', note: 'example Todo form lifecycle onAfterSave' },
+}
+
+const CRUD_FORM_OPERATION_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
+  create: { value: 'create', status: 'emitted-example', note: 'example Todo create lifecycle' },
+  update: { value: 'update', status: 'currently-unbound', note: 'example lifecycle contribution is currently registered for create only' },
+  delete: { value: 'delete', status: 'currently-unbound', note: 'example lifecycle contribution is currently registered for create only' },
+}
+
+/**
+ * One family of the ledger. Both directions are enforced: an enumerated value with
+ * no row, and a row classifying a value the enum no longer carries, each throw — so
+ * neither an unclassified new value nor a stale row for a removed one can ship.
+ */
+export function buildCoverageFamily(
+  family: string,
+  enumSource: string,
+  values: readonly string[],
+  coverage: Readonly<Record<string, ModuleFactCoverageRow>>,
+): ModuleFactCoverageFamily {
+  const rows: ModuleFactCoverageRow[] = []
+  const missing: string[] = []
+  for (const value of values) {
+    const row = coverage[value]
+    if (!row) {
+      missing.push(value)
+      continue
+    }
+    rows.push(row)
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `[module-facts] factCoverage family "${family}" has no row for: ${missing.join(', ')}. ` +
+        'Add an explicit classification instead of leaving the value unclassified.',
+    )
+  }
+  const extra = Object.keys(coverage).filter((value) => !values.includes(value))
+  if (extra.length > 0) {
+    throw new Error(
+      `[module-facts] factCoverage family "${family}" classifies values absent from the enum: ${extra.join(', ')}.`,
+    )
+  }
+  return { family, enumSource, rows }
+}
+
+/**
+ * Builds the whole ledger, throwing when an enumerated value lacks a row or a row
+ * classifies a value the enum no longer carries. {@link extractAllModuleFacts} calls
+ * it on every run, so either violation fails fact generation — not only the unit
+ * test — and the built ledger is returned on the generation result so the published
+ * mirrors have a single generated authority to be checked against.
+ */
+export function buildModuleFactCoverageLedger(): ModuleFactCoverageFamily[] {
+  return [
+    buildCoverageFamily(
+      'ModuleFactSourceKind',
+      'packages/cli/src/lib/generators/module-facts.ts#MODULE_FACT_SOURCE_KINDS',
+      MODULE_FACT_SOURCE_KINDS,
+      FACT_SOURCE_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOwnedContractKind',
+      'packages/cli/src/lib/generators/module-facts.ts#MODULE_OWNED_CONTRACT_KINDS',
+      MODULE_OWNED_CONTRACT_KINDS,
+      OWNED_CONTRACT_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideDomain',
+      'packages/cli/src/lib/generators/module-override-targets.ts#ALL_OVERRIDE_DOMAINS',
+      ALL_OVERRIDE_DOMAINS,
+      OVERRIDE_DOMAIN_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideMode',
+      'packages/cli/src/lib/generators/module-override-targets.ts#MODULE_OVERRIDE_MODES',
+      MODULE_OVERRIDE_MODES,
+      OVERRIDE_MODE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideTargetNote',
+      'packages/cli/src/lib/generators/module-override-targets.ts#MODULE_OVERRIDE_TARGET_NOTES',
+      MODULE_OVERRIDE_TARGET_NOTES,
+      OVERRIDE_NOTE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleOverrideTargetDiagnosticCode',
+      'packages/cli/src/lib/generators/module-override-targets.ts#MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES',
+      MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
+      OVERRIDE_DIAGNOSTIC_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionContributionKind',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_CONTRIBUTION_KINDS',
+      MODULE_EXTENSION_CONTRIBUTION_KINDS,
+      CONTRIBUTION_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionActivationKind',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_ACTIVATION_KINDS',
+      MODULE_EXTENSION_ACTIVATION_KINDS,
+      ACTIVATION_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ExtensionHostFamily',
+      'packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_FAMILIES',
+      EXTENSION_HOST_FAMILIES,
+      HOST_FAMILY_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ExtensionHostCapability',
+      'packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_CAPABILITIES',
+      EXTENSION_HOST_CAPABILITIES,
+      HOST_CAPABILITY_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ExtensionHostActivation',
+      'packages/shared/src/modules/widgets/extension-points.ts#EXTENSION_HOST_ACTIVATIONS',
+      EXTENSION_HOST_ACTIVATIONS,
+      HOST_ACTIVATION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionTargetKind',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_TARGET_KINDS',
+      MODULE_EXTENSION_TARGET_KINDS,
+      TARGET_KIND_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionHostResolution',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_HOST_RESOLUTIONS',
+      MODULE_EXTENSION_HOST_RESOLUTIONS,
+      HOST_RESOLUTION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionTargetResolution',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_TARGET_RESOLUTIONS',
+      MODULE_EXTENSION_TARGET_RESOLUTIONS,
+      TARGET_RESOLUTION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionResolution',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_RESOLUTIONS',
+      MODULE_EXTENSION_RESOLUTIONS,
+      TOPOLOGY_RESOLUTION_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'SpecializedRegistry',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_SPECIALIZED_REGISTRIES',
+      MODULE_SPECIALIZED_REGISTRIES,
+      SPECIALIZED_REGISTRY_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ComponentOverrideMode',
+      'packages/shared/src/modules/widgets/extension-points.ts#COMPONENT_OVERRIDE_MODES',
+      COMPONENT_OVERRIDE_MODES,
+      COMPONENT_MODE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleFactDiagnosticCode',
+      'packages/cli/src/lib/generators/module-facts.ts#MODULE_FACT_DIAGNOSTIC_CODES',
+      MODULE_FACT_DIAGNOSTIC_CODES,
+      FACT_DIAGNOSTIC_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'ModuleExtensionUnresolvedReason',
+      'packages/shared/src/modules/widgets/extension-points.ts#MODULE_EXTENSION_UNRESOLVED_REASONS',
+      MODULE_EXTENSION_UNRESOLVED_REASONS,
+      UNRESOLVED_REASON_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'DataTableExtensionSurface',
+      'packages/shared/src/modules/widgets/extension-points.ts#DATA_TABLE_EXTENSION_SURFACE_KEYS',
+      DATA_TABLE_EXTENSION_SURFACE_KEYS,
+      DATA_TABLE_SURFACE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'CrudFormExtensionSurface',
+      'packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_EXTENSION_SURFACE_KEYS',
+      CRUD_FORM_EXTENSION_SURFACE_KEYS,
+      CRUD_FORM_SURFACE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'CrudFormLifecyclePhase',
+      'packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_LIFECYCLE_PHASES',
+      CRUD_FORM_LIFECYCLE_PHASES,
+      CRUD_FORM_LIFECYCLE_COVERAGE,
+    ),
+    buildCoverageFamily(
+      'CrudFormOperation',
+      'packages/shared/src/modules/widgets/extension-points.ts#CRUD_FORM_OPERATIONS',
+      CRUD_FORM_OPERATIONS,
+      CRUD_FORM_OPERATION_COVERAGE,
+    ),
+  ]
+}
+
+/**
+ * Real per-value counts for every ledger family, read from an extracted module's
+ * facts. This is the anti-silent-zero oracle: a ledger claim is checked against what
+ * the extractor actually published, never against a hand-maintained inventory row.
+ */
+export function countModuleFactCoverage(facts: ModuleFacts): Record<string, Record<string, number>> {
+  const increment = (counts: Record<string, number>, value: string): void => {
+    counts[value] = (counts[value] ?? 0) + 1
+  }
+  const factSourceKind: Record<string, number> = {}
+  for (const entry of facts.factSources ?? []) {
+    increment(factSourceKind, entry.kind)
+  }
+  const ownedContractKind: Record<string, number> = {}
+  for (const [kind, list] of Object.entries(facts.ownedContracts ?? {})) {
+    ownedContractKind[kind] = (list ?? []).length
+  }
+  const overrideDomain: Record<string, number> = {}
+  const overrideMode: Record<string, number> = {}
+  const overrideNote: Record<string, number> = {}
+  for (const target of facts.overrideTargets ?? []) {
+    overrideDomain[target.domain] = (overrideDomain[target.domain] ?? 0) + 1
+    for (const mode of target.modes) overrideMode[mode] = (overrideMode[mode] ?? 0) + 1
+    for (const note of target.notes ?? []) overrideNote[note] = (overrideNote[note] ?? 0) + 1
+  }
+  const overrideDiagnosticCode: Record<string, number> = {}
+  for (const diagnostic of facts.overrideTargetDiagnostics ?? []) {
+    increment(overrideDiagnosticCode, diagnostic.code)
+  }
+  const contributionKind: Record<string, number> = {}
+  const activationKind: Record<string, number> = {}
+  const hostFamily: Record<string, number> = {}
+  const hostCapability: Record<string, number> = {}
+  const hostActivation: Record<string, number> = {}
+  const targetKind: Record<string, number> = {}
+  const hostResolution: Record<string, number> = {}
+  const targetResolution: Record<string, number> = {}
+  const topologyResolution: Record<string, number> = {}
+  const specializedRegistry: Record<string, number> = {}
+  const componentMode: Record<string, number> = {}
+  const factDiagnosticCode: Record<string, number> = {}
+  const unresolvedReason: Record<string, number> = {}
+  const dataTableSurface: Record<string, number> = {}
+  const crudFormSurface: Record<string, number> = {}
+  const crudFormLifecycle: Record<string, number> = {}
+  const crudFormOperation: Record<string, number> = {}
+  const surfaces = facts.extensionSurfaces
+  for (const host of surfaces?.hosts ?? []) {
+    increment(hostFamily, host.family)
+    increment(hostResolution, host.resolution)
+    increment(hostActivation, host.activation ?? 'always')
+    for (const capability of host.capabilities) increment(hostCapability, capability)
+    for (const phase of host.phases ?? []) increment(crudFormLifecycle, phase)
+    for (const operation of host.operations ?? []) increment(crudFormOperation, operation)
+    const [owner, surface] = host.key.split('.')
+    if (owner === 'todosTable' && surface) increment(dataTableSurface, surface)
+    if (owner === 'todoForm' && surface) increment(crudFormSurface, surface)
+  }
+  for (const contribution of surfaces?.contributions ?? []) {
+    increment(contributionKind, contribution.kind)
+    increment(hostActivation, contribution.activation ?? 'always')
+    for (const target of contribution.targets) increment(targetResolution, target.resolution)
+    for (const operation of contribution.operations ?? []) increment(crudFormOperation, operation)
+    if (contribution.kind === 'specialized-registry') increment(specializedRegistry, contribution.details.registry)
+    if (contribution.kind === 'component-override') increment(componentMode, contribution.details.mode)
+    if (contribution.kind === 'widget') {
+      if (contribution.details.payload === 'headless') increment(hostCapability, 'headless-widget')
+      if (contribution.details.payload === 'menu') increment(hostCapability, 'menu-item')
+      if (contribution.details.payload === 'dashboard' || contribution.details.payload === 'notification' || contribution.details.payload === 'integration') {
+        increment(hostCapability, 'registry-contribution')
+      }
+    }
+    if (contribution.kind === 'api-interceptor') increment(hostCapability, 'api-interceptor')
+    if (contribution.kind === 'command-interceptor') increment(hostCapability, 'command-interceptor')
+  }
+  for (const activation of surfaces?.activations ?? []) increment(activationKind, activation.kind)
+  for (const resolution of surfaces?.contributionResolutions ?? []) {
+    increment(targetKind, resolution.target.kind)
+    increment(topologyResolution, resolution.resolution)
+    for (const id of resolution.activationIds) {
+      const kind = MODULE_EXTENSION_ACTIVATION_KINDS.find((candidate) => id.endsWith(`:${candidate}`))
+      if (kind) increment(activationKind, kind)
+    }
+  }
+  for (const diagnostic of facts.factDiagnostics ?? []) increment(factDiagnosticCode, diagnostic.code)
+  for (const unresolved of surfaces?.unresolved ?? []) increment(unresolvedReason, unresolved.reason)
+  return {
+    ModuleFactSourceKind: factSourceKind,
+    ModuleOwnedContractKind: ownedContractKind,
+    ModuleOverrideDomain: overrideDomain,
+    ModuleOverrideMode: overrideMode,
+    ModuleOverrideTargetNote: overrideNote,
+    ModuleOverrideTargetDiagnosticCode: overrideDiagnosticCode,
+    ModuleExtensionContributionKind: contributionKind,
+    ModuleExtensionActivationKind: activationKind,
+    ExtensionHostFamily: hostFamily,
+    ExtensionHostCapability: hostCapability,
+    ExtensionHostActivation: hostActivation,
+    ModuleExtensionTargetKind: targetKind,
+    ModuleExtensionHostResolution: hostResolution,
+    ModuleExtensionTargetResolution: targetResolution,
+    ModuleExtensionResolution: topologyResolution,
+    SpecializedRegistry: specializedRegistry,
+    ComponentOverrideMode: componentMode,
+    ModuleFactDiagnosticCode: factDiagnosticCode,
+    ModuleExtensionUnresolvedReason: unresolvedReason,
+    DataTableExtensionSurface: dataTableSurface,
+    CrudFormExtensionSurface: crudFormSurface,
+    CrudFormLifecyclePhase: crudFormLifecycle,
+    CrudFormOperation: crudFormOperation,
+  }
 }
