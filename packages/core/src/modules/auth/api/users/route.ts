@@ -20,6 +20,7 @@ import {
   assertActorCanModifySuperAdminUserTarget,
   listSuperAdminUserIds,
   resolveUserDestinationRoles,
+  throwUserDestinationOrganizationNotFound,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -638,9 +639,9 @@ async function assertCanAssignUserDestination(req: Request, payload: Record<stri
     { populate: ['tenant'] },
     { tenantId: null, organizationId },
   )
-  if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+  if (!organization) return throwUserDestinationOrganizationNotFound(400)
   const destinationTenantId = organization.tenant?.id ? String(organization.tenant.id) : null
-  if (!destinationTenantId) throw new CrudHttpError(400, { error: 'Organization not found' })
+  if (!destinationTenantId) return throwUserDestinationOrganizationNotFound(400)
   const currentOrganizationId = targetUser.organizationId ? String(targetUser.organizationId) : null
   const currentTenantId = targetUser.tenantId ? String(targetUser.tenantId) : null
   if (currentOrganizationId === organizationId && currentTenantId === destinationTenantId) {

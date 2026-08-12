@@ -45,6 +45,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   assertActorCanAssignUserDestination,
   resolveUserDestinationRoles,
+  throwUserDestinationOrganizationNotFound,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -563,9 +564,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         { populate: ['tenant'] },
         { tenantId: null, organizationId: parsed.organizationId ?? null },
       )
-      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+      if (!organization) return throwUserDestinationOrganizationNotFound(400)
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
-      if (!tenantId) throw new CrudHttpError(400, { error: 'Organization not found' })
+      if (!tenantId) return throwUserDestinationOrganizationNotFound(400)
       const currentUser = await findOneWithDecryption(
         em,
         User,

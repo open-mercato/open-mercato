@@ -165,6 +165,7 @@
   "auth.users.errors.emailExists": "이미 사용 중인 이메일입니다",
   "auth.users.errors.invalidRoleAssignment": "사용자에게 잘못된 역할이 할당되어 있습니다.",
   "auth.users.errors.lastHolderOfCriticalRole": "\"{roleName}\" 역할의 마지막 활성 보유자는 제거할 수 없습니다",
+  "auth.users.errors.organizationNotFound": "조직을 찾을 수 없습니다",
   "auth.users.errors.roleOutsideDestinationTenant": "대상 테넌트 외부의 역할을 유지하거나 할당할 수 없습니다.",
   "auth.users.flash.created": "사용자가 생성되었습니다",
   "auth.users.flash.createdEmailFailed": "사용자가 생성되었지만 초대 이메일을 보낼 수 없었습니다. 사용자 페이지에서 다시 보낼 수 있습니다.",

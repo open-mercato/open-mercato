@@ -165,6 +165,7 @@
   "auth.users.errors.emailExists": "El correo ya está en uso",
   "auth.users.errors.invalidRoleAssignment": "El usuario tiene una asignación de rol no válida.",
   "auth.users.errors.lastHolderOfCriticalRole": "No se puede eliminar al último titular activo del rol \"{roleName}\"",
+  "auth.users.errors.organizationNotFound": "Organización no encontrada",
   "auth.users.errors.roleOutsideDestinationTenant": "No se puede conservar ni asignar un rol fuera del tenant de destino.",
   "auth.users.flash.created": "Usuario creado",
   "auth.users.flash.createdEmailFailed": "Usuario creado pero no se pudo enviar el correo de invitación. Puede reenviarlo desde la página del usuario.",

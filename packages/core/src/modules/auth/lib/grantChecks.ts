@@ -117,7 +117,7 @@ export async function assertActorCanAssignUserDestination(
   const destinationTenantId = normalizeNullableString(input.destinationTenantId)
   const destinationOrganizationId = normalizeNullableString(input.destinationOrganizationId)
   if (!destinationTenantId || !destinationOrganizationId) {
-    throw new CrudHttpError(400, { error: 'Organization not found' })
+    return throwUserDestinationOrganizationNotFound(400)
   }
 
   for (const role of input.roles) {
@@ -133,7 +133,7 @@ export async function assertActorCanAssignUserDestination(
 
   const actorTenantId = normalizeNullableString(input.tenantId)
   if (!actorTenantId || actorTenantId !== destinationTenantId) {
-    throw new CrudHttpError(404, { error: 'Organization not found' })
+    return throwUserDestinationOrganizationNotFound(404)
   }
 
   const actorAcl = await loadActorAcl(input)
@@ -155,6 +155,15 @@ export async function assertActorCanAssignUserDestination(
     ...input,
     tenantId: destinationTenantId,
     roles: input.roles,
+  })
+}
+
+export async function throwUserDestinationOrganizationNotFound(status: 400 | 404): Promise<never> {
+  throw new CrudHttpError(status, {
+    error: await translateAuthError(
+      'auth.users.errors.organizationNotFound',
+      'Organization not found',
+    ),
   })
 }
 

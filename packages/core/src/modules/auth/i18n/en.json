@@ -165,6 +165,7 @@
   "auth.users.errors.emailExists": "Email already in use",
   "auth.users.errors.invalidRoleAssignment": "User has an invalid role assignment",
   "auth.users.errors.lastHolderOfCriticalRole": "Cannot remove the last active holder of role \"{roleName}\"",
+  "auth.users.errors.organizationNotFound": "Organization not found",
   "auth.users.errors.roleOutsideDestinationTenant": "Cannot retain or assign a role outside the destination tenant.",
   "auth.users.flash.created": "User created",
   "auth.users.flash.createdEmailFailed": "User created but invitation email could not be sent. You can resend it from the user page.",
