@@ -36,10 +36,10 @@ top of that seam.
 | 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | DONE | `59f15f105` |
 | 2.13 | **Named provider profiles** (added 2026-08-12 — many agents from one provider) | DONE | `c6dbbe966` |
 | **Phase 3 — operability** | | | |
-| 3.1 | Artifacts: transcript + recording captured as `AgentRunArtifact`s | TODO | |
+| 3.1 | Artifacts: transcript captured as an `AgentRunArtifact` (audio deliberately not stored) | DONE | `4cf4c49cd` |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
 | 3.3 | Eval + dry run: mock/refuse parity for external connectors; external runs → eval cases | TODO | |
-| 3.4 | Cockpit: external-run surfacing on the run detail + agents registry | TODO | |
+| 3.4 | Cockpit: external-run surfacing on the run detail + agents registry + **fetch-on-demand audio** | TODO | |
 | **Phase 4 — generalize the seam** | | | |
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | TODO | |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
@@ -231,6 +231,19 @@ Work:
 ### Phase 3 — operability
 
 **3.1** transcript + recording as `AgentRunArtifact`s (reuse `artifactCollector` / `artifactFileStore`).
+**3.4 addition — fetch-on-demand audio** *(handed over by T3.1)*
+
+T3.1 deliberately stores no audio (reasoning in the notes log). The operator affordance is a
+**fetch-on-demand** path: a new optional `ExternalAgentConnector` member (T3.1 suggests
+`extractArtifacts` / a `fetchRecording`), an ElevenLabs implementation over
+`GET /v1/convai/conversations/{id}/audio`, and a run-detail control that streams it through WITHOUT
+persisting bytes. Keeps operator access while leaving the provider as the single controller of the
+recording.
+
+The same connector member also closes T3.1's **audio-arrives-first** hazard: today, if `post_call_audio`
+is delivered before `post_call_transcription`, `normalize()` throws, the run settles `failed` down the
+`error` handle, and the real transcript arriving seconds later is discarded by the spent claim.
+
 **3.2** connector-reported cost + call duration stamped on the run (voice minutes are not LLM tokens;
 `null` is acceptable and the UI already renders `—`).
 **3.3** dry-run/eval parity: a connector `mock` that names the call it *would* place and never dials;
@@ -653,6 +666,27 @@ Append one entry per task as it lands — decisions made, surprises found, devia
 - 2026-08-12 — **Platform follow-up raised by T2.13, benefits every provider:** a `json` (or `textarea`)
   `CredentialFieldType` in `integrations` would remove the JSON-in-a-single-line-input awkwardness that
   forced the shape above.
+- 2026-08-12 — **T3.1 done. Best-effort artifact capture is LOAD-BEARING here, not merely defensive.** By
+  the time it runs the external run is already TERMINAL, so a propagating error could not fail it honestly —
+  it would 500 the public callback route, the provider would redeliver, and the redelivery would hit the
+  spent single-shot claim and report `already_settled` **without resuming the parked step**. A failed
+  transcript upload would therefore have stranded a live workflow until the deadline sweep.
+- 2026-08-12 — **T3.1 decision: audio is NOT stored, and the reason is controllership, not size.**
+  Encryption was never the gap (artifact bytes ride the tenant DEK). The gap is erasure: a transcript is text
+  about a person, a recording is the person's VOICE — biometric-grade — and copying it makes us a SECOND
+  controller, doubling the DSAR/erasure surface (DB row + S3 object) for content **no downstream consumer
+  reads** (the workflow branches on `data.collected.*`, the eval scorer reads the transcript, nothing reads
+  audio). Size sharpens it: ~4.5 MB per ten-minute call, ~1.6 TB/year at 1,000 calls/day, and **there is no
+  retention or purge sweeper for `AgentRunArtifact` anywhere in this module** — so it would be permanent by
+  default. ElevenLabs already retains it behind `GET /v1/convai/conversations/{id}/audio`, so fetch-on-demand
+  (folded into T3.4) preserves operator access with zero bytes stored.
+- 2026-08-12 — **Governance follow-up inherited, not created, by T3.1:** `AgentRunArtifact` has no retention
+  or erasure sweeper. That was already true for file-agent artifacts; the transcript now inherits it.
+- 2026-08-12 — **T3.1 open hazard (needs the T3.4 connector member): audio-arrives-first.** If
+  `post_call_audio` is delivered BEFORE `post_call_transcription`, `normalize()` throws, the run settles
+  `failed` down the `error` handle, and the real transcript arriving seconds later is discarded by the spent
+  claim. Today's behaviour is at least safe and pinned by tests (no re-settle, no second resume, idempotent
+  under redelivery).
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
