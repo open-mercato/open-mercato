@@ -27,11 +27,13 @@ jest.mock('../workflow-executor', () => ({
 }))
 
 import {
+  AgentSuspensionUnsupportedError,
+  executeActivity,
   executeInvokeAgent,
   INVOKE_AGENT_SIGNAL_NAME,
   type ActivityContext,
 } from '../activity-executor'
-import { handleInvokeAgentJob } from '../activity-worker-handler'
+import { handleInvokeAgentJob, isRetryableError } from '../activity-worker-handler'
 import type { WorkflowActivityJobInvokeAgent } from '../activity-queue-types'
 
 const tenantId = 'tenant-1'
@@ -114,6 +116,130 @@ describe('executeInvokeAgent (enqueue + park)', () => {
         container,
       ),
     ).rejects.toThrow(/agent_orchestrator not installed/)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('executeInvokeAgent (inline parallel-branch path)', () => {
+  function makeBranchContext(): ActivityContext {
+    return { ...makeContext(), branchInstanceId: 'branch-1' }
+  }
+
+  function makeBranchDeps(outcome: unknown) {
+    const invokeAgentForWorkflow = jest.fn().mockResolvedValue(outcome)
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
+        return {}
+      }),
+    } as unknown as AwilixContainer
+    return { container, invokeAgentForWorkflow }
+  }
+
+  async function runBranch(outcome: unknown) {
+    const { container, invokeAgentForWorkflow } = makeBranchDeps(outcome)
+    const result = await executeInvokeAgent(
+      { agentId: 'claims.liability.policy_check', input: { orderId: 'claim-1' }, onResult: { autoApproveThreshold: 0 } },
+      makeBranchContext(),
+      container,
+    )
+    return { result, invokeAgentForWorkflow }
+  }
+
+  it('refuses a suspended outcome: a branch cannot be resumed by an instance-level signal', async () => {
+    const { container } = makeBranchDeps({ kind: 'suspended', runId: 'run-9', externalRunId: 'conversation-9' })
+
+    const error = await executeInvokeAgent(
+      { agentId: 'claims.voice.callback', input: {}, onResult: { autoApproveThreshold: 0 } },
+      makeBranchContext(),
+      container,
+    ).then(
+      () => null,
+      (err: unknown) => err,
+    )
+
+    expect(error).toBeInstanceOf(AgentSuspensionUnsupportedError)
+    const refusal = error as AgentSuspensionUnsupportedError
+    expect(refusal.agentId).toBe('claims.voice.callback')
+    expect(refusal.runId).toBe('run-9')
+    expect(refusal.message).toContain('claims.voice.callback')
+    expect(refusal.message).toContain('run-9')
+    expect(refusal.message).toContain('out of band')
+    expect(refusal.message).toContain('parallel branch')
+    // Nothing is enqueued and nothing parks: the branch path is inline.
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('marks the refusal non-retryable for the same check the invoke-agent worker uses', async () => {
+    const { container } = makeBranchDeps({ kind: 'suspended', runId: 'run-9' })
+
+    const error = await executeInvokeAgent(
+      { agentId: 'claims.voice.callback', input: {}, onResult: { autoApproveThreshold: 0 } },
+      makeBranchContext(),
+      container,
+    ).catch((err: unknown) => err)
+
+    // A queue retry cannot fix an authoring mistake, and retrying would place a
+    // second real external run.
+    expect(isRetryableError(error)).toBe(false)
+  })
+
+  it('still resolves researcher, auto_approved and none_proposed inline', async () => {
+    const researcher = await runBranch({ kind: 'researcher', data: { score: 0.9 } })
+    expect(researcher.result).toEqual({
+      kind: 'researcher',
+      agentId: 'claims.liability.policy_check',
+      data: { score: 0.9 },
+    })
+
+    const autoApproved = await runBranch({ kind: 'auto_approved', proposalId: 'proposal-1', payload: { amount: 10 } })
+    expect(autoApproved.result).toEqual({
+      kind: 'auto_approved',
+      agentId: 'claims.liability.policy_check',
+      proposalId: 'proposal-1',
+      proposalPayload: { amount: 10 },
+    })
+
+    const noneProposed = await runBranch({ kind: 'none_proposed', proposalId: 'proposal-2', payload: null })
+    expect(noneProposed.result).toEqual({
+      kind: 'none_proposed',
+      agentId: 'claims.liability.policy_check',
+      proposalId: 'proposal-2',
+      proposalPayload: null,
+    })
+  })
+
+  it('stops the activity retry loop so a refused branch never starts a second external run', async () => {
+    const { container, invokeAgentForWorkflow } = makeBranchDeps({ kind: 'suspended', runId: 'run-9' })
+
+    const result = await executeActivity(
+      {} as unknown as EntityManager,
+      container,
+      {
+        activityId: 'invoke_voice_agent',
+        activityName: 'Invoke voice agent',
+        activityType: 'INVOKE_AGENT',
+        config: { agentId: 'claims.voice.callback', input: {}, onResult: { autoApproveThreshold: 0 } },
+        retryPolicy: { maxAttempts: 3, initialIntervalMs: 0, backoffCoefficient: 1, maxIntervalMs: 0 },
+      },
+      makeBranchContext(),
+    )
+
+    expect(invokeAgentForWorkflow).toHaveBeenCalledTimes(1)
+    expect(result.success).toBe(false)
+    expect(result.dryRunRefused).toBeUndefined()
+    expect(result.error).toContain('parallel branch')
+  })
+
+  it('still parks a user_task outcome inline on the proposal-ready signal', async () => {
+    const { result } = await runBranch({ kind: 'user_task', proposalId: 'proposal-3' })
+
+    expect(result).toEqual({
+      kind: 'user_task',
+      agentId: 'claims.liability.policy_check',
+      proposalId: 'proposal-3',
+      __park: { signalName: INVOKE_AGENT_SIGNAL_NAME },
+    })
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 })

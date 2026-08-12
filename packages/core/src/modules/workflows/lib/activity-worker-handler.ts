@@ -308,7 +308,7 @@ export function createActivityWorkerHandler(
  * core cannot import enterprise error classes, so the contract is duck-typed on
  * that marker (mirrors how the bridge itself is resolved by DI key).
  */
-function isRetryableError(err: unknown): boolean {
+export function isRetryableError(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { retryable?: unknown }).retryable === true
 }
 

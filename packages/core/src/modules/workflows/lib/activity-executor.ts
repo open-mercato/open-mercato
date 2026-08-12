@@ -277,6 +277,52 @@ export class ActivityExecutionError extends Error {
 }
 
 /**
+ * Raised when an INVOKE_AGENT step running INSIDE a parallel branch is told the
+ * agent answers out of band (`kind: 'suspended'`).
+ *
+ * The branch path resolves the bridge inline, and `sendSignal`'s FORKED branch
+ * resume only matches WAIT_FOR_SIGNAL steps — so an instance-level signal can
+ * never reach a parked branch and the out-of-band answer has nowhere to land.
+ * That makes it an AUTHORING mistake rather than a transient fault, hence both
+ * markers:
+ *
+ * - `retryable = false` is the structural tag `isRetryableError` reads in
+ *   `activity-worker-handler`, so no queue retry is ever attempted.
+ * - `agentSuspensionUnsupported` stops `executeActivity`'s in-process retry
+ *   loop, because the refused attempt already STARTED a real external run (a
+ *   placed phone call) and a retry would start a second one.
+ *
+ * Unlike `WorkflowDryRunRefusalError` this is a genuine activity failure —
+ * the effector ran — so it deliberately stays absorbable by an `error` route,
+ * `continueOnActivityFailure` and `errorDirective`, which is how an author
+ * declares what a branch should do when a step cannot produce its result.
+ */
+export class AgentSuspensionUnsupportedError extends Error {
+  readonly agentSuspensionUnsupported = true
+  readonly retryable = false
+
+  constructor(
+    readonly agentId: string,
+    readonly runId: string,
+  ) {
+    super(
+      `[INVOKE_AGENT] Agent "${agentId}" answers out of band (run ${runId}) and cannot run ` +
+      `inside a parallel branch: a branch resolves the agent inline and cannot be resumed by ` +
+      `an instance-level signal, so the out-of-band answer would never reach this step. ` +
+      `Move this agent step outside the parallel branch.`
+    )
+    this.name = 'AgentSuspensionUnsupportedError'
+  }
+}
+
+export function isAgentSuspensionUnsupported(
+  error: unknown,
+): error is AgentSuspensionUnsupportedError {
+  if (!error || typeof error !== 'object') return false
+  return (error as { agentSuspensionUnsupported?: unknown }).agentSuspensionUnsupported === true
+}
+
+/**
  * Thrown by `interpolateVariables` in strict mode when a token cannot be
  * resolved (unresolved context path, env-allowlist miss, unknown workflow.*
  * key, failed or unparseable transform pipeline). Activity call sites rethrow
@@ -618,6 +664,11 @@ export async function executeActivity(
       // it would only re-log the same refusal N times before reaching the same
       // answer.
       if (isDryRunRefusal(error)) break
+
+      // An out-of-band agent inside a parallel branch is an authoring mistake no
+      // retry can fix, and the refused attempt already started a real external
+      // run — retrying would start a second one.
+      if (isAgentSuspensionUnsupported(error)) break
 
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
@@ -1482,11 +1533,7 @@ export async function executeInvokeAgent(
       // This inline path resolves the bridge synchronously and cannot park a
       // branch, so an out-of-band answer would never reach it. Refuse loudly
       // instead of resuming the branch with no data.
-      throw new Error(
-        `[INVOKE_AGENT] Agent "${agentId}" answers out of band (run ${outcome.runId}) and cannot ` +
-        `run inside a parallel branch, which resolves the agent inline and cannot be resumed by ` +
-        `an instance-level signal. Author this agent outside a parallel branch.`
-      )
+      throw new AgentSuspensionUnsupportedError(agentId, outcome.runId)
     }
     return {
       kind: 'user_task',
