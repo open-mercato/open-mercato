@@ -97,6 +97,17 @@ type AgentRuntimeLike = {
  * `dispositionService.dispose`, so an `proposal` result is recorded as a
  * proposal but never executed. Those proposals are stamped `source: 'eval'` so the
  * operator caseload excludes them.
+ *
+ * Propose-only is NOT the same as effect-free, and the difference is what the
+ * `source: 'eval'` tag below has to carry. `agentRuntime.run` here is the real
+ * runtime, so an agent on the `external` runtime would start a run at a third
+ * party — in the driving case, dial a phone. Replaying a fifty-case suite against
+ * a voice agent would place fifty real calls to real people, and no propose-only
+ * property prevents that, because the effect happens on the way IN rather than at
+ * disposition. `ExternalAgentRunner` therefore refuses an `eval`-sourced run
+ * outright unless its connector provides a `mock`, before the run row opens and
+ * before the connector is touched. This function's only obligation is to keep the
+ * tag truthful.
  */
 export async function executeCaseRun(
   container: AwilixContainer,
@@ -173,12 +184,13 @@ async function runCase(
       // Tags THIS run and its proposal at creation, closing the window in which a
       // replay proposal would otherwise be broadcast and rendered as operator work.
       //
-      // LIMITATION: nested sub-agent delegations do NOT inherit this — the
-      // `delegate_agent` tool builds a fresh ctx and does not forward `source`
-      // (ai-tools.ts). Those child runs are stamped `runtime` and are therefore
-      // counted in the agent's production metric rollups. They cannot produce a
-      // disposable proposal (delegation targets are researcher-only), so the
-      // propose-only guarantee still holds; the labelling does not.
+      // It also carries the whole run TREE: `NativeAgentRunner` binds `ctx.source`
+      // into the async run context, and `delegate_agent` reads it back through
+      // `getCurrentRunSource()` when it builds a sub-agent's fresh ctx, so a nested
+      // delegation is stamped `eval` too. That inheritance is now load-bearing and
+      // not merely cosmetic: `ExternalAgentRunner` refuses to place real outbound
+      // contact for any run whose source is `eval`, so a replay that reached an
+      // external agent through a delegation must arrive there still tagged.
       source: 'eval',
       onRunPersisted: (runId: string) => {
         if (!topLevelRunId) topLevelRunId = runId

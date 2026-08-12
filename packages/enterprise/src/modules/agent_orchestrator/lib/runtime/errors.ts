@@ -120,6 +120,48 @@ export class ExternalAgentNotPermittedError extends Error {
 }
 
 /**
+ * The run is NOT production traffic — today that means an eval replay — and the
+ * connector offers no `mock`, so there is no way to exercise this agent without
+ * placing real outbound contact.
+ *
+ * WHY THIS IS A RUNNER-LEVEL REFUSAL AND NOT A CONNECTOR CONVENTION. The registry
+ * documents "no `mock` means refuse", but until this error existed nothing read
+ * `connector.mock` at all: `ExternalAgentRunner` called `connector.start()`
+ * unconditionally, and `evalReplayService` calls `agentRuntime.run()` for real. A
+ * fifty-case suite replayed against a voice agent would therefore have placed
+ * fifty real phone calls to real people. The guarantee has to live where the
+ * dialling happens, so that it holds for a connector whose author never read the
+ * convention.
+ *
+ * The platform deliberately does NOT synthesise a would-do on the connector's
+ * behalf. A fabricated transcript is indistinguishable downstream from something a
+ * human actually said, so an eval scorer would grade a fiction and any agent
+ * reading the answer would act on it. Refusing is the only honest answer the
+ * platform can give for a provider it cannot simulate.
+ *
+ * Raised BEFORE the run row is opened and structurally before `connector.start()`,
+ * for the same "nothing was attempted" reason {@link ExternalAgentNotPermittedError}
+ * and {@link ExternalAgentConfigurationError} are. NOT retryable: a connector
+ * without a `mock` will not grow one on a second attempt.
+ */
+export class ExternalAgentSimulationUnavailableError extends Error {
+  readonly code = 'external_agent_simulation_unavailable'
+  readonly retryable = false
+  readonly connectorId: string
+  /** The non-production origin that required a simulation. */
+  readonly source: 'eval'
+  constructor(agentId: string, connectorId: string, source: 'eval') {
+    super(
+      `[internal] external agent "${agentId}" was not started: this run originates from "${source}", ` +
+        `which must never place real outbound contact, and connector "${connectorId}" provides no mock`,
+    )
+    this.name = 'ExternalAgentSimulationUnavailableError'
+    this.connectorId = connectorId
+    this.source = source
+  }
+}
+
+/**
  * An external run STARTED and will answer out of band, raised by the
  * `agentRuntime.run()` compatibility surface for callers whose return type has no
  * room for a suspension. The workflow bridge does not see this — it calls

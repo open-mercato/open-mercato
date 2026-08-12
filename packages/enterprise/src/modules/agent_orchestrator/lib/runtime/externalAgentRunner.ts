@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
-import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
@@ -9,6 +9,7 @@ import {
   getExternalAgentConnector,
   type ExternalAgentConnector,
   type ExternalAgentConnectorScope,
+  type ExternalAgentConnectorStartArgs,
 } from './externalConnectorRegistry'
 import { assembleRunContextSpans, screenRunInput } from './runPreflight'
 import { enqueueExternalRunDeadlineSweep } from './externalRunSweep'
@@ -23,12 +24,15 @@ import {
   AgentOutputInvalidError,
   ExternalAgentConfigurationError,
   ExternalAgentNotPermittedError,
+  ExternalAgentSimulationUnavailableError,
 } from './errors'
+import { getCurrentRunSource } from './runContext'
 import { emitExternalRunEvent } from './externalRunEvents'
 import { GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import {
   type AgentRunCtx,
   buildCommandContext,
+  completeRun,
   createExternalRunRow,
   createRun,
   failRun,
@@ -75,6 +79,110 @@ export type AgentRunOutcome =
 export type ExternalAgentRunnerDeps = {
   container: AwilixContainer
   commandBus: CommandBus
+}
+
+/**
+ * An origin whose runs must NEVER place real outbound contact (T3.3).
+ *
+ * Only `'eval'` today, and it is a UNION rather than a boolean so a second
+ * non-production origin (a shadow run, a rehearsal mode) has somewhere truthful to
+ * land — and so the refusal can name which one refused rather than saying only
+ * "not production".
+ *
+ * The workflow DRY RUN is deliberately absent, because it never reaches this
+ * runner: `INVOKE_AGENT` carries an activity-level `mock` and core's
+ * `executeActivity` swaps it in at the one place `entry.execute` is called, so a
+ * dry run short-circuits into a would-do long before the agent bridge — covered by
+ * core's own `workflows/lib/__tests__/dry-run.test.ts`. Were that ever to change,
+ * a dry run would arrive here carrying `source: 'runtime'` and would dial, so the
+ * dry-run guarantee genuinely rests on core's branch and not on this one.
+ */
+export type SimulatedExternalRunSource = 'eval'
+
+/**
+ * The origin that requires a simulation, or `null` for real production traffic.
+ *
+ * TWO signals, both checked, because the refusal must hold even for a caller that
+ * forgets to thread the tag: `ctx.source` is what `evalReplayService` sets
+ * explicitly, and `getCurrentRunSource()` is the async-scoped origin of the run
+ * TREE this call sits inside. Reading both can only ever widen the refusal — the
+ * ambient value is `'eval'` only when an eval run is genuinely on the stack — so a
+ * false positive would require a production run nested inside a replay, which does
+ * not exist.
+ */
+export function resolveSimulatedExternalRunSource(ctx: AgentRunCtx): SimulatedExternalRunSource | null {
+  if (ctx.source === 'eval') return 'eval'
+  if (getCurrentRunSource() === 'eval') return 'eval'
+  return null
+}
+
+/**
+ * How this start will proceed, decided before anything is written or dialled.
+ *
+ * A discriminated union rather than a nullable flag so the two arms cannot be
+ * confused: the real arm is the only one holding a `callbackBaseUrl`, and the
+ * simulated arm is the only one holding a `mock`. There is no state in which the
+ * runner has both.
+ */
+type ExternalStartMode =
+  | { simulated: false; callbackBaseUrl: string }
+  | {
+      simulated: true
+      source: SimulatedExternalRunSource
+      mock: (args: ExternalAgentConnectorStartArgs) => unknown
+    }
+
+/**
+ * The inner `kind` of a simulated external run's payload.
+ *
+ * Deliberately NOT a value from the runtime outcome vocabulary, following
+ * `buildInvokeAgentWouldDo`'s rule: nothing downstream may mistake a simulation
+ * for something that happened.
+ */
+export const SIMULATED_EXTERNAL_RUN_KIND = 'would_start_external_run'
+
+/**
+ * What a simulated start hands the connector's `mock` in place of a live callback
+ * URL and single-use bearer.
+ *
+ * A simulation MUST NOT mint a real credential. The token is the only proof on an
+ * unauthenticated public route, nothing will ever post to the URL, and a `mock`
+ * that echoed either into its would-do payload would write a live bearer into an
+ * eval case that is then stored, listed and read by operators.
+ */
+const SIMULATED_CALLBACK_URL = 'simulated://external-run-callback'
+const SIMULATED_CALLBACK_TOKEN = 'simulated-no-callback-token-is-minted'
+
+/**
+ * Wrap a connector's would-do payload in an envelope that cannot be mistaken for
+ * an answer.
+ *
+ * The connector's payload is NESTED under `wouldDo`, never spread at the top
+ * level, and that nesting is the load-bearing part. A badly-written `mock` that
+ * returned `{ reached: true, transcript: '…' }` — the exact shape of the driving
+ * use case's real outcome — still cannot produce something that reads as the
+ * agent's outcome, because the outcome fields are one level down from where any
+ * reader of a researcher result looks. The platform therefore never synthesises an
+ * answer on a connector's behalf even when the connector tries to.
+ */
+function buildSimulatedExternalRunResult(args: {
+  agentId: string
+  connectorId: string
+  source: SimulatedExternalRunSource
+  wouldDo: unknown
+}): AgentResult {
+  return {
+    kind: 'researcher',
+    data: {
+      simulated: true,
+      started: false,
+      kind: SIMULATED_EXTERNAL_RUN_KIND,
+      source: args.source,
+      agentId: args.agentId,
+      connectorId: args.connectorId,
+      wouldDo: args.wouldDo,
+    },
+  }
 }
 
 /**
@@ -127,8 +235,20 @@ export class ExternalAgentRunner {
     // never ran — so it refuses in the same place and the same way an unknown
     // agent id does, leaving no failed run against an agent that never executed.
     const connector = this.resolveConnector(agentId, entry)
+
+    // SIMULATION GATE (T3.3), answered second — after authorization and before
+    // every deployment-configuration question, because "may this run dial at all"
+    // outranks "is this deployment wired to dial correctly".
+    //
+    // This is the structural half of the "no mock means refuse" convention the
+    // connector registry documents. Before this, nothing read `connector.mock`:
+    // the runner dialled unconditionally, and `lib/eval/evalReplayService.ts`
+    // calls `agentRuntime.run()` for real, so a fifty-case suite replayed against
+    // a voice agent placed fifty real phone calls. The convention was held closed
+    // only by the ElevenLabs connector happening to omit `mock` — which did
+    // nothing — so the guarantee is moved here, where the dialling is.
+    const mode = this.resolveStartMode(agentId, connector, ctx)
     const callbackTimeoutMs = this.resolveCallbackTimeoutMs(agentId, entry)
-    const callbackBaseUrl = resolveCallbackBaseUrl(agentId)
 
     const commandCtx = buildCommandContext(this.container, ctx)
 
@@ -189,6 +309,28 @@ export class ExternalAgentRunner {
       untrustedSpans,
     })
 
+    // The simulated arm returns HERE — after the audited run row and the pre-call
+    // input guardrail, before the callback token is minted and before the
+    // connector is touched. Everything except the dial still happens, deliberately:
+    // an eval that skipped the guardrail would measure a different configuration
+    // from the one production runs, which is exactly the regression signal the eval
+    // plane exists to protect. Nothing below this line executes, so there is no
+    // `agent_external_runs` correlation row, no deadline job and no callback
+    // surface for a run that never left the building.
+    if (mode.simulated) {
+      const result = await this.settleSimulatedRun({
+        agentId,
+        entry,
+        connectorId: connector.id,
+        mode,
+        input,
+        runId,
+        commandCtx,
+        ctx,
+      })
+      return { kind: 'settled', result }
+    }
+
     // Single-use bearer for the callback route: 256 bits of CSPRNG randomness,
     // hex-encoded behind a readable prefix — the same shape and the same source
     // (`node:crypto` `randomBytes`) as the OpenCode runner's per-run session
@@ -196,7 +338,7 @@ export class ExternalAgentRunner {
     // unauthenticated public route. The plaintext goes to the provider and is
     // never persisted; only its digest is.
     const callbackToken = mintCallbackToken()
-    const callbackUrl = `${callbackBaseUrl}${buildExternalRunCallbackPath(callbackToken)}`
+    const callbackUrl = `${mode.callbackBaseUrl}${buildExternalRunCallbackPath(callbackToken)}`
     const scope: ExternalAgentConnectorScope = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -399,6 +541,111 @@ export class ExternalAgentRunner {
       agentId,
       `[internal] synchronous external settlement returned "${settled.status}" for run ${runId}`,
     )
+  }
+
+  /**
+   * Decide whether this start dials for real or is simulated — and refuse
+   * outright when it must be simulated and cannot be.
+   *
+   * Runs BEFORE the run row opens, so a refusal leaves nothing behind, on the same
+   * "nothing was attempted" rule the ACL and configuration refusals follow. The
+   * real arm resolves the callback base URL here rather than later for the reason
+   * `resolveCallbackBaseUrl` documents; the simulated arm never resolves it at all,
+   * since refusing an eval replay because production `APP_URL` is unset would be a
+   * deployment report standing in for a safety answer.
+   *
+   * `mock` is bound to its connector so an implementation written as a class method
+   * keeps its `this`.
+   */
+  private resolveStartMode(
+    agentId: string,
+    connector: ExternalAgentConnector,
+    ctx: AgentRunCtx,
+  ): ExternalStartMode {
+    const source = resolveSimulatedExternalRunSource(ctx)
+    if (!source) return { simulated: false, callbackBaseUrl: resolveCallbackBaseUrl(agentId) }
+
+    const mock = connector.mock
+    if (!mock) {
+      // As with the ACL refusal, no run row exists to carry this, so the log line
+      // is the only record. It names the agent, the connector and the scope —
+      // never the input, which is the brief that would have been read aloud.
+      logger.warn('refused an external agent run: it cannot be simulated and must not dial', {
+        agentId,
+        connectorId: connector.id,
+        source,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+      })
+      throw new ExternalAgentSimulationUnavailableError(agentId, connector.id, source)
+    }
+    return { simulated: true, source, mock: mock.bind(connector) }
+  }
+
+  /**
+   * Complete a simulated external run from the connector's would-do payload.
+   *
+   * The payload is NOT validated against the agent's declared outcome envelope,
+   * and that is the point: a would-do is a description of the call that was not
+   * placed, not an outcome, so validating it would force every connector to
+   * fabricate an answer in the declared shape — precisely what the platform
+   * refuses to do. It is wrapped by {@link buildSimulatedExternalRunResult} instead,
+   * which puts it a level below where any reader of a researcher result looks.
+   *
+   * `resultKind: 'researcher'` because external agents are researcher-only in this
+   * pass (design decision: an external PROPOSAL agent would let a third party's
+   * confidence auto-approve a domain write).
+   */
+  private async settleSimulatedRun(args: {
+    agentId: string
+    entry: AgentRegistryEntry
+    connectorId: string
+    mode: Extract<ExternalStartMode, { simulated: true }>
+    input: unknown
+    runId: string
+    commandCtx: CommandRuntimeContext
+    ctx: AgentRunCtx
+  }): Promise<AgentResult> {
+    let wouldDo: unknown
+    try {
+      wouldDo = args.mode.mock({
+        agentEntry: args.entry,
+        input: args.input,
+        callbackUrl: SIMULATED_CALLBACK_URL,
+        callbackToken: SIMULATED_CALLBACK_TOKEN,
+        scope: { tenantId: args.ctx.tenantId, organizationId: args.ctx.organizationId },
+      })
+    } catch (err) {
+      // A throwing `mock` is a connector defect, and it is reported as one rather
+      // than degraded into a refusal: the run fails, the eval case records why, and
+      // nobody is left believing the agent was exercised.
+      const message = err instanceof Error ? err.message : String(err)
+      await failRun(this.commandBus, args.commandCtx, {
+        runId: args.runId,
+        errorMessage: `[internal] the connector's mock threw while simulating an external run: ${message}`,
+      })
+      throw err
+    }
+
+    const result = buildSimulatedExternalRunResult({
+      agentId: args.agentId,
+      connectorId: args.connectorId,
+      source: args.mode.source,
+      wouldDo,
+    })
+    await completeRun(this.commandBus, args.commandCtx, {
+      runId: args.runId,
+      output: result,
+      resultKind: 'researcher',
+    })
+
+    logger.info('external agent run simulated; no outbound contact was placed', {
+      agentId: args.agentId,
+      runId: args.runId,
+      connectorId: args.connectorId,
+      source: args.mode.source,
+    })
+    return result
   }
 
   /**
