@@ -54,7 +54,9 @@ Defaults to `true`. An adapter that does not implement it keeps today's behaviou
   `sync_cursors` read and the write — one query less per batch on a long import, against a row nothing
   will read.
 - New `resolveResumeCursor(integrationId, entityType, direction, scope)` returns the cursor of the most
-  recent run that never reached `completed`, or `null` when the last attempt finished.
+  recent run, or `null` when that run reached `completed`. It reads the latest run rather than the
+  latest *incomplete* one on purpose: after a walk finishes, an older interrupted run's cursor would
+  make the next run skip everything before it — the same class of silent skip this spec exists to fix.
 
 ### 3. `lib/sync-engine.ts`
 
@@ -82,7 +84,8 @@ ignore them behave exactly as before.
 
 - `lib/__tests__/sync-run-service.shared-cursor.test.ts` — default writes the shared row; opt-out
   advances only the run row; an inherited `sync_cursors` row is left byte-identical; the row lookup is
-  skipped entirely; `updateCursor` honours the same flag; `resolveResumeCursor` filter and empty case.
+  skipped entirely; `updateCursor` honours the same flag; `resolveResumeCursor` resumes from a failed
+  or cancelled latest run, and returns `null` for a completed latest run or no runs at all.
 - `lib/__tests__/sync-engine-shared-cursor.test.ts` — an adapter that opts out for one of two entity
   types produces exactly one shared row after running both; an adapter without the hook is unaffected;
   the export path passes the verdict through.

@@ -125,7 +125,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 `pending` → `running` → `completed` | `failed` | `cancelled`
 
 - **Cursor persistence**: After each batch, the cursor is saved on the run row and mirrored into the shared `SyncCursor` row
-- **Shared cursor opt-out**: An adapter returning `persistsSharedCursor(entityType) === false` keeps that entity type's cursor on the run row only — use it for whole-table backfills whose cursor is one run's scan state, not a durable log position. Those entity types resolve an incremental start position from the most recent incomplete run (`resolveResumeCursor`) instead of the shared row
+- **Shared cursor opt-out**: An adapter returning `persistsSharedCursor(entityType) === false` keeps that entity type's cursor on the run row only — use it for whole-table backfills whose cursor is one run's scan state, not a durable log position. Those entity types resolve an incremental start position from the most recent run (`resolveResumeCursor`) instead of the shared row, and from `null` when that run completed
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: Via `progressService.isCancellationRequested()`

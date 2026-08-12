@@ -264,9 +264,10 @@ export function createSyncRunService(em: EntityManager) {
 
     /**
      * Resume position for an entity type whose adapter opted out of the shared
-     * `sync_cursors` row: the cursor of the most recent run that never reached
-     * `completed`. Returns `null` when the last attempt finished, so the next
-     * run starts a fresh walk.
+     * `sync_cursors` row: the cursor of the most recent run, unless that run
+     * reached `completed`. A finished walk resumes from `null` so the next run
+     * starts over rather than skipping everything an older interrupted run had
+     * already passed.
      */
     async resolveResumeCursor(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<string | null> {
       const [run] = await findWithDecryption(
@@ -276,7 +277,6 @@ export function createSyncRunService(em: EntityManager) {
           integrationId,
           entityType,
           direction,
-          status: { $ne: 'completed' },
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           deletedAt: null,
@@ -284,7 +284,8 @@ export function createSyncRunService(em: EntityManager) {
         { orderBy: { createdAt: 'DESC' }, limit: 1 },
         scope,
       )
-      return run?.cursor ?? null
+      if (!run || run.status === 'completed') return null
+      return run.cursor ?? null
     },
 
     async findRunningOverlap(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<SyncRun | null> {

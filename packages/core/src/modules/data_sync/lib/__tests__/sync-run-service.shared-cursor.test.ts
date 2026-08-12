@@ -135,9 +135,9 @@ describe('SyncRunService.resolveResumeCursor', () => {
     ;(findWithDecryption as jest.Mock).mockReset().mockResolvedValue([])
   })
 
-  it('returns the cursor of the most recent run that never completed', async () => {
+  it('returns the cursor of the most recent run when it never completed', async () => {
     const em = buildFakeEm()
-    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ cursor: 'interrupted-cursor' }])
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ status: 'failed', cursor: 'interrupted-cursor' }])
 
     const service = createSyncRunService(em as any)
     const cursor = await service.resolveResumeCursor('sync_backfill', 'catalog.product', 'import', SCOPE)
@@ -146,21 +146,37 @@ describe('SyncRunService.resolveResumeCursor', () => {
     expect(findWithDecryption).toHaveBeenCalledWith(
       em,
       SyncRun,
-      expect.objectContaining({
+      {
         integrationId: 'sync_backfill',
         entityType: 'catalog.product',
         direction: 'import',
-        status: { $ne: 'completed' },
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         deletedAt: null,
-      }),
+      },
       { orderBy: { createdAt: 'DESC' }, limit: 1 },
       SCOPE,
     )
   })
 
-  it('returns null when the last run completed', async () => {
+  it('resumes from a cancelled run, which stopped mid-walk', async () => {
+    const em = buildFakeEm()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ status: 'cancelled', cursor: 'cancelled-cursor' }])
+
+    const service = createSyncRunService(em as any)
+    await expect(service.resolveResumeCursor('sync_backfill', 'catalog.product', 'import', SCOPE))
+      .resolves.toBe('cancelled-cursor')
+  })
+
+  it('returns null when the most recent run completed, even though older runs were interrupted', async () => {
+    const em = buildFakeEm()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ status: 'completed', cursor: 'finished-walk-cursor' }])
+
+    const service = createSyncRunService(em as any)
+    await expect(service.resolveResumeCursor('sync_backfill', 'catalog.product', 'import', SCOPE)).resolves.toBeNull()
+  })
+
+  it('returns null when the entity type has never run', async () => {
     const em = buildFakeEm()
     ;(findWithDecryption as jest.Mock).mockResolvedValue([])
 

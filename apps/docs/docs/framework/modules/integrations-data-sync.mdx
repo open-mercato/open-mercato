@@ -166,7 +166,7 @@ const adapter: DataSyncAdapter = {
 Omitting the hook keeps today's behaviour. When it returns `false` for an entity type:
 
 - the engine skips both the read and the write of `sync_cursors` for that entity type (one query less per batch on long imports)
-- an incremental run resolves its start position from the most recent run that never completed, instead of from the shared row it never writes
+- an incremental run resolves its start position from the most recent run instead of from the shared row it never writes, and starts over from `null` when that run completed
 - `fullSync` still starts from `null`
 
 ## Provider-owned environment preconfiguration
