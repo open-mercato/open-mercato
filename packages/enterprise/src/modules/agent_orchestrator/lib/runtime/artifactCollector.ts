@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { putArtifactBytes, type MinimalContainer } from './artifactFileStore'
+import { putArtifactBytes, resolveArtifactMaxBytes, type MinimalContainer } from './artifactFileStore'
 import type { CaptureArtifactsInput } from '../../commands/artifacts'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'artifact-collector' })
@@ -20,13 +20,7 @@ export type CollectArtifactsResult = {
   failed: string[]
 }
 
-const DEFAULT_MAX_BYTES = 26214400 // 25 MiB
 const DEFAULT_MAX_COUNT = 20
-
-function resolveMaxBytes(): number {
-  const raw = Number.parseInt(process.env.OM_AGENT_ARTIFACT_MAX_BYTES ?? '', 10)
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_BYTES
-}
 
 function resolveMaxCount(): number {
   const raw = Number.parseInt(process.env.OM_AGENT_ARTIFACT_MAX_COUNT ?? '', 10)
@@ -101,7 +95,7 @@ export async function collectArtifacts(args: {
   organizationId: string
   advisory?: AdvisoryArtifact[]
 }): Promise<CollectArtifactsResult> {
-  const maxBytes = resolveMaxBytes()
+  const maxBytes = resolveArtifactMaxBytes()
   const maxCount = resolveMaxCount()
   const container = args.commandCtx.container as unknown as MinimalContainer
   const scope = { tenantId: args.tenantId, organizationId: args.organizationId }

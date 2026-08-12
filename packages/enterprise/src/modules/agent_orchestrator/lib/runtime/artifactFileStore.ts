@@ -22,6 +22,22 @@ const logger = createLogger('agent_orchestrator').child({ component: 'artifact-f
 /** The `storage_s3` namespace all captured file artifacts are written under. */
 export const AGENT_ARTIFACT_FILE_NAMESPACE = 'agent-run-artifacts'
 
+const DEFAULT_ARTIFACT_MAX_BYTES = 26214400 // 25 MiB
+
+/**
+ * Largest single artifact this deployment will store, shared by every producer.
+ *
+ * It lives beside the byte store rather than inside one collector because there are
+ * now two producers — the sandbox file collector (`artifactCollector`) and the
+ * external-run answer capture (`externalRunArtifacts`) — and an operator raising
+ * `OM_AGENT_ARTIFACT_MAX_BYTES` means "this deployment stores bigger artifacts",
+ * not "this deployment stores bigger artifacts of one kind".
+ */
+export function resolveArtifactMaxBytes(): number {
+  const raw = Number.parseInt(process.env.OM_AGENT_ARTIFACT_MAX_BYTES ?? '', 10)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ARTIFACT_MAX_BYTES
+}
+
 /**
  * Encryption field reused to wrap the base64 blob. Points at the module's
  * declared `agent_run_artifact.caption` map (`encryption.ts`) so the DEK/algorithm

@@ -26,6 +26,10 @@
  * 4. **A resume failure never rewrites history.** The run genuinely completed; if
  *    the signal cannot be delivered the run stays terminal and says so, and the
  *    parked instance is left for an operator rather than silently marked failed.
+ * 5. **What came back is inspectable** (T3.1). A settled answer is captured as an
+ *    `AgentRunArtifact` so the run detail lists a downloadable transcript beside
+ *    every other artifact — strictly best-effort, in the one direction that
+ *    matters: an object store nobody configured must never fail a real run.
  *
  * WHY THIS IS ITS OWN MODULE (the design sketched it as "a second function in the
  * same module"): two of its three entry points — the unauthenticated callback
@@ -44,6 +48,8 @@ import { ensureAgentsLoaded, getAgentEntry, type AgentRegistryEntry } from '../s
 import type { AgentResult, GuardrailKindInput, GuardrailPhaseInput } from '../../data/validators'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { emitExternalRunEvent } from './externalRunEvents'
+import { captureExternalRunTranscript } from './externalRunArtifacts'
+import type { MinimalContainer } from './artifactFileStore'
 import {
   claimExternalRunRow,
   completeRun,
@@ -404,7 +410,44 @@ export async function completeExternalRun(
     resultPayload: settlement.payload,
   })
 
-  // 5. WAKE THE PARKED STEP.
+  // 5. CAPTURE THE ANSWER AS AN ARTIFACT (T3.1), so an operator reviewing the run
+  //    has the transcript as a file rather than only as a column nothing renders in
+  //    full. Here — after the audit run is closed and the correlation row settled,
+  //    before the workflow moves — for two reasons: the run's own record is complete
+  //    before anything downstream can act on it (property 3 above), and by this
+  //    point the answer is already durable twice over, so the capture is a
+  //    convenience copy whose loss costs no evidence.
+  //
+  //    BEST-EFFORT, and this try/catch IS the guarantee. An unreachable object store
+  //    or a failing capture command must never turn a run the provider genuinely
+  //    answered into a failed one — the run is already terminal at this line, so
+  //    letting an artifact error propagate would not even fail it honestly: it would
+  //    surface as a 500 on the callback route, make the provider redeliver, and the
+  //    redelivery would then report `already_settled` and never resume the parked
+  //    step at all. Mirrors `OpenCodeAgentRunner`'s stance around `collectArtifacts`.
+  try {
+    await captureExternalRunTranscript({
+      container: container as unknown as MinimalContainer,
+      commandBus,
+      commandCtx,
+      runId: row.runId,
+      agentId: row.agentId,
+      connectorId: row.connectorId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      answer: result.kind === 'researcher' ? result.data : result,
+    })
+  } catch (error) {
+    logger.warn('external run transcript artifact capture failed; the run stands', {
+      externalRunRowId: row.id,
+      runId: row.runId,
+      agentId: row.agentId,
+      connectorId: row.connectorId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // 6. WAKE THE PARKED STEP.
   const resume = await resumeParkedStep({
     container,
     row,
