@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 127 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 127 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -62,7 +62,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
-- [Destination authorization must use expanded scopes and atomic reconciliation](lessons/destination-authorization-must-use-expanded-scopes-and-atomic-reconciliation.md) — area:module-data,testing; module:auth,directory; topic:access-control,command-pattern,data-integrity,data-scoping
+- [Destination auth requires expanded scopes and atomic reconciliation](lessons/destination-authorization-must-use-expanded-scopes-and-atomic-reconciliation.md) — area:module-data,testing; module:auth,directory; topic:access-control,command-pattern,data-integrity,data-scoping
 - [Do not diagnose unknown-total progress as broken SSE](lessons/do-not-diagnose-unknown-total-progress-as-broken-sse.md) — area:module-data,integration,backend-ui; module:events,progress,catalog; topic:data-import,events,provider-lifecycle
 - [Docker initialization should treat the existing-users CLI abort as already initialized](lessons/docker-initialization-should-treat-the-existing-users.md) — area:module-data,architecture,debugging; module:cli,create_app; topic:package-runtime,runtime-startup,template-sync
 - [Duplicate migration creation causes initialize failures in fresh databases](lessons/duplicate-migration-creation-causes-initialize-failures.md) — area:module-data,testing,architecture; module:customers; topic:database-migrations,runtime-startup,testing

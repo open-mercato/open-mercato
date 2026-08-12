@@ -1,11 +1,11 @@
 ---
-title: "Destination authorization must use expanded scopes and atomic reconciliation"
+title: "Destination auth requires expanded scopes and atomic reconciliation"
 modules: ["auth","directory"]
 areas: ["module-data","testing"]
 topics: ["access-control","command-pattern","data-integrity","data-scoping"]
 ---
 
-# Destination authorization must use expanded scopes and atomic reconciliation
+# Destination auth requires expanded scopes and atomic reconciliation
 
 **Context**: A staff-user move checked raw ACL organization IDs and updated the user before synchronizing destination roles.
 
