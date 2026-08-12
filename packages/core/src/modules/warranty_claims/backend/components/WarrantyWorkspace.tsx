@@ -34,7 +34,7 @@ export function WarrantyWorkspace({
   children,
 }: WarrantyWorkspaceProps) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex flex-col gap-4 px-8 pb-6 pt-7 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">{title}</h1>

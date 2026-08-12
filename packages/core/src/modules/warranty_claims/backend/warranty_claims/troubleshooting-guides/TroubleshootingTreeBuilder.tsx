@@ -359,11 +359,12 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
                       {graphItems.filter((item) => item.depth === depth).map((item) => {
                         const selected = item.kind === 'question' && pathId(item.nodePath) === pathId(selectedPath)
                         return (
-                          <button
+                          <Button
                             key={item.id}
                             type="button"
+                            variant="ghost"
                             className={cn(
-                              'overflow-hidden rounded-lg border bg-card text-left shadow-sm transition-colors hover:border-foreground/30 focus-visible:shadow-focus focus-visible:outline-none',
+                              'h-auto w-full justify-start overflow-hidden rounded-lg border bg-card p-0 text-left shadow-sm transition-colors hover:border-foreground/30 hover:bg-card focus-visible:shadow-focus focus-visible:outline-none',
                               selected ? 'border-accent-indigo ring-1 ring-accent-indigo' : 'border-border',
                             )}
                             onClick={() => setSelectedPath(item.nodePath)}
@@ -385,7 +386,7 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
                                 </span>
                               </span>
                             </span>
-                          </button>
+                          </Button>
                         )
                       })}
                     </div>

@@ -218,12 +218,21 @@ function formatLongDate(value: string | null): string | null {
 
 function buildTrackerSteps(claim: PortalClaim, t: TranslateFn): TrackerStep[] {
   const currentIndex = STATUS_STEP_INDEX[claim.status] ?? 1
+  const terminalComplete = claim.status === 'resolved' || claim.status === 'closed'
   return TRACKER_STEP_KEYS.map((key, index) => {
-    const state: TrackerStepState = index < currentIndex ? 'complete' : index === currentIndex ? 'current' : 'pending'
+    const state: TrackerStepState = index < currentIndex || (terminalComplete && index === currentIndex)
+      ? 'complete'
+      : index === currentIndex
+        ? 'current'
+        : 'pending'
     let dateLabel: string | null = null
     if (index === 0 && state === 'complete') dateLabel = formatShortDate(claim.submittedAt)
     if (index === TRACKER_STEP_KEYS.length - 1 && state === 'complete') {
-      dateLabel = formatShortDate(claim.resolvedAt ?? claim.closedAt)
+      dateLabel = formatShortDate(
+        claim.status === 'closed'
+          ? claim.closedAt ?? claim.resolvedAt
+          : claim.resolvedAt ?? claim.closedAt,
+      )
     }
     if (state === 'current') dateLabel = t('warranty_claims.portal.tracker.step.now')
     return {
@@ -617,24 +626,27 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             </div>
             <div className="min-w-px flex-1" />
             {isDraft ? (
-              <button
+              <Button
                 type="button"
+                size="sm"
                 className={DARK_BUTTON_CLASS}
                 onClick={() => setClaimAction('submit')}
                 disabled={actionSubmitting}
               >
                 {t('warranty_claims.portal.submit')}
-              </button>
+              </Button>
             ) : null}
             {canWithdraw ? (
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant="destructive"
                 className="rounded-[8px] border border-[#dc2626] bg-white px-[10px] py-[6px] text-[14px] font-medium leading-[20px] tracking-[-0.084px] text-[#dc2626] transition-colors hover:bg-[#fdeeee] disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400 dark:bg-transparent dark:text-red-400 dark:hover:bg-red-950/40"
                 onClick={() => setClaimAction('withdraw')}
                 disabled={actionSubmitting}
               >
                 {t('warranty_claims.portal.detail.withdraw', 'Withdraw claim')}
-              </button>
+              </Button>
             ) : null}
           </div>
           <h1 className="text-[20px] font-bold text-[#0a0a0a] dark:text-foreground">
@@ -811,11 +823,11 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                 />
               </label>
               <div className="min-w-px flex-1" />
-              <button type="submit" className={DARK_BUTTON_CLASS} disabled={commentSubmitting || !comment.trim()}>
+              <Button type="submit" size="sm" className={DARK_BUTTON_CLASS} disabled={commentSubmitting || !comment.trim()}>
                 {commentSubmitting
                   ? t('warranty_claims.portal.tracker.sending')
                   : t('warranty_claims.portal.tracker.send')}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

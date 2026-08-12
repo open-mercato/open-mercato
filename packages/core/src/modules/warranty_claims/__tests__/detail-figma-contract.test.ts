@@ -22,4 +22,13 @@ describe('warranty claim detail Figma hierarchy', () => {
     expect(detailSource).toContain("t('warranty_claims.edit.fulfillment.resolution')")
     expect(detailSource).not.toContain('ClaimPriorityBadge')
   })
+
+  it('uses the accessible tab primitive and awaits clipboard writes before success feedback', () => {
+    expect(detailSource).toContain("from '@open-mercato/ui/primitives/tabs'")
+    expect(detailSource).toContain('<TabsList')
+    expect(detailSource).toContain('<TabsTrigger')
+    expect(detailSource).toContain('<TabsContent')
+    expect(detailSource).toContain('await navigator.clipboard.writeText')
+    expect(detailSource).toContain("warranty_claims.detail.copyFailed")
+  })
 })

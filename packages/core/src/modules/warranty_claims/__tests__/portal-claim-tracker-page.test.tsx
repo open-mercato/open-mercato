@@ -180,4 +180,20 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(view.getByText('Withdraw claim')).toBeTruthy()
     expect(view.getByText('This claim is a draft. Submit it when you are ready so our team can review it.')).toBeTruthy()
   })
+
+  it.each([
+    ['resolved', { resolvedAt: '2026-07-05T10:00:00.000Z' }],
+    ['closed', { resolvedAt: '2026-07-04T10:00:00.000Z', closedAt: '2026-07-06T10:00:00.000Z' }],
+  ])('marks the final tracker step complete for %s claims', async (status, dates) => {
+    mockClaimResponses(buildClaim({ status, ...dates }))
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(view.getByText('WTY-000042')).toBeTruthy())
+    expect(view.queryByText('Now')).toBeNull()
+    expect(view.getByText(status === 'closed' ? 'Jul 6' : 'Jul 5')).toBeTruthy()
+  })
 })

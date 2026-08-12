@@ -402,7 +402,7 @@ export default function ClaimsAiTriggerWidget({ context }: ClaimsAiTriggerProps)
             'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
             'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
             'sm:max-w-xl sm:w-full sm:rounded-l-xl sm:h-screen sm:max-h-screen',
-            'flex flex-col gap-3 p-4 z-banner',
+            'flex flex-col gap-3 p-4 z-modal',
           )}
           data-ai-warranty-claims-inject-sheet=""
         >

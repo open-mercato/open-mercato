@@ -26,6 +26,7 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 // Lazy-load the chat surface so the claim detail route chunk does not carry the AI
 // SDK runtime for every operator — it only renders once a triage chat session is open.
 const LazyAiChat = React.lazy(async () => {
@@ -1419,9 +1420,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         id: 'copy-link',
         label: t('warranty_claims.detail.copyLink'),
         icon: Copy,
-        onSelect: () => {
-          void navigator.clipboard.writeText(window.location.href)
-          flash(t('warranty_claims.detail.linkCopied'), 'success')
+        onSelect: async () => {
+          try {
+            await navigator.clipboard.writeText(window.location.href)
+            flash(t('warranty_claims.detail.linkCopied'), 'success')
+          } catch {
+            flash(t('warranty_claims.detail.copyFailed', 'Could not copy to the clipboard.'), 'error')
+          }
         },
       },
     ]
@@ -1430,9 +1435,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         id: 'copy-number',
         label: t('warranty_claims.detail.copyClaimNumber', 'Copy claim number'),
         icon: Hash,
-        onSelect: () => {
-          void navigator.clipboard.writeText(claim.claimNumber ?? '')
-          flash(t('warranty_claims.detail.claimNumberCopied', 'Claim number copied.'), 'success')
+        onSelect: async () => {
+          try {
+            await navigator.clipboard.writeText(claim.claimNumber ?? '')
+            flash(t('warranty_claims.detail.claimNumberCopied', 'Claim number copied.'), 'success')
+          } catch {
+            flash(t('warranty_claims.detail.copyFailed', 'Could not copy to the clipboard.'), 'error')
+          }
         },
       })
     }
@@ -1981,34 +1990,26 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             </div>
             </div>
             <ClaimStageProgress status={claim.status} />
-          <div>
-            <div className="flex flex-wrap items-center gap-1 border-b border-border px-7">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as TabId)}
+            variant="underline"
+          >
+            <TabsList className="h-auto w-full flex-wrap gap-1 px-7" aria-label={t('warranty_claims.detail.tabs.label', 'Claim sections')}>
               {tabs.map((tab) => (
-                <Button
+                <TabsTrigger
                   key={tab.id}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
+                  value={tab.id}
+                  count={tab.count}
                   data-tab-id={tab.id}
-                  data-active={activeTab === tab.id ? 'true' : 'false'}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`h-auto gap-2 rounded-none border-b-2 px-3.5 pb-2.5 pt-3 text-sm font-medium transition-colors hover:bg-transparent ${
-                    activeTab === tab.id
-                      ? 'border-accent-indigo text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
+                  className="px-3.5 pb-2.5 pt-3"
                 >
                   {tab.label}
-                  {tab.count !== undefined ? (
-                    <span className="inline-flex min-w-0 items-center justify-center rounded-md bg-muted px-1.5 py-0.5 text-overline font-medium text-muted-foreground">
-                      {tab.count}
-                    </span>
-                  ) : null}
-                </Button>
+                </TabsTrigger>
               ))}
-            </div>
+            </TabsList>
 
-            {activeTab === 'lines' ? (
+            <TabsContent value="lines" className="mt-0">
               <div>
                 <div className="grid items-center gap-4 border-b border-border px-8 py-5 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
                   <div>
@@ -2080,9 +2081,9 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   />
                 </div>
               </div>
-            ) : null}
+            </TabsContent>
 
-            {activeTab === 'timeline' ? (
+            <TabsContent value="timeline" className="mt-0">
               <div className="mx-8 max-w-3xl space-y-5 pb-8 pt-6">
                 {featureAccess.claimManage ? (
                   <div>
@@ -2185,15 +2186,15 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   )}
                 </div>
               </div>
-            ) : null}
+            </TabsContent>
 
-            {activeTab === 'attachments' ? (
+            <TabsContent value="attachments" className="mt-0">
               <div className="px-8 pb-8 pt-6">
                 <AttachmentInput entityId="warranty_claims:warranty_claim" recordId={claim.id} onCountChange={setAttachmentCount} />
               </div>
-            ) : null}
+            </TabsContent>
 
-            {activeTab === 'ai' ? (
+            <TabsContent value="ai" className="mt-0">
               <div className="grid gap-4 px-8 pb-8 pt-6 xl:grid-cols-2">
                 <div className="rounded-lg border border-border bg-card p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -2309,8 +2310,8 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   </div>
                 ) : null}
               </div>
-            ) : null}
-          </div>
+            </TabsContent>
+          </Tabs>
           </div>
 
           <ReturnLabelPanel claim={claim} canManage={featureAccess.claimManage} onRefresh={loadData} />

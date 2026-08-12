@@ -16,6 +16,32 @@ export type ClaimSlaState = {
 export const CLAIM_SLA_DEFAULT_AT_RISK_PCT = 75
 
 const SLA_TERMINAL_STATUSES = new Set(['draft', 'resolved', 'closed', 'rejected', 'cancelled'])
+const SLA_CLOCK_INTERVAL_MS = 30_000
+const slaClockListeners = new Set<() => void>()
+let slaClockNow = Date.now()
+let slaClockInterval: ReturnType<typeof setInterval> | null = null
+
+function subscribeSlaClock(listener: () => void): () => void {
+  slaClockListeners.add(listener)
+  if (!slaClockInterval) {
+    slaClockNow = Date.now()
+    slaClockInterval = setInterval(() => {
+      slaClockNow = Date.now()
+      for (const notify of slaClockListeners) notify()
+    }, SLA_CLOCK_INTERVAL_MS)
+  }
+  return () => {
+    slaClockListeners.delete(listener)
+    if (slaClockListeners.size === 0 && slaClockInterval) {
+      clearInterval(slaClockInterval)
+      slaClockInterval = null
+    }
+  }
+}
+
+function useSlaClock(): number {
+  return React.useSyncExternalStore(subscribeSlaClock, () => slaClockNow, () => 0)
+}
 
 function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null
@@ -29,6 +55,7 @@ export function computeClaimSlaState(input: {
   submittedAt?: string | null
   status?: string | null
   atRiskThresholdPct?: number
+  now?: number
 }): ClaimSlaState {
   const dueAt = parseDate(input.slaDueAt)
   const pausedAt = parseDate(input.slaPausedAt)
@@ -37,7 +64,7 @@ export function computeClaimSlaState(input: {
     return { tier: 'none', dueAt, pausedAt }
   }
   if (pausedAt) return { tier: 'paused', dueAt, pausedAt }
-  const now = Date.now()
+  const now = input.now ?? Date.now()
   if (now >= dueAt.getTime()) return { tier: 'overdue', dueAt, pausedAt }
   const submittedAt = parseDate(input.submittedAt)
   if (submittedAt && dueAt.getTime() > submittedAt.getTime()) {
@@ -71,7 +98,8 @@ export function ClaimSlaIndicator({
 }) {
   const t = useT()
   const locale = useLocale()
-  const state = computeClaimSlaState({ slaDueAt, slaPausedAt, submittedAt, status, atRiskThresholdPct })
+  const now = useSlaClock()
+  const state = computeClaimSlaState({ slaDueAt, slaPausedAt, submittedAt, status, atRiskThresholdPct, now })
   if (state.tier === 'none') {
     return <span className={className ?? 'text-sm text-muted-foreground'}>{t('warranty_claims.common.noValue')}</span>
   }
