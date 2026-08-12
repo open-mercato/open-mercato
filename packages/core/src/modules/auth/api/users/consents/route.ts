@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       { tenantId: null, organizationId: null },
     )
     if (!target) return NextResponse.json({ ok: true, items: [] })
-    scopeTenantId = (target as { tenantId?: string | null }).tenantId ?? null
+    scopeTenantId = target.tenantId ?? null
   }
 
   const consents = await findWithDecryption(
