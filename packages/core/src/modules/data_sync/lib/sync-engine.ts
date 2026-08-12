@@ -103,22 +103,6 @@ async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, int
   }
 }
 
-type RunCounters = {
-  createdCount?: number | null
-  updatedCount?: number | null
-  skippedCount?: number | null
-  failedCount?: number | null
-}
-
-// On redelivery the progress counter must resume from the run's persisted counters the
-// same way committedBatches does — updateProgress writes absolute counts, so starting at
-// zero would regress the visible count. The sum can slightly undercount when an adapter
-// reports batch.processedCount above the per-item action total; it is monotone and
-// self-corrects as absolute writes resume.
-function seedProcessedCount(run: RunCounters): number {
-  return (run.createdCount ?? 0) + (run.updatedCount ?? 0) + (run.skippedCount ?? 0) + (run.failedCount ?? 0)
-}
-
 export function createSyncEngine(deps: EngineDeps) {
   const { syncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService } = deps
 
@@ -144,6 +128,23 @@ export function createSyncEngine(deps: EngineDeps) {
         userId: scope.userId,
       },
     )
+  }
+
+  // On redelivery the progress counter must resume where the last delivery left off the
+  // same way committedBatches does — updateProgress writes absolute counts, so starting at
+  // zero would regress the visible count. The progress job's own processedCount is the only
+  // persisted value already in the engine's unit: `batch.processedCount ?? items.length`,
+  // i.e. source records. The run's created/updated/skipped/failed counters count emitted
+  // items, which adapters may explode several-per-source-record (Akeneo yields a product
+  // plus its variants), so seeding from them would overshoot the total and pin the bar.
+  async function seedProcessedCount(progressJobId: string | null | undefined, scope: SyncScope): Promise<number> {
+    if (!progressJobId) return 0
+    const job = await progressService.getJob(progressJobId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+    })
+    return job?.processedCount ?? 0
   }
 
   function makeHeartbeatTick(progressJobId: string | null | undefined, scope: SyncScope): () => void {
@@ -538,7 +539,7 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
-      let processedCount = seedProcessedCount(activeRun)
+      let processedCount = await seedProcessedCount(run.progressJobId, scope)
       let totalCount: number | null = null
       let committedBatches = activeRun.batchesCompleted ?? 0
 
@@ -702,7 +703,7 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       const mapping = await resolveMapping(adapter, run.entityType, scope)
-      let processedCount = seedProcessedCount(activeRun)
+      let processedCount = await seedProcessedCount(run.progressJobId, scope)
       let committedBatches = activeRun.batchesCompleted ?? 0
 
       try {

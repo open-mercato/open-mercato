@@ -40,6 +40,7 @@ function createProgressService(overrides: Record<string, unknown> = {}): Progres
   return {
     startJob: jest.fn(async () => undefined),
     isCancellationRequested: jest.fn(async () => false),
+    getJob: jest.fn(async () => null),
     updateProgress: jest.fn(async () => undefined),
     completeJob: jest.fn(async () => undefined),
     failJob: jest.fn(async () => undefined),
@@ -190,7 +191,7 @@ describe('data sync engine heartbeats and resumed progress counts (GSM-314)', ()
     expect(progressService.markCancelled).toHaveBeenCalledWith('job-hb-1', expect.objectContaining({ tenantId: 'tenant-1' }))
   })
 
-  it('seeds the import progress counter from the run counters on redelivery', async () => {
+  it('seeds the import progress counter from the progress job on redelivery', async () => {
     const resumedRun = {
       ...baseImportRun,
       status: 'running',
@@ -203,11 +204,14 @@ describe('data sync engine heartbeats and resumed progress counts (GSM-314)', ()
     const streamImport = jest.fn(async function* () {
       yield importBatch(10)
     })
-    const progressService = createProgressService()
+    const progressService = createProgressService({
+      getJob: jest.fn(async () => ({ processedCount: 50 })),
+    })
     const engine = buildEngine({ run: resumedRun, adapter: importAdapter(streamImport), progressService })
 
     await engine.runImport('run-hb-1', 100, createScope())
 
+    expect(progressService.getJob).toHaveBeenCalledWith('job-hb-1', expect.objectContaining({ tenantId: 'tenant-1' }))
     expect(progressService.updateProgress).toHaveBeenCalledWith(
       'job-hb-1',
       expect.objectContaining({ processedCount: 60 }),
@@ -215,7 +219,55 @@ describe('data sync engine heartbeats and resumed progress counts (GSM-314)', ()
     )
   })
 
-  it('seeds the export progress counter from the run counters on redelivery', async () => {
+  it('resumes source-record counts, not emitted-item counts, for adapters that explode records', async () => {
+    // Akeneo-shaped: one source product yields a product item plus a variant item, and the
+    // batch reports the source count separately. Seeding from the run's item-level
+    // created/updated/skipped/failed columns would resume at 100 for 50 source records,
+    // overshooting totalEstimate and pinning the card at 100% with a negative ETA.
+    const resumedRun = {
+      ...baseImportRun,
+      status: 'running',
+      createdCount: 100,
+      updatedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      batchesCompleted: 5,
+    }
+    const streamImport = jest.fn(async function* () {
+      yield { ...importBatch(4), processedCount: 2, totalEstimate: 60 }
+    })
+    const progressService = createProgressService({
+      getJob: jest.fn(async () => ({ processedCount: 50 })),
+    })
+    const engine = buildEngine({ run: resumedRun, adapter: importAdapter(streamImport), progressService })
+
+    await engine.runImport('run-hb-1', 100, createScope())
+
+    expect(progressService.updateProgress).toHaveBeenCalledWith(
+      'job-hb-1',
+      expect.objectContaining({ processedCount: 52, totalCount: 60 }),
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+    )
+  })
+
+  it('starts the progress counter at zero when the run has no progress job', async () => {
+    const streamImport = jest.fn(async function* () {
+      yield importBatch(10)
+    })
+    const progressService = createProgressService()
+    const engine = buildEngine({
+      run: { ...baseImportRun, progressJobId: null },
+      adapter: importAdapter(streamImport),
+      progressService,
+    })
+
+    await engine.runImport('run-hb-1', 100, createScope())
+
+    expect(progressService.getJob).not.toHaveBeenCalled()
+    expect(progressService.updateProgress).not.toHaveBeenCalled()
+  })
+
+  it('seeds the export progress counter from the progress job on redelivery', async () => {
     const resumedRun = {
       ...baseImportRun,
       id: 'run-hb-2',
@@ -250,11 +302,14 @@ describe('data sync engine heartbeats and resumed progress counts (GSM-314)', ()
       })),
       streamExport,
     }
-    const progressService = createProgressService()
+    const progressService = createProgressService({
+      getJob: jest.fn(async () => ({ processedCount: 50 })),
+    })
     const engine = buildEngine({ run: resumedRun, adapter, progressService })
 
     await engine.runExport('run-hb-2', 100, createScope())
 
+    expect(progressService.getJob).toHaveBeenCalledWith('job-hb-2', expect.objectContaining({ tenantId: 'tenant-1' }))
     expect(progressService.updateProgress).toHaveBeenCalledWith(
       'job-hb-2',
       expect.objectContaining({ processedCount: 60 }),

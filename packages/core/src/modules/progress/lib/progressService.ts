@@ -31,6 +31,11 @@ export const HEARTBEAT_INTERVAL_MS = 5000
 export const STALE_JOB_TIMEOUT_SECONDS = 60
 export const STALE_PENDING_TIMEOUT_SECONDS = 900
 
+// Every `errorMessage` the stale sweep writes starts with this, so recovery paths can tell
+// a job the sweep gave up on from one that failed for a real reason and must keep its
+// diagnostics. Declared here so the sweep and the revive filter cannot drift apart.
+export const STALE_SWEEP_ERROR_PREFIX = 'Job stale:'
+
 export function calculateEta(
   processedCount: number,
   totalCount: number,
