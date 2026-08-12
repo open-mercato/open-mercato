@@ -1524,6 +1524,20 @@ export const agentExternalRunTokenHashSchema = z
   .regex(/^[0-9a-f]{64}$/, 'Expected a lowercase SHA-256 hex digest')
 
 /**
+ * The parked step's declared `outputMapping`: workflow context key → dot-path into
+ * the agent RESULT ENVELOPE (`kind` / `disposition` / `agentId` / `proposalId` /
+ * `proposalPayload` / `data`). Mirrors core's `invokeAgentConfigSchema.outputMapping`
+ * — a flat record of strings — because the callback resume applies core's own
+ * `mapAgentResultToContext` to it.
+ *
+ * Deliberately NOT stricter than core's schema. This row is written AFTER
+ * `connector.start()` has already dialled, so a mapping core accepted but this
+ * rejected would throw with a live call in flight and no correlation row to settle
+ * it. Anything an author could save on a definition must be persistable here.
+ */
+export const agentExternalRunOutputMappingSchema = z.record(z.string(), z.string())
+
+/**
  * The validated shape of one correlation row: which run is suspended, which parked
  * workflow step resumes it, when we give up, and what came back.
  *
@@ -1546,6 +1560,7 @@ export const agentExternalRunSchema = z
     processId: z.string().uuid().nullable().optional(),
     stepId: z.string().min(1).max(100).nullable().optional(),
     signalName: z.string().min(1).max(150).nullable().optional(),
+    outputMapping: agentExternalRunOutputMappingSchema.nullable().optional(),
     status: agentExternalRunStatusSchema.default('pending'),
     expiresAt: z.coerce.date(),
     requestPayload: z.unknown().optional(),

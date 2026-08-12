@@ -66,6 +66,27 @@ describe('agentExternalRunSchema', () => {
     expect(agentExternalRunSchema.safeParse(withoutDeadline).success).toBe(false)
   })
 
+  it('carries the parked step\'s outputMapping, and only as string→string', () => {
+    const mapped = agentExternalRunSchema.safeParse({
+      ...wellFormed,
+      outputMapping: { call: 'data.transcript', reached: 'data.reached' },
+    })
+    expect(mapped.success && mapped.data.outputMapping).toEqual({
+      call: 'data.transcript',
+      reached: 'data.reached',
+    })
+    // Absent and explicitly null both mean "the legacy fixed keys" — a row
+    // written before the column existed reads exactly like a step declaring none.
+    expect(agentExternalRunSchema.safeParse(wellFormed).success).toBe(true)
+    expect(agentExternalRunSchema.safeParse({ ...wellFormed, outputMapping: null }).success).toBe(true)
+    // A mapping value is a dot-path, never a nested object: `mapAgentResultToContext`
+    // reads it with `String.split('.')`.
+    expect(
+      agentExternalRunSchema.safeParse({ ...wellFormed, outputMapping: { call: { path: 'data' } } }).success,
+    ).toBe(false)
+    expect(agentExternalRunSchema.safeParse({ ...wellFormed, outputMapping: 'data.transcript' }).success).toBe(false)
+  })
+
   it('accepts a non-workflow invocation but refuses a half-declared resume target', () => {
     const { processId, stepId, signalName, ...standalone } = wellFormed
     void processId
@@ -93,5 +114,10 @@ describe('AgentExternalRun persistence contract', () => {
     const fields = (map?.fields ?? []).map((field) => (typeof field === 'string' ? field : field.field))
     expect(fields).toEqual(['request_payload', 'result_payload', 'failure_reason'])
     expect(fields).not.toContain('callback_token_hash')
+    // `output_mapping` is deliberately absent: it holds Studio-authored context
+    // key names and dot-paths, which `workflow_definitions.definition` already
+    // stores in plaintext. Encrypting a copy of public configuration buys nothing
+    // and adds a column a native write could silently persist unencrypted.
+    expect(fields).not.toContain('output_mapping')
   })
 })

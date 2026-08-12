@@ -30,6 +30,17 @@ const claimExternalRunRowMock = jest.fn<Promise<boolean>, unknown[]>()
 const settleExternalRunRowMock = jest.fn<Promise<boolean>, unknown[]>()
 const completeRunMock = jest.fn<Promise<void>, unknown[]>()
 const failRunMock = jest.fn<Promise<void>, unknown[]>()
+/**
+ * The stand-in for the `agent_external_runs` row's OWN copy of the mapping. It is
+ * a separate mock from anything the caller passes, so the tests can prove the
+ * resume reads the PERSISTED column rather than something handed to it in memory —
+ * which is the only version a real callback, arriving in another process minutes
+ * later, ever has.
+ */
+const readExternalRunOutputMappingMock = jest.fn<
+  Promise<Record<string, string> | null>,
+  unknown[]
+>()
 jest.mock('../lib/runtime/persistence', () => {
   const actual = jest.requireActual('../lib/runtime/persistence')
   return {
@@ -38,6 +49,8 @@ jest.mock('../lib/runtime/persistence', () => {
     settleExternalRunRow: (...args: unknown[]) => settleExternalRunRowMock(...args),
     completeRun: (...args: unknown[]) => completeRunMock(...args),
     failRun: (...args: unknown[]) => failRunMock(...args),
+    readExternalRunOutputMapping: (...args: unknown[]) =>
+      readExternalRunOutputMappingMock(...args),
   }
 })
 
@@ -164,6 +177,9 @@ beforeEach(() => {
   persistVerdictMock.mockReset().mockResolvedValue([])
   checkOutputMock.mockReset().mockResolvedValue({ result: 'pass', checks: [] })
   sendSignalMock.mockReset().mockResolvedValue(undefined)
+  // The default is a row with no mapping — every pre-T2.11 expectation in this
+  // file therefore asserts the unchanged legacy behaviour.
+  readExternalRunOutputMappingMock.mockReset().mockResolvedValue(null)
 })
 
 describe('a provider answering with a valid result', () => {
@@ -219,6 +235,158 @@ describe('a provider answering with a valid result', () => {
       agentId: entry.id,
       call_owner_agent: validPayload.data,
     })
+  })
+})
+
+/**
+ * T2.11 — the driving use case. The voice node declares
+ * `outputMapping: { call: 'data.collected.owner_decision' }` so the NEXT agent in
+ * the graph reads `{{context.call}}`. Without this the author is stuck with
+ * `{{context.<stepId>_agent}}`, which the Studio ledger can only type `unknown`.
+ */
+describe('an external answer with a declared outputMapping', () => {
+  it('lands the mapped context keys, resolving data.* against the researcher envelope', async () => {
+    readExternalRunOutputMappingMock.mockResolvedValue({
+      call: 'data.transcript',
+      reached: 'data.reached',
+      who: 'agentId',
+      how: 'disposition',
+    })
+
+    const settled = await settleWith()
+
+    expect(settled).toMatchObject({ status: 'completed', outcomeHandle: 'researcher', resume: 'sent' })
+    // `data.*` resolves exactly as it does for a NATIVE researcher agent — the
+    // envelope is `{ kind: 'researcher', data: <outcome> }` either way — and
+    // `disposition` is synthesised from `kind` by core's own mapper.
+    expect(signalOptions().payload).toEqual({
+      call: 'yes, ship it',
+      reached: true,
+      who: entry.id,
+      how: 'researcher',
+    })
+    // The legacy keys are GONE: an author who declared a mapping asked for those
+    // keys and only those, exactly as on core's in-process path.
+    expect(signalOptions().payload).not.toHaveProperty('call_owner_agent')
+    // Routing is unaffected — the handle is decided by the outcome, never by what
+    // the mapping happens to write into context.
+    expect(signalOptions().agentOutcome).toBe('researcher')
+  })
+
+  it('reads the mapping from the PERSISTED row, scoped, not from anything the caller held', async () => {
+    readExternalRunOutputMappingMock.mockResolvedValue({ call: 'data.transcript' })
+
+    await settleWith()
+
+    expect(readExternalRunOutputMappingMock).toHaveBeenCalledTimes(1)
+    expect(readExternalRunOutputMappingMock.mock.calls[0][1]).toEqual({
+      externalRunRowId: ROW_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    })
+    expect(signalOptions().payload).toEqual({ call: 'yes, ship it' })
+  })
+
+  it('drops a target whose source path does not resolve instead of writing undefined', async () => {
+    readExternalRunOutputMappingMock.mockResolvedValue({
+      call: 'data.transcript',
+      // Researcher answers carry no proposal, so this cannot resolve — the same
+      // answer core gives for a native researcher agent.
+      decision: 'proposalPayload.decision',
+      missing: 'data.nope',
+    })
+
+    await settleWith()
+
+    expect(signalOptions().payload).toEqual({ call: 'yes, ship it' })
+    expect(Object.keys(signalOptions().payload)).toEqual(['call'])
+  })
+
+  it('writes only the mapped keys when a declared mapping resolves nothing at all', async () => {
+    // Core's `mappedPayload ?? legacy` keeps an EMPTY mapped object rather than
+    // falling back, so both paths answer the same definition the same way.
+    readExternalRunOutputMappingMock.mockResolvedValue({ decision: 'proposalPayload.decision' })
+
+    await settleWith()
+
+    expect(signalOptions().payload).toEqual({})
+  })
+
+  it('BC: a row with no mapping resumes with the byte-identical legacy fixed keys', async () => {
+    readExternalRunOutputMappingMock.mockResolvedValue(null)
+
+    await settleWith()
+
+    expect(signalOptions().payload).toEqual({
+      disposition: 'researcher',
+      agentId: entry.id,
+      call_owner_agent: validPayload.data,
+    })
+  })
+
+  it('BC: a caller that already knows there is no mapping skips the read entirely', async () => {
+    await settleWith({ row: parkedRow({ outputMapping: null }) })
+
+    expect(readExternalRunOutputMappingMock).not.toHaveBeenCalled()
+    expect(signalOptions().payload).toEqual({
+      disposition: 'researcher',
+      agentId: entry.id,
+      call_owner_agent: validPayload.data,
+    })
+  })
+
+})
+
+/**
+ * A mapping must not be able to swallow the information the failure handles route
+ * on. Core keeps the same separation: `resumeInvokeAgentWithError` and
+ * `…WithGuardrailBlock` never consult `outputMapping`.
+ */
+describe('the failure arms with a mapping declared', () => {
+  beforeEach(() => {
+    readExternalRunOutputMappingMock.mockResolvedValue({ call: 'data.transcript' })
+  })
+
+  it('keeps the __error entry for a schema-invalid payload', async () => {
+    const settled = await settleWith({
+      settlement: { kind: 'result', payload: { kind: 'researcher', data: { reached: 'maybe' } } },
+    })
+
+    expect(settled).toMatchObject({ status: 'failed', cause: 'schema_invalid', outcomeHandle: 'error' })
+    expect(signalOptions().payload).toHaveProperty(WORKFLOW_ERROR_CONTEXT_KEY)
+    expect(signalOptions().payload.agentId).toBe(entry.id)
+    expect(signalOptions().payload).not.toHaveProperty('call')
+    // The mapping is never even looked up on a failure arm.
+    expect(readExternalRunOutputMappingMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the guardrail classification for a blocked answer', async () => {
+    checkOutputMock.mockResolvedValue({
+      result: 'block',
+      checks: [],
+      blockedReason: { phase: 'output', kind: 'tool_scope' },
+    })
+
+    await settleWith()
+
+    expect(signalOptions().agentOutcome).toBe('guardrailBlocked')
+    expect(signalOptions().payload).toHaveProperty(WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY)
+    expect(signalOptions().payload).not.toHaveProperty('call')
+  })
+
+  it('keeps the __error entry for a connector-reported failure', async () => {
+    await settleWith({ settlement: { kind: 'failure', reason: 'the number rang out' } })
+
+    expect(signalOptions().payload).toHaveProperty(WORKFLOW_ERROR_CONTEXT_KEY)
+    expect(signalOptions().payload).not.toHaveProperty('call')
+  })
+
+  it('keeps the __error entry when the deadline sweep expires the run', async () => {
+    await settleWith({ settlement: { kind: 'expired', reason: 'nobody answered' } })
+
+    expect(signalOptions().agentOutcome).toBe('error')
+    expect(signalOptions().payload).toHaveProperty(WORKFLOW_ERROR_CONTEXT_KEY)
+    expect(signalOptions().payload).not.toHaveProperty('call')
   })
 })
 

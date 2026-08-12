@@ -140,6 +140,9 @@ jest.mock('../lib/runtime/persistence', () => {
       settleExternalRunRowMock(args[0], args[1], args[2] as never),
     completeRun: (...args: unknown[]) => completeRunMock(...args),
     failRun: (...args: unknown[]) => failRunMock(...args),
+    // No run here declares an outputMapping (T2.11): an expiry resumes down the
+    // `error` handle, which never consults one anyway.
+    readExternalRunOutputMapping: async () => null,
   }
 })
 

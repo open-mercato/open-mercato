@@ -322,6 +322,43 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     expect(options.agentOutcome).toBe('researcher')
   })
 
+  it('hands the bridge the declared outputMapping so a runtime that answers out of band can honour it', async () => {
+    const { em, container, invokeAgentForWorkflow } = makeDeps(
+      { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
+      { kind: 'researcher', data: { coverage: 'OC' } },
+    )
+
+    await handleInvokeAgentJob(em, container, {
+      ...makeJob(),
+      outputMapping: { coverage: 'data.coverage' },
+    })
+
+    const ctx = (invokeAgentForWorkflow.mock.calls[0][0] as { ctx: Record<string, unknown> }).ctx
+    expect(ctx.outputMapping).toEqual({ coverage: 'data.coverage' })
+    // The worker still applies the mapping itself for this settled outcome — the
+    // ctx field exists only for a runtime that returns BEFORE there is a result.
+    const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: unknown }]
+    expect(options.payload).toEqual({ coverage: 'OC' })
+  })
+
+  it('BC: a step declaring no outputMapping hands the bridge exactly the ctx it always did', async () => {
+    const { em, container, invokeAgentForWorkflow } = makeDeps(
+      { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
+      { kind: 'researcher', data: { coverage: 'OC' } },
+    )
+
+    await handleInvokeAgentJob(em, container, makeJob())
+
+    // Not `undefined` — ABSENT. The optional fields on this duck-typed ctx are all
+    // spread conditionally, and an explicit `undefined` crossing the boundary is
+    // the kind of drift nothing on either side type-checks.
+    const ctx = (invokeAgentForWorkflow.mock.calls[0][0] as { ctx: Record<string, unknown> }).ctx
+    expect(Object.keys(ctx).sort()).toEqual(
+      ['organizationId', 'processId', 'stepId', 'tenantId', 'userId'].sort(),
+    )
+    expect('outputMapping' in ctx).toBe(false)
+  })
+
   it('leaves the step parked for a user_task outcome (human dispose resumes it)', async () => {
     const { em, container } = makeDeps(
       { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },

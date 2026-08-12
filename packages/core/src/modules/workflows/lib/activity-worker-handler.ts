@@ -332,6 +332,15 @@ type AgentWorkflowBridgeLike = {
       // Optional already-resolved Review section (spec 7.5); see the identical
       // declaration in `lib/activity-executor.ts`.
       review?: AgentDispositionReview
+      // The step's declared `invokeAgentConfigSchema.outputMapping`, forwarded so
+      // a runtime that answers OUT OF BAND can honour it. On every settled path
+      // this file applies `mapAgentResultToContext` itself after the bridge
+      // returns, so the bridge never needs it — but a `suspended` outcome returns
+      // BEFORE there is anything to map, and the resume then happens in another
+      // process from a correlation row that would otherwise carry no mapping.
+      // Additive and optional: a step declaring none passes no key at all, so a
+      // bridge that ignores it is byte-identical to today.
+      outputMapping?: Record<string, string>
     }
   }) => Promise<
     | { kind: 'researcher'; data: unknown }
@@ -421,6 +430,10 @@ export async function handleInvokeAgentJob(
         stepId: payload.stepId,
         ...(payload.subject ? { subject: payload.subject } : {}),
         ...(payload.review ? { review: payload.review } : {}),
+        // Spread conditionally, like every other optional field on this ctx: a
+        // step with no mapping must hand the bridge exactly the object it handed
+        // it before this line existed, not one carrying an explicit `undefined`.
+        ...(payload.outputMapping ? { outputMapping: payload.outputMapping } : {}),
       },
     })
   } catch (agentError: unknown) {

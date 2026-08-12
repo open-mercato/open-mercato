@@ -48,6 +48,7 @@ import {
   claimExternalRunRow,
   completeRun,
   failRun,
+  readExternalRunOutputMapping,
   settleExternalRunRow,
   shapeResult,
 } from './persistence'
@@ -82,6 +83,15 @@ export type ExternalRunCorrelation = {
   processId?: string | null
   stepId?: string | null
   signalName?: string | null
+  /**
+   * The parked step's declared `outputMapping` (T2.11), when the caller already
+   * holds it. OMITTED — not null — means "I did not project this column", and the
+   * resume reads it from the row itself; `null` means "there is genuinely none".
+   * Every caller therefore honours an author's mapping without having to know the
+   * column exists, while a caller that does hold it (the runner's synchronous arm,
+   * a test) can say so and save the read.
+   */
+  outputMapping?: Record<string, string> | null
 }
 
 /**
@@ -563,16 +573,20 @@ async function resumeParkedStep(args: ResumeParkedStepArgs): Promise<ExternalRun
  * `__guardrailBlock`) are read from core rather than re-spelled here, so a rename
  * there cannot leave this path writing a key nothing routes on.
  *
- * The correlation row carries no `outputMapping` — that lives on the workflow
- * activity config the queue job held — so an external step lands on the LEGACY
- * fixed keys the ledger already advertises as the no-mapping fallback. Threading
- * the mapping through is follow-up work for whoever needs it.
+ * THE MAPPING APPLIES TO THE SUCCESS ARM ONLY — exactly as it does in core's own
+ * `handleInvokeAgentJob`, where `resumeInvokeAgentWithError` /
+ * `…WithGuardrailBlock` never consult it. A failure payload exists to carry the
+ * information the `error` / `guardrailBlocked` handles route on; letting an
+ * author's `{ call: 'data.transcript' }` rewrite it would drop `__error` and leave
+ * the run branching on nothing.
  */
 async function buildResumePayload(args: ResumeParkedStepArgs): Promise<Record<string, unknown>> {
   const { row, outcomeHandle } = args
   const stepId = row.stepId as string
 
   if (outcomeHandle === 'researcher') {
+    const mapped = await mapExternalResearcherResult(args)
+    if (mapped) return mapped
     return {
       disposition: 'researcher',
       agentId: row.agentId,
@@ -608,4 +622,59 @@ async function buildResumePayload(args: ResumeParkedStepArgs): Promise<Record<st
       args.failure?.detail ?? '[internal] external agent run failed',
     ),
   }
+}
+
+/**
+ * Route a settled external researcher answer into the context keys the workflow
+ * author declared — `{ call: 'data.collected.owner_decision' }` → `{{context.call}}`.
+ *
+ * CORE'S OWN FUNCTION does the mapping, imported rather than reimplemented. It is
+ * a pure, side-effect-free leaf whose only import is the shared logger (the
+ * `parseDuration` precedent T2.2 established for reusing one), and it is not
+ * merely "the same algorithm" — it IS the contract. `data.*` has to resolve here
+ * byte-for-byte as it does for a native researcher agent, or the Studio's variable
+ * picker (which types those paths from the agent's OUTCOME schema) would be
+ * describing a mapping the external path does not honour. Two implementations of
+ * one contract drift; the drift here would be silent, would surface as an
+ * `undefined` in someone's live process, and would be invisible to both packages'
+ * type checkers.
+ *
+ * Imported DYNAMICALLY, like every other `workflows` reach in this file, so the
+ * unauthenticated callback route that imports this module does not require the
+ * workflows module to resolve at import time.
+ *
+ * The envelope is the external contract: an external agent is researcher-kind
+ * only (a third party may not auto-approve a domain write), so the answer is
+ * `{ kind: 'researcher', data: <outcome> }` — and `mapAgentResultToContext`
+ * synthesises `disposition: 'researcher'` from that `kind` exactly as it does
+ * in-process. `proposalId` / `proposalPayload` are genuinely absent, so a mapping
+ * naming one resolves to `undefined` and that target is DROPPED, which is the same
+ * answer core gives for a researcher agent.
+ *
+ * Returns `null` when no mapping is declared, so the caller writes the legacy
+ * fixed keys. An empty OBJECT (a mapping declared whose every source path missed)
+ * is returned as-is, matching core's `mappedPayload ?? legacy`: the author asked
+ * for those keys and only those, and quietly substituting the legacy shape would
+ * make the two paths disagree about the same definition.
+ */
+async function mapExternalResearcherResult(
+  args: ResumeParkedStepArgs,
+): Promise<Record<string, unknown> | null> {
+  const mapping =
+    args.row.outputMapping !== undefined
+      ? args.row.outputMapping
+      : await readExternalRunOutputMapping(args.container, {
+          externalRunRowId: args.row.id,
+          tenantId: args.scope.tenantId,
+          organizationId: args.scope.organizationId,
+        })
+  if (!mapping) return null
+
+  const resultMapping = (await import(
+    '@open-mercato/core/modules/workflows/lib/agent-result-mapping'
+  )) as typeof import('@open-mercato/core/modules/workflows/lib/agent-result-mapping')
+  return resultMapping.mapAgentResultToContext(
+    { kind: 'researcher', agentId: args.row.agentId, data: args.data },
+    mapping,
+  )
 }

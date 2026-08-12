@@ -2786,6 +2786,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "output_mapping": {
+          "name": "output_mapping",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "process_id": {
           "name": "process_id",
           "type": "uuid",

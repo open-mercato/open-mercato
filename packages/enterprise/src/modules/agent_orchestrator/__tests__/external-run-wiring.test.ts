@@ -61,6 +61,9 @@ jest.mock('../lib/runtime/persistence', () => {
     createExternalRunRow: (...args: unknown[]) => createExternalRunRowMock(...args),
     claimExternalRunRow: (...args: unknown[]) => claimExternalRunRowMock(...args),
     settleExternalRunRow: (...args: unknown[]) => settleExternalRunRowMock(...args),
+    // These runs declare no outputMapping (T2.11), so the resume writes the
+    // legacy fixed keys — which is what every payload assertion here expects.
+    readExternalRunOutputMapping: async () => null,
     createProposal: jest.fn(async () => undefined),
   }
 })

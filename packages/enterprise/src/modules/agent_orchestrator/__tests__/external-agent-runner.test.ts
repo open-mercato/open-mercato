@@ -300,6 +300,41 @@ describe('starting an external agent run', () => {
     expect(rowInput.processId).toBeNull()
     expect(rowInput.stepId).toBeNull()
     expect(rowInput.signalName).toBeNull()
+    expect(rowInput.outputMapping).toBeNull()
+  })
+
+  /**
+   * T2.11. The mapping rides the `invoke_agent` queue job on every in-process
+   * runtime and the workflow worker applies it once the bridge returns. A
+   * suspended run has no such caller left by the time the answer exists, so the
+   * mapping has to be SNAPSHOTTED onto the row the callback resumes from —
+   * snapshotted, not re-read, for the same reason the resume triple is: a
+   * definition edited while the call is in flight must not move where this call's
+   * answer lands.
+   */
+  it('snapshots the step\'s outputMapping onto the correlation row', async () => {
+    registerAgent('voice.mapped')
+    registerExternalAgentConnector(stubConnector())
+
+    await makeService().runOrSuspend(
+      'voice.mapped',
+      {},
+      { ...workflowRunCtx, outputMapping: { call: 'data.transcript' } },
+    )
+
+    const rowInput = createExternalRunRowMock.mock.calls[0][2] as Record<string, unknown>
+    expect(rowInput.outputMapping).toEqual({ call: 'data.transcript' })
+    expect(rowInput.processId).toBe(PROCESS_ID)
+  })
+
+  it('BC: a step declaring no mapping writes a null column, not an undefined one', async () => {
+    registerAgent('voice.unmapped')
+    registerExternalAgentConnector(stubConnector())
+
+    await makeService().runOrSuspend('voice.unmapped', {}, workflowRunCtx)
+
+    const rowInput = createExternalRunRowMock.mock.calls[0][2] as Record<string, unknown>
+    expect(rowInput.outputMapping).toBeNull()
   })
 
   it('surfaces a suspension to a legacy `run()` caller as a NON-retryable typed error', async () => {

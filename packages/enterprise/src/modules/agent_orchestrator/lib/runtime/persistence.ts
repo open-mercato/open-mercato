@@ -1,8 +1,12 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { type AgentResult, type AgentProposalPayload, type AgentType, type GuardResults } from '../../data/validators'
 import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'agent-run-persistence' })
 
 /**
  * Shared persistence + scope helpers used by BOTH agent runtimes (in-process
@@ -19,6 +23,16 @@ export type AgentRunCtx = {
   /** Set for workflow-originated runs (area 02) → stamped onto the AgentProposal; null for the playground. */
   processId?: string
   stepId?: string
+  /**
+   * The INVOKE_AGENT step's declared `outputMapping` (T2.11). Only the `external`
+   * runtime reads it, and only to SNAPSHOT it onto the correlation row: every
+   * in-process runtime settles inside the call the workflow worker made, and that
+   * worker applies the mapping itself once the bridge returns. A run that answers
+   * out of band has no such caller left, so the mapping has to travel with the row
+   * that outlives it. Additive and optional — absent means the legacy fixed keys,
+   * exactly as before.
+   */
+  outputMapping?: Record<string, string>
   /**
    * Parent run id when this run is a nested sub-agent delegation (Phase 4 trace).
    * Additive + optional: top-level runs leave it undefined. The in-process
@@ -187,6 +201,12 @@ export async function createExternalRunRow(
     processId?: string | null
     stepId?: string | null
     signalName?: string | null
+    /**
+     * The parked step's declared `outputMapping`, snapshotted so the out-of-process
+     * resume can land the answer in the author's own context keys (T2.11). Null for
+     * a run with nothing parked behind it.
+     */
+    outputMapping?: Record<string, string> | null
     status?: 'pending' | 'completed' | 'failed' | 'expired' | 'cancelled'
     expiresAt: Date
     requestPayload?: unknown
@@ -200,6 +220,54 @@ export async function createExternalRunRow(
     ),
   )
   return result.externalRunRowId
+}
+
+/**
+ * Read back the `outputMapping` snapshotted on a correlation row (T2.11).
+ *
+ * A READ rather than another field on the caller's row projection, deliberately.
+ * `ExternalRunCorrelation` is a subset every entry point assembles for itself —
+ * the token callback route, the connector-addressed route, the deadline sweep, the
+ * synchronous connector arm — and a mapping that only reaches the resume when each
+ * of them remembers to project one more column is a mapping that will silently go
+ * missing on whichever path forgets. Reading it where it is USED makes the
+ * guarantee hold for every caller, including ones written later.
+ *
+ * A PARTIAL projection: `output_mapping` is the only column selected, so this
+ * never pulls the encrypted transcript columns back out of the database to answer
+ * a question about configuration.
+ *
+ * Returns `null` for an absent row, an absent mapping OR a failed read — the
+ * caller then writes the legacy fixed keys, which is what a row written before
+ * this column existed means anyway. A resume must never fail because a mapping
+ * could not be looked up: the answer is already screened and recorded, and leaving
+ * the step parked over it would strand a live business process.
+ */
+export async function readExternalRunOutputMapping(
+  container: AwilixContainer,
+  scope: { externalRunRowId: string; tenantId: string; organizationId: string },
+): Promise<Record<string, string> | null> {
+  try {
+    const { AgentExternalRun } = await import('../../data/entities')
+    const em = (container.resolve('em') as PostgreSqlEntityManager).fork()
+    const row = await em.findOne(
+      AgentExternalRun,
+      {
+        id: scope.externalRunRowId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      { fields: ['outputMapping'] },
+    )
+    const mapping = row?.outputMapping
+    return mapping && typeof mapping === 'object' ? (mapping as Record<string, string>) : null
+  } catch (error) {
+    logger.warn('could not read the external run output mapping; falling back to the legacy context keys', {
+      externalRunRowId: scope.externalRunRowId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
 }
 
 /**

@@ -238,6 +238,12 @@ export class ExternalAgentRunner {
         processId: hasWorkflowStep ? ctx.processId : null,
         stepId: hasWorkflowStep ? ctx.stepId : null,
         signalName: hasWorkflowStep ? EXTERNAL_RUN_RESUME_SIGNAL : null,
+        // Snapshotted alongside the triple, and gated on it for the same reason:
+        // a mapping describes where the answer lands in a parked step's context,
+        // so it means nothing without one. This is the whole point of T2.11 — the
+        // callback settles in another process, minutes later, with no queue job
+        // left to carry the author's `{ call: 'data.transcript' }`.
+        outputMapping: hasWorkflowStep ? ctx.outputMapping ?? null : null,
         status: 'pending',
         expiresAt,
         requestPayload: input,
@@ -305,6 +311,10 @@ export class ExternalAgentRunner {
       processId: null,
       stepId: null,
       signalName: null,
+      // Nothing parked, so nothing to map into: this arm returns its result to the
+      // caller still on the stack, and the workflow worker applies the mapping
+      // itself exactly as it does for every in-process runtime.
+      outputMapping: null,
       status: 'pending',
       expiresAt,
       requestPayload: input,
@@ -340,6 +350,9 @@ export class ExternalAgentRunner {
         processId: null,
         stepId: null,
         signalName: null,
+        // Stated rather than left to be read back: this row was written two
+        // statements ago with no mapping, and nothing parked behind it to map into.
+        outputMapping: null,
       },
       scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       settlement: { kind: 'result', payload: started.result },

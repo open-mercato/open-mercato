@@ -1425,6 +1425,14 @@ type AgentWorkflowBridgeLike = {
       // proposal this step raises, and by when. Absent means the unassigned
       // task the disposition service raised before the section existed.
       review?: AgentDispositionReview
+      // The step's declared `outputMapping`, for a runtime that answers OUT OF
+      // BAND and therefore resumes the step from another process. Kept in
+      // lockstep with the identical declaration in
+      // `lib/activity-worker-handler.ts`, which is the only path that sends it —
+      // this inline branch path refuses a `suspended` outcome outright, so it has
+      // nothing to forward. Nothing type-checks across this duck-typed boundary,
+      // so the two copies must be edited together.
+      outputMapping?: Record<string, string>
     }
   }) => Promise<
     | { kind: 'researcher'; data: unknown }

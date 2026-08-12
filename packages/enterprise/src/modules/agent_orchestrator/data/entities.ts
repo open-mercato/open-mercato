@@ -1952,6 +1952,7 @@ export class AgentExternalRun {
     | 'processId'
     | 'stepId'
     | 'signalName'
+    | 'outputMapping'
     | 'status'
     | 'requestPayload'
     | 'resultPayload'
@@ -1998,6 +1999,30 @@ export class AgentExternalRun {
   /** The signal that resumes the parked step (`agent_orchestrator.proposal.ready`). */
   @Property({ name: 'signal_name', type: 'varchar', length: 150, nullable: true })
   signalName?: string | null
+
+  /**
+   * The parked `INVOKE_AGENT` step's declared `outputMapping` — `{ contextKey:
+   * 'data.transcript' }` — snapshotted at start time.
+   *
+   * On the ordinary parked path the mapping rides the `invoke_agent` queue job and
+   * the worker applies `mapAgentResultToContext` itself. A suspended run returns
+   * before there is anything to map and is resumed minutes later, in another
+   * process, from THIS row — so without the snapshot the resume can only write the
+   * legacy fixed keys and an author's `{{context.call}}` reference silently reads
+   * undefined.
+   *
+   * Snapshotted rather than re-read from the definition on purpose: the same
+   * reason the resume triple is snapshotted. A definition edited while the call is
+   * in flight must not retro-change where that call's answer lands.
+   *
+   * Deliberately NOT in `defaultEncryptionMaps`: it holds context key names and
+   * dot-paths authored in the Studio, which are already stored in plaintext in
+   * `workflow_definitions.definition`. Encrypting a copy of public configuration
+   * while the original is readable buys nothing and adds a decrypt hop — and, per
+   * the T2.4 finding, one more column a native write could silently plaintext.
+   */
+  @Property({ name: 'output_mapping', type: 'jsonb', nullable: true })
+  outputMapping?: Record<string, string> | null
 
   @Property({ name: 'status', type: 'varchar', length: 20, default: 'pending' })
   status: AgentExternalRunStatus = 'pending'

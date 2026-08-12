@@ -54,6 +54,9 @@ export const createAgentExternalRunCommand: CommandHandler<
       processId: input.processId ?? null,
       stepId: input.stepId ?? null,
       signalName: input.signalName ?? null,
+      // Snapshotted with the resume triple it belongs to: it names where THIS
+      // call's answer lands, so a definition edited mid-call must not move it.
+      outputMapping: input.outputMapping ?? null,
       status: input.status,
       expiresAt: input.expiresAt,
       requestPayload: input.requestPayload ?? null,

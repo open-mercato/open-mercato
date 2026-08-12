@@ -47,6 +47,18 @@ export type InvokeAgentForWorkflowArgs = {
      * only carries the answer onto the task it creates.
      */
     review?: AgentDispositionReview
+    /**
+     * The INVOKE_AGENT node's declared `outputMapping` (tracker T2.11). Additive
+     * and optional, and consumed by exactly ONE runtime: `external`, which
+     * snapshots it onto the correlation row so the provider's callback — another
+     * process, minutes later — resumes the step in the author's own context keys.
+     * Every settled path ignores it here, because core's activity worker applies
+     * `mapAgentResultToContext` itself once this bridge returns.
+     *
+     * Mirrors the optional field core added to BOTH of its duck-typed copies of
+     * this args type; nothing type-checks across that boundary.
+     */
+    outputMapping?: Record<string, string>
   }
 }
 
@@ -147,6 +159,10 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
         userId: ctx.userId ?? '',
         processId: ctx.processId,
         stepId: ctx.stepId,
+        // Threaded for the same reason `processId` / `stepId` are: they are what
+        // let the external runner write a row the callback can resume from, and
+        // this is what tells that resume WHERE to put the answer.
+        ...(ctx.outputMapping ? { outputMapping: ctx.outputMapping } : {}),
         ...(runAs ? { runAs } : {}),
       }),
     )
