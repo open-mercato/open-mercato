@@ -269,7 +269,7 @@ describe('external warranty claim intake helpers', () => {
       createInput: { organizationId: ORG_ID, tenantId: TENANT_ID, claimType: 'warranty' } as never,
       scope,
       externalRef: 'EXT-HAPPY',
-      hasExistingByExternalRef: async () => false,
+      loadExistingByExternalRef: async () => null,
       saveFailedError,
     })).resolves.toEqual({ outcome: 'created', claimId: ORDER_ID })
     expect(calls.map((call) => call.commandId)).toEqual([
@@ -289,7 +289,9 @@ describe('external warranty claim intake helpers', () => {
       createInput: {} as never,
       scope,
       externalRef: 'EXT-RACE',
-      hasExistingByExternalRef: async (externalRef) => externalRef === 'EXT-RACE',
+      loadExistingByExternalRef: async (externalRef) => externalRef === 'EXT-RACE'
+        ? { id: ORDER_ID, status: 'submitted' }
+        : null,
       saveFailedError,
     })).resolves.toEqual({ outcome: 'existing' })
 
@@ -299,7 +301,7 @@ describe('external warranty claim intake helpers', () => {
       createInput: {} as never,
       scope,
       externalRef: 'EXT-NO-WINNER',
-      hasExistingByExternalRef: async () => false,
+      loadExistingByExternalRef: async () => null,
       saveFailedError,
     })).rejects.toMatchObject({ code: '23505' })
 
@@ -319,13 +321,37 @@ describe('external warranty claim intake helpers', () => {
       createInput: {} as never,
       scope,
       externalRef: 'EXT-COMP',
-      hasExistingByExternalRef: async () => false,
+      loadExistingByExternalRef: async () => null,
       saveFailedError,
     })).rejects.toThrow('[internal] submit rejected')
     expect(compensationCalls).toEqual([
       'warranty_claims.claim.create',
       'warranty_claims.claim.submit',
       'warranty_claims.claim.delete',
+    ])
+
+    const retryCalls: string[] = []
+    const orphanRetryBus: ExternalIntakeCommandBus = {
+      execute: async (commandId) => {
+        retryCalls.push(commandId)
+        if (commandId === 'warranty_claims.claim.create') {
+          throw Object.assign(new Error('duplicate'), { code: '23505' })
+        }
+        return { result: { claimId: ORDER_ID } }
+      },
+    }
+    await expect(createAndSubmitExternalClaim({
+      commandBus: orphanRetryBus,
+      commandCtx: {},
+      createInput: {} as never,
+      scope,
+      externalRef: 'EXT-ORPHAN',
+      loadExistingByExternalRef: async () => ({ id: ORDER_ID, status: 'draft' }),
+      saveFailedError,
+    })).resolves.toEqual({ outcome: 'existing' })
+    expect(retryCalls).toEqual([
+      'warranty_claims.claim.create',
+      'warranty_claims.claim.submit',
     ])
   })
 

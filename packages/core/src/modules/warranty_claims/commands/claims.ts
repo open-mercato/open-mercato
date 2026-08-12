@@ -2938,15 +2938,15 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       const unitPriceNet = sourceLine ? readString(sourceLine, 'unit_price_net') : null
       const unitPriceGross = sourceLine ? readString(sourceLine, 'unit_price_gross') : null
       const taxRate = sourceLine ? readString(sourceLine, 'tax_rate') : null
+      const originalPricingIncomplete = input.pricing === 'original'
+        && (unitPriceNet === null || unitPriceGross === null || taxRate === null)
       if (
         !sourceLine
         || sourceLine.order_id !== claim.orderId
         || (!productId && !productVariantId && !name)
         || !kind
         || !currencyCode
-        || unitPriceNet === null
-        || unitPriceGross === null
-        || taxRate === null
+        || originalPricingIncomplete
       ) {
         skippedLineIds.push(line.id)
         continue
@@ -2956,13 +2956,13 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
         kind,
         currencyCode,
         quantity: String(effectiveQty),
-        unitPriceNet: input.pricing === 'zero' ? '0' : unitPriceNet,
-        unitPriceGross: input.pricing === 'zero' ? '0' : unitPriceGross,
+        unitPriceNet: input.pricing === 'zero' ? '0' : unitPriceNet as string,
+        unitPriceGross: input.pricing === 'zero' ? '0' : unitPriceGross as string,
       }
       if (productId) replacementLine.productId = productId
       if (productVariantId) replacementLine.productVariantId = productVariantId
       if (name) replacementLine.name = name
-      if (input.pricing === 'original') replacementLine.taxRate = taxRate
+      if (input.pricing === 'original') replacementLine.taxRate = taxRate as string
       replacementLines.push(replacementLine)
     }
     if (replacementLines.length === 0) {

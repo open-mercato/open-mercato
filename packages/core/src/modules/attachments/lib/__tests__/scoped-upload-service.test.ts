@@ -23,6 +23,10 @@ function makeHarness(options: {
   const order: string[] = []
   const attachment = {} as Record<string, unknown>
   const tx = {
+    create: jest.fn((_entity: unknown, values: Record<string, unknown>) => {
+      Object.assign(attachment, values)
+      return attachment
+    }),
     persist: jest.fn(() => ({
       flush: jest.fn(async () => {
         order.push('persist')
@@ -36,10 +40,6 @@ function makeHarness(options: {
       storageDriver: 'local',
       requiresOcr: false,
     })),
-    create: jest.fn((_entity: unknown, values: Record<string, unknown>) => {
-      Object.assign(attachment, values)
-      return attachment
-    }),
     transactional: jest.fn(async (work: (inner: typeof tx) => Promise<void>) => work(tx)),
   } as unknown as EntityManager
   const driver = {

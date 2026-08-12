@@ -143,10 +143,10 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
   }
   if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'Customer account is not linked to a customer record' }, { status: 403 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
   }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -243,7 +243,7 @@ async function validatePortalOrderOwnership(
   if (input.orderId) {
     resolvedOrder = await loadOwnedOrder(context, input.orderId)
     if (!resolvedOrder) {
-      return NextResponse.json({ ok: false, error: 'Claim order not found' }, { status: 404 })
+      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderNotOwned' }, { status: 404 })
     }
   }
 
@@ -251,7 +251,7 @@ async function validatePortalOrderOwnership(
     if (!line.orderLineId) continue
     const resolvedLine = await loadOwnedOrderLine(context, line.orderLineId)
     if (!resolvedLine) {
-      return NextResponse.json({ ok: false, error: 'Claim order line not found' }, { status: 404 })
+      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderLineMismatch' }, { status: 404 })
     }
     if (resolvedOrder && resolvedLine.order.id !== resolvedOrder.id) {
       const { translate } = await resolveTranslations()
@@ -306,7 +306,7 @@ export async function GET(req: Request) {
     serialNumber: url.searchParams.get('serialNumber') ?? undefined,
   })
   if (!query.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
   const where = buildPortalOwnedClaimWhere(context)
@@ -388,11 +388,11 @@ export async function POST(req: Request) {
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const parsed = portalIntakeInputSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const ownership = await validatePortalOrderOwnership(context, parsed.data)
   if (ownership instanceof Response) return ownership
@@ -456,7 +456,7 @@ export async function POST(req: Request) {
     )
     const claimId = createResult.result?.claimId
     if (typeof claimId !== 'string') {
-      return NextResponse.json({ ok: false, error: 'Claim could not be created' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.save_failed' }, { status: 500 })
     }
     try {
       await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(

@@ -43,6 +43,7 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { AttachmentInput } from '@open-mercato/core/modules/attachments/fields/attachment'
 import {
   fetchAssignableStaffMembersPage,
@@ -754,6 +755,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const id = typeof params?.id === 'string' ? params.id : ''
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const currentUserId = useCurrentUserId()
+  const scopeVersion = useOrganizationScopeVersion()
   const [claim, setClaim] = React.useState<ClaimRecord | null>(null)
   const [lines, setLines] = React.useState<ClaimLine[]>([])
   const [events, setEvents] = React.useState<ClaimEvent[]>([])
@@ -787,7 +789,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [scopeVersion])
 
   React.useEffect(() => {
     let cancelled = false
@@ -837,7 +839,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [scopeVersion])
   const [transitionDialog, setTransitionDialog] = React.useState<{ toStatus: ClaimStatus } | null>(null)
   const [vendorDialogOpen, setVendorDialogOpen] = React.useState(false)
   const [commentBody, setCommentBody] = React.useState('')
@@ -966,7 +968,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     } finally {
       setLoading(false)
     }
-  }, [id, t])
+  }, [id, scopeVersion, t])
 
   React.useEffect(() => {
     void loadData()
@@ -1866,7 +1868,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
             <div className="px-8 pb-5 pt-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground">
@@ -2003,7 +2005,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   value={tab.id}
                   count={tab.count}
                   data-tab-id={tab.id}
-                  className="px-3.5 pb-2.5 pt-3"
+                  className="px-4 pb-2 pt-3"
                 >
                   {tab.label}
                 </TabsTrigger>

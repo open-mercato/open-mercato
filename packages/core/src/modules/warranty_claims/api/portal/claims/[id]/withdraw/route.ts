@@ -25,11 +25,11 @@ export async function POST(req: Request, ctx: PortalClaimActionRouteContext) {
   const context = contextOrResponse
   const claimId = await resolvePortalClaimId(ctx)
   if (!claimId) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const claim = await loadOwnedClaim(context, claimId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   if (!PORTAL_WITHDRAWABLE_STATUSES.has(claim.status)) {
     const { translate } = await resolveTranslations()

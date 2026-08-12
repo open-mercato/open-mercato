@@ -2,6 +2,7 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { buildOptimisticLockConflictBody } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { WarrantyClaimSettings } from '../data/entities'
 import {
   warrantyClaimSettingsSaveSchema,
@@ -169,10 +170,6 @@ const saveWarrantyClaimSettingsCommand: CommandHandler<
     try {
       await em.flush()
     } catch (error) {
-      // Two admins saving settings for the first time race on
-      // `warranty_claim_settings_scope_unique`. The loser lost a insert, not data —
-      // reload the row the winner created and re-apply this save on top of it rather
-      // than surfacing a unique-violation 500.
       if (exists || !isUniqueViolation(error)) throw error
       const retryEm = (ctx.container.resolve('em') as EntityManager).fork()
       const winner = await loadWarrantyClaimSettings(retryEm, {
@@ -180,11 +177,12 @@ const saveWarrantyClaimSettingsCommand: CommandHandler<
         organizationId: input.organizationId,
       })
       if (!winner) throw error
-      applySettingsUpdate(winner, input)
-      assertAutoApproveConfig(winner)
-      winner.updatedAt = new Date()
-      await retryEm.flush()
-      return buildResult(winner)
+      const currentUpdatedAt = toIso(winner.updatedAt)
+      const expectedUpdatedAt = toIso(settings.updatedAt)
+      if (currentUpdatedAt && expectedUpdatedAt) {
+        throw new CrudHttpError(409, buildOptimisticLockConflictBody(currentUpdatedAt, expectedUpdatedAt))
+      }
+      throw new CrudHttpError(409, { error: 'warranty_claims.errors.conflict' })
     }
 
     return buildResult(settings)

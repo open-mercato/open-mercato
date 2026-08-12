@@ -362,7 +362,10 @@ export async function POST(req: Request) {
       createInput,
       scope: { tenantId: context.tenantId, organizationId: context.organizationId },
       externalRef: guardedInput.externalRef,
-      hasExistingByExternalRef: async (externalRef) => Boolean(await loadClaimByExternalRef(context, externalRef)),
+      loadExistingByExternalRef: async (externalRef) => {
+        const existingClaim = await loadClaimByExternalRef(context, externalRef)
+        return existingClaim ? { id: existingClaim.id, status: existingClaim.status } : null
+      },
       saveFailedError: () => new CrudHttpError(400, { error: context.translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim') }),
     })
     if (execution.outcome === 'existing') {

@@ -182,26 +182,27 @@ export class ScopedAttachmentUploadService {
       tags: input.tags ?? [],
     })
     const attachmentId = randomUUID()
-    const attachment = em.create(Attachment, {
-      id: attachmentId,
-      entityId: input.entityId,
-      recordId: input.recordId,
-      organizationId: input.organizationId,
-      tenantId: input.tenantId,
-      fileName: safeName,
-      mimeType,
-      fileSize: input.buffer.length,
-      partitionCode: partition.code,
-      storageDriver: partition.storageDriver || 'local',
-      storagePath: storedPath,
-      url: buildAttachmentFileUrl(attachmentId),
-      content: extractedContent,
-      storageMetadata: metadata,
-    })
-    assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
+    let attachment!: Attachment
 
     try {
       await em.transactional(async (tx) => {
+        attachment = tx.create(Attachment, {
+          id: attachmentId,
+          entityId: input.entityId,
+          recordId: input.recordId,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          fileName: safeName,
+          mimeType,
+          fileSize: input.buffer.length,
+          partitionCode: partition.code,
+          storageDriver: partition.storageDriver || 'local',
+          storagePath: storedPath,
+          url: buildAttachmentFileUrl(attachmentId),
+          content: extractedContent,
+          storageMetadata: metadata,
+        })
+        assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
         await tx.persist(attachment).flush()
         await attachmentQuotaService.completeAttachment(reservation.id, reservation.leaseToken, tx)
       })

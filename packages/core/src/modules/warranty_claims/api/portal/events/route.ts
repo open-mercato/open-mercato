@@ -72,10 +72,10 @@ function serializeEvent(event: WarrantyClaimEvent) {
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
   }
   if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'Customer account is not linked to a customer record' }, { status: 403 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
   }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -148,11 +148,11 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const parsed = eventQuerySchema.safeParse({ claimId: url.searchParams.get('claimId') ?? undefined })
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const claim = await loadOwnedClaim(context, parsed.data.claimId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const events = await findWithDecryption(
     context.em,
@@ -172,15 +172,15 @@ export async function POST(req: Request) {
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const parsed = portalCommentSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const claim = await loadOwnedClaim(context, parsed.data.claimId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const input: CommentClaimInput = {
     claimId: claim.id,

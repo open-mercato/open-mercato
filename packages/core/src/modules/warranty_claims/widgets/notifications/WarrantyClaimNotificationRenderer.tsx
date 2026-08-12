@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import {
+  AlarmClock,
   ClipboardCheck,
   ExternalLink,
   Loader2,
@@ -23,6 +24,7 @@ type ClaimNotificationType =
   | 'warranty_claims.claim.submitted'
   | 'warranty_claims.claim.assigned'
   | 'warranty_claims.claim.status_changed'
+  | 'warranty_claims.claim.escalated'
   | 'warranty_claims.claim.customer_replied'
 
 type ClaimNotificationMeta = {
@@ -57,6 +59,14 @@ const notificationMeta: Record<ClaimNotificationType, ClaimNotificationMeta> = {
     bodyKey: 'warranty_claims.notifications.statusChanged.body',
     fallbackTitle: 'Claim status changed',
     fallbackBody: 'A warranty claim status changed.',
+    tone: 'warning',
+  },
+  'warranty_claims.claim.escalated': {
+    Icon: AlarmClock,
+    titleKey: 'warranty_claims.notifications.escalated.title',
+    bodyKey: 'warranty_claims.notifications.escalated.body',
+    fallbackTitle: 'Claim escalated',
+    fallbackBody: 'A warranty claim has been escalated.',
     tone: 'warning',
   },
   'warranty_claims.claim.customer_replied': {

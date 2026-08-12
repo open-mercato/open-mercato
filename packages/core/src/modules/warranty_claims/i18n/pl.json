@@ -383,6 +383,7 @@
   "warranty_claims.form.lines.empty.noMatches": "Brak pozycji pasujących do wyszukiwania",
   "warranty_claims.form.lines.empty.title": "Brak pozycji reklamacji",
   "warranty_claims.form.lines.error.maxLines": "Reklamacja może zawierać maksymalnie {max} pozycji. Usuń część pozycji lub wybierz mniej.",
+  "warranty_claims.form.lines.error.qtyPositive": "Ilość reklamowana musi być większa od zera.",
   "warranty_claims.form.lines.error.required": "Dodaj co najmniej jedną pozycję zgłoszenia.",
   "warranty_claims.form.lines.lineLabel": "Pozycja {number}",
   "warranty_claims.form.lines.remove": "Usuń pozycję",

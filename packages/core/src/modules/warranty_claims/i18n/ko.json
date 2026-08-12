@@ -383,6 +383,7 @@
   "warranty_claims.form.lines.empty.noMatches": "검색과 일치하는 클레임 라인이 없습니다",
   "warranty_claims.form.lines.empty.title": "아직 클레임 라인이 없습니다",
   "warranty_claims.form.lines.error.maxLines": "클레임에는 최대 {max}개의 라인만 담을 수 있습니다. 일부 라인을 제거하거나 더 적게 선택하세요.",
+  "warranty_claims.form.lines.error.qtyPositive": "청구 수량은 0보다 커야 합니다.",
   "warranty_claims.form.lines.error.required": "클레임 라인을 하나 이상 추가하세요.",
   "warranty_claims.form.lines.lineLabel": "라인 {number}",
   "warranty_claims.form.lines.remove": "라인 제거",

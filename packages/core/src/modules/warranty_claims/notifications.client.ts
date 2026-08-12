@@ -23,6 +23,7 @@ function claimNotificationType(
   titleKey: string,
   bodyKey: string,
   icon: string,
+  severity: NotificationTypeDefinition['severity'] = 'info',
 ): NotificationTypeDefinition {
   return {
     type,
@@ -30,7 +31,7 @@ function claimNotificationType(
     titleKey,
     bodyKey,
     icon,
-    severity: 'info',
+    severity,
     actions: [viewClaimAction()],
     linkHref: CLAIM_DETAIL_HREF,
     Renderer: WarrantyClaimNotificationRenderer,
@@ -56,6 +57,13 @@ export const warrantyClaimsNotificationTypes: NotificationTypeDefinition[] = [
     'warranty_claims.notifications.statusChanged.title',
     'warranty_claims.notifications.statusChanged.body',
     'refresh-cw',
+  ),
+  claimNotificationType(
+    'warranty_claims.claim.escalated',
+    'warranty_claims.notifications.escalated.title',
+    'warranty_claims.notifications.escalated.body',
+    'alarm-clock',
+    'warning',
   ),
   claimNotificationType(
     'warranty_claims.claim.customer_replied',

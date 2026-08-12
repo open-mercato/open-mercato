@@ -52,7 +52,7 @@ export function WarrantyWorkspace({
                 value={tab.id}
                 count={tab.count}
                 disabled={tab.disabled}
-                className="shrink-0 gap-2 px-3.5 pb-2.5 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground"
+                className="shrink-0 gap-2 px-4 pb-2 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground"
               >
                 {tab.label}
               </TabsTrigger>

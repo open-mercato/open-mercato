@@ -579,4 +579,27 @@ describe('warranty claim AI assessment packet', () => {
     expect(line.assessmentPayload).toEqual({ existing: true })
     expect(mockPersistedEvents).toEqual([])
   })
+
+  test('set_assessment rejects terminal claims', async () => {
+    const em = makeEm()
+    const container = makeContainer(em)
+    const claim = mockClaim
+    const line = mockLine
+    if (!claim || !line) throw new Error('test fixtures were not initialized')
+    claim.status = 'closed'
+
+    await expect(setClaimLineAssessmentCommand.execute({
+      id: LINE_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      assessmentPayload: { damage: { severity: 'minor' } },
+      updatedAt: LINE_UPDATED_AT,
+    }, makeCommandContext(container))).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'warranty_claims.errors.lineLocked' },
+    })
+
+    expect(line.assessmentPayload).toEqual({ existing: true })
+    expect(mockPersistedEvents).toEqual([])
+  })
 })

@@ -1488,7 +1488,7 @@ export default function CreateWarrantyClaimPage() {
   return (
     <Page>
       <PageBody>
-        <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="rounded-xl border border-border bg-card p-5">
           <CrudForm<ClaimCreateFormValues>
             title={t('warranty_claims.create.title')}
             backHref="/backend/warranty_claims"
@@ -1501,6 +1501,10 @@ export default function CreateWarrantyClaimPage() {
             const lines = readSubmittedLineValues(values.lines).filter(lineHasContent)
             if (!lines.length) {
               const message = t('warranty_claims.form.lines.error.required', 'Add at least one claim line.')
+              throw createCrudFormError(message, { lines: message })
+            }
+            if (lines.some((line) => parsePositiveNumber(line.qtyClaimed) === null)) {
+              const message = t('warranty_claims.form.lines.error.qtyPositive', 'Claimed quantity must be greater than zero.')
               throw createCrudFormError(message, { lines: message })
             }
             const payload: Record<string, unknown> = {

@@ -447,6 +447,25 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     })
   })
 
+  it('does not require source financial fields for zero-priced replacements', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine(ORDER_LINE_ID, {
+      unit_price_net: null,
+      unit_price_gross: null,
+      tax_rate: null,
+    })
+
+    await createReplacementOrderCommand.execute(executeInput({ pricing: 'zero' }), makeCtx())
+    const lines = createDispatch().input.lines as Array<Record<string, unknown>>
+
+    expect(lines).toEqual([expect.objectContaining({
+      unitPriceNet: '0',
+      unitPriceGross: '0',
+    })])
+    expect(lines[0]).not.toHaveProperty('taxRate')
+  })
+
   it('copies original unit prices and tax rate verbatim', async () => {
     seedClaim()
     seedLine()

@@ -16,7 +16,11 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
-import { CLAIM_STATUS_BADGE_VARIANTS, type ClaimStatus } from '../../../../backend/components/ClaimStatusBadge'
+import {
+  ClaimStatusBadge,
+  CLAIM_STATUS_BADGE_VARIANTS,
+  type ClaimStatus,
+} from '../../../../backend/components/ClaimStatusBadge'
 
 type Props = { params: { orgSlug: string } }
 
@@ -35,21 +39,6 @@ type PortalClaimsResponse = {
   page: number
   pageSize: number
   totalPages: number
-}
-
-const CLAIM_STATUS_DOT_COLORS: Record<string, string> = {
-  draft: '#99999E',
-  submitted: '#2663EB',
-  in_review: '#2663EB',
-  info_requested: '#F28026',
-  approved: '#10B981',
-  awaiting_return: '#F28026',
-  received: '#6552e3',
-  inspecting: '#6552e3',
-  resolved: '#10B981',
-  rejected: '#dc2626',
-  closed: '#99999E',
-  cancelled: '#99999E',
 }
 
 function formatDate(value: string | null, fallback: string): string {
@@ -190,18 +179,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
     {
       accessorKey: 'status',
       header: t('warranty_claims.list.column.status'),
-      cell: ({ row }) => (
-        <span className="inline-flex items-center gap-[6px] rounded-[6px] border border-[#e2e2e2] bg-white px-[9px] py-[4px] dark:border-border dark:bg-transparent">
-          <span
-            className="size-[6px] shrink-0 rounded-full"
-            style={{ backgroundColor: CLAIM_STATUS_DOT_COLORS[row.original.status] ?? '#99999E' }}
-            aria-hidden="true"
-          />
-          <span className="text-[12px] font-medium text-[#0f0f12] dark:text-foreground">
-            {t(`warranty_claims.status.${row.original.status}`)}
-          </span>
-        </span>
-      ),
+      cell: ({ row }) => <ClaimStatusBadge status={row.original.status} />,
       meta: { maxWidth: 180 },
     },
     {
@@ -247,7 +225,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
         <ErrorMessage label={error} />
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-border bg-card">
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
         <Tabs
           value={stateGroup}
           onValueChange={(value) => {
@@ -258,9 +236,9 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
           variant="underline"
         >
           <TabsList className="flex h-auto w-full gap-1 px-7" aria-label={t('warranty_claims.portal.list.tabs.label', 'Claim status')}>
-            <TabsTrigger value="all" count={tabCounts.all} className="gap-2 px-3.5 pb-2.5 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground">{t('warranty_claims.portal.list.tabs.all', 'All')}</TabsTrigger>
-            <TabsTrigger value="open" count={tabCounts.open} className="gap-2 px-3.5 pb-2.5 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground">{t('warranty_claims.portal.list.tabs.open', 'Open')}</TabsTrigger>
-            <TabsTrigger value="resolved" count={tabCounts.resolved} className="gap-2 px-3.5 pb-2.5 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground">{t('warranty_claims.portal.list.tabs.resolved', 'Resolved')}</TabsTrigger>
+            <TabsTrigger value="all" count={tabCounts.all} className="gap-2 px-4 pb-2 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground">{t('warranty_claims.portal.list.tabs.all', 'All')}</TabsTrigger>
+            <TabsTrigger value="open" count={tabCounts.open} className="gap-2 px-4 pb-2 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground">{t('warranty_claims.portal.list.tabs.open', 'Open')}</TabsTrigger>
+            <TabsTrigger value="resolved" count={tabCounts.resolved} className="gap-2 px-4 pb-2 pt-3 [&_[data-slot=tabs-trigger-count]]:h-auto [&_[data-slot=tabs-trigger-count]]:min-w-0 [&_[data-slot=tabs-trigger-count]]:rounded-md [&_[data-slot=tabs-trigger-count]]:bg-muted [&_[data-slot=tabs-trigger-count]]:px-1.5 [&_[data-slot=tabs-trigger-count]]:py-0.5 [&_[data-slot=tabs-trigger-count]]:text-overline [&_[data-slot=tabs-trigger-count]]:text-muted-foreground">{t('warranty_claims.portal.list.tabs.resolved', 'Resolved')}</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="[&>[data-component-handle]>div:first-child]:px-7 [&>[data-component-handle]>div:first-child]:py-4 [&>[data-component-handle]>div:first-child_[data-slot=button]]:h-8 [&>[data-component-handle]>div:first-child_[data-slot=search-input-wrapper]]:h-8 [&_[data-slot=table-header]_[data-slot=table-row]]:h-9 [&_[data-slot=table-body]_[data-slot=table-row]]:h-16 [&_:has(>[data-slot=search-input-wrapper])]:lg:w-56">

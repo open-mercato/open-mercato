@@ -295,13 +295,18 @@ export type ExternalIntakeExecution =
   | { outcome: 'created'; claimId: string }
   | { outcome: 'existing' }
 
+type ExistingExternalClaim = {
+  id: string
+  status: string
+}
+
 export async function createAndSubmitExternalClaim(input: {
   commandBus: ExternalIntakeCommandBus
   commandCtx: unknown
   createInput: ClaimCreateInput
   scope: ExternalScope
   externalRef: string
-  hasExistingByExternalRef: (externalRef: string) => Promise<boolean>
+  loadExistingByExternalRef: (externalRef: string) => Promise<ExistingExternalClaim | null>
   saveFailedError: () => Error
 }): Promise<ExternalIntakeExecution> {
   let claimId: string
@@ -314,10 +319,19 @@ export async function createAndSubmitExternalClaim(input: {
     if (typeof createdClaimId !== 'string') throw input.saveFailedError()
     claimId = createdClaimId
   } catch (err) {
-    if (isUniqueViolation(err) && await input.hasExistingByExternalRef(input.externalRef)) {
-      return { outcome: 'existing' }
+    if (!isUniqueViolation(err)) throw err
+    const existing = await input.loadExistingByExternalRef(input.externalRef)
+    if (!existing) throw err
+    if (existing.status === 'draft') {
+      const scopedInput = { id: existing.id, organizationId: input.scope.organizationId, tenantId: input.scope.tenantId }
+      try {
+        await input.commandBus.execute('warranty_claims.claim.submit', { input: scopedInput, ctx: input.commandCtx })
+      } catch (submitError) {
+        const refreshed = await input.loadExistingByExternalRef(input.externalRef)
+        if (!refreshed || refreshed.status === 'draft') throw submitError
+      }
     }
-    throw err
+    return { outcome: 'existing' }
   }
   const scopedInput = { id: claimId, organizationId: input.scope.organizationId, tenantId: input.scope.tenantId }
   try {

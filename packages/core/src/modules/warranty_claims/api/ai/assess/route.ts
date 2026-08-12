@@ -348,7 +348,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
     }
     logger.error('warranty_claims.ai.assess.post failed', { err })
-    return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 400 })
+    return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })
   }
 }
 

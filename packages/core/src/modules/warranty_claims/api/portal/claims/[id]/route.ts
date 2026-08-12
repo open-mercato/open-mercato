@@ -42,10 +42,10 @@ async function resolveClaimId(ctx: RouteContext): Promise<string | null> {
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
   }
   if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'Customer account is not linked to a customer record' }, { status: 403 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
   }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -110,7 +110,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   const context = contextOrResponse
   const claimId = await resolveClaimId(ctx)
   if (!claimId) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const claim = await loadPortalOwnedClaim(
@@ -123,7 +123,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     claimId,
   )
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const lines = await findWithDecryption(
     context.em,

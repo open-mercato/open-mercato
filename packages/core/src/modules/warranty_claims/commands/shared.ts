@@ -149,22 +149,21 @@ export async function reconcileVendorRecoverySourceClaim(
     {},
     scope,
   )
-  let recoveredTotal = 0
-  for (const child of resolvedChildren) {
-    const childLines = await findWithDecryption(
-      em,
-      WarrantyClaimLine,
-      {
-        claim: child.id,
-        tenantId: child.tenantId,
-        organizationId: child.organizationId,
-        deletedAt: null,
-      },
-      {},
-      scope,
-    )
-    recoveredTotal += computeHeaderRollups(childLines).totalApprovedAmount
-  }
+  const childLines = resolvedChildren.length
+    ? await findWithDecryption(
+        em,
+        WarrantyClaimLine,
+        {
+          claim: { $in: resolvedChildren.map((child) => child.id) },
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          deletedAt: null,
+        },
+        {},
+        scope,
+      )
+    : []
+  const recoveredTotal = computeHeaderRollups(childLines).totalApprovedAmount
   await withAtomicFlush(
     em,
     [

@@ -1015,6 +1015,7 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const line = await requireScopedLine(em, input.id, scope)
     const claim = claimOf(line) ?? await requireScopedClaim(em, claimIdOf(line), scope)
+    assertParentMutable(claim)
     await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
 
     await withAtomicFlush(em, [

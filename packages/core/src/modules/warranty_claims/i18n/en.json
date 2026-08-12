@@ -383,6 +383,7 @@
   "warranty_claims.form.lines.empty.noMatches": "No claim lines match your search",
   "warranty_claims.form.lines.empty.title": "No claim lines yet",
   "warranty_claims.form.lines.error.maxLines": "A claim can hold at most {max} lines. Remove some lines or select fewer.",
+  "warranty_claims.form.lines.error.qtyPositive": "Claimed quantity must be greater than zero.",
   "warranty_claims.form.lines.error.required": "Add at least one claim line.",
   "warranty_claims.form.lines.lineLabel": "Line {number}",
   "warranty_claims.form.lines.remove": "Remove line",

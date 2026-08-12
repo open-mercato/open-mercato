@@ -513,7 +513,7 @@ function GeneralSwitchField({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-3.5 py-2.5">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-background px-4 py-3">
       <div className="space-y-1">
         <Label htmlFor={id}>{label}</Label>
         <p className="text-xs text-muted-foreground">{description}</p>
@@ -1605,7 +1605,7 @@ export default function WarrantyClaimSettingsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card text-card-foreground">
+        <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
           <div className="border-b border-border px-7 py-4">
             <h1 className="text-xl font-semibold text-foreground">{t('warranty_claims.settings.title', 'Claim settings')}</h1>
           </div>
@@ -1850,11 +1850,9 @@ export default function WarrantyClaimSettingsPage() {
         <DialogContent
           className="max-w-lg"
           onKeyDown={(event) => {
-            // DictionaryForm ships no keyboard handler of its own, so the dialog owns
-            // the shared Cmd/Ctrl+Enter submit contract here.
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
-              void submitForm(currentValues)
+              event.currentTarget.querySelector('form')?.requestSubmit()
             }
           }}
         >

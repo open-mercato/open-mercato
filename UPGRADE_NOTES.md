@@ -436,17 +436,12 @@ export const bootstrap = createBootstrap(
 
 Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
 
-### `DataTable` no longer fires the row click from interactive cell content
+### `DataTable` can guard row clicks from interactive cell content
 
-Clicking a `button`, `a`, `input`, `select`, `textarea`, `[role="combobox"]`, `[role="listbox"]`, or `[contenteditable="true"]` inside a row no longer also triggers `onRowClick` / the row's `defaultRowAction`. Previously, activating an inline control (a link, an inline editor, a row checkbox) both ran the control's own handler and navigated the row.
-
-This is a default-behavior change on a shared component; no caller changes are required, and for most tables the old behavior was a bug. If a table legitimately depends on the previous behavior, restore or narrow it with the new `rowClickInteractiveSelector` prop:
+`DataTable` now accepts an opt-in `rowClickInteractiveSelector` prop. When supplied, clicking matching cell content does not also trigger `onRowClick` / the row's `defaultRowAction`. The default remains `false`, preserving established click-anywhere row behavior for existing tables.
 
 ```tsx
-// Restore the pre-0.6.6 behavior for this table
-<DataTable rowClickInteractiveSelector={false} … />
-
-// Or swallow the row click for a narrower set of elements
+// Swallow the row click for a selected set of elements
 <DataTable rowClickInteractiveSelector="button, a" … />
 ```
 

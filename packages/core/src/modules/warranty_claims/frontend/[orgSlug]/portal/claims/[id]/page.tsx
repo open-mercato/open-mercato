@@ -659,7 +659,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
 
         <div className="w-full px-6 pb-6">
           <div className={`flex w-full items-start gap-3 rounded-lg px-4 py-3 ${toneClasses.wrapper}`}>
-            <BannerIcon className={`mt-px size-4 shrink-0 ${toneClasses.icon}`} strokeWidth={1.7} aria-hidden="true" />
+            <BannerIcon className={`mt-px size-4 shrink-0 ${toneClasses.icon}`} aria-hidden="true" />
             <p className={`min-w-px flex-1 text-sm ${toneClasses.text}`}>
               {bannerMessage(claim, t)}
             </p>
@@ -805,7 +805,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                 {uploading ? (
                   <Spinner className="size-4" />
                 ) : (
-                  <Paperclip className="size-4 text-muted-foreground" strokeWidth={1.7} aria-hidden="true" />
+                  <Paperclip className="size-4 text-muted-foreground" aria-hidden="true" />
                 )}
                 <span className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                   {uploading

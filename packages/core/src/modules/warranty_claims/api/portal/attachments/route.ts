@@ -59,10 +59,10 @@ function toIso(value: Date | string | null | undefined): string | null {
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
   }
   if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'Customer account is not linked to a customer record' }, { status: 403 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
   }
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -162,22 +162,22 @@ async function streamOwnedAttachment(context: PortalContext, attachmentId: strin
     scope,
   )
   if (!attachment) {
-    return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const claim = await loadOwnedClaim(context, attachment.recordId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   if (!isCustomerVisibleAttachment(readAttachmentMetadata(attachment.storageMetadata).tags)) {
-    return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const partition = await context.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
   if (!partition) {
-    return NextResponse.json({ ok: false, error: 'Partition misconfigured' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.load_failed' }, { status: 500 })
   }
   const access = checkAttachmentAccess(attachmentAuth(context), attachment, partition, { requireAuthForPublic: true })
   if (!access.ok) {
-    return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const driver = await (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
     tenantId: attachment.tenantId ?? '',
@@ -187,7 +187,7 @@ async function streamOwnedAttachment(context: PortalContext, attachmentId: strin
   try {
     buffer = (await driver.read(attachment.partitionCode, attachment.storagePath)).buffer
   } catch {
-    return NextResponse.json({ ok: false, error: 'File not available' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const headers: Record<string, string> = {
     'Cache-Control': 'private, max-age=60',
@@ -209,7 +209,7 @@ export async function GET(req: Request) {
   if (attachmentId) {
     const attachmentIdParsed = z.string().uuid().safeParse(attachmentId)
     if (!attachmentIdParsed.success) {
-      return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
     }
     return streamOwnedAttachment(context, attachmentIdParsed.data)
   }
@@ -219,11 +219,11 @@ export async function GET(req: Request) {
     pageSize: url.searchParams.get('pageSize') ?? undefined,
   })
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const claim = await loadOwnedClaim(context, parsed.data.claimId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const filter = {
     entityId: CLAIM_ATTACHMENT_ENTITY_ID,
@@ -270,24 +270,24 @@ export async function POST(req: Request) {
   const context = contextOrResponse
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
-    return NextResponse.json({ ok: false, error: 'Expected multipart/form-data' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ ok: false, error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.portal.detail.attachmentError' }, { status: 413 })
   }
 
   const form = await req.formData()
   const parsed = attachmentQuerySchema.safeParse({ claimId: form.get('claimId') ?? undefined })
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   const claim = await loadOwnedClaim(context, parsed.data.claimId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
   }
   const file = form.get('file')
   if (!(file instanceof File)) {
-    return NextResponse.json({ ok: false, error: 'File is required' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.portal.detail.fileRequired' }, { status: 400 })
   }
   const buffer = Buffer.from(await file.arrayBuffer())
 
@@ -303,7 +303,7 @@ export async function POST(req: Request) {
 
   const uploadService = resolvePortalAttachmentUploadService(context.container)
   if (!uploadService) {
-    return NextResponse.json({ ok: false, error: 'Attachment service is unavailable.' }, { status: 503 })
+    return NextResponse.json({ ok: false, error: 'warranty_claims.portal.detail.attachmentError' }, { status: 503 })
   }
 
   let attachment: Attachment
@@ -320,19 +320,10 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     if (error instanceof ScopedAttachmentUploadError) {
-      const messages: Record<ScopedAttachmentUploadError['code'], string> = {
-        dangerous_executable: 'Executable file types are not allowed as attachments.',
-        max_upload_size: 'Attachment exceeds the maximum upload size.',
-        active_content: 'Active content uploads are not allowed.',
-        partition_unavailable: 'Storage partition is not configured.',
-        quota_exceeded: 'Attachment storage quota exceeded for this tenant.',
-        quota_target_exists: 'The attachment storage target already exists.',
-        quota_unavailable: 'Attachment storage quota is unavailable.',
-        quota_recovery_unsupported: 'Attachment storage does not support safe quota recovery.',
-        storage_failed: 'Failed to persist attachment.',
-        persistence_failed: 'Failed to save attachment.',
-      }
-      return NextResponse.json({ ok: false, error: messages[error.code] }, { status: error.status })
+      return NextResponse.json(
+        { ok: false, error: 'warranty_claims.portal.detail.attachmentError', code: error.code },
+        { status: error.status },
+      )
     }
     throw error
   }
