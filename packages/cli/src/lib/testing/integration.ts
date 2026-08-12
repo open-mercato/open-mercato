@@ -1977,6 +1977,12 @@ function buildReusableEnvironment(
     // not have to call flushPendingCrudAccessLogs() explicitly.
     OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+    // TC-ONB-001/002 drive the self-service signup flow, whose routes are not
+    // mounted while the feature is off. `apps/mercato/.env` ships it disabled,
+    // so both specs 404'd on every local run while CI stayed green — it exports
+    // the var at the workflow level, the same gap the MOCK_INBOUND_WEBHOOK_SECRET
+    // note below describes. Keep in sync with the app-server env block.
+    SELF_SERVICE_ONBOARDING_ENABLED: process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? 'true',
     // Keep the bus in the Playwright process (used by in-test queue-drain helpers)
     // on the same delivery mode as the app server it drives: inline persistent
     // delivery so event side effects are deterministic for assertions. See the
@@ -3329,6 +3335,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+      // Read at build time as well as at runtime, so this block has to carry it:
+      // the app build and `yarn start` both run with this environment. See the
+      // matching note on the Playwright-process env block above.
+      SELF_SERVICE_ONBOARDING_ENABLED: process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? 'true',
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
       MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',

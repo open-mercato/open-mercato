@@ -156,6 +156,41 @@ test('escapes pipes so a mutated string can never break the table', () => {
   assert.match(tableRows[0], /a \\\|\\\| b/)
 })
 
+test('escapes backslashes so an escaped pipe in the source cannot break the table', () => {
+  const backslashMutant = {
+    ...SURVIVED_MUTANT,
+    replacement: String.raw`'a\|b'`,
+    location: { start: { line: 3, column: 3 }, end: { line: 3, column: 15 } },
+  }
+
+  const markdown = renderMarkdown(createReport([backslashMutant]))
+  const row = markdown.split('\n').find((line) => line.startsWith('| `src/'))
+
+  // The source backslash becomes `\\`, so the pipe keeps its own `\|` escape and the
+  // cell contributes no extra column. Without the backslash pass the cell renders as a
+  // literal backslash followed by a bare pipe, splitting the row into six columns.
+  assert.match(row, /a\\\\\\\|b/)
+  assert.equal(row.split(/(?<!\\)\|/).length - 1, 5, `table columns not intact: ${row}`)
+})
+
+test('escapes backslashes so a survivor cell cannot smuggle a live code span', () => {
+  const trailingBackslashMutant = {
+    ...SURVIVED_MUTANT,
+    replacement: '\\`@maintainer',
+    location: { start: { line: 3, column: 3 }, end: { line: 3, column: 15 } },
+  }
+
+  const markdown = renderMarkdown(createReport([trailingBackslashMutant]))
+  const row = markdown.split('\n').find((line) => line.startsWith('| `src/'))
+
+  // Strip escaped backslashes before escaped backticks: a survivor ending in `\`
+  // would otherwise consume the backtick's escape and reopen the span, letting the
+  // following `@maintainer` render as a live mention.
+  const unescapedBackticks = row.replace(/\\\\/g, '').replace(/\\`/g, '').match(/`/g) ?? []
+
+  assert.equal(unescapedBackticks.length, 6, `code spans not intact: ${row}`)
+})
+
 test('parses the report path, package name and enforcement flag', () => {
   assert.deepEqual(parseReportArgs(['mutation.json']), {
     reportPath: 'mutation.json',
