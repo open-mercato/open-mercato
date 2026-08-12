@@ -1,0 +1,71 @@
+# Execution plan — remediate the strict review findings on PR #4092
+
+**Origin:** adopted — reconstructed by `om-auto-continue-pr` on 2026-08-12 because PR #4092 carried no execution plan.
+**PR:** #4092 · **Branch:** `feat/warranty-claims-desk` · **Base:** `develop`
+**Author:** @haxiorz — the author explicitly requested that the confirmed review findings be fixed, pushed, verified through CI, and summarized on the PR.
+
+## 🎯 Goal
+
+Make the warranty claims desk safe and ready for another review by correcting every confirmed finding from the strict review of head `f1ec3089700cf423dd4b6e20b5cc467ccff56ad8`, adding regression coverage, passing the repository validation gate, pushing the fixes, and following CI to a terminal green result.
+
+## Scope
+
+- Warranty-claim authorization, AI mutation and attachment boundaries, adjudication, portal uploads, persistent subscribers, SLA delivery, vendor recovery, query indexing, search, and integration cleanup.
+- The affected warranty backoffice and portal components, shared sales fixture helper, attachment field callback contract, and localized user-facing strings.
+- Regression tests for each behavior changed by the remediation.
+- Existing PR metadata, labels, verification evidence, and one final comprehensive summary comment.
+
+## Non-goals
+
+- No feature expansion beyond the already implemented warranty claims specification.
+- No database migration application to a local database.
+- No history rewrite or force-push.
+- No removal of @pkarw or @zielivia as reviewers.
+- No restyling of the portal claim tracker beyond interaction primitives; its documented Figma literal-value exemption remains intact.
+
+## Evidence
+
+| Conclusion | Drawn from | Confidence |
+|---|---|---|
+| All confirmed strict-review findings are remaining work | Strict review of exact head `f1ec3089700c`, artifact hash `9955e60eec5e58e780255010deca7699b13746fab60e06c1d6f2d3ee68f0d49b` | high |
+| Security and data-integrity defects must be corrected before review | Repository authorization, event, AI mutation, module-coupling, and optimistic workflow contracts | high |
+| User-facing and integration-helper defects require regression tests | Root AGENTS.md and the PR's existing integration-test commitment | high |
+| The branch must be pushed and CI monitored to green | Explicit instruction from @haxiorz in this continuation session | high |
+
+## Assumptions
+
+- The supplied linked worktree is the intended implementation worktree; its unrelated modified `.ai/skills/om-prepare-test-env/SKILL.md` and untracked `output/` belong to the user and will not be staged or changed.
+- The strict review's rejected candidates remain non-work and will not be reintroduced as speculative scope.
+- The safest attachment remediation is to move the shared secure upload orchestration into the attachments module and resolve it through an optional DI service, preserving the portal API contract.
+- Existing PR reviewers remain assigned while @haxiorz owns the implementation lock.
+
+## Risks
+
+- The change spans security, money-adjacent lifecycle behavior, optional-module coupling, event reliability, shared fixtures, and UI surfaces; focused regression tests plus the full configured gate are required.
+- Attachment and SLA fixes have partial-failure behavior that is difficult to prove with happy-path tests alone; fault-injection coverage is required.
+- UI changes can regress the approved design; reuse primitives without altering the portal's documented literal visual values.
+
+## Progress
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Already landed on this PR (reconstructed)
+
+- [x] 1.1 Implement the warranty and RMA claims desk feature through the reviewed head — f1ec30897
+
+### Phase 2: Security and module boundaries
+
+- [ ] 2.1 Fix AI approval, attachment-target authorization, portal vendor-recovery authorization, assignee organization scope, adjudication fail-open behavior, trusted subscriber scope, and portal attachment ownership/quota orchestration
+
+### Phase 3: Data integrity and lifecycle reliability
+
+- [ ] 3.1 Fix overdue status parity, vendor-recovery source indexing and type eligibility, SLA partial-failure retry safety, claim search pagination, and time-driven SLA indicators
+
+### Phase 4: Test and UI contract remediation
+
+- [ ] 4.1 Fix non-idempotent sales fixtures, settings restoration, accessible tabs, clipboard error handling, terminal tracker state, localized search actions, modal/radius/button design-system drift, and associated regression coverage
+
+### Phase 5: Verification and publication
+
+- [ ] 5.1 Run targeted validation and the complete configured validation gate, then complete the authoritative PR review/autofix pass
+- [ ] 5.2 Push the remediation commits, monitor exact-head CI to terminal success, update PR metadata and labels, and post the comprehensive summary comment
