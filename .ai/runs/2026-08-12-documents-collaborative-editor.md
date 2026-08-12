@@ -55,7 +55,7 @@ The current PR branch, its conflicts with `upstream/develop`, all unresolved act
 
 ### Phase 3: Verify review readiness
 
-- [ ] 3.1 Run targeted checks and the complete configured validation gate on the merged head
+- [x] 3.1 Run targeted checks and the complete configured validation gate on the merged head — f72d95504
 - [ ] 3.2 Run the authoritative PR review pass and fix every actionable finding
 
 ### Phase 4: Publish and monitor
