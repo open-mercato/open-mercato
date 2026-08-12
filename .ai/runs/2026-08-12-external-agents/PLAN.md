@@ -34,7 +34,7 @@ top of that seam.
 | 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | TODO | |
 | 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | DONE | `1c9182ddd` |
 | 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | DONE | `59f15f105` |
-| 2.13 | **Named provider profiles** (added 2026-08-12 — many agents from one provider) | TODO | |
+| 2.13 | **Named provider profiles** (added 2026-08-12 — many agents from one provider) | DONE | `c6dbbe966` |
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript + recording captured as `AgentRunArtifact`s | TODO | |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
@@ -620,6 +620,39 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   only server-side seam to the peer and carries no runtime, so `evaluateWorkflowDefinition` (definitions API,
   the `validate_workflow_definition` AI tool, and the in-Studio draft agent) cannot run it. The AI draft
   agent can therefore still author the mistake.
+- 2026-08-12 — **T2.13 done. The credential STORE is not the constraint — the ADMIN WRITE PATH is.**
+  `integration_credentials.credentials` is jsonb typed `Record<string, unknown>` and would hold a nested
+  list happily, but the operator path is flat-scalar-only twice over: `CredentialFieldType` has no
+  list/group/json member, and `saveCredentialsSchema` types every credential VALUE as
+  `string | number | boolean | null` — so an array through `PUT /api/integrations/[id]/credentials` is a 422
+  whatever a package declares. `channel-gmail` DOES persist a real `string[]` into that jsonb, but via a
+  server-side `credentialsService.save()` from its OAuth callback, never through the form. So the precedent
+  is "structured value written server-side", not "structured value edited by an operator".
+- 2026-08-12 — T2.13 shape: profiles ride ONE `text` credential holding a JSON document, parsed in-package
+  (the parser also accepts an already-structured value, matching the gmail precedent). Per-profile schema is
+  `.strict()` so a typo'd key is a named error, not a silently defaulted phone number. A `text` field is NOT
+  masked on read-back, so no secret may ever go in it — documented in the field help.
+- 2026-08-12 — **T2.13 migration guarantee: an already-configured tenant does NOTHING.** All five flat
+  fields are read as the `default` profile and the shipped agent names `default`, so the next call is
+  byte-identical (two tests assert it), and `configure-from-env` with the original four env vars produces a
+  byte-identical credential record. `agentId`/`agentPhoneNumberId` became optional in the FORM so a
+  profiles-only tenant can save; a tenant clearing both now fails at dial time with a clear message rather
+  than at save time.
+- 2026-08-12 — T2.13 fixed a PRE-EXISTING log defect on a line it touched: the placed-call log spread the
+  credential descriptor over `agentId: args.agentEntry.id`, so it reported the ELEVENLABS agent under the key
+  the platform reads as its own. Now `profileAgentId`/`profilePhoneNumberId` plus `dialledAgentId`/
+  `dialledPhoneNumberId` (which differ under a per-call override).
+- 2026-08-12 — **Temp-config gotcha, supersedes T2.12's note:** ~200 phantom `Cannot find name 'describe'`
+  errors in a scoped test typecheck were a STALE `tsconfig.t213.tsbuildinfo`, not a types-resolution problem.
+  `typeRoots` + `types: ["node","jest"]` works fine under TS 7.0.2 and T2.12's `/// <reference>` shim is
+  unnecessary. The ENTERPRISE scoped config additionally needs `files: [...]` + an empty `exclude`, because
+  its `**/__tests__/**` exclude beats `include`.
+- 2026-08-12 — T2.13 deliberately did NOT add a per-call `input.profile` override (the spec had three
+  precedence levels and it kept three). Natural follow-up: it would let a definition name a rotatable profile
+  per NODE rather than per agent.
+- 2026-08-12 — **Platform follow-up raised by T2.13, benefits every provider:** a `json` (or `textarea`)
+  `CredentialFieldType` in `integrations` would remove the JSON-in-a-single-line-input awkwardness that
+  forced the shape above.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
