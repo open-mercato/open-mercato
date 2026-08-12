@@ -21,13 +21,14 @@ Make the warranty claims desk safe and ready for another review by correcting ev
 - No database migration application to a local database.
 - No history rewrite or force-push.
 - No removal of @pkarw or @zielivia as reviewers.
-- No restyling of the portal claim tracker beyond interaction primitives; its documented Figma literal-value exemption remains intact.
+- No wholesale redesign of the portal claim tracker; preserve its approved hierarchy while replacing non-compliant literal visual values with semantic design-system tokens.
 
 ## Evidence
 
 | Conclusion | Drawn from | Confidence |
 |---|---|---|
 | All confirmed strict-review findings are remaining work | Strict review of exact head `f1ec3089700c`, artifact hash `9955e60eec5e58e780255010deca7699b13746fab60e06c1d6f2d3ee68f0d49b` | high |
+| A blind follow-up council found eleven additional actionable gaps | Strict review of exact head `ea625461c781`, subject hash `81031f4a325438164106cbca19eafbc5fc275270857ef0d5aa03bef01812f853`; all 18 provider candidates adjudicated | high |
 | Security and data-integrity defects must be corrected before review | Repository authorization, event, AI mutation, module-coupling, and optimistic workflow contracts | high |
 | User-facing and integration-helper defects require regression tests | Root AGENTS.md and the PR's existing integration-test commitment | high |
 | The branch must be pushed and CI monitored to green | Explicit instruction from @haxiorz in this continuation session | high |
@@ -43,7 +44,7 @@ Make the warranty claims desk safe and ready for another review by correcting ev
 
 - The change spans security, money-adjacent lifecycle behavior, optional-module coupling, event reliability, shared fixtures, and UI surfaces; focused regression tests plus the full configured gate are required.
 - Attachment and SLA fixes have partial-failure behavior that is difficult to prove with happy-path tests alone; fault-injection coverage is required.
-- UI changes can regress the approved design; reuse primitives without altering the portal's documented literal visual values.
+- UI changes can regress the approved design; retain the existing hierarchy while moving touched literal values to semantic tokens and the established design-system scale.
 
 ## Progress
 
@@ -64,6 +65,7 @@ Make the warranty claims desk safe and ready for another review by correcting ev
 ### Phase 4: Test and UI contract remediation
 
 - [x] 4.1 Fix non-idempotent sales fixtures, settings restoration, accessible tabs, clipboard error handling, terminal tracker state, localized search actions, modal/radius/button design-system drift, and associated regression coverage — 6d211e46d, 748136040
+- [x] 4.2 Fix follow-up council gaps in list ID filtering, callback stability, conflict surfacing, portal pagination, batched assignee hydration, claim-type normalization, event translation, DataTable compatibility, and semantic visual tokens — 0bec828678
 
 ### Phase 5: Verification and publication
 
