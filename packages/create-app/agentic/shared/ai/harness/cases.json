@@ -20894,9 +20894,6 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md"
       ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
