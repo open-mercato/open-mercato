@@ -39,6 +39,7 @@ const getAuthFromRequestMock = jest.fn()
 const resolveOrganizationScopeForRequestMock = jest.fn()
 const runRouteMutationGuardsMock = jest.fn()
 const commandExecuteMock = jest.fn()
+const attachmentTargetAccessMock = jest.fn()
 
 jest.mock('ai', () => ({
   generateText: jest.fn(async () => ({ text: 'Draft text' })),
@@ -273,6 +274,9 @@ function makeContainer(em: EntityManager): AwilixContainer {
       if (name === 'em') return em as T
       if (name === 'commandBus') return commandBus as T
       if (name === 'dataEngine') return {} as T
+      if (name === 'attachmentTargetAccessService') {
+        return { canAccessLinkedTarget: attachmentTargetAccessMock } as T
+      }
       throw new Error(`Unexpected container service: ${name}`)
     },
   }
@@ -344,6 +348,8 @@ describe('warranty claim AI assessment packet', () => {
     resolveOrganizationScopeForRequestMock.mockReset()
     runRouteMutationGuardsMock.mockReset()
     commandExecuteMock.mockReset()
+    attachmentTargetAccessMock.mockReset()
+    attachmentTargetAccessMock.mockResolvedValue(true)
     findOneWithDecryptionMock.mockImplementation((_em: unknown, entity: unknown) => mockFindOne(entity))
     findWithDecryptionMock.mockResolvedValue([])
     createModelFactoryMock.mockImplementation(() => {
@@ -442,6 +448,7 @@ describe('warranty claim AI assessment packet', () => {
         tags: [],
       },
     })
+    attachmentTargetAccessMock.mockResolvedValue(false)
     createRequestContainerMock.mockResolvedValue(container)
     getAuthFromRequestMock.mockResolvedValue({
       sub: USER_ID,
@@ -472,6 +479,23 @@ describe('warranty claim AI assessment packet', () => {
     expect(createModelFactoryMock).not.toHaveBeenCalled()
     expect(generateObjectMock).not.toHaveBeenCalled()
     expect(commandExecuteMock).not.toHaveBeenCalled()
+  })
+
+  test('assess_damage_photo tool rejects an unrelated same-scope attachment before model access', async () => {
+    const em = makeEm()
+    const container = makeContainer(em)
+    const tool = aiTools.find((candidate) => candidate.name === 'warranty_claims.assess_damage_photo')
+    if (!tool) throw new Error('assess_damage_photo tool was not registered')
+    attachmentTargetAccessMock.mockResolvedValue(false)
+
+    await expect(tool.handler({
+      claimId: CLAIM_ID,
+      lineId: LINE_ID,
+      attachmentId: ATTACHMENT_ID,
+    }, makeToolContext(container))).rejects.toThrow('Attachment is not linked')
+
+    expect(createModelFactoryMock).not.toHaveBeenCalled()
+    expect(generateObjectMock).not.toHaveBeenCalled()
   })
 
   test('set_assessment persists assessment payload without mutating money fields', async () => {

@@ -20,6 +20,8 @@ import {
   isWarrantyAiUnavailableError,
 } from './lib/aiAssist'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AttachmentTargetAccessService } from '@open-mercato/core/modules/attachments/lib/target-access-service'
 import { buildWarrantyClaimTriageSuggestion } from './lib/triage'
 
 export interface WarrantyClaimsToolContext {
@@ -31,6 +33,7 @@ export interface WarrantyClaimsToolContext {
   isSuperAdmin: boolean
   apiKeySecret?: string
   sessionId?: string
+  approvedPendingActionId?: string
 }
 
 export interface WarrantyClaimsToolLoadBeforeSingleRecord {
@@ -82,6 +85,9 @@ type ClaimSummary = {
   updatedAt: string | null
 }
 
+const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
+const LINE_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim_line'
+
 function assertScope(ctx: WarrantyClaimsToolContext): Scope {
   if (!ctx.tenantId) {
     throw new Error('[internal] Tenant context is required for warranty_claims.* tools')
@@ -106,6 +112,48 @@ function buildAttachmentAuthContext(ctx: WarrantyClaimsToolContext, scope: Scope
     userId: ctx.userId,
     features: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
+  }
+}
+
+function buildAttachmentRecordAuthContext(
+  ctx: WarrantyClaimsToolContext,
+  scope: Scope,
+): Exclude<AuthContext, null> {
+  if (!ctx.userId) {
+    throw new Error('[internal] User context is required for warranty_claims attachment-aware tools.')
+  }
+  return {
+    sub: ctx.userId,
+    userId: ctx.userId,
+    tenantId: scope.tenantId,
+    orgId: scope.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+}
+
+async function assertAttachmentLinkedToClaim(
+  ctx: WarrantyClaimsToolContext,
+  scope: Scope,
+  input: { attachmentId: string; claimId: string; lineId?: string | null },
+): Promise<void> {
+  let service: AttachmentTargetAccessService | null = null
+  try {
+    service = ctx.container.resolve<AttachmentTargetAccessService>('attachmentTargetAccessService')
+  } catch {
+    service = null
+  }
+  const linked = service ? await service.canAccessLinkedTarget({
+    attachmentId: input.attachmentId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    auth: buildAttachmentRecordAuthContext(ctx, scope),
+    targets: [
+      { entityId: CLAIM_ATTACHMENT_ENTITY_ID, recordId: input.claimId },
+      ...(input.lineId ? [{ entityId: LINE_ATTACHMENT_ENTITY_ID, recordId: input.lineId }] : []),
+    ],
+  }) : false
+  if (!linked) {
+    throw new Error('[internal] Attachment is not linked to the requested warranty claim target.')
   }
 }
 
@@ -477,6 +525,7 @@ const assessDamagePhotoTool: WarrantyClaimsAiToolDefinition = {
     const scope = assertScope(ctx)
     const input = assessDamagePhotoInput.parse(rawInput)
     const em = resolveEm(ctx)
+    await assertAttachmentLinkedToClaim(ctx, scope, input)
     try {
       return await assessDamagePhoto({
         em,
@@ -521,6 +570,7 @@ const extractProofOfPurchaseTool: WarrantyClaimsAiToolDefinition = {
     if (!claim) {
       throw new Error('[internal] Warranty claim not accessible to the caller')
     }
+    await assertAttachmentLinkedToClaim(ctx, scope, input)
     try {
       return await extractProofOfPurchase({
         em,
@@ -620,6 +670,9 @@ const transitionClaimTool: WarrantyClaimsAiToolDefinition = {
     }
   },
   handler: async (rawInput, ctx) => {
+    if (!ctx.approvedPendingActionId) {
+      throw new Error('[internal] Warranty claim transitions require an approved AI pending action.')
+    }
     const scope = assertScope(ctx)
     const input = transitionClaimToolInput.parse(rawInput)
     const em = resolveEm(ctx)

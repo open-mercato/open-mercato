@@ -8,6 +8,7 @@ export const ASSIGNEE_NAME_LOOKUP_LIMIT = 100
 export type AssigneeNameLookupDeps = {
   container: { resolve: (name: string) => unknown }
   tenantId: string | null
+  organizationId: string | null
 }
 
 function toRecord(value: unknown): Record<string, unknown> | null {
@@ -17,6 +18,12 @@ function toRecord(value: unknown): Record<string, unknown> | null {
 function resolveAuthUserEntityId(): EntityId | null {
   const registry = E as unknown as Record<string, Record<string, string> | undefined>
   const value = registry.auth?.user
+  return typeof value === 'string' ? (value as EntityId) : null
+}
+
+function resolveStaffMemberEntityId(): EntityId | null {
+  const registry = E as unknown as Record<string, Record<string, string> | undefined>
+  const value = registry.staff?.staff_team_member
   return typeof value === 'string' ? (value as EntityId) : null
 }
 
@@ -42,13 +49,18 @@ export async function resolveAssigneeDisplayNames(
   entityId: EntityId | null = resolveAuthUserEntityId(),
 ): Promise<Map<string, string>> {
   const names = new Map<string, string>()
-  if (!deps.tenantId || !userIds.length || !entityId) return names
+  if (!deps.tenantId || !deps.organizationId || !userIds.length || !entityId) return names
   try {
     const queryEngine = deps.container.resolve('queryEngine') as QueryEngine
     const result = await queryEngine.query<Record<string, unknown>>(entityId, {
       tenantId: deps.tenantId,
-      filters: { id: { $in: userIds.slice(0, ASSIGNEE_NAME_LOOKUP_LIMIT) } },
-      fields: ['id', 'name', 'email', 'tenant_id', 'organization_id'],
+      filters: {
+        id: { $in: userIds.slice(0, ASSIGNEE_NAME_LOOKUP_LIMIT) },
+        organization_id: deps.organizationId,
+        deleted_at: null,
+        is_confirmed: true,
+      },
+      fields: ['id', 'name', 'email', 'tenant_id', 'organization_id', 'is_confirmed'],
       page: { page: 1, pageSize: ASSIGNEE_NAME_LOOKUP_LIMIT },
     })
     for (const item of result.items ?? []) {
@@ -63,6 +75,33 @@ export async function resolveAssigneeDisplayNames(
     return names
   }
   return names
+}
+
+export async function isAssignableStaffUser(
+  deps: AssigneeNameLookupDeps,
+  userId: string,
+  entityId: EntityId | null = resolveStaffMemberEntityId(),
+): Promise<boolean> {
+  if (!deps.tenantId || !deps.organizationId || !userId || !entityId) return false
+  try {
+    const queryEngine = deps.container.resolve('queryEngine') as QueryEngine
+    const result = await queryEngine.query<Record<string, unknown>>(entityId, {
+      tenantId: deps.tenantId,
+      filters: {
+        user_id: userId,
+        organization_id: deps.organizationId,
+        deleted_at: null,
+        is_active: true,
+      },
+      fields: ['id', 'user_id', 'organization_id', 'is_active'],
+      page: { page: 1, pageSize: 1 },
+    })
+    if (!result.items?.length) return false
+    const names = await resolveAssigneeDisplayNames(deps, [userId])
+    return names.has(userId)
+  } catch {
+    return false
+  }
 }
 
 export async function decorateItemsWithAssigneeNames(

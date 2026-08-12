@@ -49,12 +49,9 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
   const record = toRecord(payload)
   const toStatus = readString(record, 'toStatus') ?? readString(record, 'status')
   if (toStatus !== 'resolved') return
-  const payloadClaimType = readString(record, 'claimType')
-  if (payloadClaimType === 'vendor_recovery') return
-
   const claimId = readString(record, 'claimId') ?? readString(record, 'id')
-  const tenantId = readString(record, 'tenantId') ?? ctx.tenantId ?? null
-  const organizationId = readString(record, 'organizationId') ?? ctx.organizationId ?? null
+  const tenantId = ctx.tenantId ?? null
+  const organizationId = ctx.organizationId ?? null
   if (!claimId || !tenantId || !organizationId) return
 
   const container = resolveContainer(ctx)
@@ -67,7 +64,7 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
     {},
     scope,
   )
-  if (!claim || claim.claimType === 'vendor_recovery') return
+  if (!claim || claim.claimType !== 'warranty' || claim.status !== 'resolved') return
 
   const lines = await findWithDecryption(
     em,
@@ -107,6 +104,7 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
     lines,
     policies,
     autoOnly: true,
+    requireWarrantyResolved: true,
   })
   const requests = buildVendorRecoveryCommandRequests(claim.id, matches)
   if (!requests.length) return

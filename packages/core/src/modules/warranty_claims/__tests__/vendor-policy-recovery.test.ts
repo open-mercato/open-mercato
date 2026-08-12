@@ -40,7 +40,7 @@ function makeEntityManager(): EntityManager {
   return holder as unknown as EntityManager
 }
 
-function makeClaim(reasonCode = 'defective'): WarrantyClaim {
+function makeClaim(reasonCode = 'defective', overrides: Partial<WarrantyClaim> = {}): WarrantyClaim {
   return {
     id: CLAIM_ID,
     claimType: 'warranty',
@@ -48,6 +48,7 @@ function makeClaim(reasonCode = 'defective'): WarrantyClaim {
     reasonCode,
     tenantId: TENANT_ID,
     organizationId: ORG_ID,
+    ...overrides,
   } as unknown as WarrantyClaim
 }
 
@@ -169,6 +170,47 @@ describe('warranty vendor policy recovery', () => {
     mockDecryptedReads(makeClaim(), [makeLine()], [makePolicy({ isActive: false })])
     await handleAutoVendorRecovery(statusChangedPayload(), context)
 
+    expect(commandExecute).not.toHaveBeenCalled()
+  })
+
+  test.each(['return', 'core_return'] as const)('does not create recovery for %s claims', async (claimType) => {
+    const commandExecute = jest.fn<Promise<CommandExecuteResult>, [string, unknown]>()
+      .mockResolvedValue({ result: { claimId: '66666666-6666-4666-8666-666666666666' }, logEntry: null })
+    mockDecryptedReads(makeClaim('defective', { claimType }), [makeLine()], [makePolicy()])
+
+    await handleAutoVendorRecovery({ ...statusChangedPayload(), claimType }, makeContext(commandExecute))
+
+    expect(commandExecute).not.toHaveBeenCalled()
+  })
+
+  test('uses trusted subscriber scope instead of mismatched payload scope', async () => {
+    const commandExecute = jest.fn<Promise<CommandExecuteResult>, [string, unknown]>()
+      .mockResolvedValue({ result: { claimId: '66666666-6666-4666-8666-666666666666' }, logEntry: null })
+    mockDecryptedReads(makeClaim(), [makeLine()], [makePolicy()])
+
+    await handleAutoVendorRecovery({
+      ...statusChangedPayload(),
+      tenantId: 'payload-tenant',
+      organizationId: 'payload-org',
+    }, makeContext(commandExecute))
+
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      WarrantyClaim,
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+      {},
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(commandExecute).toHaveBeenCalledTimes(1)
+  })
+
+  test('does nothing without trusted subscriber scope', async () => {
+    const commandExecute = jest.fn<Promise<CommandExecuteResult>, [string, unknown]>()
+    const context = { ...makeContext(commandExecute), tenantId: '' }
+
+    await handleAutoVendorRecovery(statusChangedPayload(), context)
+
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
     expect(commandExecute).not.toHaveBeenCalled()
   })
 })

@@ -2,6 +2,7 @@ import {
   ASSIGNEE_NAME_LOOKUP_LIMIT,
   collectAssigneeUserIds,
   decorateItemsWithAssigneeNames,
+  isAssignableStaffUser,
   resolveAssigneeDisplayNames,
 } from '../lib/assigneeNames'
 
@@ -22,6 +23,7 @@ function createDeps(items: Array<Record<string, unknown>>, calls: QueryCall[] = 
     deps: {
       container: { resolve: (name: string) => (name === 'queryEngine' ? queryEngine : null) },
       tenantId: 'tenant-1',
+      organizationId: 'org-1',
     },
     calls,
   }
@@ -63,8 +65,13 @@ describe('resolveAssigneeDisplayNames', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].entityId).toBe('auth:user')
     expect(calls[0].opts.tenantId).toBe('tenant-1')
-    expect(calls[0].opts.filters).toEqual({ id: { $in: [USER_A, USER_B, USER_C] } })
-    expect(calls[0].opts.fields).toEqual(['id', 'name', 'email', 'tenant_id', 'organization_id'])
+    expect(calls[0].opts.filters).toEqual({
+      id: { $in: [USER_A, USER_B, USER_C] },
+      organization_id: 'org-1',
+      deleted_at: null,
+      is_confirmed: true,
+    })
+    expect(calls[0].opts.fields).toEqual(['id', 'name', 'email', 'tenant_id', 'organization_id', 'is_confirmed'])
     expect(calls[0].opts.page).toEqual({ page: 1, pageSize: ASSIGNEE_NAME_LOOKUP_LIMIT })
   })
 
@@ -99,6 +106,7 @@ describe('resolveAssigneeDisplayNames', () => {
         }),
       },
       tenantId: 'tenant-1',
+      organizationId: 'org-1',
     }
     expect((await resolveAssigneeDisplayNames(failingDeps, [USER_A])).size).toBe(0)
     const unresolvableDeps = {
@@ -108,6 +116,7 @@ describe('resolveAssigneeDisplayNames', () => {
         },
       },
       tenantId: 'tenant-1',
+      organizationId: 'org-1',
     }
     expect((await resolveAssigneeDisplayNames(unresolvableDeps, [USER_A])).size).toBe(0)
   })
@@ -136,6 +145,7 @@ describe('decorateItemsWithAssigneeNames', () => {
         },
       },
       tenantId: 'tenant-1',
+      organizationId: 'org-1',
     })
     expect(items[0].assigneeName).toBeNull()
   })
@@ -146,5 +156,49 @@ describe('decorateItemsWithAssigneeNames', () => {
     await decorateItemsWithAssigneeNames(items, deps)
     expect(items[0].assigneeName).toBeNull()
     expect(calls).toHaveLength(0)
+  })
+})
+
+describe('isAssignableStaffUser', () => {
+  it('requires an active staff roster entry in the selected organization', async () => {
+    const calls: QueryCall[] = []
+    const queryEngine = {
+      query: async (entityId: unknown, opts: Record<string, unknown>) => {
+        calls.push({ entityId, opts })
+        if (entityId === 'staff:staff_team_member') {
+          return { items: [{ id: 'member-1', user_id: USER_A }], total: 1 }
+        }
+        return { items: [{ id: USER_A, name: 'Alice Staff' }], total: 1 }
+      },
+    }
+    const result = await isAssignableStaffUser({
+      container: { resolve: () => queryEngine },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, USER_A)
+
+    expect(result).toBe(true)
+    expect(calls[0]).toMatchObject({
+      entityId: 'staff:staff_team_member',
+      opts: {
+        tenantId: 'tenant-1',
+        filters: {
+          user_id: USER_A,
+          organization_id: 'org-1',
+          deleted_at: null,
+          is_active: true,
+        },
+      },
+    })
+  })
+
+  it('rejects a user whose staff entry belongs to another organization', async () => {
+    const queryEngine = { query: jest.fn(async () => ({ items: [], total: 0 })) }
+    await expect(isAssignableStaffUser({
+      container: { resolve: () => queryEngine },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, USER_A)).resolves.toBe(false)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
   })
 })

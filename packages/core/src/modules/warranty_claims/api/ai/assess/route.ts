@@ -13,9 +13,7 @@ import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
-import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
-import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import type { AttachmentTargetAccessService } from '@open-mercato/core/modules/attachments/lib/target-access-service'
 import { WarrantyClaimLine } from '../../../data/entities'
 import {
   assessDamagePhoto,
@@ -218,56 +216,27 @@ async function loadScopedLine(
   return line
 }
 
-function attachmentMatchesTarget(
-  attachment: Attachment,
-  claimId: string,
-  lineId: string | null | undefined,
-): boolean {
-  const metadata = readAttachmentMetadata(attachment.storageMetadata)
-  const assignedToClaim =
-    (attachment.entityId === CLAIM_ATTACHMENT_ENTITY_ID && attachment.recordId === claimId) ||
-    metadata.assignments?.some((assignment) => (
-      assignment.type === CLAIM_ATTACHMENT_ENTITY_ID && assignment.id === claimId
-    )) === true
-  if (assignedToClaim) return true
-  if (!lineId) return false
-  return (
-    (attachment.entityId === LINE_ATTACHMENT_ENTITY_ID && attachment.recordId === lineId) ||
-    metadata.assignments?.some((assignment) => (
-      assignment.type === LINE_ATTACHMENT_ENTITY_ID && assignment.id === lineId
-    )) === true
-  )
-}
-
 async function verifyAttachmentLinkedToTarget(
   context: AssessRouteContext,
   input: { attachmentId: string; claimId: string; lineId?: string | null },
 ): Promise<void> {
-  const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
-  const attachment = await findOneWithDecryption(
-    context.em,
-    Attachment,
-    {
-      id: input.attachmentId,
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-    },
-    {},
-    scope,
-  )
-  if (!attachment) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.attachmentNotLinked' })
+  let service: AttachmentTargetAccessService | null = null
+  try {
+    service = context.container.resolve<AttachmentTargetAccessService>('attachmentTargetAccessService')
+  } catch {
+    service = null
   }
-
-  const partition = await context.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
-  if (!partition) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.attachmentNotLinked' })
-  }
-
-  const access = checkAttachmentAccess(buildAttachmentAuthContext(context), attachment, partition, {
-    requireAuthForPublic: true,
-  })
-  if (!access.ok || !attachmentMatchesTarget(attachment, input.claimId, input.lineId)) {
+  const linked = service ? await service.canAccessLinkedTarget({
+    attachmentId: input.attachmentId,
+    tenantId: context.tenantId,
+    organizationId: context.organizationId,
+    auth: buildAttachmentAuthContext(context),
+    targets: [
+      { entityId: CLAIM_ATTACHMENT_ENTITY_ID, recordId: input.claimId },
+      ...(input.lineId ? [{ entityId: LINE_ATTACHMENT_ENTITY_ID, recordId: input.lineId }] : []),
+    ],
+  }) : false
+  if (!linked) {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.attachmentNotLinked' })
   }
 }

@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../../data/entities'
+import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -112,21 +113,14 @@ export async function GET(req: Request, ctx: RouteContext) {
     return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
   }
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
-  const claim = await findOneWithDecryption(
+  const claim = await loadPortalOwnedClaim(
     context.em,
-    WarrantyClaim,
     {
-      id: claimId,
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       customerId: context.customerId,
-      // Internal vendor-recovery children copy the source claim's customerId; never expose
-      // them through the customer portal detail endpoint (WQA-008).
-      claimType: { $ne: 'vendor_recovery' },
-      deletedAt: null,
     },
-    {},
-    scope,
+    claimId,
   )
   if (!claim) {
     return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })

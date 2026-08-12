@@ -65,6 +65,10 @@ type LightDecisionEvaluation = {
   facts: Record<string, unknown>
 }
 
+type BusinessRulesEvaluation =
+  | { kind: 'unavailable' }
+  | { kind: 'decision'; value: WarrantyAdjudicationDecision }
+
 function numericAmount(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0
   const parsed = typeof value === 'number' ? value : Number(value)
@@ -229,6 +233,15 @@ function parseBusinessRulesDecision(value: unknown, risk: ClaimRiskAssessment): 
       ? nestedResult.errors
       : []
 
+  if (errors.length > 0) {
+    return businessRulesDecision('manual_review', risk, {
+      allowed,
+      executedRuleCount: executedRules?.length ?? null,
+      errorCount: errors.length,
+      failureReason: 'rule_errors',
+    })
+  }
+
   return businessRulesDecision(allowed ? 'auto_approve' : 'manual_review', risk, {
     allowed,
     executedRuleCount: executedRules?.length ?? null,
@@ -244,12 +257,10 @@ async function evaluateWithBusinessRules(args: {
   container: { resolve: <R = unknown>(n: string) => R }
   em: EntityManager
   scope: { tenantId: string; organizationId: string }
-}): Promise<WarrantyAdjudicationDecision | null> {
-  if (!args.settings.adjudicationUseRules) return null
-
+}): Promise<BusinessRulesEvaluation> {
   const service = tryResolve<BusinessRulesServiceLike>(args.container, 'businessRulesService')
     ?? tryResolve<BusinessRulesServiceLike>(args.container, 'ruleEngine')
-  if (!service) return null
+  if (!service) return { kind: 'unavailable' }
 
   const data = buildBusinessRulesData(args)
   const serviceArgs: BusinessRulesClaimEvaluationArgs = {
@@ -263,15 +274,23 @@ async function evaluateWithBusinessRules(args: {
   }
 
   if (typeof service.evaluateWarrantyClaim === 'function') {
-    return parseBusinessRulesDecision(await service.evaluateWarrantyClaim(serviceArgs), args.risk)
+    const value = parseBusinessRulesDecision(await service.evaluateWarrantyClaim(serviceArgs), args.risk)
+    return {
+      kind: 'decision',
+      value: value ?? businessRulesDecision('manual_review', args.risk, { failureReason: 'invalid_result' }),
+    }
   }
 
   if (typeof service.evaluate === 'function') {
-    return parseBusinessRulesDecision(await service.evaluate(serviceArgs), args.risk)
+    const value = parseBusinessRulesDecision(await service.evaluate(serviceArgs), args.risk)
+    return {
+      kind: 'decision',
+      value: value ?? businessRulesDecision('manual_review', args.risk, { failureReason: 'invalid_result' }),
+    }
   }
 
   if (typeof service.executeRules === 'function') {
-    return parseBusinessRulesDecision(await service.executeRules(args.em, {
+    const value = parseBusinessRulesDecision(await service.executeRules(args.em, {
       entityType: 'warranty_claims:claim',
       entityId: args.claim.id,
       eventType: 'warranty_claims.claim.adjudicate',
@@ -280,9 +299,16 @@ async function evaluateWithBusinessRules(args: {
       organizationId: args.scope.organizationId,
       dryRun: true,
     }), args.risk)
+    return {
+      kind: 'decision',
+      value: value ?? businessRulesDecision('manual_review', args.risk, { failureReason: 'invalid_result' }),
+    }
   }
 
-  return null
+  return {
+    kind: 'decision',
+    value: businessRulesDecision('manual_review', args.risk, { failureReason: 'unsupported_service' }),
+  }
 }
 
 export function createWarrantyAdjudicationEvaluator(): WarrantyAdjudicationEvaluator {
@@ -301,13 +327,16 @@ export function createWarrantyAdjudicationEvaluator(): WarrantyAdjudicationEvalu
         }
       }
 
-      let businessRulesDecision: WarrantyAdjudicationDecision | null = null
-      try {
-        businessRulesDecision = await evaluateWithBusinessRules(args)
-      } catch {
-        businessRulesDecision = null
+      if (args.settings.adjudicationUseRules) {
+        try {
+          const evaluation = await evaluateWithBusinessRules(args)
+          if (evaluation.kind === 'decision') return evaluation.value
+        } catch {
+          return businessRulesDecision('manual_review', args.risk, {
+            failureReason: 'execution_failed',
+          })
+        }
       }
-      if (businessRulesDecision) return businessRulesDecision
 
       return lightDecision(args)
     },

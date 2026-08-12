@@ -50,6 +50,7 @@ import {
   type WarrantyClaimWarrantyStatus,
 } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isAssignableStaffUser } from '../lib/assigneeNames'
 import { WarrantyClaimNumberGenerator } from '../services/claimNumberGenerator'
 import { emitWarrantyClaimsEvent } from '../events'
 import { assertTransition, canResolveWithLineStatuses, computeHeaderRollups } from '../lib/stateMachine'
@@ -1185,32 +1186,18 @@ export async function validateClaimReferences(
   }
 }
 
-type AssigneeUsersDb = {
-  users: {
-    id: string
-    tenant_id: string | null
-    deleted_at: Date | null
-    is_confirmed: boolean
-  }
-}
-
 async function validateAssigneeUser(
   ctx: CommandRuntimeContext,
   scope: WarrantyClaimScope,
   assigneeUserId: string | null | undefined,
 ): Promise<void> {
   if (!assigneeUserId) return
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const db = em.getKysely<AssigneeUsersDb>()
-  const row = await db
-    .selectFrom('users')
-    .select('id')
-    .where('id', '=', assigneeUserId)
-    .where('tenant_id', '=', scope.tenantId)
-    .where('deleted_at', 'is', null)
-    .where('is_confirmed', '=', true)
-    .executeTakeFirst()
-  if (!row) throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidAssignee' })
+  const assignable = await isAssignableStaffUser({
+    container: ctx.container,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }, assigneeUserId)
+  if (!assignable) throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidAssignee' })
 }
 
 function applyClaimAssignment(
@@ -2029,6 +2016,7 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
     })
     let recoveryClaim!: WarrantyClaim
     let copiedLines: WarrantyClaimLine[] = []
+    let updatedSourceLines: WarrantyClaimLine[] = []
 
     await em.transactional(async (tx) => {
       const lockedSource = await requireScopedClaim(tx, sourceClaim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
@@ -2046,6 +2034,7 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
         scope,
       )
       assertVendorRecoveryLines(lockedLines, input.lineIds)
+      updatedSourceLines = lockedLines
       recoveryClaim = tx.create(WarrantyClaim, {
         id: randomUUID(),
         organizationId: scope.organizationId,
@@ -2128,6 +2117,7 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
 
     await emitClaimCrud(ctx, 'created', recoveryClaim)
     await Promise.all(copiedLines.map((line) => emitLineCrud(ctx, 'created', line)))
+    await Promise.all(updatedSourceLines.map((line) => emitLineCrud(ctx, 'updated', line)))
     await Promise.all(input.lineIds.map((sourceLineId) => invalidateCrudCache(
       ctx.container,
       'warranty_claims.claim_line',

@@ -45,14 +45,18 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
     const { translate } = await resolveTranslations()
-    if (!auth || !auth.tenantId) {
+    if (!auth || !auth.tenantId || !auth.orgId) {
       throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
     }
 
     const requestedIds = parseRequestedIds(parsedQuery.ids)
     if (!requestedIds.length) return NextResponse.json({ items: [] })
 
-    const displayNames = await resolveAssigneeDisplayNames({ container, tenantId: auth.tenantId }, requestedIds)
+    const displayNames = await resolveAssigneeDisplayNames({
+      container,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    }, requestedIds)
     const items = requestedIds.flatMap((id) => {
       const name = displayNames.get(id)
       return name ? [{ id, name }] : []
@@ -76,7 +80,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Resolve assignee user ids to display names',
-      description: `Resolves up to ${MAX_ASSIGNEE_LOOKUP_IDS} explicitly supplied user ids to their display name, scoped to the caller's tenant. Requires \`ids\`; it cannot enumerate the user directory, and it returns neither role assignments nor organization membership.`,
+      description: `Resolves up to ${MAX_ASSIGNEE_LOOKUP_IDS} explicitly supplied user ids to their display name, scoped to the caller's tenant and active organization. Requires \`ids\`; it cannot enumerate the user directory, and it returns neither role assignments nor organization membership.`,
       query: querySchema,
       responses: [
         {

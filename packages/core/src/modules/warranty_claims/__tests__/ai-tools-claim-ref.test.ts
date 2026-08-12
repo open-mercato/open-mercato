@@ -60,6 +60,7 @@ function buildContext(): WarrantyClaimsToolContext {
 }
 
 const getClaimTool = aiTools.find((tool) => tool.name === 'warranty_claims.get_claim')!
+const transitionClaimTool = aiTools.find((tool) => tool.name === 'warranty_claims.transition_claim')!
 
 beforeEach(() => {
   findOneWithDecryptionMock.mockReset()
@@ -104,5 +105,51 @@ describe('warranty_claims.get_claim claim-ref resolution', () => {
 
     expect(result.found).toBe(false)
     expect(result.claimId).toBe('WTY-999999')
+  })
+})
+
+describe('warranty_claims.transition_claim approval boundary', () => {
+  it('does not execute when called outside a confirmed pending action', async () => {
+    const commandExecute = jest.fn()
+    const context = buildContext()
+    context.container = {
+      resolve: (name: string) => {
+        if (name === 'commandBus') return { execute: commandExecute }
+        return {}
+      },
+    } as unknown as AwilixContainer
+
+    await expect(transitionClaimTool.handler({
+      id: CLAIM_UUID,
+      toStatus: 'submitted',
+    }, context)).rejects.toThrow('approved AI pending action')
+
+    expect(commandExecute).not.toHaveBeenCalled()
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('executes only with the pending-action executor approval marker', async () => {
+    const claim = buildClaim()
+    const commandExecute = jest.fn(async () => ({ result: { claimId: CLAIM_UUID } }))
+    findOneWithDecryptionMock.mockResolvedValue(claim)
+    const context = buildContext()
+    context.approvedPendingActionId = 'pending-action-1'
+    context.container = {
+      resolve: (name: string) => {
+        if (name === 'em') return {}
+        if (name === 'commandBus') return { execute: commandExecute }
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+
+    await expect(transitionClaimTool.handler({
+      id: CLAIM_UUID,
+      toStatus: 'submitted',
+    }, context)).resolves.toMatchObject({
+      recordId: CLAIM_UUID,
+      commandName: 'warranty_claims.claim.transition',
+    })
+
+    expect(commandExecute).toHaveBeenCalledTimes(1)
   })
 })

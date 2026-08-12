@@ -5,10 +5,10 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { WarrantyClaim } from '../../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../../commands/shared'
+import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
 
 export type PortalClaimActionRouteContext = { params: Promise<{ id: string }> }
 
@@ -73,18 +73,14 @@ export async function loadOwnedClaim(
   context: PortalClaimActionContext,
   claimId: string,
 ): Promise<WarrantyClaim | null> {
-  return findOneWithDecryption(
+  return loadPortalOwnedClaim(
     context.em,
-    WarrantyClaim,
     {
-      id: claimId,
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       customerId: context.customerId,
-      deletedAt: null,
     },
-    {},
-    { tenantId: context.tenantId, organizationId: context.organizationId },
+    claimId,
   )
 }
 
@@ -93,18 +89,14 @@ export async function loadOwnedClaimFresh(
   claimId: string,
 ): Promise<WarrantyClaim | null> {
   const em = context.em.fork()
-  return findOneWithDecryption(
+  return loadPortalOwnedClaim(
     em,
-    WarrantyClaim,
     {
-      id: claimId,
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       customerId: context.customerId,
-      deletedAt: null,
     },
-    {},
-    { tenantId: context.tenantId, organizationId: context.organizationId },
+    claimId,
   )
 }
 

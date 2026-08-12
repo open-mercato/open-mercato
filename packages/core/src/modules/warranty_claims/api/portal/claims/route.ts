@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -20,6 +20,7 @@ import {
 } from '../../../data/validators'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { portalClaimStatusesForStateGroup } from '../../../lib/listSegments'
+import { buildPortalOwnedClaimWhere } from '../../../lib/portalClaimAccess'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -308,15 +309,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
   }
   const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
-  const where: FilterQuery<WarrantyClaim> = {
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-    customerId: context.customerId,
-    // Internal vendor-recovery children copy the source claim's customerId; they must never
-    // surface in the customer portal (WQA-008).
-    claimType: { $ne: 'vendor_recovery' },
-    deletedAt: null,
-  }
+  const where = buildPortalOwnedClaimWhere(context)
   if (status) where.status = status
   else if (stateGroup) where.status = { $in: portalClaimStatusesForStateGroup(stateGroup) }
   if (search) {
@@ -335,7 +328,7 @@ export async function GET(req: Request) {
         tenantId: context.tenantId,
         organizationId: context.organizationId,
         deletedAt: null,
-        claim: { customerId: context.customerId, deletedAt: null },
+        claim: buildPortalOwnedClaimWhere(context),
       },
       {},
       { tenantId: context.tenantId, organizationId: context.organizationId },

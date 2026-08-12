@@ -6,12 +6,13 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { WarrantyClaim, WarrantyClaimEvent } from '../../../data/entities'
 import type { CommentClaimInput } from '../../../data/validators'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
+import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -105,18 +106,14 @@ async function resolvePortalContext(req: Request): Promise<PortalContext | Respo
 }
 
 async function loadOwnedClaim(context: PortalContext, claimId: string): Promise<WarrantyClaim | null> {
-  return findOneWithDecryption(
+  return loadPortalOwnedClaim(
     context.em,
-    WarrantyClaim,
     {
-      id: claimId,
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       customerId: context.customerId,
-      deletedAt: null,
     },
-    {},
-    { tenantId: context.tenantId, organizationId: context.organizationId },
+    claimId,
   )
 }
 

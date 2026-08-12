@@ -172,6 +172,11 @@ function filterEquals(query: Record<string, unknown>, key: string): unknown {
   return '$eq' in value ? value.$eq : filters[key]
 }
 
+function filterIncludes(query: Record<string, unknown>, key: string, value: string): boolean {
+  const filter = asRecord(asRecord(query.filters)[key])
+  return Array.isArray(filter.$in) && filter.$in.includes(value)
+}
+
 function queryItems(entityId: string, query: Record<string, unknown>): Array<Record<string, unknown>> {
   const id = filterEquals(query, 'id')
   if (entityId === 'customers:customer_entity') {
@@ -200,8 +205,14 @@ function queryItems(entityId: string, query: Record<string, unknown>): Array<Rec
       : []
   }
   if (entityId === 'auth:user') {
-    return id === USER_ID
-      ? [{ id: USER_ID }]
+    return (id === USER_ID || filterIncludes(query, 'id', USER_ID))
+      ? [{ id: USER_ID, name: 'Warranty Manager', organization_id: ORG_ID, is_confirmed: true }]
+      : []
+  }
+  if (entityId === 'staff:staff_team_member') {
+    return filterEquals(query, 'user_id') === USER_ID
+      && filterEquals(query, 'organization_id') === ORG_ID
+      ? [{ id: 'staff-member-1', user_id: USER_ID, organization_id: ORG_ID, is_active: true }]
       : []
   }
   return []
@@ -302,6 +313,7 @@ function makeContext(options: { entitlementResolver?: EntitlementResolverMock } 
   ctx: CommandRuntimeContext
   numberGenerator: NumberGenerator
   queryEngine: QueryEngineMock
+  dataEngine: { markOrmEntityChange: jest.Mock }
 } {
   const fork = makeFork()
   const numberGenerator: NumberGenerator = {
@@ -338,7 +350,7 @@ function makeContext(options: { entitlementResolver?: EntitlementResolverMock } 
     organizationIds: [ORG_ID],
     request: new Request('http://localhost/api/warranty_claims', { method: 'POST' }),
   } as unknown as CommandRuntimeContext
-  return { ctx, numberGenerator, queryEngine }
+  return { ctx, numberGenerator, queryEngine, dataEngine }
 }
 
 function makeClaim(status: WarrantyClaimStatus, fields: Partial<WarrantyClaim> = {}): WarrantyClaim {
@@ -726,6 +738,28 @@ describe('warranty claim commands', () => {
     }, ctx)).rejects.toMatchObject({ status: 400 })
   })
 
+  test('vendor recovery emits an updated index side effect for each linked source line', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('resolved')
+    const line = makeLine(claim, { lineStatus: 'resolved', qtyApproved: '1' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await createVendorRecoveryCommand.execute({
+      claimId: CLAIM_ID,
+      lineIds: [LINE_ID],
+      vendorName: 'Vendor',
+    }, ctx)
+
+    expect(line.vendorClaimLineId).toEqual(expect.any(String))
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'updated',
+      entity: line,
+      identifiers: { id: LINE_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+      indexer: { entityType: 'warranty_claims:warranty_claim_line' },
+    }))
+  })
+
   test('customer reply auto-resumes info-requested claims and emits status events', async () => {
     jest.useFakeTimers()
     try {
@@ -972,7 +1006,7 @@ describe('warranty claim commands', () => {
   })
 
   test('claim create validates sales references and assign validates assignee user', async () => {
-    const { ctx } = makeContext()
+    const { ctx, queryEngine } = makeContext()
 
     await expect(createClaimCommand.execute({
       tenantId: TENANT_ID,
@@ -986,6 +1020,19 @@ describe('warranty claim commands', () => {
     await expect(assignClaimCommand.execute({ id: CLAIM_ID, assigneeUserId: LINE_ID }, ctx))
       .rejects
       .toMatchObject({ status: 400 })
+
+    await expect(assignClaimCommand.execute({ id: CLAIM_ID, assigneeUserId: USER_ID }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    expect(claim.assigneeUserId).toBe(USER_ID)
+    const staffLookup = queryEngine.query.mock.calls.find(([entityId, query]) => (
+      entityId === 'staff:staff_team_member' && asRecord(query.filters).user_id === USER_ID
+    ))
+    expect(staffLookup?.[1].filters).toMatchObject({
+      user_id: USER_ID,
+      organization_id: ORG_ID,
+      deleted_at: null,
+      is_active: true,
+    })
   })
 
   test('claim crud event payload carries claimType and status for subscriber gating', () => {

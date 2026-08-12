@@ -233,16 +233,27 @@ describe('warranty claim return-shipment tracking subscriber', () => {
     })
   })
 
-  test('skips an incomplete delivered payload even when subscriber context carries scope', async () => {
+  test('ignores missing or mismatched payload scope and uses trusted subscriber scope', async () => {
     const { calls, context, execute } = makeSubscriberContext()
 
-    await handle(makePayload({ tenantId: undefined }), context)
+    await handle(makePayload({ tenantId: undefined, organizationId: 'payload-org' }), context)
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0].wheres).toContainEqual(['tenant_id', '=', TENANT_ID])
+    expect(calls[0].wheres).toContainEqual(['organization_id', '=', ORG_ID])
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  test('skips when trusted subscriber scope is incomplete', async () => {
+    const { calls, context, execute } = makeSubscriberContext()
+
+    await handle(makePayload(), { ...context, tenantId: null })
 
     expect(calls).toHaveLength(0)
     expect(execute).not.toHaveBeenCalled()
     expect(mockLoggerDebug).toHaveBeenCalledWith(
       expect.stringContaining('skipped incomplete delivered payload'),
-      expect.objectContaining({ hasTenantId: false }),
+      expect.objectContaining({ hasTrustedTenantId: false }),
     )
   })
 

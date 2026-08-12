@@ -72,6 +72,7 @@ async function evaluate(input: {
   lines?: WarrantyClaimLine[]
   settings?: WarrantyClaimEffectiveSettings
   risk?: ClaimRiskAssessment
+  container?: { resolve: <R = unknown>(name: string) => R }
 }) {
   const evaluator = createWarrantyAdjudicationEvaluator()
   return evaluator.evaluate({
@@ -79,7 +80,7 @@ async function evaluate(input: {
     lines: input.lines ?? [makeLine()],
     settings: input.settings ?? settings,
     risk: input.risk ?? noRisk,
-    container: missingPeerContainer,
+    container: input.container ?? missingPeerContainer,
     em: {} as EntityManager,
     scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
   })
@@ -131,6 +132,50 @@ describe('warranty adjudication evaluator', () => {
       rule: 'light',
       forcedManualByRisk: true,
       riskLevel: 'high',
+    })
+  })
+
+  test('rule execution failures force manual review instead of light auto-approval', async () => {
+    const result = await evaluate({
+      settings: { ...settings, adjudicationUseRules: true },
+      container: {
+        resolve: <R = unknown>(): R => ({
+          evaluateWarrantyClaim: async () => {
+            throw new Error('rule runtime failed')
+          },
+        }) as R,
+      },
+    })
+
+    expect(result).toMatchObject({
+      decision: 'manual_review',
+      facts: { rule: 'business_rules', failureReason: 'execution_failed' },
+    })
+  })
+
+  test('malformed and error-bearing rule results force manual review', async () => {
+    const malformed = await evaluate({
+      settings: { ...settings, adjudicationUseRules: true },
+      container: {
+        resolve: <R = unknown>(): R => ({ evaluateWarrantyClaim: async () => ({ unexpected: true }) }) as R,
+      },
+    })
+    const withErrors = await evaluate({
+      settings: { ...settings, adjudicationUseRules: true },
+      container: {
+        resolve: <R = unknown>(): R => ({
+          evaluateWarrantyClaim: async () => ({ allowed: true, executedRules: ['rule-1'], errors: ['failed'] }),
+        }) as R,
+      },
+    })
+
+    expect(malformed).toMatchObject({
+      decision: 'manual_review',
+      facts: { failureReason: 'invalid_result' },
+    })
+    expect(withErrors).toMatchObject({
+      decision: 'manual_review',
+      facts: { failureReason: 'rule_errors', errorCount: 1 },
     })
   })
 })

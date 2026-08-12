@@ -76,21 +76,18 @@ function isInvalidTransitionError(error: unknown): boolean {
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
   const shipmentId = readString(record, 'shipmentId') ?? readString(record, 'shipment_id')
-  const payloadTenantId = readString(record, 'tenantId') ?? readString(record, 'tenant_id')
-  const payloadOrganizationId = readString(record, 'organizationId')
-    ?? readString(record, 'organization_id')
+  const tenantId = ctx.tenantId ?? null
+  const organizationId = ctx.organizationId ?? null
 
-  if (!shipmentId || !payloadTenantId || !payloadOrganizationId) {
+  if (!shipmentId || !tenantId || !organizationId) {
     logger.debug('[warranty_claims:return-shipment-tracking] skipped incomplete delivered payload', {
       hasShipmentId: Boolean(shipmentId),
-      hasTenantId: Boolean(payloadTenantId),
-      hasOrganizationId: Boolean(payloadOrganizationId),
+      hasTrustedTenantId: Boolean(tenantId),
+      hasTrustedOrganizationId: Boolean(organizationId),
     })
     return
   }
 
-  const tenantId = ctx.tenantId ?? payloadTenantId
-  const organizationId = ctx.organizationId ?? payloadOrganizationId
   const container = resolveContainer(ctx)
   let db: Kysely<ReturnTrackingDb>
   try {

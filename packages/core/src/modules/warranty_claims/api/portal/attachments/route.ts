@@ -1,43 +1,26 @@
-import { randomUUID } from 'crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
-import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
-import { extractAttachmentContent } from '@open-mercato/core/modules/attachments/lib/textExtraction'
-import { requestOcrProcessing } from '@open-mercato/core/modules/attachments/lib/ocrQueue'
-import { OcrService, shouldUseLlmOcr } from '@open-mercato/core/modules/attachments/lib/ocrService'
+import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
-import { assertAttachmentScopeInvariant, checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
-import { mergeAttachmentMetadata, readAttachmentMetadata, upsertAssignment } from '@open-mercato/core/modules/attachments/lib/metadata'
+import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
+import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import { isMultipartRequestWithinUploadLimit } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
-  detectAttachmentMimeType,
-  hasDangerousExecutableExtension,
-  isActiveContentAttachment,
-  sanitizeUploadedFileName,
-} from '@open-mercato/core/modules/attachments/lib/security'
-import {
-  isMultipartRequestWithinUploadLimit,
-  resolveAttachmentMaxBytes,
-  willExceedAttachmentTenantQuota,
-} from '@open-mercato/core/modules/attachments/lib/upload-limits'
-import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
-import { E } from '#generated/entities.ids.generated'
+  ScopedAttachmentUploadError,
+} from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('warranty_claims')
+import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
+import { resolvePortalAttachmentUploadService } from '../../../lib/portalAttachmentUpload'
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
 
@@ -103,18 +86,14 @@ function attachmentAuth(context: PortalContext): NonNullable<AuthContext> {
 }
 
 async function loadOwnedClaim(context: PortalContext, claimId: string): Promise<WarrantyClaim | null> {
-  return findOneWithDecryption(
+  return loadPortalOwnedClaim(
     context.em,
-    WarrantyClaim,
     {
-      id: claimId,
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       customerId: context.customerId,
-      deletedAt: null,
     },
-    {},
-    { tenantId: context.tenantId, organizationId: context.organizationId },
+    claimId,
   )
 }
 
@@ -170,32 +149,6 @@ async function resolveStorageDriverFactory(context: PortalContext): Promise<Stor
     return resolved ?? new StorageDriverFactory(context.em)
   } catch {
     return new StorageDriverFactory(context.em)
-  }
-}
-
-async function resolveDataEngine(context: PortalContext): Promise<DataEngine | null> {
-  try {
-    return context.container.resolve('dataEngine') as DataEngine
-  } catch {
-    return null
-  }
-}
-
-async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
-  try {
-    const rows = await em.getConnection().execute<Array<{ total_size: string | number | null }>>(
-      'select sum(file_size) as total_size from attachments where tenant_id = ?',
-      [tenantId],
-    )
-    const total = rows[0]?.total_size
-    if (typeof total === 'number') return Number.isFinite(total) ? total : 0
-    if (typeof total === 'string') {
-      const parsed = Number(total)
-      return Number.isFinite(parsed) ? parsed : 0
-    }
-    return 0
-  } catch {
-    return 0
   }
 }
 
@@ -341,131 +294,56 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ ok: false, error: 'File is required' }, { status: 400 })
   }
-  if (hasDangerousExecutableExtension(file.name)) {
-    return NextResponse.json({ ok: false, error: 'Executable file types are not allowed as attachments.' }, { status: 400 })
-  }
-  const maxBytes = resolveAttachmentMaxBytes()
-  if (file.size > maxBytes) {
-    return NextResponse.json({ ok: false, error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
-  }
-  const tenantUsageBytes = await readTenantAttachmentUsageBytes(context.em, context.tenantId)
-  if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
-    return NextResponse.json({ ok: false, error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
-  }
-
   const buffer = Buffer.from(await file.arrayBuffer())
-  const safeName = sanitizeUploadedFileName(file.name)
-  const mimeType = detectAttachmentMimeType(buffer, safeName, file.type)
-  if (isActiveContentAttachment(buffer, safeName, mimeType)) {
-    return NextResponse.json({ ok: false, error: 'Active content uploads are not allowed.' }, { status: 400 })
-  }
 
   const guarded = await runPortalAttachmentGuard(req, context, claim.id, {
     claimId: claim.id,
-    fileName: safeName,
+    fileName: file.name,
     fileSize: file.size,
-    mimeType,
+    mimeType: file.type,
   })
   if (!guarded.ok) {
     return guarded.response
   }
 
-  await ensureDefaultPartitions(context.em)
-  const partitionCode = resolveDefaultPartitionCode(CLAIM_ATTACHMENT_ENTITY_ID)
-  const partition = await context.em.findOne(AttachmentPartition, { code: partitionCode })
-  if (!partition) {
-    return NextResponse.json({ ok: false, error: 'Storage partition is not configured.' }, { status: 400 })
+  const uploadService = resolvePortalAttachmentUploadService(context.container)
+  if (!uploadService) {
+    return NextResponse.json({ ok: false, error: 'Attachment service is unavailable.' }, { status: 503 })
   }
-  const storageDriverFactory = await resolveStorageDriverFactory(context)
-  const uploadDriver = await storageDriverFactory.resolveForPartition(partition.code, {
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-  })
-  let storedPath: string
+
+  let attachment: Attachment
   try {
-    const stored = await uploadDriver.store({
-      partitionCode: partition.code,
-      orgId: context.organizationId,
+    attachment = await uploadService.upload({
       tenantId: context.tenantId,
-      fileName: safeName,
+      organizationId: context.organizationId,
+      entityId: CLAIM_ATTACHMENT_ENTITY_ID,
+      recordId: claim.id,
+      fileName: file.name,
       buffer,
+      declaredMimeType: file.type,
+      tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG],
     })
-    storedPath = stored.storagePath
   } catch (error) {
-    logger.error('[warranty_claims.portal.attachments] failed to persist file', { err: error })
-    return NextResponse.json({ ok: false, error: 'Failed to persist attachment.' }, { status: 500 })
-  }
-
-  let extractedContent: string | null = null
-  const wantsLlmOcr = partition.requiresOcr && shouldUseLlmOcr(mimeType, safeName)
-  const ocrService = wantsLlmOcr ? new OcrService() : null
-  const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
-  if (partition.requiresOcr && !useLlmOcr) {
-    const { filePath, cleanup } = await uploadDriver.toLocalPath(partition.code, storedPath)
-    try {
-      extractedContent = await extractAttachmentContent({ filePath, mimeType })
-    } catch (error) {
-      logger.error('[warranty_claims.portal.attachments] failed to extract attachment content', { err: error })
-    } finally {
-      await cleanup().catch(() => undefined)
+    if (error instanceof ScopedAttachmentUploadError) {
+      const messages: Record<ScopedAttachmentUploadError['code'], string> = {
+        dangerous_executable: 'Executable file types are not allowed as attachments.',
+        max_upload_size: 'Attachment exceeds the maximum upload size.',
+        active_content: 'Active content uploads are not allowed.',
+        partition_unavailable: 'Storage partition is not configured.',
+        quota_exceeded: 'Attachment storage quota exceeded for this tenant.',
+        quota_target_exists: 'The attachment storage target already exists.',
+        quota_unavailable: 'Attachment storage quota is unavailable.',
+        quota_recovery_unsupported: 'Attachment storage does not support safe quota recovery.',
+        storage_failed: 'Failed to persist attachment.',
+        persistence_failed: 'Failed to save attachment.',
+      }
+      return NextResponse.json({ ok: false, error: messages[error.code] }, { status: error.status })
     }
-  }
-
-  const metadata = mergeAttachmentMetadata(null, {
-    assignments: upsertAssignment([], { type: CLAIM_ATTACHMENT_ENTITY_ID, id: claim.id }),
-    tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG],
-  })
-  const attachmentId = randomUUID()
-  assertAttachmentScopeInvariant({ tenantId: context.tenantId, organizationId: context.organizationId })
-  const attachment = context.em.create(Attachment, {
-    id: attachmentId,
-    entityId: CLAIM_ATTACHMENT_ENTITY_ID,
-    recordId: claim.id,
-    organizationId: context.organizationId,
-    tenantId: context.tenantId,
-    fileName: safeName,
-    mimeType,
-    fileSize: buffer.length,
-    partitionCode: partition.code,
-    storageDriver: partition.storageDriver || 'local',
-    storagePath: storedPath,
-    url: buildAttachmentFileUrl(attachmentId),
-    content: extractedContent,
-    storageMetadata: metadata,
-  })
-  try {
-    await context.em.transactional(async (tx) => {
-      await tx.persist(attachment).flush()
-    })
-  } catch (error) {
-    logger.error('[warranty_claims.portal.attachments] failed to persist attachment', { err: error })
-    return NextResponse.json({ ok: false, error: 'Failed to save attachment.' }, { status: 500 })
-  }
-
-  if (useLlmOcr) {
-    requestOcrProcessing(context.em, attachment, uploadDriver, storedPath).catch((error) => {
-      logger.error('[warranty_claims.portal.attachments] failed to queue OCR processing', { err: error })
-    })
-  }
-
-  const dataEngine = await resolveDataEngine(context)
-  if (dataEngine) {
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'created',
-      entity: attachment,
-      identifiers: {
-        id: attachment.id,
-        organizationId: attachment.organizationId ?? null,
-        tenantId: attachment.tenantId ?? null,
-      },
-      events: attachmentCrudEvents,
-      indexer: attachmentCrudIndexer,
-    })
-    await dataEngine.flushOrmEntityChanges()
+    throw error
   }
 
   await guarded.runAfterSuccess()
+  const metadata = readAttachmentMetadata(attachment.storageMetadata)
 
   return NextResponse.json({
     ok: true,
@@ -482,11 +360,11 @@ export async function POST(req: Request) {
         height: 320,
         slug: slugifyAttachmentFileName(attachment.fileName),
       }),
-      content: extractedContent,
+      content: attachment.content ?? null,
       tags: metadata.tags ?? [],
       assignments: metadata.assignments ?? [],
       createdAt: toIso(attachment.createdAt),
-      entityType: E.attachments.attachment,
+      entityType: 'attachments:attachment',
     },
   })
 }
