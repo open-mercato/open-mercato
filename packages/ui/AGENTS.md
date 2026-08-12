@@ -292,6 +292,7 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 - Interactive cell content (`button`, `a`, `input`, `select`, `textarea`, `[role=combobox|listbox]`, `[contenteditable]`) swallows the row click; override or disable it via `rowClickInteractiveSelector`.
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
 - Keep `extensionTableId` stable and deterministic.
+- Prefer `showSaveViewButton` for "Save view" affordances; build your own on `viewApiRef`/`onColumnsDirtyChange` only for a host with a custom `toolbar`. Never patch `DataTable`. See `apps/docs/docs/framework/admin-ui/perspectives.mdx`.
 - Render injected row actions and bulk actions through `RowActions`/bulk handlers so they follow the same guard and i18n behavior as built-ins.
 - For mutating bulk actions, show operation progress in `ProgressTopBar`: return `{ ok, progressJobId }` from server/queued actions, or use shared bulk helpers that emit client-local progress events for browser-bound loops. MUST NOT add custom per-page progress bars for DataTable bulk work.
 - Prefer server-side `ProgressJob` + queue workers for bulk work that may exceed one second, touch many records, call external services, or should continue after navigation. Use client-local progress only for short in-page loops that intentionally preserve response-side metadata such as undo headers.

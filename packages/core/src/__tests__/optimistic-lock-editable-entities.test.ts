@@ -64,6 +64,14 @@ const moduleEntities: Record<string, string[]> = {
     'WarrantyTroubleshootingGuide',
   ],
   directory: ['Organization', 'Tenant'],
+  eudr: [
+    'EudrProductMapping',
+    'EudrEvidenceSubmission',
+    'EudrDueDiligenceStatement',
+    'EudrPlot',
+    'EudrRiskAssessment',
+    'EudrMitigationAction',
+  ],
   messages: ['Message'],
 }
 

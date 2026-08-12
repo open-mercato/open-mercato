@@ -8,6 +8,7 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   runMutationGuards,
@@ -235,9 +236,13 @@ export type ListConfig<TList> = {
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
   allowCsv?: boolean
+  // The function forms mirror `fields` above: a route whose export columns depend
+  // on per-request state (for example custom-field definitions discovered in
+  // `beforeList`) MUST resolve them from `ctx` rather than from module-level
+  // mutable state, which would bleed one tenant's columns into another's export.
   csv?: {
-    headers: string[]
-    row: (item: any) => (string | number | boolean | null | undefined)[]
+    headers: string[] | ((query: TList, ctx: CrudCtx) => string[])
+    row: (item: any, ctx: CrudCtx) => (string | number | boolean | null | undefined)[]
     filename?: string
   }
   export?: CrudExportOptions
@@ -346,14 +351,20 @@ function buildExportFromColumns(items: any[], columnsConfig: CrudExportColumnCon
   }
 }
 
-function buildExportFromCsv(items: any[], csv: NonNullable<ListConfig<any>['csv']>): PreparedExport {
+function buildExportFromCsv(
+  items: any[],
+  csv: NonNullable<ListConfig<any>['csv']>,
+  query: unknown,
+  ctx: CrudCtx,
+): PreparedExport {
   const used = new Set<string>()
-  const columns = csv.headers.map((header, idx) => ({
+  const resolvedHeaders = typeof csv.headers === 'function' ? csv.headers(query as any, ctx) : csv.headers
+  const columns = resolvedHeaders.map((header, idx) => ({
     field: sanitizeFieldName(header || `column_${idx + 1}`, used, idx),
     header: header || `Column ${idx + 1}`,
   }))
   const rows = items.map((item) => {
-    const values = csv.row(item) || []
+    const values = csv.row(item, ctx) || []
     const row: Record<string, unknown> = {}
     columns.forEach((column, idx) => {
       row[column.field] = values[idx]
@@ -376,12 +387,12 @@ function buildDefaultExport(items: any[]): PreparedExport {
   }
 }
 
-function prepareExportData(items: any[], list: ListConfig<any>): PreparedExport {
+function prepareExportData(items: any[], list: ListConfig<any>, query: unknown, ctx: CrudCtx): PreparedExport {
   if (list.export?.columns && list.export.columns.length > 0) {
     return buildExportFromColumns(items, list.export.columns)
   }
   if (list.csv) {
-    return buildExportFromCsv(items, list.csv)
+    return buildExportFromCsv(items, list.csv, query, ctx)
   }
   const prepared = buildDefaultExport(items)
   return {
@@ -586,6 +597,13 @@ function attachOperationHeader(res: Response, logEntry: any) {
 function handleError(err: unknown): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+  // A command interceptor that blocked with an explicit status is a deliberate business
+  // rejection, not a server fault — surface its status and message instead of a generic 500.
+  // Without a usable status the error falls through to the historical handling below (issue #5045).
+  const interceptorRejection = getCommandInterceptorHttpRejection(err)
+  if (interceptorRejection) {
+    return json(interceptorRejection.body, { status: interceptorRejection.status })
+  }
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
@@ -1882,7 +1900,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
           const prepared = exportFullRequested
             ? { columns: ensureColumns(exportItems), rows: exportItems }
-            : prepareExportData(exportItems, opts.list)
+            : prepareExportData(exportItems, opts.list, validated as any, ctx)
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
@@ -2084,7 +2102,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
         const prepared = exportFullRequested
           ? { columns: ensureColumns(exportItems), rows: exportItems }
-          : prepareExportData(exportItems, opts.list)
+          : prepareExportData(exportItems, opts.list, validated as any, ctx)
         const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)

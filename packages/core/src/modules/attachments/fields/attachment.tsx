@@ -51,6 +51,7 @@ export const AttachmentInput = ({
   def,
   disabled,
   onCountChange,
+  onUploaded,
 }: {
   entityId?: string
   recordId?: string
@@ -59,6 +60,7 @@ export const AttachmentInput = ({
   // Optional: notified with the current attachment count after each load so a host page can keep
   // a derived badge (e.g. a tab count) in sync without a full reload. Additive/backward-compatible.
   onCountChange?: (count: number) => void
+  onUploaded?: () => void
 }) => {
   const t = useT()
   const [items, setItems] = React.useState<Array<{ id: string; url: string; fileName: string; fileSize: number }>>([])
@@ -98,6 +100,7 @@ export const AttachmentInput = ({
     if (!files || !entityId || !recordId) return
     setError(null)
     setUploading(true)
+    let uploadedCount = 0
     try {
       for (const file of Array.from(files)) {
         const ext = (file.name || '').split('.').pop()?.toLowerCase() || ''
@@ -125,8 +128,10 @@ export const AttachmentInput = ({
           setError(call.result?.error || t('attachments.library.upload.failed', 'Upload failed.'))
           break
         }
+        uploadedCount += 1
       }
       await load()
+      if (uploadedCount > 0) onUploaded?.()
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
