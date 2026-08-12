@@ -60,6 +60,18 @@ export type InvokeAgentForWorkflowOutcome =
    * nobody can make, and routes onto the researcher outcome handle.
    */
   | { kind: 'none_proposed'; proposalId: string; payload: unknown }
+  /**
+   * The agent STARTED but answers out of band — an `external` runtime whose
+   * provider calls back minutes later. Nothing has been produced yet: no result,
+   * no proposal, and possibly never a proposal at all. The workflows engine parks
+   * the step on the proposal-ready signal and the provider's verified callback
+   * (`completeExternalRun`) is what eventually fires it.
+   *
+   * Field names and optionality mirror core's own duck-typed copies of this union
+   * (`workflows/lib/activity-executor.ts` and `.../activity-worker-handler.ts`)
+   * exactly — nothing type-checks across that optional-peer boundary.
+   */
+  | { kind: 'suspended'; runId: string; externalRunId?: string }
 
 /**
  * One agent's declared OUTCOME contract, as the workflows context ledger needs
@@ -119,8 +131,17 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     // by workflow name with no business facets.
     const subject = this.parseSubject(ctx.subject)
 
-    const result = await withProcessSubject(subject, () =>
-      this.agentRuntime.run(agentId, input, {
+    // `runOrSuspend`, not `run`: `run` keeps its settled-`AgentResult` signature
+    // and throws the non-retryable `AgentRunSuspendedError` on a suspension, which
+    // from here would FAIL the step instead of parking it. This bridge is the one
+    // caller that can genuinely park, so it takes the outcome surface.
+    //
+    // `processId` / `stepId` are what let the external runner write an
+    // all-or-nothing resume triple (process + step + signal) onto the correlation
+    // row — the only way the callback, in another process, can find the step to
+    // wake. They are already threaded above and must stay.
+    const runOutcome = await withProcessSubject(subject, () =>
+      this.agentRuntime.runOrSuspend(agentId, input, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         userId: ctx.userId ?? '',
@@ -129,6 +150,21 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
         ...(runAs ? { runAs } : {}),
       }),
     )
+
+    // Return BEFORE the proposal lookup and before disposition. Both assume the
+    // run produced something: the lookup would find no `pending` proposal for this
+    // step and throw '[internal] agent proposal not found after run', turning a
+    // correctly parked call into a failed step — and `dispose` has nothing to
+    // dispose of. The answer arrives through the callback, not through here.
+    if (runOutcome.kind === 'suspended') {
+      return {
+        kind: 'suspended',
+        runId: runOutcome.runId,
+        ...(runOutcome.externalRunId ? { externalRunId: runOutcome.externalRunId } : {}),
+      }
+    }
+
+    const result = runOutcome.result
 
     if (result.kind === 'researcher') {
       return { kind: 'researcher', data: result.data }
