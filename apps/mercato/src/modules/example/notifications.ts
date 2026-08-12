@@ -1,7 +1,7 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 
 export const notificationTypes: NotificationTypeDefinition[] = [
-  // --- Phase 5 push smoke-test fixtures (demo only) ---------------------------
+  // --- Push smoke-test fixtures (demo only) ------------------------------------
   {
     type: 'demo.silent_ping',
     module: 'example',
