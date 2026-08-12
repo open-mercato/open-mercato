@@ -188,6 +188,9 @@ class OtelSpan implements Span {
   setAttributes(attributes: Attributes): void {
     this.span.setAttributes(cleanAttributes(attributes))
   }
+  updateName(name: string): void {
+    this.span.updateName(name)
+  }
   recordException(error: unknown): void {
     // Redact message + stack before they leave the process (Privacy): the auto
     // record-on-throw path (run-span) and reportError both pass raw errors here.

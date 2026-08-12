@@ -7,6 +7,12 @@ export type TelemetrySpanKind = 'internal' | 'server' | 'client' | 'producer' | 
 /** The subset of the telemetry package's `Span` that bridge consumers need. */
 export type TelemetrySpan = {
   setAttributes(attributes: TelemetrySpanAttributes): void
+  /**
+   * Rename an in-flight span whose identity is only known once it has run.
+   * Optional so a bootstrap predating it still satisfies the contract — call it
+   * as `span.updateName?.(…)`.
+   */
+  updateName?(name: string): void
 }
 
 export type TelemetrySpanOptions = {

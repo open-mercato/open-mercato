@@ -75,6 +75,17 @@ export type SpanOptions = {
 export interface Span {
   setAttribute(key: string, value: AttributeValue): void
   setAttributes(attributes: Attributes): void
+  /**
+   * Rename an in-flight span, for work whose identity is only known once it has
+   * run — a read that turns out to have drained its stream rather than produced
+   * a batch. Keeping such a span under the batch name would over-count batches
+   * and add an unlabelled latency sample to every dashboard built on that name.
+   *
+   * Optional so a third-party `TelemetryProvider` predating it still satisfies
+   * the interface. Call it as `span.updateName?.(…)` and treat "not renamed" as
+   * a tolerable degradation, never a correctness requirement.
+   */
+  updateName?(name: string): void
   recordException(error: unknown): void
   setStatus(status: 'ok' | 'error', message?: string): void
   end(): void

@@ -16,6 +16,14 @@ export type BatchStreamResult = 'completed' | 'stopped'
 
 export type BatchStreamOptions = {
   spanName: string
+  /**
+   * Name for the read that turns out to have drained the stream. That read is
+   * real adapter work — it can be a full remote page fetch that comes back
+   * empty — so it stays traced, but it is not a batch: leaving it under
+   * `spanName` would report one batch more than the run actually processed and
+   * feed an unlabelled, counter-less sample into every batch latency panel.
+   */
+  drainSpanName: string
   /** Run-level attributes repeated on every batch span (run id, entity type, scope). */
   attributes?: TelemetrySpanAttributes
   /** The run's trace, so a rooted batch still points back at what triggered it. */
@@ -32,9 +40,7 @@ async function closeQuietly(iterator: AsyncIterator<unknown>): Promise<void> {
   try {
     await iterator.return()
   } catch (error) {
-    logger.warn('Data sync adapter stream did not close cleanly', {
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.warn('Data sync adapter stream did not close cleanly', { err: error })
   }
 }
 
@@ -51,7 +57,10 @@ async function closeQuietly(iterator: AsyncIterator<unknown>): Promise<void> {
  *
  * The iterator is driven explicitly instead of with `for await` so the span can
  * wrap `next()`, which is where an adapter generator does its real work — it
- * reads, transforms and upserts before it ever yields.
+ * reads, transforms and upserts before it ever yields. A stream is only known to
+ * be drained once that read returns `done`, so the last span per run starts
+ * under `spanName` and is renamed to `drainSpanName`: a run over N batches emits
+ * N spans named `spanName` and exactly one named `drainSpanName`.
  *
  * Closing follows the language's own `IteratorClose` rules exactly, so adapter
  * cleanup behaves as it did under `for await`:
@@ -83,7 +92,10 @@ export async function forEachBatch<TBatch>(
             readThrew = true
             throw error
           }
-          if (next.done) return 'exhausted'
+          if (next.done) {
+            span.updateName?.(options.drainSpanName)
+            return 'exhausted'
+          }
           return handle(next.value, span)
         },
         {

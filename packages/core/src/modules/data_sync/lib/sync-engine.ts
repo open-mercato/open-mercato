@@ -509,7 +509,12 @@ export function createSyncEngine(deps: EngineDeps) {
             scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
             runId: run.id,
           }),
-          { spanName: 'data_sync.import.batch', attributes: spanAttributes, linkTo: runTrace },
+          {
+            spanName: 'data_sync.import.batch',
+            drainSpanName: 'data_sync.import.drain',
+            attributes: spanAttributes,
+            linkTo: runTrace,
+          },
           async (batch, span) => {
             span.setAttributes({
               'data_sync.batch_index': batch.batchIndex,
@@ -692,7 +697,12 @@ export function createSyncEngine(deps: EngineDeps) {
             scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
             runId: run.id,
           }),
-          { spanName: 'data_sync.export.batch', attributes: spanAttributes, linkTo: runTrace },
+          {
+            spanName: 'data_sync.export.batch',
+            drainSpanName: 'data_sync.export.drain',
+            attributes: spanAttributes,
+            linkTo: runTrace,
+          },
           async (batch, span) => {
             span.setAttributes({
               'data_sync.batch_index': batch.batchIndex,

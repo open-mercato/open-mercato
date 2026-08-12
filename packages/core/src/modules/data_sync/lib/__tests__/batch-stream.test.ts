@@ -29,6 +29,9 @@ function recordingRuntime(): { spans: RecordedSpan[]; dispose: () => void } {
         setAttributes(attributes) {
           Object.assign(recorded.attributes, attributes)
         },
+        updateName(updated) {
+          recorded.name = updated
+        },
       })
     },
     recordHttpDuration: () => {},
@@ -49,6 +52,15 @@ function batchStream(count: number, onClose: () => void) {
   })()
 }
 
+const importSpans = {
+  spanName: 'data_sync.import.batch',
+  drainSpanName: 'data_sync.import.drain',
+}
+const exportSpans = {
+  spanName: 'data_sync.export.batch',
+  drainSpanName: 'data_sync.export.drain',
+}
+
 afterEach(() => {
   resetTelemetryRuntime()
 })
@@ -60,7 +72,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
 
     const result = await forEachBatch(
       batchStream(3, closed),
-      { spanName: 'data_sync.import.batch' },
+      importSpans,
       async (batch: { index: number }) => {
         seen.push(batch.index)
         return 'continue'
@@ -78,7 +90,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
 
     const result = await forEachBatch(
       batchStream(5, closed),
-      { spanName: 'data_sync.import.batch' },
+      importSpans,
       async (batch: { index: number }) => {
         seen.push(batch.index)
         return batch.index === 1 ? 'stop' : 'continue'
@@ -96,7 +108,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
     const closed = jest.fn()
 
     await expect(
-      forEachBatch(batchStream(5, closed), { spanName: 'data_sync.import.batch' }, async () => {
+      forEachBatch(batchStream(5, closed), importSpans, async () => {
         throw new Error('commit failed')
       }),
     ).rejects.toThrow('commit failed')
@@ -114,7 +126,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
     })()
 
     await expect(
-      forEachBatch(stream, { spanName: 'data_sync.import.batch' }, async () => {
+      forEachBatch(stream, importSpans, async () => {
         throw new Error('commit failed')
       }),
     ).rejects.toThrow('commit failed')
@@ -134,7 +146,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
     })()
 
     await expect(
-      forEachBatch(stream, { spanName: 'data_sync.import.batch' }, async () => 'stop'),
+      forEachBatch(stream, importSpans, async () => 'stop'),
     ).rejects.toThrow('cleanup exploded')
   })
 
@@ -152,7 +164,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
       },
       return: returned,
     }
-    await forEachBatch(exhausting, { spanName: 'data_sync.import.batch' }, async () => 'continue')
+    await forEachBatch(exhausting, importSpans, async () => 'continue')
     expect(returned).not.toHaveBeenCalled()
 
     const failingRead = {
@@ -165,7 +177,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
       return: returned,
     }
     await expect(
-      forEachBatch(failingRead, { spanName: 'data_sync.import.batch' }, async () => 'continue'),
+      forEachBatch(failingRead, importSpans, async () => 'continue'),
     ).rejects.toThrow('read failed')
     expect(returned).not.toHaveBeenCalled()
   })
@@ -174,7 +186,7 @@ describe('forEachBatch adapter-stream lifecycle', () => {
     const closed = jest.fn()
     const result = await forEachBatch(
       batchStream(2, closed),
-      { spanName: 'data_sync.import.batch' },
+      importSpans,
       async () => 'continue',
     )
 
@@ -190,7 +202,7 @@ describe('forEachBatch span shape', () => {
       await forEachBatch(
         batchStream(2, () => {}),
         {
-          spanName: 'data_sync.import.batch',
+          ...importSpans,
           attributes: { 'data_sync.run_id': 'run-1' },
           linkTo: { traceparent: 'run-carrier' },
         },
@@ -204,10 +216,14 @@ describe('forEachBatch span shape', () => {
     }
 
     // Two batches plus the `next()` that discovers the stream is exhausted —
-    // that call does real adapter work, so it is traced too.
-    expect(spans).toHaveLength(3)
+    // that call does real adapter work, so it is traced too, but under the drain
+    // name so batch counts and latency panels see two batches, not three.
+    expect(spans.map((span) => span.name)).toEqual([
+      'data_sync.import.batch',
+      'data_sync.import.batch',
+      'data_sync.import.drain',
+    ])
     for (const span of spans) {
-      expect(span.name).toBe('data_sync.import.batch')
       // Each batch starting its own trace is the point: a multi-day run must not
       // ride on the single sampling decision taken for its trigger.
       expect(span.options?.root).toBe(true)
@@ -216,6 +232,53 @@ describe('forEachBatch span shape', () => {
     }
     expect(spans[0]?.attributes['data_sync.batch_index']).toBe(0)
     expect(spans[1]?.attributes['data_sync.batch_index']).toBe(1)
+    expect(spans[2]?.attributes['data_sync.batch_index']).toBeUndefined()
+  })
+
+  it('names the drain span even when the stream yields nothing at all', async () => {
+    const { spans, dispose } = recordingRuntime()
+    try {
+      await forEachBatch(
+        batchStream(0, () => {}),
+        importSpans,
+        async () => 'continue',
+      )
+    } finally {
+      dispose()
+    }
+
+    // An empty run must report zero batches, not one.
+    expect(spans.map((span) => span.name)).toEqual(['data_sync.import.drain'])
+  })
+
+  it('still drains when the provider cannot rename spans', async () => {
+    // `updateName` is optional on the bridge, so a provider predating it must
+    // degrade to the batch name rather than crash the run.
+    const names: string[] = []
+    const dispose = registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      withSpan: (name, fn) => {
+        names.push(name)
+        return fn({ setAttributes() {} })
+      },
+      recordHttpDuration: () => {},
+      reportError: () => {},
+      shutdown: async () => {},
+    })
+    try {
+      const result = await forEachBatch(
+        batchStream(1, () => {}),
+        importSpans,
+        async () => 'continue',
+      )
+      expect(result).toBe('completed')
+    } finally {
+      dispose()
+    }
+
+    expect(names).toEqual(['data_sync.import.batch', 'data_sync.import.batch'])
   })
 
   it('omits links when the run has no trace to link to (telemetry off at capture time)', async () => {
@@ -223,7 +286,7 @@ describe('forEachBatch span shape', () => {
     try {
       await forEachBatch(
         batchStream(1, () => {}),
-        { spanName: 'data_sync.export.batch' },
+        exportSpans,
         async () => 'continue',
       )
     } finally {

@@ -162,10 +162,16 @@ for (const batch of batches) {
 }
 ```
 
-Each batch now samples independently (no run is ever a total blind spot) and each
-trace stays small enough to render. `links` takes W3C **carriers**, so it accepts
-both `captureTraceContext()` and a carrier received from another process; empty
-or malformed carriers are dropped rather than emitted as invalid links.
+Each batch now samples independently and each trace stays small enough to render.
+Sampling stays probabilistic: at ratio `p` a run of `n` batches still emits
+nothing with probability `(1 - p)^n` — at `p = 0.25` that is 75% for one batch,
+32% for four, 0.3% for twenty. Rooting shrinks the blind spot fast as a run gets
+longer; it does not promise a signal from every run. Only ratio `1.0` does that,
+and rooting is what makes `1.0` renderable.
+
+`links` takes W3C **carriers**, so it accepts both `captureTraceContext()` and a
+carrier received from another process; empty or malformed carriers are dropped
+rather than emitted as invalid links.
 
 ### Emitting spans without depending on this package
 
