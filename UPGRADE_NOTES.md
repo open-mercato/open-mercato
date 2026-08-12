@@ -388,6 +388,14 @@ yarn mercato auth sync-role-acls
 
 It only *adds* the newly declared default grants to existing roles and never removes an operator's customizations. Target one tenant with `--tenant <tenantId>` if you prefer a staged rollout.
 
+### Advanced-filter conditions whose field names a Where combinator are now ignored
+
+`deserializeAdvancedFilter` (flat, v1) and `deserializeTree` (v2) — the shared parsers behind the `filter[...]` query params on every CRUD list route — now drop a condition whose `field` starts with `$`, i.e. names a Where combinator such as `$and`, `$or` or `$not`. A filter built only from such conditions deserializes to `null` and the route lists as if no filter were supplied.
+
+Condition field names are never validated against a route's field allowlist, so a combinator-named field previously compiled into a Where key sharing the namespace with real column names — reaching the query engine either as a filter on a non-existent column (matching every indexed row) or colliding with a key the route itself emitted. Dropping it matches how an unrecognized operator is already handled.
+
+**Action for module authors:** none expected — there is no legitimate `$`-prefixed column, so no real caller can be relying on this. It is documented because these two functions are shared surface used by every list route: if you are debugging a saved view or a hand-built filter that used to reach the engine and now appears to be ignored, check whether one of its conditions names a combinator. Route-level defence is independent of the parser — a route that consumes the filter itself via `consumeAdvancedFilterState` + `mergeAdvancedFilterTree` (customers/people, companies, deals, devices) already AND-combines it under its own filters, so no client key can overwrite a server-enforced scope. See [`.ai/specs/2026-04-28-push-notifications-and-devices.md`](.ai/specs/2026-04-28-push-notifications-and-devices.md) § Changelog.
+
 ### New root `resolutions` entry: `node-forge@1.4.0`
 
 The new `@open-mercato/channel-apns` package depends on `@parse/node-apn@6.5.0`, which declares `node-forge` as an **exact** version (`node-forge: "npm:1.3.1"`) rather than a range — so no install can ever pick up a patched `node-forge`, including a security patch. The root `package.json` now pins `node-forge` to `1.4.0` in `resolutions`, alongside the other security-hygiene pins there.
