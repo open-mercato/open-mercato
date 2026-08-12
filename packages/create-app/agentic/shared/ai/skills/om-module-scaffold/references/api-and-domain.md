@@ -13,7 +13,20 @@ Load this reference for CRUD, commands, and action routes.
    - A manual `OpenApiRouteDoc` nests HTTP method docs under `methods`, for example `const openApi: OpenApiRouteDoc = { methods: { GET: { summary, tags, responses } } }`; `GET` is uppercase but is not a top-level `GET` key.
 4. Include `updated_at` in the list/detail projection and serialize `updatedAt`. Keep stable response keys and colon-form entity IDs.
 5. Validate all query/body data. Reject malformed ID/filter values and derive tenant/org scope from context.
-6. For a non-factory action, run mutation guards and return their rejection response when blocked. Merge any `modifiedPayload` into the validated input, parse the merged value again with the route schema, enforce the aggregate optimistic lock, and dispatch the command with that revised input. Run returned after-success callbacks and other external side effects only after the mutation commits.
+6. For a non-factory action, run mutation guards and return their rejection response when blocked. Merge any `modifiedPayload` into the validated input, parse the merged value again with the route schema, enforce the aggregate optimistic lock, and dispatch the command with that revised input. A direct `commandBus.execute(commandId, options)` resolves the envelope `{ result, logEntry }`, not the command's own return value: read `.result` before serializing or iterating it, exactly as the factory's `response` callback does. Run returned after-success callbacks and other external side effects only after the mutation commits.
 7. Test allowed/denied/wildcard users, two scopes, malformed input, stale version, and action retry/undo.
 
 Command IDs in `actions` are stable strings; a route does not import command implementations merely to declare them. Use exact installed `customers` route/command patterns when a remaining signature is uncertain; do not use the obsolete flat CRUD action options or HTTP-method directory routes.
+
+## Canonical example source
+
+| Capability | Exact file |
+|---|---|
+| Smallest complete `makeCrudRoute` (per-method ACL, ORM/scope/soft-delete, list schema + sort map, `mapToEntity`/`applyToEntity`) | [`api/customer-priorities/route.ts`](../../../../src/modules/example/api/customer-priorities/route.ts) |
+| Query-engine list fields, `cf:*` projection, command-backed `actions`, CSV export | [`api/todos/route.ts`](../../../../src/modules/example/api/todos/route.ts) |
+| Module OpenAPI factory | [`api/openapi.ts`](../../../../src/modules/example/api/openapi.ts) |
+| Hand-written route with its own request container and cookie auth | [`api/organizations/route.ts`](../../../../src/modules/example/api/organizations/route.ts) |
+| `optionsUrl` option-source routes | [`api/tags/route.ts`](../../../../src/modules/example/api/tags/route.ts), [`api/assignees/route.ts`](../../../../src/modules/example/api/assignees/route.ts) |
+| Registered command handlers, `ensureScope`, `prepare` snapshots, undo/redo | [`commands/todos.ts`](../../../../src/modules/example/commands/todos.ts) |
+
+Adapt one row at a time and rename every `example` identifier; see [`README.md`](../../../../src/modules/example/README.md).

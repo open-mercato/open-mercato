@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
@@ -28,12 +30,15 @@ requirePackageBuild(pkgRoot)
 test('build emits customers facts and the framework extension catalog (T5)', () => {
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
+  assert.ok(fs.existsSync(join(guidesDir, 'module-facts.v2.json')), 'module-facts.v2.json sidecar should exist')
   assert.ok(
     fs.existsSync(join(guidesDir, 'framework-extension-points.md')),
     'framework extension catalog should exist',
   )
   const facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.json'), 'utf8'))
+  const v2Facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.v2.json'), 'utf8'))
   assert.ok(facts.customers, 'module-facts.json should contain the customers entry')
+  assert.ok(v2Facts.customers, 'module-facts.v2.json should contain the customers entry')
   assert.equal(
     facts.customers.sourceRoot,
     'node_modules/@open-mercato/core/src/modules/customers',
@@ -69,6 +74,63 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
   const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
   assert.match(frameworkMarkdown, /^# Framework extension points/m)
   assert.match(frameworkMarkdown, /menu/i)
+
+  const legacySecurityOverride = facts.security.extensionSurfaces.contributions.find(
+    (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
+  )
+  const v2SecurityOverride = v2Facts.security.extensionSurfaces.contributions.find(
+    (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
+  )
+  assert.equal(legacySecurityOverride.details.mode, 'replace')
+  assert.equal(v2SecurityOverride.details.mode, 'wrapper')
+})
+
+test('fresh scaffolds receive the disabled local-reference projection', () => {
+  const parent = fs.mkdtempSync(join(tmpdir(), 'om-reference-projection-'))
+  try {
+    const target = join(parent, 'reference-projection-app')
+    try {
+      execFileSync(
+        process.execPath,
+        [join(pkgRoot, 'dist', 'index.js'), target, '--preset', 'classic', '--agents', 'codex', '--no-init-git'],
+        {
+          cwd: pkgRoot,
+          env: { ...process.env, OM_SKIP_EXTERNAL_SKILLS: '1' },
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      )
+    } catch (error) {
+      const failed = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
+      const stdout = failed.stdout?.toString().trim()
+      const stderr = failed.stderr?.toString().trim()
+      throw new Error([
+        'create-app scaffold failed while verifying the reference projection',
+        stdout ? `stdout:\n${stdout}` : null,
+        stderr ? `stderr:\n${stderr}` : null,
+        !stdout && !stderr ? failed.message : null,
+      ].filter(Boolean).join('\n'))
+    }
+
+    for (const relativePath of [
+      '.ai/guides/module-facts.json',
+      '.ai/guides/module-facts.v2.json',
+      '.ai/guides/reference-module-facts.json',
+      '.ai/guides/reference-modules/example.md',
+    ]) {
+      assert.equal(fs.existsSync(join(target, relativePath)), true, `${relativePath} must reach a fresh scaffold`)
+    }
+    const manifest = JSON.parse(
+      fs.readFileSync(join(target, '.ai', 'harness', 'manifest.json'), 'utf8'),
+    ) as { files: Array<{ path: string }> }
+    const ownedPaths = new Set(manifest.files.map((entry) => entry.path))
+    assert.equal(ownedPaths.has('.ai/guides/module-facts.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/module-facts.v2.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-module-facts.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-modules/example.md'), true)
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true })
+  }
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
@@ -138,12 +200,15 @@ test('build does not emit unreachable package-level standalone guides', () => {
 // still passes. This guard therefore demands `context.required`, the reference that actually fails
 // a run (#4603, tightened from the weaker "routed by some case" predicate #4565 shipped).
 //
-// The two exemptions own no duplicable surface. `api_docs` ships no entity, no migration, and an
-// empty `features` array; `design_system` is an in-app component gallery with one view-only feature
-// and no data directory. Neither has a schema an agent could re-create or an access-control posture
-// it could get wrong, so requiring the read would assert nothing. They stay reachable through
+// The exemption owns no duplicable surface: `api_docs` ships no entity, no migration, and an empty
+// `features` array, so it has no schema an agent could re-create and no access-control posture it
+// could get wrong — requiring the read would assert nothing. It stays reachable through
 // `allowedExtra` without being asserted.
-const FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE = ['api_docs', 'design_system']
+//
+// `design_system` was exempt for the same reason until fresh standalone registries stopped enabling
+// it; the scaffold no longer ships its fact-sheet at all, so the exemption has nothing left to
+// excuse and the stale-exemption guard below rejects it.
+const FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE = ['api_docs']
 
 test('every module fact-sheet a scaffold ships is required by at least one catalog case', () => {
   const shipped = selectModuleFactSheets(join(pkgRoot, 'template'), join(guidesDir, 'modules'))

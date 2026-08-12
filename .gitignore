@@ -146,6 +146,7 @@ docker/opencode/opencode.jsonc
 .ai/qa/test-env.lock/
 .ai/qa/test-env-boot.log
 .ai/qa/artifacts_*/
+.ai/qa/email-capture.jsonl
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*
