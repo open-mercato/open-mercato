@@ -238,7 +238,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
     const participantNames = new Map<string, string>()
     for (const item of items) {
       for (const participant of item.participants) {
-        if (participant.name && !participantNames.has(participant.userId)) {
+        if (participant.userId && participant.name && !participantNames.has(participant.userId)) {
           participantNames.set(participant.userId, participant.name)
         }
       }

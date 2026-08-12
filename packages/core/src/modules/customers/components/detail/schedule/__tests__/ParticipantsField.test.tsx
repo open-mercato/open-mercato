@@ -17,20 +17,22 @@ function renderField(overrides?: {
   participants?: Participant[]
   setGuestPermissions?: jest.Mock
   guestPermissions?: typeof baseGuestPermissions
+  removeParticipant?: jest.Mock
 }) {
   const setGuestPermissions = overrides?.setGuestPermissions ?? jest.fn()
+  const removeParticipant = overrides?.removeParticipant ?? jest.fn()
   renderWithProviders(
     <ParticipantsField
       visible={new Set(['participants'])}
       activityType="meeting"
       participants={overrides?.participants ?? []}
       setParticipants={jest.fn()}
-      removeParticipant={jest.fn()}
+      removeParticipant={removeParticipant}
       guestPermissions={overrides?.guestPermissions ?? baseGuestPermissions}
       setGuestPermissions={setGuestPermissions}
     />,
   )
-  return { setGuestPermissions }
+  return { setGuestPermissions, removeParticipant }
 }
 
 const sampleParticipant: Participant = {
@@ -74,5 +76,24 @@ describe('ParticipantsField', () => {
     expect(setGuestPermissions).toHaveBeenCalledTimes(1)
     const updater = setGuestPermissions.mock.calls[0][0] as (prev: typeof baseGuestPermissions) => typeof baseGuestPermissions
     expect(updater(baseGuestPermissions)).toEqual({ ...baseGuestPermissions, canInviteOthers: true })
+  })
+
+  it('removes the clicked guest chip by position, not by userId, when multiple guests have no userId', async () => {
+    const guestOne: Participant = { name: 'Guest One', email: 'guest-one@example.org', status: 'pending' }
+    const guestTwo: Participant = { name: 'Guest Two', email: 'guest-two@example.org', status: 'pending' }
+    const removeParticipant = jest.fn()
+    await act(async () => {
+      renderField({ participants: [guestOne, guestTwo], removeParticipant })
+    })
+
+    const removeButtons = screen.getAllByRole('button', { name: 'Remove participant' })
+    expect(removeButtons).toHaveLength(2)
+
+    await act(async () => {
+      fireEvent.click(removeButtons[1])
+    })
+
+    expect(removeParticipant).toHaveBeenCalledTimes(1)
+    expect(removeParticipant).toHaveBeenCalledWith(1)
   })
 })

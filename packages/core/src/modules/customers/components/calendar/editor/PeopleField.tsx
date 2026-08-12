@@ -84,12 +84,12 @@ export function PeopleField({
           CONTROL_BORDER,
         )}
       >
-        {value.map((participant) => (
+        {value.map((participant, index) => (
           <PersonChip
-            key={participant.userId}
+            key={participant.userId ?? participant.email ?? index}
             name={participant.name}
             badge={participant.isCustomer ? customerBadge : undefined}
-            onRemove={() => onChange(value.filter((entry) => entry.userId !== participant.userId))}
+            onRemove={() => onChange(value.filter((_, entryIndex) => entryIndex !== index))}
             removeLabel={t('customers.calendar.editor.removePerson', 'Remove {name}', { name: participant.name })}
           />
         ))}

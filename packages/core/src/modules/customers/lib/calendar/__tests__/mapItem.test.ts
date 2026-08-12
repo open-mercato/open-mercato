@@ -166,6 +166,23 @@ describe('mapInteractionToCalendarItem', () => {
     ])
   })
 
+  it('keeps distinct guest participants that have no userId', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'guest-participants',
+        participants: [
+          { email: 'guest-one@example.org', name: 'Guest One' },
+          { email: 'guest-two@example.org', name: 'Guest Two' },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([
+      { email: 'guest-one@example.org', name: 'Guest One' },
+      { email: 'guest-two@example.org', name: 'Guest Two' },
+    ])
+  })
+
   it('derives the category and keeps payload references', () => {
     const payload = makePayload({
       id: 'full',

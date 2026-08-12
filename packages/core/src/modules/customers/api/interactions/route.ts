@@ -179,7 +179,7 @@ type InteractionListRow = {
   all_day: boolean | null
   recurrence_rule: string | null
   recurrence_end: Date | null
-  participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  participants: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
   reminder_minutes: number | null
   visibility: string | null
   linked_entities: Array<{ id: string; type: string; label: string }> | null
@@ -733,7 +733,7 @@ const interactionListItemSchema = z
     recurrenceEnd: z.string().nullable().optional(),
     participants: z.array(
       z.object({
-        userId: z.string().uuid(),
+        userId: z.string().uuid().optional(),
         name: z.string().optional(),
         email: z.string().optional(),
         status: z.string().optional(),

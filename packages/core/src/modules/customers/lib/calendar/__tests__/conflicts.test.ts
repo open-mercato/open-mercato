@@ -42,6 +42,24 @@ describe('findConflicts', () => {
     expect(conflicts.size).toBe(0)
   })
 
+  it('does not treat two guest participants without a userId as sharing an actor', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest-one@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest-two@example.org' }],
+      }),
+    ])
+    expect(conflicts.size).toBe(0)
+  })
+
   it('does not treat two items with null owners as sharing an owner', () => {
     const conflicts = findConflicts([
       makeCalendarItem({ id: 'first', start: at(10), end: at(11), ownerUserId: null }),

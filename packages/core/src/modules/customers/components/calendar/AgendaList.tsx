@@ -59,7 +59,7 @@ function deriveTypeLabel(interactionType: string): string {
 }
 
 function participantLabel(participant: CalendarItem['participants'][number]): string {
-  return participant.name ?? participant.email ?? participant.userId
+  return participant.name ?? participant.email ?? participant.userId ?? ''
 }
 
 function buildDayGroups(anchor: Date, horizonDays: number, items: CalendarItem[]): AgendaDayGroup[] {
@@ -173,8 +173,8 @@ function AgendaRow({
       <div className="flex shrink-0 items-center gap-2">
         {item.participants.length > 0 ? (
           <span className="hidden items-center gap-0.5 sm:flex">
-            {item.participants.slice(0, MAX_AVATARS_PER_ROW).map((participant) => (
-              <Avatar key={participant.userId} size="xs" label={participantLabel(participant)} />
+            {item.participants.slice(0, MAX_AVATARS_PER_ROW).map((participant, index) => (
+              <Avatar key={participant.userId ?? participant.email ?? index} size="xs" label={participantLabel(participant)} />
             ))}
             {item.participants.length > MAX_AVATARS_PER_ROW ? (
               <span className="ps-0.5 text-xs font-medium text-muted-foreground">

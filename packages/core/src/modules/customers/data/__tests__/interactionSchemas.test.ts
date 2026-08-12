@@ -123,6 +123,29 @@ describe('interaction validators — extended scheduling fields', () => {
       }),
     ).toThrow()
   })
+
+  test('interactionCreateSchema accepts a guest participant identified only by email', () => {
+    const parsed = interactionCreateSchema.parse({
+      tenantId,
+      organizationId: orgId,
+      entityId,
+      interactionType: 'meeting',
+      participants: [{ name: 'External Guest', email: 'guest@example.org' }],
+    })
+    expect(parsed.participants).toEqual([{ name: 'External Guest', email: 'guest@example.org' }])
+  })
+
+  test('interactionCreateSchema rejects a participant with neither userId nor email', () => {
+    expect(() =>
+      interactionCreateSchema.parse({
+        tenantId,
+        organizationId: orgId,
+        entityId,
+        interactionType: 'meeting',
+        participants: [{ name: 'Nobody' }],
+      }),
+    ).toThrow()
+  })
 })
 
 describe('interaction validators — dictionary-backed status (lenient widening)', () => {

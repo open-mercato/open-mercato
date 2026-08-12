@@ -43,9 +43,13 @@ function mapParticipants(payload: CalendarInteractionPayload): CalendarParticipa
   const seen = new Set<string>()
   const mapped: CalendarParticipant[] = []
   for (const participant of participants) {
-    if (seen.has(participant.userId)) continue
-    seen.add(participant.userId)
-    const entry: CalendarParticipant = { userId: participant.userId }
+    const dedupeKey = participant.userId ?? participant.email
+    if (dedupeKey) {
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+    }
+    const entry: CalendarParticipant = {}
+    if (typeof participant.userId === 'string') entry.userId = participant.userId
     if (typeof participant.name === 'string') entry.name = participant.name
     if (typeof participant.email === 'string') entry.email = participant.email
     mapped.push(entry)

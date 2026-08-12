@@ -14,8 +14,12 @@ export type FindConflictsOptions = {
 function sharesActor(first: CalendarItem, second: CalendarItem): boolean {
   if (first.ownerUserId && second.ownerUserId && first.ownerUserId === second.ownerUserId) return true
   if (first.participants.length === 0 || second.participants.length === 0) return false
-  const firstParticipantIds = new Set(first.participants.map((participant) => participant.userId))
-  return second.participants.some((participant) => firstParticipantIds.has(participant.userId))
+  const firstParticipantIds = new Set(
+    first.participants
+      .map((participant) => participant.userId)
+      .filter((userId): userId is string => Boolean(userId)),
+  )
+  return second.participants.some((participant) => Boolean(participant.userId) && firstParticipantIds.has(participant.userId as string))
 }
 
 function isActor(item: CalendarItem, userId: string): boolean {

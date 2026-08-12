@@ -424,12 +424,16 @@ export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
 /** @deprecated See {@link interactionStatusValues}. */
 export type InteractionStatus = typeof interactionStatusValues[number]
 
-const interactionParticipantSchema = z.object({
-  userId: z.string().uuid(),
-  name: z.string().trim().max(200).optional(),
-  email: z.string().trim().max(320).optional(),
-  status: z.string().trim().max(50).optional(),
-})
+const interactionParticipantSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    name: z.string().trim().max(200).optional(),
+    email: z.string().trim().max(320).optional(),
+    status: z.string().trim().max(50).optional(),
+  })
+  .refine((participant) => Boolean(participant.userId || participant.email), {
+    message: 'participant requires userId or email',
+  })
 
 const interactionLinkedEntitySchema = z.object({
   id: z.string().uuid(),
