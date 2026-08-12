@@ -203,6 +203,62 @@ export async function createExternalRunRow(
 }
 
 /**
+ * Claim a `pending` correlation row for settlement — the single-shot gate every
+ * external completion passes through. Returns `false` when the row was already
+ * settled (a redelivered webhook, or a deadline sweep that got there first), in
+ * which case the caller MUST NOT complete the run or resume the workflow again.
+ *
+ * Routed through the Command path by discipline rather than by force: unlike the
+ * `createExternalRunRow` write, the callback half runs in a different process with
+ * no agent-actor scope, so `AgentKindNoBypassSubscriber` would not fire here. Every
+ * other write in this module's lifecycle is audited, and a status transition that
+ * decides whether a workflow resumes is not the one to make an exception for.
+ */
+export async function claimExternalRunRow(
+  commandBus: CommandBus,
+  commandCtx: CommandRuntimeContext,
+  input: {
+    externalRunRowId: string
+    tenantId: string
+    organizationId: string
+    status: 'completed' | 'failed' | 'expired' | 'cancelled'
+  },
+): Promise<boolean> {
+  const { result } = await withAuditedCommand(() =>
+    commandBus.execute<typeof input, { claimed: boolean }>(
+      'agent_orchestrator.external_runs.claim',
+      { input, ctx: commandCtx },
+    ),
+  )
+  return result.claimed
+}
+
+/**
+ * Write the settlement outcome (final status + the encrypted result/failure
+ * columns) onto an already-claimed correlation row.
+ */
+export async function settleExternalRunRow(
+  commandBus: CommandBus,
+  commandCtx: CommandRuntimeContext,
+  input: {
+    externalRunRowId: string
+    tenantId: string
+    organizationId: string
+    status: 'completed' | 'failed' | 'expired' | 'cancelled'
+    resultPayload?: unknown
+    failureReason?: string | null
+  },
+): Promise<boolean> {
+  const { result } = await withAuditedCommand(() =>
+    commandBus.execute<typeof input, { settled: boolean }>(
+      'agent_orchestrator.external_runs.settle',
+      { input, ctx: commandCtx },
+    ),
+  )
+  return result.settled
+}
+
+/**
  * Optional usage/cost stamp attached at a run's terminal transition (data-honesty
  * spec §3.2). Absent fields leave the run columns untouched, so pre-existing
  * callers are byte-for-byte unaffected. Cost is the caller-computed ESTIMATE

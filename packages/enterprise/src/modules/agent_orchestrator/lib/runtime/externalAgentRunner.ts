@@ -10,15 +10,23 @@ import {
   type ExternalAgentConnectorScope,
 } from './externalConnectorRegistry'
 import { assembleRunContextSpans, screenRunInput } from './runPreflight'
-import { AgentOutputInvalidError, ExternalAgentConfigurationError } from './errors'
+import {
+  completeExternalRun,
+  EXTERNAL_RUN_RESUME_SIGNAL,
+  type CompleteExternalRunResult,
+} from './completeExternalRun'
+import {
+  AgentGuardrailBlockedError,
+  AgentOutputInvalidError,
+  ExternalAgentConfigurationError,
+} from './errors'
+import { GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import {
   type AgentRunCtx,
   buildCommandContext,
-  completeRun,
   createExternalRunRow,
   createRun,
   failRun,
-  shapeResult,
 } from './persistence'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'external-agent-runner' })
@@ -34,12 +42,12 @@ export function buildExternalRunCallbackPath(callbackToken: string): string {
 }
 
 /**
- * The signal that resumes a parked `INVOKE_AGENT` step. It MUST match the name
- * `lib/disposition/resume.ts` sends and the one core's `WAIT_FOR_SIGNAL` keys on:
- * a suspended external run parks exactly where a human-reviewed proposal parks,
- * and is resumed the same way.
+ * Re-exported from `./completeExternalRun`, where the constant now lives with the
+ * code that sends the signal. Keeping the export here preserves T2.3's import path
+ * (the correlation row's `signal_name` is written by THIS file, so both halves
+ * need it) while keeping the dependency one-way: runner → completion.
  */
-export const EXTERNAL_RUN_RESUME_SIGNAL = 'agent_orchestrator.proposal.ready'
+export { EXTERNAL_RUN_RESUME_SIGNAL }
 
 /**
  * What one dispatched agent run produced: either a settled `AgentResult` (every
@@ -64,8 +72,10 @@ export type ExternalAgentRunnerDeps = {
  * `AgentRun`, assemble the TDCR context bundle, screen the assembled spans
  * through the PRE-CALL input guardrail — and replaces the model call with
  * `connector.start(...)`. Then it stops. No output guardrail, no `completeRun`,
- * no result: those belong to the callback (T2.4), because there is nothing to
- * validate yet.
+ * no result: those belong to `./completeExternalRun`, because there is nothing to
+ * validate yet. The one exception is a connector that answers inside `start()` —
+ * it has an answer immediately, so it goes straight through that same completion
+ * function rather than a second, laxer path of its own.
  *
  * The input guardrail matters MORE here than in the native path. In-process it
  * screens what we are about to feed our own model; here it screens the brief we
@@ -224,17 +234,17 @@ export class ExternalAgentRunner {
     }
 
     // The connector answered inside `start()`. Nothing will call back, so the row
-    // is born settled and carries no resume triple: the step never parked and
-    // resumes on the ordinary returned result.
-    const result = await this.settleSynchronousResult({
-      agentId,
-      entry,
-      runId,
-      commandCtx,
-      payload: started.result,
-    })
-
-    await createExternalRunRow(this.commandBus, commandCtx, {
+    // carries no resume triple — the step never parked and resumes on the ordinary
+    // returned result.
+    //
+    // It is still born `pending` and settled through `completeExternalRun`, rather
+    // than written pre-settled. That routes the synchronous arm through the SAME
+    // output guardrail, the same audit ordering and the same single-shot claim the
+    // callback arm uses — closing the gap T2.3 left open, where an
+    // `expectsCallback: false` connector was schema-checked but never
+    // guardrail-screened. One extra UPDATE is a small price for one completion
+    // path instead of two that will drift.
+    const externalRunRowId = await createExternalRunRow(this.commandBus, commandCtx, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       runId,
@@ -245,50 +255,71 @@ export class ExternalAgentRunner {
       processId: null,
       stepId: null,
       signalName: null,
-      status: 'completed',
+      status: 'pending',
       expiresAt,
       requestPayload: input,
-      resultPayload: started.result,
     })
 
-    return { kind: 'settled', result }
+    const settled = await completeExternalRun({
+      container: this.container,
+      commandBus: this.commandBus,
+      entry,
+      row: {
+        id: externalRunRowId,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        runId,
+        agentId,
+        connectorId: connector.id,
+        processId: null,
+        stepId: null,
+        signalName: null,
+      },
+      scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      settlement: { kind: 'result', payload: started.result },
+      userId: ctx.userId,
+    })
+
+    if (settled.status === 'completed') return { kind: 'settled', result: settled.result }
+    throw this.synchronousSettlementError(agentId, runId, settled)
   }
 
   /**
-   * Settle a run the connector answered synchronously.
+   * Turn a non-`completed` settlement of a SYNCHRONOUS connector back into the
+   * typed error this call surface has always thrown.
    *
-   * Deliberately narrow: it validates the payload against the agent's declared
-   * OUTCOME envelope and completes the run. It does NOT run the output guardrail
-   * (`checkOutput` + `persistVerdict`) — that, together with the single-shot
-   * correlation-row transition and the workflow resume, is the completion half
-   * (T2.4) and is written once, for both paths, rather than twice. Until T2.4
-   * lands, a connector that sets `expectsCallback: false` is schema-checked but
-   * not guardrail-screened; no connector ships in this phase, so nothing takes
-   * that path yet.
+   * The caller here is an ordinary `agentRuntime.run()` / `runOrSuspend()` caller
+   * that is still on the stack, so a failure must reach it as an exception — the
+   * return-value reporting `completeExternalRun` uses exists for the callback
+   * route, which has no such caller. The error classes are the ones the native
+   * runner raises for the same two conditions, so a workflow's structural
+   * guardrail-block recognition (`isGuardrailBlockedError`) keeps working
+   * unchanged for a synchronous external agent.
    */
-  private async settleSynchronousResult(args: {
-    agentId: string
-    entry: AgentRegistryEntry
-    runId: string
-    commandCtx: ReturnType<typeof buildCommandContext>
-    payload: unknown
-  }): Promise<AgentResult> {
-    const { agentId, entry, runId, commandCtx, payload } = args
-    const parsed = entry.schema.safeParse(payload)
-    if (!parsed.success) {
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: parsed.error.message })
-      throw new AgentOutputInvalidError(agentId, parsed.error.message)
+  private synchronousSettlementError(
+    agentId: string,
+    runId: string,
+    settled: CompleteExternalRunResult,
+  ): Error {
+    if (settled.status === 'failed') {
+      if (settled.blockedReason) {
+        return new AgentGuardrailBlockedError(agentId, settled.detail, {
+          phase: settled.blockedReason.phase,
+          kind: settled.blockedReason.kind,
+          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+        })
+      }
+      return new AgentOutputInvalidError(agentId, settled.detail)
     }
-    const result = shapeResult(entry.resultKind, parsed.data, agentId)
-    await completeRun(this.commandBus, commandCtx, {
-      runId,
-      output: result,
-      resultKind: entry.resultKind,
-      // External agents are researcher-kind only, so there is no confidence to
-      // derive — the run row renders `—`, honestly.
-      confidence: null,
-    })
-    return result
+    // `already_settled` / `scope_denied` are unreachable on this path: the row was
+    // created `pending` two statements ago, under this run's own scope. Reaching
+    // them means the correlation row is not the one we just wrote, which is a bug,
+    // not a provider behaviour — so it says exactly that rather than pretending the
+    // run produced something.
+    return new AgentOutputInvalidError(
+      agentId,
+      `[internal] synchronous external settlement returned "${settled.status}" for run ${runId}`,
+    )
   }
 
   private resolveConnector(agentId: string, entry: AgentRegistryEntry): ExternalAgentConnector {

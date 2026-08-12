@@ -47,6 +47,8 @@ const createRunMock = jest.fn<Promise<string>, unknown[]>()
 const completeRunMock = jest.fn<Promise<void>, unknown[]>()
 const failRunMock = jest.fn<Promise<void>, unknown[]>()
 const createExternalRunRowMock = jest.fn<Promise<string>, unknown[]>()
+const claimExternalRunRowMock = jest.fn<Promise<boolean>, unknown[]>()
+const settleExternalRunRowMock = jest.fn<Promise<boolean>, unknown[]>()
 jest.mock('../lib/runtime/persistence', () => {
   const actual = jest.requireActual('../lib/runtime/persistence')
   return {
@@ -57,6 +59,8 @@ jest.mock('../lib/runtime/persistence', () => {
     completeRun: (...args: unknown[]) => completeRunMock(...args),
     failRun: (...args: unknown[]) => failRunMock(...args),
     createExternalRunRow: (...args: unknown[]) => createExternalRunRowMock(...args),
+    claimExternalRunRow: (...args: unknown[]) => claimExternalRunRowMock(...args),
+    settleExternalRunRow: (...args: unknown[]) => settleExternalRunRowMock(...args),
     createProposal: jest.fn(async () => undefined),
   }
 })
@@ -84,6 +88,7 @@ import type { AwilixContainer } from 'awilix'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import {
   AgentGuardrailBlockedError,
+  AgentOutputInvalidError,
   AgentRunSuspendedError,
   ExternalAgentConfigurationError,
   UnknownAgentRuntimeError,
@@ -189,6 +194,8 @@ beforeEach(() => {
   completeRunMock.mockReset().mockResolvedValue(undefined)
   failRunMock.mockReset().mockResolvedValue(undefined)
   createExternalRunRowMock.mockReset().mockResolvedValue('external-row-1')
+  claimExternalRunRowMock.mockReset().mockResolvedValue(true)
+  settleExternalRunRowMock.mockReset().mockResolvedValue(true)
   runAiAgentObjectMock.mockReset()
   openCodeRunMock.mockReset()
   process.env.APP_URL = 'https://app.example.com'
@@ -373,13 +380,45 @@ describe('a connector that answers inside start()', () => {
     })
     expect(completeRunMock).toHaveBeenCalledTimes(1)
 
-    // Nothing will call back, so the row is born settled and carries no resume
-    // triple — the step never parked.
+    // The row is born `pending` and settled through the SAME completion function
+    // the callback arm uses — that is what gives the synchronous arm the output
+    // guardrail and the single-shot claim it lacked before T2.4.
     const rowInput = createExternalRunRowMock.mock.calls[0][2] as Record<string, unknown>
-    expect(rowInput.status).toBe('completed')
+    expect(rowInput.status).toBe('pending')
+    expect(rowInput).not.toHaveProperty('resultPayload')
+    // Nothing will call back, so it carries no resume triple — the step never parked.
     expect(rowInput.processId).toBeNull()
     expect(rowInput.signalName).toBeNull()
-    expect(rowInput.resultPayload).toEqual({ kind: 'researcher', data: { reached: true, transcript: 'hello' } })
+
+    expect(claimExternalRunRowMock).toHaveBeenCalledTimes(1)
+    expect((claimExternalRunRowMock.mock.calls[0][2] as { status: string }).status).toBe('completed')
+    const settleInput = settleExternalRunRowMock.mock.calls[0][2] as Record<string, unknown>
+    expect(settleInput.status).toBe('completed')
+    expect(settleInput.resultPayload).toEqual({
+      kind: 'researcher',
+      data: { reached: true, transcript: 'hello' },
+    })
+  })
+
+  it('fails the run when the connector answers with a payload the agent never promised', async () => {
+    registerAgent('voice.synchronous_invalid')
+    registerExternalAgentConnector(
+      stubConnector({
+        start: async () => ({
+          externalRunId: 'conv-sync-bad',
+          expectsCallback: false,
+          result: { kind: 'researcher', data: { reached: 'yes please' } },
+        }),
+      }),
+    )
+
+    await expect(
+      makeService().runOrSuspend('voice.synchronous_invalid', {}, runCtx),
+    ).rejects.toBeInstanceOf(AgentOutputInvalidError)
+
+    expect(completeRunMock).not.toHaveBeenCalled()
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    expect((settleExternalRunRowMock.mock.calls[0][2] as { status: string }).status).toBe('failed')
   })
 })
 

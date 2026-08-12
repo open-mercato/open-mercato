@@ -1557,3 +1557,52 @@ export const agentExternalRunSchema = z
     { message: 'processId, stepId and signalName must be declared together', path: ['stepId'] },
   )
 export type AgentExternalRunInput = z.infer<typeof agentExternalRunSchema>
+
+/**
+ * The states a `pending` correlation row may be moved INTO. `pending` is excluded
+ * on purpose: the transition out of it is what makes the completion single-shot,
+ * and a caller able to name `pending` as its target could re-arm a settled row and
+ * let a replayed webhook resume the same parked step a second time.
+ */
+export const agentExternalRunTerminalStatusSchema = z.enum([
+  'completed',
+  'failed',
+  'expired',
+  'cancelled',
+])
+export type AgentExternalRunTerminalStatusInput = z.infer<
+  typeof agentExternalRunTerminalStatusSchema
+>
+
+/**
+ * Claim a `pending` correlation row for settlement. The write is a CONDITIONAL
+ * update guarded on `status = 'pending'` (plus the two tenancy columns), so
+ * whichever caller performs it first is the only one that settles the run — the
+ * second delivery of a redelivered webhook claims nothing.
+ */
+export const claimAgentExternalRunSchema = z.object({
+  externalRunRowId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  status: agentExternalRunTerminalStatusSchema,
+})
+export type ClaimAgentExternalRunInput = z.infer<typeof claimAgentExternalRunSchema>
+
+/**
+ * Write what the settlement produced onto an ALREADY-CLAIMED row. Separate from
+ * the claim because the two writes answer different questions and need different
+ * mechanics: the claim must be atomic (and therefore native SQL, which bypasses
+ * the ORM subscribers), while `resultPayload` / `failureReason` are ENCRYPTED
+ * columns and must go through a managed entity write so the encryption
+ * subscriber's `beforeUpdate` hook runs. A native update of those columns would
+ * store a transcript in plaintext.
+ */
+export const settleAgentExternalRunSchema = z.object({
+  externalRunRowId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  status: agentExternalRunTerminalStatusSchema,
+  resultPayload: z.unknown().optional(),
+  failureReason: z.string().max(4000).nullable().optional(),
+})
+export type SettleAgentExternalRunInput = z.infer<typeof settleAgentExternalRunSchema>
