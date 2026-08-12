@@ -25,6 +25,7 @@ import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../../../lib/personCompanyLinkTable'
+import { isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -280,13 +281,13 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
 
       const activeDeals = companyDealLinks
         .map((dcl) => dcl.deal as CustomerDeal)
-        .filter((deal) => deal.status !== 'win' && deal.status !== 'loose' && !deal.deletedAt)
+        .filter((deal) => isOpenDealStatus(deal.status) && !deal.deletedAt)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       const activeDeal = activeDeals.length > 0 ? activeDeals[0] : null
 
       const wonDeals = companyDealLinks
         .map((dcl) => dcl.deal as CustomerDeal)
-        .filter((deal) => deal.status === 'win' && !deal.deletedAt)
+        .filter((deal) => isWonDealStatus(deal.status) && !deal.deletedAt)
       let clv: { amount: number; currency: string } | null = null
       if (wonDeals.length > 0) {
         const currencies = new Map<string, number>()

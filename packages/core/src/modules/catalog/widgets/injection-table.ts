@@ -18,10 +18,11 @@ export const injectionTable: ModuleInjectionTable = {
   ],
   // Fallback alias when forms derive spot id from entity id
   'crud-form:catalog.catalog_product': 'catalog.injection.product-seo',
-  'data-table:catalog.products:bulk-actions': {
-    widgetId: 'catalog.injection.product-bulk-delete',
-    priority: 40,
-  },
+  // `ProductsDataTable` passes `perspective={{ tableId: 'catalog.products.list' }}`,
+  // which wins over `injectionSpotId` when `DataTable` derives `extensionTableId`,
+  // so the deep-extension surfaces only ever resolve the `catalog.products.list`
+  // spelling. The base-spot spelling binds solely for the header/footer/toolbar/
+  // search-trailing family below.
   'data-table:catalog.products.list:bulk-actions': {
     widgetId: 'catalog.injection.product-bulk-delete',
     priority: 40,

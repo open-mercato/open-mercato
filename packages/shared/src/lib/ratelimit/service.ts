@@ -1,4 +1,5 @@
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
+import { parseRedisUrl } from '../redis/connection'
 import type { RateLimitConfig, RateLimitResult, RateLimitGlobalConfig } from './types'
 
 /** Narrow interface for the ioredis client — only the methods we actually use. */
@@ -21,7 +22,8 @@ export class RateLimiterService {
   async initialize(): Promise<void> {
     if (this.globalConfig.strategy === 'redis' && this.globalConfig.redisUrl) {
       const { default: Redis } = await import('ioredis')
-      this.redisClient = new Redis(this.globalConfig.redisUrl, {
+      this.redisClient = new Redis({
+        ...parseRedisUrl(this.globalConfig.redisUrl),
         enableOfflineQueue: false,
         maxRetriesPerRequest: 1,
       })

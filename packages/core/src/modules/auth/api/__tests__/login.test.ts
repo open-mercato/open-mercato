@@ -83,6 +83,33 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     })
   })
 
+  test('rejects a correct password for a deactivated user with the generic 401', async () => {
+    const deactivated = { id: 1, email: 'user@example.com', passwordHash: 'hash', tenantId, organizationId: orgId, isConfirmed: false }
+    authServiceMock.findUsersByEmail.mockResolvedValueOnce([deactivated] as never)
+    authServiceMock.findUserByEmailAndTenant.mockResolvedValueOnce(deactivated as never)
+    authServiceMock.verifyPassword.mockResolvedValueOnce(true as never)
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(401)
+    // Must be indistinguishable from a wrong password so the response never reveals
+    // that the account exists but is deactivated.
+    expect(await res.json()).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
+
+    // The audit stream is a different audience than the caller: it MUST be able to tell
+    // a disabled account apart from a mistyped password.
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent as jest.Mock).toHaveBeenCalledWith(
+      'auth.login.failed',
+      expect.objectContaining({ reason: 'account_deactivated' }),
+    )
+  })
+
   test('returns 400 for malformed multipart login bodies instead of throwing', async () => {
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',

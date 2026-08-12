@@ -1,10 +1,28 @@
 import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
+import { clearSearchTokenPresenceCache } from '../../search/availability'
+
+// The token-presence answer is cached process-wide (TTL); without clearing it,
+// probe-count assertions would observe hits from earlier tests in this file.
+beforeEach(() => {
+  clearSearchTokenPresenceCache()
+})
 
 // Mock modules with one entity extension
 const mockModules = [
   { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
+  {
+    id: 'example',
+    entityExtensions: [
+      // Declares `table` explicitly; the derived plural now agrees with it.
+      { base: 'customers:customer_entity', extension: 'example:example_customer_priority', join: { baseKey: 'id', extensionKey: 'customer_id' }, table: 'example_customer_priorities' },
+      // No `table`: exercises the derived-plural fallback.
+      { base: 'auth:role', extension: 'example:example_role_policy', join: { baseKey: 'id', extensionKey: 'role_id' } },
+      // `table` is not a bare identifier, so the engine must refuse it.
+      { base: 'auth:session', extension: 'example:example_session_note', join: { baseKey: 'id', extensionKey: 'session_id' }, table: 'notes"; drop table users --' },
+    ],
+  },
 ]
 
 // Register modules for the registration-based pattern
@@ -355,6 +373,8 @@ describe('BasicQueryEngine (Kysely)', () => {
     const fakeDb = createFakeKysely({
       customer_entities: [],
       customer_people: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
       'information_schema.columns': [
         { table_name: 'customer_entities', column_name: 'tenant_id' },
         { table_name: 'customer_people', column_name: 'id' },
@@ -362,8 +382,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -409,7 +427,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    jest.spyOn(engine as any, 'tableExists').mockResolvedValue(false)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('customers:customer_entity', {
@@ -445,10 +462,10 @@ describe('BasicQueryEngine (Kysely)', () => {
   test('uses search tokens for index document fields on base entities', async () => {
     const fakeDb = createFakeKysely({
       todos: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    const tableExistsSpy = jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
-    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('example:todo', {
@@ -461,12 +478,15 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(tableExistsSpy).toHaveBeenCalledWith('search_tokens')
-    expect(hasSearchTokensSpy).toHaveBeenCalledWith(
-      'example:todo',
-      't1',
-      expect.objectContaining({ ids: ['org1'] }),
-    )
+    const calls = fakeDb._calls as Array<{ _ops: { table: string; wheres: unknown[][] } }>
+    const tableProbe = calls.find((call) =>
+      call._ops.table === 'information_schema.tables' &&
+      call._ops.wheres.some((where) => where[0] === 'table_name' && where[2] === 'search_tokens'))
+    expect(tableProbe).toBeTruthy()
+    const tokenProbe = calls.find((call) =>
+      call._ops.table === 'search_tokens' &&
+      call._ops.wheres.some((where) => where[0] === 'entity_type' && where[2] === 'example:todo'))
+    expect(tokenProbe).toBeTruthy()
     expect(applySearchTokensSpy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -488,7 +508,6 @@ describe('BasicQueryEngine (Kysely)', () => {
       ],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
-    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
     const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
 
     await engine.query('example:todo', {
@@ -501,7 +520,8 @@ describe('BasicQueryEngine (Kysely)', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(hasSearchTokensSpy).not.toHaveBeenCalled()
+    const calls = fakeDb._calls as Array<{ _ops: { table: string } }>
+    expect(calls.some((call) => call._ops.table === 'search_tokens')).toBe(false)
     expect(applySearchTokensSpy).not.toHaveBeenCalled()
     const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === 'todos')
     expect(baseCall?._ops.wheres).toContainEqual(['todos.search_text', 'ilike', '%avision%'])
@@ -932,5 +952,185 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
+  })
+
+  // A tiebreak sort is only worth configuring if the engine actually emits it.
+  // `list.tiebreakSortField` (used by the sales line routes to keep lines with an
+  // equal `line_number` in a repeatable order) is the first caller to pass more
+  // than one sort element, so pin that every element reaches ORDER BY in order —
+  // dropping sort[1] would silently restore the non-determinism it exists to fix.
+  test('emits every sort element as an ORDER BY column, in order', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'b', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Asc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'asc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
+  test('keeps each sort element on its own direction', async () => {
+    const fakeDb = createFakeKysely({
+      sales_order_lines: [
+        { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 1 },
+      ],
+      'information_schema.columns': [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'line_number'],
+      sort: [
+        { field: 'line_number', dir: SortDir.Desc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'sales_order_lines')
+    expect(baseCall._ops.orderBys).toEqual([
+      ['sales_order_lines.line_number', 'desc'],
+      ['sales_order_lines.id', 'asc'],
+    ])
+  })
+
+  describe('search_tokens coverage probe (#4723 parity)', () => {
+    type ProbeDbLog = { _calls: Array<{ _ops: { table: string } }> }
+
+    const countProbes = (fakeDb: ProbeDbLog): number =>
+      fakeDb._calls.filter((call) => call._ops.table === 'search_tokens').length
+
+    const buildEngine = (fakeDb: unknown): BasicQueryEngine => new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      (() => fakeDb) as unknown as NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>,
+    )
+
+    const buildDb = () => createFakeKysely({
+      users: [],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
+    })
+
+    test('is skipped when the query carries no like/ilike filter', async () => {
+      const fakeDb = buildDb()
+      const engine = buildEngine(fakeDb)
+
+      await engine.query('auth:user', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        filters: { is_active: { $eq: true } },
+      })
+
+      expect(countProbes(fakeDb)).toBe(0)
+    })
+
+    test('still runs when the query actually searches', async () => {
+      const fakeDb = buildDb()
+      const engine = buildEngine(fakeDb)
+
+      await engine.query('auth:user', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        filters: { email: { $ilike: '%abc%' } },
+      })
+
+      expect(countProbes(fakeDb)).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('BasicQueryEngine entity-extension joins', () => {
+  function extensionJoins(fakeDb: any, baseTable: string): any[] {
+    const baseCall = fakeDb._calls.find((builder: any) => builder._ops.table === baseTable)
+    expect(baseCall).toBeTruthy()
+    return baseCall._ops.joins.filter((entry: any) => Object.keys(entry.aliasObj)[0].startsWith('ext_'))
+  }
+
+  async function joinFor(entity: string, baseTable: string): Promise<any> {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query(entity, {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      includeExtensions: true,
+    })
+    const joins = extensionJoins(fakeDb, baseTable)
+    expect(joins).toHaveLength(1)
+    return joins[0]
+  }
+
+  test('prefers a declared table over the derived plural', async () => {
+    const join = await joinFor('customers:customer_entity', 'customer_entities')
+    expect(join.aliasObj).toEqual({ ext_example_customer_priority: 'example_customer_priorities' })
+    expect(join.conditions).toEqual([
+      {
+        method: 'on',
+        args: ['ext_example_customer_priority.customer_id', '=', 'customer_entities.id'],
+      },
+    ])
+  })
+
+  test('falls back to the derived plural when no table is declared', async () => {
+    // `policy` ends in `y`, so the correct plural is `policies`. This previously asserted
+    // `policys`, pinning a separate inline `+s` pluralizer that the extension-join path used
+    // instead of the file's own `pluralizeBaseName` — the very bug that made
+    // `example_customer_priority` derive `example_customer_prioritys` and forced the
+    // `table` override into existence.
+    const join = await joinFor('auth:role', 'roles')
+    expect(join.aliasObj).toEqual({ ext_example_role_policy: 'example_role_policies' })
+    expect(join.conditions).toEqual([
+      { method: 'on', args: ['ext_example_role_policy.role_id', '=', 'roles.id'] },
+    ])
+  })
+
+  test('ignores a declared table that is not a bare identifier', async () => {
+    const join = await joinFor('auth:session', 'sessions')
+    expect(join.aliasObj).toEqual({ ext_example_session_note: 'example_session_notes' })
   })
 })

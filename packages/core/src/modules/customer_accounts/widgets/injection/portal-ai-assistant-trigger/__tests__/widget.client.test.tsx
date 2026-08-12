@@ -23,8 +23,13 @@ jest.mock('@open-mercato/shared/security/features', () => ({
 }))
 
 describe('customer_accounts PortalAiAssistantTriggerWidget', () => {
-  it('renders the portal trigger button when the caller is portal admin', () => {
-    render(<PortalAiAssistantTriggerWidget context={{ isPortalAdmin: true }} />)
+  it('renders the portal trigger button from concrete effective features', () => {
+    render(<PortalAiAssistantTriggerWidget
+      context={{
+        isPortalAdmin: true,
+        resolvedFeatures: ['portal.account.manage'],
+      }}
+    />)
     const trigger = screen.getByRole('button', { name: /open portal ai assistant/i })
     expect(trigger).toBeTruthy()
   })

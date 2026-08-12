@@ -8,6 +8,8 @@ import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
@@ -15,6 +17,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from './schema'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOptionalBaseCurrencyResolver } from '../../../lib/optionalBaseCurrency'
 
 const logger = createLogger('dashboards').child({ component: 'widgets-data' })
 
@@ -121,13 +124,28 @@ export async function POST(req: Request) {
 
   try {
     const cache = container.resolve<CacheStrategy>('cache')
-    const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
+    const service = createWidgetDataService(
+      em,
+      { tenantId, organizationIds },
+      analyticsRegistry,
+      cache,
+      resolveOptionalBaseCurrencyResolver(container),
+    )
     const result = await service.fetchWidgetData(requestData)
     return NextResponse.json(result)
   } catch (err) {
     logger.error('Widget data request failed', { err })
     if (err instanceof WidgetDataValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 })
+    }
+    // The dataset is too large to group in application code; surface why rather than a masked 500.
+    if (err instanceof WidgetDataScanLimitError) {
+      return NextResponse.json({ error: err.message }, { status: 422 })
+    }
+    // Encryption is configured but currently unresolvable. Refusing the request keeps ciphertext and
+    // silently-wrong buckets out of the response, and 503 tells the client it is worth retrying.
+    if (err instanceof WidgetDataEncryptionUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 })
     }
     return NextResponse.json(
       { error: 'An error occurred while processing your request' },
@@ -156,8 +174,18 @@ const widgetDataPostDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid request payload', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    {
+      status: 422,
+      description: 'Too many rows to group an encrypted field in application code',
+      schema: dashboardsErrorSchema,
+    },
     { status: 403, description: 'Missing analytics.view feature', schema: dashboardsErrorSchema },
     { status: 500, description: 'Internal server error', schema: dashboardsErrorSchema },
+    {
+      status: 503,
+      description: 'Encryption is configured but the group source cannot currently be resolved',
+      schema: dashboardsErrorSchema,
+    },
   ],
 }
 

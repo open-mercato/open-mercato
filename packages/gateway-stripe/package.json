@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/gateway-stripe",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -66,7 +66,7 @@
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@stripe/react-stripe-js": "^6.7.0",
-    "@stripe/stripe-js": "^9.9.0",
+    "@stripe/stripe-js": "^9.12.1",
     "stripe": "^22.3.1"
   },
   "peerDependencies": {
@@ -83,9 +83,9 @@
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
   "publishConfig": {

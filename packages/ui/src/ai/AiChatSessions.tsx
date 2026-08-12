@@ -25,12 +25,15 @@ import {
   subscribeOrganizationScopeChanged,
 } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   createAiServerConversation,
   listAiServerConversations,
   updateAiServerConversation,
   type AiServerConversation,
 } from './conversation-store'
+
+const logger = createLogger('ui').child({ component: 'AiChatSessions' })
 
 /**
  * Legacy app-global storage key used before tenant/org scoping.
@@ -253,10 +256,19 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
 
   React.useEffect(() => {
     let cancelled = false
-    void listAiServerConversations({ limit: 100 }).then((conversations) => {
-      if (cancelled || !conversations) return
-      setState((prev) => mergeServerConversations(prev, conversations))
-    })
+    listAiServerConversations({ limit: 100 })
+      .then((conversations) => {
+        if (cancelled) return
+        if (!conversations) {
+          logger.warn('Could not load server conversations; keeping the locally persisted sessions')
+          return
+        }
+        setState((prev) => mergeServerConversations(prev, conversations))
+      })
+      .catch((err) => {
+        if (cancelled) return
+        logger.error('Failed to load server conversations', { err })
+      })
     return () => {
       cancelled = true
     }

@@ -667,12 +667,29 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
       await page.waitForLoadState('domcontentloaded')
 
+      // Fill only once this page's client components have mounted. `phase-d-person-id` is a
+      // controlled input, so a fill that lands before hydration is reset to its initial empty
+      // value; `runEnricherProbe` then reads an empty id from its DOM ref at click time and takes
+      // the "first of five" branch, answering for a seeded record instead of this fixture. The
+      // `"inspectedCount":5` in that payload is the branch's fingerprint. The injected widget is
+      // the page's existing readiness signal, and it renders only after hydration.
+      await expect(page.getByTestId('widget-field-change')).toBeVisible({ timeout: 20_000 })
       const personIdInput = page.getByTestId('phase-d-person-id')
       await fillControlledInput(personIdInput, personId)
       await page.getByTestId('phase-d-probe-title').fill('')
-      await page.getByTestId('phase-d-run-probe').click()
+      const runProbe = page.getByTestId('phase-d-run-probe')
+      const probeStatus = page.getByTestId('phase-d-status')
+      await expect.poll(async () => {
+        const status = (await probeStatus.textContent()) ?? ''
+        if (status.includes('idle')) await runProbe.click()
+        return (await probeStatus.textContent()) ?? ''
+      }, {
+        message: 'the hydrated Phase D probe button should leave its idle state',
+        timeout: 20_000,
+        intervals: [250, 500, 1000],
+      }).not.toContain('idle')
 
-      await expect(page.getByTestId('phase-d-status')).toContainText('ok')
+      await expect(probeStatus).toContainText('ok')
       await expect(page.getByTestId('phase-d-result')).toContainText(personId)
       await expect(page.getByTestId('phase-d-result')).toContainText('_example')
       await expect(page.getByTestId('phase-d-result')).toContainText('example.customer-todo-count')
@@ -715,10 +732,14 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.getByTestId('phase-c-load-transform-save-example').click()
     await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[confirm][transform] transform demo')
 
-    page.once('dialog', (dialog) => {
-      void dialog.accept()
+    const form = page.locator('form').first()
+    const dialogAccepted = page.waitForEvent('dialog').then(async (dialog) => {
+      await dialog.accept()
     })
-    await page.locator('form button[type="submit"]').first().click()
+    await Promise.all([
+      dialogAccepted,
+      form.locator('button[type="submit"]').first().click(),
+    ])
 
     await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":true')
     await expect(page.getByTestId('widget-save-guard')).toContainText('dialog:accepted')
