@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, User, UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
@@ -114,6 +114,7 @@ const actorId = '33333333-3333-4333-8333-333333333333'
 const orgId = '44444444-4444-4444-8444-444444444444'
 const foreignUserId = '55555555-5555-4555-8555-555555555555'
 const sameTenantUserId = '66666666-6666-4666-8666-666666666666'
+const unknownUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const foreignRoleId = '77777777-7777-4777-8777-777777777777'
 const sameTenantRoleId = '88888888-8888-4888-8888-888888888888'
 const nullTenantRoleId = '99999999-9999-4999-8999-999999999999'
@@ -218,6 +219,46 @@ describe('auth user target-ownership guards', () => {
     mockUserTargets()
     const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${foreignUserId}`, 'GET'))
     expect(res.status).toBe(404)
+  })
+})
+
+describe('auth user consents tenant scoping', () => {
+  function consentQuery(): Record<string, unknown> | undefined {
+    const call = mockFindWithDecryption.mock.calls.find((args: unknown[]) => args[1] === UserConsent)
+    return call?.[2] as Record<string, unknown> | undefined
+  }
+
+  test('tenant A admin consent read is scoped to the actor tenant', async () => {
+    setActor()
+    mockUserTargets()
+    const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${sameTenantUserId}`, 'GET'))
+    expect(res.status).toBe(200)
+    expect(consentQuery()).toMatchObject({ userId: sameTenantUserId, tenantId: tenantA })
+  })
+
+  test('null-tenant superadmin consent read is scoped to the target user tenant', async () => {
+    setActor({ isSuperAdmin: true, tenantId: null })
+    mockUserTargets()
+    const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${foreignUserId}`, 'GET'))
+    expect(res.status).toBe(200)
+    expect(consentQuery()).toMatchObject({ userId: foreignUserId, tenantId: tenantB })
+  })
+
+  test('null-tenant superadmin gets an empty list for an unknown target user', async () => {
+    setActor({ isSuperAdmin: true, tenantId: null })
+    mockUserTargets()
+    const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${unknownUserId}`, 'GET'))
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ ok: true, items: [] })
+    expect(consentQuery()).toBeUndefined()
+  })
+
+  test('non-superadmin without a tenant scope is rejected (403)', async () => {
+    setActor({ tenantId: null })
+    mockUserTargets()
+    const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${foreignUserId}`, 'GET'))
+    expect(res.status).toBe(403)
+    expect(consentQuery()).toBeUndefined()
   })
 })
 
