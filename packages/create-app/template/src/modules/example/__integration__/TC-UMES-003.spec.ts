@@ -667,6 +667,13 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
       await page.waitForLoadState('domcontentloaded')
 
+      // Fill only once this page's client components have mounted. `phase-d-person-id` is a
+      // controlled input, so a fill that lands before hydration is reset to its initial empty
+      // value; `runEnricherProbe` then reads an empty id from its DOM ref at click time and takes
+      // the "first of five" branch, answering for a seeded record instead of this fixture. The
+      // `"inspectedCount":5` in that payload is the branch's fingerprint. The injected widget is
+      // the page's existing readiness signal, and it renders only after hydration.
+      await expect(page.getByTestId('widget-field-change')).toBeVisible({ timeout: 20_000 })
       const personIdInput = page.getByTestId('phase-d-person-id')
       await fillControlledInput(personIdInput, personId)
       await page.getByTestId('phase-d-probe-title').fill('')

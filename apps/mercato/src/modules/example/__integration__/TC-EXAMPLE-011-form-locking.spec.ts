@@ -41,11 +41,22 @@ test.describe('TC-EXAMPLE-011: the shared todo form round-trips and refuses stal
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       await expect(titleInput).toBeVisible()
+      // The example injection widget mounts into this form asynchronously and is tall enough to
+      // move everything below it. Opening the severity select before it lands lets Radix anchor
+      // the listbox to a trigger position the late mount then shifts, stranding the portal
+      // outside the viewport: the option resolves and reports visible/enabled/stable, so
+      // Playwright retries the click for the whole 60s budget instead of failing on anything
+      // diagnosable. Let the form settle first, exactly as TC-EXAMPLE-017 does on this host.
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       const priorityInput = page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first()
       await priorityInput.fill('3')
       const severitySelect = page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first()
       await severitySelect.click()
-      await page.getByRole('option', { name: 'Medium' }).click()
+      const severityOption = page.getByRole('option', { name: 'Medium' })
+      // Bounded, and it names the real problem: if the listbox is ever stranded again this fails
+      // in seconds with "not in viewport" rather than hanging until the test timeout.
+      await expect(severityOption).toBeInViewport({ timeout: 10_000 })
+      await severityOption.click()
       await titleInput.fill(title)
       await expect(titleInput).toHaveValue(title)
 
