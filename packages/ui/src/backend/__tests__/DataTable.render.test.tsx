@@ -134,7 +134,10 @@ describe('DataTable SSR render', () => {
       { accessorKey: 'name', header: 'Name' },
     ]
     const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
-    const onRowClick = jest.fn()
+    let capturedRowTagName: string | null = null
+    const onRowClick = jest.fn((_row: Row, event: React.MouseEvent<HTMLTableRowElement>) => {
+      capturedRowTagName = event.currentTarget.tagName
+    })
     try {
       render(
         <QueryClientProvider client={queryClient}>
@@ -153,8 +156,8 @@ describe('DataTable SSR render', () => {
       expect(onRowClick).toHaveBeenCalledTimes(1)
       const [row, event] = onRowClick.mock.calls[0]
       expect(row).toEqual({ id: '1', name: 'Ada' })
-      expect(event).toEqual(expect.objectContaining({ type: 'click' }))
-      expect(typeof event.currentTarget).not.toBe('undefined')
+      expect(event.type).toBe('click')
+      expect(capturedRowTagName).toBe('TR')
 
       fireEvent.click(screen.getByText('Edit'))
       expect(onRowClick).toHaveBeenCalledTimes(1)
