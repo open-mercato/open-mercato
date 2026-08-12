@@ -402,6 +402,7 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`No import adapter registered for provider ${providerKey}`)
       }
       const operationalTelemetry = adapter.operationalTelemetry === true
+      const persistSharedCursor = adapter.persistsSharedCursor?.(run.entityType) ?? true
 
       const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
       if (!credentials) {
@@ -481,6 +482,7 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
+            { persistSharedCursor },
           )
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
@@ -547,6 +549,7 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`No export adapter registered for provider ${providerKey}`)
       }
       const operationalTelemetry = adapter.operationalTelemetry === true
+      const persistSharedCursor = adapter.persistsSharedCursor?.(run.entityType) ?? true
 
       const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
       if (!credentials) {
@@ -626,6 +629,7 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
+            { persistSharedCursor },
           )
           await updateProgress(run.progressJobId, processedCount, null, scope)
           await logExportItemFailures(run.id, run.integrationId, batch.results, scope)

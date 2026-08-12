@@ -26,6 +26,15 @@ type SyncScope = {
   tenantId: string
 }
 
+export type CursorCommitOptions = {
+  /**
+   * Mirror the committed cursor into the shared `sync_cursors` row. Defaults to
+   * `true`; the engine passes the adapter's `persistsSharedCursor(entityType)`
+   * verdict. `false` keeps the cursor on the run row alone.
+   */
+  persistSharedCursor?: boolean
+}
+
 export function createSyncRunService(em: EntityManager) {
   async function resolveCursorRow(run: SyncRun, scope: SyncScope): Promise<SyncCursor | null> {
     return findOneWithDecryption(
@@ -43,8 +52,15 @@ export function createSyncRunService(em: EntityManager) {
     )
   }
 
-  function applyCursorMutation(run: SyncRun, cursorRow: SyncCursor | null, cursor: string, scope: SyncScope): void {
+  function applyCursorMutation(
+    run: SyncRun,
+    cursorRow: SyncCursor | null,
+    cursor: string,
+    scope: SyncScope,
+    persistSharedCursor: boolean,
+  ): void {
     run.cursor = cursor
+    if (!persistSharedCursor) return
     if (cursorRow) {
       cursorRow.cursor = cursor
     } else {
@@ -195,12 +211,13 @@ export function createSyncRunService(em: EntityManager) {
       return row
     },
 
-    async updateCursor(runId: string, cursor: string, scope: SyncScope): Promise<void> {
+    async updateCursor(runId: string, cursor: string, scope: SyncScope, options?: CursorCommitOptions): Promise<void> {
       const run = await this.getRun(runId, scope)
       if (!run) return
-      const cursorRow = await resolveCursorRow(run, scope)
+      const persistSharedCursor = options?.persistSharedCursor ?? true
+      const cursorRow = persistSharedCursor ? await resolveCursorRow(run, scope) : null
       await withAtomicFlush(em, [
-        () => applyCursorMutation(run, cursorRow, cursor, scope),
+        () => applyCursorMutation(run, cursorRow, cursor, scope, persistSharedCursor),
       ], { transaction: true })
     },
 
@@ -209,10 +226,12 @@ export function createSyncRunService(em: EntityManager) {
       delta: Partial<Pick<SyncRun, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted'>>,
       cursor: string,
       scope: SyncScope,
+      options?: CursorCommitOptions,
     ): Promise<SyncRun | null> {
       const run = await this.getRun(runId, scope)
       if (!run) return null
-      const cursorRow = await resolveCursorRow(run, scope)
+      const persistSharedCursor = options?.persistSharedCursor ?? true
+      const cursorRow = persistSharedCursor ? await resolveCursorRow(run, scope) : null
       await withAtomicFlush(em, [
         () => {
           run.createdCount += delta.createdCount ?? 0
@@ -220,7 +239,7 @@ export function createSyncRunService(em: EntityManager) {
           run.skippedCount += delta.skippedCount ?? 0
           run.failedCount += delta.failedCount ?? 0
           run.batchesCompleted += delta.batchesCompleted ?? 0
-          applyCursorMutation(run, cursorRow, cursor, scope)
+          applyCursorMutation(run, cursorRow, cursor, scope, persistSharedCursor)
         },
       ], { transaction: true })
       return run
@@ -241,6 +260,31 @@ export function createSyncRunService(em: EntityManager) {
         scope,
       )
       return row?.cursor ?? null
+    },
+
+    /**
+     * Resume position for an entity type whose adapter opted out of the shared
+     * `sync_cursors` row: the cursor of the most recent run that never reached
+     * `completed`. Returns `null` when the last attempt finished, so the next
+     * run starts a fresh walk.
+     */
+    async resolveResumeCursor(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<string | null> {
+      const [run] = await findWithDecryption(
+        em,
+        SyncRun,
+        {
+          integrationId,
+          entityType,
+          direction,
+          status: { $ne: 'completed' },
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        },
+        { orderBy: { createdAt: 'DESC' }, limit: 1 },
+        scope,
+      )
+      return run?.cursor ?? null
     },
 
     async findRunningOverlap(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<SyncRun | null> {

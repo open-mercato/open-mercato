@@ -1,0 +1,40 @@
+import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
+import type { DataSyncAdapter } from './adapter'
+import { getDataSyncAdapter } from './adapter-registry'
+import type { SyncRunService } from './sync-run-service'
+
+type SyncScope = {
+  organizationId: string
+  tenantId: string
+}
+
+export function resolveAdapterForIntegration(integrationId: string): DataSyncAdapter | null {
+  const providerKey = getIntegration(integrationId)?.providerKey ?? integrationId
+  return getDataSyncAdapter(providerKey) ?? null
+}
+
+export function persistsSharedCursor(adapter: DataSyncAdapter | null | undefined, entityType: string): boolean {
+  return adapter?.persistsSharedCursor?.(entityType) ?? true
+}
+
+/**
+ * Start position for a non-full run. Entity types that mirror their cursor into
+ * the shared `sync_cursors` row read it from there. Entity types whose adapter
+ * opted out never write that row, so reading it would silently turn every
+ * incremental run into a full one — they resume from the last incomplete run
+ * instead.
+ */
+export async function resolveStartCursor(params: {
+  syncRunService: SyncRunService
+  adapter?: DataSyncAdapter | null
+  integrationId: string
+  entityType: string
+  direction: 'import' | 'export'
+  scope: SyncScope
+}): Promise<string | null> {
+  const { syncRunService, adapter, integrationId, entityType, direction, scope } = params
+  if (persistsSharedCursor(adapter, entityType)) {
+    return syncRunService.resolveCursor(integrationId, entityType, direction, scope)
+  }
+  return syncRunService.resolveResumeCursor(integrationId, entityType, direction, scope)
+}

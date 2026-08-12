@@ -143,6 +143,31 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `getMapping(...)`
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
+- optional `persistsSharedCursor(entityType)`
+
+## Shared cursor vs run-scoped cursor
+
+Every committed batch advances the cursor on the run row (`sync_runs.cursor`) so a redelivered job resumes exactly where it stopped. By default the engine also mirrors that cursor into the shared `sync_cursors` row — one row per `(integration, entityType, direction, organization, tenant)` — which is what the next incremental run starts from.
+
+That mirror is right for an incremental feed, whose cursor is a durable position in a change log, and wrong for a whole-table backfill, whose cursor is one run's scan state. Two runs of the same backfill (say a full walk and a walk narrowed to the last week) overwrite each other in that single row, so the survivor's window silently redefines where the next run starts.
+
+Adapters that serve both kinds under one provider key opt out per entity type:
+
+```ts
+const adapter: DataSyncAdapter = {
+  providerKey: 'my_provider',
+  direction: 'bidirectional',
+  supportedEntities: ['orders.feed', 'orders.backfill'],
+  persistsSharedCursor: (entityType) => !entityType.endsWith('.backfill'),
+  // ...
+}
+```
+
+Omitting the hook keeps today's behaviour. When it returns `false` for an entity type:
+
+- the engine skips both the read and the write of `sync_cursors` for that entity type (one query less per batch on long imports)
+- an incremental run resolves its start position from the most recent run that never completed, instead of from the shared row it never writes
+- `fullSync` still starts from `null`
 
 ## Provider-owned environment preconfiguration
 

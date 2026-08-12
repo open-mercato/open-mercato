@@ -135,7 +135,7 @@ describe('data sync engine export item failures', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       userId: 'user-1',
-    })
+    }, { persistSharedCursor: true })
     expect((integrationLogService as any).write).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: 'sync_magento',
       runId: 'run-1',
