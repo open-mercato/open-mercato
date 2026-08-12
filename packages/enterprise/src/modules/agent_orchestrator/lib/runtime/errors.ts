@@ -86,6 +86,40 @@ export class ExternalAgentConfigurationError extends Error {
 }
 
 /**
+ * The principal this run executes as is not authorized to place outbound contact.
+ *
+ * Governance, not wiring (design §3 rule 2, risk R6). An external agent has a real
+ * side effect on a person — the driving case dials a phone — so the capability sits
+ * behind its own default-off ACL feature rather than reusing `agents.run`, on the
+ * `web_search` precedent (module AGENTS.md rule 10). The check runs against the
+ * ACL of the run's traceable principal: for an `INVOKE_AGENT` step, the human core
+ * resolved from the workflow instance (`initiatedBy`, or the definition's author),
+ * which core already refuses to execute the step without.
+ *
+ * Raised BEFORE the run row exists and long before the connector dials, so a denied
+ * invocation leaves nothing behind — the same choice `AgentNotFoundError` and
+ * {@link ExternalAgentConfigurationError} make for the same reason: nothing was
+ * attempted. The refusal is logged with the principal and scope, so a tenant that
+ * has not granted the feature can still see who tried.
+ *
+ * NOT retryable: a missing grant is a deterministic fact about the principal, and
+ * re-running only produces a second identical refusal.
+ */
+export class ExternalAgentNotPermittedError extends Error {
+  readonly code = 'external_agent_not_permitted'
+  readonly retryable = false
+  readonly requiredFeature: string
+  constructor(agentId: string, requiredFeature: string) {
+    super(
+      `[internal] external agent "${agentId}" was not started: the invoking principal lacks the ` +
+        `"${requiredFeature}" feature, which gates outbound contact`,
+    )
+    this.name = 'ExternalAgentNotPermittedError'
+    this.requiredFeature = requiredFeature
+  }
+}
+
+/**
  * An external run STARTED and will answer out of band, raised by the
  * `agentRuntime.run()` compatibility surface for callers whose return type has no
  * room for a suspension. The workflow bridge does not see this — it calls

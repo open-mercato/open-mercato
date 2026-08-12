@@ -63,6 +63,21 @@ export const setup: ModuleSetupConfig = {
   // creates those roles (the demo runbook step 0 creates them); listing them is
   // a safe no-op otherwise. `employee` mirrors the operator caseload grants so a
   // stock tenant still gets a usable disposition persona out of the box.
+  //
+  // DEFAULT-OFF FEATURES — deliberately absent from every narrow persona below and
+  // reachable ONLY through the `agent_orchestrator.*` wildcard on superadmin/admin:
+  //   · agent_orchestrator.web_search           (network egress; discovery)
+  //   · agent_orchestrator.web_fetch            (network egress; arbitrary URL)
+  //   · agent_orchestrator.external_agents.invoke (OUTBOUND CONTACT — a third-party
+  //     agent that phones a human; regulated by consent / recording notice / quiet
+  //     hours / do-not-call, see the external-agent design §3 rule 2 and risk R6)
+  // Adding any of them to a persona list here would switch the capability on for
+  // every tenant on the next `seedDefaults`, which is exactly what "default-off"
+  // exists to prevent. Grant them per tenant from Settings → Roles instead.
+  //
+  // Existing tenants pick up a NEWLY DECLARED feature only after
+  // `yarn mercato auth sync-role-acls` re-syncs the wildcard grants; until then
+  // even a superadmin role stored with expanded features lacks it.
   defaultRoleFeatures: {
     superadmin: ['agent_orchestrator.*'],
     admin: ['agent_orchestrator.*'],

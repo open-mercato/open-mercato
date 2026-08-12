@@ -53,7 +53,14 @@ jest.mock('../lib/runtime/persistence', () => {
   const actual = jest.requireActual('../lib/runtime/persistence')
   return {
     buildCommandContext: () => ({}),
-    resolveCallerAcl: async () => ({ features: [], isSuperAdmin: false }),
+    // T2.8: the runner now gates outbound contact on a default-off ACL feature, so
+    // every case in THIS file — which is about the start mechanics, not the gate —
+    // runs as a principal that holds it. The gate itself (grant, denial, wildcard,
+    // superadmin, fail-closed) is covered in `external-run-wiring.test.ts`.
+    resolveCallerAcl: async () => ({
+      features: ['agent_orchestrator.external_agents.invoke'],
+      isSuperAdmin: false,
+    }),
     shapeResult: actual.shapeResult,
     createRun: (...args: unknown[]) => createRunMock(...args),
     completeRun: (...args: unknown[]) => completeRunMock(...args),

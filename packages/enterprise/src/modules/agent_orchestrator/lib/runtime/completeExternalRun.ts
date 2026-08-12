@@ -43,6 +43,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { ensureAgentsLoaded, getAgentEntry, type AgentRegistryEntry } from '../sdk/defineAgent'
 import type { AgentResult, GuardrailKindInput, GuardrailPhaseInput } from '../../data/validators'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
+import { emitExternalRunEvent } from './externalRunEvents'
 import {
   claimExternalRunRow,
   completeRun,
@@ -258,6 +259,24 @@ export async function completeExternalRun(
       userId: args.userId ?? null,
       failure: { detail, ...(blockedReason ? { blockedReason } : {}) },
     })
+    // Announced from HERE rather than from the sweep (which T2.7 pencilled in as
+    // the expiry emit point) because this side of the claim is the only place all
+    // three terminal facts are exactly-once. Everything above runs behind the
+    // conditional `pending → terminal` UPDATE, so a redelivered webhook racing a
+    // deadline job produces one settlement and therefore one event — whereas an
+    // emit in `expireExternalRun` would sit outside that guarantee and would cover
+    // only one of the three arms. `expired` and `failed` stay separate ids for the
+    // reason the ROW keeps them separate: "nobody answered" and "somebody answered
+    // badly" are different operational facts.
+    await emitExternalRunEvent(
+      settlement.kind === 'expired'
+        ? 'agent_orchestrator.external_run.expired'
+        : 'agent_orchestrator.external_run.failed',
+      externalRunEventFacts(row),
+      // `cause` only — `detail` is a provider message or a zod error, both of which
+      // routinely quote the transcript or the number that was dialled.
+      { outcomeHandle, cause, resume },
+    )
     return {
       status: 'failed',
       runId: row.runId,
@@ -385,7 +404,34 @@ export async function completeExternalRun(
     data: result.kind === 'researcher' ? result.data : undefined,
   })
 
+  // The result itself is deliberately NOT in the payload. It is the transcript of a
+  // conversation with a human; it lives encrypted on the correlation row and on the
+  // run's output, both of which are behind an authenticated, feature-gated read.
+  await emitExternalRunEvent(
+    'agent_orchestrator.external_run.completed',
+    externalRunEventFacts(row),
+    { outcomeHandle: 'researcher', resume },
+  )
+
   return { status: 'completed', runId: row.runId, result, outcomeHandle: 'researcher', resume }
+}
+
+/**
+ * Project the correlation row onto the id-only fact set the events carry. A named
+ * projection rather than an inline object so every emit site in this file carries
+ * the same fields, and so adding a field is one reviewable edit instead of three.
+ */
+function externalRunEventFacts(row: ExternalRunCorrelation) {
+  return {
+    externalRunRowId: row.id,
+    runId: row.runId,
+    agentId: row.agentId,
+    connectorId: row.connectorId,
+    tenantId: row.tenantId,
+    organizationId: row.organizationId,
+    processId: row.processId ?? null,
+    stepId: row.stepId ?? null,
+  }
 }
 
 /**

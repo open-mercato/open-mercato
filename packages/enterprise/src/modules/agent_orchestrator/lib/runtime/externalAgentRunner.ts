@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
 import {
@@ -21,7 +22,9 @@ import {
   AgentGuardrailBlockedError,
   AgentOutputInvalidError,
   ExternalAgentConfigurationError,
+  ExternalAgentNotPermittedError,
 } from './errors'
+import { emitExternalRunEvent } from './externalRunEvents'
 import { GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import {
   type AgentRunCtx,
@@ -29,6 +32,7 @@ import {
   createExternalRunRow,
   createRun,
   failRun,
+  resolveCallerAcl,
 } from './persistence'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'external-agent-runner' })
@@ -49,6 +53,14 @@ export { buildExternalRunCallbackPath, hashCallbackToken }
  * need it) while keeping the dependency one-way: runner → completion.
  */
 export { EXTERNAL_RUN_RESUME_SIGNAL }
+
+/**
+ * The default-OFF ACL feature that gates outbound contact (design §3 rule 2, risk
+ * R6; declared in `acl.ts`). Held here rather than in `acl.ts` so the enforcement
+ * point owns the constant and `acl.ts` stays a dependency-free declaration the
+ * generators can read; a test asserts the two agree.
+ */
+export const EXTERNAL_AGENT_INVOKE_FEATURE = 'agent_orchestrator.external_agents.invoke'
 
 /**
  * What one dispatched agent run produced: either a settled `AgentResult` (every
@@ -99,6 +111,14 @@ export class ExternalAgentRunner {
     input: unknown,
     ctx: AgentRunCtx,
   ): Promise<AgentRunOutcome> {
+    // GOVERNANCE BEFORE WIRING. Outbound contact is the one thing this runtime
+    // does that no other runtime does, and it is regulated — so the authorization
+    // question is answered before the deployment-configuration questions below,
+    // and long before anything is written or dialled. See
+    // `ExternalAgentNotPermittedError` for why this is a feature of its own rather
+    // than a reuse of `agents.run`.
+    await this.assertOutboundContactPermitted(agentId, ctx)
+
     // Resolve the connector FIRST, before any row exists. A connector is
     // registered from a provider module's `di.ts` while the agent is registered
     // from `ai-agents.ts`; the two are independent by design, so `connectorId`
@@ -244,6 +264,22 @@ export class ExternalAgentRunner {
         expiresAt: expiresAt.toISOString(),
       })
 
+      // Announced AFTER the row and the deadline exist, so nothing can observe a
+      // started external run that has no correlation row to settle it and no
+      // deadline to release it. Best-effort by contract — the call is already live,
+      // so a failing event bus must never turn a placed call into a failed run.
+      await emitExternalRunEvent('agent_orchestrator.external_run.started', {
+        externalRunRowId,
+        runId,
+        agentId,
+        connectorId: connector.id,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        externalRunId: started.externalRunId,
+        processId: hasWorkflowStep ? ctx.processId : null,
+        stepId: hasWorkflowStep ? ctx.stepId : null,
+      })
+
       return { kind: 'suspended', runId, externalRunId: started.externalRunId }
     }
 
@@ -272,6 +308,22 @@ export class ExternalAgentRunner {
       status: 'pending',
       expiresAt,
       requestPayload: input,
+    })
+
+    // The synchronous arm announces the SAME pair as the suspended one: this run
+    // also started at a third party, it simply finished before we returned.
+    // `completeExternalRun` below emits its terminal half, so an operator reading
+    // the event log sees one shape for both kinds of connector.
+    await emitExternalRunEvent('agent_orchestrator.external_run.started', {
+      externalRunRowId,
+      runId,
+      agentId,
+      connectorId: connector.id,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      externalRunId: started.externalRunId,
+      processId: null,
+      stepId: null,
     })
 
     const settled = await completeExternalRun({
@@ -334,6 +386,40 @@ export class ExternalAgentRunner {
       agentId,
       `[internal] synchronous external settlement returned "${settled.status}" for run ${runId}`,
     )
+  }
+
+  /**
+   * Refuse an external run whose principal may not place outbound contact.
+   *
+   * `resolveCallerAcl` is the same helper `NativeAgentRunner` uses to give an
+   * agent's tools the CALLER's grants rather than escalated ones, and it FAILS
+   * CLOSED by construction: an unresolvable RBAC service, an unknown user or an
+   * empty user id all yield `{ features: [], isSuperAdmin: false }`, which denies.
+   * That matters here more than anywhere else in the module — the failure mode of
+   * a fail-open gate is an unauthorized phone call to a real person.
+   *
+   * Wildcard-aware through the shared `hasAllFeatures`, so `agent_orchestrator.*`
+   * and `*` grants satisfy it exactly as they do everywhere else; `isSuperAdmin`
+   * short-circuits for the same reason every other feature gate honours it.
+   */
+  private async assertOutboundContactPermitted(agentId: string, ctx: AgentRunCtx): Promise<void> {
+    const acl = await resolveCallerAcl(this.container, ctx)
+    if (acl.isSuperAdmin) return
+    if (hasAllFeatures([EXTERNAL_AGENT_INVOKE_FEATURE], acl.features)) return
+
+    // The refusal leaves no run row (nothing was attempted), so the log line is the
+    // only record a tenant has of an attempted outbound contact. It therefore names
+    // the principal and the scope — never the input, which is the brief.
+    logger.warn('refused an external agent run: the principal may not place outbound contact', {
+      agentId,
+      userId: ctx.userId || null,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      processId: ctx.processId ?? null,
+      stepId: ctx.stepId ?? null,
+      requiredFeature: EXTERNAL_AGENT_INVOKE_FEATURE,
+    })
+    throw new ExternalAgentNotPermittedError(agentId, EXTERNAL_AGENT_INVOKE_FEATURE)
   }
 
   private resolveConnector(agentId: string, entry: AgentRegistryEntry): ExternalAgentConnector {

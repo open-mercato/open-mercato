@@ -24,6 +24,7 @@ export {
   AgentGuardrailBlockedError,
   AgentRunSuspendedError,
   ExternalAgentConfigurationError,
+  ExternalAgentNotPermittedError,
   UnknownAgentRuntimeError,
 } from './errors'
 export { DEFAULT_CONTEXT_TOKEN_BUDGET } from './nativeAgentRunner'

@@ -324,6 +324,12 @@ export async function sweepExpiredExternalRuns(
  *      reason we are here at all is that the provider is unreachable, so its
  *      `cancel` is the call most likely to hang. Freeing the workflow first costs
  *      the extra hang-up a few hundred milliseconds and buys immunity from that.
+ *
+ * `agent_orchestrator.external_run.expired` is NOT emitted here, although this is
+ * where T2.7 expected it. It is emitted inside `completeExternalRun`, on the far
+ * side of the single-shot claim, so the announcement inherits the same
+ * exactly-once property the settlement has — a sweep that lost the race to a
+ * callback claims nothing, settles nothing and announces nothing.
  */
 export async function expireExternalRun(
   deps: ExternalRunSweepDeps,

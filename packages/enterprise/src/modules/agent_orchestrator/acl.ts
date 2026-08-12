@@ -122,6 +122,33 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.web_search'],
   },
+  // Outbound contact overlay (spec next/2026-08-12-external-agent-invocation-analysis
+  // §3 rule 2, risk R6). Gates the `external` runtime: an agent that runs at a
+  // third party and, in the driving case, PHONES A HUMAN. Follows the `web_search`
+  // precedent exactly (AGENTS.md rule 10) rather than reusing `agents.run`, and for
+  // a stronger reason than web egress has — placing a call is regulated (consent,
+  // recording notice, quiet hours, do-not-call), so a deployment must switch it on
+  // deliberately, per tenant, with somebody accountable for having done so.
+  //
+  // Default-OFF, expressed the same way `web_search` expresses it: declared here,
+  // and intentionally NOT added to the narrower `defaultRoleFeatures` lists in
+  // setup.ts. Only the `agent_orchestrator.*` wildcard on superadmin/admin covers
+  // it, so no stock persona can place an outbound call out of the box.
+  //
+  // Enforced in `lib/runtime/externalAgentRunner.ts` against the ACL of the run's
+  // traceable principal — for an INVOKE_AGENT step, the human core's
+  // `resolveWorkflowPrincipalUserId` resolved from the workflow instance — BEFORE
+  // the run row is opened and long before the connector dials.
+  //
+  // `dependsOn` agents.run: an external agent is still an agent run, reachable from
+  // the playground as well as from a workflow node, so the invoke grant should never
+  // be held by a principal who may not run agents at all.
+  {
+    id: 'agent_orchestrator.external_agents.invoke',
+    title: 'Invoke external agents (place outbound contact)',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.agents.run'],
+  },
 ]
 
 export default features

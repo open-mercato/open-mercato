@@ -79,6 +79,29 @@ const events = [
   // Attachment from a captured artifact.
   { id: 'agent_orchestrator.artifact.captured', label: 'Agent Artifact Captured', entity: 'artifact', category: 'lifecycle', clientBroadcast: true },
   { id: 'agent_orchestrator.artifact.promoted', label: 'Agent Artifact Promoted', entity: 'artifact', category: 'lifecycle', clientBroadcast: true },
+  // Outbound contact / `external` runtime (spec next/2026-08-12-external-agent-
+  // invocation-analysis). One pair of facts per external run: it STARTED at a third
+  // party (nothing is in hand yet, the workflow step is parked), and it reached one
+  // of three terminal states — the provider answered and the answer held
+  // (`completed`), it answered badly or reported a failure (`failed`), or nobody
+  // ever answered and the deadline sweep released the step (`expired`, risk R2).
+  //
+  // NOT `clientBroadcast`, and that is a security decision rather than an omission.
+  // The DOM Event Bridge forwards a broadcast frame to EVERY backoffice connection
+  // in the tenant + organization without evaluating ACL features (see workflows/
+  // AGENTS.md § Live run views, which keeps the task events off it for the same
+  // reason). Broadcasting the activity of a capability that is deliberately gated
+  // behind a default-off feature would hand every connected operator a live feed of
+  // who is being contacted, undoing the gate. The cockpit surfacing (tracker T3.4)
+  // can add it later — `clientBroadcast` is additive.
+  //
+  // Payload discipline lives in `lib/runtime/externalRunEvents.ts`: ids, scope and
+  // classified enums ONLY. Never the transcript, never the phone number, never the
+  // callback token. These events are persisted, so anything put here is stored.
+  { id: 'agent_orchestrator.external_run.started', label: 'External Agent Run Started', entity: 'external_run', category: 'lifecycle' },
+  { id: 'agent_orchestrator.external_run.completed', label: 'External Agent Run Completed', entity: 'external_run', category: 'lifecycle' },
+  { id: 'agent_orchestrator.external_run.failed', label: 'External Agent Run Failed', entity: 'external_run', category: 'lifecycle' },
+  { id: 'agent_orchestrator.external_run.expired', label: 'External Agent Run Expired', entity: 'external_run', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({
