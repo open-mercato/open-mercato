@@ -67,14 +67,13 @@ test.describe('TC-PUSH-009: admin send page → delivery log shows sent', () => 
         page.locator('label').filter({ hasText: new RegExp(`^${label}`) }).locator('xpath=..')
 
       // The recipient is the admin itself — the device registered above belongs to them.
-      // `ComboboxInput` renders its suggestions as `<Button>`s in a popover, NOT as ARIA `option`s,
-      // so `getByRole('option')` never resolves either. Click the suggestion by its label, which is
-      // `"<name> — <email>"` (see `loadUserOptions` in the send page).
+      // `ComboboxInput` renders its suggestions as ARIA `option`s inside a popover listbox. Their
+      // accessible name is `"<name> — <email>"` (see `loadUserOptions` in the send page).
       const recipientField = fieldByLabel('Recipient')
       const recipientInput = recipientField.locator('input').first()
       await recipientInput.click()
       await recipientInput.fill(ADMIN_EMAIL)
-      await recipientField.getByRole('button', { name: new RegExp(ADMIN_EMAIL, 'i') }).first().click()
+      await recipientField.getByRole('option', { name: new RegExp(ADMIN_EMAIL, 'i') }).first().click()
 
       await fieldByLabel('Title').locator('input').first().fill(PUSH_TITLE)
 
