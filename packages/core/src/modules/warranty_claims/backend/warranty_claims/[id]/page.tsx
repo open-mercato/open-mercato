@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Copy, Hash, Info, MessageSquare, Pencil, RefreshCw, Trash2, UserRound } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
