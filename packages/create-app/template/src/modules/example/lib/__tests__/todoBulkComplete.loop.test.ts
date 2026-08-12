@@ -80,6 +80,25 @@ function buildProgress(cancelAfter: number | null = null) {
   return progress
 }
 
+/**
+ * Waits for a heartbeat-driven condition instead of sleeping for a fixed slice of
+ * wall-clock time.
+ *
+ * The heartbeat runs on a real `setInterval`, so a fixed sleep asserts the runner's
+ * scheduling latency as much as the loop's behavior: under a loaded CI worker the
+ * 20ms budget elapsed with zero interval ticks delivered and the assertion read a
+ * single (initial) renewal. Polling keeps the property under test — that the
+ * heartbeat renews the lease *while* an item is still executing — and drops the
+ * dependency on how promptly the event loop gets to the timer.
+ */
+async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('[internal] timed out waiting for the expected condition')
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+  }
+}
+
 describe('runTodoBulkCompleteLoop', () => {
   it('runs every item through the executor and completes the progress job', async () => {
     const { store, checkpoints, finished } = buildStore(buildSnapshot())
@@ -250,7 +269,7 @@ describe('runTodoBulkCompleteLoop', () => {
       leaseHeartbeatMs: 5,
     })
 
-    await new Promise((resolve) => { setTimeout(resolve, 20) })
+    await waitFor(() => jest.mocked(store.renewLease).mock.calls.length > 1)
     expect(jest.mocked(store.renewLease).mock.calls.length).toBeGreaterThan(1)
     releaseExecution?.()
     await running
@@ -278,7 +297,7 @@ describe('runTodoBulkCompleteLoop', () => {
       leaseHeartbeatMs: 5,
     })
 
-    await new Promise((resolve) => { setTimeout(resolve, 20) })
+    await waitFor(() => jest.mocked(store.renewLease).mock.calls.length > 1)
     releaseExecution?.()
     await expect(running).resolves.toEqual({ outcome: null, executed: true })
     expect(store.saveCheckpoint).not.toHaveBeenCalled()

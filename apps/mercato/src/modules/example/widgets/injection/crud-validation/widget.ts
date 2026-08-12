@@ -15,6 +15,9 @@ function readSharedState(context: unknown) {
 
 const RECURSIVE_ADDON_SPOT = 'widget:example.injection.crud-validation:addon'
 
+/** Lower-case marker a record carries to opt into `transformDisplayData`. */
+const DISPLAY_TRANSFORM_MARKER = '[display]'
+
 function normalizeBeforeSaveResult(result: WidgetBeforeSaveResult): {
   ok: boolean
   message?: string
@@ -269,11 +272,19 @@ const widget: InjectionWidgetModule<any, any> = {
     transformDisplayData: async (data, context) => {
       const sharedState = readSharedState(context)
       if (data && typeof data === 'object') {
-        const transformed = { ...(data as Record<string, unknown>) }
-        const title = transformed.title
-        if (typeof title === 'string') {
-          transformed.title = title.toUpperCase()
-        }
+        const source = data as Record<string, unknown>
+        const title = typeof source.title === 'string' ? source.title : ''
+        // Opt in on the record, the same way `transformFormData` opts in on `[transform]`.
+        // These demo widgets are registered unconditionally now that the module fact
+        // extractor has to read the registry statically, so this handler runs on EVERY
+        // CrudForm host that mounts the widget — and `CrudForm` writes the transformed
+        // record back into the form's own values, which the next submit sends. Rewriting
+        // every title on sight would therefore retitle records nobody asked to retitle,
+        // and would leave every other host's expectations depending on whether the widget
+        // had finished loading yet. The marker keeps the extension point demonstrably live
+        // while confining its effect to records that ask for it.
+        if (!title.toLowerCase().includes(DISPLAY_TRANSFORM_MARKER)) return data
+        const transformed = { ...source, title: title.toUpperCase() }
         sharedState?.set('lastTransformDisplayData', transformed)
         return transformed as typeof data
       }

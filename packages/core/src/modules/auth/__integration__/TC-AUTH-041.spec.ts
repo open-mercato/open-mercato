@@ -85,6 +85,15 @@ async function createUser(
  */
 test.describe('TC-AUTH-041: Superadmin users list context scope', () => {
   test('scopes /backend/users to selected organization and all organizations within selected tenant', async ({ page, request }) => {
+    // This case provisions two tenants, three organizations and three users over the API,
+    // drives a browser flow across three scope selections, then tears all eight fixtures
+    // down again. Tenant creation itself is not a fixed cost: every enabled module's
+    // `onTenantCreated` hook runs inside it, so the work grows with the module set (the
+    // example module installs its custom-entity definitions there). Batching the fixture
+    // calls bought some headroom but not enough — on a loaded CI worker the run still
+    // exceeded the suite's flat 20s budget. Declare the budget the case actually needs
+    // instead of leaving it to how busy the runner happens to be.
+    test.slow()
     const stamp = Date.now()
     const token = await getAuthToken(request, 'superadmin')
     const { tenantId: actorTenantId, organizationId: actorOrganizationId } = getTokenContext(token)

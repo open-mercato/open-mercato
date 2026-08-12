@@ -451,6 +451,12 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
   })
 
   test('one persisted scoped Todo event remains one workflow instance after the queued delivery is drained', async ({ request }) => {
+    // The waits this test declares did not fit the budget it ran under: two workflow polls
+    // (20s ceiling each), a queue drain that spawns the CLI from the app root, and a 5s
+    // stability observation per scope, all inside the suite's flat 20s test timeout. On an
+    // unloaded machine the polls resolve in well under a second and it passed; on a loaded
+    // CI worker it could only ever end in "Test timeout of 20000ms exceeded".
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
@@ -476,7 +482,7 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
         const instances = await readWorkflowInstances(request, token, homeTodoId!)
         instances.forEach((instance) => workflowInstanceIds.add(instance.id))
         return instances.map((instance) => instance.status)
-      }, { timeout: 30_000 }).toEqual(['COMPLETED'])
+      }, { timeout: 20_000 }).toEqual(['COMPLETED'])
 
       foreignOrgId = await createOrganizationFixture(request, token, {
         name: `TC-EXAMPLE-015 workflow org ${suffix}`,
@@ -499,7 +505,7 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
         const instances = await readWorkflowInstances(request, token, foreignTodoId!, foreignOrgId!)
         instances.forEach((instance) => workflowInstanceIds.add(instance.id))
         return instances.map((instance) => instance.status)
-      }, { timeout: 30_000 }).toEqual(['COMPLETED'])
+      }, { timeout: 20_000 }).toEqual(['COMPLETED'])
 
       expect(await readWorkflowInstances(request, token, foreignTodoId!)).toEqual([])
       const processedEventDeliveries = await drainIntegrationQueue('events')

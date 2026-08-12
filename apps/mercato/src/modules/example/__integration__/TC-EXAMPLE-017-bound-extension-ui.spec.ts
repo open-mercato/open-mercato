@@ -293,11 +293,17 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
     test.slow()
     const token = await getAuthToken(request, 'admin')
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
-    const initialTitle = `TC-EXAMPLE-017 update source ${suffix}`
+    // `[display]` is the marker the widget's `transformDisplayData` opts in on. The handler
+    // runs on every CrudForm host that mounts the widget and CrudForm feeds its result back
+    // into the form's own values, so an unmarked record must come back untouched — the
+    // counter-check below is what keeps this test from certifying a blanket rewrite.
+    const initialTitle = `[display] TC-EXAMPLE-017 update source ${suffix}`
+    const untransformedTitle = `TC-EXAMPLE-017 update untouched ${suffix}`
     const rawUpdatedTitle = `[transform] TC-EXAMPLE-017 update ${suffix}`
     const expectedUpdatedTitle = `TC-EXAMPLE-017 update ${suffix} (transformed)`
     const logs = collectExampleLifecycleLogs(page)
     let todoId: string | null = null
+    let untransformedTodoId: string | null = null
 
     try {
       const created = await apiRequest(request, 'POST', TODOS_API, {
@@ -308,7 +314,23 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       todoId = ((await created.json()) as { id?: string }).id ?? null
       expect(todoId).toBeTruthy()
 
+      const createdUntransformed = await apiRequest(request, 'POST', TODOS_API, {
+        token,
+        data: { title: untransformedTitle, cf_priority: 1, cf_severity: 'low' },
+      })
+      expect(createdUntransformed.ok()).toBeTruthy()
+      untransformedTodoId = ((await createdUntransformed.json()) as { id?: string }).id ?? null
+      expect(untransformedTodoId).toBeTruthy()
+
       await login(page, 'admin')
+      await page.goto(
+        `/backend/todos/${encodeURIComponent(untransformedTodoId!)}/edit`,
+        { waitUntil: 'domcontentloaded' },
+      )
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
+      await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(untransformedTitle)
+      await expect(page.getByTestId('widget-transform-display-data')).toHaveText('transformDisplayData=null')
+
       await page.goto(`/backend/todos/${encodeURIComponent(todoId!)}/edit`, { waitUntil: 'domcontentloaded' })
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
@@ -342,6 +364,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       expect(item?.title).toBe(expectedUpdatedTitle)
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
+      await deleteEntityIfExists(request, token, TODOS_API, untransformedTodoId)
     }
   })
 
@@ -385,7 +408,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       for (const branch of ['success', 'stale'] as const) {
         const created = await apiRequest(request, 'POST', TODOS_API, {
           token,
-          data: { title: `TC-EXAMPLE-017 delete ${branch} ${suffix}`, cf_priority: 1, cf_severity: 'low' },
+          data: { title: `[display] TC-EXAMPLE-017 delete ${branch} ${suffix}`, cf_priority: 1, cf_severity: 'low' },
         })
         expect(created.ok()).toBeTruthy()
         const createdId = ((await created.json()) as { id?: string }).id ?? null
@@ -402,7 +425,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       await loginWithCredentials(page, email, password)
       await page.goto(`/backend/todos/${encodeURIComponent(successTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(
-        `TC-EXAMPLE-017 DELETE SUCCESS ${suffix.toUpperCase()}`,
+        `[DISPLAY] TC-EXAMPLE-017 DELETE SUCCESS ${suffix.toUpperCase()}`,
       )
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       logs.length = 0
@@ -423,7 +446,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       )
 
       await page.goto(`/backend/todos/${encodeURIComponent(staleTodoId!)}/edit`, { waitUntil: 'domcontentloaded' })
-      const staleTitle = `TC-EXAMPLE-017 delete stale ${suffix}`
+      const staleTitle = `[display] TC-EXAMPLE-017 delete stale ${suffix}`
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(staleTitle.toUpperCase())
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       await bumpRecordViaApi(request, token, TODOS_API, { id: staleTodoId, title: `${staleTitle} moved` })
