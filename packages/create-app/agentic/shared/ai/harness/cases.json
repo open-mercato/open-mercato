@@ -20812,9 +20812,6 @@
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-data-model-design/SKILL.md"
       ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
-      ],
       "forbidden": [
         ".env*",
         ".git/**"
