@@ -55,15 +55,15 @@ Make the warranty claims desk safe and ready for another review by correcting ev
 
 ### Phase 2: Security and module boundaries
 
-- [ ] 2.1 Fix AI approval, attachment-target authorization, portal vendor-recovery authorization, assignee organization scope, adjudication fail-open behavior, trusted subscriber scope, and portal attachment ownership/quota orchestration
+- [x] 2.1 Fix AI approval, attachment-target authorization, portal vendor-recovery authorization, assignee organization scope, adjudication fail-open behavior, trusted subscriber scope, and portal attachment ownership/quota orchestration — d76af23f4
 
 ### Phase 3: Data integrity and lifecycle reliability
 
-- [ ] 3.1 Fix overdue status parity, vendor-recovery source indexing and type eligibility, SLA partial-failure retry safety, claim search pagination, and time-driven SLA indicators
+- [x] 3.1 Fix overdue status parity, vendor-recovery source indexing and type eligibility, SLA partial-failure retry safety, claim search pagination, and time-driven SLA indicators — 6d211e46d, 748136040
 
 ### Phase 4: Test and UI contract remediation
 
-- [ ] 4.1 Fix non-idempotent sales fixtures, settings restoration, accessible tabs, clipboard error handling, terminal tracker state, localized search actions, modal/radius/button design-system drift, and associated regression coverage
+- [x] 4.1 Fix non-idempotent sales fixtures, settings restoration, accessible tabs, clipboard error handling, terminal tracker state, localized search actions, modal/radius/button design-system drift, and associated regression coverage — 6d211e46d, 748136040
 
 ### Phase 5: Verification and publication
 
