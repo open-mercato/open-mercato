@@ -32,8 +32,8 @@ top of that seam.
 | 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (4 locales) | DONE | `17e444185` |
 | 2.9 | Package: `@open-mercato/agent-elevenlabs` — integration provider + voice connector | DONE | `a89629580` |
 | 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | TODO | |
-| 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | TODO | |
-| 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | TODO | |
+| 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | DONE | `1c9182ddd` |
+| 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | DONE | `59f15f105` |
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript + recording captured as `AgentRunArtifact`s | TODO | |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
@@ -533,3 +533,49 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   `enterpriseModulesEnabled && enterpriseAgentsEnabled` block, mirror into the template, and add the
   package to `scripts/template-sync.ts`. The integration also ships DISABLED by default from the env
   preset — dialling is never enabled just by deploying.
+- 2026-08-12 — **T2.12 done. The end-to-end blocker is closed.** One STATIC url per connector, pasted into
+  the provider's workspace settings, resolving the run by the provider's own id via the new optional
+  `extractExternalRunId`. Tenancy without a token: all candidate rows for `(connector, external_run_id)` are
+  fetched and each is verified against ITS OWN tenant's webhook secret — at most one can verify, because the
+  secret is per-tenant, so the SIGNATURE is the disambiguator.
+- 2026-08-12 — **T2.12 amplification bound.** ElevenLabs' `verifyCallback` builds a container and DECRYPTS
+  the tenant credential before computing the HMAC, so verifying is not cheap. An attacker picks the id but
+  CANNOT create rows, so the candidate set is bounded by genuine collisions; capped at 10 in SQL anyway so
+  per-request work is fixed. Ten rather than one because truncating a real collision would leave a tenant's
+  callback unresolvable until the sweep — nine spare HMACs is the cheaper failure. Hitting the cap logs ERROR.
+- 2026-08-12 — **T2.12: this route is deliberately WEAKER than the `[token]` one, and says so in code.** Two
+  proofs become one; a conversation id is guessable and visible in provider dashboards, so a leaked webhook
+  secret lets an attacker settle any of THAT tenant's pending runs (only that tenant's). It also must PARSE
+  BEFORE VERIFYING, which the token route refuses to do — bounded by the body cap, `JSON.parse` only, feeding
+  a length-capped lookup key, and the raw string is never rebuilt from it. Unknown connector answers 404
+  (not the token route's 503) so the route is not a probe for which packages a deployment runs.
+- 2026-08-12 — T2.12 rate-limit buckets to document with T2.6's:
+  `:external-connector-callback:ip` (60/min), `:connector` (600/min, deployment-wide), `:org` (60/min,
+  charged only AFTER a signature verifies).
+- 2026-08-12 — **T2.11 done. The driving use case now works end to end.** `outputMapping` travels bridge ctx
+  → `AgentRunCtx` → `agent_external_runs.output_mapping`, and the callback applies it.
+- 2026-08-12 — **T2.11 imported core's `mapAgentResultToContext` rather than reimplementing it**, extending
+  T2.2's `parseDuration` precedent to a DYNAMIC import inside `completeExternalRun` (so the unauthenticated
+  route does not require `workflows` at import time). It is not merely the same algorithm — it IS the contract
+  the Studio's variable picker types `data.*` against, so a second implementation drifting would produce an
+  `undefined` in a live process, invisible to both packages' typecheckers.
+- 2026-08-12 — **T2.11 payoff confirmed: the Studio ledger ALREADY typed external `data.*` paths.**
+  `resolveInvokeAgentOutputContract` builds the envelope from `listAgentOutcomeContracts()`, and
+  `defineExternalAgent` registers a normal researcher entry — so the picker was already right and only the
+  ENGINE was ignoring the mapping. That is the payoff for building the connector seam on top of the existing
+  agent registry instead of beside it.
+- 2026-08-12 — **T2.11 design rule to keep for T4.1:** the mapping is read from the ROW at resume time, not
+  projected by callers. That is why T2.12's brand-new static route honours author mappings with ZERO changes
+  on its side; the projection-widening alternative would have shipped a route that silently dropped them.
+- 2026-08-12 — T2.11 semantics matched to core, not to the plan's phrasing: a DECLARED mapping that resolves
+  nothing yields `{}`, NOT the legacy keys (core does `mappedPayload ?? legacy`, and the mapper returns null
+  only for an absent/empty mapping) — falling back would make the two paths disagree about one definition.
+  The mapping applies to the RESEARCHER arm only; letting it rewrite a failure payload would drop `__error`
+  and leave the run branching on nothing.
+- 2026-08-12 — T2.11: `output_mapping` is deliberately NOT encrypted — it holds Studio-authored context key
+  names and dot-paths that `workflow_definitions.definition` already stores in plaintext. Encrypting a copy
+  of public configuration buys nothing, adds a decrypt hop on the resume path, and adds one more column to
+  T2.4's native-write plaintext trap. Guarded by an assertion.
+- 2026-08-12 — **Recurring test hazard in this module:** a PARTIAL `jest.mock('../lib/runtime/persistence')`
+  silently turns a NEW export into `undefined`, which surfaced as `resume: 'failed'` in three unrelated
+  suites. Any task adding an export to a widely-mocked module must top up those mocks.
