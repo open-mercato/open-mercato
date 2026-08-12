@@ -38,8 +38,8 @@ top of that seam.
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript captured as an `AgentRunArtifact` (audio deliberately not stored) | DONE | `4cf4c49cd` |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
-| 3.3 | Eval + dry run: mock/refuse parity for external connectors; external runs → eval cases | TODO | |
-| 3.4 | Cockpit: external-run surfacing on the run detail + agents registry + **fetch-on-demand audio** | TODO | |
+| 3.3 | Eval + dry run: mock/refuse parity for external connectors; external runs → eval cases | DONE | `c77f6eb01` |
+| 3.4 | Cockpit: external-run surfacing + agents registry + **fetch-on-demand audio** + **rerun/Playground UX** | TODO | |
 | **Phase 4 — generalize the seam** | | | |
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | TODO | |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
@@ -687,6 +687,35 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   `failed` down the `error` handle, and the real transcript arriving seconds later is discarded by the spent
   claim. Today's behaviour is at least safe and pinned by tests (no re-settle, no second resume, idempotent
   under redelivery).
+- 2026-08-12 — **T3.3 done — and it CORRECTS the T2.2 entry above.** That entry said a connector with no
+  `mock` "refuses". **It did not.** `connector.mock` was declared on the interface and READ BY NOTHING (a
+  repo-wide grep for `connector.mock` / `.mock?.()` returned zero product hits), and
+  `ExternalAgentRunner.run` called `connector.start(...)` unconditionally without ever consulting
+  `ctx.source`. An eval replay against ElevenLabs WOULD HAVE DIALLED; the run then returned `suspended`,
+  `run()` threw, and the eval case recorded `error` *after the phone had already rung*. Omitting `mock`
+  bought nothing. The guarantee now lives in the RUNNER, where a connector author cannot undo it.
+- 2026-08-12 — T3.3: a supplied `mock`'s payload is nested under `wouldDo`, never spread, so even a mock
+  returning `{ reached: true, transcript }` cannot read as an outcome. Simulated runs get `simulated://`
+  placeholders instead of a real minted bearer, write no correlation row and no deadline job, and skip
+  output-schema validation of a would-do.
+- 2026-08-12 — **T3.3 full caller audit of `agentRuntime.run`/`runOrSuspend`** — every one of these can reach
+  an external agent: `evalReplayService` (the hole, now closed), the Playground route, **`api/runs/[id]/rerun`
+  (a re-run of a voice run places a SECOND real call — still open, see below)**, `workers/task-run-executor`,
+  `delegate_agent` (correctly inherits `source`), and the workflow bridge (the intended path).
+- 2026-08-12 — **T3.3 Playground decision: deliberately left dialling.** It is an explicit human action
+  behind both `agents.run` and the default-off `external_agents.invoke` grant, and it is the only way to
+  smoke-test a connector end to end; guarding it would push operators to test by triggering real workflows
+  instead. It also will NOT silently simulate when a `mock` exists — a Playground that quietly faked its
+  answer is worse than one that dials. Open UX gap for T3.4: the route rethrows `AgentRunSuspendedError` as
+  an HTTP 500 while a real call is in flight; it wants a 202-with-runId arm.
+- 2026-08-12 — **T3.3: the DRY-RUN guarantee rests entirely on CORE**, not on anything in enterprise.
+  `activity-executor` short-circuits at the one place `entry.execute` is reached and `INVOKE_AGENT` declares
+  `mock: buildInvokeAgentWouldDo`, so a dry run never reaches the bridge or the runner. A dry run that DID
+  arrive at the runner would carry `source: 'runtime'` and dial.
+- 2026-08-12 — T3.3: the "external runs → eval cases" half of this task needed NO code —
+  `evalCases.createFromRun` is runtime-agnostic (reads `run.input`/`run.output` only). It also corrected a
+  STALE comment in `evalReplayService` claiming nested delegations do not inherit `source`; they do, and that
+  inheritance is now load-bearing for the guard.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
