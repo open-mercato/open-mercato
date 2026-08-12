@@ -352,6 +352,12 @@ export class ExternalAgentRunner {
         callbackUrl,
         callbackToken,
         scope,
+        // The runner's own container, so a connector reads this tenant's
+        // credentials through the caller's DI rather than constructing a second
+        // one (T2.9's seam gap). Optional on the interface, so a connector that
+        // needs no credentials — and any caller that holds no container — is
+        // unaffected.
+        container: this.container,
       })
     } catch (err) {
       // The provider refused or was unreachable: nothing is in flight, so fail

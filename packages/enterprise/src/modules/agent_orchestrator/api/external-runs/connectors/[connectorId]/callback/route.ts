@@ -75,6 +75,8 @@ import {
 import {
   getExternalAgentConnector,
   type ExternalAgentConnector,
+  type ExternalAgentConnectorCallbackScope,
+  type ExternalAgentConnectorContainer,
   type ExternalAgentConnectorScope,
 } from '../../../../../lib/runtime/externalConnectorRegistry'
 import { agentOrchestratorTag } from '../../../../openapi'
@@ -315,7 +317,7 @@ export async function POST(req: Request, ctx: RouteContext): Promise<Response> {
   //    failure to verify, never "probably fine" — and the loop moves on rather
   //    than aborting, so one tenant's broken credentials cannot deny another
   //    tenant's correctly signed callback.
-  const verified = await findVerifiedCandidate(connector, req.headers, rawBody, candidates)
+  const verified = await findVerifiedCandidate(connector, req.headers, rawBody, candidates, container)
   if (!verified) {
     logger.warn('external connector callback failed verification against every candidate', {
       connectorId,
@@ -346,7 +348,14 @@ export async function POST(req: Request, ctx: RouteContext): Promise<Response> {
   //    `error` handle now (the token route's precedent).
   let settlement: ExternalRunSettlement
   try {
-    settlement = { kind: 'result', payload: connector.normalize(parsedBody) }
+    // Awaited, and handed the same tenancy + container `verifyCallback` got: a
+    // connector configured per tenant has to read a credential to know where the
+    // answer lives. A connector returning a plain value is unaffected, and a
+    // rejected promise lands in the same catch a throw does.
+    settlement = {
+      kind: 'result',
+      payload: await connector.normalize(parsedBody, { ...scope, container }),
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     logger.warn('connector could not normalize a verified external connector callback', {
@@ -448,6 +457,7 @@ async function findVerifiedCandidate(
   headers: Headers,
   rawBody: string,
   candidates: CandidateRow[],
+  container: ExternalAgentConnectorContainer,
 ): Promise<CandidateRow | null> {
   const ordered = [...candidates].sort((left, right) => {
     const leftPending = left.status === 'pending' ? 0 : 1
@@ -456,9 +466,12 @@ async function findVerifiedCandidate(
   })
 
   for (const candidate of ordered) {
-    const scope: ExternalAgentConnectorScope = {
+    // The candidate's own tenancy plus this request's container, so verifying
+    // costs no second container per candidate.
+    const scope: ExternalAgentConnectorCallbackScope = {
       tenantId: candidate.tenantId,
       organizationId: candidate.organizationId,
+      container,
     }
     try {
       // `rawBody` is passed straight through, byte-identical to what arrived.

@@ -47,6 +47,7 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/agent-elevenlabs/package.json ./packages/agent-elevenlabs/
+COPY packages/agent-http/package.json ./packages/agent-http/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
@@ -152,6 +153,7 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/agent-elevenlabs/package.json ./packages/agent-elevenlabs/
+COPY packages/agent-http/package.json ./packages/agent-http/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
@@ -320,6 +322,7 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 COPY --from=builder /app/packages/agent-elevenlabs/package.json ./packages/agent-elevenlabs/
+COPY --from=builder /app/packages/agent-http/package.json ./packages/agent-http/
 COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY --from=builder /app/packages/cache/package.json ./packages/cache/
 COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-gmail/

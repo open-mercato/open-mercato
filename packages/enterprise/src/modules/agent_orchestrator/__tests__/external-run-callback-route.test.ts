@@ -200,7 +200,11 @@ describe('external run callback route', () => {
     // passing is independent proof and not just a string comparison.
     expect(headers.get('x-test-signature')).toBe(signBody(RAW_BODY))
     // And the scope it was asked to verify against is the ROW's, not the headers'.
-    expect(scope).toEqual({ tenantId: TENANT_A, organizationId: ORG_A })
+    // Matched rather than equalled: the scope additionally carries this request's
+    // container, so a connector can read that tenant's credentials without
+    // building one of its own (T2.9's seam gap, closed by T4.1).
+    expect(scope).toMatchObject({ tenantId: TENANT_A, organizationId: ORG_A })
+    expect(typeof (scope as { container?: { resolve?: unknown } }).container?.resolve).toBe('function')
   })
 
   it('ignores a tenant/organization asserted by the body or the headers', async () => {

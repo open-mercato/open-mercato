@@ -229,6 +229,12 @@ export async function POST(req: Request, ctx: RouteContext): Promise<Response> {
   //    callback body claiming some other `tenant_id` is not rejected so much as
   //    never consulted.
   const scope = { tenantId: row.tenantId, organizationId: row.organizationId }
+  // The same scope plus THIS request's container, for the two connector entry
+  // points that may need to read the tenant's own credentials (the webhook secret
+  // to verify with, and — for a connector configured per tenant — where the answer
+  // sits in the payload). Kept as its own object so what reaches
+  // `completeExternalRun` stays exactly the tenancy pair it already took.
+  const callbackScope = { ...scope, container }
 
   // 4. THE VERIFIER COMES FROM THE ROW TOO. Reading the connector id from the body
   //    or a header would let a caller choose which signature check it must pass —
@@ -254,7 +260,7 @@ export async function POST(req: Request, ctx: RouteContext): Promise<Response> {
   //    failure to verify, and must never fall through as "probably fine".
   let verified = false
   try {
-    verified = await connector.verifyCallback(req.headers, rawBody, scope)
+    verified = await connector.verifyCallback(req.headers, rawBody, callbackScope)
   } catch (error) {
     logger.warn('connector threw while verifying an external run callback; treating as unverified', {
       externalRunRowId: row.id,
@@ -297,7 +303,11 @@ export async function POST(req: Request, ctx: RouteContext): Promise<Response> {
   //    T2.4's `failure` arm exists for.
   let settlement: ExternalRunSettlement
   try {
-    settlement = { kind: 'result', payload: connector.normalize(parsedBody) }
+    // Awaited: `normalize` may be asynchronous, because a connector configured per
+    // tenant has to read a credential to know where the answer lives. A connector
+    // that returns a plain value is unaffected, and a rejected promise lands in the
+    // same catch a throw does.
+    settlement = { kind: 'result', payload: await connector.normalize(parsedBody, callbackScope) }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     logger.warn('connector could not normalize a verified external run callback', {

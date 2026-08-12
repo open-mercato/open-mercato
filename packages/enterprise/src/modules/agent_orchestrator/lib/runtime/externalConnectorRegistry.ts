@@ -34,6 +34,46 @@ export type ExternalAgentConnectorScope = {
   organizationId: string
 }
 
+/**
+ * The caller's DI container, offered to a connector so it can reach THIS TENANT'S
+ * credentials without building a container of its own (tracker task 2.9's seam gap,
+ * closed by T4.1).
+ *
+ * WHY IT IS PASSED AND NEVER CAPTURED. A connector is registered once per process
+ * from `di.ts`, whose `register(container)` runs inside `createRequestContainer()` —
+ * i.e. once per REQUEST, against a freshly forked `em`. A connector that closed over
+ * the container it was registered with would read every later tenant's credentials
+ * through an entity manager belonging to a finished request: an identity-map hazard
+ * that surfaces as intermittent stale reads, far from its cause. Handing the LIVE
+ * caller's container in on every entry point is the only shape that is both correct
+ * and free — every call site already holds one.
+ *
+ * OPTIONAL, and must stay optional. A connector may be driven by a caller that has
+ * no container (a unit test, a future operator tool), so an implementation MUST fall
+ * back to building one rather than assuming this is present.
+ *
+ * Structurally typed rather than imported from `awilix` so a provider package can
+ * satisfy it in a test with a two-line object.
+ */
+export type ExternalAgentConnectorContainer = {
+  resolve: (name: string) => unknown
+}
+
+/**
+ * What the CALLBACK half of the seam knows: the tenancy of the already-resolved
+ * correlation row, plus the caller's container.
+ *
+ * Note what is deliberately NOT here: the agent. A callback is addressed by RUN
+ * (a token) or by PROVIDER RUN ID, and by the time a connector is asked to verify
+ * or normalize, the only identity that has been established is the tenant's. A
+ * connector whose verification or normalization would have to differ per AGENT
+ * therefore cannot exist — that configuration has to be per tenant + connector, or
+ * it has to be encoded in the provider's own payload.
+ */
+export type ExternalAgentConnectorCallbackScope = ExternalAgentConnectorScope & {
+  container?: ExternalAgentConnectorContainer
+}
+
 export interface ExternalAgentConnectorStartArgs {
   /** The registered agent being run, so the connector can read its own authoring fields. */
   agentEntry: AgentRegistryEntry
@@ -48,6 +88,11 @@ export interface ExternalAgentConnectorStartArgs {
    */
   callbackToken: string
   scope: ExternalAgentConnectorScope
+  /**
+   * The runner's own container, so `start()` can read this tenant's credentials.
+   * Optional by contract — see `ExternalAgentConnectorContainer`.
+   */
+  container?: ExternalAgentConnectorContainer
 }
 
 /**
@@ -94,16 +139,35 @@ export interface ExternalAgentConnector {
    *
    * `scope` is the scope of the ALREADY-RESOLVED correlation row (looked up by
    * token hash), so a connector can check the signature against that tenant's
-   * secret. It is never derived from the callback body.
+   * secret. It is never derived from the callback body. It also carries the
+   * route's own container, so reading that secret costs no second container.
    */
   verifyCallback(
     headers: Headers,
     rawBody: string,
-    scope: ExternalAgentConnectorScope,
+    scope: ExternalAgentConnectorCallbackScope,
   ): Promise<boolean> | boolean
 
-  /** Provider payload → the agent's declared OUTCOME shape. Called only AFTER `verifyCallback`. */
-  normalize(rawPayload: unknown): unknown
+  /**
+   * Provider payload → the agent's declared OUTCOME shape. Called only AFTER
+   * `verifyCallback`.
+   *
+   * `context` carries the same tenancy + container `verifyCallback` receives,
+   * because a connector configured per tenant — "read the answer from
+   * `result.answer` on THIS tenant's provider" — cannot normalize from the payload
+   * alone. It is optional and MAY be absent, so an implementation that needs it
+   * must resolve its own container when it is not supplied. A connector whose
+   * mapping is fixed by the provider (the ElevenLabs case) ignores the argument
+   * entirely and stays a one-parameter function.
+   *
+   * May return a promise: reading a tenant credential is asynchronous, and a
+   * connector that had to be synchronous here could only get its configuration
+   * from process-level env — which cannot differ per tenant.
+   */
+  normalize(
+    rawPayload: unknown,
+    context?: ExternalAgentConnectorCallbackScope,
+  ): unknown | Promise<unknown>
 
   /**
    * Optional: extract the PROVIDER's own run id from a raw callback payload, so a

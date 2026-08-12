@@ -307,7 +307,12 @@ describe('connector-addressed external run callback route', () => {
     // above is a real signature property, not just a string comparison.
     expect(signBody(reserialized, ORG_A)).not.toBe(signBody(RAW_BODY, ORG_A))
     expect(headers.get('x-test-signature')).toBe(signBody(RAW_BODY, ORG_A))
-    expect(scope).toEqual({ tenantId: TENANT_A, organizationId: ORG_A })
+    // Matched rather than equalled: the verification scope additionally carries
+    // this request's container, so a connector can read the candidate tenant's
+    // credentials without building one per candidate (T2.9's seam gap, closed by
+    // T4.1). The settlement scope below is still the bare tenancy pair.
+    expect(scope).toMatchObject({ tenantId: TENANT_A, organizationId: ORG_A })
+    expect(typeof (scope as { container?: { resolve?: unknown } }).container?.resolve).toBe('function')
   })
 
   it('ignores a tenant/organization asserted by the body or the headers', async () => {

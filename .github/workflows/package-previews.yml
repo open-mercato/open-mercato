@@ -93,6 +93,7 @@ jobs:
         run: >
           yarn pkg-pr-new publish --comment=update --no-template --yarn --packageManager=yarn
           './packages/agent-elevenlabs'
+          './packages/agent-http'
           './packages/ai-assistant'
           './packages/cache'
           './packages/channel-gmail'
