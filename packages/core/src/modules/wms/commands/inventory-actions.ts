@@ -46,14 +46,14 @@ import {
   type InventoryStrategy,
 } from '../data/entities'
 import {
-  inventoryAdjustSchema,
+  inventoryAdjustCommandSchema,
   inventoryCycleCountSchema,
   inventoryMoveSchema,
   inventoryReceiveSchema,
   inventoryReservationAllocateSchema,
   inventoryReservationCreateSchema,
   inventoryReservationReleaseSchema,
-  type InventoryAdjustInput,
+  type InventoryAdjustCommandInput,
   type InventoryCycleCountInput,
   type InventoryMoveInput,
   type InventoryReceiveInput,
@@ -1282,12 +1282,12 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
     }),
 }
 
-const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId: string }> = {
+const adjustInventoryCommand: CommandHandler<InventoryAdjustCommandInput, { movementId: string }> = {
   id: 'wms.inventory.adjust',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
   async execute(rawInput, ctx) {
-    const input = inventoryAdjustSchema.parse(rawInput ?? {})
+    const input = inventoryAdjustCommandSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
@@ -1298,6 +1298,13 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
       const locationWarehouseId = typeof location.warehouse === 'string' ? location.warehouse : location.warehouse.id
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
+      }
+      if (input.movementType === 'receipt') {
+        const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
+        enforceInventoryTrackingRequirements(profile, {
+          lotId: input.lotId ?? null,
+          serialNumber: input.serialNumber ?? null,
+        })
       }
       const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
@@ -1315,7 +1322,7 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
         lotId: input.lotId ?? null,
         serialNumber: input.serialNumber ?? null,
         quantity: delta,
-        type: 'adjust',
+        type: input.movementType ?? 'adjust',
         referenceType: input.referenceType,
         referenceId: input.referenceId,
         performedBy: input.performedBy,
