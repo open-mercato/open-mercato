@@ -19,12 +19,12 @@ top of that seam.
 | # | Task | Status | Commit |
 |---|---|---|---|
 | **Phase 1 — core workflow engine learns "answer later"** | | | |
-| 1.1 | Core: add `suspended` to the agent-bridge outcome union; park-and-return in `handleInvokeAgentJob` | TODO | |
-| 1.2 | Core: refuse `suspended` on the inline parallel-branch path with a typed, non-retryable error | TODO | |
+| 1.1 | Core: add `suspended` to the agent-bridge outcome union; park-and-return in `handleInvokeAgentJob` | DONE | `9ed5a3ad4` |
+| 1.2 | Core: refuse `suspended` on the inline parallel-branch path with a typed, non-retryable error | DONE | `70514a5ae` |
 | **Phase 2 — external runner, connector seam, ElevenLabs** | | | |
-| 2.1 | Data: `AgentExternalRun` entity + validators + migration + snapshot + encryption map | TODO | |
-| 2.2 | SDK: `ExternalAgentConnector` registry + `defineExternalAgent` | TODO | |
-| 2.3 | Runtime: `ExternalAgentRunner` (start half) + `agentRuntime` dispatch arm for `runtime: 'external'` | TODO | |
+| 2.1 | Data: `AgentExternalRun` entity + validators + migration + snapshot + encryption map | DONE | `a8e8aba9a` |
+| 2.2 | SDK: `ExternalAgentConnector` registry + `defineExternalAgent` | DONE | `a99804cf2` |
+| 2.3 | Runtime: `ExternalAgentRunner` (start half) + `agentRuntime` dispatch arm for `runtime: 'external'` | DONE | `b1281e472` |
 | 2.4 | Runtime: `completeExternalRun` (validate → output guardrail → complete run → resume workflow) | TODO | |
 | 2.5 | Bridge: `invokeAgentForWorkflow` returns `{ kind: 'suspended' }` | TODO | |
 | 2.6 | API: callback route + command (unauthenticated, connector-verified, idempotent, `openApi`) | TODO | |
@@ -184,3 +184,117 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   would let a third party's confidence auto-approve a domain write; deliberately out of scope.
 - 2026-08-12 — ElevenLabs API surface verified against the live docs (endpoints, payload shape, HMAC
   rule, 1800 s tolerance) before any code was written.
+- 2026-08-12 — **T1.1 done.** The bridge type is declared TWICE — `lib/activity-executor.ts` and
+  `lib/activity-worker-handler.ts` each keep their own copy so core never imports the enterprise peer —
+  so both needed the new arm. The plan named only the executor; corrected here.
+- 2026-08-12 — **T1.1 design point worth keeping.** `AgentResultEnvelope` in `lib/agent-result-mapping.ts`
+  deliberately keeps only the four *settled* kinds. That is what makes a missing `suspended` early-return
+  a COMPILE error instead of a silent resume with an empty payload. Do not widen it.
+- 2026-08-12 — **T1.1 spilled into T1.2's lines.** Widening the union made the executor's inline
+  parallel-branch fallthrough a type error, so a plain `throw` was added there as a placeholder. It is
+  NOT yet marked non-retryable, so the queue still retries it — T1.2 must replace it with the typed
+  non-retryable error and cover it with tests.
+- 2026-08-12 — **Worktree hazard: `yarn generate` is destructive here.** In this worktree it deleted 9
+  committed files (`docker/opencode/agents/*.md`, `docker/opencode/skills/*/SKILL.md`) and blanked
+  `packages/enterprise/.../generated/file-agents.generated.ts`. Restored with `git checkout`. Every task
+  that runs `yarn generate` MUST re-check `git status` afterwards and restore unrelated deletions before
+  committing. The worktree also needed `yarn install` + `yarn build:packages` before typecheck was
+  meaningful.
+- 2026-08-12 — **T1.2 done. The real retry hazard was NOT the queue.** The inline branch path never
+  reaches the queue worker — it is wrapped by `executeActivity`'s own in-process `retryPolicy` loop. With
+  the default `maxAttempts: 3` the placeholder would have called the bridge three times, and since a
+  `suspended` outcome means the external run ALREADY STARTED, that is three real phone calls. The fix
+  therefore carries TWO structural markers: `retryable = false` (read by `isRetryableError`, closes the
+  queue path) and `agentSuspensionUnsupported` (breaks the in-process loop, mirroring the
+  `isDryRunRefusal` break one line above). Any future side-effecting refusal needs both.
+- 2026-08-12 — **T1.2 decision: the refusal is deliberately ABSORBABLE** by an `error` route,
+  `continueOnActivityFailure` and `errorDirective` — unlike `WorkflowDryRunRefusalError`, which is a
+  non-absorbable STOP. The maintainer's criterion for that STOP is "nothing was attempted"; here the
+  effector genuinely ran, so it is an ordinary activity failure and the author's declared failure
+  handling should apply. Accepted tradeoff: `continueWithFallback` can advance a branch while a real
+  external run is still live and orphaned — the same property any side-effecting activity already has
+  (a `CALL_WEBHOOK` that times out after the remote acted). T4.2's Studio guard is where this gets
+  caught before a run.
+- 2026-08-12 — T1.2: `isRetryableError` is now exported from `lib/activity-worker-handler.ts` (additive)
+  so tests assert the real downstream check instead of reading a raw property.
+- 2026-08-12 — **T2.1 done.** `yarn db:generate` cannot SEE enterprise modules by default; it needs
+  `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`. With those set it
+  reproduced the hand-written migration byte-for-byte (negative-control: table removed from the snapshot,
+  regenerated, compared) and then reported `no changes`. It ALSO emits unrelated `wms` drift on every
+  run, which must be discarded per the coding-agent exception.
+- 2026-08-12 — **T2.1 constraint decision.** `external_run_id` uniqueness is scoped
+  `(organization_id, connector_id, external_run_id)`, not global: a provider run id is unique within the
+  provider ACCOUNT, so two tenants on their own ElevenLabs workspaces can legitimately mint the same
+  `conversation_id` and a global unique would reject the second. Nullable columns give partial-unique
+  behaviour for free (Postgres treats NULLs as distinct) — same precedent as `agent_runs_runtime_external_uq`.
+- 2026-08-12 — **T2.1 downstream contract for T2.3 / T2.6.** The runner MUST hash the callback token with
+  SHA-256 and persist only the LOWERCASE hex digest — `agentExternalRunSchema` rejects anything else,
+  uppercase hex included. The callback route hashes what it received and looks the row up by that digest.
+  `callback_token_hash` is deliberately NOT encrypted: already one-way, and the lookup must stay SQL-queryable.
+- 2026-08-12 — **T2.1 added an invariant the plan did not ask for:** `processId` / `stepId` / `signalName`
+  are all-or-nothing in the validator. A row naming a step but no process could never be resumed and would
+  park the instance forever — risk R2 by another route. A synchronous connector (`expectsCallback: false`)
+  legitimately writes a row with none of the three.
+- 2026-08-12 — **T2.2 done. SAFETY FINDING that changes T3.3's scope.** A workflow dry run never reaches
+  the bridge — `INVOKE_AGENT` already carries an activity-level `mock`, so it short-circuits earlier. The
+  path that actually matters is **`lib/eval/evalReplayService.ts` (~L165), which calls `agentRuntime.run()`
+  FOR REAL**. Replaying 50 eval cases against a voice agent would place 50 real phone calls. Hence: a
+  connector with no `mock` REFUSES, and the platform never synthesises a would-do on a connector's behalf
+  (a fabricated transcript is indistinguishable downstream from something a human actually said, so an
+  eval scorer would grade a fiction). T3.3 must verify the eval path is genuinely closed.
+- 2026-08-12 — **T2.2 registration split.** A provider registers its CONNECTOR in `di.ts` (runs in every
+  process that builds a container — the Next server serving the callback route AND the queue worker) and
+  its AGENT in `ai-agents.ts` (needs `ensureAgentsLoaded`). Deliberately independent: the callback route
+  needs the connector without needing the agent registry. Consequence: `connectorId` CANNOT be validated
+  at registration (no ordering guarantee between the two), so **T2.3 must resolve
+  `getExternalAgentConnector(entry.connectorId)` at run time and throw a typed error when missing.**
+- 2026-08-12 — T2.2: `parseDuration` from `packages/core/.../workflows/lib/duration.ts` is reused for the
+  deadline (a zero-import, side-effect-free leaf; core is a hard dependency of enterprise, and the
+  optional-peer rule targets the RUNTIME bridge, not pure helpers). So `timeout: '30m'` uses the same
+  grammar workflow authors already type. `callbackTimeoutMs` has no upper bound — T2.7 should consider
+  warning on a multi-day deadline.
+- 2026-08-12 — T2.2: `entry.schema` must be the ENVELOPE (`z.object({ kind: literal('researcher'), data })`),
+  not the inner shape — `resolveAgentOutcomeZod` needs it to project the contract, and an agent passing the
+  inner shape would silently vanish from the workflows ledger. Registration warns rather than throws,
+  matching `agentOutcomeContract`'s "degrade honestly rather than guess" rule.
+- 2026-08-12 — **T2.3 still owes the pre-existing `'external'` trap fix**: `agentRuntime.run()` falls
+  through to `NativeAgentRunner` for any runtime that is not `'opencode'`, so an external agent registered
+  today would try to run an empty prompt on an LLM.
+- 2026-08-12 — **T2.3 done. SPEC CORRECTION (design §5.2 amended in place).** The design said stamp the
+  provider's call id into `agent_runs.externalRunId`. Wrong against the live schema:
+  `agent_runs_runtime_external_uq` is unique on `(runtime, external_run_id)` with NO tenancy column, so two
+  tenants on their own provider workspaces minting the same `conversation_id` would collide. External runs
+  therefore stamp `externalRunId = runId` like the native path (which also keeps the trace-ingest
+  idempotency key intact); the provider id lives only on `agent_external_runs` under its org-scoped unique.
+- 2026-08-12 — **T2.3 admission-gate decision: RELEASE the slot when `start()` returns.** The gate models
+  this process's DB pool, the LLM provider and the single OpenCode container — a parked call consumes none
+  of them. It also could not be released correctly: it is a process-local semaphore, while the callback
+  arrives at whichever replica the provider reached, and a deploy mid-call forgets the count. Holding it
+  would let a handful of parked half-hour calls block ALL of that tenant's agent runs, native included —
+  the same stall the design rejects when it forbids a polling connector. Accepted cost: nothing bounds
+  in-flight external runs; that ceiling belongs to the provider's own limits and to T2.7's sweep.
+- 2026-08-12 — T2.3 extracted the shared front half to `lib/runtime/runPreflight.ts` (context assembly +
+  input guardrail), used by BOTH runners. Rationale: the external path is the one that ships the brief
+  OUTWARD, so a future tightening of the input guardrail landing only in a copied native version would
+  leave the outward-facing path screening less than the in-process one.
+- 2026-08-12 — **T2.3: the correlation row MUST be written through a Command.**
+  `AgentKindNoBypassSubscriber` throws on any flush under `withAgentActor` not nested in
+  `withAuditedCommand`, and its docstring names "the token-bearing external case" as its reason. Hence
+  `agent_orchestrator.external_runs.create`. Corollary for T2.4/T2.6: the CALLBACK half runs with no
+  agent-actor scope (different process, unauthenticated route), so the guard will NOT fire there — those
+  writes must route through Commands by discipline, not because anything forces them.
+- 2026-08-12 — **T2.5 shape is now fixed:** the bridge must call `agentRuntime.runOrSuspend()`, not
+  `run()`. `run()` keeps its settled-`AgentResult` signature and throws the non-retryable
+  `AgentRunSuspendedError` on a suspension, so calling it from the bridge would fail the step instead of
+  parking it.
+- 2026-08-12 — T2.3: callback base URL reuses `APP_URL` / `NEXT_PUBLIC_APP_URL` (no new env var) but
+  **refuses in production when unset**, rather than falling back to localhost like core's `buildApiUrl` —
+  that fallback is right for a call back into this process and catastrophic for a URL handed to a third
+  party. Resolved BEFORE the run row opens, so a misconfigured deployment never dials.
+- 2026-08-12 — **T2.3 behaviour change beyond external agents:** an entry whose `runtime` is none of
+  `opencode` / `external` / `native` / `in-process` now throws instead of quietly running on the native
+  runner. Intended (it is the trap fix) and regression-tested, but it is a real change for any hand-built
+  registry entry with a typo'd runtime.
+- 2026-08-12 — **Still open after T2.3:** a connector answering synchronously (`expectsCallback: false`)
+  is schema-checked but NOT output-guardrail screened; T2.4 must route that arm through the same
+  completion function. No connector ships until T2.9, so nothing takes that path yet.

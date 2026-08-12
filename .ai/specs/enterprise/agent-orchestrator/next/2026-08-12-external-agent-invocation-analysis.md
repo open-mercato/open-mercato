@@ -173,12 +173,23 @@ export type InvokeAgentForWorkflowOutcome =
 
 | Phase | Native | External |
 |---|---|---|
-| Open run | `createRun(...)` with `runtime: 'native'`, `externalRunId: runId` | same, `runtime: 'external'`, `externalRunId: <provider call id>` (keeps the trace-ingest idempotency key meaningful) |
+| Open run | `createRun(...)` with `runtime: 'native'`, `externalRunId: runId` | same, `runtime: 'external'`, `externalRunId: runId` — **corrected 2026-08-12, see below** |
 | Context bundle | `agentContextResolver.assemble` → `AgentContextBundle` | unchanged |
 | **Input guardrail** | `checkInput({ capability, untrustedSpans })` | unchanged — screens what we are about to send outward |
 | Execute | `runAiAgentObject(...)` | `connector.start(...)` → returns `{ externalRunId, expectsCallback: true }` → **run stays `running`, runner returns `{ suspended: true, runId }`** |
 | Output guardrail | `checkOutput(...)` against the OUTCOME schema | **runs in the callback**, not here |
 | Complete | `completeRun(...)` | **runs in the callback** |
+
+> **Correction (2026-08-12, found during implementation).** This table originally said the external run
+> should stamp the *provider's* call id into `agent_runs.externalRunId`. That is wrong against the live
+> schema: `agent_runs_runtime_external_uq` is unique on `(runtime, external_run_id)` with **no tenancy
+> column**. A provider run id is unique per provider *account*, not globally, so two tenants on their own
+> ElevenLabs workspaces can mint the same `conversation_id` and the second tenant's run would be rejected
+> by a constraint that has nothing to do with it — the same collision `agent_external_runs` avoids by
+> scoping its unique to `(organization_id, connector_id, external_run_id)`. The provider id therefore
+> lives on the correlation row only, and `agent_runs` keeps the collision-free uuid we minted (which also
+> preserves the trace-ingest idempotency key the native path relies on). Either the table or the
+> constraint had to change; changing the table is the smaller, safer move.
 
 The callback path is a second, short function in the same module: validate the normalized payload against the agent's OUTCOME zod, run `checkOutput`, `completeRun`, then resume the workflow. It resumes through the **same dynamic-import-in-try/catch** pattern `lib/disposition/resume.ts` already uses to reach core's `sendSignal`, so `workflows` stays an optional peer in both directions.
 
