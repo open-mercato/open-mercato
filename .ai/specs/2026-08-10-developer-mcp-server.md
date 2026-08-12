@@ -150,10 +150,13 @@ compose file's own loopback-scoped port mapping instead.
 | `platform.getEventFlow` | `{}` | derived event↔subscriber join, flags dead events / orphan subscribers |
 | `platform.getAclMatrix` | `{}` | features × roles matrix (static + live grants when `--tenant` was supplied) |
 
-**`telemetry.*` tools are explicitly out of scope for this spec.** A telemetry memory-provider
-spec does not exist yet (see Future Work), so no tool contract is designed here — committing to
-input/output shapes ahead of that spec's own design would almost certainly need rework once it
-exists. When that spec lands, it (or a short follow-up to this one) defines the `moduleId:
+**`telemetry.*` tools are explicitly out of scope for this spec.** An OTLP-exporting
+`@open-mercato/telemetry` package already exists (`.ai/specs/2026-04-29-telemetry-and-otel.md`,
+`packages/telemetry/AGENTS.md`), but it is a remote-export sink, not a local dev-only read API —
+it has no in-memory ring buffer or query surface an MCP tool could call into. That read-side piece
+does not exist yet (see Future Work), so no tool contract is designed here — committing to
+input/output shapes ahead of that piece's own design would almost certainly need rework once it
+exists. When it lands, it (or a short follow-up to this one) defines the `moduleId:
 'telemetry'` allowlist entry and its tools; this spec only reserves the allowlist mechanism that
 makes adding them additive.
 
@@ -267,14 +270,17 @@ telemetry (see Future Work).
 
 ## Future Work (explicitly out of scope for this spec)
 
-A `telemetry.*` tool set is a natural next consumer once a **separate** telemetry
-memory-provider spec exists (dev-only in-memory ring buffer + read API under
-`packages/telemetry`, not designed here). When that spec is written, it should either extend
-this spec with a short addendum (new phase, same `moduleId`-allowlist mechanism — add
-`'telemetry'` to the allowlist array, add a boot-time registration block mirroring step 11) or
-land as its own short follow-up spec that references this one. No tool contract, input/output
-shape, or timeline is committed here — designing it now would be speculation ahead of that
-spec's own architecture.
+A `telemetry.*` tool set is a natural next consumer once a dev-only in-memory ring buffer + read
+API exists to back it. `packages/telemetry` is already taken by the existing OTLP-export package
+(`.ai/specs/2026-04-29-telemetry-and-otel.md`) — that package is a remote sink, not a queryable
+local buffer, so the read-side piece is a **separate** design: most plausibly a small extension of
+`@open-mercato/telemetry` itself (e.g. an opt-in local ring-buffer provider alongside its existing
+noop/console/OTLP providers), rather than a second package name. That extension's own spec is not
+designed here. When it is written, it should either extend this spec with a short addendum (new
+phase, same `moduleId`-allowlist mechanism — add `'telemetry'` to the allowlist array, add a
+boot-time registration block mirroring step 11) or land as its own short follow-up spec that
+references this one. No tool contract, input/output shape, or timeline is committed here —
+designing it now would be speculation ahead of that spec's own architecture.
 
 ## 📋 Implementation Plan
 
@@ -329,3 +335,10 @@ decisions are untouched.
   "reachable only from this machine" guarantee moves to the publish boundary instead of silently
   breaking. Direct CLI use is unaffected (still binds `127.0.0.1`). Touches: Q3, the Architecture
   bullet list, the CLI contract note, and Phasing steps 3 and 7.
+- 2026-08-12 — Cross-linked the already-implemented `@open-mercato/telemetry` package
+  (`.ai/specs/2026-04-29-telemetry-and-otel.md`, `packages/telemetry/AGENTS.md`) in the API
+  Contracts and Future Work sections. It exists today but only as a remote OTLP-export sink, so it
+  does not satisfy the dev-only, MCP-queryable ring buffer this spec's Future Work still requires
+  — `packages/telemetry` is no longer an available path name for that piece and any future spec
+  most plausibly extends the existing package rather than adding a second one. No phasing or
+  contract change.
