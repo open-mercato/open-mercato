@@ -37,7 +37,7 @@ top of that seam.
 | 2.13 | **Named provider profiles** (added 2026-08-12 — many agents from one provider) | DONE | `c6dbbe966` |
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript captured as an `AgentRunArtifact` (audio deliberately not stored) | DONE | `4cf4c49cd` |
-| 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
+| 3.2 | Cost/latency: connector-reported cost + duration on the run row | DONE | `43301b37c` |
 | 3.3 | Eval + dry run: mock/refuse parity for external connectors; external runs → eval cases | DONE | `c77f6eb01` |
 | 3.4 | Cockpit: external-run surfacing + agents registry + **fetch-on-demand audio** + **rerun/Playground UX** | TODO | |
 | **Phase 4 — generalize the seam** | | | |
@@ -716,6 +716,44 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   `evalCases.createFromRun` is runtime-agnostic (reads `run.input`/`run.output` only). It also corrected a
   STALE comment in `evalReplayService` claiming nested delegations do not inherit `source`; they do, and that
   inheritance is now load-bearing for the guard.
+- 2026-08-13 — **T3.2 done. `metadata.cost` is CREDITS, not money — never stamp it.** ElevenLabs reports
+  BOTH `metadata.cost_fiat` (double, documented "total fiat cost … in USD") and `metadata.cost` (integer
+  credits, no stated unit). The provider's own example pairs a 22-second call with `cost: 296`, so stamping
+  that as cents would report $2.96 for a roughly five-cent call. T2.9's fixture carried `cost`, which is
+  exactly how a plausible wrong number gets normalised into the KPI rollups.
+- 2026-08-13 — **T3.2 latency decision: the column carries the PROVIDER-REPORTED CALL DURATION, not the
+  wall clock.** (a) It is the only number comparable to what the column already holds — a native run's
+  latency is `endedAt − modelStart`, deliberately excluding queue wait, the admission gate and context
+  assembly; call duration is that same quantity for a remote effector, wall clock is that plus everything
+  the native measurement excluded. (b) Under wall clock, `metricRollupService`'s p50/p95 and the `latency`
+  eval scorer (default 30 s) would measure how promptly the people we phone PICK UP — a property of the
+  contact list no change to the agent can improve. (c) Duration and `cost_minor` stay arithmetically
+  consistent on one row for per-minute billing. **The wall clock needs no column:**
+  `completed_at − created_at` IS the park duration, because the run row opens before `connector.start()`
+  dials and `completed_at` is written once at the terminal transition.
+- 2026-08-13 — T3.2 provider-agnostic seam (reuse this in T4.1's connector): a connector may return ONE
+  reserved platform-owned sibling to `kind`/`data` — `usage: { costMinor, currency, durationMs }` in
+  PLATFORM units (integer minor units, ISO-4217, ms). The connector converts, because only it knows which
+  of its numbers is money. `completeExternalRun` STRIPS the key before the agent's schema sees the payload,
+  so a `.strict()` envelope still validates and `outputMapping` / the transcript artifact / the guardrail
+  see exactly what they saw before. No route changes; works on both callback routes, the sweep and the
+  synchronous arm.
+- 2026-08-13 — **T3.2 defect found: zod rejects `NaN`.** Without `.catch(null)` on the metering fields, a
+  provider-side metering glitch would make the WHOLE `post_call_transcription` unparseable — the run would
+  settle as a connector failure and a real conversation would be discarded over a number nothing branches
+  on. Metering can now never cost us the transcript.
+- 2026-08-13 — **T3.2 structural trap: the usage stamp is split across TWO files.** `persistence.ts`
+  declares `RunUsageStamp`, but `commands/runs.ts` (`runUsageStampSchema` + `applyUsageStamp`) is what
+  writes columns — a field added to only the first is silently stripped by the command's zod and the column
+  is never written. Also: the stamp is applied INSIDE the audited command that closes the run, so a value
+  rejected by that schema would throw after the claim — 500ing the callback and stranding the parked step
+  (T3.1's finding). Hence the reader screens every value against exactly that schema first, so a bad
+  provider report can only degrade to "no stamp".
+- 2026-08-13 — T3.2: `failRun` is stamped too — a call that connected, cost money and was THEN
+  guardrail-blocked still charged the tenant.
+- 2026-08-13 — **T3.4 addition from T3.2:** nothing surfaces the wall clock in the cockpit yet. It is
+  derivable as `completed_at − created_at`, and a "parked for 28m, talked for 74s" pair on the external-run
+  detail would read very well.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
