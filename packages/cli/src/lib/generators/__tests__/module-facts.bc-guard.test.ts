@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts, renderModuleFactsJson } from '../module-facts'
+import { extractAllModuleFacts, isExactSourceFilePath, renderModuleFactsJson } from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
 
@@ -17,11 +17,18 @@ function isUnique(values: string[]): boolean {
   return values.length === new Set(values).size
 }
 
+const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
+
+function collectLinkTargets(markdown: string): string[] {
+  return [...markdown.matchAll(MARKDOWN_LINK_TARGET)].map((match) => match[1])
+}
+
 describe('module-facts BC resolve guard (T2)', () => {
   const repoRoot = findRepoRoot()
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
   const extractionStartedAt = process.cpuUsage()
   const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const legacyFactsByModule = extractAllModuleFacts({ sources, factsContractVersion: 1 }).factsByModule
   const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
   const extractionCpuDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
 
@@ -34,6 +41,23 @@ describe('module-facts BC resolve guard (T2)', () => {
       expect(facts.extensionSurfaces).toBeDefined()
       expect(facts.extensionSurfaces?.unresolved).toEqual([])
     }
+  })
+
+  it('preserves stable v1 extension arrays while exposing corrected v2 facts separately', () => {
+    const legacySecurity = legacyFactsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    const v2Security = factsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    expect(legacySecurity?.kind === 'component-override' ? legacySecurity.details.mode : null).toBe('replace')
+    expect(v2Security?.kind === 'component-override' ? v2Security.details.mode : null).toBe('wrapper')
+
+    const recoveredContribution = 'catalog.injection.product-bulk-delete@data-table:catalog.products.list:bulk-actions'
+    expect(legacyFactsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .not.toContain(recoveredContribution)
+    expect(factsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .toContain(recoveredContribution)
   })
 
   it('keeps generated extension facts within bounded build-time and context budgets', () => {
@@ -74,15 +98,8 @@ describe('module-facts BC resolve guard (T2)', () => {
     // copied provenance payloads. The cap also covers the newly reachable
     // framework-host activations (dashboard/menu/notification contributions now
     // resolve as bound instead of silently falling back to capability-only).
-    //
-    // JSON cap raised a fourth time by the collaborative documents module
-    // (2026-07-08-documents-collaborative-editor): `@open-mercato/documents` is a
-    // whole new first-class module, so it contributes an ordinary module's worth of
-    // facts — measured at ~95KB of the render (3,495,921 bytes without it). Nothing
-    // about its facts is unusual; the cap simply had ~4KB of headroom left before it.
-    //
-    // The CPU guard is a blow-up detector, not a performance target. It measures CPU
-    // time for a whole-repo extraction, and CPU time for fixed work varies with the
+    // This is a blow-up detector, not a performance target. It measures CPU time
+    // for a whole-repo extraction, and CPU time for fixed work varies with the
     // machine: the same extraction measures ~7.3s on a developer workstation and
     // ~30.0s on a CI runner. At the previous 30s cap CI sat exactly on the line
     // (an observed failure at 30,052.8ms), so the guard could not tell a genuine
@@ -90,15 +107,61 @@ describe('module-facts BC resolve guard (T2)', () => {
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_700_000)
+    // JSON cap raised a fourth time by the injection-table slot normalization:
+    // `extractInjectionTable` previously did `if (!Array.isArray(entries)) continue`,
+    // silently dropping every string and single-object slot form that
+    // `ModuleInjectionTable` allows. Twelve real contributions across catalog, sales,
+    // wms, staff, integrations and checkout were therefore invisible to every fact
+    // consumer — `integrations` published no contributions at all. Reading them costs
+    // ~28KB, which is the fix working, not drift.
+    // The additive EUDR and Documents modules contribute their real routes, ACL,
+    // events, entities, and extension surfaces without changing the extraction
+    // shape. The combined payload measures ~3.78MB; keep bounded headroom only.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(3_850_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
-    // Markdown cap raised with the source-link contract: entities, events, ACL
-    // features, DI tokens, search entities, notifications, UMES hosts and UMES
-    // contributions all render a resolved Source cell, and contribution
-    // resolutions render as their own source-linked section. Raised again for the
-    // collaborative documents module's own fact-sheet (~20KB), for the same reason
-    // as the JSON cap above.
-    expect(markdownBytes).toBeLessThan(1_650_000)
+    // Markdown cap raised with the source-link contract and Documents surfaces:
+    // entities, events, ACL features, DI tokens, search entities, notifications,
+    // UMES hosts and contributions all render resolved Source cells. The merged
+    // payload measures ~1.65MB; keep bounded headroom only.
+    expect(markdownBytes).toBeLessThan(1_700_000)
+  })
+
+  it('links every generated fact to an exact resolvable file, never a directory', () => {
+    const packageLinkRoot = path.join(repoRoot, 'node_modules', '@open-mercato')
+    const canCheckDisk = fs.existsSync(packageLinkRoot)
+    const nonExactTargets = new Set<string>()
+    const unresolvedTargets = new Set<string>()
+    let checkedTargets = 0
+
+    for (const markdown of Object.values(markdownByModule)) {
+      for (const target of collectLinkTargets(markdown)) {
+        checkedTargets += 1
+        if (!isExactSourceFilePath(target)) {
+          nonExactTargets.add(target)
+          continue
+        }
+        if (!canCheckDisk) continue
+        const absolute = path.join(repoRoot, target)
+        if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) unresolvedTargets.add(target)
+      }
+    }
+
+    expect(checkedTargets).toBeGreaterThan(1_000)
+    expect([...nonExactTargets]).toEqual([])
+    expect([...unresolvedTargets]).toEqual([])
+  })
+
+  it('keeps directory-valued provenance readable as plain text', () => {
+    const frameworkHostMarkdowns = Object.values(markdownByModule)
+      .filter((markdown) => markdown.includes('packages/ui/src'))
+    expect(frameworkHostMarkdowns.length).toBeGreaterThan(0)
+    for (const markdown of frameworkHostMarkdowns) {
+      expect(markdown).not.toContain('(../../../packages/ui/src)')
+    }
+    for (const [moduleId, facts] of Object.entries(factsByModule)) {
+      expect(markdownByModule[moduleId]).toContain(`Source root: ${facts.sourceRoot}\n`)
+      expect(markdownByModule[moduleId]).not.toContain(`(../../../${facts.sourceRoot})`)
+    }
   })
 
   it('discovers a superset of the historical core modules', () => {

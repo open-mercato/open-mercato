@@ -111,9 +111,9 @@ Apply every applicable section based on which files changed. Skip sections that 
 
 ## 8. Cache
 
-- [ ] Resolved via DI: `container.resolve('cacheService')` — never raw Redis/SQLite
+- [ ] Resolved via DI: `container.resolve('cache')` — never raw Redis/SQLite
 - [ ] Scoped to tenant: `tenantId` in keys or `runWithCacheTenant()`
-- [ ] Tag-based invalidation for CRUD side effects
+- [ ] Tag-based invalidation for CRUD side effects via `cache.deleteByTags([...])`
 - [ ] Every write operation lists which cache tags it invalidates
 - [ ] Nested data declares invalidation chains (child change invalidates parent cache)
 - [ ] No stale cross-tenant data possible

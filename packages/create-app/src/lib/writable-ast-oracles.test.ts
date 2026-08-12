@@ -62,8 +62,8 @@ function runOracle(root: string, phase: 'before' | 'after', env: NodeJS.ProcessE
   return { ...result, parsed: JSON.parse(result.stdout) as OracleResult }
 }
 
-function writeModuleFacts(root: string, facts: Record<string, unknown>): void {
-  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+function writeModuleFacts(root: string, facts: Record<string, unknown>, version: 1 | 2 = 1): void {
+  const factsFile = path.join(root, '.ai', 'guides', version === 2 ? 'module-facts.v2.json' : 'module-facts.json')
   fs.mkdirSync(path.dirname(factsFile), { recursive: true })
   fs.writeFileSync(factsFile, `${JSON.stringify(facts, null, 2)}\n`)
 }
@@ -894,6 +894,7 @@ test('the trusted oracle rejects duplicate normalized API route methods', () => 
 
 test('the trusted oracle rejects API routes that shadow installed module facts', () => {
   const root = stageTarget('src/modules/library/api/books/[bookId]/route.ts', 'export function GET() {}\n')
+  writeModuleFacts(root, {})
   writeModuleFacts(root, {
     catalog: {
       sourceRoot: 'node_modules/@open-mercato/core/src/modules/catalog',
@@ -905,7 +906,7 @@ test('the trusted oracle rejects API routes that shadow installed module facts',
       backendPages: [],
       frontendPages: [],
     },
-  })
+  }, 2)
   try {
     const result = runOracle(root, 'before')
     assert.equal(result.parsed.checks.find((entry) => entry.id === 'routes.unique')?.passed, false)

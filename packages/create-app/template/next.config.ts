@@ -19,7 +19,7 @@ const contentSecurityPolicy = [
   "connect-src 'self' https: ws: wss:",
 ].join('; ')
 
-const nextConfig: NextConfig = {
+const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',
   // Mirror apps/mercato: scaffolded apps ship their own AGENTS.md/CLAUDE.md
   // from the template, so let Next 16.3+ leave them alone rather than

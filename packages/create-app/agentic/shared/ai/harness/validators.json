@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "catalog": {
-    "expectedCaseCount": 214,
+    "expectedCaseCount": 230,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 1048576,
     "backwardCompatibilityRuleIds": [
       "BC-01", "BC-02", "BC-03", "BC-04", "BC-05", "BC-06", "BC-07",
       "BC-08", "BC-09", "BC-10", "BC-11", "BC-12", "BC-13", "BC-14"
@@ -29,7 +29,8 @@
       "OMH-093", "OMH-105", "OMH-107", "OMH-115", "OMH-122", "OMH-128", "OMH-130", "OMH-133",
       "OMH-137", "OMH-140", "OMH-144", "OMH-146", "OMH-149", "OMH-150", "OMH-151", "OMH-153",
       "OMH-156", "OMH-163", "OMH-164", "OMH-165", "OMH-171", "OMH-172", "OMH-181", "OMH-185",
-      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193"
+      "OMH-188", "OMH-189", "OMH-190", "OMH-191", "OMH-192", "OMH-193",
+      "OMH-223", "OMH-224"
     ]
   },
   "validators": {
@@ -38,6 +39,7 @@
     "catalog.bc-coverage": { "kind": "catalog", "implementation": "validateBackwardCompatibilityCoverage" },
     "owner.reference": { "kind": "static", "implementation": "validateOwnerReference" },
     "router.contract": { "kind": "routing", "implementation": "validateRoutingResult" },
+    "routing.spec-decision": { "kind": "routing", "implementation": "validateSpecRoutingDecision" },
     "context.budget": { "kind": "routing", "implementation": "validateContextBudget" },
     "context.forbidden": { "kind": "routing", "implementation": "validateForbiddenContext" },
     "patterns.forbidden": { "kind": "routing", "implementation": "validateForbiddenPatterns" },
@@ -73,6 +75,8 @@
     "oracle.workflow.durable-timer": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
     "oracle.regression.crm-library": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
     "oracle.business.data-flow": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs", "writable-behavior-oracles.mjs"] },
-    "oracle.business.test-authoring": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] }
+    "oracle.business.test-authoring": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-ast-oracles.mjs"] },
+    "oracle.planning.spec-first": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-spec-oracles.mjs"] },
+    "oracle.planning.spec-reuse": { "kind": "oracle", "implementation": "trusted-executable", "runners": ["writable-spec-oracles.mjs"] }
   }
 }

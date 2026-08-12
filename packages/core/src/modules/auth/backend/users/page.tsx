@@ -9,6 +9,7 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -30,6 +31,7 @@ type Row = {
   tenantId: string | null
   tenantName?: string | null
   roles: string[]
+  isConfirmed?: boolean
   updatedAt?: string | null
 }
 
@@ -378,6 +380,15 @@ export default function UsersListPage() {
       { accessorKey: 'name', header: t('auth.users.list.columns.name', 'Display name') },
       { accessorKey: 'organizationName', header: 'Organization' },
       { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
+      {
+        accessorKey: 'isConfirmed',
+        header: t('auth.users.list.columns.status', 'Status'),
+        cell: ({ row }) => (
+          row.original.isConfirmed === false
+            ? <Badge variant="neutral" dot>{t('auth.users.list.status.deactivated', 'Deactivated')}</Badge>
+            : <Badge variant="success" dot>{t('auth.users.list.status.active', 'Active')}</Badge>
+        ),
+      },
     ]
     if (showTenantColumn) {
       base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })

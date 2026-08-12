@@ -98,12 +98,22 @@ function readCookieFromHeader(header: string | null | undefined, name: string): 
   return undefined
 }
 
+/**
+ * A blank `om_selected_tenant` is "no selection", not a deliberate "no tenant".
+ *
+ * Unlike the organization cookie there is no all-tenants sentinel to express, and the tenant
+ * selector renders with `includeEmptyOption={false}`, so no UI produces a blank value. Treating it
+ * as an applied override nulled `tenantId` for the whole super-admin session, which is what turned
+ * a cosmetic client bug into `tenantId ?? ''` reaching a NOT NULL uuid column. Reporting the
+ * override as not applied instead keeps the tenant carried in the token and remediates an
+ * already-poisoned browser on its next request, whatever wrote the cookie.
+ */
 function resolveTenantOverride(raw: string | undefined): CookieOverride {
   if (raw === undefined) return { applied: false, value: null }
   const decoded = decodeCookieValue(raw)
-  if (!decoded) return { applied: true, value: null }
+  if (!decoded) return { applied: false, value: null }
   const trimmed = decoded.trim()
-  if (!trimmed) return { applied: true, value: null }
+  if (!trimmed) return { applied: false, value: null }
   return { applied: true, value: trimmed }
 }
 

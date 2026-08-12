@@ -35,6 +35,9 @@ env:
   # explicitly allows them.
   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
+# `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
+# `develop`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `develop`.
 on:
   push:
     branches:

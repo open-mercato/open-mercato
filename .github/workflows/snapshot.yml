@@ -246,7 +246,6 @@ jobs:
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           MOCK_INBOUND_WEBHOOK_SECRET=open-mercato-mock-dev-inbound-webhook-secret
-          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
@@ -291,7 +290,14 @@ jobs:
         # Retry through npm's post-publish quarantine window (see the script).
         run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
-      - name: Generate standalone app modules
+      - name: Generate runtime-disabled standalone baseline
+        working-directory: /tmp/standalone-app
+        run: yarn generate
+
+      - name: Verify disabled baseline and activate example integration fixture
+        run: yarn tsx scripts/prepare-standalone-example-integration.ts /tmp/standalone-app
+
+      - name: Generate activated standalone app modules
         working-directory: /tmp/standalone-app
         run: yarn generate
 

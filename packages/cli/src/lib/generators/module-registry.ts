@@ -301,6 +301,131 @@ function buildCacheBustedSourceImportUrl(sourceFile: string): string {
   return url.href
 }
 
+function assertGeneratorPluginUsesTypeOnlyImports(sourceFile: string): void {
+  const source = fs.readFileSync(sourceFile, 'utf8')
+  const scriptKind = sourceFile.endsWith('.js') || sourceFile.endsWith('.mjs') || sourceFile.endsWith('.cjs')
+    ? ts.ScriptKind.JS
+    : ts.ScriptKind.TS
+  const parsed = ts.createSourceFile(sourceFile, source, ts.ScriptTarget.Latest, true, scriptKind)
+  const violations: string[] = []
+
+  for (const statement of parsed.statements) {
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly) {
+      violations.push(statement.getText(parsed))
+    }
+    if (ts.isImportEqualsDeclaration(statement)) {
+      violations.push(statement.getText(parsed))
+    }
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && !statement.isTypeOnly) {
+      violations.push(statement.getText(parsed))
+    }
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      violations.push(node.getText(parsed))
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+
+  if (violations.length > 0) {
+    throw new Error(
+      `Generator plugin ${sourceFile} contains runtime imports. generators.ts may use only \`import type\`: ${violations.join('; ')}`,
+    )
+  }
+}
+
+const GENERATOR_PLUGIN_OUTPUT_MANIFEST = '.generator-plugin-outputs.json'
+
+function normalizeGeneratorPluginOutputFileName(pluginId: string, outputFileName: string): string {
+  const normalized = outputFileName.replace(/\\/g, '/')
+  if (
+    path.isAbsolute(outputFileName)
+    || outputFileName.includes('\\')
+    || normalized.startsWith('/')
+    || normalized.startsWith('../')
+    || normalized.includes('/../')
+    || !normalized.endsWith('.ts')
+  ) {
+    throw new Error(
+      `Generator plugin '${pluginId}' has an invalid outputFileName '${outputFileName}'; expected a relative .ts path inside the generated directory.`,
+    )
+  }
+  return normalized
+}
+
+function resolveGeneratorPluginOutputNames(
+  plugins: ReadonlyMap<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>,
+): Map<string, string> {
+  const outputNames = new Map<string, string>()
+  const ownersByOutput = new Map<string, string>()
+  for (const [pluginId, plugin] of plugins) {
+    const outputName = normalizeGeneratorPluginOutputFileName(pluginId, plugin.outputFileName)
+    const existingOwner = ownersByOutput.get(outputName)
+    if (existingOwner) {
+      throw new Error(
+        `Generator plugins '${existingOwner}' and '${pluginId}' declare the same output file '${outputName}'.`,
+      )
+    }
+    ownersByOutput.set(outputName, pluginId)
+    outputNames.set(pluginId, outputName)
+  }
+  return outputNames
+}
+
+function reconcileGeneratorPluginOutputs(options: {
+  outputDir: string
+  outputNames: Iterable<string>
+  result: GeneratorResult
+}): void {
+  const manifestPath = path.join(options.outputDir, GENERATOR_PLUGIN_OUTPUT_MANIFEST)
+  let previousOutputs: string[] = []
+  if (fs.existsSync(manifestPath)) {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as unknown
+    if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
+      throw new Error(`Invalid generator plugin output manifest: ${manifestPath}`)
+    }
+    previousOutputs = parsed.map((entry) => normalizeGeneratorPluginOutputFileName('manifest', entry))
+  }
+
+  const currentOutputs = new Set(options.outputNames)
+  for (const staleOutput of previousOutputs) {
+    if (currentOutputs.has(staleOutput)) continue
+    for (const stalePath of [
+      path.join(options.outputDir, staleOutput),
+      path.join(options.outputDir, staleOutput.replace(/\.ts$/, '.checksum')),
+    ]) {
+      if (!fs.existsSync(stalePath)) continue
+      fs.unlinkSync(stalePath)
+      options.result.filesWritten.push(stalePath)
+    }
+  }
+
+  if (currentOutputs.size === 0) {
+    if (fs.existsSync(manifestPath)) {
+      fs.unlinkSync(manifestPath)
+      options.result.filesWritten.push(manifestPath)
+    }
+    return
+  }
+
+  const manifestContent = `${JSON.stringify(
+    [...currentOutputs].sort((left, right) => left.localeCompare(right)),
+    null,
+    2,
+  )}\n`
+  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestContent) {
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
+    fs.writeFileSync(manifestPath, manifestContent)
+    options.result.filesWritten.push(manifestPath)
+  }
+}
+
 function unwrapObjectLiteralExpression(
   expression: ts.Expression | undefined,
 ): ts.ObjectLiteralExpression | undefined {
@@ -3143,6 +3268,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   for (const discovered of discovery.modules) {
     const resolved = discovered.resolve('generators.ts')
     if (!resolved) continue
+    assertGeneratorPluginUsesTypeOnlyImports(resolved.absolutePath)
     try {
       const pluginMod = await import(buildCacheBustedSourceImportUrl(resolved.absolutePath))
       const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
@@ -3155,6 +3281,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }
     } catch {}
   }
+
+  const pluginOutputNames = resolveGeneratorPluginOutputNames(pluginRegistry)
 
   const imports: string[] = []
   const runtimeImports: string[] = []
@@ -3716,10 +3844,15 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     const importSection = state.imports.join('\n')
     const entriesLiteral = state.configs.join(',\n  ')
     const content = plugin.buildOutput({ importSection, entriesLiteral })
-    const outFile = path.join(outputDir, plugin.outputFileName)
-    const checksumFile = outFile.replace('.ts', '.checksum')
+    const outFile = path.join(outputDir, pluginOutputNames.get(pluginId)!)
+    const checksumFile = outFile.replace(/\.ts$/, '.checksum')
     writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
   }
+  reconcileGeneratorPluginOutputs({
+    outputDir,
+    outputNames: pluginOutputNames.values(),
+    result,
+  })
 
   // Bootstrap registrations: aggregate core registrations + plugin bootstrap-registration hooks
   // into one file. Always written (with at least the core backend route registration) so bootstrap.ts
