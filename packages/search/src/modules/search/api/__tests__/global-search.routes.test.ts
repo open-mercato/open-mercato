@@ -272,11 +272,9 @@ describe('GET /api/search/search/global presenter localization', () => {
       defaultStrategies: ['tokens'],
       presenterEnricher: createPresenterEnricher(createDatabase(rows), configMap),
     })
-    const container = {
-      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
-      dispose: jest.fn().mockResolvedValue(undefined),
-    }
-    mockCreateRequestContainer.mockResolvedValue(container)
+    mockCreateRequestContainer.mockResolvedValue(
+      createContainer(searchService, configMap, { features: ['search.global'], isSuperAdmin: true }),
+    )
 
     const response = await GET(new Request('http://localhost/api/search/search/global?q=customer'))
     const body = await response.json() as { results: SearchResult[] }
