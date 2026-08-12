@@ -544,7 +544,6 @@ describe('warranty claim AI assessment packet', () => {
       expect.objectContaining({
         kind: 'system',
         visibility: 'internal',
-        body: 'AI assessment recorded',
         payload: {
           action: 'ai_assessment_recorded',
           lineId: LINE_ID,

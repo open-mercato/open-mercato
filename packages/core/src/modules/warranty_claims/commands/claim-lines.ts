@@ -1024,7 +1024,6 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
         claim.updatedAt = new Date()
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
-          body: 'AI assessment recorded',
           payload: {
             action: 'ai_assessment_recorded',
             lineId: line.id,

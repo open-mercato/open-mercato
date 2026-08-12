@@ -28,11 +28,16 @@ export function TroubleshootingWalker({
   const root = guide?.steps ?? null
   const [path, setPath] = React.useState<number[]>([])
   const state = React.useMemo(() => walkGuide(root, path), [path, root])
+  const onTraversedPathChangeRef = React.useRef(onTraversedPathChange)
+
+  React.useEffect(() => {
+    onTraversedPathChangeRef.current = onTraversedPathChange
+  }, [onTraversedPathChange])
 
   React.useEffect(() => {
     setPath([])
-    onTraversedPathChange?.([])
-  }, [guide?.title, onTraversedPathChange, root])
+    onTraversedPathChangeRef.current?.([])
+  }, [guide?.title, root])
 
   const chooseOption = React.useCallback((optionIndex: number) => {
     const nextPath = [...path, optionIndex]

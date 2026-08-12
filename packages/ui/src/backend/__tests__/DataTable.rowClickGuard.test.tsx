@@ -4,7 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { DataTable } from '../DataTable'
+import { DataTable, DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR } from '../DataTable'
 import { RowActions } from '../RowActions'
 
 const mockRouterPush = jest.fn()
@@ -92,6 +92,10 @@ async function renderTable(props: Record<string, unknown>) {
   return view
 }
 
+function renderGuardedTable(props: Record<string, unknown>) {
+  return renderTable({ rowClickInteractiveSelector: DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR, ...props })
+}
+
 function plainCell(container: HTMLElement): HTMLElement {
   const cell = container.querySelector('tbody tr td')
   if (!cell) throw new Error('[internal] expected a rendered body cell')
@@ -125,7 +129,7 @@ describe('DataTable row click guard', () => {
 
     it('fires when the rendered cell text is clicked', async () => {
       const onRowClick = jest.fn()
-      await renderTable({ onRowClick })
+      await renderGuardedTable({ onRowClick })
 
       fireEvent.click(screen.getByText('Ada'))
 
@@ -144,7 +148,7 @@ describe('DataTable row click guard', () => {
       ['contenteditable', 'cell-contenteditable'],
     ])('does not fire when the %s inside a cell is clicked', async (_label, testId) => {
       const onRowClick = jest.fn()
-      await renderTable({ onRowClick })
+      await renderGuardedTable({ onRowClick })
 
       fireEvent.click(screen.getByTestId(testId))
 
@@ -155,7 +159,7 @@ describe('DataTable row click guard', () => {
     // label/icon in child nodes, and the click target is whatever leaf was hit.
     it('does not fire for an icon nested inside a cell button', async () => {
       const onRowClick = jest.fn()
-      await renderTable({ onRowClick })
+      await renderGuardedTable({ onRowClick })
 
       fireEvent.click(screen.getByTestId('cell-button-icon'))
 
@@ -164,19 +168,16 @@ describe('DataTable row click guard', () => {
 
     it('does not fire for a node nested inside a contenteditable cell', async () => {
       const onRowClick = jest.fn()
-      await renderTable({ onRowClick })
+      await renderGuardedTable({ onRowClick })
 
       fireEvent.click(screen.getByTestId('cell-contenteditable-child'))
 
       expect(onRowClick).not.toHaveBeenCalled()
     })
 
-    // Escape hatch for consumers that relied on click-anywhere row navigation before
-    // the guard landed. Without it a third-party table whose primary cell content is a
-    // link or icon button would silently lose row navigation with no way back.
-    it('fires for a cell button when the guard is disabled with rowClickInteractiveSelector={false}', async () => {
+    it('preserves click-anywhere row navigation by default', async () => {
       const onRowClick = jest.fn()
-      await renderTable({ onRowClick, rowClickInteractiveSelector: false })
+      await renderTable({ onRowClick })
 
       fireEvent.click(screen.getByTestId('cell-button'))
 
@@ -224,7 +225,7 @@ describe('DataTable row click guard', () => {
     })
 
     it('does not navigate when a control inside a cell is clicked', async () => {
-      await renderTable({ rowActions: editHrefActions() })
+      await renderGuardedTable({ rowActions: editHrefActions() })
 
       fireEvent.click(screen.getByTestId('cell-select'))
 
@@ -253,7 +254,7 @@ describe('DataTable row click guard', () => {
 
     it('does not invoke the default action onSelect when a cell button is clicked', async () => {
       const onSelect = jest.fn()
-      await renderTable({
+      await renderGuardedTable({
         rowClickActionIds: ['open'],
         rowActions: () => <RowActions items={[{ id: 'open', label: 'Open', onSelect }]} />,
       })

@@ -4,6 +4,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
+import { applyIdsFilter } from '../../lib/apiIdsFilter'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/warranty_troubleshooting_guide'
 import { WarrantyTroubleshootingGuide } from '../../data/entities'
@@ -222,7 +223,7 @@ const crud = makeCrudRoute<RawTroubleshootingGuideInput, RawTroubleshootingGuide
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = { $eq: query.id }
+      applyIdsFilter(filters, query)
       if (query.claimType) filters[F.claim_type] = { $eq: query.claimType }
       if (query.reasonCode) filters[F.reason_code] = { $eq: query.reasonCode }
       if (query.isActive !== undefined) filters[F.is_active] = { $eq: query.isActive }

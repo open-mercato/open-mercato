@@ -5,6 +5,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
+import { applyIdsFilter } from '../../lib/apiIdsFilter'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/warranty_vendor_policy'
@@ -269,7 +270,7 @@ const crud = makeCrudRoute<RawVendorPolicyInput, RawVendorPolicyInput, VendorPol
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = { $eq: query.id }
+      applyIdsFilter(filters, query)
       if (query.isActive !== undefined) filters[F.is_active] = { $eq: query.isActive }
       if (query.autoGenerateRecovery !== undefined) {
         filters[F.auto_generate_recovery] = { $eq: query.autoGenerateRecovery }

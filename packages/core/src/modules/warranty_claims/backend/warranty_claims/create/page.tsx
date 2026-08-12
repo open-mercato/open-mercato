@@ -159,6 +159,10 @@ const DICTIONARY_KEYS = {
   claimReasons: 'warranty_claims.warranty_claim_reason',
 } as const
 
+function normalizeClaimType(value: string | null): (typeof CLAIM_TYPES)[number] {
+  return CLAIM_TYPES.find((claimType) => claimType === value) ?? 'warranty'
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -1173,7 +1177,7 @@ export default function CreateWarrantyClaimPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [selectedCustomerId, setSelectedCustomerId] = React.useState<string | null>(null)
-  const [selectedClaimType, setSelectedClaimType] = React.useState<string | null>(searchParams.get('claimType') ?? 'warranty')
+  const [selectedClaimType, setSelectedClaimType] = React.useState<string | null>(() => normalizeClaimType(searchParams.get('claimType')))
   const [selectedReasonCode, setSelectedReasonCode] = React.useState<string | null>(null)
   const [orderAccessDenied, setOrderAccessDenied] = React.useState(false)
   const [faultCodeOptions, setFaultCodeOptions] = React.useState<CrudFieldOption[]>([])
@@ -1475,7 +1479,7 @@ export default function CreateWarrantyClaimPage() {
   ], [defaultWarrantyMonths, faultCodeOptions, lineTranslations, selectedClaimType, selectedReasonCode, t])
 
   const initialValues = React.useMemo<Partial<ClaimCreateFormValues>>(() => ({
-    claimType: searchParams.get('claimType') ?? 'warranty',
+    claimType: normalizeClaimType(searchParams.get('claimType')),
     orderId: searchParams.get('orderId') ?? '',
     priority: 'normal',
     lines: [createDefaultLine()],

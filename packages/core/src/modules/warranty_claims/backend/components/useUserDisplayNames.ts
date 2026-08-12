@@ -30,21 +30,25 @@ export function useUserDisplayNames(userIds: readonly (string | null | undefined
 
   React.useEffect(() => {
     if (!idsKey) return
-    const unresolvedIds = idsKey.split(',').filter((userId) => !resolvedUserIdsRef.current.has(userId)).slice(0, 100)
+    const unresolvedIds = idsKey.split(',').filter((userId) => !resolvedUserIdsRef.current.has(userId))
     if (!unresolvedIds.length) return
 
     const controller = new AbortController()
-    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-      `/api/warranty_claims/assignees?ids=${unresolvedIds.map(encodeURIComponent).join(',')}`,
-      { signal: controller.signal },
-      {
-        errorMessage: '[internal] Failed to load user display names',
-      },
-    )
-      .then((data) => {
+    const load = async () => {
+      const users: Array<Record<string, unknown>> = []
+      for (let offset = 0; offset < unresolvedIds.length; offset += 100) {
+        const batch = unresolvedIds.slice(offset, offset + 100)
+        const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+          `/api/warranty_claims/assignees?ids=${batch.map(encodeURIComponent).join(',')}`,
+          { signal: controller.signal },
+          { errorMessage: '[internal] Failed to load user display names' },
+        )
+        users.push(...(data.items ?? []))
+      }
+      if (!controller.signal.aborted) {
         for (const userId of unresolvedIds) resolvedUserIdsRef.current.add(userId)
         const nextNames: Record<string, string> = {}
-        for (const user of data.items ?? []) {
+        for (const user of users) {
           const userId = toStringOrNull(user.id)
           const displayName = getUserDisplayName(user)
           if (userId && displayName) nextNames[userId] = displayName
@@ -52,8 +56,9 @@ export function useUserDisplayNames(userIds: readonly (string | null | undefined
         if (Object.keys(nextNames).length) {
           setUserNames((current) => ({ ...current, ...nextNames }))
         }
-      })
-      .catch(() => {})
+      }
+    }
+    void load().catch(() => {})
     return () => controller.abort()
   }, [idsKey])
 

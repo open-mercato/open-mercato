@@ -422,6 +422,7 @@ function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record
   if (event.kind === 'system' && action === 'sla_paused') return t('warranty_claims.timeline.slaPaused')
   if (event.kind === 'system' && action === 'sla_resumed') return t('warranty_claims.timeline.slaResumed')
   if (event.kind === 'system' && action === 'auto_approved') return t('warranty_claims.timeline.autoApproved')
+  if (event.kind === 'system' && action === 'ai_assessment_recorded') return t('warranty_claims.timeline.aiAssessmentRecorded')
   if (event.kind === 'system' && action === 'sales_return_created') return t('warranty_claims.timeline.salesReturnCreated')
   if (event.kind === 'system' && action === 'sales_return_orphaned') return t('warranty_claims.timeline.salesReturnOrphaned')
   if (event.kind === 'system' && action === 'undo_sales_return_created') return t('warranty_claims.timeline.undoSalesReturnCreated')

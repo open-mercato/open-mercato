@@ -91,4 +91,27 @@ describe('AttachmentInput', () => {
 
     expect(await screen.findByText('todo.pdf')).toBeInTheDocument()
   })
+
+  it('does not reload when the host replaces the count callback', async () => {
+    apiCallMock.mockResolvedValue(buildApiCallResult({ items: [] }))
+
+    const firstCallback = jest.fn()
+    const secondCallback = jest.fn()
+    const dict = {}
+    const view = render(
+      <I18nProvider locale="en" dict={dict}>
+        <AttachmentInput entityId="example:todo" recordId="todo-1" onCountChange={firstCallback} />
+      </I18nProvider>,
+    )
+
+    await waitFor(() => expect(firstCallback).toHaveBeenCalledWith(0))
+    view.rerender(
+      <I18nProvider locale="en" dict={dict}>
+        <AttachmentInput entityId="example:todo" recordId="todo-1" onCountChange={secondCallback} />
+      </I18nProvider>,
+    )
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
+    expect(secondCallback).not.toHaveBeenCalled()
+  })
 })

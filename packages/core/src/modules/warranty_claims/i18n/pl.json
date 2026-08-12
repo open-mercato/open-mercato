@@ -987,6 +987,7 @@
   "warranty_claims.status.rejected": "Odrzucona",
   "warranty_claims.status.resolved": "Rozwiązana",
   "warranty_claims.status.submitted": "Wysłana",
+  "warranty_claims.timeline.aiAssessmentRecorded": "Zapisano ocenę AI",
   "warranty_claims.timeline.assignedTo": "Przypisano do {name}",
   "warranty_claims.timeline.autoApproved": "Automatycznie zatwierdzone",
   "warranty_claims.timeline.autoReceivedFromTracking": "Automatycznie oznaczono jako przyjęte — przesyłka zwrotna została doręczona",

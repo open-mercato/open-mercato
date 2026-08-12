@@ -68,7 +68,12 @@ export const AttachmentInput = ({
   const [error, setError] = React.useState<string | null>(null)
   const [uploading, setUploading] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const onCountChangeRef = React.useRef(onCountChange)
   const accept = React.useMemo(() => buildAcceptAttribute(def), [def])
+
+  React.useEffect(() => {
+    onCountChangeRef.current = onCountChange
+  }, [onCountChange])
 
   const load = React.useCallback(async () => {
     if (!entityId || !recordId) return
@@ -86,13 +91,13 @@ export const AttachmentInput = ({
       const j = call.result ?? { items: [] }
       const nextItems = Array.isArray(j.items) ? j.items : []
       setItems(nextItems)
-      onCountChange?.(nextItems.length)
+      onCountChangeRef.current?.(nextItems.length)
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {
       setLoading(false)
     }
-  }, [entityId, recordId, t, onCountChange])
+  }, [entityId, recordId, t])
 
   React.useEffect(() => { load() }, [load])
 

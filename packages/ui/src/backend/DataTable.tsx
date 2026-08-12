@@ -124,9 +124,8 @@ function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
 }
 
 /**
- * Cell content that swallows a row click by default, so activating an inline control
- * (a link, an inline editor, a row checkbox) does not also fire the row's navigation.
- * Override per table with the `rowClickInteractiveSelector` prop.
+ * Cell content that can swallow a row click when a table opts into the guard, so
+ * activating an inline control does not also fire the row's navigation.
  */
 export const DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR =
   'button, a, input, select, textarea, [role="combobox"], [role="listbox"], [contenteditable="true"]'
@@ -312,10 +311,9 @@ export type DataTableProps<T extends RowData> = {
   disableRowClick?: boolean
   /**
    * CSS selector for interactive cell content that should swallow the row click
-   * instead of triggering `onRowClick` / the default row action. Defaults to
-   * {@link DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR}. Pass a narrower selector to opt
-   * specific elements back into row navigation, or `false` to restore the
-   * pre-0.6.7 behavior where every click inside a row navigated.
+   * instead of triggering `onRowClick` / the default row action. Defaults to `false`
+   * to preserve the established click-anywhere row behavior. Pass
+   * {@link DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR} or a narrower selector to opt in.
    */
   rowClickInteractiveSelector?: string | false
   bulkActions?: BulkAction<T>[]
@@ -1229,7 +1227,7 @@ export function DataTable<T extends RowData>({
   onRowClick,
   rowClickActionIds,
   disableRowClick = false,
-  rowClickInteractiveSelector = DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR,
+  rowClickInteractiveSelector = false,
   bulkActions: bulkActionsProp,
   selectionScopeKey,
   searchValue,

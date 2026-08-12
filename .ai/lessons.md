@@ -1,13 +1,13 @@
 # Lessons
 
-This catalog indexes 126 focused lessons without loading their full text. Route the task first, then read only records whose **modules**, standalone-harness **areas**, or **topics** match the work.
+This catalog indexes 128 focused lessons. Route the task, then read only records whose **modules**, standalone-harness **areas**, or **topics** match.
 
 ## How to use this catalog
 
-1. Start with the exact module ID when one is named by the task.
-2. Add every matching area from the standalone harness router: `architecture`, `module-data`, `umes`, `backend-ui`, `integration`, `ai-workflow`, `debugging`, `testing`, `framework-context`, or `spec-pr`.
-3. Use topics to narrow cross-cutting concerns such as `data-scoping`, `optimistic-locking`, `query-index`, or `generated-files`.
-4. Open only the linked lesson records that match; do not bulk-read `.ai/lessons/`.
+1. Start with the named module ID.
+2. Add every matching standalone-harness area.
+3. Narrow cross-cutting concerns by topic.
+4. Open only matching records; do not bulk-read `.ai/lessons/`.
 
 Useful searches:
 
@@ -180,3 +180,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files
+
+### spec-pr
+
+- [PR author, reviewer, and assignee roles are independent](lessons/read-pr-author-reviewer-and-assignee-roles-independently.md) — area:spec-pr; module:platform; topic:pr-workflow,review-ownership

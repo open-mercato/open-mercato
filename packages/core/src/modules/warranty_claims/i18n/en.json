@@ -987,6 +987,7 @@
   "warranty_claims.status.rejected": "Rejected",
   "warranty_claims.status.resolved": "Resolved",
   "warranty_claims.status.submitted": "Submitted",
+  "warranty_claims.timeline.aiAssessmentRecorded": "AI assessment recorded",
   "warranty_claims.timeline.assignedTo": "Assigned to {name}",
   "warranty_claims.timeline.autoApproved": "Auto-approved",
   "warranty_claims.timeline.autoReceivedFromTracking": "Automatically marked as received — the return shipment was delivered",

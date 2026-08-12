@@ -987,6 +987,7 @@
   "warranty_claims.status.rejected": "Abgelehnt",
   "warranty_claims.status.resolved": "Erledigt",
   "warranty_claims.status.submitted": "Eingereicht",
+  "warranty_claims.timeline.aiAssessmentRecorded": "KI-Bewertung erfasst",
   "warranty_claims.timeline.assignedTo": "Zugewiesen an {name}",
   "warranty_claims.timeline.autoApproved": "Automatisch genehmigt",
   "warranty_claims.timeline.autoReceivedFromTracking": "Automatisch als angenommen markiert — die Rücksendung wurde zugestellt",

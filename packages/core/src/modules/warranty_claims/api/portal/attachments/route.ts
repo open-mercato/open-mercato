@@ -231,7 +231,6 @@ export async function GET(req: Request) {
     tenantId: context.tenantId,
     organizationId: context.organizationId,
   }
-  const usePaging = typeof parsed.data.page === 'number' && typeof parsed.data.pageSize === 'number'
   const page = parsed.data.page ?? 1
   const pageSize = parsed.data.pageSize ?? 100
   const attachments = await findWithDecryption(
@@ -254,18 +253,14 @@ export async function GET(req: Request) {
     return checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok
   })
 
-  const pagedVisible = usePaging ? visible.slice((page - 1) * pageSize, page * pageSize) : visible
+  const pagedVisible = visible.slice((page - 1) * pageSize, page * pageSize)
 
   return NextResponse.json({
     items: pagedVisible.map(serializeAttachment),
-    ...(usePaging
-      ? {
-          total: visible.length,
-          page,
-          pageSize,
-          totalPages: Math.max(1, Math.ceil(visible.length / pageSize)),
-        }
-      : {}),
+    total: visible.length,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(visible.length / pageSize)),
   })
 }
 

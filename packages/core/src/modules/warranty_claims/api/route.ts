@@ -29,6 +29,7 @@ import {
 } from '../lib/deskFilters'
 import { decorateItemsWithAssigneeNames } from '../lib/assigneeNames'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
+import { applyIdsFilter } from '../lib/apiIdsFilter'
 import {
   createPagedListResponseSchema,
   createWarrantyClaimsCrudOpenApi,
@@ -381,7 +382,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       const matchGroups: Record<string, unknown>[] = []
-      if (query.id) filters.id = { $eq: query.id }
+      applyIdsFilter(filters, query)
       const statuses = selectedStatuses(query)
       const statusFilter: Record<string, unknown> = {}
       if (statuses.length) statusFilter.$in = statuses

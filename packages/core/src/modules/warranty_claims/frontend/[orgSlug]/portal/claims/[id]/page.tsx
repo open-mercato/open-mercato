@@ -132,35 +132,35 @@ const STATUS_STEP_INDEX: Record<string, number> = {
   closed: 5,
 }
 
-const LINE_STATUS_DOT_COLORS: Record<string, string> = {
-  pending: '#a3a3a3',
-  approved: '#10B981',
-  rejected: '#F28026',
-  received: '#6552e3',
-  inspected: '#6552e3',
-  resolved: '#10B981',
+const LINE_STATUS_DOT_CLASSES: Record<string, string> = {
+  pending: 'bg-status-neutral-icon',
+  approved: 'bg-status-success-icon',
+  rejected: 'bg-status-error-icon',
+  received: 'bg-status-info-icon',
+  inspected: 'bg-status-info-icon',
+  resolved: 'bg-status-success-icon',
 }
 
 const BANNER_TONE_CLASSES: Record<BannerTone, { wrapper: string; text: string; icon: string }> = {
   info: {
-    wrapper: 'bg-[#f1f4fe] dark:bg-indigo-950/40',
-    text: 'text-[#38408c] dark:text-indigo-300',
-    icon: 'text-[#4A53C4] dark:text-indigo-300',
+    wrapper: 'bg-status-info-bg',
+    text: 'text-status-info-text',
+    icon: 'text-status-info-icon',
   },
   success: {
-    wrapper: 'bg-[#eefaf3] dark:bg-emerald-950/40',
-    text: 'text-[#1c6b43] dark:text-emerald-300',
-    icon: 'text-[#21ad61] dark:text-emerald-300',
+    wrapper: 'bg-status-success-bg',
+    text: 'text-status-success-text',
+    icon: 'text-status-success-icon',
   },
   warning: {
-    wrapper: 'bg-[#fdf5e7] dark:bg-amber-950/40',
-    text: 'text-[#8a5a1d] dark:text-amber-300',
-    icon: 'text-[#d97706] dark:text-amber-300',
+    wrapper: 'bg-status-warning-bg',
+    text: 'text-status-warning-text',
+    icon: 'text-status-warning-icon',
   },
   error: {
-    wrapper: 'bg-[#fdeeee] dark:bg-red-950/40',
-    text: 'text-[#933535] dark:text-red-300',
-    icon: 'text-[#dc2626] dark:text-red-300',
+    wrapper: 'bg-status-error-bg',
+    text: 'text-status-error-text',
+    icon: 'text-status-error-icon',
   },
 }
 
@@ -319,9 +319,9 @@ function buildActivityEntries(
 
 const DETAIL_MUTATION_CONTEXT_ID = 'warranty_claims.portal.claim.detail'
 
-const SECTION_CLASS = 'flex w-full flex-col gap-[12px] border-t border-[#ededed] px-[28px] pb-[22px] pt-[20px] dark:border-border'
-const SECTION_HEADING_CLASS = 'text-[14px] font-semibold text-[#0f0f12] dark:text-foreground'
-const DARK_BUTTON_CLASS = 'rounded-[8px] bg-[#262626] px-[10px] py-[6px] text-[14px] font-medium leading-[20px] tracking-[-0.084px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-foreground dark:text-background'
+const SECTION_CLASS = 'flex w-full flex-col gap-3 border-t border-border px-6 pb-6 pt-5'
+const SECTION_HEADING_CLASS = 'text-sm font-semibold text-foreground'
+const DARK_BUTTON_CLASS = 'rounded-md px-3 py-2 text-sm font-medium'
 
 export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const t = useT()
@@ -603,24 +603,24 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const activityEntries = buildActivityEntries(events, attachments, t)
 
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-[14px]">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <Link
         href={`/${params.orgSlug}/portal/claims`}
-        className="text-[13px] font-medium text-[#737378] transition-colors hover:text-[#0f0f12] dark:text-muted-foreground dark:hover:text-foreground"
+        className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         {'←'}  {t('warranty_claims.portal.listTitle')}
       </Link>
 
       {error ? <ErrorMessage label={error} /> : null}
 
-      <div className="w-full overflow-hidden rounded-[16px] border border-[#e2e2e2] bg-white dark:border-border dark:bg-card">
-        <div className="flex w-full flex-col gap-[10px] px-[28px] pb-[20px] pt-[26px]">
-          <div className="flex w-full items-center gap-[8px]">
-            <div className="flex items-center gap-[6px] rounded-[6px] border border-[#e2e2e2] bg-white px-[10px] py-[4px] dark:border-border dark:bg-transparent">
-              <span className="text-[11.5px] font-medium text-[#6b6b70] dark:text-muted-foreground">
+      <div className="w-full overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex w-full flex-col gap-3 px-6 pb-5 pt-6">
+          <div className="flex w-full items-center gap-2">
+            <div className="flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1">
+              <span className="text-xs font-medium text-muted-foreground">
                 {t(`warranty_claims.claimType.${claim.claimType}`)}
               </span>
-              <span className="text-[13px] font-semibold text-[#0f0f12] dark:text-foreground">
+              <span className="text-sm font-semibold text-foreground">
                 {claim.claimNumber}
               </span>
             </div>
@@ -641,7 +641,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                 type="button"
                 size="sm"
                 variant="destructive"
-                className="rounded-[8px] border border-[#dc2626] bg-white px-[10px] py-[6px] text-[14px] font-medium leading-[20px] tracking-[-0.084px] text-[#dc2626] transition-colors hover:bg-[#fdeeee] disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400 dark:bg-transparent dark:text-red-400 dark:hover:bg-red-950/40"
+                className="rounded-md px-3 py-2 text-sm font-medium"
                 onClick={() => setClaimAction('withdraw')}
                 disabled={actionSubmitting}
               >
@@ -649,63 +649,63 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               </Button>
             ) : null}
           </div>
-          <h1 className="text-[20px] font-bold text-[#0a0a0a] dark:text-foreground">
+          <h1 className="text-xl font-bold text-foreground">
             {buildClaimTitle(claim, t)}
           </h1>
-          <p className="text-[13px] text-[#737378] dark:text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {buildClaimSubtitle(claim, t)}
           </p>
         </div>
 
-        <div className="w-full px-[28px] pb-[22px]">
-          <div className={`flex w-full items-start gap-[10px] rounded-[10px] px-[14px] py-[12px] ${toneClasses.wrapper}`}>
-            <BannerIcon className={`mt-px size-[16px] shrink-0 ${toneClasses.icon}`} strokeWidth={1.7} aria-hidden="true" />
-            <p className={`min-w-px flex-1 text-[13px] ${toneClasses.text}`}>
+        <div className="w-full px-6 pb-6">
+          <div className={`flex w-full items-start gap-3 rounded-lg px-4 py-3 ${toneClasses.wrapper}`}>
+            <BannerIcon className={`mt-px size-4 shrink-0 ${toneClasses.icon}`} strokeWidth={1.7} aria-hidden="true" />
+            <p className={`min-w-px flex-1 text-sm ${toneClasses.text}`}>
               {bannerMessage(claim, t)}
             </p>
           </div>
         </div>
 
-        <div className="flex w-full flex-col px-[28px] pb-[24px]">
+        <div className="flex w-full flex-col px-6 pb-6">
           {trackerSteps.map((step, index) => (
-            <div key={step.id} className="flex w-full items-stretch gap-[14px]">
+            <div key={step.id} className="flex w-full items-stretch gap-4">
               <div className="flex flex-col items-center">
                 {step.state === 'complete' ? (
-                  <span className="flex size-[24px] shrink-0 items-center justify-center rounded-full bg-[#21ad61]">
-                    <Check className="size-[11px] text-white" strokeWidth={2.5} aria-hidden="true" />
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-status-success-icon">
+                    <Check className="size-3 text-status-success-bg" strokeWidth={2.5} aria-hidden="true" />
                   </span>
                 ) : step.state === 'current' ? (
-                  <span className="flex size-[24px] shrink-0 items-center justify-center rounded-full bg-[#6552e3] text-[12px] font-semibold text-white">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                     {index + 1}
                   </span>
                 ) : (
-                  <span className="flex size-[24px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-[#e2e2e2] text-[12px] font-semibold text-[#737378] dark:border-border dark:text-muted-foreground">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border text-xs font-semibold text-muted-foreground">
                     {index + 1}
                   </span>
                 )}
                 {index < trackerSteps.length - 1 ? (
                   <span
-                    className={`min-h-[10px] w-[2px] flex-1 ${step.state === 'complete' ? 'bg-[#21ad61]' : 'bg-[#ebebeb] dark:bg-border'}`}
+                    className={`min-h-2 w-px flex-1 ${step.state === 'complete' ? 'bg-status-success-icon' : 'bg-border'}`}
                   />
                 ) : null}
               </div>
-              <div className="flex min-w-px flex-1 flex-col gap-[2px] pb-[14px]">
-                <div className="flex w-full items-center gap-[8px]">
+              <div className="flex min-w-px flex-1 flex-col gap-1 pb-4">
+                <div className="flex w-full items-center gap-2">
                   <p
                     className={
                       step.state === 'pending'
-                        ? 'text-[14px] font-medium text-[#737378] dark:text-muted-foreground'
-                        : 'text-[14px] font-semibold text-[#0f0f12] dark:text-foreground'
+                        ? 'text-sm font-medium text-muted-foreground'
+                        : 'text-sm font-semibold text-foreground'
                     }
                   >
                     {step.title}
                   </p>
                   <div className="min-w-px flex-1" />
                   {step.dateLabel ? (
-                    <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{step.dateLabel}</p>
+                    <p className="text-xs text-muted-foreground">{step.dateLabel}</p>
                   ) : null}
                 </div>
-                <p className="w-full text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{step.description}</p>
+                <p className="w-full text-xs text-muted-foreground">{step.description}</p>
               </div>
             </div>
           ))}
@@ -717,13 +717,13 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             claim.lines.map((line) => (
               <div
                 key={line.id}
-                className="flex w-full items-center gap-[12px] rounded-[10px] border border-[#ededed] px-[14px] py-[12px] dark:border-border"
+                className="flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3"
               >
-                <div className="flex min-w-px flex-1 flex-col gap-[2px]">
-                  <p className="text-[14px] font-medium text-[#0f0f12] dark:text-foreground">
+                <div className="flex min-w-px flex-1 flex-col gap-1">
+                  <p className="text-sm font-medium text-foreground">
                     {line.productName ?? line.sku ?? t('warranty_claims.portal.value.unnamedLine')}
                   </p>
-                  <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {line.sku
                       ? t('warranty_claims.portal.tracker.itemMeta', {
                           sku: line.sku,
@@ -734,20 +734,19 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                         })}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-[6px] rounded-[6px] border border-[#e2e2e2] bg-white px-[9px] py-[4px] dark:border-border dark:bg-transparent">
+                <div className="flex shrink-0 items-center gap-2 rounded-sm border border-border bg-background px-2 py-1">
                   <span
-                    className="size-[6px] shrink-0 rounded-full"
-                    style={{ backgroundColor: LINE_STATUS_DOT_COLORS[line.lineStatus] ?? '#a3a3a3' }}
+                    className={`size-2 shrink-0 rounded-full ${LINE_STATUS_DOT_CLASSES[line.lineStatus] ?? 'bg-status-neutral-icon'}`}
                     aria-hidden="true"
                   />
-                  <span className="text-[12px] font-medium text-[#0f0f12] dark:text-foreground">
+                  <span className="text-xs font-medium text-foreground">
                     {t(`warranty_claims.lineStatus.${line.lineStatus}`)}
                   </span>
                 </div>
               </div>
             ))
           ) : (
-            <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('warranty_claims.portal.detail.linesEmpty.description')}
             </p>
           )}
@@ -757,14 +756,14 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           <p className={SECTION_HEADING_CLASS}>{t('warranty_claims.portal.tracker.activity')}</p>
           {activityEntries.length > 0 ? (
             activityEntries.map((entry) => (
-              <div key={entry.id} className="flex w-full items-start gap-[10px]">
-                <span className="mt-[5px] size-[7px] shrink-0 rounded-full bg-[#D1D1D6] dark:bg-muted-foreground/40" aria-hidden="true" />
+              <div key={entry.id} className="flex w-full items-start gap-3">
+                <span className="mt-1 size-2 shrink-0 rounded-full bg-status-neutral-icon" aria-hidden="true" />
                 <div className="flex min-w-px flex-1 flex-col gap-px">
-                  <div className="flex w-full items-start gap-[8px]">
-                    <p className="text-[13px] font-medium text-[#0f0f12] dark:text-foreground">{entry.title}</p>
+                  <div className="flex w-full items-start gap-2">
+                    <p className="text-sm font-medium text-foreground">{entry.title}</p>
                     <div className="min-w-px flex-1" />
                     {entry.createdAt ? (
-                      <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{formatShortDate(entry.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">{formatShortDate(entry.createdAt)}</p>
                     ) : null}
                   </div>
                   {entry.href ? (
@@ -772,18 +771,18 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                       href={entry.href}
                       target="_blank"
                       rel="noreferrer"
-                      className="whitespace-pre-wrap text-[12px] text-[#8e8e8e] underline-offset-2 hover:underline dark:text-muted-foreground"
+                      className="whitespace-pre-wrap text-xs text-muted-foreground underline-offset-2 hover:underline"
                     >
                       {entry.description}
                     </a>
                   ) : (
-                    <p className="whitespace-pre-wrap text-[12px] text-[#8e8e8e] dark:text-muted-foreground">{entry.description}</p>
+                    <p className="whitespace-pre-wrap text-xs text-muted-foreground">{entry.description}</p>
                   )}
                 </div>
               </div>
             ))
           ) : (
-            <p className="text-[12px] text-[#8e8e8e] dark:text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('warranty_claims.portal.detail.timelineEmpty.description')}
             </p>
           )}
@@ -791,7 +790,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
 
         <div className={SECTION_CLASS}>
           <p className={SECTION_HEADING_CLASS}>{t('warranty_claims.portal.tracker.message')}</p>
-          <form id="warranty-claim-comment-box" className="flex w-full flex-col gap-[12px]" onSubmit={handleCommentSubmit}>
+          <form id="warranty-claim-comment-box" className="flex w-full flex-col gap-3" onSubmit={handleCommentSubmit}>
             <Textarea
               value={comment}
               onChange={(event) => setComment(event.target.value)}
@@ -799,16 +798,16 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               placeholder={t('warranty_claims.portal.tracker.messagePlaceholder')}
               disabled={commentSubmitting}
               maxLength={8000}
-              className="h-[156px] resize-none rounded-[12px] border-[#ebebeb] bg-white px-[12px] py-[10px] text-[14px] tracking-[-0.084px] shadow-[0px_1px_2px_0px_rgba(10,13,20,0.03)] placeholder:text-[#a3a3a3] dark:border-border dark:bg-background"
+              className="h-40 resize-none rounded-lg border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground"
             />
-            <div className="flex w-full items-center gap-[8px]">
-              <label className={`flex items-center gap-[6px] ${uploading ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
+            <div className="flex w-full items-center gap-2">
+              <label className={`flex items-center gap-2 ${uploading ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
                 {uploading ? (
-                  <Spinner className="size-[14px]" />
+                  <Spinner className="size-4" />
                 ) : (
-                  <Paperclip className="size-[14px] text-[#737378] dark:text-muted-foreground" strokeWidth={1.7} aria-hidden="true" />
+                  <Paperclip className="size-4 text-muted-foreground" strokeWidth={1.7} aria-hidden="true" />
                 )}
-                <span className="text-[12px] font-medium text-[#737378] transition-colors hover:text-[#0f0f12] dark:text-muted-foreground dark:hover:text-foreground">
+                <span className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
                   {uploading
                     ? t('warranty_claims.portal.detail.uploading')
                     : t('warranty_claims.portal.tracker.attachFiles')}

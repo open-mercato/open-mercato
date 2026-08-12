@@ -426,10 +426,6 @@ function buildConflictError(
   return Object.assign(new Error(message), { status: call.status }, payload)
 }
 
-function errorStatus(error: unknown): number | null {
-  return isRecord(error) && typeof error.status === 'number' ? error.status : null
-}
-
 function GeneralNumberField({
   id,
   label,
@@ -1352,7 +1348,7 @@ export default function WarrantyClaimSettingsPage() {
       flash(generalTranslations.success, 'success')
       await loadGeneralSettings()
     } catch (err) {
-      if (errorStatus(err) === 409) return
+      if (surfaceRecordConflict(err, t, { onRefresh: () => { void loadGeneralSettings() } })) return
       const message = err instanceof Error ? err.message : generalTranslations.saveError
       setGeneralSaveError(message)
       flash(message, 'error')

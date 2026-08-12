@@ -987,6 +987,7 @@
   "warranty_claims.status.rejected": "거부됨",
   "warranty_claims.status.resolved": "해결됨",
   "warranty_claims.status.submitted": "제출됨",
+  "warranty_claims.timeline.aiAssessmentRecorded": "AI 평가가 기록됨",
   "warranty_claims.timeline.assignedTo": "{name}에게 배정됨",
   "warranty_claims.timeline.autoApproved": "자동 승인됨",
   "warranty_claims.timeline.autoReceivedFromTracking": "자동으로 입고 처리됨 — 반품 배송이 완료되었습니다",
