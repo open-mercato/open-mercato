@@ -128,4 +128,38 @@ describe('DataTable SSR render', () => {
       queryClient.clear()
     }
   })
+
+  it('forwards the click event to onRowClick, and skips it when clicking the actions cell', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    const onRowClick = jest.fn()
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable
+              columns={columns}
+              data={[{ id: '1', name: 'Ada' }]}
+              onRowClick={onRowClick}
+              rowActions={() => <button type="button">Edit</button>}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      fireEvent.click(screen.getByText('Ada'))
+      expect(onRowClick).toHaveBeenCalledTimes(1)
+      const [row, event] = onRowClick.mock.calls[0]
+      expect(row).toEqual({ id: '1', name: 'Ada' })
+      expect(event).toEqual(expect.objectContaining({ type: 'click' }))
+      expect(typeof event.currentTarget).not.toBe('undefined')
+
+      fireEvent.click(screen.getByText('Edit'))
+      expect(onRowClick).toHaveBeenCalledTimes(1)
+    } finally {
+      queryClient.clear()
+    }
+  })
 })
