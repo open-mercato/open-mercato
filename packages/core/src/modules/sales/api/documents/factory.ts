@@ -4,8 +4,10 @@ import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mer
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
-import { SalesDocumentTagAssignment } from '../../data/entities'
+import { SalesChannel, SalesDocumentTagAssignment } from '../../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   orderCreateSchema,
   quoteCreateSchema,
@@ -256,6 +258,53 @@ const attachTags = async (payload: any, ctx: any) => {
     if (!id) return
     const list = grouped.get(id)
     if (list) item.tags = list
+  })
+}
+
+export const attachChannelNames = async (payload: any, ctx: any) => {
+  const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
+  if (!items.length) return
+  const channelIds = Array.from(
+    new Set(
+      items
+        .map((item) => (item && typeof item.channelId === 'string' ? item.channelId : null))
+        .filter((value): value is string => !!value)
+    )
+  )
+  if (!channelIds.length) return
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as EntityManager) : null
+  if (!em) return
+
+  const where: Record<string, unknown> = { id: { $in: channelIds } }
+  if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
+  const orgIds =
+    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
+      ? ctx.organizationIds.filter((val: string | null) => !!val)
+      : ctx?.selectedOrganizationId
+        ? [ctx.selectedOrganizationId]
+        : []
+  if (orgIds.length) where.organizationId = { $in: orgIds }
+
+  // No `deletedAt: null` here, unlike the live-read paths in commands/configuration.ts: a document's
+  // channel is a historical fact, so retiring a channel must not blank it on every document ever
+  // placed through it. The visible consequence is that the list column can show a name the channel
+  // filter cannot offer, because the filter's options come from the channels list route.
+  const channels = await findWithDecryption(
+    em,
+    SalesChannel,
+    where,
+    {},
+    {
+      tenantId: ctx?.auth?.tenantId ?? null,
+      organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null,
+    }
+  )
+  const byId = new Map(channels.map((channel) => [channel.id, channel]))
+  items.forEach((item) => {
+    if (!item || typeof item.channelId !== 'string') return
+    const channel = byId.get(item.channelId)
+    item.channelName = channel?.name ?? null
+    item.channelCode = channel?.code ?? null
   })
 }
 
@@ -513,6 +562,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     hooks: {
       afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
+        await attachChannelNames(payload, ctx)
         if (binding.kind === 'order' && Array.isArray(payload?.items) && payload.items.length === 1) {
           const item = payload.items[0] as Record<string, unknown>
           const orderId = typeof item?.id === 'string' ? item.id : null
@@ -585,6 +635,8 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     currencyCode: z.string().nullable(),
     channelId: z.string().uuid().nullable(),
+    channelName: z.string().nullable().optional(),
+    channelCode: z.string().nullable().optional(),
     organizationId: z.string().uuid().nullable(),
     tenantId: z.string().uuid().nullable(),
     validFrom: z.string().nullable().optional(),
