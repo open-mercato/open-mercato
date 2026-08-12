@@ -60,6 +60,13 @@ const runUsageStampSchema = z.object({
   outputTokens: z.number().int().nonnegative().nullable().optional(),
   costMinor: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().length(3).nullable().optional(),
+  /**
+   * Effector working time in ms (T3.2). Additive, and the same column trace
+   * ingestion already writes — a runtime that captures no trace (the `external`
+   * one) can now record a duration the provider genuinely reported instead of
+   * leaving the column null forever.
+   */
+  latencyMs: z.number().int().nonnegative().nullable().optional(),
 })
 
 const completeAgentRunSchema = z
@@ -87,6 +94,7 @@ function applyUsageStamp(run: AgentRun, input: z.infer<typeof runUsageStampSchem
   if (input.outputTokens !== undefined) run.outputTokens = input.outputTokens
   if (input.costMinor !== undefined) run.costMinor = input.costMinor
   if (input.currency !== undefined) run.currency = input.currency
+  if (input.latencyMs !== undefined) run.latencyMs = input.latencyMs
 }
 
 export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string }> = {

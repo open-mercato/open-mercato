@@ -337,6 +337,26 @@ export type RunUsageStamp = {
   outputTokens?: number | null
   costMinor?: number | null
   currency?: string | null
+  /**
+   * How long the effector took to produce the answer, in milliseconds (T3.2).
+   *
+   * Additive: before this, `latency_ms` reached a run ONLY through trace
+   * ingestion (`lib/trace/traceIngestionService.ts`), which the native and
+   * OpenCode runtimes both feed. A runtime that captures no trace — the
+   * `external` one — had no way to record a duration it genuinely knew, so its
+   * runs rendered `—` forever.
+   *
+   * The MEANING is fixed across runtimes and is deliberately narrow: the interval
+   * during which the effector was working, never the interval a caller waited.
+   * The native runner measures from the first model call to the last step and
+   * excludes admission-gate and queue time; an external run reports the
+   * provider's own work interval (for a voice call, the length of the
+   * conversation) and excludes the ringing, the human deciding to pick up, and
+   * the provider's post-call processing. That is what keeps
+   * `metricRollupService`'s p50/p95 and the `latency` eval scorer comparing like
+   * with like across runtimes.
+   */
+  latencyMs?: number | null
 }
 
 export async function completeRun(
@@ -396,6 +416,7 @@ function pickUsageStamp(input: RunUsageStamp): RunUsageStamp {
   if (input.outputTokens !== undefined) stamp.outputTokens = input.outputTokens
   if (input.costMinor !== undefined) stamp.costMinor = input.costMinor
   if (input.currency !== undefined) stamp.currency = input.currency
+  if (input.latencyMs !== undefined) stamp.latencyMs = input.latencyMs
   return stamp
 }
 

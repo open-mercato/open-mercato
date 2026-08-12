@@ -9,7 +9,7 @@
  * payload — or with a reported failure — and this is where the run is proved,
  * screened, closed and the parked workflow step woken.
  *
- * Four properties are load-bearing:
+ * Six properties are load-bearing:
  *
  * 1. **Exactly once, whatever the provider does.** Every settlement begins by
  *    CLAIMING the correlation row with a conditional `pending → terminal` update.
@@ -30,6 +30,10 @@
  *    `AgentRunArtifact` so the run detail lists a downloadable transcript beside
  *    every other artifact — strictly best-effort, in the one direction that
  *    matters: an object store nobody configured must never fail a real run.
+ * 6. **What it cost is recorded, and nothing else is** (T3.2). The provider's own
+ *    cost and working time are stamped onto the run through the ordinary usage
+ *    stamp; token counts are left null, because a voice call has none and
+ *    inventing one would poison every per-agent rollup that averages them.
  *
  * WHY THIS IS ITS OWN MODULE (the design sketched it as "a second function in the
  * same module"): two of its three entry points — the unauthenticated callback
@@ -49,6 +53,7 @@ import type { AgentResult, GuardrailKindInput, GuardrailPhaseInput } from '../..
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { emitExternalRunEvent } from './externalRunEvents'
 import { captureExternalRunTranscript } from './externalRunArtifacts'
+import { separateExternalRunUsage, type ExternalRunUsageStamp } from './externalRunUsage'
 import type { MinimalContainer } from './artifactFileStore'
 import {
   claimExternalRunRow,
@@ -72,6 +77,49 @@ export const EXTERNAL_RUN_RESUME_SIGNAL = 'agent_orchestrator.proposal.ready'
 
 /** How much of a validation or provider message is kept on the row. */
 const FAILURE_REASON_CHAR_LIMIT = 4000
+
+/**
+ * WHAT `agent_runs.latency_ms` MEANS FOR AN EXTERNAL RUN (T3.2 decision).
+ *
+ * There are two defensible numbers and they are wildly different — a call that
+ * talks for 74 seconds can settle 28 minutes after `start()` — so the choice has
+ * to be made deliberately and written down.
+ *
+ *   A. WALL CLOCK, `start()` → callback. Includes the dial, the ringing, a human
+ *      deciding whether to answer, and the provider's own post-call transcription
+ *      and analysis before it posts the webhook.
+ *   B. THE PROVIDER'S REPORTED WORK INTERVAL — for a voice call, the length of
+ *      the conversation.
+ *
+ * **The column carries B.** Three reasons, in order of weight:
+ *
+ *  1. It is the only one comparable to what the column already holds. A native
+ *     run's latency is measured from the first model call to the last step
+ *     (`nativeTraceCapture`), which deliberately excludes queue wait, the
+ *     admission gate and context assembly. B is that same quantity for a remote
+ *     effector; A is that quantity plus everything the native measurement was
+ *     careful to leave out.
+ *  2. It measures the agent, not the callee. `metricRollupService` averages this
+ *     column into an agent's p50/p95 and the `latency` eval scorer asserts a
+ *     threshold on it. Under A, both would be measuring how promptly the people
+ *     we phone answer their phones — a property of the contact list, which a
+ *     change to the agent cannot improve and a change to the callee population
+ *     silently ruins.
+ *  3. It is the number that explains the cost stamped beside it. Voice is billed
+ *     per minute, so B and `cost_minor` are consistent on the same row; A next to
+ *     a per-minute charge reads as an arithmetic error.
+ *
+ * **A IS NOT LOST, and needs no column.** The run row already carries it exactly:
+ * `created_at` is stamped when `ExternalAgentRunner` opens the run, BEFORE
+ * `connector.start()` dials, and `completed_at` is stamped once at the terminal
+ * transition and never mutated (`commands/runs.ts`). `completed_at − created_at`
+ * IS the wall clock, forensically, for every external run ever recorded.
+ *
+ * Structural consequence worth keeping: nothing on this path reads a clock. The
+ * latency stamped here can only ever be a number the provider reported, so this
+ * function cannot drift into measuring A by accident.
+ */
+export const EXTERNAL_RUN_LATENCY_SEMANTICS = 'provider-reported-work-interval'
 
 /**
  * The columns of the correlation row this function needs. A subset rather than the
@@ -245,6 +293,21 @@ export async function completeExternalRun(
     return { status: 'already_settled', runId: row.runId }
   }
 
+  /**
+   * What the provider reported this run cost and how long it worked (T3.2).
+   *
+   * Read once from the payload and shared by BOTH terminal arms, which is the
+   * point of hoisting it: a call that connected, cost real money and was then
+   * refused by the output guardrail still charged the tenant, and `runs.fail`
+   * accepts the same stamp for exactly that reason ("failed runs still consumed
+   * tokens"). Leaving it on the success arm only would make an agent's spend
+   * under-report precisely for the runs an operator is most likely to review.
+   *
+   * Stays `{}` for the `failure` and `expired` arms, which return before it is
+   * filled: nobody answered, so there is nothing anyone reported.
+   */
+  let reportedUsage: ExternalRunUsageStamp = {}
+
   const settleFailed = async (
     cause: ExternalRunFailureCause,
     detail: string,
@@ -252,7 +315,11 @@ export async function completeExternalRun(
   ): Promise<CompleteExternalRunResult> => {
     const outcomeHandle: 'error' | 'guardrailBlocked' =
       cause === 'guardrail_blocked' ? 'guardrailBlocked' : 'error'
-    await failRun(commandBus, commandCtx, { runId: row.runId, errorMessage: detail })
+    await failRun(commandBus, commandCtx, {
+      runId: row.runId,
+      errorMessage: detail,
+      ...reportedUsage,
+    })
     await settleExternalRunRow(commandBus, commandCtx, {
       externalRunRowId: row.id,
       tenantId: scope.tenantId,
@@ -319,7 +386,31 @@ export async function completeExternalRun(
     return settleFailed('deadline_expired', settlement.reason)
   }
 
-  // 2. The agent's declared contract. Resolving it can fail legitimately: the run
+  // 2. SPLIT THE PROVIDER'S USAGE REPORT OFF THE PAYLOAD (T3.2), before anything
+  //    validates or screens it.
+  //
+  //    `usage` is a reserved, platform-owned sibling of `kind`/`data` that a
+  //    connector MAY set (see `./externalRunUsage`). Removing it here rather than
+  //    tolerating it is what keeps the agent's declared OUTCOME contract exactly
+  //    as its author wrote it: the guardrail, the schema parse, the transcript
+  //    artifact and every `{{context.*}}` reference downstream all see the
+  //    envelope and nothing else, and an envelope declared with `.strict()` still
+  //    validates. A connector that reports nothing — every connector before this
+  //    existed — yields the payload unchanged and an empty stamp.
+  //
+  //    The CORRELATION ROW still stores the payload as it arrived, usage report
+  //    included: that row is the record of what the provider actually said, and a
+  //    cost dispute is exactly when someone needs to read it back verbatim.
+  const separated = separateExternalRunUsage(settlement.payload, {
+    externalRunRowId: row.id,
+    runId: row.runId,
+    agentId: row.agentId,
+    connectorId: row.connectorId,
+  })
+  reportedUsage = separated.usage
+  const outcomePayload = separated.outcome
+
+  // 3. The agent's declared contract. Resolving it can fail legitimately: the run
   //    started half an hour ago and the agent may have been removed from the build
   //    since. That is a failed run down the `error` handle, not a crash — the
   //    alternative would leave the workflow parked forever on a deleted agent.
@@ -331,7 +422,7 @@ export async function completeExternalRun(
     )
   }
 
-  // 3. OUTPUT GUARDRAIL, in the ordering `NativeAgentRunner` established: compute
+  // 4. OUTPUT GUARDRAIL, in the ordering `NativeAgentRunner` established: compute
   //    the verdict, then decide, then persist the audit rows BEFORE the run is
   //    allowed to fail. A run that failed without its guardrail checks on record
   //    cannot be explained afterwards.
@@ -339,7 +430,7 @@ export async function completeExternalRun(
   const verdict = await guardrailService.checkOutput({
     capability: row.agentId,
     schema: entry.schema,
-    output: settlement.payload,
+    output: outcomePayload,
     allowedTools: entry.tools,
     // No grounding gate: the cite-or-abstain check scores claims against the
     // CITABLE SOURCES of the run's context bundle, which was assembled in another
@@ -356,7 +447,7 @@ export async function completeExternalRun(
     agentRunId: row.runId,
   }
 
-  const parsed = entry.schema.safeParse(settlement.payload)
+  const parsed = entry.schema.safeParse(outcomePayload)
   if (!parsed.success || verdict.result === 'block') {
     await persistVerdict({ em: guardEm }, guardScope, {
       verdict,
@@ -392,15 +483,29 @@ export async function completeExternalRun(
     proposalId: null,
   })
 
-  // 4. CLOSE THE AUDIT RUN. No proposal is created: external agents are
+  // 5. CLOSE THE AUDIT RUN. No proposal is created: external agents are
   //    researcher-kind only, so there is nothing to dispose and no confidence to
   //    derive — the run row renders `—`, honestly.
+  //
+  //    THE USAGE STAMP IS SPREAD, NOT SPELLED OUT, and that is deliberate:
+  //    `reportedUsage` can only contain keys the provider actually reported, so an
+  //    absent cost contributes no key, `pickUsageStamp` passes none on, and
+  //    `applyUsageStamp` leaves the column untouched at `null`. Writing
+  //    `costMinor: usage.costMinor ?? 0` instead would render every unpriced call
+  //    as free — the difference between "we do not know" and "it cost nothing",
+  //    which the cockpit distinguishes by rendering the first as `—`.
+  //
+  //    `inputTokens` / `outputTokens` are UNREACHABLE from here by construction
+  //    (`ExternalRunUsageStamp` has no such members). A voice call has no tokens,
+  //    and deriving one from transcript length would put a fabricated number into
+  //    the same columns `metricRollupService` and the agents cockpit average.
   const result = shapeResult(entry.resultKind, parsed.data, row.agentId)
   await completeRun(commandBus, commandCtx, {
     runId: row.runId,
     output: result,
     resultKind: entry.resultKind,
     confidence: null,
+    ...reportedUsage,
   })
   await settleExternalRunRow(commandBus, commandCtx, {
     externalRunRowId: row.id,
@@ -410,7 +515,7 @@ export async function completeExternalRun(
     resultPayload: settlement.payload,
   })
 
-  // 5. CAPTURE THE ANSWER AS AN ARTIFACT (T3.1), so an operator reviewing the run
+  // 6. CAPTURE THE ANSWER AS AN ARTIFACT (T3.1), so an operator reviewing the run
   //    has the transcript as a file rather than only as a column nothing renders in
   //    full. Here — after the audit run is closed and the correlation row settled,
   //    before the workflow moves — for two reasons: the run's own record is complete
@@ -447,7 +552,7 @@ export async function completeExternalRun(
     })
   }
 
-  // 6. WAKE THE PARKED STEP.
+  // 7. WAKE THE PARKED STEP.
   const resume = await resumeParkedStep({
     container,
     row,

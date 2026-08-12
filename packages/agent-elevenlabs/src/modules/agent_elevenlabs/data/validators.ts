@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod'
+import type { ExternalRunUsageReport } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/runtime/externalRunUsage'
 
 /**
  * A dynamic-variable value as ElevenLabs accepts it. Anything richer an author
@@ -126,3 +127,19 @@ export const voiceCallResultSchema = z.object({
 })
 
 export type VoiceCallResult = z.infer<typeof voiceCallResultSchema>
+
+/**
+ * What `normalize()` actually returns: the envelope, plus the OPTIONAL reserved
+ * `usage` sibling the platform reads and strips (tracker task 3.2).
+ *
+ * It is deliberately NOT part of `voiceCallResultSchema`. That schema is the
+ * agent's declared OUTCOME contract — it is what `defineExternalAgent` registers,
+ * what `listAgentOutcomeContracts()` projects and what types `data.*` in the
+ * Studio's variable picker — and what a call cost is not something a workflow
+ * author maps into a context key. `completeExternalRun` removes the key before
+ * that schema ever sees the payload, so the two contracts stay separate: one for
+ * the author, one for the platform's own books.
+ */
+export type ElevenLabsNormalizedResult = VoiceCallResult & {
+  usage?: ExternalRunUsageReport
+}
