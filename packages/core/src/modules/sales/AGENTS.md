@@ -1,6 +1,6 @@
 # Sales Module — Agent Guidelines
 
-Use the sales module for orders, quotes, invoices, shipments, and payments. This module has the most complex business logic in the system.
+Use the sales module for orders, quotes, invoices, shipments, and payments.
 
 ## Always
 
@@ -8,6 +8,7 @@ Use the sales module for orders, quotes, invoices, shipments, and payments. This
 2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps
 3. **MUST use `selectBestPrice`** from catalog pricing helpers.
 4. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
+5. **MUST keep Sales document services, templates, translations, and widgets under Sales**; extend Shared's `BaseDocumentService` and keep the rendering plugin optional.
 
 ## Ask First
 
@@ -20,6 +21,7 @@ Use the sales module for orders, quotes, invoices, shipments, and payments. This
 - Never skip configured document workflow states.
 - Never modify configuration entities directly; use the admin UI or setup hooks.
 - Never inline price calculations.
+- Never move Sales templates or `sales.*` resource handling into `@open-mercato/document-generators`.
 
 ## Validation Commands
 
@@ -90,17 +92,10 @@ Sales documents are scoped to channels. Channel selection affects:
 | `components/` | When modifying shared React components (document table, forms, payment/shipment sections) |
 | `data/` | When changing ORM entities or validators |
 | `emails/` | When modifying order confirmation email templates |
+| `document-generators/` | Sales-owned document fetching, normalization, templates, and format variants |
 | `lib/` | When changing business logic (pricing providers, shipment helpers) |
 | `services/` | When modifying calculation or channel scoping services |
 | `subscribers/` | When adding event subscribers (notifications, indexing) |
-
-## Reference Patterns
-
-- Complex CRUD with related entities: `api/orders/route.ts`
-- Multi-section detail page: `backend/sales/` pages
-- Service-based calculations: `services/`
-- Email on document creation: `subscribers/`
-- Notification implementation: `notifications.ts`, `notifications.client.ts`, `widgets/notifications/`
 
 ## Frontend
 
