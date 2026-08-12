@@ -1333,7 +1333,7 @@ describe('GET /api/auth/users', () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledTimes(1)
   })
 
   test('allows moving a user to a descendant organization in the canonical actor scope', async () => {

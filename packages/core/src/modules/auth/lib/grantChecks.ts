@@ -1,9 +1,11 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 type ActorAcl = {
   isSuperAdmin: boolean
@@ -53,6 +55,10 @@ type SuperAdminUserTargetInput = GrantCheckContext & {
   actorIsSuperAdmin?: boolean
 }
 
+type UserTargetAccessInput = SuperAdminUserTargetInput & {
+  organizationScope: Pick<OrganizationScope, 'allowedIds'>
+}
+
 type SuperAdminRoleTargetInput = GrantCheckContext & {
   targetRoleId: string
   actorIsSuperAdmin?: boolean
@@ -97,7 +103,10 @@ export async function resolveUserDestinationRoles(input: UserDestinationRolesInp
         continue
       }
     }
-    throw new CrudHttpError(400, { error: 'User has an invalid role assignment' })
+    throw badRequest(await translateAuthError(
+      'auth.users.errors.invalidRoleAssignment',
+      'User has an invalid role assignment',
+    ))
   }
   return roles
 }
@@ -113,7 +122,10 @@ export async function assertActorCanAssignUserDestination(
 
   for (const role of input.roles) {
     if (normalizeNullableString(role.tenantId) !== destinationTenantId) {
-      throw forbidden('Cannot retain or assign a role outside the destination tenant.')
+      throw forbidden(await translateAuthError(
+        'auth.users.errors.roleOutsideDestinationTenant',
+        'Cannot retain or assign a role outside the destination tenant.',
+      ))
     }
   }
 
@@ -133,7 +145,10 @@ export async function assertActorCanAssignUserDestination(
     && !allowedOrganizationIds.includes('__all__')
     && !allowedOrganizationIds.includes(destinationOrganizationId)
   ) {
-    throw forbidden('Cannot assign user to a destination organization outside actor scope.')
+    throw forbidden(await translateAuthError(
+      'auth.users.errors.destinationOrganizationOutsideScope',
+      'Cannot assign user to a destination organization outside actor scope.',
+    ))
   }
 
   await assertActorCanGrantRoles({
@@ -215,7 +230,7 @@ export async function assertActorCanModifySuperAdminRoleTarget(input: SuperAdmin
   }
 }
 
-export async function assertActorCanAccessUserTarget(input: SuperAdminUserTargetInput): Promise<void> {
+export async function assertActorCanAccessUserTarget(input: UserTargetAccessInput): Promise<void> {
   const isSuperAdmin = await resolveActorIsSuperAdmin(input)
   if (isSuperAdmin) return
 
@@ -239,10 +254,9 @@ export async function assertActorCanAccessUserTarget(input: SuperAdminUserTarget
     throw new CrudHttpError(404, { error: 'User not found' })
   }
 
-  const actorAcl = await loadActorAcl(input)
-  if (actorAcl.organizations !== null && !actorAcl.organizations.includes('__all__')) {
+  if (input.organizationScope.allowedIds !== null) {
     const targetOrganizationId = normalizeNullableString((target as { organizationId?: string | null }).organizationId)
-    if (!targetOrganizationId || !actorAcl.organizations.includes(targetOrganizationId)) {
+    if (!targetOrganizationId || !input.organizationScope.allowedIds.includes(targetOrganizationId)) {
       throw forbidden('Not authorized to access this user.')
     }
   }
@@ -487,4 +501,9 @@ function normalizeNullableString(value: unknown): string | null {
 
 function isWildcardFeature(feature: string): boolean {
   return feature.endsWith('.*')
+}
+
+async function translateAuthError(key: string, fallback: string): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate(key, fallback)
 }
