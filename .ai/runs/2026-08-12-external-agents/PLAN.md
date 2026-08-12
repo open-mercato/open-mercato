@@ -41,7 +41,7 @@ top of that seam.
 | 3.3 | Eval + dry run: mock/refuse parity for external connectors; external runs → eval cases | DONE | `c77f6eb01` |
 | 3.4 | Cockpit: external-run surfacing + agents registry + **fetch-on-demand audio** + **rerun/Playground UX** | TODO | |
 | **Phase 4 — generalize the seam** | | | |
-| 4.1 | Second connector: generic HTTP/webhook connector proving the interface | TODO | |
+| 4.1 | Second connector: generic HTTP/webhook connector proving the interface | DONE | `5e545ff8d` |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
 | 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | TODO | |
 | 4.4 | **Server-side out-of-band flag** (added 2026-08-12 — the AI draft agent can still author T4.2's mistake) | TODO | |
@@ -754,6 +754,36 @@ Append one entry per task as it lands — decisions made, surprises found, devia
 - 2026-08-13 — **T3.4 addition from T3.2:** nothing surfaces the wall clock in the cockpit yet. It is
   derivable as `completed_at − created_at`, and a "parked for 28m, talked for 74s" pair on the external-run
   detail would read very well.
+- 2026-08-13 — **T4.1 done. The per-run `[token]` route WORKED FIRST TIME.** It is the route the design
+  treats as primary, and until now no shipped connector exercised it end to end (ElevenLabs was forced onto
+  the static route). A real end-to-end test — start → provider handed `callbackUrl` → token extracted from
+  the body the provider actually received → signed POST → 200 → `completeExternalRun` — passed on the first
+  execution. No rot, no unexercised bug in T2.6.
+- 2026-08-13 — **T4.1 closed T2.9's container seam, and it was WIDER than T2.9 predicted.** Adding
+  `container` to start args was not enough: **`normalize(rawPayload)` took no scope and was SYNCHRONOUS**,
+  so a connector whose MAPPING is per tenant was structurally impossible — exactly what a generic connector
+  needs. `normalize` now takes an optional context and may return a promise; both routes `await` it.
+  Fewer-param / plain-value implementations stay assignable, so ElevenLabs compiles and passes UNTOUCHED
+  (131/131). **BC:** this is an ADDITIVE change to a public type — record it in `BACKWARD_COMPATIBILITY.md`
+  terms in T4.3.
+- 2026-08-13 — **T4.1's deepest finding: the callback half of the seam is addressed by TENANT, never by
+  AGENT.** A callback resolves a RUN; the agent is known only to the correlation row. So verification and
+  normalization config can only ever be per `(tenant, connector)` — which is why the generic connector FAILS
+  CLOSED on `defineExternalAgent({ profile })` instead of half-honouring it. Anything that wants per-agent
+  callback behaviour has to travel on the correlation row, not on the connector.
+- 2026-08-13 — T4.1 connector-member choices, each justified: it OMITS `extractExternalRunId` (that member
+  is the opt-in to the weaker connector-addressed route, where the signature is the only credential), it
+  IMPLEMENTS `mock` (a "would POST" is falsifiable; ElevenLabs omits it because a fabricated transcript is
+  not), and it omits `cancel` (declared per CONNECTOR, so a configurable cancel URL would silently no-op for
+  unconfigured tenants and make the sweep log "cancelled" for a run still executing).
+- 2026-08-13 — **T4.1 SSRF stance: the node input carries NO url/header field, deliberately.** A workflow
+  definition is authored material AND AI-draftable, so a per-call target would make this an aimable SSRF
+  gadget carrying tenant credentials. The configured URL rides the same shared outbound guard `CALL_WEBHOOK`
+  uses. New env var for T4.3 to document: `OM_AGENT_HTTP_ALLOW_PRIVATE_URLS` (dev only, ignored in
+  production, mirrors the `CALL_WEBHOOK` precedent).
+- 2026-08-13 — T4.1 residual asymmetry: `cancel(externalRunId, scope)` still receives no container. The
+  sweep is its only caller and neither shipped connector implements `cancel`; close it the same way if one
+  ever needs credentials to cancel.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
