@@ -1,22 +1,23 @@
 ---
 title: Document Generators Usage
-description: Use built-in PDF templates and register templates from another module.
+description: Use Sales-provided templates and register templates from an owning module.
 ---
 
 # Usage & Integration
 
-## Built-in templates
+## Sales-provided templates
 
-The package ships two templates out of the box. They serve as working examples of the extension API and cover the most common sales document use cases.
+The Sales module contributes three template variants through its `document-generators.ts` convention file. The rendering package remains domain-independent.
 
 | Template | ID | Resource | Document type |
 |----------|----|----------|---------------|
 | Order Invoice | `order-invoice` | `sales.order` | invoice |
+| Order Invoice (Markdown) | `order-invoice-markdown` | `sales.order` | invoice |
 | Sales Offer | `sales-offer` | `sales.quote` | offer |
 
-Both templates use the shared Inter font and design tokens from `templates/shared/theme.ts`. The PDF tab that renders them on Order and Quote detail pages is owned by the core sales module — this package only provides the templates and the rendering infrastructure.
+Both templates use the Inter font and authoring tokens exported by the rendering package. Their services, translations, templates and detail widgets are owned by Sales; the plugin provides the registry, rendering infrastructure and authoring toolkit.
 
-To replace or extend them, implement your own `BaseDocumentService` and register it via a `document-generators.ts` convention file. The built-in templates remain available alongside yours unless you explicitly filter them out.
+To contribute templates from another module, extend `BaseDocumentService` imported from `@open-mercato/shared/modules/document-generators` and export its entries through that module's `document-generators.ts` convention file. Sales-provided templates remain owned by Sales and are registered only when Sales is enabled.
 
 ---
 
@@ -24,13 +25,7 @@ To replace or extend them, implement your own `BaseDocumentService` and register
 
 Templates are registered via a **convention file** named `document-generators.ts` at the root of any module (sibling of `index.ts`, `acl.ts`, etc.). The `mercato generate registry` step scans all loaded modules for this file and adds its templates to the global registry automatically.
 
-No widget, no injection-table entry needed — the PDF tab is already rendered by the core sales module for orders and quotes.
-
-> **Shortcut**: use the `scaffold-pdf-templates` Claude Code skill to generate all files below automatically. In Claude Code, type:
-> ```
-> /scaffold-pdf-templates
-> ```
-> The skill will ask for your module ID, resource kind, and template name, then create the DocumentService, template component, and convention file in one step.
+No widget or injection-table entry is needed for Sales orders and quotes because Sales already owns those document tabs. Other resources must contribute their own thin widget.
 
 A fully working implementation is available in the [Document Generators examples](./examples).
 
@@ -38,11 +33,12 @@ A fully working implementation is available in the [Document Generators examples
 
 ### Step 1 — Create a `DocumentService`
 
-Place it in `src/modules/<your_module>/pdf-templates/services/`.
+Place it in `src/modules/<your_module>/document-generators/services/`.
 
 ```ts
-// src/modules/my_module/pdf-templates/services/my-module-invoice-document-service.ts
-import { BaseDocumentService, formatDate, type TemplateDataContext } from '@open-mercato/document-generators'
+// src/modules/my_module/document-generators/services/my-module-invoice-document-service.ts
+import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
+import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export class MyModuleInvoiceDocumentService extends BaseDocumentService {
@@ -59,6 +55,7 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
       label: 'My Module Invoice',
       description: 'Standard invoice for my module orders.',
       documentType: 'invoice',
+      format: 'pdf',
       tags: ['invoice', 'my_module'],
       load: () =>
         import('../templates/invoice/my-module-invoice').then(
@@ -104,12 +101,17 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
 
 ### Step 2 — Create the template component
 
-Place it in `src/modules/<your_module>/pdf-templates/templates/<category>/<template-id>/index.tsx`.
+Place it in `src/modules/<your_module>/document-generators/templates/<category>/<template-id>/pdf/index.tsx`.
 
 ```tsx
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
-import { OpenMercatoLogo } from '@open-mercato/document-generators'
-import '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
+import {
+  Document,
+  Page,
+  StyleSheet,
+  Text,
+  View,
+} from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf'
+import { OpenMercatoLogo } from '@open-mercato/document-generators/modules/document_generators/templates/shared/components/Logo'
 import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
 
 const s = StyleSheet.create({
@@ -134,7 +136,7 @@ export function MyModuleInvoiceDocument({ data }: { data: Record<string, unknown
 }
 ```
 
-> The bare `import '…/theme'` is a **required side-effect** — it registers the Inter font with `@react-pdf/renderer`. Without it, `fontFamily: 'Inter'` silently falls back to the default font.
+> The document-generators template toolkit registers the Inter font and keeps the React-PDF dependency inside the rendering plugin.
 
 ---
 
@@ -142,7 +144,7 @@ export function MyModuleInvoiceDocument({ data }: { data: Record<string, unknown
 
 ```ts
 // src/modules/my_module/document-generators.ts
-import { MyModuleInvoiceDocumentService } from './pdf-templates/services/my-module-invoice-document-service'
+import { MyModuleInvoiceDocumentService } from './document-generators/services/my-module-invoice-document-service'
 
 const service = new MyModuleInvoiceDocumentService()
 
@@ -158,4 +160,4 @@ export default templates
 yarn generate
 ```
 
-The template now appears in the **PDF** tab on all sales order detail pages.
+The template now appears in the Sales-owned documents tab on matching sales order detail pages.

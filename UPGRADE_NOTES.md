@@ -24,6 +24,31 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.6.8 (unreleased)
 
+### Document generator contracts moved to `@open-mercato/shared`
+
+`BaseDocumentService` and the format-neutral template/registry types now live in
+`@open-mercato/shared/modules/document-generators`. This lets a domain module describe its
+documents without depending on the optional rendering plugin. PDF and Markdown renderers,
+their dependencies, and the PDF authoring toolkit remain in
+`@open-mercato/document-generators`.
+
+**Action for module authors:** update imports of `BaseDocumentService` and document-generator
+types. The old package-root exports remain as deprecated compatibility re-exports for at
+least one minor version.
+
+```diff
+-import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/document-generators'
++import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
+```
+
+PDF templates should import renderer primitives and the shared theme from the plugin's
+template module instead of depending on `@react-pdf/renderer` directly:
+
+```diff
+-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
++import { Document, Page, StyleSheet, Text, View } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf'
+```
+
 ### TanStack Table upgraded to v9 — `ColumnDef` imports must move to the legacy entry point
 
 The platform now depends on `@tanstack/react-table@^9.0.0`. v9 is an API rewrite: `useReactTable` and the `get*RowModel` factories moved out of the package root, and `ColumnDef` gained a leading `TFeatures` generic (`ColumnDef<TFeatures, TData, TValue>` instead of `ColumnDef<TData, TValue>`). Because module code imports these types **directly from `@tanstack/react-table`** rather than through `@open-mercato/ui`, no bridge inside the platform can shield you from it — a module that declares `ColumnDef<MyRow>[]` stops compiling after the upgrade.

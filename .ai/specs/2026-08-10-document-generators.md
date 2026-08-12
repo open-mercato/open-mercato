@@ -3,19 +3,19 @@
 ## TLDR
 **Key Points:**
 - The `@open-mercato/document-generators` module is a reusable document generation engine with built-in PDF and Markdown rendering.
-- A user opens the existing document tab in a supported detail view, picks a template, previews it, then downloads the final file.
-- Quote/Sales and Orders are the first supported modules; any other entity can be added independently.
+- A user opens a document tab contributed by the owning domain module, picks a template, previews it, then downloads the final file.
+- Sales contributes the first order and quote templates without making the rendering package depend on Sales.
 
 **Scope:**
-- Universal template registry — class-based singleton, split into **internal** (built-in) and **external** (injected by other modules via code-gen) registries
+- Universal template registry — class-based singleton, split into **internal** engine-owned and **external** module-provided registries; the engine currently starts with no internal templates
 - Template metadata hierarchy: `module` → `resourceKind` → logical template → `format` (`pdf` | `md`); `documentType` describes the business purpose (`offer`, `invoice`, `contract`)
 - Widget passes raw `context.record` to the API — optional `fetchData` hook enriches data server-side (e.g. fetches line items via DI container); `toTemplateData` normalizes afterward
 - `GET /api/document-generators/templates` — lists available templates (internal + external) for client-side consumption
 - `POST /api/document-generators/generate` — loads a template through the registry, renders its format-specific input through `DocumentRenderer`, records best-effort generation history, and returns the rendered file
 - `GET /api/document-generators/documents` — returns tenant- and organization-scoped generation history
 - PDF preview via `<Preview>` (iframe with blob URL); Markdown preview as formatted source text
-- Widget pattern: tab injection (`quote_pdf_tab`) rather than action button; widgets filter by `resourceKind`
-- Template folder convention: `templates/<module>/<entity>/<template-name>/<format>/`, with shared data types at the logical-template level
+- Widget pattern: domain-owned tab injection rather than an engine-owned action button; widgets filter by `resourceKind`
+- Domain template convention: `<owning-module>/document-generators/templates/<entity>/<template-name>/<format>/`; the engine keeps only `templates/shared/**` as its authoring toolkit
 - Generator plugin (`generators.ts`) enabling other modules to register external templates via `mercato generate registry`
 
 **Concerns:**
@@ -27,11 +27,11 @@
 
 ## Overview
 
-The `document_generators` module extends OpenMercato with the ability to generate professional, branded PDF documents from any entity in the system. A "Generate PDF" button can be injected into any detail view — it opens a dialog: template selection → live preview → download.
+The `document_generators` module extends OpenMercato with the ability to generate professional, branded documents from any entity in the system. An owning module can inject `TemplatesList` into a detail view to provide template selection, live preview, and download.
 
-Templates are organized by module, resource, logical template, and output format: `templates/<module>/<resource>/<template-name>/<format>/`. Shared normalized data types live one level above the format implementations. `GET /api/document-generators/templates` reads two arrays owned by the `TemplateRegistry` singleton: **internal** templates registered from `config/registry.ts`, and **external** templates registered at bootstrap by generated integration code. Widgets filter them with `TemplateFilter` (`resourceKind`, `documentType`, `format`, `tags`).
+Templates live in their owning domain module and are organized by resource, logical template, and output format. `GET /api/document-generators/templates` reads two arrays owned by the `TemplateRegistry` singleton: an initially empty **internal** engine registry and **external** module-provided entries registered at bootstrap from each module's `document-generators.ts`. Widgets filter them with `TemplateFilter` (`resourceKind`, `documentType`, `format`, `tags`).
 
-The widget passes raw `context.record` to the API. `templateRegistry.load()` runs optional `fetchData`, normalizes through `fromRecord`, loads a discriminated template source, and derives filename and resource identity. `DocumentRenderer` receives only `{ format, source, data }`, selects `PdfRenderingService` or `MarkdownRenderingService`, and returns format, MIME type, and bytes. The API route combines that output with filename and resource metadata.
+The widget passes raw `context.record` to the API. `templateRegistry.load()` runs optional `fetchData`, normalizes through `fromRecord`, loads an extensible template source, and derives filename and resource identity. `DocumentRenderer` receives only `{ format, source, data }`, selects the registered rendering service from its format map, and returns format, MIME type, and bytes. The API route combines that output with filename and resource metadata.
 
 **Market Reference:** Pandadoc, Qwilr, Proposify are the category leaders. Adopted: live preview before generating, client data personalization. Rejected: drag-and-drop editor (excessive complexity for MVP), cloud storage (files returned directly as a stream).
 
@@ -51,7 +51,7 @@ OpenMercato does not offer native PDF document generation. Teams must manually c
 
 An official monorepo package (`packages/document-generators/`) extending OpenMercato via UMES extension points:
 
-1. **Tab widgets** — injected into any module's detail view via `injection-table.ts`. Each widget renders a `TemplatesList` component with `record` and `filter` props. Widget passes raw `context.record` — no client-side mapping.
+1. **Domain-owned tab widgets** — an owning module registers its widget in its own `injection-table.ts`. Each thin widget renders the engine's `TemplatesList` component with `record` and `filter` props.
 2. **Backend pages** — `/backend/document-generators` redirects to the module overview at `/overview`; `/overview`, `/templates`, and `/history` are flat sidebar entries in the Document Generators group.
 3. **Four API routes**:
    - `GET /api/document-generators/templates` — returns `{ internal: TemplateMeta[], external: TemplateMeta[] }`
@@ -69,14 +69,14 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | Data from `context.record`, not a fetch | Widget already receives full record from the framework — only `id` is strictly needed when `fetchData` is defined |
 | `fetchData` hook per template (server-side) | Services that need data not available in the widget context (e.g. line items) override `fetchData` to query the DI container before normalization |
 | Normalization via `toTemplateData` in `BaseDocumentService` subclass | Each entity's mapping lives in one class — adding a new entity = new service subclass, no changes to existing code |
-| Shared template data lives in `templates/<module>/<entity>/<name>/types.ts` | PDF and Markdown variants of one logical template consume the same normalized business data |
+| Shared template data lives next to the logical template in its owning module | PDF and Markdown variants consume the same normalized business data without moving domain knowledge into the engine |
 | `Record<string, unknown>` in route and components | Route and UI components are template-agnostic; type safety lives at the normalizer→template boundary |
-| Template folder convention `templates/<module>/<entity>/<name>/<format>/` | Keeps business ownership primary and format as the final implementation dimension |
-| `BaseDocumentService` base class for PDF document services | Centralizes template registration and entry construction; subclasses provide identity, normalization, optional fetching, filename, and resource metadata |
-| `config/registry.ts` aggregates all internal services in one `registerInternal([...])` call | `registerInternal` replaces the array — multiple calls would clobber each other; all built-in services must be spread into a single call |
-| Singleton registry with separate internal/external arrays | Internal templates ship with the module; external templates are injected at bootstrap from generated code without global state |
+| Domain template folder convention `<module>/document-generators/templates/<entity>/<name>/<format>/` | Keeps business ownership primary and format as the final implementation dimension |
+| `BaseDocumentService` and neutral contracts live in `@open-mercato/shared/modules/document-generators` | Domain modules can declare entries without importing the optional runtime package |
+| Singleton registry with separate internal/external arrays | The engine owns registry mechanics; module-provided templates are injected at bootstrap from generated code |
 | `GET /api/document-generators/templates` endpoint | Client needs the list at runtime to filter and display available templates without bundling the registry |
-| `generators.ts` plugin for code-gen | External modules declare templates in `document-generators.ts`; `mercato generate registry` produces the bootstrap glue |
+| `generators.ts` plugin for code-gen | Owning modules declare templates in `document-generators.ts`; `mercato generate registry` produces the bootstrap glue |
+| PDF and Markdown authoring/runtime remain in the plugin | `@react-pdf/renderer`, PDF primitives, fonts, theme, format dispatch, MIME handling, preview and byte rendering do not move into Sales or shared |
 | `resourceKind` identifies compatible source data | Widgets and templates use a canonical resource kind such as `sales.quote`; `module` remains grouping metadata and `documentType` describes the output's business purpose. |
 | Resource identity is server-derived | `resourceId()` is required and runs against normalized data returned by scoped `fetchData`; clients never supply history ownership metadata. |
 | `fromRecord` in registry entry calls `toTemplateData` (server-side) | Template owns its normalization logic — widget is fully decoupled from data shape. Adding a new template for `quotes` requires zero changes to the widget. |
@@ -106,34 +106,51 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 ## Architecture
 
 ```
-<any module>/:id (detail view)
-  └── [Widget Injection: <module>_pdf_tab]
-        ↓ tab renders
-  <ModulePdfTabWidget>
-    └── TemplatesList(record, filter)
-          ├── GET /api/document-generators/templates → TemplateMeta[] (filtered by TemplateFilter)
-          ├── TemplatesListView → TemplateListItem (click to select)
-          └── PreviewPanel(template, record)
-                ├── POST /preview { template_id, data }
-                │     └── registry.load → LoadedPdfTemplate
-                │           └── PdfRenderingService.render → RenderedDocument → iframe
-                └── POST /generate { template_id, data }
-                      ├── registry.load → LoadedPdfTemplate
-                      ├── PdfRenderingService.render → RenderedDocument
-                      ├── GenerationHistoryService.create (best effort)
-                      └── application/pdf attachment
+shared: neutral Template* contracts + BaseDocumentService
+  ↑ imported by the owning domain module
+
+sales/document-generators.ts
+  ├── OrdersDocumentService / QuotesDocumentService
+  ├── domain templates and translations
+  └── sales-owned order/quote widgets
+        ↓ yarn generate
+document-generators.generated.ts
+        ↓ bootstrap registerExternal(...)
+document-generators: TemplateRegistry
+  └── load → DocumentRenderer
+        ├── PdfRenderingService → application/pdf bytes
+        └── MarkdownRenderingService → text/markdown bytes
+              ├── preview/generate API
+              └── generation history
 ```
 
 ### Module Structure
 
 ```
+packages/shared/src/modules/
+└── document-generators/
+    ├── index.ts
+    ├── lib/interfaces.ts
+    └── services/
+        ├── base-document-service.ts
+        ├── index.ts
+        └── types.ts
+
+packages/core/src/modules/sales/
+├── document-generators.ts
+├── document-generators/
+│   ├── services/{orders-document-service,quotes-document-service}/
+│   └── templates/{orders,quotes}/...
+├── widgets/injection/{document-generators-order-tab,document-generators-quote-tab}/
+├── widgets/injection-table.ts
+└── i18n/*.json
+
 packages/document-generators/
+├── modules/document_generators/providers/react-pdf/index.ts # React-PDF dependency adapter
+├── modules/document_generators/templates/shared/ # Theme, components and fonts toolkit
 └── src/modules/document_generators/
-    ├── config/
-    │   └── registry.ts              # Single registerInternal([...all services]) call
     ├── lib/
-    │   ├── interfaces.ts            # registry, loaded source, and rendered result contracts
-    │   ├── types.ts                 # TemplateId (derived from REGISTRY)
+    │   ├── interfaces.ts            # renderer, loaded-template, UI filter and registry runtime types
     │   └── template-registry.ts     # register/list/load internal and external templates
     ├── data/
     │   ├── entities.ts              # GeneratedDocument history entity
@@ -141,25 +158,17 @@ packages/document-generators/
     ├── migrations/                  # Generated migration + snapshot
     ├── services/
     │   ├── index.ts                 # Re-exports all services and their types
-    │   ├── base-document-service.ts # PDF template entry construction
-    │   ├── pdf-rendering-service/   # LoadedPdfTemplate → RenderedDocument
+    │   ├── pdf-rendering-service/   # PdfRenderInput → DocumentRenderOutput
     │   │   ├── index.ts
+    │   │   ├── types.ts             # ReactPdfTemplateSource + PdfRenderInput
     │   │   ├── pdf-rendering-service.ts
     │   │   └── __tests__/
     │   ├── generation-history-service/
     │   │   ├── index.ts
     │   │   ├── generation-history-service.ts
     │   │   └── __tests__/
-    │   ├── quotes-document-service/
-    │   │   ├── index.ts
-    │   │   ├── quotes-document-service.ts
-    │   │   ├── validators.ts
-    │   │   └── __tests__/
-    │   └── orders-document-service/
-    │       ├── index.ts
-    │       ├── orders-document-service.ts
-    │       ├── validators.ts
-    │       └── __tests__/
+    │   ├── markdown-rendering-service/ # MarkdownTemplateSource + MarkdownRenderInput live here
+    │   └── document-renderer.ts
     ├── components/
     │   ├── TemplatesList.tsx        # Fetches templates, filters, shows list + opens PreviewPanel
     │   ├── TemplatesListView.tsx    # Grid of TemplateListItem cards
@@ -177,23 +186,6 @@ packages/document-generators/
     │   │       ├── Inter-Regular.ttf
     │   │       ├── Inter-Regular.generated.ts   # base64 data URI (build-generated)
     │   │       └── ...
-    │   └── sales/
-    │       ├── quotes/sales-offer/
-    │       │   ├── types.ts         # shared normalized offer data
-    │       │   └── pdf/              # SalesOfferDocument, CoverPage, QuotePage
-    │       └── orders/order-invoice/
-    │           ├── types.ts         # shared normalized invoice data
-    │           ├── pdf/index.tsx    # OrderInvoiceDocument
-    │           └── markdown/index.ts# renderOrderInvoiceMarkdown
-    ├── widgets/
-    │   ├── injection-table.ts       # spot → widget mapping (quotes + orders)
-    │   └── injection/
-    │       ├── quote_pdf_tab/
-    │       │   ├── widget.ts        # id: document_generators.injection.quote_pdf_tab
-    │       │   └── widget.client.tsx# filter: { resourceKind: 'sales.quote' }
-    │       └── order_pdf_tab/
-    │           ├── widget.ts        # id: document_generators.injection.order_pdf_tab
-    │           └── widget.client.tsx# filter: { resourceKind: 'sales.order' }
     ├── utils/
     │   ├── downloadBlob.ts
     │   └── formatDate.ts
@@ -221,25 +213,18 @@ packages/document-generators/
 Two separate registries managed by `TemplateRegistry` class (singleton `templateRegistry`):
 
 ```ts
-// lib/interfaces.ts — TemplateRegistry interface
+// Runtime contract: @open-mercato/document-generators
 interface TemplateRegistry {
-  registerInternal(entries: TemplateEntry[]): void   // called ONCE by config/registry.ts — replaces array
+  registerInternal(entries: TemplateEntry[]): void   // engine-owned entries; currently []
   registerExternal(entries: TemplateEntry[]): void   // called by bootstrap (generated code) — replaces array
   listTemplates(): { internal: TemplateMeta[]; external: TemplateMeta[] }
   load({ id, data }, { container, auth }): Promise<LoadedTemplate> // fetchData → load source → normalize → derive metadata
 }
 ```
 
-> **Critical**: `registerInternal` replaces the entire internal array. All built-in services must be combined into one call in `config/registry.ts`:
-> ```ts
-> templateRegistry.registerInternal([
->   ...quotesService.getEntries(),
->   ...ordersService.getEntries(),
-> ])
-> ```
-
+> Sales is registered through `packages/core/src/modules/sales/document-generators.ts`. Generated bootstrap code calls `registerExternal(...)`; route files do not import a domain registry for side effects.
 ```ts
-// lib/interfaces.ts
+// Neutral declaration contract: @open-mercato/shared/modules/document-generators
 interface TemplateMeta {
   id: string
   label: string
@@ -247,18 +232,11 @@ interface TemplateMeta {
   module: string       // top-level Medusa module — e.g. 'sales'
   resourceKind: string // framework resource kind — e.g. 'sales.quote' | 'sales.order'
   documentType: string // document kind — e.g. 'offer' | 'invoice' | 'contract'
-  format?: 'pdf' | 'md' // omitted legacy entries default to PDF
+  format: string
   tags: string[]
 }
 
 interface TemplateDataContext {
-  locale: string
-  translate?: TranslateFn
-}
-
-interface TemplateLoadContext {
-  container: AppContainer
-  auth: AuthContext | null
   locale: string
   translate?: TranslateFn
 }
@@ -275,6 +253,14 @@ interface TemplateRegistryEntry {
 // TemplateEntry = TemplateMeta & TemplateRegistryEntry (full descriptor used in the registry)
 type TemplateEntry = TemplateMeta & TemplateRegistryEntry
 
+interface DocumentTemplateSource {
+  type: string
+  [key: string]: unknown
+}
+```
+
+```ts
+// Format-neutral runtime contract: document-generators/lib/interfaces.ts
 interface LoadedDocumentTemplateBase {
   data: Record<string, unknown>
   filename: string
@@ -282,29 +268,27 @@ interface LoadedDocumentTemplateBase {
   resource: { kind: string; id: string; label?: string }
 }
 
+// pdf-rendering-service/types.ts
 interface ReactPdfTemplateSource {
   type: 'react-pdf'
   component: React.ComponentType<{ data: Record<string, unknown> }>
 }
 
+// markdown-rendering-service/types.ts
 interface MarkdownTemplateSource {
   type: 'markdown'
   render: (data: Record<string, unknown>) => string | Promise<string>
 }
 
-type DocumentTemplateSource = ReactPdfTemplateSource | MarkdownTemplateSource
-
-interface LoadedPdfTemplate extends LoadedDocumentTemplateBase {
-  format: 'pdf'
-  source: ReactPdfTemplateSource
+interface DocumentRenderInput {
+  format: string
+  source: DocumentTemplateSource
+  data: Record<string, unknown>
 }
 
-interface LoadedMarkdownTemplate extends LoadedDocumentTemplateBase {
-  format: 'md'
-  source: MarkdownTemplateSource
+interface LoadedTemplate extends LoadedDocumentTemplateBase {
+  render: DocumentRenderInput
 }
-
-type LoadedTemplate = LoadedPdfTemplate | LoadedMarkdownTemplate
 
 interface RenderedDocument {
   buffer: Uint8Array
@@ -318,16 +302,16 @@ interface RenderedDocument {
 interface TemplateFilter {
   resourceKind?: string
   documentType?: string
-  format?: 'pdf' | 'md'
+  format?: string
   tags?: string[]       // OR logic — matches if template has ANY of the given tags
 }
 ```
 
-Adding a built-in template = one object in `config/registry.ts`. Adding an external template (from another module) = define a `document-generators.ts` convention file and run `mercato generate registry`.
+Adding a domain template means defining it in the owning module, exporting its entries from `document-generators.ts`, and running `mercato generate registry`. The rendering package changes only when adding an engine-level format, renderer, API, or reusable authoring primitive.
 
 ### Template-specific Data Shape
 
-Each logical template defines shared normalized data in `templates/<module>/<resource>/<name>/types.ts`. Its format implementations consume that same contract. Example for `sales-offer`:
+Each logical template defines shared normalized data next to the template in its owning module. Its format implementations consume that same contract. Example: `packages/core/src/modules/sales/document-generators/templates/quotes/sales-offer/types.ts`.
 
 ```ts
 // templates/sales-offer/types.ts
@@ -346,7 +330,7 @@ interface PdfDocumentData {
 Each entity has a `DocumentService` class extending `BaseDocumentService`. The service owns template registration, optional server-side data fetching, and normalization for that entity:
 
 ```ts
-// services/quotes-document-service/quotes-document-service.ts
+// packages/core/src/modules/sales/document-generators/services/quotes-document-service/quotes-document-service.ts
 export class QuotesDocumentService extends BaseDocumentService {
   readonly id = 'quotes'          // globally unique service ID
   readonly label = 'Quotes'
@@ -510,32 +494,26 @@ A document tab (retaining its existing frozen PDF-oriented injection ID) is inje
 
 ## Extending to Other Modules
 
-### Adding a new built-in template for an existing entity
+### Adding a template for an existing entity
 
-1. Add shared normalized types in `templates/<module>/<entity>/<new-template>/types.ts` and a format implementation under `<format>/`
-2. Call `this.registerTemplate(...)` in the existing entity's `DocumentService` constructor
-3. Spread the service's entries in the single `registerInternal([...])` call in `config/registry.ts` — it is already there
+1. Add normalized types and the format implementation under the owning module's `document-generators/templates/<entity>/<new-template>/`
+2. Call `this.registerTemplate(...)` in the owning module's existing `DocumentService`
+3. Export that service's entries from the owning module's root `document-generators.ts`
+4. Run `yarn generate`
 
 No other file changes required.
 
 ### Adding PDF generation for a new entity (e.g. Shipments)
 
-1. Create `services/shipments-document-service/` with `shipments-document-service.ts`, `validators.ts`, `index.ts`, and colocated tests; extend `BaseDocumentService`
-2. Add template component in `templates/sales/shipments/<template-name>/pdf/`
-3. Add the new service to the spread in `config/registry.ts`:
-   ```ts
-   templateRegistry.registerInternal([
-     ...quotesService.getEntries(),
-     ...ordersService.getEntries(),
-     ...shipmentsService.getEntries(),  // ← add here
-   ])
-   ```
-4. Create `widgets/injection/<entity>_pdf_tab/` with `widget.ts` and `widget.client.tsx`
-5. Add slot entry to `widgets/injection-table.ts`
+1. Under Sales, create `document-generators/services/shipments-document-service/` and extend `BaseDocumentService` imported from shared
+2. Add the template under `sales/document-generators/templates/shipments/<template-name>/pdf/`, using primitives from `@open-mercato/document-generators/modules/document_generators/providers/react-pdf` and importing toolkit assets directly from `modules/document_generators/templates/shared`
+3. Add the service entries to `sales/document-generators.ts`
+4. Create the Sales-owned `widgets/injection/<entity>_pdf_tab/` adapter
+5. Add its spot entry to `sales/widgets/injection-table.ts` and run `yarn generate`
 
 No changes to existing services or templates required.
 
-### Registering an external template from another module
+### Registering a template from another module
 
 1. Create `document-generators.ts` convention file in the other module exporting a `templates: TemplateRegistryEntry[]` array
 2. Run `mercato generate registry` — generates `document-generators.generated.ts` with bootstrap registration
@@ -553,7 +531,7 @@ No changes to existing services or templates required.
 
 - **Risk exists and is mitigated.** Both built-in document services (`QuotesDocumentService`, `OrdersDocumentService`) query tenant-scoped records: `sales_quotes`, `sales_quote_lines`, `sales_orders`, `CustomerEntity`, `CustomerAddress`. A user with `document_generators.view` could otherwise retrieve data from a different tenant by submitting an arbitrary UUID.
 - **Mitigation:** `getAuthFromRequest` is called in both route handlers (`/generate`, `/preview`). The resulting `AuthContext` is propagated through `templateRegistry.load → fetchData` via `ctx.auth`; the loaded template is then passed to `PdfRenderingService.render`. Each built-in service validates its local input as `{ id: UUID }`, ignores all other client-supplied record fields, and queries by `id`, `tenant_id`, and `organization_id`. Missing scope, invalid input, inaccessible records, and database failures all reject the render pipeline — raw request data is never used as a fallback.
-- **Custom `DocumentService` contract:** any external module implementing `BaseDocumentService` **must** apply the same tenant scoping in `fetchData`. The `ctx.auth` argument is available for exactly this purpose. Implementations that ignore it are considered a security defect.
+- **Module-owned `DocumentService` contract:** any module subclassing `BaseDocumentService` from `@open-mercato/shared/modules/document-generators` **must** apply the same tenant scoping in `fetchData`. The `ctx.auth` argument is available for exactly this purpose. Implementations that ignore it are considered a security defect.
 
 ### Font Loading
 
@@ -582,13 +560,13 @@ No changes to existing services or templates required.
 
 ### Phase 2 — Templates & Registry ✅
 
-1. `lib/interfaces.ts`, `lib/types.ts`, `lib/template-registry.ts` — class-based registry with `registerInternal` / `registerExternal` / `load`
-2. `services/base-document-service.ts` — abstract base class
-3. `services/quotes-document-service/` — `QuotesDocumentService`, local input validation, and `sales-offer` template registration
-4. `config/registry.ts` — single `registerInternal([...])` call
+1. Shared `document-generators` contracts plus the engine-owned `lib/template-registry.ts`
+2. `BaseDocumentService` in `@open-mercato/shared/modules/document-generators`
+3. Sales-owned `QuotesDocumentService`, local validation, and `sales-offer` registration through `sales/document-generators.ts`
+4. Generated bootstrap registration with an empty engine-owned internal registry
 5. `templates/shared/fonts/` + font build pipeline in `build.mjs`
 6. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
-7. `templates/sales/quotes/sales-offer/` — shared `types.ts` plus PDF implementation under `pdf/`
+7. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation
 
 ### Phase 3 — API ✅
 
@@ -605,8 +583,8 @@ No changes to existing services or templates required.
 4. `components/Preview.tsx` — iframe rendering a blob URL
 5. `components/Loader.tsx` — spinner
 6. `utils/downloadBlob.ts` — triggers browser file download
-7. `widgets/injection/quote_pdf_tab/` — `widget.ts`, `widget.client.tsx` — filter: `{ resourceKind: 'sales.quote' }`
-8. `widgets/injection-table.ts` — injection spot mapping
+7. Sales-owned `widgets/injection/document-generators-quote-tab/` — filter: `{ resourceKind: 'sales.quote' }`
+8. Sales-owned `widgets/injection-table.ts` — injection spot mapping
 
 ### Phase 4.5 — External Template Code-Gen ✅
 
@@ -616,20 +594,18 @@ No changes to existing services or templates required.
 
 ### Phase 4.6 — Orders Built-in Template ✅
 
-1. `services/orders-document-service/` — `OrdersDocumentService` (`resourceKind: 'sales.order'`), local input validation, and `order-invoice` template
-2. `templates/sales/orders/order-invoice/` — shared `types.ts` plus PDF implementation under `pdf/`
-3. `services/index.ts` updated — exports built-in document and rendering/history services
-4. `config/registry.ts` updated — single `registerInternal([...quotesService, ...ordersService])` call
-5. `widgets/injection/order_pdf_tab/` — `widget.ts`, `widget.client.tsx` — filter: `{ resourceKind: 'sales.order' }`
-6. `widgets/injection-table.ts` updated — added `sales.document.detail.order:tabs` slot
+1. Sales-owned `OrdersDocumentService` (`resourceKind: 'sales.order'`) with local validation
+2. Sales-owned `document-generators/templates/orders/order-invoice/` with PDF and Markdown implementations
+3. `sales/document-generators.ts` exports order and quote entries to the generated registry
+4. Sales-owned `widgets/injection/document-generators-order-tab/` filters by `sales.order`
+5. `sales/widgets/injection-table.ts` contributes the existing order detail spot
 7. Complete working invoice example for external template authors (`document-generators.ts`, service, template, widget, injection-table) lives under `apps/docs/static/examples/document-generators/` and is described in the Document Generators docs section
-8. `scaffold-pdf-templates` Claude Code skill added — guides generation of the full integration layer for external modules
 
 ### Phase 4.7 — Markdown Output ✅
 
-1. Added optional `format` metadata (`pdf` default for legacy entries) and optional per-template filename overrides.
-2. Added discriminated `MarkdownTemplateSource`, `LoadedMarkdownTemplate`, and `MarkdownRenderingService`.
-3. Added `DocumentRenderer` shared by preview and generate routes, with render-only input separated from template metadata.
+1. Added required, extensible `format` metadata and optional per-template filename overrides. The pipeline never infers PDF from a missing format.
+2. Added `MarkdownTemplateSource`, `MarkdownRenderInput`, and `MarkdownRenderingService` colocated in the Markdown engine folder.
+3. Added `DocumentRenderer` shared by preview and generate routes, with a format-to-renderer map and format-neutral `DocumentRenderInput`.
 4. Reorganized built-in templates to `<logical-template>/<format>/` while keeping normalized data types at the logical-template level.
 5. Added `order-invoice-markdown` to `OrdersDocumentService`; it shares the order fetch, normalization, resource identity, and history pipeline with the PDF invoice.
 6. Added Markdown source preview and format-aware downloading in `PreviewPanel`.
@@ -646,7 +622,7 @@ No changes to existing services or templates required.
 | `api/document-generators/documents/route.ts` | Paginated history endpoint, filterable by `resource_kind` and `resource_id`; exports `openApi` + `metadata` |
 | `migrations/Migration20260809121904_document_generators.ts` | Generated migration accompanied by the module snapshot |
 
-> **Format-agnostic by design.** The entity is named `GeneratedDocument` (not `PdfGeneratedDocument`) and carries a `format` + `mime_type` discriminator so the persistence/history/storage layers work unchanged when non-PDF outputs are added later. Only the result and data layers are generalized now; `PdfRenderingService`, `BaseDocumentService`, and `@react-pdf/renderer` stay PDF-only. The module, package, API paths, and ACL features remain `document_generators`-named.
+> **Format-agnostic by design.** The entity is named `GeneratedDocument` and carries `format` + `mime_type` discriminators. `BaseDocumentService` is format-neutral in shared; the plugin owns both `PdfRenderingService` and `MarkdownRenderingService`, including their dependencies and output metadata.
 
 #### Updated files
 
@@ -666,8 +642,8 @@ No changes to existing services or templates required.
 ```
 Widget → POST /generate { template_id, data }
          ├── resolveTranslations() → required active locale
-         ├── templateRegistry.load(..., { locale }) → LoadedPdfTemplate + canonical resource identity
-         ├── PdfRenderingService.render() → RenderedDocument
+         ├── templateRegistry.load(..., { locale }) → LoadedTemplate + canonical resource identity
+         ├── DocumentRenderer.render(template.render) → RenderedDocument
          ├── GenerationHistoryService.create(GeneratedDocument { format, mime_type, ... }) [best effort]
          └── returns PDF stream
 
@@ -686,27 +662,26 @@ GET /api/document-generators/documents?resource_kind=X&resource_id=Y&page=1&page
 
 #### Format extensibility boundary
 
-The implementation supports two concrete formats through a shared dispatch boundary:
+The implementation supports two concrete formats through a format-neutral dispatch boundary:
 
-- `DocumentTemplateSource` is a discriminated union of `{ type: 'react-pdf', component }` and `{ type: 'markdown', render }`.
+- Shared declares only the extensible `DocumentTemplateSource { type: string; [key: string]: unknown }` contract.
 - `LoadedDocumentTemplateBase` carries normalized data, filename, template identity, and resource identity independently of a renderer.
-- `PdfRenderingService` accepts only `LoadedPdfTemplate` and owns PDF rendering plus `format: 'pdf'` and `mimeType: 'application/pdf'`.
-- `MarkdownRenderingService` accepts only `LoadedMarkdownTemplate` and returns UTF-8 bytes with `format: 'md'` and `mimeType: 'text/markdown; charset=utf-8'`.
-- `DocumentRenderer` selects format renderers without putting format switches in API routes.
+- PDF-specific source and input types live in `pdf-rendering-service/types.ts`; Markdown-specific types live in `markdown-rendering-service/types.ts`.
+- `DocumentRenderer` selects engines through a format-to-renderer map without teaching the template registry or API routes about concrete formats.
 - `RenderedDocument` and `GeneratedDocument` are format-neutral, so history does not require a schema change for another output type.
 
-Adding DOCX later would require a new source variant, `LoadedDocxTemplate`, a DOCX rendering service, one dispatch branch, and a UI preview/download decision. DOCX generation itself remains outside this spec's implemented scope.
+Adding DOCX later requires a colocated DOCX source/input type, a DOCX rendering service, one renderer-map entry, and a UI preview/download decision. Shared contracts and `TemplateRegistry` remain unchanged. DOCX generation itself remains outside this spec's implemented scope.
 
 ### Phase 6 — Source-scoped History in Detail Widgets (Planned)
 
-Expose the history already captured in Phase 5 where users work with the source record. The existing order and quote PDF-tab widgets gain a compact history section below the template cards; other built-in source widgets can adopt the same internal composition without introducing a new injection spot or changing the host module.
+Expose the history already captured in Phase 5 where users work with the source record. The existing Sales-owned order and quote document widgets gain a compact history section below the template cards; other source widgets can adopt the same composition without introducing a new injection spot or changing the host module.
 
 #### UI composition
 
 1. Extract the fetch/table behavior in `components/HistoryList.tsx` into a reusable resource-aware form with optional `resourceKind`, `resourceId`, `pageSize`, and `refreshToken` inputs. The backend history page keeps its existing unfiltered behavior and page size.
 2. Add an internal `ResourceDocumentsPanel` that composes `TemplatesList` with the resource-filtered history list. It owns a monotonic refresh token and increments it only after `POST /generate` succeeds.
 3. Add an optional `onGenerated` callback through `TemplatesList` → `PreviewPanel`. Invoke it after the generated bytes have been accepted and the download has been initiated; preview-only requests must not refresh history because they have no persistence side effect. The callback requests a refresh but does not guarantee a new row, because Phase 5 history persistence remains best-effort.
-4. Replace the direct `TemplatesList` usage in `order_pdf_tab/widget.client.tsx` and `quote_pdf_tab/widget.client.tsx` with `ResourceDocumentsPanel`, passing the canonical widget context pair: `resourceKind` and `record.id`.
+4. Replace the direct `TemplatesList` usage in `document-generators-order-tab/widget.client.tsx` and `document-generators-quote-tab/widget.client.tsx` with `ResourceDocumentsPanel`, passing the canonical widget context pair: `resourceKind` and `record.id`.
 5. The scoped table shows Template, Format, Generated by, and Generated at. It omits Resource, Resource type, Resource ID, and History ID because those values are redundant in a single-record context. It uses `DataTable`, `formatDateTime`, translated copy, pagination, and the standard loading/error/empty states; `pageSize` defaults to 10 and remains at or below 100.
 6. Phase 6 is read-only. Rows have no download action until Phase 7 supplies an `attachment_id`; generating another document remains the only mutation and continues through the existing authenticated, feature-gated API route.
 
@@ -781,11 +756,17 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 
 ## Migration & Backward Compatibility
 
+The unreleased implementation was decentralized before merge. Sales now owns `OrdersDocumentService`, `QuotesDocumentService`, their validators and snapshots, the order/quote templates, the two detail widgets, and the corresponding `sales.documents.templates.*` translations. It contributes the unchanged template IDs and resource kinds through `sales/document-generators.ts`. The engine package no longer contains a domain directory, resolves no Sales entity, and starts with an empty internal registry.
+
+Neutral template contracts and `BaseDocumentService` moved to `@open-mercato/shared/modules/document-generators`; owning modules import them directly from shared. The previous root exports from `@open-mercato/document-generators` remain as deprecated compatibility re-exports for at least one minor version, while the old internal service/type paths are no longer used by first-party code. Format mechanics stay in `@open-mercato/document-generators`: `@react-pdf/renderer`, PDF primitives, fonts/theme/logo, Markdown/PDF renderers, preview/generate routes, MIME/filename output, and history. Domain templates consume the plugin-owned React-PDF dependency through `modules/document_generators/providers/react-pdf`, while theme, components and fonts remain under `modules/document_generators/templates/shared` and are imported directly.
+
+No database migration is required. Template IDs (`order-invoice`, `order-invoice-markdown`, `sales-offer`), resource kinds (`sales.order`, `sales.quote`), API routes, history rows, ACL features, and injection spot IDs remain unchanged. The widget implementation IDs are unreleased and move from the engine namespace to the owning Sales namespace.
+
 `TemplateLoadContext.translate` and `TemplateDataContext.translate` are additive optional fields. Existing external template registrations and direct `TemplateRegistry.load` callers that provide only `locale` continue to compile and run. The built-in preview and generate routes always provide the request translator returned by `resolveTranslations()`. `BaseDocumentService` retains a key-returning compatibility fallback only for legacy callers that omit the translator; it does not select a locale or load a second dictionary. New document services should build user-facing labels with the supplied translator and include them in normalized template data.
 
 The unreleased generate contract no longer accepts client-supplied `resource_kind` or `resource_id`; both are derived by the template from scoped server data. `TemplateRegistryEntry.resourceId` and `LoadedDocumentTemplateBase.resource.id` are required accordingly. No released compatibility bridge is necessary because the package and route are introduced by this unmerged feature PR.
 
-No template ID, route, or import path is removed or renamed. Built-in `OrderInvoiceData` and `PdfDocumentData` gain the required `labels` field because their bundled renderers now consume localized labels from normalized data.
+No released template ID, route, or public contract is removed or renamed. Domain translations move from `document_generators.documents.*` to `sales.documents.templates.*`; the feature is still on an unmerged PR, so a dual-key compatibility window is unnecessary.
 
 ## Final Compliance Report — 2026-08-10
 
@@ -794,7 +775,7 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 | Rule | Status | Notes |
 |------|--------|-------|
 | No direct ORM relationships between modules | ✅ | History stores resource and attachment identifiers as scalar IDs |
-| Filter by organization_id | ✅ | History creation/listing and built-in data loading use authenticated scope |
+| Filter by organization_id | ✅ | Engine history and Sales-owned data loading use authenticated scope |
 | Validate inputs with Zod | ✅ | Generate, preview, and history-list inputs use module validators |
 | API routes export openApi | ✅ | All four routes export OpenAPI metadata |
 | Module code in `packages/<name>/` | ✅ | `packages/document-generators/` |
@@ -803,7 +784,7 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 | Generated migrations | ✅ | Entity migration and snapshot were produced by the repository generator |
 | ACL separation | ✅ | `view` and `generate` permissions are declared and assigned to default roles |
 | Embedded lists use `DataTable` and `apiCall` | ✅ | Planned Phase 6 refactors the existing `HistoryList`; it does not introduce a custom table or raw fetch path |
-| Widget UI remains decoupled from sales | ✅ | Existing frozen sales detail injection spots pass scalar source context into a Document Generators-owned panel; no direct ORM relationship or sales business-logic import is added |
+| Engine remains decoupled from Sales | ✅ | Sales owns its services, templates, widget adapters and i18n; the engine owns only format/runtime mechanics and reusable UI/toolkit surfaces |
 | Frontend client boundary is explicit | ✅ | Planned Phase 6 adds one small orchestration island, keeps widget adapters thin, adds no page-root client component or global provider, and defines hydration/interactivity evidence |
 
 ### Non-Compliant / Pending
@@ -828,9 +809,9 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase 1–4.7 | Done | 2026-08-11 | Registry, render pipeline, preview/download UI, code generation, quote/order templates, and Markdown output |
+| Phase 1–4.7 | Done | 2026-08-12 | Registry, render pipeline, preview/download UI, decentralized Sales templates, and Markdown output |
 | Phase 5 — History & Backend Page | Done | 2026-08-10 | GeneratedDocument persistence, scoped history endpoint, server-derived resource identity, ACL, backend DataTable, unit and integration coverage |
-| Rendering service refactor | Done | 2026-08-10 | `load()` returns a discriminated template source; registry prepares `LoadedPdfTemplate`; `PdfRenderingService` owns PDF format/MIME and renders neutral `RenderedDocument` |
+| Rendering service refactor | Done | 2026-08-12 | Shared source and format values are extensible strings; registry prepares format-neutral input; concrete source/input types are colocated with their rendering services; `DocumentRenderer` dispatches through a renderer map |
 | Phase 6 — Source-scoped History in Detail Widgets | Not Started | — | Planned; reuses the Phase 5 endpoint and entity without schema changes |
 | Phase 7 — Attachment Storage | Not Started | — | Planned |
 | Phase 8 — Email & Sharing | Not Started | — | Planned |
@@ -842,6 +823,7 @@ No template ID, route, or import path is removed or renamed. Built-in `OrderInvo
 
 | Date | Author | Summary |
 |------|--------|---------|
+| 2026-08-12 | Codex | Decentralized domain ownership: moved Sales services/templates/widgets/i18n into `sales`, moved neutral contracts and `BaseDocumentService` into `shared`, retained PDF/Markdown engines and dependencies in the plugin, and registered Sales entries through the existing generated bootstrap. |
 | 2026-05-06 | Krzysztof Polak | Spec created — Phases 1–4 designed |
 | 2026-05-07 | Krzysztof Polak | Initial compliance report added |
 | 2026-05-08 | Krzysztof Polak | Spec updated to match implementation: widget renamed to `quote_pdf_tab` (tab, not action); `PdfGeneratorDrawer` replaced by `TemplatesList` + `PreviewPanel` + `Preview` + `Loader` + `downloadBlob`; data mapper moved to `data/quote-detail/`; `GET /api/document-generators/templates` endpoint added; globalThis-based dual registry (`template-registry.ts`) documented; `generators.ts` plugin (Phase 4.5) added |

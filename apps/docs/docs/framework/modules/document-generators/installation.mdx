@@ -19,7 +19,7 @@ yarn mercato module add @open-mercato/document-generators
 { id: 'document_generators', from: '@open-mercato/document-generators' }
 ```
 
-**3. Regenerate** the module registry so the built-in templates are picked up:
+**3. Regenerate** the module registry so templates contributed by enabled modules are picked up:
 
 ```bash
 yarn generate
@@ -35,10 +35,11 @@ yarn mercato auth sync-role-acls
 
 ## Verification
 
-Navigate to a sales order or quote detail page. A **PDF** tab appears automatically. Clicking any template card opens a preview; clicking **Download PDF** streams the file.
+When both `sales` and `document_generators` are enabled, navigate to a sales order or quote detail page. A **Documents** tab contributed by Sales appears automatically. Selecting a template opens a format-appropriate preview and download action.
 
 If the tab does not appear, confirm that:
 
 - The module is listed in `src/modules.ts`
+- The `sales` module is enabled when verifying the shipped Sales integration
 - `yarn generate` was run after registration
 - The current user's role has the `document_generators.view` feature

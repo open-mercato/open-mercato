@@ -70,7 +70,7 @@ documentService.toTemplateData(input)
 documentService.filename(input)
 documentService.resourceId(input)
 documentService.resourceLabel(input)
-pdfRenderingService.render(loadedTemplate)
+documentRenderer.render(loadedTemplate.render)
 templateRegistry.listTemplates()
 templateRegistry.load(input, context)
 ```

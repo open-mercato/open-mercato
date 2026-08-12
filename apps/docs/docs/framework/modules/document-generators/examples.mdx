@@ -1,11 +1,11 @@
 ---
 title: Document Generators Examples
-description: Complete reference implementation for custom PDF templates and injection widgets.
+description: Complete reference implementation for custom document templates and injection widgets.
 ---
 
 # Document Generators Examples
 
-Working reference implementation showing how to add custom PDF templates to your `@open-mercato/*` module.
+Working reference implementation showing how to add custom document templates to your `@open-mercato/*` module.
 
 Copy the structure below into your own module and adjust names, data shapes, and template layout.
 
@@ -14,17 +14,18 @@ Copy the structure below into your own module and adjust names, data shapes, and
 ```
 your-module/
   document-generators.ts                          ← convention file, picked up by `mercato generate registry`
-  pdf-templates/
+  document-generators/
     services/
       my-module-invoices-document-service.ts ← extends BaseDocumentService
     templates/
       invoice/
         my-invoice/
           types.ts                           ← data shape for the template
-          index.tsx                          ← React-PDF component
+          pdf/
+            index.tsx                        ← React-PDF component
   widgets/                                   ← optional — only needed for custom slots (see step 6)
     injection/
-      order-pdf-tab/
+      document-generators-order-tab/
         widget.ts                            ← InjectionWidgetModule descriptor
         widget.client.tsx                    ← renders <TemplatesList>
     injection-table.ts                       ← declares which slot gets the widget
@@ -37,17 +38,17 @@ your-module/
 3. Edit `types.ts` to match the data available in your widget context (`context.record`)
 4. Implement `toTemplateData()` in the service to map the fetched record to your template types
 5. Design the template layout in `index.tsx`
-6. *(Optional)* If you want to embed the PDF tab in a **custom slot** (any resource other than sales orders or quotes — those are already covered by the built-in `document-generators` widgets), copy `widgets/` and update the slot key in `injection-table.ts`. Adding a widget for `sales.document.detail.order:tabs` or `sales.document.detail.quote:tabs` would produce duplicate tabs.
+6. *(Optional)* To embed the template picker in a **custom slot**, copy `widgets/` and update the slot key in `injection-table.ts`. Sales already owns widgets for `sales.document.detail.order:tabs` and `sales.document.detail.quote:tabs`, so adding another widget at either spot would produce duplicate tabs.
 7. Run `yarn generate` to pick up the new `document-generators.ts` entry
 
-## Complete source files
+## Reference source files
 
-The documentation app ships the complete reference source as static examples:
+The reference files live in `apps/docs/static/examples/document-generators/` in the Open Mercato repository. The documentation app publishes them under `/examples/document-generators/`:
 
 - [`document-generators.ts`](/examples/document-generators/document-generators.ts)
 - [invoice document service](/examples/document-generators/invoice/services/example-invoice-document-service.ts)
 - [invoice data types](/examples/document-generators/invoice/templates/example-invoice/types.ts)
-- [React-PDF invoice template](/examples/document-generators/invoice/templates/example-invoice/index.tsx)
+- [React-PDF invoice template](/examples/document-generators/invoice/templates/example-invoice/pdf/index.tsx)
 - [widget injection table](/examples/document-generators/widgets/injection-table.ts)
-- [widget descriptor](/examples/document-generators/widgets/injection/order-pdf-tab/widget.ts)
-- [widget component](/examples/document-generators/widgets/injection/order-pdf-tab/widget.client.tsx)
+- [widget descriptor](/examples/document-generators/widgets/injection/document-generators-order-tab/widget.ts)
+- [widget component](/examples/document-generators/widgets/injection/document-generators-order-tab/widget.client.tsx)

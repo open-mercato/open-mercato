@@ -1,8 +1,13 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
-import { OpenMercatoLogo } from '@open-mercato/document-generators'
-import '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
+import {
+  Document,
+  Page,
+  StyleSheet,
+  Text,
+  View,
+} from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf'
+import { OpenMercatoLogo } from '@open-mercato/document-generators/modules/document_generators/templates/shared/components/Logo'
 import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
-import type { ExampleInvoiceData } from './types'
+import type { ExampleInvoiceData } from '../types'
 
 const s = StyleSheet.create({
   page: { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Inter', color: colors.text },

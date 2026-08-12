@@ -1,6 +1,7 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { BaseDocumentService, formatDate, type TemplateDataContext } from '@open-mercato/document-generators'
+import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
+import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
 import { z } from 'zod'
 
 const logger = createLogger('example').child({ component: 'example-invoice-document-service' })
@@ -113,10 +114,11 @@ export class ExampleInvoicesDocumentService extends BaseDocumentService {
       label: 'Example Invoice',
       description: 'Invoice template for a sales order.',
       documentType: 'invoice',
+      format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
-      note: 'Rendered in the PDF tab on the Order detail page (sales.document.detail.order:tabs).',
+      note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
       load: () =>
-        import('../templates/example-invoice').then(
+        import('../templates/example-invoice/pdf').then(
           (m) => ({
             type: 'react-pdf' as const,
             component: m.ExampleInvoiceDocument as unknown as React.ComponentType<{ data: Record<string, unknown> }>,

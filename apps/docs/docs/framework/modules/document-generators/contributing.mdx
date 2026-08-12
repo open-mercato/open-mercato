@@ -38,10 +38,10 @@ examples/
         index.tsx                          ← React-PDF template component
         types.ts                           ← typed data shape
   widgets/                                 ← reference only — illustrates the widget pattern
-                                             do NOT copy; the core sales module owns the PDF tab
+                                             do NOT copy for Sales orders/quotes; Sales owns those tabs
 ```
 
-When adding a new built-in template to this package, follow the same layout under `src/modules/document_generators/templates/`.
+Domain templates belong to their owning module. Changes to this package should be limited to registry, rendering formats, reusable authoring primitives, API/UI infrastructure, or history.
 
 ---
 
@@ -56,24 +56,35 @@ src/
       preview/route.ts                  ← POST /api/document-generators/preview
       generate/route.ts                 ← POST /api/document-generators/generate
     components/
-      TemplatesList.tsx                 ← list rendered inside the PDF tab
+      TemplatesList.tsx                 ← format-neutral template picker
       PreviewPanel.tsx                  ← dialog with iframe preview + download button
     lib/
-      interfaces.ts                     ← TemplateMeta, TemplateEntry, TemplateRegistry …
-      template-registry.ts              ← global singleton registry
+      interfaces.ts                     ← format-neutral runtime types
+      template-registry.ts              ← global singleton registry; knows no concrete formats
     services/
-      base-document-service.ts          ← BaseDocumentService abstract class
-      pdf-rendering-service.ts           ← renders an already loaded template to PDF bytes
-      orders-document-service.ts        ← built-in order invoice service
-      quotes-document-service.ts        ← built-in sales offer service
+      document-renderer.ts              ← dispatches through a format-to-renderer map
+      pdf-rendering-service/
+        types.ts                        ← PdfRenderInput + ReactPdfTemplateSource
+        pdf-rendering-service.ts        ← renders React-PDF sources to bytes
+      markdown-rendering-service/
+        types.ts                        ← MarkdownRenderInput + MarkdownTemplateSource
+        markdown-rendering-service.ts   ← renders Markdown sources to bytes
     templates/
-      sales/orders/…                    ← Order Invoice React-PDF component
-      sales/quotes/…                    ← Sales Offer React-PDF component
       shared/
         theme.ts                        ← colors, borders, spacing + Inter font registration
         components/Logo.tsx             ← OpenMercatoLogo component
-    config/registry.ts                  ← bootstraps built-in templates into the global registry
-    generators.ts                       ← mercato generate hook — picks up external document-generators.ts files
+    generators.ts                       ← picks up module-provided document-generators.ts files
+
+packages/shared/src/modules/document-generators/
+  index.ts                              ← public shared module entrypoint
+  lib/interfaces.ts                    ← neutral declarations; format and source type are strings
+  services/
+    base-document-service.ts            ← neutral BaseDocumentService
+    types.ts                            ← DocumentTemplateEntry
+
+packages/core/src/modules/sales/document-generators/
+  services/                             ← Sales-owned fetching and normalization
+  templates/                            ← Sales-owned order and quote documents
 ```
 
 ---
@@ -93,7 +104,7 @@ yarn workspace @open-mercato/document-generators test
 
 ### Integration tests (Playwright)
 
-End-to-end tests that hit the real HTTP endpoints of a running app. They live in `src/modules/document_generators/__integration__/` as `TC-PDF-*.spec.ts` files and are auto-discovered by the shared Playwright config at `.ai/qa/tests/playwright.config.ts` — no per-package config is needed.
+Engine navigation and neutral API tests live with this package. Sales-specific listing, preview, generation and history scenarios live under `packages/core/src/modules/sales/__integration__/document-generators/`. Both are auto-discovered by the shared Playwright config.
 
 They require a **running sandbox** with the `sales` module, a database, and an `admin` account. The base URL comes from `BASE_URL` (default `http://localhost:3000`).
 
@@ -106,9 +117,9 @@ yarn test:integration
 # run only this module's tests (positional path filter)
 npx playwright test --config .ai/qa/tests/playwright.config.ts packages/document-generators
 
-# run a single test file, fail-fast while iterating
+# run the neutral engine navigation test, fail-fast while iterating
 npx playwright test --config .ai/qa/tests/playwright.config.ts \
-  packages/document-generators/src/modules/document_generators/__integration__/TC-PDF-001.spec.ts --retries=0
+  packages/document-generators/src/modules/document_generators/__integration__/TC-PDF-005.spec.ts --retries=0
 ```
 
 > Note: `yarn test` (Jest) never runs the `.spec.ts` files, and `yarn test:integration` (Playwright) never runs the `.test.ts` files — the two toolchains are fully separate.
@@ -117,10 +128,10 @@ Run artifacts (HTML report, JSON, traces) are written to `.ai/qa/test-results/` 
 
 ---
 
-## How to add a new built-in template
+## How to add a domain template
 
-1. Create `src/modules/document_generators/services/<name>-document-service/` with `<name>-document-service.ts`, `validators.ts`, `index.ts`, and colocated tests; extend `BaseDocumentService`
-2. Create the React-PDF component under `src/modules/document_generators/templates/<resource>/<name>/`
-3. Register the service in `src/modules/document_generators/config/registry.ts`
+1. In the owning module, create a service extending `BaseDocumentService` imported from `@open-mercato/shared/modules/document-generators`
+2. Create its PDF or Markdown template beside that service; PDF templates import primitives from `@open-mercato/document-generators/modules/document_generators/providers/react-pdf` and toolkit assets directly from `modules/document_generators/templates/shared`
+3. Export the service entries from the owning module's root `document-generators.ts`
 4. Update the documentation example under `apps/docs/static/examples/document-generators/`
-5. Verify in the Mercato app — navigate to the relevant detail page and confirm the template appears and renders correctly
+5. Run `yarn generate`, then verify the owning module's detail widget and render flow

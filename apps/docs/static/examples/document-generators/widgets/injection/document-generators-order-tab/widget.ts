@@ -1,17 +1,17 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
-import OrderPdfTabWidget from './widget.client'
+import DocumentGeneratorsOrderTabWidget from './widget.client'
 
-// Injection widget that adds a "PDF" tab to the sales order detail page.
+// Injection widget that adds a documents tab to the sales order detail page.
 // The widget ID must be declared in injection-table.ts under the target slot.
 const widget: InjectionWidgetModule = {
   metadata: {
-    id: 'example.injection.order_pdf_tab',
-    title: 'PDF',
+    id: 'example.injection.document-generators-order-tab',
+    title: 'Documents',
     // Gates the tab — users without document_generators.view will not see it
     features: ['document_generators.view'],
     priority: 10,
   },
-  Widget: OrderPdfTabWidget,
+  Widget: DocumentGeneratorsOrderTabWidget,
 }
 
 export default widget

@@ -7,18 +7,19 @@ description: REST endpoints and public TypeScript exports for document generatio
 
 ## REST Endpoints
 
-All endpoints require authentication. Preview and listing require `document_generators.view`; generation requires `document_generators.generate`. Both rendering endpoints load and normalize the template through `templateRegistry`, then pass the resulting `LoadedTemplate` to `PdfRenderingService` to produce a `RenderedDocument`.
+All endpoints require authentication. Preview and listing require `document_generators.view`; generation requires `document_generators.generate`. Both rendering endpoints load and normalize the template through `templateRegistry`, then pass its format-neutral render input to `DocumentRenderer`.
 
 ---
 
 ### `GET /api/document-generators/templates`
 
-Returns all registered templates grouped by origin — internal (built-in) and external (registered by other modules via `document-generators.ts`).
+Returns all registered templates grouped by origin — internal (engine-owned) and external (provided by modules through `document-generators.ts`). The engine currently ships no domain templates, so Sales entries appear under `external`.
 
 ```jsonc
 // Response
 {
-  "internal": [
+  "internal": [],
+  "external": [
     {
       "id": "order-invoice",
       "label": "Order Invoice",
@@ -28,9 +29,6 @@ Returns all registered templates grouped by origin — internal (built-in) and e
       "documentType": "invoice",
       "tags": ["invoice", "order"]
     }
-  ],
-  "external": [
-    // templates registered via document-generators.ts in other modules
   ]
 }
 ```
@@ -41,7 +39,7 @@ Use this endpoint to build custom template pickers or to verify that your regist
 
 ### `POST /api/document-generators/preview`
 
-Renders a PDF for display inside a dialog iframe. Called automatically by `PreviewPanel` when the user clicks a template card in the PDF tab.
+Renders the selected template for preview. PDF output is displayed in an iframe; Markdown output is displayed as text.
 
 **No side effects** — no logging, no events, no persistence. Safe to call repeatedly as the user switches between templates.
 
@@ -63,7 +61,7 @@ Content-Type: application/pdf
 
 ### `POST /api/document-generators/generate`
 
-Renders a PDF and streams it to the browser as a file download. Called automatically by `PreviewPanel` when the user clicks **Download PDF**.
+Renders the selected template and streams it to the browser as a file download.
 
 **Has side effects** — every successful render creates a best-effort generation-history row. Resource kind, canonical ID, and the human-readable label are derived exclusively from normalized document data on the server.
 
@@ -116,7 +114,7 @@ if (!error && result) {
 |---|---|---|
 | Purpose | Display in iframe | File download |
 | Side effects | None | Best-effort generation history |
-| When to call | On template card click | On "Download PDF" button click |
+| When to call | On template card click | On the download button click |
 | Resource identity | Derived server-side | Derived server-side and persisted |
 | Safe to call repeatedly | Yes | Avoid |
 
@@ -124,9 +122,9 @@ if (!error && result) {
 
 ## TypeScript Exports
 
-Everything below is exported from `@open-mercato/document-generators`.
+Runtime services and UI are exported from `@open-mercato/document-generators`. Neutral template contracts and `BaseDocumentService` are exported from `@open-mercato/shared/modules/document-generators`. React-PDF primitives come from `@open-mercato/document-generators/modules/document_generators/providers/react-pdf`; template assets are imported directly from their files under `modules/document_generators/templates/shared`.
 
-### `BaseDocumentService`
+### `BaseDocumentService` (`@open-mercato/shared/modules/document-generators`)
 
 Abstract base class. Extend once per category of documents in your module.
 
@@ -143,17 +141,17 @@ Abstract base class. Extend once per category of documents in your module.
 | `filename(input)` | Derives the download filename from normalized data. Default: `'document.pdf'` |
 | `resourceId(input)` (abstract) | Derives the required canonical source-record id from normalized server-side data |
 
-### `PdfRenderingService`
+### `DocumentRenderer`
 
-Renders an already loaded and normalized `LoadedPdfTemplate` to a `RenderedDocument`. Template lookup, authentication context, HTTP responses, and history persistence remain outside the service.
+Selects a rendering service by the string value in `DocumentRenderInput.format`. The template registry does not know which formats exist; it only prepares `{ format, source, data }`.
 
 ```ts
 const { locale, t } = await resolveTranslations()
 const template = await templateRegistry.load({ id, data }, { container, auth, locale, translate: t })
-const document = await new PdfRenderingService().render(template)
+const document = await new DocumentRenderer().render(template.render)
 ```
 
-### `formatDate(isoString, locale)`
+### `formatDate(isoString, locale)` (`@open-mercato/document-generators/modules/document_generators/utils/formatDate`)
 
 Formats an ISO 8601 string using the required BCP 47 locale. There is no default locale; pass the locale received by `toTemplateData`.
 
@@ -166,13 +164,13 @@ React component that renders the template list for a given resource. Normally re
 | `record` | `{ id: string }` | Minimal record — full data is fetched server-side |
 | `filter` | `TemplateFilter` | Scopes the list by `resourceKind`, `documentType`, or `tags` |
 
-### `OpenMercatoLogo`
+### `OpenMercatoLogo` (`@open-mercato/document-generators/modules/document_generators/templates/shared/components/Logo`)
 
 Pre-built React-PDF component rendering the Open Mercato brand mark. Use directly inside template components.
 
-### `sharedColors`, `borders`, `spacing`
+### `colors`, `borders`, `spacing`
 
-Design tokens from the shared theme. Import the theme file as a side-effect first, then destructure what you need.
+Design tokens from the PDF template toolkit, exported by `@open-mercato/document-generators/modules/document_generators/templates/shared/theme` together with the font-registration side effect.
 
 ### Types
 
@@ -180,13 +178,13 @@ Design tokens from the shared theme. Import the theme file as a side-effect firs
 |------|-------------|
 | `TemplateMeta` | UI-facing descriptor: id, label, module, resourceKind, documentType, tags |
 | `TemplateEntry` | Full descriptor — `TemplateMeta` plus runtime handlers |
-| `TemplateRegistryEntry` | Runtime handlers; `load()` returns a discriminated `DocumentTemplateSource` |
-| `TemplateFilter` | Filter shape: `{ resourceKind?, documentType?, tags? }` |
+| `TemplateRegistryEntry` | Neutral runtime hooks; `load()` returns a format-neutral `DocumentTemplateSource` |
+| `TemplateFilter` | Plugin UI filter: `{ resourceKind?, documentType?, format?, tags? }` |
 | `DocumentTemplateEntry` | Shape passed to `registerTemplate()` |
-| `LoadedDocumentTemplateBase` | Format-independent normalized data, filename, template metadata, and source-resource metadata |
-| `DocumentTemplateSource` | Union of format-specific sources returned by `load()`; currently only `ReactPdfTemplateSource` |
-| `ReactPdfTemplateSource` | React-PDF component discriminated by `type: 'react-pdf'` |
-| `LoadedPdfTemplate` | Prepared PDF template carrying a `ReactPdfTemplateSource`; output metadata is assigned by `PdfRenderingService` |
-| `LoadedTemplate` | Union of loaded template variants; currently aliases `LoadedPdfTemplate` |
-| `RenderedDocument` | PDF bytes plus filename, MIME type, format, template, and source-resource metadata |
+| `DocumentTemplateSource` | Shared extensible source shape: `{ type: string; [key: string]: unknown }` |
+| `DocumentRenderInput` | Plugin runtime input: `{ format: string, source, data }` |
+| `LoadedTemplate` | Format-neutral prepared template and its render input |
+| `RenderedDocument` | Rendered bytes plus filename, MIME type, format, template, and source-resource metadata |
 | `templateRegistry` | Global singleton registry — use only for custom rendering pipelines outside the standard endpoints |
+
+Format-specific types are colocated with their engines: `PdfRenderInput` and `ReactPdfTemplateSource` live in `pdf-rendering-service/types.ts`; `MarkdownRenderInput` and `MarkdownTemplateSource` live in `markdown-rendering-service/types.ts`. Adding another format does not change the shared contracts.
