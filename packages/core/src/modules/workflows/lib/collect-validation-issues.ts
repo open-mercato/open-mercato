@@ -90,6 +90,10 @@ export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string
     key: 'workflows.visualEditor.problems.taskBindingAssigneeCannotView',
     fallback: 'Task "{stepId}" is about "{entityType}", which {roles} may not view; assignees holding only those roles would not see the task',
   },
+  agentOutOfBandInParallelBranch: {
+    key: 'workflows.visualEditor.problems.agentOutOfBandInParallelBranch',
+    fallback: 'Step "{stepId}" invokes agent "{agentId}", which answers out of band, inside the parallel branch opened by "{forkStepId}"; a branch cannot be resumed by the instance-level signal that answer arrives on, so the step will fail after the external call has already been placed. Move this agent step outside the parallel branch',
+  },
 }
 
 export type WorkflowIssueTranslator = (
@@ -125,6 +129,13 @@ export interface CollectValidationIssuesInput {
   knownEntityIds?: ReadonlySet<string> | null
   /** Tenant role features + entity view requirements, when the caller has them. */
   assigneeEntityAccess?: TaskAssigneeEntityAccess | null
+  /**
+   * Agent ids the caller knows answer OUT OF BAND (`runtime: 'external'` in the
+   * agent registry). Without it the parallel-branch agent check reports nothing
+   * — the agent registry lives behind an OPTIONAL peer module, and treating an
+   * agent the caller cannot enumerate as suspending would flag every agent step.
+   */
+  outOfBandAgentIds?: ReadonlySet<string> | null
   translate?: WorkflowIssueTranslator
 }
 
@@ -169,6 +180,7 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
     ledger,
     knownEntityIds = null,
     assigneeEntityAccess = null,
+    outOfBandAgentIds = null,
     translate = defaultTranslator,
   } = input
 
@@ -212,6 +224,7 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
     ledger,
     knownEntityIds,
     assigneeEntityAccess,
+    outOfBandAgentIds,
   }).map((warning, index) => {
     const message = FLOW_LOGIC_MESSAGE_KEYS[warning.code]
     return {

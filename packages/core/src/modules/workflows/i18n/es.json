@@ -2183,6 +2183,7 @@
   "workflows.visualEditor.palette.insertedOnRoute": "Paso insertado en la ruta",
   "workflows.visualEditor.palette.rejected.dataMappingRoute": "Los enlaces de mapeo de datos se editan en la configuración del paso, no en el lienzo.",
   "workflows.visualEditor.palette.rejected.unknownRoute": "Esa ruta ya no existe.",
+  "workflows.visualEditor.problems.agentOutOfBandInParallelBranch": "El paso \"{stepId}\" invoca al agente \"{agentId}\", que responde fuera de línea, dentro de la rama paralela abierta por \"{forkStepId}\"; una rama no puede reanudarse con la señal de instancia por la que llega esa respuesta, así que el paso fallará cuando la llamada externa ya se haya realizado. Mueva este paso de agente fuera de la rama paralela",
   "workflows.visualEditor.problems.branchingWithoutOtherwise": "El paso de ramificación \"{stepId}\" no tiene ninguna ruta sin condición; añade una ruta \"en caso contrario\" para que el flujo no se detenga cuando ninguna condición coincida",
   "workflows.visualEditor.problems.conditionUnknownPath": "Ningún paso, disparador o entrada anterior proporciona la ruta de condición \"{path}\"",
   "workflows.visualEditor.problems.counts": "{errors} error(es) · {warnings} advertencia(s)",

@@ -2183,6 +2183,7 @@
   "workflows.visualEditor.palette.insertedOnRoute": "Step inserted on the route",
   "workflows.visualEditor.palette.rejected.dataMappingRoute": "Data mapping links are edited in the step configuration, not on the canvas.",
   "workflows.visualEditor.palette.rejected.unknownRoute": "That route no longer exists.",
+  "workflows.visualEditor.problems.agentOutOfBandInParallelBranch": "Step \"{stepId}\" invokes agent \"{agentId}\", which answers out of band, inside the parallel branch opened by \"{forkStepId}\"; a branch cannot be resumed by the instance-level signal that answer arrives on, so the step will fail after the external call has already been placed. Move this agent step outside the parallel branch",
   "workflows.visualEditor.problems.branchingWithoutOtherwise": "Branching step \"{stepId}\" has no unconditioned route; add an otherwise route so the workflow cannot stall when no condition matches",
   "workflows.visualEditor.problems.conditionUnknownPath": "Condition path \"{path}\" is not provided by any earlier step, trigger, or input",
   "workflows.visualEditor.problems.counts": "{errors} error(s) · {warnings} warning(s)",

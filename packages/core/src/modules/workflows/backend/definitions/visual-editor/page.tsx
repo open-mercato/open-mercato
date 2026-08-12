@@ -2,6 +2,7 @@
 
 import { WorkflowGraph } from '../../../components/WorkflowGraph'
 import { useLastRunOverlay } from '../../../components/run/useLastRunOverlay'
+import { useOutOfBandAgentIds } from '../../../components/useOutOfBandAgents'
 // Conditional imports based on feature flag
 import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
@@ -1582,6 +1583,30 @@ export default function VisualEditorPage() {
     [triggers, availableEvents],
   )
 
+  // Whether an agent answers OUT OF BAND is a property of the agent registry,
+  // not of the definition, so the Problems panel has to read it from the
+  // OPTIONAL agent_orchestrator peer. The listing is fetched only for a document
+  // that could actually hit the case — a fork AND an agent step — so a workflow
+  // with neither costs no request, and a deployment without the peer degrades to
+  // `null` (check skipped) rather than to a warning on every agent step.
+  const mayInvokeAgentInsideBranch = useMemo(() => {
+    let hasFork = false
+    let hasAgentStep = false
+    for (const node of nodes) {
+      if (node.type === 'parallelFork') hasFork = true
+      else if (node.type === 'invokeAgent') hasAgentStep = true
+      else if (
+        Array.isArray((node.data as { activities?: unknown } | undefined)?.activities)
+        && ((node.data as { activities: Array<{ activityType?: unknown }> }).activities).some(
+          (activity) => activity?.activityType === 'INVOKE_AGENT',
+        )
+      ) hasAgentStep = true
+      if (hasFork && hasAgentStep) return true
+    }
+    return false
+  }, [nodes])
+  const outOfBandAgentIds = useOutOfBandAgentIds(mayInvokeAgentInsideBranch)
+
   // Ledger entries for the variable picker in the open edit dialog (spec
   // section 3.5, step 3.2). Computed lazily — only while a dialog is open —
   // with the same client-side 'unknown'-contract ledger the Problems warnings
@@ -1785,6 +1810,7 @@ export default function VisualEditorPage() {
       edges,
       definition: flowLogicDefinition,
       ledger: flowLogicLedger,
+      outOfBandAgentIds,
       translate: translateIssue,
     })
     if (schemaFailureMessage) {
@@ -1795,7 +1821,7 @@ export default function VisualEditorPage() {
       })
     }
     return issues
-  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, triggerPayloadContracts, translateIssue, t])
+  }, [nodes, edges, triggers, contextSchema, definitionIo, interpolation, errorHandler, triggerPayloadContracts, outOfBandAgentIds, translateIssue, t])
 
   // Validate workflow — collect every graph and schema issue into the problems
   // panel. Shared by the explicit Validate action and by the "Problems pass
@@ -2086,6 +2112,7 @@ export default function VisualEditorPage() {
       edges,
       definition: definitionData,
       ledger: computeClientContextLedger(definitionData, triggerPayloadContracts),
+      outOfBandAgentIds,
       translate: translateIssue,
     })
     setProblems(issues)
@@ -2208,7 +2235,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, annotations, definitionId, updatedAt, router, t])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, contextSchema, definitionIo, interpolation, errorHandler, loadedMetadata, annotations, definitionId, updatedAt, outOfBandAgentIds, router, t])
 
   // ── Non-pointer authoring path (spec §4.6) ────────────────────────────────
   // Every canvas operation is reachable from the keyboard: the command palette

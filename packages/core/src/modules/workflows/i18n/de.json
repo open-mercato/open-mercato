@@ -2183,6 +2183,7 @@
   "workflows.visualEditor.palette.insertedOnRoute": "Schritt in die Route eingefügt",
   "workflows.visualEditor.palette.rejected.dataMappingRoute": "Datenzuordnungs-Verknüpfungen werden in der Schrittkonfiguration bearbeitet, nicht auf der Arbeitsfläche.",
   "workflows.visualEditor.palette.rejected.unknownRoute": "Diese Route existiert nicht mehr.",
+  "workflows.visualEditor.problems.agentOutOfBandInParallelBranch": "Schritt \"{stepId}\" ruft den Agenten \"{agentId}\" auf, der außerhalb des Ablaufs antwortet, und liegt im parallelen Zweig von \"{forkStepId}\"; ein Zweig kann nicht durch das Instanz-Signal fortgesetzt werden, mit dem diese Antwort eintrifft — der Schritt schlägt also fehl, nachdem der externe Aufruf bereits erfolgt ist. Verschieben Sie diesen Agentenschritt aus dem parallelen Zweig heraus",
   "workflows.visualEditor.problems.branchingWithoutOtherwise": "Der Verzweigungsschritt \"{stepId}\" hat keine bedingungslose Route; füge eine Sonst-Route hinzu, damit der Workflow nicht stehen bleibt, wenn keine Bedingung zutrifft",
   "workflows.visualEditor.problems.conditionUnknownPath": "Der Bedingungspfad \"{path}\" wird von keinem vorherigen Schritt, Trigger oder Eingabewert bereitgestellt",
   "workflows.visualEditor.problems.counts": "{errors} Fehler · {warnings} Warnungen",

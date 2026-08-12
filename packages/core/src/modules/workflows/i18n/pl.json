@@ -2183,6 +2183,7 @@
   "workflows.visualEditor.palette.insertedOnRoute": "Krok wstawiony na trasie",
   "workflows.visualEditor.palette.rejected.dataMappingRoute": "Powiązania mapowania danych edytuje się w konfiguracji kroku, a nie na kanwie.",
   "workflows.visualEditor.palette.rejected.unknownRoute": "Ta trasa już nie istnieje.",
+  "workflows.visualEditor.problems.agentOutOfBandInParallelBranch": "Krok \"{stepId}\" wywołuje agenta \"{agentId}\", który odpowiada poza przepływem, wewnątrz gałęzi równoległej otwartej przez \"{forkStepId}\"; gałęzi nie da się wznowić sygnałem na poziomie instancji, którym przychodzi ta odpowiedź, więc krok zakończy się błędem już po wykonaniu zewnętrznego wywołania. Przenieś ten krok agenta poza gałąź równoległą",
   "workflows.visualEditor.problems.branchingWithoutOtherwise": "Krok rozgałęzienia \"{stepId}\" nie ma trasy bez warunku; dodaj trasę domyślną, aby przepływ nie zatrzymał się, gdy żaden warunek nie zostanie spełniony",
   "workflows.visualEditor.problems.conditionUnknownPath": "Ścieżka warunku \"{path}\" nie jest dostarczana przez żaden wcześniejszy krok, wyzwalacz ani dane wejściowe",
   "workflows.visualEditor.problems.counts": "Błędy: {errors} · Ostrzeżenia: {warnings}",

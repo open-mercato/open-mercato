@@ -25,6 +25,7 @@ import {
 import { resolvesAgainstEntries } from './expression-refs'
 import { validateErrorRoutes, type ErrorRoutingDefinitionLike } from './error-routing'
 import { validateOutcomeRoutes } from './outcome-routing'
+import { collectParallelBranchAgentWarnings } from './parallel-branch-agent-warnings'
 import {
   collectBranchingRouteWarnings,
   collectDuplicateBranchingCaseWarnings,
@@ -46,6 +47,7 @@ export type FlowLogicWarningCode =
   | 'taskBindingAssigneeCannotView'
   | 'outcomeRouteUnknownKind'
   | 'outcomeRouteDuplicateKind'
+  | 'agentOutOfBandInParallelBranch'
 
 export interface FlowLogicWarning {
   code: FlowLogicWarningCode
@@ -300,6 +302,15 @@ export type TaskBindingCheckOptions = {
    * absent, the assignee-cannot-view check does not run.
    */
   assigneeEntityAccess?: TaskAssigneeEntityAccess | null
+}
+
+/**
+ * What a caller can tell the agent check about the agent REGISTRY, which is
+ * deployment + tenant state no definition carries. Absent ⇒ the check is
+ * skipped, never guessed — see `parallel-branch-agent-warnings.ts`.
+ */
+export type OutOfBandAgentCheckOptions = {
+  outOfBandAgentIds?: ReadonlySet<string> | null
 }
 
 export type TaskAssigneeEntityAccess = {
@@ -559,13 +570,21 @@ export function collectOutcomeRouteWarnings(definition: FlowLogicDefinition): Fl
  */
 export function collectFlowLogicWarnings(
   definition: FlowLogicDefinition | null | undefined,
-  options: { ledger?: ContextLedger } & TaskBindingCheckOptions = {},
+  options: { ledger?: ContextLedger } & TaskBindingCheckOptions & OutOfBandAgentCheckOptions = {},
 ): FlowLogicWarning[] {
   if (!definition) return []
 
   const warnings: FlowLogicWarning[] = [
     ...collectErrorRouteWarnings(definition),
     ...collectOutcomeRouteWarnings(definition),
+    ...collectParallelBranchAgentWarnings(definition, {
+      outOfBandAgentIds: options.outOfBandAgentIds,
+    }).map<FlowLogicWarning>((warning) => ({
+      code: 'agentOutOfBandInParallelBranch',
+      path: warning.path,
+      params: { stepId: warning.stepId, agentId: warning.agentId, forkStepId: warning.forkStepId },
+      severity: 'warning',
+    })),
     ...collectUnmappedStepConfigWarnings(definition),
     ...collectTaskDecisionWarnings(definition),
     ...collectTaskOwnerWarnings(definition),
