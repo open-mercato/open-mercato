@@ -194,6 +194,20 @@ export interface AgentRegistryEntry {
    * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
    */
   sourceFiles?: FileAgentFile[]
+  /**
+   * Id of the `ExternalAgentConnector` that starts and settles this agent's runs.
+   * `runtime: 'external'` agents (registered via `defineExternalAgent`) only;
+   * undefined for every other runtime. ADDITIVE — see BACKWARD_COMPATIBILITY.md.
+   */
+  connectorId?: string
+  /**
+   * How long the platform waits for the provider's callback before giving up,
+   * in milliseconds. Resolved at registration from the authored duration string.
+   * `runtime: 'external'` agents only. A call nobody answers must never park a
+   * workflow forever, so this is mandatory for external agents (design §7, R2);
+   * the deadline sweep that consumes it lands with the external runner.
+   */
+  callbackTimeoutMs?: number
 }
 
 const registry = new Map<string, AgentRegistryEntry>()

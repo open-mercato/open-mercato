@@ -16,6 +16,22 @@ export { features } from './acl'
 // Public re-exports (single source of the SDK + result contract).
 export { defineAgent, getAgentEntry, listAgentEntries } from './lib/sdk/defineAgent'
 export type { DefineAgentInput, AgentRegistryEntry, AgentResultKind } from './lib/sdk/defineAgent'
+// External agent seam — a provider package authors its agent with
+// `defineExternalAgent` (in its `ai-agents.ts`) and registers its connector with
+// `registerExternalAgentConnector` (in its `di.ts`).
+export { defineExternalAgent } from './lib/sdk/defineExternalAgent'
+export type { DefineExternalAgentInput } from './lib/sdk/defineExternalAgent'
+export {
+  registerExternalAgentConnector,
+  getExternalAgentConnector,
+  listExternalAgentConnectors,
+} from './lib/runtime/externalConnectorRegistry'
+export type {
+  ExternalAgentConnector,
+  ExternalAgentConnectorScope,
+  ExternalAgentConnectorStartArgs,
+  ExternalAgentConnectorStartResult,
+} from './lib/runtime/externalConnectorRegistry'
 export { AgentRuntimeService, AgentNotFoundError, AgentOutputInvalidError, AgentGuardrailBlockedError } from './lib/runtime/agentRuntime'
 export type { AgentRunCtx } from './lib/runtime/agentRuntime'
 export { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
