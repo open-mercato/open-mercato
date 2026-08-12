@@ -34,6 +34,7 @@ top of that seam.
 | 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | TODO | |
 | 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | DONE | `1c9182ddd` |
 | 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | DONE | `59f15f105` |
+| 2.13 | **Named provider profiles** (added 2026-08-12 — many agents from one provider) | TODO | |
 | **Phase 3 — operability** | | | |
 | 3.1 | Artifacts: transcript + recording captured as `AgentRunArtifact`s | TODO | |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | TODO | |
@@ -202,6 +203,24 @@ connector will use it). Add a SECOND, static entry point beside it:
 - Tests: two orgs holding the same `conversation_id` → only the correctly-signed one settles (the
   mandatory cross-tenant case for this route); unknown conversation id → 404, no detail; a payload the
   connector cannot self-address → 400.
+
+**2.13 — named provider profiles** *(added 2026-08-12 — raised by the user after seeing the credential form)*
+
+Today the ElevenLabs integration holds ONE `Agent ID` + `Phone Number ID` pair, so a tenant running several
+voice agents (owner call, satisfaction survey, payment chase) must type the ElevenLabs agent id into each
+workflow node's `input.agentId`. That works — the credential fields are defaults, not limits — but it puts
+per-tenant configuration inside workflow definitions, where it cannot be rotated centrally.
+
+Work:
+- Credential shape becomes a LIST of named profiles (`{ name, agentId, phoneNumberId, telephonyProvider?,
+  defaultCallerId?, callRecordingEnabled? }`), with the existing single pair migrated into a `default`
+  profile so no configured tenant breaks.
+- `defineExternalAgent` gains an optional `profile` naming which one it uses; `start()` resolves
+  profile → per-call override → tenant default, in that precedence.
+- An agent naming a profile the tenant has not configured fails CLOSED with a clear message, before dialling.
+- The per-call `input.agentId` override stays — it is the escape hatch and is already tested.
+- Keep the single static callback URL: it is per-CONNECTOR, so profiles never multiply webhook setup.
+- Tests: profile resolution + precedence, the `default` migration path, and the fail-closed unknown-profile arm.
 
 **2.10 — tests**
 - Unit: HMAC verify (good/bad/stale), normalize, suspend→callback→resume, single-shot idempotency,
