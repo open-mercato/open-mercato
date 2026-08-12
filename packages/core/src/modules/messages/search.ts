@@ -50,7 +50,8 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: 'messages:message',
-      enabled: true,
+      aclFeatures: ['messages.view'],
+      enabled: false,
       priority: 5,
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         const { t } = await resolveTranslations()
