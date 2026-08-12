@@ -56,6 +56,20 @@ function sliceOriginal(source, location) {
   return [first, ...middle, last].join('\n')
 }
 
+/**
+ * Survivor cells carry arbitrary source text into a markdown table that reaches both
+ * the job summary and a PR comment, so the text is emitted as data rather than escaped
+ * as markup: every code point becomes a numeric character reference inside a fixed
+ * `<code>` element. A pipe can no longer split the row, a backtick can no longer close
+ * a span, and an `@mention` stays inert because GitHub does not linkify inside `code`.
+ *
+ * The encoding is deliberately total rather than an allowlist of dangerous characters.
+ * A raw inline `<code>` tag is pass-through HTML in CommonMark and does not suppress
+ * markdown parsing of its contents — `<code>*x*</code>` still emits emphasis — so any
+ * allowlist would have to enumerate the full inline markdown set as well, which is the
+ * ordered-escape trap this replaced. The cost is that stdout shows references rather
+ * than text; the rendered surfaces are the ones that matter and both decode them.
+ */
 function toInlineCode(text) {
   const singleLine = String(text ?? '').match(/\S+/gu)?.join(' ') ?? ''
   const encoded = Array.from(singleLine, (character) => `&#${character.codePointAt(0)};`).join('')

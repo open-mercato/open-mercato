@@ -191,6 +191,39 @@ test('encodes every source code point so a survivor cell cannot smuggle a live c
   assert.ok(!row.includes('`'))
 })
 
+test('encodes html metacharacters so a survivor cell cannot close its own code element', () => {
+  const htmlMutant = {
+    ...SURVIVED_MUTANT,
+    replacement: '</code><img src=x onerror=alert(1)>&amp;',
+    location: { start: { line: 3, column: 3 }, end: { line: 3, column: 15 } },
+  }
+
+  const markdown = renderMarkdown(createReport([htmlMutant]))
+  const row = markdown.split('\n').find((line) => line.startsWith('| <code>'))
+
+  assert.ok(row.includes(inlineCode('</code><img src=x onerror=alert(1)>&amp;')))
+  assert.ok(!row.includes('<img'))
+  assert.ok(!row.includes('</code><'))
+  assert.equal(row.match(/<code>/g).length, 4, `code elements not intact: ${row}`)
+  assert.equal(row.match(/<\/code>/g).length, 4, `code elements not intact: ${row}`)
+})
+
+test('encodes markdown-active punctuation, which a raw code element does not neutralise', () => {
+  const markdownMutant = {
+    ...SURVIVED_MUTANT,
+    replacement: '*bold* _em_ [x](http://e.example) ![i](http://e.example/i.png)',
+    location: { start: { line: 3, column: 3 }, end: { line: 3, column: 15 } },
+  }
+
+  const markdown = renderMarkdown(createReport([markdownMutant]))
+  const row = markdown.split('\n').find((line) => line.startsWith('| <code>'))
+
+  assert.ok(row.includes(inlineCode('*bold* _em_ [x](http://e.example) ![i](http://e.example/i.png)')))
+  for (const character of ['*', '_', '[', ']', '(', ')', '!']) {
+    assert.ok(!row.includes(character), `markdown-active character ${character} left unencoded: ${row}`)
+  }
+})
+
 test('parses the report path, package name and enforcement flag', () => {
   assert.deepEqual(parseReportArgs(['mutation.json']), {
     reportPath: 'mutation.json',
@@ -225,9 +258,8 @@ test('the missing-report path reaches the job summary, not only stdout', () => {
 
   assert.equal(result.status, 0)
   assert.ok(result.stdout.includes(`No mutation report was produced for ${inlineCode('shared')}`))
-  assert.match(
-    fs.readFileSync(summaryPath, 'utf8'),
-    new RegExp(`No mutation report was produced for ${inlineCode('shared')}`),
+  assert.ok(
+    fs.readFileSync(summaryPath, 'utf8').includes(`No mutation report was produced for ${inlineCode('shared')}`),
     'a crashed mutation run must still explain itself in the job summary',
   )
 })
