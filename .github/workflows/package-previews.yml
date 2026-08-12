@@ -92,6 +92,7 @@ jobs:
       - name: Publish package previews
         run: >
           yarn pkg-pr-new publish --comment=update --no-template --yarn --packageManager=yarn
+          './packages/agent-elevenlabs'
           './packages/ai-assistant'
           './packages/cache'
           './packages/channel-gmail'
