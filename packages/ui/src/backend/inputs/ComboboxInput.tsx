@@ -419,7 +419,7 @@ export function ComboboxInput({
         disabled={disabled}
         role="combobox"
         aria-expanded={listboxVisible}
-        aria-controls={listboxId}
+        aria-controls={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
         onFocus={() => {
@@ -471,16 +471,14 @@ export function ComboboxInput({
 
       {listboxVisible && (
         <div
-          id={listboxId}
-          role="listbox"
           className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto"
         >
           {loading && touched ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">{loadingLabel}</div>
           ) : touched && !filteredSuggestions.length ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">{noMatchesLabel}</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">{noMatchesLabel}</div>
           ) : (
-            <div className="flex flex-col gap-1">
+            <div id={listboxId} role="listbox" className="flex flex-col gap-1">
               {filteredSuggestions.map((option, index) => (
                 <Button
                   key={option.value}

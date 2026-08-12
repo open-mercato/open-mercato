@@ -44,4 +44,19 @@ describe('strict review follow-up contracts', () => {
     expect(source).toContain("t('warranty_claims.form.lines.error.qtyPositive'")
     expect(source).toContain('lines.some((line) => parsePositiveNumber(line.qtyClaimed) === null)')
   })
+
+  it('keeps strict follow-up reads, compensation, and design values hardened', () => {
+    const registrationSource = moduleSource('api/registrations/route.ts')
+    const portalSource = moduleSource('api/portal/claims/route.ts')
+    const kpiSource = moduleSource('backend/components/ClaimsKpiStrip.tsx')
+    const stageSource = moduleSource('backend/components/ClaimStageProgress.tsx')
+
+    expect(registrationSource).toContain('const existing = await findOneWithDecryption(')
+    expect(portalSource).toContain('compensation failed — orphaned draft claim')
+    expect(portalSource).not.toContain('.catch(() => undefined)')
+    expect(kpiSource).toContain('hover:bg-muted/30')
+    expect(kpiSource).not.toContain('hover:bg-muted/40')
+    expect(stageSource).toContain('className="size-4"')
+    expect(stageSource).not.toContain('size-3.5')
+  })
 })

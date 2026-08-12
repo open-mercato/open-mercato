@@ -835,6 +835,30 @@ async function querySalesReferenceRow(
   }
 }
 
+async function querySalesOrderLineReferences(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  ids: string[],
+): Promise<Record<string, unknown>[] | undefined> {
+  if (ids.length === 0) return []
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const db = em.getKysely<SalesReferenceDb>()
+  try {
+    const rows = await db
+      .selectFrom('sales_order_lines')
+      .select(['id', 'order_id'])
+      .where('id', 'in', ids)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .where('deleted_at', 'is', null)
+      .execute()
+    return rows as Record<string, unknown>[]
+  } catch (err) {
+    if (isMissingReferenceTableError(err)) return undefined
+    throw err
+  }
+}
+
 const CLAIMED_QUANTITY_SCALE = 10_000n
 const TAX_RATE_FORMULA_SCALE = 1_000_000n
 
@@ -1176,11 +1200,21 @@ export async function validateClaimReferences(
     const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_credit_memo'), 'sales_credit_memos', scope, input.creditMemoId, ['id'])
     assertValidSalesReference(result)
   }
-  for (const lineRef of input.lineOrderRefs ?? []) {
-    const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_order_line'), 'sales_order_lines', scope, lineRef.orderLineId, ['id', 'order_id'])
-    assertValidSalesReference(result)
-    if (result === 'unknown' || !lineRef.orderId) continue
-    if (readString(result, 'order_id') !== lineRef.orderId) {
+  const lineRefs = input.lineOrderRefs ?? []
+  if (lineRefs.length === 0 || !resolveOptionalEntityId('sales', 'sales_order_line')) return
+  const lineRows = await querySalesOrderLineReferences(
+    ctx,
+    scope,
+    Array.from(new Set(lineRefs.map((lineRef) => lineRef.orderLineId))),
+  )
+  if (lineRows === undefined) return
+  const lineRowsById = new Map(lineRows.map((row) => [readString(row, 'id'), row]))
+  for (const lineRef of lineRefs) {
+    const result = lineRowsById.get(lineRef.orderLineId)
+    if (!result) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
+    }
+    if (lineRef.orderId && readString(result, 'order_id') !== lineRef.orderId) {
       throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
     }
   }
@@ -2439,6 +2473,7 @@ function prepareCreditMemoLine(
   if (
     orderQuantityUnits === null
     || orderQuantityUnits <= 0n
+    || creditedQuantityUnits > orderQuantityUnits
     || sourceGrossUnits === null
     || sourceNetUnits === null
     || taxRateUnits === null

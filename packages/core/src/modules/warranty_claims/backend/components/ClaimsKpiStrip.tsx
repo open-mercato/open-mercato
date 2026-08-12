@@ -66,7 +66,7 @@ function KpiItem({ icon: Icon, label, description, value, detail, onClick }: Kpi
         type="button"
         variant="ghost"
         onClick={onClick}
-        className="h-auto min-h-24 w-full whitespace-normal rounded-none p-0 hover:bg-muted/40"
+        className="h-auto min-h-24 w-full whitespace-normal rounded-none p-0 hover:bg-muted/30"
       >
         {content}
       </Button>

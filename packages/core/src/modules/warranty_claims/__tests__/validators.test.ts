@@ -1,4 +1,5 @@
 import {
+  claimLineCreateSchema,
   registrationCreateSchema,
   registrationUpdateSchema,
   vendorPolicyCreateSchema,
@@ -7,6 +8,7 @@ import {
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const REGISTRATION_ID = '33333333-3333-4333-8333-333333333333'
+const CLAIM_ID = '44444444-4444-4444-8444-444444444444'
 const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
 
 describe('registrationCreateSchema', () => {
@@ -56,5 +58,26 @@ describe('vendorPolicyCreateSchema recovery rate', () => {
   it('accepts a null recovery rate', () => {
     const result = vendorPolicyCreateSchema.safeParse({ ...scope, vendorName: 'Acme', recoveryRatePct: null })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('claim line nullable decimal fields', () => {
+  it.each([
+    'qtyApproved',
+    'qtyReceived',
+    'creditAmount',
+    'restockingFee',
+    'coreChargeAmount',
+    'coreCreditAmount',
+  ] as const)('normalizes an empty %s value to null', (field) => {
+    const result = claimLineCreateSchema.safeParse({
+      ...scope,
+      claimId: CLAIM_ID,
+      qtyClaimed: 1,
+      [field]: '',
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data[field]).toBeNull()
   })
 })

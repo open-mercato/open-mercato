@@ -26,6 +26,7 @@ let mockSalesReturnRow: Record<string, unknown> | null = null
 let mockCreditMemoRow: Record<string, unknown> | null = null
 let mockCreditMemoLookupError: Error | null = null
 let mockSourceLineRows = new Map<string, Record<string, unknown>>()
+let mockSalesOrderLineBatchQueries = 0
 let mockSalesAvailable = true
 let mockTransactionError: Error | null = null
 
@@ -138,6 +139,7 @@ function findIdWhere(wheres: Array<[string, string, unknown]>): string | null {
 function rowSatisfiesWheres(row: Record<string, unknown>, wheres: Array<[string, string, unknown]>): boolean {
   return wheres.every(([column, op, value]) => {
     if (op === 'is' && value === null) return row[column] === null || row[column] === undefined
+    if (op === 'in' && Array.isArray(value)) return value.includes(row[column])
     return row[column] === value
   })
 }
@@ -161,7 +163,11 @@ function makeKysely() {
           return builder
         },
         limit: () => builder,
-        execute: async () => [],
+        execute: async () => {
+          if (table !== 'sales_order_lines') return []
+          mockSalesOrderLineBatchQueries += 1
+          return Array.from(mockSourceLineRows.values()).filter((row) => rowSatisfiesWheres(row, wheres))
+        },
         executeTakeFirst: async () => {
           const id = findIdWhere(wheres)
           if (table === 'sales_order_lines') return scopedRow(id ? mockSourceLineRows.get(id) : undefined, wheres)
@@ -351,6 +357,7 @@ beforeEach(() => {
   mockCreditMemoRow = creditMemoRow()
   mockCreditMemoLookupError = null
   mockSourceLineRows = new Map()
+  mockSalesOrderLineBatchQueries = 0
   mockSalesAvailable = true
   mockTransactionError = null
   enforceWithGuardsMock.mockReset()
@@ -534,6 +541,27 @@ describe('warranty_claims.claim.create_credit_memo amount contract', () => {
     const result = await createCreditMemoCommand.execute(executeInput(), makeCtx())
 
     expect(result.skippedLineIds).toEqual([zeroQuantityClaimLineId, currencyClaimLineId])
+    expect(dispatchedLines()).toHaveLength(1)
+  })
+
+  it('skips a credit quantity that exceeds the source order line quantity', async () => {
+    const excessiveClaimLineId = '10000000-0000-4000-8000-000000000004'
+    const excessiveOrderLineId = '20000000-0000-4000-8000-000000000004'
+    seedClaim()
+    seedLine()
+    seedLine({
+      id: excessiveClaimLineId,
+      orderLineId: excessiveOrderLineId,
+      qtyClaimed: '2.0000',
+      qtyApproved: '2.0000',
+      qtyReceived: '2.0000',
+    })
+    seedSourceLine()
+    seedSourceLine(excessiveOrderLineId, { quantity: '1.0000' })
+
+    const result = await createCreditMemoCommand.execute(executeInput(), makeCtx())
+
+    expect(result.skippedLineIds).toEqual([excessiveClaimLineId])
     expect(dispatchedLines()).toHaveLength(1)
   })
 
@@ -931,5 +959,20 @@ describe('warranty_claims claim reference tenant scoping', () => {
     mockCreditMemoLookupError = lookupFailure
 
     await expect(validateReferences({ creditMemoId: CREDIT_MEMO_ID })).rejects.toBe(lookupFailure)
+  })
+
+  it('validates all order-line references in one scoped query', async () => {
+    const secondOrderLineId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    seedSourceLine(ORDER_LINE_ID)
+    seedSourceLine(secondOrderLineId)
+
+    await expect(validateReferences({
+      lineOrderRefs: [
+        { orderLineId: ORDER_LINE_ID, orderId: ORDER_ID },
+        { orderLineId: secondOrderLineId, orderId: ORDER_ID },
+      ],
+    })).resolves.toBeUndefined()
+
+    expect(mockSalesOrderLineBatchQueries).toBe(1)
   })
 })

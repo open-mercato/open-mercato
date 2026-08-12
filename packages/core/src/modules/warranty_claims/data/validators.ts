@@ -29,7 +29,8 @@ const httpUrlString = (max: number) =>
 const requiredString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max))
 const positiveDecimal = () => z.coerce.number().positive().max(999_999_999)
-const nullableDecimal = () => z.coerce.number().min(0).max(999_999_999).nullable().optional()
+const nullableDecimal = () =>
+  z.preprocess(emptyStringToNull, z.coerce.number().min(0).max(999_999_999).nullable().optional())
 const nullableIsoDateString = () => z.preprocess(emptyStringToNull, z.string().datetime().nullable().optional())
 const jsonObjectSchema = z.record(z.string(), z.unknown())
 const optimisticLockTokenSchema = z.union([z.string().datetime(), z.date()]).nullable().optional()

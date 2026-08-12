@@ -4,6 +4,7 @@ import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/warranty_claim_registration'
 import { WarrantyClaimRegistration } from '../../data/entities'
@@ -328,12 +329,18 @@ const crud = makeCrudRoute<RawRegistrationInput, RawRegistrationInput, Registrat
       if (!result.success) return
       const parsed = result.data
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const existing = await em.findOne(WarrantyClaimRegistration, {
-        id: parsed.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      })
+      const existing = await findOneWithDecryption(
+        em,
+        WarrantyClaimRegistration,
+        {
+          id: parsed.id,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          deletedAt: null,
+        },
+        {},
+        scope,
+      )
       if (!existing) return
       const effectiveCustomerId = hasOwn(parsed, 'customerId') ? (parsed.customerId ?? null) : (existing.customerId ?? null)
       const effectiveOrderId = hasOwn(parsed, 'orderId') ? (parsed.orderId ?? null) : (existing.orderId ?? null)

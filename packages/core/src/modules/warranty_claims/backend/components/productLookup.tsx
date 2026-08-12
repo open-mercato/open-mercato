@@ -226,6 +226,7 @@ export function ClaimLineProductPicker(props: {
   const t = useT()
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
+  const productSelectionSequenceRef = React.useRef(0)
   const [productOption, setProductOption] = React.useState<ProductOption | null>(null)
   const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
   const [variantOptions, setVariantOptions] = React.useState<VariantOption[]>([])
@@ -338,6 +339,7 @@ export function ClaimLineProductPicker(props: {
   }, [productOption, variantOptions])
 
   const clearProduct = React.useCallback(() => {
+    productSelectionSequenceRef.current += 1
     setProductOption(null)
     setVariantOption(null)
     setVariantOptions([])
@@ -376,6 +378,7 @@ export function ClaimLineProductPicker(props: {
         <LookupSelect
           value={productId}
           onChange={(next) => {
+            const selectionSequence = ++productSelectionSequenceRef.current
             if (!next) {
               clearProduct()
               return
@@ -383,7 +386,7 @@ export function ClaimLineProductPicker(props: {
             const selected = productOptionsRef.current.get(next)
             if (!selected) {
               void loadProductById(next).then((option) => {
-                if (!option) return
+                if (!option || selectionSequence !== productSelectionSequenceRef.current) return
                 productOptionsRef.current.set(option.id, option)
                 setProductOption(option)
                 setVariantOption(null)
@@ -391,6 +394,7 @@ export function ClaimLineProductPicker(props: {
               })
               return
             }
+            if (selectionSequence !== productSelectionSequenceRef.current) return
             setProductOption(selected)
             setVariantOption(null)
             setVariantOptions([])

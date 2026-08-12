@@ -9,6 +9,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../data/entities'
@@ -26,6 +27,8 @@ export const metadata = {
   GET: { requireAuth: false },
   POST: { requireAuth: false },
 }
+
+const logger = createLogger('warranty_claims')
 
 const emptyQueryValueToUndefined = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
@@ -464,10 +467,20 @@ export async function POST(req: Request) {
         { input: { id: claimId, actorCustomerId: context.customerId }, ctx: context.commandCtx },
       )
     } catch (submitError) {
-      await commandBus.execute<{ id: string }, { claimId: string }>(
-        'warranty_claims.claim.delete',
-        { input: { id: claimId }, ctx: context.commandCtx },
-      ).catch(() => undefined)
+      try {
+        await commandBus.execute<{ id: string }, { claimId: string }>(
+          'warranty_claims.claim.delete',
+          { input: { id: claimId }, ctx: context.commandCtx },
+        )
+      } catch (compensationError) {
+        logger.error('warranty_claims.portal.claim.submit compensation failed — orphaned draft claim', {
+          err: compensationError,
+          claimId,
+          customerId: context.customerId,
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+        })
+      }
       throw submitError
     }
 

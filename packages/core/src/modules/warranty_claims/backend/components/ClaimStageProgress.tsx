@@ -51,7 +51,7 @@ export function ClaimStageProgress({ status }: ClaimStageProgressProps) {
                   !completed && !active && 'border-border bg-background text-muted-foreground',
                 )}
               >
-                {completed ? <Check className="size-3.5" aria-hidden /> : index + 1}
+                {completed ? <Check className="size-4" aria-hidden /> : index + 1}
               </span>
               <span className={cn('truncate text-sm', active ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
                 {label}
