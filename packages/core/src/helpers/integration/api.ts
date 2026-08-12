@@ -13,6 +13,19 @@ function resolveUrl(path: string): string {
 const tokenCache = new Map<string, { token: string; mintedAt: number }>();
 const TOKEN_TTL_MS = 45 * 60 * 1000; // 45 min; well under the default 2h session TTL.
 
+/**
+ * Drops cached tokens so the next getAuthToken() mints a fresh session.
+ *
+ * A cached token points at a `sessions` row. Anything that deletes those rows —
+ * deactivating the user, a password change, an explicit session purge — leaves the
+ * cached token resolving to 401 for the rest of the TTL, and `apiRequest` neither
+ * retries nor re-mints. A spec that revokes sessions for an account other specs also
+ * use MUST call this afterwards.
+ */
+export function clearAuthTokenCache(): void {
+  tokenCache.clear();
+}
+
 export async function getAuthToken(
   request: APIRequestContext,
   roleOrEmail: Role | string = 'admin',
