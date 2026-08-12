@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -10,6 +10,7 @@ import {
   type ExternalAgentConnectorScope,
 } from './externalConnectorRegistry'
 import { assembleRunContextSpans, screenRunInput } from './runPreflight'
+import { buildExternalRunCallbackPath, hashCallbackToken } from './callbackToken'
 import {
   completeExternalRun,
   EXTERNAL_RUN_RESUME_SIGNAL,
@@ -32,14 +33,13 @@ import {
 const logger = createLogger('agent_orchestrator').child({ component: 'external-agent-runner' })
 
 /**
- * Path of the unauthenticated callback route (T2.6 implements it). Declared here
- * because the runner is what hands the URL to the provider: the route and the URL
- * we published must be the same string, and a drift between them is only
- * discovered when a real call comes back to a 404 half an hour later.
+ * Re-exported from `./callbackToken`, a zero-dependency leaf the unauthenticated
+ * callback route can import WITHOUT dragging this whole start path (context
+ * assembly, the TDCR bundle resolver, the input guardrail) into the module graph
+ * of a publicly reachable route. Keeping the exports here preserves T2.3's import
+ * paths — the same compatibility move `EXTERNAL_RUN_RESUME_SIGNAL` makes below.
  */
-export function buildExternalRunCallbackPath(callbackToken: string): string {
-  return `/api/agent_orchestrator/external-runs/${encodeURIComponent(callbackToken)}/callback`
-}
+export { buildExternalRunCallbackPath, hashCallbackToken }
 
 /**
  * Re-exported from `./completeExternalRun`, where the constant now lives with the
@@ -357,11 +357,6 @@ export class ExternalAgentRunner {
 
 function mintCallbackToken(): string {
   return `xrun_${randomBytes(32).toString('hex')}`
-}
-
-/** Lowercase SHA-256 hex — the only shape `agentExternalRunSchema` accepts. */
-export function hashCallbackToken(callbackToken: string): string {
-  return createHash('sha256').update(callbackToken).digest('hex')
 }
 
 /**
