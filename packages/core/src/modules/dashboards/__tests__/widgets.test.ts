@@ -3,13 +3,16 @@
  */
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 
-// The module registry and its listener set live on `globalThis`, so they survive
-// `jest.resetModules()`. Clearing both keeps each case hermetic: a leftover module
-// list would be merged into an i18n-only registration, and listeners left behind by
-// a previous test's (now dead) widgets module instance would accumulate.
+// The module registry, its listener set, and the registration snapshot that
+// decides whether listeners fire all live on `globalThis`, so they survive
+// `jest.resetModules()`. Clearing all three keeps each case hermetic: a leftover
+// module list would be merged into an i18n-only registration, a leftover snapshot
+// would suppress the notification this suite asserts on, and listeners left behind
+// by a previous test's (now dead) widgets module instance would accumulate.
 function clearModuleRegistryGlobals(): void {
   delete (globalThis as any).__openMercatoModulesRegistry__
   delete (globalThis as any).__openMercatoModulesRegistryListeners__
+  delete (globalThis as any).__openMercatoModulesRegistrySnapshot__
 }
 
 describe('dashboard widget discovery', () => {
