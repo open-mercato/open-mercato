@@ -17,7 +17,11 @@ export const LESSON_AREAS = new Set([
   'spec-pr',
 ])
 
-const INDEX_MAX_BYTES = 30 * 1024
+// Raised from 30 KiB when the catalog legitimately reached 119 records and overran the
+// old cap by 5 bytes. The budget exists to keep the index cheap to load in full, not to
+// cap how many lessons the repo may accumulate — trimming real rows to fit would defeat
+// the routing the catalog exists to provide.
+const INDEX_MAX_BYTES = 32 * 1024
 const RECORD_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 const MODULE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/
 const TOPIC_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

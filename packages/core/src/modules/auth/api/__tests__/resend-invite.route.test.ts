@@ -81,6 +81,15 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({
+    selectedId: 'e0e0e0e0-e0e0-4e0e-8e0e-e0e0e0e0e0e0',
+    filterIds: ['e0e0e0e0-e0e0-4e0e-8e0e-e0e0e0e0e0e0'],
+    allowedIds: ['e0e0e0e0-e0e0-4e0e-8e0e-e0e0e0e0e0e0'],
+    tenantId: 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0',
+  })),
+}))
+
 const tenantA = 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0'
 const tenantB = 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0'
 const userId = 'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0'

@@ -59,7 +59,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
     description: 'Minimal builder-ready baseline',
     modules: { mode: 'replace', enabled: EMPTY_MODULES },
     ui: { startPageVariant: 'minimal', hideDemoLinks: true },
-    files: { remove: ['src/modules/example', 'src/modules/example_customers_sync'] },
+    // The example source ships in every preset and stays runtime-disabled through
+    // the generated `src/modules.ts`; never delete it here.
     constraints: { rejectWithReadyApps: true },
   },
 

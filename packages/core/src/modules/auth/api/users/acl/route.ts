@@ -16,6 +16,7 @@ import {
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const getSchema = z.object({ userId: z.string().uuid() })
 const putSchema = z.object({
@@ -76,6 +77,12 @@ export async function GET(req: Request) {
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
+        organizationScope: await resolveOrganizationScopeForRequest({
+          container,
+          auth,
+          request: req,
+          tenantId: auth.tenantId ?? null,
+        }),
       })
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
@@ -143,6 +150,12 @@ export async function PUT(req: Request) {
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
+        organizationScope: await resolveOrganizationScopeForRequest({
+          container,
+          auth,
+          request: req,
+          tenantId: auth.tenantId ?? null,
+        }),
       })
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
