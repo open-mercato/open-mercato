@@ -75,6 +75,17 @@ export interface EvaluateWorkflowDefinitionOptions {
    * those warnings are skipped (they are advisory and never blocking).
    */
   ledger?: ContextLedger | null
+  /**
+   * Agent ids known to ANSWER OUT OF BAND, from
+   * `getWorkflowOutOfBandAgentIds()` (`lib/server-output-contract.ts`) once the
+   * caller has warmed the agent catalogue. Threading it makes the server raise
+   * the same parallel-branch warning the Studio raises in the browser, so the AI
+   * draft agent cannot author a mistake only a human opening the canvas sees.
+   *
+   * Absent or `null` ⇒ the check reports NOTHING. The agent registry lives
+   * behind an OPTIONAL peer, so unknown is not "suspends".
+   */
+  outOfBandAgentIds?: ReadonlySet<string> | null
 }
 
 export interface WorkflowDefinitionEvaluation {
@@ -143,6 +154,7 @@ export function evaluateWorkflowDefinition(
     edges,
     definition,
     ledger: ledger ?? undefined,
+    outOfBandAgentIds: options.outOfBandAgentIds ?? null,
   })
   const { errors, warnings } = countIssuesBySeverity(problems)
 

@@ -94,6 +94,21 @@ export type AgentOutcomeContractSnapshot = {
   agentId: string
   resultKind: 'researcher' | 'proposal'
   schema: ZodTypeAny
+  /**
+   * The agent ANSWERS OUT OF BAND: `invokeAgentForWorkflow` returns
+   * `{ kind: 'suspended' }` for it and the workflows engine parks the step until
+   * something outside this process settles it.
+   *
+   * OPTIONAL, exactly as `listAgentOutcomeContracts` itself is — an older or
+   * third-party bridge that never sets it stays a valid implementation, and core
+   * treats its absence as "not known here" and reports nothing.
+   *
+   * It names the PROPERTY, not the runtime that has it. Core's author-time check
+   * cares only that the answer arrives later, so a second runtime that also
+   * parks is covered here without core learning another of this module's runtime
+   * names — the same reason the bridge is duck-typed in the first place.
+   */
+  suspends?: boolean
 }
 
 export interface AgentWorkflowBridge {
@@ -227,6 +242,11 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
    * Projects the agent registry into OUTCOME contracts for the workflows module.
    * Agents load lazily, so this awaits the registry first; an agent whose result
    * schema is not the declared envelope contributes nothing rather than a guess.
+   *
+   * `suspends` is the ONE fact core cannot derive from the definition it is
+   * validating, and this is the only server-side seam that can carry it — which
+   * is what lets core's parallel-branch check run for the definitions API and
+   * the AI draft agent, not only for a human with the Studio open.
    */
   async listAgentOutcomeContracts(): Promise<AgentOutcomeContractSnapshot[]> {
     await ensureAgentsLoaded()
@@ -234,7 +254,12 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     for (const entry of listAgentEntries()) {
       const schema = resolveAgentOutcomeZod(entry)
       if (!schema) continue
-      contracts.push({ agentId: entry.id, resultKind: entry.resultKind, schema })
+      contracts.push({
+        agentId: entry.id,
+        resultKind: entry.resultKind,
+        schema,
+        suspends: entry.runtime === 'external',
+      })
     }
     return contracts
   }

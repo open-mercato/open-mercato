@@ -47,7 +47,11 @@ import {
   resolveDefinitionDataForLedger,
   warmContextLedgerResolvers,
 } from '../lib/definition-context-schema'
-import { evaluateWorkflowDefinition } from '../lib/definition-evaluation'
+import {
+  evaluateWorkflowDefinition,
+  type EvaluateWorkflowDefinitionOptions,
+} from '../lib/definition-evaluation'
+import { getWorkflowOutOfBandAgentIds } from '../lib/server-output-contract'
 import { normalizeDefinitionValidationIssues } from '../lib/definition-error-body'
 import {
   DRY_RUN_EVENT_TYPES,
@@ -98,16 +102,27 @@ function asDefinitionData(value: Record<string, unknown>): WorkflowDefinitionDat
   return value as unknown as WorkflowDefinitionData
 }
 
-/** Compute the server ledger for a definition, tolerating a malformed graph. */
-async function tryComputeLedger(
+/**
+ * Everything `evaluateWorkflowDefinition` needs from the SERVER for one
+ * definition: the context ledger, and the agent ids the OPTIONAL
+ * `agent_orchestrator` peer reports as answering out of band. Both come from the
+ * one warm-up, and each degrades to `null` on its own — a malformed graph must
+ * not cost the agent check, and an absent peer must not cost the ledger.
+ */
+async function tryResolveEvaluationOptions(
   ctx: WorkflowsToolContext,
   definition: WorkflowDefinitionData,
-) {
+): Promise<EvaluateWorkflowDefinitionOptions> {
   try {
     await warmContextLedgerResolvers(ctx.container)
-    return computeDefinitionContextLedger(definition)
   } catch {
-    return null
+    return { ledger: null, outOfBandAgentIds: null }
+  }
+  const outOfBandAgentIds = getWorkflowOutOfBandAgentIds()
+  try {
+    return { ledger: computeDefinitionContextLedger(definition), outOfBandAgentIds }
+  } catch {
+    return { ledger: null, outOfBandAgentIds }
   }
 }
 
@@ -308,8 +323,8 @@ const validateDefinitionTool: WorkflowsAiToolDefinition<
       definitionData = asDefinitionData(input.definition!)
     }
 
-    const ledger = await tryComputeLedger(ctx, definitionData)
-    const evaluation = evaluateWorkflowDefinition(definitionData, { ledger })
+    const evaluationOptions = await tryResolveEvaluationOptions(ctx, definitionData)
+    const evaluation = evaluateWorkflowDefinition(definitionData, evaluationOptions)
 
     return {
       ok: evaluation.valid,
@@ -422,10 +437,14 @@ const createDefinitionTool: WorkflowsAiToolDefinition<
     await em.persist(created).flush()
     invalidateTriggerCache(scope.tenantId, scope.organizationId ?? undefined)
 
-    const ledger = await tryComputeLedger(ctx, definitionData as WorkflowDefinitionData)
-    const evaluation = evaluateWorkflowDefinition(definitionData as WorkflowDefinitionData, {
-      ledger,
-    })
+    const evaluationOptions = await tryResolveEvaluationOptions(
+      ctx,
+      definitionData as WorkflowDefinitionData,
+    )
+    const evaluation = evaluateWorkflowDefinition(
+      definitionData as WorkflowDefinitionData,
+      evaluationOptions,
+    )
 
     return {
       ok: true,
@@ -536,8 +555,8 @@ const updateDefinitionTool: WorkflowsAiToolDefinition<
     await em.flush()
 
     const definitionData = parsed.data as WorkflowDefinitionData
-    const ledger = await tryComputeLedger(ctx, definitionData)
-    const evaluation = evaluateWorkflowDefinition(definitionData, { ledger })
+    const evaluationOptions = await tryResolveEvaluationOptions(ctx, definitionData)
+    const evaluation = evaluateWorkflowDefinition(definitionData, evaluationOptions)
 
     return {
       ok: true,
@@ -771,8 +790,8 @@ const validateWorkflowDraftTool: WorkflowsAiToolDefinition<
     }
 
     const definitionData = asDefinitionData(parsed.data as Record<string, unknown>)
-    const ledger = await tryComputeLedger(ctx, definitionData)
-    const evaluation = evaluateWorkflowDefinition(definitionData, { ledger })
+    const evaluationOptions = await tryResolveEvaluationOptions(ctx, definitionData)
+    const evaluation = evaluateWorkflowDefinition(definitionData, evaluationOptions)
 
     return {
       ok: evaluation.valid,

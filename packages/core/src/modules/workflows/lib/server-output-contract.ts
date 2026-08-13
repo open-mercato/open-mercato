@@ -53,6 +53,18 @@ type AgentOutcomeContractSnapshot = {
   agentId?: unknown
   resultKind?: unknown
   schema?: unknown
+  /**
+   * The agent ANSWERS OUT OF BAND: the bridge returns a suspended marker and the
+   * step parks until something outside this process settles it. Additive and
+   * OPTIONAL, exactly as `listAgentOutcomeContracts` itself is — a bridge
+   * predating the field reports nothing here and the author-time check that
+   * reads it stays silent.
+   *
+   * It names the PROPERTY rather than the runtime that has it, so a second
+   * runtime that also parks needs no second special case in this module — and so
+   * core never has to carry a list of the peer's runtime names.
+   */
+  suspends?: unknown
 }
 
 type AgentOutcomeBridgeLike = {
@@ -65,6 +77,7 @@ type ServiceContainer = {
 
 let agentOutcomeContracts: Map<string, AgentOutcomeContract> | null = null
 let agentOutcomeWarmup: Promise<void> | null = null
+let outOfBandAgentIds: ReadonlySet<string> | null = null
 
 bindAgentOutcomeSchemaResolver((agentId) => agentOutcomeContracts?.get(agentId) ?? 'unknown')
 
@@ -85,19 +98,29 @@ async function loadAgentOutcomeContracts(container: ServiceContainer): Promise<v
   }
   if (!bridge || typeof bridge.listAgentOutcomeContracts !== 'function') {
     agentOutcomeContracts = new Map()
+    outOfBandAgentIds = null
     return
   }
   const resolved = new Map<string, AgentOutcomeContract>()
+  // Built from the RAW snapshot, independently of `toAgentOutcomeContract`: an
+  // agent whose declared schema this module cannot use still parks its step, and
+  // dropping it here would hide the very mistake the check exists to catch.
+  const suspending = new Set<string>()
   try {
     for (const snapshot of await bridge.listAgentOutcomeContracts()) {
       const contract = toAgentOutcomeContract(snapshot)
       if (contract && typeof snapshot.agentId === 'string') resolved.set(snapshot.agentId, contract)
+      if (snapshot.suspends === true && typeof snapshot.agentId === 'string' && snapshot.agentId.length > 0) {
+        suspending.add(snapshot.agentId)
+      }
     }
   } catch {
     agentOutcomeContracts = new Map()
+    outOfBandAgentIds = null
     return
   }
   agentOutcomeContracts = resolved
+  outOfBandAgentIds = suspending
 }
 
 export async function ensureWorkflowAgentOutcomeContracts(container: ServiceContainer): Promise<void> {
@@ -105,9 +128,29 @@ export async function ensureWorkflowAgentOutcomeContracts(container: ServiceCont
   await agentOutcomeWarmup
 }
 
+/**
+ * Agent ids the peer reports as ANSWERING OUT OF BAND, for the server-side
+ * parallel-branch authoring check (`lib/parallel-branch-agent-warnings.ts`).
+ *
+ * `null` means "not known here" and is deliberately distinct from an empty set:
+ * this process was never warmed, the OPTIONAL `agent_orchestrator` peer is
+ * absent, or the listing failed. Callers pass it straight through to
+ * `evaluateWorkflowDefinition`, which reports NOTHING for `null` — unknown is
+ * not "suspends", and a warning on every agent step would train authors to
+ * ignore the Problems panel.
+ *
+ * An empty set is the honest answer of a peer that HAS a catalogue and holds no
+ * out-of-band agent — including a bridge predating the `suspends` field, whose
+ * snapshots all read as not-suspending. It reports nothing either.
+ */
+export function getWorkflowOutOfBandAgentIds(): ReadonlySet<string> | null {
+  return outOfBandAgentIds
+}
+
 export function clearWorkflowAgentOutcomeContractsForTests(): void {
   agentOutcomeContracts = null
   agentOutcomeWarmup = null
+  outOfBandAgentIds = null
 }
 
 export const resolveServerOutputContract: ResolveOutputContract = (activityType, config) => {

@@ -65,7 +65,11 @@ import {
   computeDefinitionContextLedger,
   warmContextLedgerResolvers,
 } from '../../../lib/definition-context-schema'
-import { evaluateWorkflowDefinition } from '../../../lib/definition-evaluation'
+import {
+  evaluateWorkflowDefinition,
+  type EvaluateWorkflowDefinitionOptions,
+} from '../../../lib/definition-evaluation'
+import { getWorkflowOutOfBandAgentIds } from '../../../lib/server-output-contract'
 import { listWorkflowFunctions } from '../../../lib/workflow-function-registry'
 import { listWorkflowSafeCommands } from '../../../lib/workflow-safe-commands'
 import { workflowsTag, workflowErrorSchema } from '../../openapi'
@@ -126,16 +130,26 @@ async function resolveDraftAgents(
   }
 }
 
-/** Compute the ledger for the generated definition, tolerating a broken graph. */
-async function tryComputeLedger(
+/**
+ * The ledger for the generated definition, tolerating a broken graph, plus the
+ * agent ids the OPTIONAL peer reports as answering out of band — which is what
+ * lets THIS route raise the parallel-branch warning the Studio raises in the
+ * browser, on a definition the model authored and no human has opened yet.
+ */
+async function tryResolveEvaluationOptions(
   container: Awaited<ReturnType<typeof createRequestContainer>>,
   definition: WorkflowDefinitionData,
-) {
+): Promise<EvaluateWorkflowDefinitionOptions> {
   try {
     await warmContextLedgerResolvers(container)
-    return computeDefinitionContextLedger(definition)
   } catch {
-    return null
+    return { ledger: null, outOfBandAgentIds: null }
+  }
+  const outOfBandAgentIds = getWorkflowOutOfBandAgentIds()
+  try {
+    return { ledger: computeDefinitionContextLedger(definition), outOfBandAgentIds }
+  } catch {
+    return { ledger: null, outOfBandAgentIds }
   }
 }
 
@@ -289,8 +303,8 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const ledger = await tryComputeLedger(container, interpreted.definition)
-    const evaluation = evaluateWorkflowDefinition(interpreted.definition, { ledger })
+    const evaluationOptions = await tryResolveEvaluationOptions(container, interpreted.definition)
+    const evaluation = evaluateWorkflowDefinition(interpreted.definition, evaluationOptions)
 
     // Nothing above wrote a row, and nothing below does either — this route
     // never resolves an EntityManager, so a future write would be an obvious
