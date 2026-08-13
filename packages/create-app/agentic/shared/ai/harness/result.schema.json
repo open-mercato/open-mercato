@@ -25,6 +25,66 @@
     "status": { "enum": ["pass", "fail", "error"] },
     "sanitizedError": { "type": "string", "maxLength": 4096 },
     "refusedContextReads": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "exampleReadPolicy": {
+      "type": "object",
+      "description": "Sanitized accounting of the case's canonical-example, declared source-reference, and reason-gated installed-source reads. Present when the case declares context.exampleRoots or context.sourceReferenceIds. Carries no file content.",
+      "additionalProperties": false,
+      "required": ["roots", "fallback", "references"],
+      "properties": {
+        "references": {
+          "type": "object",
+          "description": "Declared source-link references: what the case named, which origin owners it read first, and which exact targets it followed. Carries no file content.",
+          "additionalProperties": false,
+          "required": ["declared", "owners", "followed"],
+          "properties": {
+            "declared": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+            "owners": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+            "followed": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["referenceId", "originAsset", "resolvedPath", "targetKind", "package", "version", "hash"],
+                "properties": {
+                  "referenceId": { "type": "string" },
+                  "originAsset": { "type": "string" },
+                  "resolvedPath": { "type": "string" },
+                  "targetKind": { "type": ["string", "null"] },
+                  "package": { "type": ["string", "null"] },
+                  "version": { "type": ["string", "null"] },
+                  "hash": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["root", "entrypoints", "capabilities", "files", "bytes"],
+            "properties": {
+              "root": { "type": "string" },
+              "entrypoints": { "type": "array", "items": { "type": "string" } },
+              "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+              "files": { "type": "integer", "minimum": 0 },
+              "bytes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "files", "bytes"],
+          "properties": {
+            "reason": { "type": ["string", "null"], "enum": ["SPECIALIST_ROUTE_NOT_DECLARED", "INSTALLED_VERSION_CONTRACT_MISMATCH", null] },
+            "files": { "type": "integer", "minimum": 0 },
+            "bytes": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
     "actualContext": {
       "type": "object",
       "additionalProperties": false,
