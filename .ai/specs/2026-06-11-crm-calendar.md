@@ -4,7 +4,7 @@
 **Key Points:**
 - A new full-page admin Calendar at `/backend/calendar` (sidebar: first item of the **Customers** group — see UI/UX adaptations; the mockup's "General" group does not exist in the app shell) that renders existing `CustomerInteraction` records — meetings, calls, events, tasks — in four switchable views: **Day, Week, Month, Agenda**.
 - Pixel-faithful implementation of the UX mockups in Figma file `oTF1oZoaNgFUdtmxEX2oSc` (*SPEC-048 CRM Detail Pages UX Mockup*), page **Calendar** (`1759:723`): Week `1759:6779`, Day `1761:7917`, Month `1761:8607`, Agenda `1761:9420`.
-- **No new entity, no new API route, no schema change.** The calendar is a read view + create/edit dialog over the canonical interactions model (SPEC-046b) and its existing `/api/customers/interactions` route (`from`/`to` range filtering already exists).
+- **No new entity, no new API route, no schema change.** The calendar is a read view + create/edit dialog over the canonical interactions model (SPEC-046b) and its existing `/api/customers/interactions` route. Issue #4735 adds an optional `recurrenceMasters=true` list filter so the client can fetch series masters that started before the visible `from` boundary without changing default range-query behavior.
 
 **Scope:**
 - Calendar page scaffold: header (dynamic title + subtitle + "New event" CTA), toolbar (Today, range presets, jump-to-date range chip, search, filter), category tabs (All Scheduled / Meetings / Events), view switcher (Day | Week | Month | Agenda), shortcuts/timezone footer.
@@ -31,7 +31,7 @@ CRM users plan their day around scheduled touchpoints — meetings, calls, demos
 ## Proposed Solution
 A single new backend page in the **customers module** (which owns the data) — `packages/core/src/modules/customers/backend/calendar/page.tsx` → route `/backend/calendar` — registered as the first item of the **Customers** sidebar group. A thin server `page.tsx` renders a client `CalendarScreen` island that:
 1. Computes the visible range from `view + anchorDate` (day/week/month) or an agenda horizon (default next 7 days).
-2. Fetches interactions for the range via the existing `GET /api/customers/interactions?from&to` (cursor-following, `apiCall`), org/tenant scoping enforced server-side as today.
+2. Fetches interactions for the range via the existing `GET /api/customers/interactions?from&to` and, in parallel, overlapping recurring masters via the additive `recurrenceMasters=true` filter (cursor-following, `apiCall`); the shared `fetchCalendarCandidates` helper is used by both the grid and the editor conflict probe, deduplicates both result sets by interaction id, and preserves recurring masters in the combined cap before expansion. Org/tenant scoping remains enforced server-side.
 3. Derives everything else client-side: category tab counts, conflict pairs, recurrence expansion within the window, upcoming cards.
 4. Renders the active view with hand-rolled, DS-token-compliant components that match the Figma mockups.
 
@@ -39,9 +39,9 @@ A single new backend page in the **customers module** (which owns the data) — 
 | Decision | Rationale |
 |----------|-----------|
 | Page lives in `customers` module | The data is `CustomerInteraction`; placing the page in its owning module avoids cross-module ORM access and keeps the module self-contained. Sidebar: `pageGroup: 'Customers'` with the lowest `pageOrder` in the group — the mockup's "General" group does not exist (no Dashboard sidebar item either; group order is hardcoded in `normalizeGroupWeights()`, `auth/lib/backendChrome.tsx`), and adding one would touch shared auth chrome for zero functional gain. |
-| Reuse `CustomerInteraction` + existing API | Fields map 1:1 to the mockups (type, schedule, duration, all-day, location, participants, status, recurrence). `from`/`to` filter on `coalesce(occurred_at, scheduled_at, created_at)` already implements "effective calendar date". No BC surface touched. |
+| Reuse `CustomerInteraction` + existing API | Fields map 1:1 to the mockups (type, schedule, duration, all-day, location, participants, status, recurrence). Default `from`/`to` filtering on `coalesce(occurred_at, scheduled_at, created_at)` remains unchanged. The additive `recurrenceMasters=true` mode uses the same effective anchor for its upper bound and selects recurring rows with `coalesce(occurred_at, scheduled_at, created_at) <= to` and no end before `from`, allowing client-side expansion in future windows without altering existing callers. |
 | Hand-rolled view components (no `react-big-calendar`) | Pixel fidelity + DS-token compliance are incompatible with overriding rbc's stylesheet (its CSS was already demoted to a lazy chunk for perf, PR #2856). The existing `ScheduleCalendar` stays untouched for staff scheduling; its `ScheduleItem` model (availability/exception kinds) does not fit interaction rendering (avatars, platform chips, category pills). Week/day overlap packing is a well-understood column-packing algorithm (~80 LOC, unit-tested). |
-| Conflict badges client-side; save-time conflict check server-side | Grid/card badges need all-pairs detection over the visible window (trivial client-side, ≤ a few hundred items). The editor reuses the **existing** `/api/customers/interactions/conflicts` endpoint (same one `ScheduleActivityDialog` consumes) for a save-time warning — no new API surface either way. |
+| Conflict badges and calendar-editor probe client-side | Grid/card badges need all-pairs detection over the visible window (trivial client-side, ≤ a few hundred items). The editor expands the same shared candidate set and applies `findEditorConflictItems` for its save-time warning, while the existing `/api/customers/interactions/conflicts` endpoint remains unchanged for `ScheduleActivityDialog`. |
 | Create/edit via a new `CalendarEventEditor` (designer-specified) | The 2026-06-12 Figma revision added six explicit "Event editor" modal mockups — one unified modal with a Meeting/Call/Email/Note/Event/Task switcher and per-type field morphology (Starts+Ends vs When vs Sent vs Logged vs Due; Location vs Phone/link; Attendees vs To vs single Assignee; Task-only Priority). Restyling the shared `ScheduleActivityDialog` to this design would mutate a maintained detail-page component for zero detail-page benefit; the calendar gets its own editor that submits via the SAME API/commands (`useGuardedMutation`, lock header, conflict check). The earlier plan to extend `ScheduleActivityDialog` was superseded and reverted. |
 | Editor field → interaction mapping | `title`←Title/Subject/Note; `entityId`←Related-to person/company (required); `dealId`←Related-to deal chip (optional); `allDay`; `scheduledAt`←Starts/When/Sent/Logged/Due (+time); `durationMinutes`←Ends−Starts (types with an end); `recurrenceRule`←Repeat (Weekly+BYDAY+Never/On date/After ⇒ UNTIL/COUNT — exactly the platform's existing producer subset); `interactionType`←Category dictionary entry when picked, else the active tab kind; `location`←Location/Phone-link; `participants`←Attendees/To (staff + customer contacts per validator support); `ownerUserId`←Task Assignee; `priority`←Task Priority; `body`←Description. All creates are `status: 'planned'` at the chosen datetime. |
 | Seed an `event` activity type (additive) | Tabs split Meetings vs Events; `ACTIVITY_TYPE_DEFAULTS` (in `cli.ts`, consumed by `seedCustomerDictionaries`) has no `event` entry. Seeding one (idempotent, additive, appearance color distinct from the existing palette — note `meeting` already owns amber `#f59e0b`) makes the Events tab meaningful on fresh tenants without affecting existing data. Mockup tint colors are illustrative; runtime colors always come from the tenant's dictionary. |
@@ -65,8 +65,11 @@ A single new backend page in the **customers module** (which owns the data) — 
 /backend/calendar (server page.tsx — metadata, translations, shell)
   └─ CalendarScreen ("use client")
        ├─ state: view (day|week|month|agenda), anchorDate, agendaHorizon, tab, search, filters
-       ├─ useCalendarItems(range) ── apiCall GET /api/customers/interactions?from&to (+cursor follow)
-       │     └─ expandRecurrences(items, range)  (display-only)
+       ├─ useCalendarItems(range)
+       │     └─ fetchCalendarCandidates(range)  (shared with editor conflict probe)
+       │           ├─ GET /api/customers/interactions?from&to (+cursor follow)
+       │           ├─ GET /api/customers/interactions?from&to&recurrenceMasters=true (+cursor follow)
+       │           └─ dedupe by id, masters first within cap → expandRecurrences(items, range)
        ├─ derive: categories • tabCounts • conflicts • upcomingCards • client search
        ├─ <CalendarHeader/> <CalendarToolbar/> <UpcomingCards/> <CalendarTabs/>
        ├─ view === week|day → <TimeGrid days={1|7}/>   (overlap packing)
@@ -99,13 +102,14 @@ Data flow is read-mostly; the only writes go through the existing interactions A
 - `GET /api/customers/interactions?from=<iso>&to=<iso>&limit=100[&cursor=…][&interactionType=…][&status=…]`
 - `from` is sent padded by −1 day to catch items spanning midnight into the range.
 - Client follows `nextCursor` (response shape `{ items, nextCursor }`) until exhausted or a hard cap of **500 items** per window (then a non-blocking notice "Showing first 500 items for this range" — see Risks).
+- In parallel, the calendar sends the same window with `recurrenceMasters=true`. This opt-in mode returns rows where `recurrence_rule IS NOT NULL`, `coalesce(occurred_at, scheduled_at, created_at) <= to`, and `recurrence_end IS NULL OR recurrence_end >= from`. The shared client helper merges both pages by interaction id before recurrence expansion, keeps the regular window copy when a master appears in both responses, and orders recurring candidates first so a saturated regular window cannot discard every master from the combined 500-item budget.
 - **Toolbar search is client-side** over the loaded window: interaction `title`/`body` are encrypted at rest (tenant encryption defaults ON), so the route's server-side `?search=` ILIKE cannot match them (documented in the route); list payloads arrive decrypted, making client filtering both correct and cheap.
 - Relevant response fields consumed: listed in Data Models (already returned today, incl. `updatedAt` for locking).
 ### Create / edit
 - `POST | PUT /api/customers/interactions` from `CalendarEventEditor` via `useGuardedMutation` (`retryLastMutation` in injection context); create requires `entityId` + `interactionType` (existing validator) → the editor's "Related to" picker supplies `entityId` (+ optional `dealId`).
 - Optimistic locking: PUT carries `buildOptimisticLockHeader(item.updatedAt)`; 409 surfaced via `surfaceRecordConflict(err, t)`.
 ### Conflict check (editor)
-- Existing check at `/api/customers/interactions/conflicts` (same endpoint `ScheduleActivityDialog` consumes) warns about overlapping items at save time. Grid badges/cards use the client-side pair detection instead (different problem: all-pairs over a window vs candidate-vs-existing).
+- `CalendarEventEditor` uses the same `fetchCalendarCandidates` range read and recurrence expansion as the grid, then applies `findEditorConflictItems` for its candidate-vs-existing warning. The older `/api/customers/interactions/conflicts` endpoint remains unchanged for `ScheduleActivityDialog`.
 ### Supporting reads
 - Activity-type dictionary: same endpoint/hook the detail pages use for `activity-types` (labels + colors for tabs/pills/legend).
 - Participant/owner names for avatars: `participants[].name` (stored) with `/api/staff/team-members/assignable` (existing `fetchAssignableStaffMembers`) only inside the dialog's participant picker — the grid renders avatars from stored participant names (no N+1 lookups).
@@ -221,7 +225,7 @@ None. No env vars, no settings.
 ## Migration & Compatibility
 - **DB**: none.
 - **Seeds**: additive `event` entry in `activity-types` dictionary defaults (skipped when present).
-- **BC surfaces** (per `BACKWARD_COMPATIBILITY.md` categories): no type/signature/import-path/event-id/spot-id/DB/DI/CLI changes. Additive only: new backend page route `/backend/calendar` (new surface), new i18n keys, new module-internal components. Existing `MiniWeekCalendar`/detail pages untouched. The interactions API is consumed, not modified.
+- **BC surfaces** (per `BACKWARD_COMPATIBILITY.md` categories): no type/signature/import-path/event-id/spot-id/DB/DI/CLI changes. Additive only: new backend page route `/backend/calendar` (new surface), new i18n keys, new module-internal components, and the optional `recurrenceMasters` query field on the existing interactions list API. Omitting the field preserves the previous SQL filters and response shape byte-for-byte. Existing `MiniWeekCalendar`/detail pages remain untouched.
 - **RBAC**: page gated by existing `customers.interactions.view`; dialog mutations already gated by `customers.interactions.manage` server-side (CTA hidden without it via existing feature-check helpers).
 
 ## Implementation Plan
@@ -287,6 +291,7 @@ Self-contained Playwright specs in `packages/core/src/modules/customers/__integr
 - **TC-CAL-004 — tabs & filtering**: fixtures of types meeting + event + task; Meetings/Events tab counts correct; activating Meetings hides the event pill; search narrows to a fixture by title.
 - **TC-CAL-005 — create via editor**: `N` opens the editor; switch type tab (field set morphs — e.g. Task shows Due + the Priority dropdown defaulting to Medium + Assignee); fill title/Related-to person/date/time; save; flash shown; new block appears in the grid without reload; teardown deletes it.
 - **TC-CAL-006 — conflict surfacing**: two overlapping planned meetings sharing owner → upcoming card shows `Conflicted` badge and `See Conflict` navigates to the overlap time.
+- **TC-CAL-012 — recurring master outside visible window**: create a weekly interaction whose master is in the previous week, open the calendar on the following week, and assert its expanded occurrence is rendered once. The ordinary range response excludes the master while `recurrenceMasters=true` returns it, pinning both API selection and UI deduplication/expansion.
 - **TC-CAL-007 — settings/customization modal** (Figma `1788:3701`): the toolbar gear opens the Customization modal (Event Categories + Activity Types tag inputs seeded from the activity-types dictionary, four toggles); toggling **Show weekends** ON + Save makes the week render 7 day-columns (Sat/Sun appear); the preference survives a page reload (localStorage, per-user scope); Cancel discards an unsaved toggle change.
 - **TC-CAL-008 — week-view states** (Figma `1786:2934`): clicking a time-grid event block opens the peek popover (title, date · time, **Edit**; **Join** only when the location is a URL and AI summaries are on) and marks the block selected; **Edit** opens the editor in edit mode; a drag on empty grid space opens the create editor with the dragged start/end prefilled; with two overlapping planned meetings the column shows the inline **"N conflicts"** badge, which disappears when **Conflict warnings** is toggled off.
 - **TC-CAL-009 — editor conflict detection**: two overlapping planned meetings sharing an owner; opening the editor on one surfaces the **"Overlaps with: …"** warning naming the other — verifying the editor's conflict warning uses the same `findConflicts` rules as the grid badges/rings.
@@ -313,13 +318,19 @@ Self-contained Playwright specs in `packages/core/src/modules/customers/__integr
 - **Scenario**: A month window holds > 500 interactions; cursor-following stops at the cap and some items are not rendered.
 - **Severity**: Medium
 - **Affected area**: Month view completeness for very active tenants.
-- **Mitigation**: Hard cap with an explicit on-page notice ("Showing first 500…"), counts labelled accordingly; week/day windows are far below the cap.
+- **Mitigation**: Hard cap with an explicit on-page notice ("Showing first 500…"), counts labelled accordingly; recurring candidates are placed before regular-only payloads in the combined cap while duplicate ids still keep the regular-window representation, so a saturated regular page cannot erase the overlay entirely. Week/day windows are normally far below the cap.
 - **Residual risk**: Month pill counts may undercount for extreme tenants — acceptable for v1; server aggregation endpoint listed as future work.
 #### Recurrence expansion mismatch
 - **Scenario**: Client RRULE expansion disagrees with future server-side expectations (e.g. complex BYDAY rules unsupported).
 - **Severity**: Low
-- **Mitigation**: Expansion limited to display; unsupported rules render the base occurrence only; unit tests pin supported subset (DAILY/WEEKLY + interval + until/count).
+- **Mitigation**: Expansion limited to display; unsupported rules render the base occurrence only, and filter dropdowns derive dynamic types/owners from range-filtered visible items so an out-of-window fallback master cannot leak metadata into the toolbar. Unit tests pin the supported subset (DAILY/WEEKLY + interval + until/count).
 - **Residual risk**: Exotic rules show fewer occurrences — acceptable, matches current platform behavior (nothing expands them today).
+#### Recurring-master overlay query
+- **Scenario**: A recurring master predates the visible range, so a plain `from`/`to` read cannot provide the row needed for client-side expansion.
+- **Severity**: Medium
+- **Mitigation**: `fetchCalendarCandidates` performs two parallel, opt-in cursor-followed reads for both the grid and editor conflict probe, using the same effective-date anchor, deduplicating by id, and applying the combined 500-item cap and truncation notice. The two-call shape is deliberately retained instead of adding an `OR` mode to the established list contract: it keeps default consumers byte-for-byte unchanged and makes each branch independently testable.
+- **Accepted scale/cost**: The recurrence overlay is a partial scan under existing tenant/organization/deleted scoping because no recurrence-specific index is added in this no-schema-change PR. The operational assumption is fewer than 500 recurrence-bearing masters per organization; each branch remains capped at five 100-row pages and the client expands only inside the padded visible window. A logical lookback bound cannot be added without hiding valid never-ending series whose master is old.
+- **Residual risk**: Rules bounded only by `COUNT` or an RRULE `UNTIL` may be fetched after their final occurrence because SQL intentionally avoids parsing RRULE text. If recurrence-bearing rows approach the 500-row assumption or route latency regresses, add a partial expression index on tenant, organization, and the effective-date coalesce in a schema-focused follow-up; until then the extra read and possible stale master expansion are accepted and observable through the truncation notice.
 #### Mockup-data ambiguities mis-resolved
 - **Scenario**: An adaptation (7-day week, CTA naming, presets) contradicts the designer's intent.
 - **Severity**: Low
@@ -382,6 +393,11 @@ None.
 - [x] Phase 7 — 2026-06-13 Figma revision: Customization modal (`1788:3701`) + week-view states (`1786:2934`) — peek popover, inline conflict badge, drag-to-create, enriched empty state, four wired preference toggles; new unit tests (preferences, grid) green; TC-CAL-007/008 added; preview-verified (settings modal, 5-day-week default, peek + selected ring, conflict badges)
 
 ## Changelog
+### 2026-08-07 — Issue #4735: recurring masters outside the visible window
+- Added the backward-compatible `recurrenceMasters=true` interactions-list filter and a parallel calendar fetch for recurring series that can overlap the visible range.
+- Regular and recurring results are deduplicated before client-side expansion, preserving the existing 500-item safety cap. Recurring candidates receive cap priority while duplicate ids retain the regular-window payload.
+- Review follow-up aligned the overlay upper bound with `coalesce(occurred_at, scheduled_at, created_at)`, shared the two-query candidate fetch with the editor conflict probe, limited dynamic filter options to visible items, and documented the accepted unindexed/two-request cost and expected recurrence scale. Unit coverage pins the SQL bounds, hook/probe fetch path, saturated merge policy, and duplicate handling; TC-CAL-012 covers the end-to-end calendar behavior.
+
 ### 2026-07-02 — Issue #3552: dictionary-driven types, CrudForm editor, resources & staff gating
 - **Dictionary-driven type switcher** (bug: fixed six-type list): the editor's type switcher now renders the tenant's `activity-types` dictionary entries (seeded + tenant-added, active only) instead of the hardcoded `EDITOR_KINDS`. Field morphology per type resolves through `editorKindOfInteractionType` (known keys keep their per-kind config; custom types get the `meeting`-shaped default: Starts+Ends, all-day, repeat, location, attendees). Selecting a switcher entry sets both the morphology kind and the saved `interactionType`. The Category select stays (full dictionary + the user's custom quick-pick labels from Customization settings).
 - **Editor migrated to `CrudForm`** (embedded inside the existing Dialog shell, pattern: `ActivityForm`): custom-component fields wrap the existing editor subcomponents; `entityIds=[E.customers.customer_interaction]` enables custom fields **and fieldsets**; the standard injection spots (`crud-form:customers:customer_interaction` + `:fields`) become available to other modules (e.g. future product assignment per #3554); `Cmd/Ctrl+Enter` submit and optimistic locking (auto-derived from `initialValues.updatedAt`) come from `CrudForm` built-ins. The save-time conflict warning Alert is preserved via `contentHeader`.

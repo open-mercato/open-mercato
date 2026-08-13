@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import test from 'node:test'
 
@@ -8,6 +10,8 @@ const npmSnapshotPreviewWorkflowPath = path.resolve('.github/workflows/npm-snaps
 const snapshotWorkflowPath = path.resolve('.github/workflows/snapshot.yml')
 const autoPublishSkillPath = path.resolve('.ai/skills/om-auto-publish-pr/SKILL.md')
 const skillTiersPath = path.resolve('.ai/skills/tiers.json')
+const standaloneExampleActivationScriptPath = path.resolve('scripts/prepare-standalone-example-integration.ts')
+const tsxCliPath = createRequire(import.meta.url).resolve('tsx/cli')
 
 function readText(filePath) {
   return fs.readFileSync(filePath, 'utf8')
@@ -83,6 +87,18 @@ test('published standalone lanes verify the disabled baseline before activating 
   for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
     assertStandaloneExampleActivationLane(readText(workflowPath))
   }
+})
+
+test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {
+  const result = spawnSync(process.execPath, [tsxCliPath, standaloneExampleActivationScriptPath], {
+    cwd: path.resolve('.'),
+    encoding: 'utf8',
+  })
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+
+  assert.equal(result.status, 1)
+  assert.match(output, /Usage: yarn tsx scripts\/prepare-standalone-example-integration\.ts <app-directory>/)
+  assert.doesNotMatch(output, /Top-level await is currently not supported/)
 })
 
 test('auto publish skill only dispatches pkg.pr.new previews and is tiered as automation', () => {
