@@ -44,7 +44,7 @@ top of that seam.
 | **Phase 4 — generalize the seam** | | | |
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | DONE | `5e545ff8d` |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
-| 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | DONE | |
+| 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | DONE | `b2083d2bb` |
 | 4.4 | **Server-side out-of-band flag** (added 2026-08-12 — the AI draft agent can still author T4.2's mistake) | DONE | `8b6c83ba6` |
 
 ---
