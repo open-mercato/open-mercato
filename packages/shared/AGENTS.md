@@ -20,6 +20,7 @@ Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and 
 - Never import from `@open-mercato/core` or any domain package; shared has zero domain dependencies.
 - Never gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard matching.
 - Never use `any` for exported shared interfaces.
+- Never call `getCliModules()` / `hasCliModules()` / `registerCliModules()` from runtime code. Only the `mercato` bin populates that registry and `getCliModules()` fails **open** (`[]`), so runtime readers silently do nothing outside a CLI process - this is what made the events worker drop every persistent subscriber. Runtime code uses the app registry (`getModules()` from `lib/modules/registry`) or a DI-resolved service; only `packages/cli/**` and a module's own `cli.ts` may read it. Enforced by `src/modules/__tests__/cli-registry-boundary.test.ts`.
 
 ## Validation Commands
 
