@@ -30,7 +30,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   prepare:
     name: Prepare release PR
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Only allow release preparation from main branch
     if: github.ref == 'refs/heads/main'
 
