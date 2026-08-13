@@ -9,6 +9,10 @@ import { CommunicationChannel } from '../../../../../data/entities'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import { refreshCredentialsIfNeeded } from '../../../../../lib/credential-refresh'
+import {
+  MAX_OUTBOUND_RECIPIENT_LENGTH,
+  validateOutboundRecipient,
+} from '../../../../../lib/outbound-recipient'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 type RbacServiceLike = {
@@ -29,8 +33,13 @@ export const metadata = {
   },
 }
 
+// `to` is deliberately NOT typed as an email here. The recipient shape depends
+// on the provider (an email address for Gmail/IMAP, a channel snowflake for
+// Discord), and the adapter is only known once the channel is loaded — so the
+// schema accepts any non-empty string and `validateOutboundRecipient` applies
+// the provider-appropriate rules below, defaulting to email.
 const bodySchema = z.object({
-  to: z.string().email(),
+  to: z.string().min(1).max(MAX_OUTBOUND_RECIPIENT_LENGTH),
   subject: z.string().min(1).max(500).optional(),
   body: z.string().max(50_000).optional(),
 })
@@ -157,6 +166,11 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       { error: `No adapter registered for provider '${channel.providerKey}'` },
       { status: 404 },
     )
+  }
+
+  const recipient = validateOutboundRecipient(body.to, adapter.capabilities)
+  if (!recipient.ok) {
+    return NextResponse.json({ error: recipient.error }, { status: 422 })
   }
 
   // Resolve credentials + optionally refresh.

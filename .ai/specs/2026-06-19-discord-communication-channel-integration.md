@@ -818,6 +818,13 @@ not solved by it**: touch-point 2 is #4976, touch-point 3 is #4977.
   a hidden `Bcc`, through the subject or threading fields. Making `subject` optional or conditional
   MUST keep that guard on every code path where a subject *is* supplied; dropping the regex while
   relaxing the schema would trade an ingest bug for a header-injection hole.
+  **Status (2026-08-13): half landed.** `test-send/route.ts` now validates the recipient through
+  `capabilities.recipientFormat` (`'email'` by default, so Gmail/IMAP are byte-identical;
+  `'provider-native'` for id-addressed providers), so the documented outbound smoke test is reachable
+  for Discord. `send-as-user` is **not** fixed and cannot be fixed here: `lib/send-as-user.ts:134`
+  feeds `input.to[0]` into `externalEmail` on `messages.messages.compose`, i.e. straight into the
+  touch-point 1 validator this section is still deciding. Widening its schema alone would move the
+  422 one layer deeper. It lands with the variant decision — as does the conditional `subject`.
 - **Channel identity** (`connect-credential-channel.ts:161-169`) — tracked as **#4977** (the measured
   consequence: reconnecting Discord creates a duplicate channel, because the duplicate-mailbox guard
   stops applying once `externalIdentifier` is `NULL`): let the adapter supply its own
@@ -913,6 +920,22 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-08-13 — Touch-point 2 partially implemented (#4976)
+
+- The outbound smoke test is reachable again for a non-email provider:
+  `api/post/channels/[id]/test-send/route.ts` no longer hard-wires `to: z.string().email()`. It
+  validates through the new optional `ChannelCapabilities.recipientFormat`, which defaults to
+  `'email'` — every existing provider keeps byte-identical validation — and accepts a
+  provider-issued id when a provider declares `'provider-native'`.
+- The CR/LF guard § Shared prerequisite flags as MUST-survive was **extended, not relaxed**: the
+  provider-native path also rejects whitespace, `/`, `\`, `?`, `#` and `..`, so a recipient cannot
+  steer an adapter that interpolates it into a REST path (Discord posts to
+  `/channels/{recipient}/messages`).
+- `send-as-user` and the conditional `subject` remain **open** and still block on the variant
+  decision, for the reason now recorded inline in § Shared prerequisite.
+- Additive under Cat. 2 (optional interface field) and Cat. 7 (widened request schema); no
+  deprecation protocol required.
 
 ### 2026-08-05 — Backward-compatibility correction (QA of #4391, issue #4975)
 

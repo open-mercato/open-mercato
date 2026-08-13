@@ -363,6 +363,17 @@ A `ChannelAdapter` is the only thing a provider package must expose. The complet
 - `normalizeInbound(raw)` — provider-native payload → `NormalizedInboundMessage`
 - `capabilities` — declares feature support; validated against implemented methods
 
+### Recipient shape
+
+`capabilities.recipientFormat` tells the hub what an outbound recipient looks like for this provider:
+
+| Value | Hub validation | Use for |
+|---|---|---|
+| `'email'` (default when omitted) | Full email-address validation | Email providers — Gmail, IMAP |
+| `'provider-native'` | Length plus transport safety only (no whitespace, line breaks, `/`, `\`, `?`, `#`, or `..`) | Providers addressed by a provider-issued id — e.g. a Discord channel snowflake |
+
+A provider that declares `'provider-native'` owns the format check itself and MUST treat the recipient as untrusted input — the hub deliberately does not know what a valid id looks like for your transport.
+
 ### Optional extensions
 
 - `fetchHistory(input)` — required for polling-based providers (`realtimePush: false`)
