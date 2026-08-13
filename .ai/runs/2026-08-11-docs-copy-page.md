@@ -41,6 +41,8 @@ Add a "Copy page as Markdown" button to every MDX documentation page in `apps/do
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+> The four entries below that say `working tree` landed together in `782a872b7`.
+
 ### Phase 1: Core implementation
 
 - [x] 1.1 Add raw-MDX plugin and production source publishing — 2b7e27ab4

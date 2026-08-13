@@ -10,6 +10,7 @@ const docsMetadataDir = new URL(
   '../.docusaurus/docusaurus-plugin-content-docs/default/',
   import.meta.url,
 );
+const docsSourcePrefix = '@site/docs/';
 
 async function findHtmlFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -49,8 +50,8 @@ test('every Copy page source URL resolves to its published raw MDX', async () =>
   const missingRawFiles = await Promise.all(
     metadataFiles.map(async (metadataFile) => {
       const metadata = JSON.parse(await readFile(new URL(metadataFile, docsMetadataDir), 'utf8'));
-      const sourcePath = metadata.source?.replace('@site/docs/', '');
-      if (!sourcePath) return metadataFile;
+      if (!metadata.source?.startsWith(docsSourcePrefix)) return metadataFile;
+      const sourcePath = metadata.source.slice(docsSourcePrefix.length);
 
       try {
         const [source, raw] = await Promise.all([

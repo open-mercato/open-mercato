@@ -1,45 +1,61 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDoc } from '@docusaurus/plugin-content-docs/client';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 
-export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React.ReactElement {
+const DOCS_SOURCE_PREFIX = '@site/docs/';
+
+export default function CopyPageButton({ wide }: { wide?: boolean }): React.ReactElement {
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
-  const [source, setSource] = useState<string | null | undefined>(undefined);
+  const [source, setSource] = useState<{ path: string; content: string } | null | undefined>(undefined);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { metadata } = useDoc();
-  const sourcePath = metadata.source?.replace('@site/docs/', '') || '';
+  const sourcePath = metadata.source?.startsWith(DOCS_SOURCE_PREFIX)
+    ? metadata.source.slice(DOCS_SOURCE_PREFIX.length)
+    : null;
+  const rawSourceUrl = useBaseUrl(sourcePath ? `raw/${sourcePath}` : 'raw/');
+
+  useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
   useEffect(() => {
+    setSource(undefined);
+
     if (!sourcePath) {
       setSource(null);
+      flashState('error');
       return;
     }
 
     let cancelled = false;
 
-    void fetch(`/raw/${sourcePath}`)
+    void fetch(rawSourceUrl)
       .then(async (response) => {
         if (!response.ok) throw new Error('[internal] Unable to load raw documentation source.');
         return response.text();
       })
       .then((content) => {
-        if (!cancelled) setSource(content);
+        if (!cancelled) setSource({ path: sourcePath, content });
       })
       .catch(() => {
-        if (!cancelled) flashState('error');
+        if (!cancelled) {
+          setSource(null);
+          flashState('error');
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [sourcePath]);
+  }, [rawSourceUrl, sourcePath]);
+
+  const sourceReady = source?.path === sourcePath;
 
   function handleCopy() {
-    if (typeof source !== 'string') {
+    if (!source || source.path !== sourcePath) {
       flashState('error');
       return;
     }
 
-    void navigator.clipboard.writeText(source).then(
+    void navigator.clipboard.writeText(source.content).then(
       () => flashState('copied'),
       () => flashState('error'),
     );
@@ -56,7 +72,7 @@ export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React
       ? 'Copied!'
       : state === 'error'
         ? 'Failed to copy'
-        : source === undefined
+        : !sourceReady
           ? 'Preparing copy'
           : 'Copy page';
 
@@ -64,7 +80,7 @@ export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React
     <button
       data-copy-page-button
       type="button"
-      disabled={source === undefined}
+      disabled={!sourceReady}
       className={[
         'copy-page-button',
         state === 'copied' && 'copy-page-button--copied',
@@ -75,7 +91,7 @@ export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React
         .join(' ')}
       onClick={handleCopy}
       title={label}
-      aria-label={label}
+      aria-label="Copy page as Markdown"
     >
       {state === 'copied' ? (
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">

@@ -1,6 +1,28 @@
 const path = require('path');
 const fs = require('fs/promises');
-const { existsSync, readdirSync, copyFileSync, mkdirSync } = require('fs');
+const { existsSync, readdirSync, readFileSync, copyFileSync, mkdirSync } = require('fs');
+
+const DOCS_SOURCE_PREFIX = '@site/docs/';
+
+function isDocumentationSource(filePath) {
+  return filePath.endsWith('.md') || filePath.endsWith('.mdx');
+}
+
+function isPathWithin(parentPath, candidatePath) {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
+function getPublishedSourcePaths(generatedFilesDir) {
+  const metadataDir = path.join(generatedFilesDir, 'docusaurus-plugin-content-docs', 'default');
+  if (!existsSync(metadataDir)) return [];
+
+  return readdirSync(metadataDir)
+    .filter((fileName) => fileName.startsWith('site-docs-') && fileName.endsWith('.json'))
+    .map((fileName) => JSON.parse(readFileSync(path.join(metadataDir, fileName), 'utf8')).source)
+    .filter((sourcePath) => sourcePath?.startsWith(DOCS_SOURCE_PREFIX))
+    .map((sourcePath) => sourcePath.slice(DOCS_SOURCE_PREFIX.length));
+}
 
 /**
  * Docusaurus plugin that serves raw .mdx/.md source files at /raw/<path>
@@ -23,9 +45,9 @@ module.exports = function rawMdxPlugin(context) {
               name: 'raw-mdx',
               path: '/raw/*',
               async middleware(req, res) {
-                const filePath = path.join(docsDir, req.params[0]);
+                const filePath = path.resolve(docsDir, req.params[0] ?? '');
 
-                if (!filePath.startsWith(docsDir)) {
+                if (!isPathWithin(docsDir, filePath) || !isDocumentationSource(filePath)) {
                   res.status(403).end();
                   return;
                 }
@@ -48,23 +70,16 @@ module.exports = function rawMdxPlugin(context) {
     async postBuild({ outDir }) {
       const rawDir = path.join(outDir, 'raw');
 
-      function copyMdxFiles(srcDir, destDir) {
-        if (!existsSync(srcDir)) return;
-        mkdirSync(destDir, { recursive: true });
-
-        for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
-          const srcPath = path.join(srcDir, entry.name);
-          const destPath = path.join(destDir, entry.name);
-
-          if (entry.isDirectory()) {
-            copyMdxFiles(srcPath, destPath);
-          } else if (entry.name.endsWith('.mdx') || entry.name.endsWith('.md')) {
-            copyFileSync(srcPath, destPath);
-          }
+      for (const sourcePath of getPublishedSourcePaths(context.generatedFilesDir)) {
+        const sourceFilePath = path.resolve(docsDir, sourcePath);
+        if (!isPathWithin(docsDir, sourceFilePath) || !isDocumentationSource(sourceFilePath)) {
+          continue;
         }
-      }
 
-      copyMdxFiles(docsDir, rawDir);
+        const rawFilePath = path.join(rawDir, sourcePath);
+        mkdirSync(path.dirname(rawFilePath), { recursive: true });
+        copyFileSync(sourceFilePath, rawFilePath);
+      }
     },
   };
 };
