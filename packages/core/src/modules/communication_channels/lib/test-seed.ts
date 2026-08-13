@@ -85,8 +85,10 @@ const testSeedCapabilities: ChannelCapabilities = {
  * delivery worker reach its success path and emit `communication_channels.message.sent`.
  */
 class TestSeedChannelAdapter implements ChannelAdapter {
-  readonly providerKey = TEST_SEED_PROVIDER_KEY
-  readonly channelType = 'email'
+  // Widened to `string` rather than inferred as a literal so the chat-flavoured
+  // subclass below can override both with its own provider key / channel type.
+  readonly providerKey: string = TEST_SEED_PROVIDER_KEY
+  readonly channelType: string = 'email'
   readonly capabilities = testSeedCapabilities
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
@@ -141,8 +143,8 @@ class TestSeedChannelAdapter implements ChannelAdapter {
  * `externalIdentifier` of NULL when no email-ish credential key is supplied.
  */
 class TestSeedChatChannelAdapter extends TestSeedChannelAdapter {
-  readonly providerKey = TEST_SEED_CHAT_PROVIDER_KEY
-  readonly channelType = 'discord'
+  readonly providerKey: string = TEST_SEED_CHAT_PROVIDER_KEY
+  readonly channelType: string = 'discord'
 
   async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
     // Unlike the email stub, this one is reachable: the test-seed ingest action

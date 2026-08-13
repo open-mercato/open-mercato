@@ -51,5 +51,5 @@ export function channelTypeRequiresExternalEmail(channelType?: string | null): b
 
 /** The recognized non-email channel types, for tests and diagnostics. */
 export function listNonEmailSenderChannelTypes(): string[] {
-  return Array.from(NON_EMAIL_SENDER_CHANNEL_TYPES).sort()
+  return Array.from(NON_EMAIL_SENDER_CHANNEL_TYPES).sort((left, right) => left.localeCompare(right))
 }
