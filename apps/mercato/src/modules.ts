@@ -198,4 +198,18 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+  // ElevenLabs voice connector: registers an external-agent connector plus the
+  // `voice.owner_call` agent. It implements the orchestrator's external-agent
+  // seam, so it is only enabled alongside it. Outbound calling still requires
+  // the default-off `agent_orchestrator.external_agents.invoke` grant and a
+  // configured, enabled integration — enabling the module never dials.
+  enabledModules.push({ id: 'agent_elevenlabs', from: '@open-mercato/agent-elevenlabs' })
+  // Test-only external-agent connector + agents. Every shipped connector reaches a
+  // third party (a phone call, a tenant-configured URL), so without this the
+  // suspend/callback/resume seam has no executable HTTP-boundary proof. It performs
+  // no network I/O and is enabled ONLY under OM_INTEGRATION_TEST, which the
+  // integration runner sets for the app — exactly like the `example` nav probe above.
+  if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+    enabledModules.push({ id: 'agent_probe', from: '@app' })
+  }
 }

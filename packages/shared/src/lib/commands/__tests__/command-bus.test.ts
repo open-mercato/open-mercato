@@ -186,6 +186,8 @@ describe('CommandBus', () => {
     const payload = logMock.mock.calls[0][0] as Record<string, unknown>
     expect(payload.actorUserId).toBe('user-1')
     expect(payload.onBehalfOfUserId).toBeUndefined()
+  })
+
   describe('interceptor rejections', () => {
     const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({
       id: 'test.block',
