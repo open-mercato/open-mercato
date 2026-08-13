@@ -1,15 +1,10 @@
 # Lessons
 
-This catalog indexes 127 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 129 focused lessons. Route by module, area, and topic, then read only matching records.
 
 ## How to use this catalog
 
-1. Start with the exact module ID when one is named by the task.
-2. Add every matching area from the standalone harness router: `architecture`, `module-data`, `umes`, `backend-ui`, `integration`, `ai-workflow`, `debugging`, `testing`, `framework-context`, or `spec-pr`.
-3. Use topics to narrow cross-cutting concerns such as `data-scoping`, `optimistic-locking`, `query-index`, or `generated-files`.
-4. Open only the linked lesson records that match; do not bulk-read `.ai/lessons/`.
-
-Useful searches:
+Search the exact module first, then matching areas or cross-cutting topics. Do not bulk-read `.ai/lessons/`.
 
 ```bash
 rg -n '\b<module-or-topic>\b' .ai/lessons.md
@@ -18,9 +13,9 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 
 ## Adding or updating a lesson
 
-- Keep one reusable lesson per `.ai/lessons/<kebab-case-slug>.md`; update an existing record instead of duplicating it.
-- Preserve the front matter keys `title`, `modules`, `areas`, and `topics`. Use `platform` only when no module or package owns the lesson, and put the primary area first.
-- Add or update exactly one catalog row below. Keep the title stable when existing code/specs cite it.
+- Keep one reusable lesson per `.ai/lessons/<kebab-case-slug>.md`; update rather than duplicate it.
+- Preserve `title`, `modules`, `areas`, and `topics`; use `platform` only when nothing else owns the lesson.
+- Add or update exactly one catalog row and keep cited titles stable.
 - Put hard boundaries in the closest `AGENTS.md`; lessons explain recurring evidence and the durable rule.
 - Run `yarn lessons:check` before committing.
 
