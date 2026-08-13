@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
@@ -6,7 +7,11 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
-import { WarrantyClaim } from '../data/entities'
+import {
+  WarrantyClaim,
+  WarrantyClaimSlaSignal,
+  type WarrantyClaimSlaSignalEventId,
+} from '../data/entities'
 import { emitWarrantyClaimsEvent } from '../events'
 import { businessMillisBetween, slaProgressPctFromDue } from '../lib/businessHours'
 import {
@@ -59,6 +64,7 @@ type SweepScope = {
 // The active-SLA backlog grows with the tenant, so the sweep walks it in keyset
 // pages instead of decrypting every claim into memory in one query.
 const SWEEP_PAGE_SIZE = 500
+const SIGNAL_LEASE_MILLIS = 5 * 60 * 1000
 
 type SweepCursor = { slaDueAt: Date; id: string } | null
 
@@ -118,52 +124,143 @@ function roundedPct(value: number): number {
   return Math.round(value * 100) / 100
 }
 
-async function emitSlaSignal(
-  eventId: 'warranty_claims.claim.sla_at_risk' | 'warranty_claims.claim.sla_breached',
+function slaSignalStamps(
+  eventId: WarrantyClaimSlaSignalEventId,
   claim: WarrantyClaim,
-  scope: SweepScope,
-  progressPct: number,
-  elapsedBusinessMillis: number,
-): Promise<void> {
-  await emitWarrantyClaimsEvent(eventId, {
-    ...claimEventPayload(claim, scope),
-    progressPct: roundedPct(progressPct),
-    elapsedBusinessMillis,
-    slaDueAt: claim.slaDueAt?.toISOString() ?? null,
-  }, { persistent: true })
-}
-
-async function stampSlaSignal(
-  em: EntityManager,
-  claim: WarrantyClaim,
-  scope: SweepScope,
-  stamps: Partial<Pick<WarrantyClaim, 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'>>,
-): Promise<void> {
-  await em.nativeUpdate(
-    WarrantyClaim,
-    { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    stamps,
-  )
-}
-
-async function deliverSlaSignal(
-  em: EntityManager,
-  eventId: 'warranty_claims.claim.sla_at_risk' | 'warranty_claims.claim.sla_breached',
-  claim: WarrantyClaim,
-  scope: SweepScope,
-  progressPct: number,
-  elapsedBusinessMillis: number,
   now: Date,
-): Promise<void> {
-  const stamps = eventId === 'warranty_claims.claim.sla_breached'
+): Partial<Pick<WarrantyClaim, 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'>> {
+  return eventId === 'warranty_claims.claim.sla_breached'
     ? {
         slaBreachedNotifiedAt: now,
         slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
       }
     : { slaAtRiskNotifiedAt: now }
-  await emitSlaSignal(eventId, claim, scope, progressPct, elapsedBusinessMillis)
-  await stampSlaSignal(em, claim, scope, stamps)
-  Object.assign(claim, stamps)
+}
+
+async function reserveSlaSignal(
+  em: EntityManager,
+  eventId: WarrantyClaimSlaSignalEventId,
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  progressPct: number,
+  elapsedBusinessMillis: number,
+  now: Date,
+): Promise<WarrantyClaimSlaSignal | null> {
+  const cycleKey = claim.slaDueAt?.toISOString()
+  if (!cycleKey) return null
+  const stamps = slaSignalStamps(eventId, claim, now)
+  const signal = await em.transactional(async (tx) => {
+    const affected = await tx.nativeUpdate(
+      WarrantyClaim,
+      {
+        id: claim.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        ...(eventId === 'warranty_claims.claim.sla_breached'
+          ? { slaBreachedNotifiedAt: null }
+          : { slaAtRiskNotifiedAt: null }),
+      },
+      stamps,
+    )
+    if (affected === 0) return null
+
+    const created = tx.create(WarrantyClaimSlaSignal, {
+      id: randomUUID(),
+      claimId: claim.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      eventId,
+      cycleKey,
+      payload: {
+        ...claimEventPayload(claim, scope),
+        progressPct: roundedPct(progressPct),
+        elapsedBusinessMillis,
+        slaDueAt: claim.slaDueAt?.toISOString() ?? null,
+      },
+    })
+    await tx.persist(created).flush()
+    return created
+  })
+  if (signal) Object.assign(claim, stamps)
+  return signal
+}
+
+async function acquireSlaSignalLease(
+  em: EntityManager,
+  signal: WarrantyClaimSlaSignal,
+): Promise<string | null> {
+  const leaseToken = randomUUID()
+  const now = new Date()
+  const affected = await em.nativeUpdate(
+    WarrantyClaimSlaSignal,
+    {
+      id: signal.id,
+      tenantId: signal.tenantId,
+      organizationId: signal.organizationId,
+      publishedAt: null,
+      $or: [
+        { leaseExpiresAt: null },
+        { leaseExpiresAt: { $lt: now } },
+      ],
+    },
+    {
+      leaseToken,
+      leaseExpiresAt: new Date(now.getTime() + SIGNAL_LEASE_MILLIS),
+    },
+  )
+  return affected === 0 ? null : leaseToken
+}
+
+async function publishSlaSignal(em: EntityManager, signal: WarrantyClaimSlaSignal): Promise<void> {
+  const leaseToken = await acquireSlaSignalLease(em, signal)
+  if (!leaseToken) return
+  try {
+    await emitWarrantyClaimsEvent(
+      signal.eventId,
+      { ...signal.payload, deliveryId: signal.id },
+      {
+        persistent: true,
+        tenantId: signal.tenantId,
+        organizationId: signal.organizationId,
+      },
+    )
+    const affected = await em.nativeUpdate(
+      WarrantyClaimSlaSignal,
+      { id: signal.id, leaseToken, publishedAt: null },
+      { publishedAt: new Date(), leaseToken: null, leaseExpiresAt: null },
+    )
+    if (affected === 0) {
+      throw new Error('[internal] SLA signal publication lease was lost')
+    }
+  } catch (error) {
+    await em.nativeUpdate(
+      WarrantyClaimSlaSignal,
+      { id: signal.id, leaseToken, publishedAt: null },
+      { leaseToken: null, leaseExpiresAt: null },
+    ).catch(() => undefined)
+    throw error
+  }
+}
+
+async function drainPendingSlaSignals(em: EntityManager, scope: SweepScope): Promise<void> {
+  const pending = await findWithDecryption(
+    em,
+    WarrantyClaimSlaSignal,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, publishedAt: null },
+    { orderBy: { createdAt: 'ASC' }, limit: SWEEP_PAGE_SIZE },
+    scope,
+  )
+  for (const signal of pending) {
+    try {
+      await publishSlaSignal(em, signal)
+    } catch (error) {
+      logger.warn('[warranty_claims:sla-escalation-sweep] pending signal failed', {
+        signalId: signal.id,
+        claimId: signal.claimId,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+  }
 }
 
 function buildCommandContext(container: ResolverContainer, scope: SweepScope): CommandRuntimeContext {
@@ -258,6 +355,15 @@ export default async function handle(
 
   const container = resolveContainer(ctx)
   const em = ctx.resolve<EntityManager>('em')
+  try {
+    await drainPendingSlaSignals(em, scope)
+  } catch (error) {
+    logger.error('[warranty_claims:sla-escalation-sweep] pending signal drain failed', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      error: error instanceof Error ? error.message : error,
+    })
+  }
   const settings = await resolveEffectiveWarrantyClaimSettings(em, scope)
   const tiers = parseEscalationTiers(settings.escalationTiers)
   const now = new Date()
@@ -299,7 +405,7 @@ export default async function handle(
           progressPct < 100 &&
           !claim.slaAtRiskNotifiedAt
         ) {
-          await deliverSlaSignal(
+          const signal = await reserveSlaSignal(
             em,
             'warranty_claims.claim.sla_at_risk',
             claim,
@@ -308,9 +414,10 @@ export default async function handle(
             elapsedBusinessMillis,
             now,
           )
+          if (signal) await publishSlaSignal(em, signal)
         }
         if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
-          await deliverSlaSignal(
+          const signal = await reserveSlaSignal(
             em,
             'warranty_claims.claim.sla_breached',
             claim,
@@ -319,6 +426,7 @@ export default async function handle(
             elapsedBusinessMillis,
             now,
           )
+          if (signal) await publishSlaSignal(em, signal)
         }
 
         const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)

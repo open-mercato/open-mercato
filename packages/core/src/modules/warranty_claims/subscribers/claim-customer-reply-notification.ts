@@ -17,6 +17,8 @@ export const metadata = {
 type ResolverContext = {
   resolve: <T = unknown>(name: string) => T
   container?: { resolve<T = unknown>(name: string): T }
+  tenantId?: string | null
+  organizationId?: string | null
 }
 
 function readString(record: Record<string, unknown>, key: string): string | null {
@@ -29,8 +31,8 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
   const actorCustomerId = readString(record, 'actorCustomerId')
   if (!actorCustomerId) return
   const claimId = readString(record, 'claimId') ?? readString(record, 'id')
-  const tenantId = readString(record, 'tenantId')
-  const organizationId = readString(record, 'organizationId')
+  const tenantId = ctx.tenantId ?? null
+  const organizationId = ctx.organizationId ?? null
   if (!claimId || !tenantId || !organizationId) return
 
   try {

@@ -419,7 +419,10 @@ function makeLine(claim: WarrantyClaim, fields: Partial<WarrantyClaimLine> = {})
     qtyApproved: fields.qtyApproved ?? null,
     qtyReceived: fields.qtyReceived ?? null,
     conditionOnReceipt: fields.conditionOnReceipt ?? null,
+    conditionGrade: fields.conditionGrade ?? null,
+    quarantineStatus: fields.quarantineStatus ?? 'none',
     inspectionNotes: fields.inspectionNotes ?? null,
+    assessmentPayload: fields.assessmentPayload ?? null,
     disposition: fields.disposition ?? null,
     lineStatus: fields.lineStatus ?? 'pending',
     creditAmount: fields.creditAmount ?? null,
@@ -427,6 +430,7 @@ function makeLine(claim: WarrantyClaim, fields: Partial<WarrantyClaimLine> = {})
     coreChargeAmount: fields.coreChargeAmount ?? null,
     coreCreditAmount: fields.coreCreditAmount ?? null,
     vendorClaimLineId: fields.vendorClaimLineId ?? null,
+    vendorName: fields.vendorName ?? null,
     createdAt: fields.createdAt ?? new Date('2026-07-01T00:00:00.000Z'),
     updatedAt: fields.updatedAt ?? new Date('2026-07-01T00:00:00.000Z'),
     deletedAt: fields.deletedAt ?? null,
@@ -545,6 +549,73 @@ describe('warranty claim commands', () => {
       .toMatchObject({ status: 400 })
   })
 
+  test('undo restores the command delta when the captured aggregate and lines are unchanged', async () => {
+    jest.useFakeTimers()
+    try {
+      const { ctx } = makeContext()
+      const claim = makeClaim('draft', { notes: 'before' })
+      const line = makeLine(claim)
+      mockClaims.push(claim)
+      mockLines.push(line)
+      const input = { id: CLAIM_ID, notes: 'after' }
+      const prepared = await updateClaimCommand.prepare!(input, ctx)
+      jest.setSystemTime(new Date('2026-07-02T00:00:00.000Z'))
+      const result = await updateClaimCommand.execute(input, ctx)
+      const after = await updateClaimCommand.captureAfter!(input, result, ctx)
+      const logEntry = await updateClaimCommand.buildLog!({
+        input,
+        result,
+        ctx,
+        snapshots: { before: prepared?.before, after },
+      })
+
+      await updateClaimCommand.undo!({ input, logEntry: logEntry as never, ctx })
+
+      expect(claim.notes).toBe('before')
+      expect(line.inspectionNotes).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test.each(['aggregate', 'line'] as const)('undo rejects an intervening %s edit without overwriting it', async (target) => {
+    jest.useFakeTimers()
+    try {
+      const { ctx } = makeContext()
+      const claim = makeClaim('draft', { notes: 'before' })
+      const line = makeLine(claim)
+      mockClaims.push(claim)
+      mockLines.push(line)
+      const input = { id: CLAIM_ID, notes: 'after' }
+      const prepared = await updateClaimCommand.prepare!(input, ctx)
+      jest.setSystemTime(new Date('2026-07-02T00:00:00.000Z'))
+      const result = await updateClaimCommand.execute(input, ctx)
+      const after = await updateClaimCommand.captureAfter!(input, result, ctx)
+      const logEntry = await updateClaimCommand.buildLog!({
+        input,
+        result,
+        ctx,
+        snapshots: { before: prepared?.before, after },
+      })
+
+      if (target === 'aggregate') {
+        claim.customerName = 'Intervening customer name'
+        claim.updatedAt = new Date('2026-07-03T00:00:00.000Z')
+      } else {
+        line.inspectionNotes = 'Intervening inspection'
+        line.updatedAt = new Date('2026-07-03T00:00:00.000Z')
+      }
+
+      await expect(updateClaimCommand.undo!({ input, logEntry: logEntry as never, ctx }))
+        .rejects.toMatchObject({ status: 409, body: { error: 'warranty_claims.errors.conflict' } })
+      expect(claim.notes).toBe('after')
+      if (target === 'aggregate') expect(claim.customerName).toBe('Intervening customer name')
+      else expect(line.inspectionNotes).toBe('Intervening inspection')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   test('submit stamps submitted and SLA timestamps', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('draft')
@@ -557,6 +628,16 @@ describe('warranty claim commands', () => {
     expect(claim.submittedAt).toBeInstanceOf(Date)
     expect(claim.slaDueAt).toBeInstanceOf(Date)
     expect(claim.slaDueAt!.getTime() - claim.submittedAt!.getTime()).toBe(12 * 60 * 60 * 1000)
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
+      'warranty_claims.claim.submitted',
+      expect.objectContaining({ claimId: CLAIM_ID }),
+      { persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
+      'warranty_claims.claim.status_changed',
+      expect.objectContaining({ claimId: CLAIM_ID, toStatus: 'submitted' }),
+      { persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
   })
 
   test('submit with a customer actor attributes the timeline event to the customer, not the auth user', async () => {
@@ -785,12 +866,12 @@ describe('warranty claim commands', () => {
       expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
         'warranty_claims.claim.status_changed',
         expect.objectContaining({ fromStatus: 'info_requested', toStatus: 'in_review' }),
-        { persistent: true },
+        { persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID },
       )
       expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
         'warranty_claims.claim.portal_status_changed',
         expect.objectContaining({ fromStatus: 'info_requested', toStatus: 'in_review', recipientUserIds: [PORTAL_USER_ID] }),
-        { persistent: true },
+        { persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID },
       )
     } finally {
       jest.useRealTimers()

@@ -8,6 +8,8 @@ export const metadata = {
 
 type HandlerContext = {
   resolve: <T = unknown>(name: string) => T
+  tenantId?: string | null
+  organizationId?: string | null
 }
 
 function readString(record: Record<string, unknown>, key: string): string | null {
@@ -18,8 +20,8 @@ function readString(record: Record<string, unknown>, key: string): string | null
 export default async function handle(payload: unknown, ctx: HandlerContext): Promise<void> {
   const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
   const claimId = readString(record, 'claimId') ?? readString(record, 'id')
-  const tenantId = readString(record, 'tenantId')
-  const organizationId = readString(record, 'organizationId')
+  const tenantId = ctx.tenantId ?? null
+  const organizationId = ctx.organizationId ?? null
   const claimType = readString(record, 'claimType')
   const toStatus = readString(record, 'toStatus') ?? readString(record, 'status')
   if (!claimId || !tenantId || !organizationId) return

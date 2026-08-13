@@ -27,7 +27,7 @@ import {
   narrowFiltersToClaimIds,
   SLA_EXCLUDED_STATUSES,
 } from '../lib/deskFilters'
-import { decorateItemsWithAssigneeNames } from '../lib/assigneeNames'
+import { attachAssigneeOrganizationId, decorateItemsWithAssigneeNames } from '../lib/assigneeNames'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import { applyIdsFilter } from '../lib/apiIdsFilter'
 import {
@@ -219,7 +219,7 @@ function isSingleRecordProjection(query: ClaimListQuery): boolean {
 function transformClaimItem(item: unknown): unknown {
   const record = toRecord(item)
   if (!Object.keys(record).length) return item
-  return {
+  return attachAssigneeOrganizationId({
     id: readString(record, 'id', 'id'),
     claimNumber: readString(record, 'claim_number', 'claimNumber'),
     claimType: readString(record, 'claim_type', 'claimType'),
@@ -263,7 +263,7 @@ function transformClaimItem(item: unknown): unknown {
     assigneeName: readString(record, 'assignee_name', 'assigneeName'),
     createdAt: toIso(record.created_at ?? record.createdAt),
     updatedAt: toIso(record.updated_at ?? record.updatedAt),
-  }
+  }, readString(record, 'organization_id', 'organizationId'))
 }
 
 const CLAIM_DETAIL_ONLY_FIELDS = ['sales_return_id', 'replacement_order_id', 'credit_memo_id', 'source_claim_id', 'return_label_url', 'return_tracking_number', 'return_carrier'] as const
@@ -442,8 +442,9 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       if (!items.length) return
       await decorateItemsWithAssigneeNames(items, {
         container: ctx.container,
-        tenantId: ctx.auth?.tenantId ?? null,
-        organizationId: ctx.auth?.orgId ?? null,
+        tenantId: ctx.organizationScope?.tenantId ?? ctx.auth?.tenantId ?? null,
+        organizationId: ctx.selectedOrganizationId,
+        organizationIds: ctx.organizationIds,
       })
     },
   },

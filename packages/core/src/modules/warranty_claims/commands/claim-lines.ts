@@ -630,7 +630,7 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
           await assertPendingClaimQuantitiesWithinSold(em, scope, new Map([[input.orderLineId, [{
             orderLineId: input.orderLineId,
             qtyClaimed: amountString(input.qtyClaimed, '1') ?? '1',
-          }]]]))
+          }]]]), { currentClaimId: claim.id })
         }
         nextLineNo = input.lineNo ?? existingLines.reduce((max, entry) => Math.max(max, entry.lineNo), 0) + 1
       },
@@ -719,7 +719,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
                 ? (amountString(input.qtyClaimed, '1') ?? '1')
                 : line.qtyClaimed,
             }]]]),
-            { excludedLineIds: new Set([line.id]) },
+            { currentClaimId: claim.id, excludedLineIds: new Set([line.id]) },
           )
         }
       },
@@ -897,7 +897,11 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
         scope,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
-      }, { persistent: true })
+      }, {
+        persistent: true,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
     }
     return { lineId: line.id, claimId: claim.id }
   },

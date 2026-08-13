@@ -582,6 +582,56 @@ export class WarrantyClaimEvent {
   createdAt: Date = new Date()
 }
 
+export type WarrantyClaimSlaSignalEventId =
+  | 'warranty_claims.claim.sla_at_risk'
+  | 'warranty_claims.claim.sla_breached'
+
+@Entity({ tableName: 'warranty_claim_sla_signals' })
+@Index({
+  name: 'warranty_claim_sla_signals_pending_scope_idx',
+  properties: ['tenantId', 'organizationId', 'publishedAt', 'createdAt'],
+})
+@Unique({
+  name: 'warranty_claim_sla_signals_claim_event_cycle_unique',
+  properties: ['tenantId', 'organizationId', 'claimId', 'eventId', 'cycleKey'],
+})
+export class WarrantyClaimSlaSignal {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'claim_id', type: 'uuid' })
+  claimId!: string
+
+  @Property({ name: 'event_id', type: 'text' })
+  eventId!: WarrantyClaimSlaSignalEventId
+
+  @Property({ name: 'cycle_key', type: 'text' })
+  cycleKey!: string
+
+  @Property({ name: 'payload', type: 'jsonb' })
+  payload!: Record<string, unknown>
+
+  @Property({ name: 'lease_token', type: 'uuid', nullable: true })
+  leaseToken?: string | null
+
+  @Property({ name: 'lease_expires_at', type: Date, nullable: true })
+  leaseExpiresAt?: Date | null
+
+  @Property({ name: 'published_at', type: Date, nullable: true })
+  publishedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
 @Entity({ tableName: 'warranty_claim_sequences' })
 @Unique({
   name: 'warranty_claim_sequences_type_unique',

@@ -12,7 +12,11 @@ const USER_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
 type QueryCall = { entityId: unknown; opts: Record<string, unknown> }
 
-function createDeps(items: Array<Record<string, unknown>>, calls: QueryCall[] = []) {
+function createDeps(
+  items: Array<Record<string, unknown>>,
+  calls: QueryCall[] = [],
+  scope: { organizationId: string | null; organizationIds?: string[] | null } = { organizationId: 'org-1' },
+) {
   const queryEngine = {
     query: async (entityId: unknown, opts: Record<string, unknown>) => {
       calls.push({ entityId, opts })
@@ -23,7 +27,7 @@ function createDeps(items: Array<Record<string, unknown>>, calls: QueryCall[] = 
     deps: {
       container: { resolve: (name: string) => (name === 'queryEngine' ? queryEngine : null) },
       tenantId: 'tenant-1',
-      organizationId: 'org-1',
+      ...scope,
     },
     calls,
   }
@@ -120,6 +124,31 @@ describe('resolveAssigneeDisplayNames', () => {
     }
     expect((await resolveAssigneeDisplayNames(unresolvableDeps, [USER_A])).size).toBe(0)
   })
+
+  it('uses the visible organization set when no single organization is selected', async () => {
+    const { deps, calls } = createDeps([
+      { id: USER_A, name: 'Alice Staff', organization_id: 'org-2' },
+    ], [], { organizationId: null, organizationIds: ['org-1', 'org-2'] })
+
+    const names = await resolveAssigneeDisplayNames(deps, [USER_A])
+
+    expect(names.get(USER_A)).toBe('Alice Staff')
+    expect(calls[0].opts.filters).toEqual({
+      id: { $in: [USER_A] },
+      organization_id: { $in: ['org-1', 'org-2'] },
+      deleted_at: null,
+      is_confirmed: true,
+    })
+  })
+
+  it('fails closed without a selected or visible organization scope', async () => {
+    const { deps, calls } = createDeps([
+      { id: USER_A, name: 'Alice Staff', organization_id: 'org-1' },
+    ], [], { organizationId: null, organizationIds: null })
+
+    expect((await resolveAssigneeDisplayNames(deps, [USER_A])).size).toBe(0)
+    expect(calls).toHaveLength(0)
+  })
 })
 
 describe('decorateItemsWithAssigneeNames', () => {
@@ -156,6 +185,37 @@ describe('decorateItemsWithAssigneeNames', () => {
     await decorateItemsWithAssigneeNames(items, deps)
     expect(items[0].assigneeName).toBeNull()
     expect(calls).toHaveLength(0)
+  })
+
+  it('hydrates all-organizations rows only from the assignee membership in each record organization', async () => {
+    const { deps, calls } = createDeps([
+      { id: USER_A, name: 'Alice Staff', organization_id: 'org-1' },
+      { id: USER_B, name: 'Bob Staff', organization_id: 'org-2' },
+    ], [], { organizationId: null, organizationIds: ['org-1', 'org-2'] })
+    const items: Array<Record<string, unknown>> = [
+      { id: 'claim-1', organizationId: 'org-1', assigneeUserId: USER_A },
+      { id: 'claim-2', organizationId: 'org-2', assigneeUserId: USER_B },
+      { id: 'claim-3', organizationId: 'org-2', assigneeUserId: USER_A },
+    ]
+
+    await decorateItemsWithAssigneeNames(items, deps)
+
+    expect(items.map((item) => item.assigneeName)).toEqual(['Alice Staff', 'Bob Staff', null])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('derives a bounded per-record scope for an unrestricted all-organizations list', async () => {
+    const { deps, calls } = createDeps([
+      { id: USER_A, name: 'Alice Staff', organization_id: 'org-2' },
+    ], [], { organizationId: null, organizationIds: null })
+    const items: Array<Record<string, unknown>> = [
+      { id: 'claim-1', organizationId: 'org-2', assigneeUserId: USER_A },
+    ]
+
+    await decorateItemsWithAssigneeNames(items, deps)
+
+    expect(items[0].assigneeName).toBe('Alice Staff')
+    expect(calls[0].opts.filters).toMatchObject({ organization_id: { $in: ['org-2'] } })
   })
 })
 

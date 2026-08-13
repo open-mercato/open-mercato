@@ -148,7 +148,10 @@ type ClaimLineSnapshot = {
   qtyApproved: string | null
   qtyReceived: string | null
   conditionOnReceipt: string | null
+  conditionGrade: string | null
+  quarantineStatus: string
   inspectionNotes: string | null
+  assessmentPayload: Record<string, unknown> | null
   disposition: WarrantyClaimDisposition | null
   lineStatus: WarrantyClaimLineStatus
   creditAmount: string | null
@@ -156,7 +159,9 @@ type ClaimLineSnapshot = {
   coreChargeAmount: string | null
   coreCreditAmount: string | null
   vendorClaimLineId: string | null
+  vendorName: string | null
   deletedAt: string | null
+  updatedAt: string | null
 }
 
 type ClaimSnapshot = {
@@ -172,6 +177,7 @@ type ClaimSnapshot = {
   customerName: string | null
   externalRef: string | null
   intakeMessageRef: string | null
+  entitlementSource: string | null
   contactEmail: string | null
   returnLabelUrl: string | null
   returnTrackingNumber: string | null
@@ -195,8 +201,12 @@ type ClaimSnapshot = {
   totalClaimedAmount: string | null
   totalApprovedAmount: string | null
   totalRecoveredAmount: string | null
+  escalationLevel: number
+  escalatedAt: string | null
   slaDueAt: string | null
   slaPausedAt: string | null
+  slaAtRiskNotifiedAt: string | null
+  slaBreachedNotifiedAt: string | null
   submittedAt: string | null
   resolvedAt: string | null
   closedAt: string | null
@@ -443,7 +453,10 @@ function snapshotLine(line: WarrantyClaimLine): ClaimLineSnapshot {
     qtyApproved: line.qtyApproved ?? null,
     qtyReceived: line.qtyReceived ?? null,
     conditionOnReceipt: line.conditionOnReceipt ?? null,
+    conditionGrade: line.conditionGrade ?? null,
+    quarantineStatus: line.quarantineStatus,
     inspectionNotes: line.inspectionNotes ?? null,
+    assessmentPayload: line.assessmentPayload ?? null,
     disposition: line.disposition ?? null,
     lineStatus: line.lineStatus,
     creditAmount: line.creditAmount ?? null,
@@ -451,7 +464,9 @@ function snapshotLine(line: WarrantyClaimLine): ClaimLineSnapshot {
     coreChargeAmount: line.coreChargeAmount ?? null,
     coreCreditAmount: line.coreCreditAmount ?? null,
     vendorClaimLineId: line.vendorClaimLineId ?? null,
+    vendorName: line.vendorName ?? null,
     deletedAt: toIso(line.deletedAt),
+    updatedAt: toIso(line.updatedAt),
   }
 }
 
@@ -469,6 +484,7 @@ function snapshotClaim(claim: WarrantyClaim, lines: readonly WarrantyClaimLine[]
     customerName: claim.customerName ?? null,
     externalRef: claim.externalRef ?? null,
     intakeMessageRef: claim.intakeMessageRef ?? null,
+    entitlementSource: claim.entitlementSource ?? null,
     contactEmail: claim.contactEmail ?? null,
     returnLabelUrl: claim.returnLabelUrl ?? null,
     returnTrackingNumber: claim.returnTrackingNumber ?? null,
@@ -492,8 +508,12 @@ function snapshotClaim(claim: WarrantyClaim, lines: readonly WarrantyClaimLine[]
     totalClaimedAmount: claim.totalClaimedAmount ?? null,
     totalApprovedAmount: claim.totalApprovedAmount ?? null,
     totalRecoveredAmount: claim.totalRecoveredAmount ?? null,
+    escalationLevel: claim.escalationLevel ?? 0,
+    escalatedAt: toIso(claim.escalatedAt),
     slaDueAt: toIso(claim.slaDueAt),
     slaPausedAt: toIso(claim.slaPausedAt),
+    slaAtRiskNotifiedAt: toIso(claim.slaAtRiskNotifiedAt),
+    slaBreachedNotifiedAt: toIso(claim.slaBreachedNotifiedAt),
     submittedAt: toIso(claim.submittedAt),
     resolvedAt: toIso(claim.resolvedAt),
     closedAt: toIso(claim.closedAt),
@@ -521,124 +541,146 @@ async function loadClaimSnapshot(
   return snapshotClaim(claim, lines)
 }
 
-function restoreClaimFromSnapshot(claim: WarrantyClaim, snapshot: ClaimSnapshot): void {
-  claim.claimNumber = snapshot.claimNumber
-  claim.claimType = snapshot.claimType
-  claim.status = snapshot.status
-  claim.channel = snapshot.channel
-  claim.priority = snapshot.priority
-  claim.customerId = snapshot.customerId
-  claim.customerName = snapshot.customerName
-  claim.externalRef = snapshot.externalRef
-  claim.intakeMessageRef = snapshot.intakeMessageRef
-  claim.contactEmail = snapshot.contactEmail
-  claim.returnLabelUrl = snapshot.returnLabelUrl
-  claim.returnTrackingNumber = snapshot.returnTrackingNumber
-  claim.returnCarrier = snapshot.returnCarrier
-  claim.vendorName = snapshot.vendorName
-  claim.vendorRef = snapshot.vendorRef
-  claim.orderId = snapshot.orderId
-  claim.orderNumber = snapshot.orderNumber
-  claim.awaitingStaffReply = snapshot.awaitingStaffReply === true
-  claim.salesReturnId = snapshot.salesReturnId
-  claim.replacementOrderId = snapshot.replacementOrderId
-  claim.creditMemoId = snapshot.creditMemoId
-  claim.sourceClaimId = snapshot.sourceClaimId
-  claim.advanceReplacement = snapshot.advanceReplacement
-  claim.advanceShippedAt = toDate(snapshot.advanceShippedAt)
-  claim.reasonCode = snapshot.reasonCode
-  claim.rejectionReasonCode = snapshot.rejectionReasonCode
-  claim.resolutionSummary = snapshot.resolutionSummary
-  claim.notes = snapshot.notes
-  claim.currencyCode = snapshot.currencyCode
-  claim.totalClaimedAmount = snapshot.totalClaimedAmount
-  claim.totalApprovedAmount = snapshot.totalApprovedAmount
-  claim.totalRecoveredAmount = snapshot.totalRecoveredAmount
-  claim.slaDueAt = toDate(snapshot.slaDueAt)
-  claim.slaPausedAt = toDate(snapshot.slaPausedAt)
-  claim.submittedAt = toDate(snapshot.submittedAt)
-  claim.resolvedAt = toDate(snapshot.resolvedAt)
-  claim.closedAt = toDate(snapshot.closedAt)
-  claim.assigneeUserId = snapshot.assigneeUserId
-  claim.deletedAt = toDate(snapshot.deletedAt)
+function snapshotValueChanged(before: unknown, after: unknown): boolean {
+  return JSON.stringify(before) !== JSON.stringify(after)
 }
 
-function restoreLineFromSnapshot(line: WarrantyClaimLine, snapshot: ClaimLineSnapshot): void {
-  line.lineNo = snapshot.lineNo
-  line.productId = snapshot.productId
-  line.variantId = snapshot.variantId
-  line.sku = snapshot.sku
-  line.productName = snapshot.productName
-  line.orderLineId = snapshot.orderLineId
-  line.serialNumber = snapshot.serialNumber
-  line.lotNumber = snapshot.lotNumber
-  line.purchaseDate = toDateOnly(snapshot.purchaseDate)
-  line.warrantyMonths = snapshot.warrantyMonths
-  line.warrantyExpiresAt = toDateOnly(snapshot.warrantyExpiresAt)
-  line.warrantyStatus = snapshot.warrantyStatus
-  line.faultCode = snapshot.faultCode
-  line.faultDescription = snapshot.faultDescription
-  line.qtyClaimed = snapshot.qtyClaimed
-  line.qtyApproved = snapshot.qtyApproved
-  line.qtyReceived = snapshot.qtyReceived
-  line.conditionOnReceipt = snapshot.conditionOnReceipt
-  line.inspectionNotes = snapshot.inspectionNotes
-  line.disposition = snapshot.disposition
-  line.lineStatus = snapshot.lineStatus
-  line.creditAmount = snapshot.creditAmount
-  line.restockingFee = snapshot.restockingFee
-  line.coreChargeAmount = snapshot.coreChargeAmount
-  line.coreCreditAmount = snapshot.coreCreditAmount
-  line.vendorClaimLineId = snapshot.vendorClaimLineId
-  line.deletedAt = toDate(snapshot.deletedAt)
+function restoreClaimDelta(claim: WarrantyClaim, before: ClaimSnapshot, after: ClaimSnapshot): void {
+  if (before.claimNumber !== after.claimNumber) claim.claimNumber = before.claimNumber
+  if (before.claimType !== after.claimType) claim.claimType = before.claimType
+  if (before.status !== after.status) claim.status = before.status
+  if (before.channel !== after.channel) claim.channel = before.channel
+  if (before.priority !== after.priority) claim.priority = before.priority
+  if (before.customerId !== after.customerId) claim.customerId = before.customerId
+  if (before.customerName !== after.customerName) claim.customerName = before.customerName
+  if (before.externalRef !== after.externalRef) claim.externalRef = before.externalRef
+  if (before.intakeMessageRef !== after.intakeMessageRef) claim.intakeMessageRef = before.intakeMessageRef
+  if (before.entitlementSource !== after.entitlementSource) claim.entitlementSource = before.entitlementSource
+  if (before.contactEmail !== after.contactEmail) claim.contactEmail = before.contactEmail
+  if (before.returnLabelUrl !== after.returnLabelUrl) claim.returnLabelUrl = before.returnLabelUrl
+  if (before.returnTrackingNumber !== after.returnTrackingNumber) claim.returnTrackingNumber = before.returnTrackingNumber
+  if (before.returnCarrier !== after.returnCarrier) claim.returnCarrier = before.returnCarrier
+  if (before.vendorName !== after.vendorName) claim.vendorName = before.vendorName
+  if (before.vendorRef !== after.vendorRef) claim.vendorRef = before.vendorRef
+  if (before.orderId !== after.orderId) claim.orderId = before.orderId
+  if (before.orderNumber !== after.orderNumber) claim.orderNumber = before.orderNumber
+  if (before.awaitingStaffReply !== after.awaitingStaffReply) claim.awaitingStaffReply = before.awaitingStaffReply === true
+  if (before.salesReturnId !== after.salesReturnId) claim.salesReturnId = before.salesReturnId
+  if (before.replacementOrderId !== after.replacementOrderId) claim.replacementOrderId = before.replacementOrderId
+  if (before.creditMemoId !== after.creditMemoId) claim.creditMemoId = before.creditMemoId
+  if (before.sourceClaimId !== after.sourceClaimId) claim.sourceClaimId = before.sourceClaimId
+  if (before.advanceReplacement !== after.advanceReplacement) claim.advanceReplacement = before.advanceReplacement
+  if (before.advanceShippedAt !== after.advanceShippedAt) claim.advanceShippedAt = toDate(before.advanceShippedAt)
+  if (before.reasonCode !== after.reasonCode) claim.reasonCode = before.reasonCode
+  if (before.rejectionReasonCode !== after.rejectionReasonCode) claim.rejectionReasonCode = before.rejectionReasonCode
+  if (before.resolutionSummary !== after.resolutionSummary) claim.resolutionSummary = before.resolutionSummary
+  if (before.notes !== after.notes) claim.notes = before.notes
+  if (before.currencyCode !== after.currencyCode) claim.currencyCode = before.currencyCode
+  if (before.totalClaimedAmount !== after.totalClaimedAmount) claim.totalClaimedAmount = before.totalClaimedAmount
+  if (before.totalApprovedAmount !== after.totalApprovedAmount) claim.totalApprovedAmount = before.totalApprovedAmount
+  if (before.totalRecoveredAmount !== after.totalRecoveredAmount) claim.totalRecoveredAmount = before.totalRecoveredAmount
+  if (before.escalationLevel !== after.escalationLevel) claim.escalationLevel = before.escalationLevel
+  if (before.escalatedAt !== after.escalatedAt) claim.escalatedAt = toDate(before.escalatedAt)
+  if (before.slaDueAt !== after.slaDueAt) claim.slaDueAt = toDate(before.slaDueAt)
+  if (before.slaPausedAt !== after.slaPausedAt) claim.slaPausedAt = toDate(before.slaPausedAt)
+  if (before.slaAtRiskNotifiedAt !== after.slaAtRiskNotifiedAt) claim.slaAtRiskNotifiedAt = toDate(before.slaAtRiskNotifiedAt)
+  if (before.slaBreachedNotifiedAt !== after.slaBreachedNotifiedAt) claim.slaBreachedNotifiedAt = toDate(before.slaBreachedNotifiedAt)
+  if (before.submittedAt !== after.submittedAt) claim.submittedAt = toDate(before.submittedAt)
+  if (before.resolvedAt !== after.resolvedAt) claim.resolvedAt = toDate(before.resolvedAt)
+  if (before.closedAt !== after.closedAt) claim.closedAt = toDate(before.closedAt)
+  if (before.assigneeUserId !== after.assigneeUserId) claim.assigneeUserId = before.assigneeUserId
+  if (before.deletedAt !== after.deletedAt) claim.deletedAt = toDate(before.deletedAt)
+  claim.updatedAt = new Date()
 }
 
-async function restoreSnapshot(em: EntityManager, snapshot: ClaimSnapshot): Promise<WarrantyClaim> {
-  const scope = { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId }
-  let claim = await findOneWithDecryption(em, WarrantyClaim, { id: snapshot.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, {}, scope)
-  if (!claim) {
-    claim = em.create(WarrantyClaim, {
-      id: snapshot.id,
-      organizationId: snapshot.organizationId,
-      tenantId: snapshot.tenantId,
-      claimNumber: snapshot.claimNumber,
-      claimType: snapshot.claimType,
-      status: snapshot.status,
-      channel: snapshot.channel,
-      priority: snapshot.priority,
-      advanceReplacement: snapshot.advanceReplacement,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(claim)
-  }
-  restoreClaimFromSnapshot(claim, snapshot)
-  const existingLines = await findWithDecryption(
+function restoreLineDelta(line: WarrantyClaimLine, before: ClaimLineSnapshot, after: ClaimLineSnapshot): void {
+  if (before.lineNo !== after.lineNo) line.lineNo = before.lineNo
+  if (before.productId !== after.productId) line.productId = before.productId
+  if (before.variantId !== after.variantId) line.variantId = before.variantId
+  if (before.sku !== after.sku) line.sku = before.sku
+  if (before.productName !== after.productName) line.productName = before.productName
+  if (before.orderLineId !== after.orderLineId) line.orderLineId = before.orderLineId
+  if (before.serialNumber !== after.serialNumber) line.serialNumber = before.serialNumber
+  if (before.lotNumber !== after.lotNumber) line.lotNumber = before.lotNumber
+  if (before.purchaseDate !== after.purchaseDate) line.purchaseDate = toDateOnly(before.purchaseDate)
+  if (before.warrantyMonths !== after.warrantyMonths) line.warrantyMonths = before.warrantyMonths
+  if (before.warrantyExpiresAt !== after.warrantyExpiresAt) line.warrantyExpiresAt = toDateOnly(before.warrantyExpiresAt)
+  if (before.warrantyStatus !== after.warrantyStatus) line.warrantyStatus = before.warrantyStatus
+  if (before.faultCode !== after.faultCode) line.faultCode = before.faultCode
+  if (before.faultDescription !== after.faultDescription) line.faultDescription = before.faultDescription
+  if (before.qtyClaimed !== after.qtyClaimed) line.qtyClaimed = before.qtyClaimed
+  if (before.qtyApproved !== after.qtyApproved) line.qtyApproved = before.qtyApproved
+  if (before.qtyReceived !== after.qtyReceived) line.qtyReceived = before.qtyReceived
+  if (before.conditionOnReceipt !== after.conditionOnReceipt) line.conditionOnReceipt = before.conditionOnReceipt
+  if (before.conditionGrade !== after.conditionGrade) line.conditionGrade = before.conditionGrade
+  if (before.quarantineStatus !== after.quarantineStatus) line.quarantineStatus = before.quarantineStatus
+  if (before.inspectionNotes !== after.inspectionNotes) line.inspectionNotes = before.inspectionNotes
+  if (snapshotValueChanged(before.assessmentPayload, after.assessmentPayload)) line.assessmentPayload = before.assessmentPayload
+  if (before.disposition !== after.disposition) line.disposition = before.disposition
+  if (before.lineStatus !== after.lineStatus) line.lineStatus = before.lineStatus
+  if (before.creditAmount !== after.creditAmount) line.creditAmount = before.creditAmount
+  if (before.restockingFee !== after.restockingFee) line.restockingFee = before.restockingFee
+  if (before.coreChargeAmount !== after.coreChargeAmount) line.coreChargeAmount = before.coreChargeAmount
+  if (before.coreCreditAmount !== after.coreCreditAmount) line.coreCreditAmount = before.coreCreditAmount
+  if (before.vendorClaimLineId !== after.vendorClaimLineId) line.vendorClaimLineId = before.vendorClaimLineId
+  if (before.vendorName !== after.vendorName) line.vendorName = before.vendorName
+  if (before.deletedAt !== after.deletedAt) line.deletedAt = toDate(before.deletedAt)
+  line.updatedAt = new Date()
+}
+
+function throwClaimUndoConflict(): never {
+  throw new CrudHttpError(409, { error: 'warranty_claims.errors.conflict' })
+}
+
+async function requireCurrentUndoSnapshot(
+  em: EntityManager,
+  after: ClaimSnapshot,
+): Promise<{ claim: WarrantyClaim; lines: WarrantyClaimLine[] }> {
+  const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
+  const claim = await findOneWithDecryption(
     em,
-    WarrantyClaimLine,
-    { claim: snapshot.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    {},
+    WarrantyClaim,
+    { id: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
     scope,
   )
-  const existingById = new Map(existingLines.map((line) => [line.id, line]))
-  for (const lineSnapshot of snapshot.lines) {
-    let line = existingById.get(lineSnapshot.id)
-    if (!line) {
-      line = em.create(WarrantyClaimLine, {
-        id: lineSnapshot.id,
-        claim,
-        organizationId: snapshot.organizationId,
-        tenantId: snapshot.tenantId,
-        lineNo: lineSnapshot.lineNo,
-        qtyClaimed: lineSnapshot.qtyClaimed,
-        lineStatus: lineSnapshot.lineStatus,
-        warrantyStatus: lineSnapshot.warrantyStatus,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(line)
-    }
-    restoreLineFromSnapshot(line, lineSnapshot)
+  const expectedClaimUpdatedAt = toIso(after.updatedAt)
+  if (!claim || !expectedClaimUpdatedAt || toIso(claim.updatedAt) !== expectedClaimUpdatedAt) throwClaimUndoConflict()
+  const lines = await findWithDecryption(
+    em,
+    WarrantyClaimLine,
+    { claim: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+  const afterLines = Array.isArray(after.lines) ? after.lines : []
+  if (lines.length !== afterLines.length) throwClaimUndoConflict()
+  const afterLinesById = new Map(afterLines.map((line) => [line.id, line]))
+  for (const line of lines) {
+    const expected = afterLinesById.get(line.id)
+    const expectedLineUpdatedAt = toIso(expected?.updatedAt)
+    if (!expectedLineUpdatedAt || toIso(line.updatedAt) !== expectedLineUpdatedAt) throwClaimUndoConflict()
+  }
+  return { claim, lines }
+}
+
+async function assertUndoSnapshotCurrent(ctx: CommandRuntimeContext, after: ClaimSnapshot): Promise<void> {
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  await em.transactional(async (tx) => {
+    await requireCurrentUndoSnapshot(tx, after)
+  })
+}
+
+async function restoreSnapshot(em: EntityManager, before: ClaimSnapshot, after: ClaimSnapshot): Promise<WarrantyClaim> {
+  const { claim, lines } = await requireCurrentUndoSnapshot(em, after)
+  restoreClaimDelta(claim, before, after)
+  const beforeLinesById = new Map((Array.isArray(before.lines) ? before.lines : []).map((line) => [line.id, line]))
+  const afterLinesById = new Map((Array.isArray(after.lines) ? after.lines : []).map((line) => [line.id, line]))
+  for (const line of lines) {
+    const beforeLine = beforeLinesById.get(line.id)
+    const afterLine = afterLinesById.get(line.id)
+    if (!beforeLine || !afterLine) throwClaimUndoConflict()
+    if (snapshotValueChanged(beforeLine, afterLine)) restoreLineDelta(line, beforeLine, afterLine)
   }
   return claim
 }
@@ -655,6 +697,14 @@ function claimEventPayload(claim: WarrantyClaim): ClaimEventPayload {
     organizationId: claim.organizationId,
     tenantId: claim.tenantId,
   }
+}
+
+function claimPersistentEmitOptions(claim: WarrantyClaim) {
+  return {
+    persistent: true,
+    tenantId: claim.tenantId,
+    organizationId: claim.organizationId,
+  } as const
 }
 
 async function emitClaimCrud(
@@ -989,7 +1039,7 @@ export async function assertPendingClaimQuantitiesWithinSold(
   em: EntityManager,
   scope: WarrantyClaimScope,
   pendingLinesByOrderLine: ReadonlyMap<string, readonly ClaimedQuantityLine[]>,
-  options: { excludedLineIds?: ReadonlySet<string> } = {},
+  options: { currentClaimId: string; excludedLineIds?: ReadonlySet<string> },
 ): Promise<void> {
   const db = em.getKysely<ClaimedQuantityDb>()
   const orderLineIds = Array.from(pendingLinesByOrderLine.keys()).sort((left, right) => left.localeCompare(right))
@@ -1023,6 +1073,7 @@ export async function assertPendingClaimQuantitiesWithinSold(
       .where('warranty_claim_lines.line_status', '!=', 'rejected')
       .where('warranty_claims.tenant_id', '=', scope.tenantId)
       .where('warranty_claims.organization_id', '=', scope.organizationId)
+      .where('warranty_claims.id', '=', options.currentClaimId)
       .where('warranty_claims.deleted_at', 'is', null)
       .where('warranty_claims.status', '!=', 'cancelled')
       .execute()
@@ -1186,13 +1237,13 @@ async function emitClaimStatusChanged(
     fromStatus,
     toStatus,
   }
-  await emitWarrantyClaimsEvent('warranty_claims.claim.status_changed', payload, { persistent: true })
+  await emitWarrantyClaimsEvent('warranty_claims.claim.status_changed', payload, claimPersistentEmitOptions(claim))
   const recipientUserIds = await resolvePortalRecipientUserIds(ctx, claim)
   if (recipientUserIds.length === 0) return
   await emitWarrantyClaimsEvent('warranty_claims.claim.portal_status_changed', {
     ...payload,
     recipientUserIds,
-  }, { persistent: true })
+  }, claimPersistentEmitOptions(claim))
 }
 
 async function emitCustomerVisibleCommentAdded(
@@ -1207,7 +1258,7 @@ async function emitCustomerVisibleCommentAdded(
     visibility: input.visibility,
     actorCustomerId: input.actorCustomerId ?? null,
     recipientUserIds,
-  }, { persistent: true })
+  }, claimPersistentEmitOptions(claim))
 }
 
 function applySlaPause(
@@ -1497,7 +1548,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
 
     await withAtomicFlush(em, [
       async () => {
-        await assertPendingClaimQuantitiesWithinSold(em, scope, pendingLinesByOrderLine)
+        await assertPendingClaimQuantitiesWithinSold(em, scope, pendingLinesByOrderLine, { currentClaimId: claimId })
         claim = em.create(WarrantyClaim, {
           id: claimId,
           organizationId: scope.organizationId,
@@ -1567,18 +1618,13 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
-    const claim = await findOneWithDecryption(em, WarrantyClaim, { id: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, {}, scope)
-    if (!claim) return
-    const lines = await findWithDecryption(
-      em,
-      WarrantyClaimLine,
-      { claim: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
-      {},
-      scope,
-    )
+    let claim!: WarrantyClaim
+    let lines: WarrantyClaimLine[] = []
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        const current = await requireCurrentUndoSnapshot(em, after)
+        claim = current.claim
+        lines = current.lines.filter((line) => !line.deletedAt)
         const now = new Date()
         claim.deletedAt = now
         claim.updatedAt = now
@@ -1643,11 +1689,13 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
+        claim = await restoreSnapshot(em, before, after)
       },
     ], { transaction: true, label: 'warranty_claims.claim.update.undo' })
     await emitClaimUndoCrud(ctx, 'updated', claim)
@@ -1705,13 +1753,13 @@ const deleteClaimCommand: CommandHandler<ClaimDeleteInput, { claimId: string }> 
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
-        claim.deletedAt = null
-        claim.updatedAt = new Date()
+        claim = await restoreSnapshot(em, before, after)
       },
     ], { transaction: true, label: 'warranty_claims.claim.delete.undo' })
     await emitClaimUndoCrud(ctx, 'created', claim)
@@ -1805,7 +1853,7 @@ const submitClaimCommand: CommandHandler<SubmitClaimInput, { claimId: string }> 
     ], { transaction: true, label: 'warranty_claims.claim.submit' })
     await emitClaimCrud(ctx, 'updated', claim)
     const payload = claimEventPayload(claim)
-    await emitWarrantyClaimsEvent('warranty_claims.claim.submitted', payload, { persistent: true })
+    await emitWarrantyClaimsEvent('warranty_claims.claim.submitted', payload, claimPersistentEmitOptions(claim))
     await emitClaimStatusChanged(ctx, claim, autoApproved ? 'submitted' : fromStatus, autoApproved ? 'approved' : 'submitted')
     return { claimId: claim.id }
   },
@@ -1890,11 +1938,13 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
+        claim = await restoreSnapshot(em, before, after)
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
           payload: { action: 'undo_status_transition' },
@@ -1924,7 +1974,7 @@ const assignClaimCommand: CommandHandler<AssignClaimInput, { claimId: string }> 
     await emitWarrantyClaimsEvent('warranty_claims.claim.assigned', {
       ...claimEventPayload(claim),
       assigneeUserId: claim.assigneeUserId,
-    }, { persistent: true })
+    }, claimPersistentEmitOptions(claim))
     return { claimId: claim.id }
   },
 }
@@ -1972,7 +2022,7 @@ const setReturnLabelCommand: CommandHandler<ClaimSetReturnLabelInput, ClaimSetRe
       scope,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
-    }, { persistent: true })
+    }, claimPersistentEmitOptions(claim))
 
     return {
       claimId: claim.id,
@@ -1992,11 +2042,13 @@ const setReturnLabelCommand: CommandHandler<ClaimSetReturnLabelInput, ClaimSetRe
     const payload = extractUndoPayload<ClaimUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
+        claim = await restoreSnapshot(em, before, after)
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
           payload: { action: 'undo_return_label' },
@@ -2058,14 +2110,14 @@ const escalateClaimCommand: CommandHandler<EscalateClaimInput, EscalateClaimResu
       await emitWarrantyClaimsEvent('warranty_claims.claim.assigned', {
         ...claimEventPayload(escalatedClaim),
         assigneeUserId: escalatedClaim.assigneeUserId ?? null,
-      }, { persistent: true })
+      }, claimPersistentEmitOptions(escalatedClaim))
     }
     await emitWarrantyClaimsEvent('warranty_claims.claim.escalated', {
       ...claimEventPayload(escalatedClaim),
       level: escalatedClaim.escalationLevel,
       escalationLevel: escalatedClaim.escalationLevel,
       reassignToUserId: input.reassignToUserId ?? null,
-    }, { persistent: true })
+    }, claimPersistentEmitOptions(escalatedClaim))
 
     return { claimId: escalatedClaim.id, escalationLevel: escalatedClaim.escalationLevel, escalated: true }
   },
@@ -2384,11 +2436,12 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
       }
       throw err
     }
-    const createdReturnRow = await querySalesReferenceRow(ctx, 'sales_returns', scope, salesReturnId, ['id', 'updated_at'])
-    const salesReturnUpdatedAt = createdReturnRow && createdReturnRow.updated_at
-      ? new Date(createdReturnRow.updated_at as string | Date).toISOString()
-      : null
+    let salesReturnUpdatedAt: string | null = null
     try {
+      const createdReturnRow = await querySalesReferenceRow(ctx, 'sales_returns', scope, salesReturnId, ['id', 'updated_at'])
+      salesReturnUpdatedAt = createdReturnRow?.updated_at
+        ? new Date(createdReturnRow.updated_at as string | Date).toISOString()
+        : null
       await em.transactional(async (tx) => {
         const lockedClaim = await requireScopedClaim(tx, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
         if (lockedClaim.salesReturnId) {
@@ -2468,6 +2521,9 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
     const payload = extractUndoPayload<ClaimSalesReturnUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
+    await assertUndoSnapshotCurrent(ctx, after)
     const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const salesReturn = payload?.salesReturn ?? null
     if (salesReturn?.id && salesReturn.orderId) {
@@ -2486,7 +2542,7 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
+        claim = await restoreSnapshot(em, before, after)
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
           payload: { action: 'undo_sales_return_created' },
@@ -2854,6 +2910,9 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
     const payload = extractUndoPayload<ClaimCreditMemoUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
+    await assertUndoSnapshotCurrent(ctx, after)
     const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const creditMemo = payload?.creditMemo ?? null
     if (creditMemo?.id) {
@@ -2881,7 +2940,7 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
+        claim = await restoreSnapshot(em, before, after)
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
           payload: { action: 'undo_credit_memo_created' },
@@ -3215,6 +3274,9 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
     const payload = extractUndoPayload<ClaimReplacementOrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) throwClaimUndoConflict()
+    await assertUndoSnapshotCurrent(ctx, after)
     const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const replacementOrder = payload?.replacementOrder ?? null
     if (replacementOrder?.id) {
@@ -3242,7 +3304,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
       async () => {
-        claim = await restoreSnapshot(em, before)
+        claim = await restoreSnapshot(em, before, after)
         appendClaimEvent(em, claim, 'system', {
           visibility: 'internal',
           payload: { action: 'undo_replacement_order_created' },

@@ -184,7 +184,7 @@ export async function emitRegistrationCreatedEvent(entity: unknown): Promise<voi
     registrationId,
     tenantId,
     organizationId,
-  }, { persistent: true })
+  }, { persistent: true, tenantId, organizationId })
 }
 
 function readString(record: Record<string, unknown>, snakeKey: string, camelKey: string): string | null {

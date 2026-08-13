@@ -6,6 +6,7 @@ const emitWarrantyClaimsEventMock = jest.fn<Promise<void>, [string, unknown, unk
 const resolveEffectiveWarrantyClaimSettingsMock = jest.fn<Promise<WarrantyClaimEffectiveSettings>, [unknown, unknown]>()
 
 let mockBacklog: WarrantyClaim[] = []
+let mockSignals: Array<Record<string, unknown>> = []
 const mockQueryCalls: Array<{ limit: unknown; cursor: { slaDueAt: Date; id: string } | null }> = []
 
 jest.mock('../events', () => ({
@@ -38,10 +39,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async () => null,
   findWithDecryption: async (
     _em: unknown,
-    _entity: unknown,
+    entity: { name?: string },
     where: Record<string, unknown>,
     options: Record<string, unknown>,
   ) => {
+    if (entity?.name === 'WarrantyClaimSlaSignal') {
+      return mockSignals.filter((signal) => !signal.publishedAt)
+    }
     const cursor = readCursorFromWhere(where)
     mockQueryCalls.push({ limit: options?.limit, cursor })
     const ordered = [...mockBacklog].sort(compareByKeyset)
@@ -121,17 +125,44 @@ type SweepHandlerArgs = Parameters<typeof handleSlaEscalationSweep>
 
 function makeSweepContext(): { ctx: SweepHandlerArgs[1]; stampedIds: string[]; clear: jest.Mock } {
   const stampedIds: string[] = []
-  const nativeUpdate = jest.fn(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+  const nativeUpdate = jest.fn(async (
+    entity: { name?: string },
+    where: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ) => {
     const id = typeof where?.id === 'string' ? where.id : null
+    if (entity?.name === 'WarrantyClaimSlaSignal') {
+      const signal = mockSignals.find((candidate) => candidate.id === id)
+      if (!signal) return 0
+      if (typeof where.leaseToken === 'string' && signal.leaseToken !== where.leaseToken) return 0
+      Object.assign(signal, data)
+      return 1
+    }
     if (id) {
       stampedIds.push(id)
       const claim = mockBacklog.find((candidate) => candidate.id === id)
+      if (where.slaAtRiskNotifiedAt === null && claim?.slaAtRiskNotifiedAt) return 0
       if (claim) Object.assign(claim, data)
     }
     return 1
   })
   const clear = jest.fn()
-  const em = { nativeUpdate, clear } as unknown as EntityManager
+  const em = {
+    nativeUpdate,
+    clear,
+    transactional: async (run: (tx: EntityManager) => Promise<unknown>) => run(em as unknown as EntityManager),
+    create: (entity: { name?: string }, data: Record<string, unknown>) => ({
+      ...data,
+      ...(entity?.name === 'WarrantyClaimSlaSignal'
+        ? { leaseToken: null, leaseExpiresAt: null, publishedAt: null, createdAt: new Date() }
+        : {}),
+    }),
+    persist: (entity: Record<string, unknown>) => ({
+      flush: async () => {
+        mockSignals.push(entity)
+      },
+    }),
+  }
   const ctx = {
     resolve: <T = unknown>(name: string): T => {
       if (name === 'em') return em as T
@@ -150,6 +181,7 @@ function makeSweepJob(): SweepHandlerArgs[0] {
 describe('warranty claim SLA sweep paging', () => {
   beforeEach(() => {
     mockBacklog = []
+    mockSignals = []
     mockQueryCalls.length = 0
     emitWarrantyClaimsEventMock.mockReset()
     emitWarrantyClaimsEventMock.mockResolvedValue(undefined)

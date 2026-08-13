@@ -270,8 +270,9 @@ describe('warranty claim sold quantity guards', () => {
     }))
   })
 
-  test('locks the sales line and includes persisted claims before accepting a new claim', async () => {
+  test('locks the sales line but leaves prior-claim quantities to advisory risk evaluation', async () => {
     const forUpdate = jest.fn()
+    const claimLineWhere = jest.fn()
     const selectFrom = jest.fn((table: string) => {
       if (table === 'sales_order_lines') {
         const builder = {
@@ -288,8 +289,45 @@ describe('warranty claim sold quantity guards', () => {
       const builder = {
         innerJoin: jest.fn(),
         select: jest.fn(),
+        where: claimLineWhere,
+        execute: jest.fn(async () => []),
+      }
+      builder.innerJoin.mockReturnValue(builder)
+      builder.select.mockReturnValue(builder)
+      claimLineWhere.mockReturnValue(builder)
+      return builder
+    })
+    const em = { getKysely: () => ({ selectFrom }) } as unknown as EntityManager
+    const pending = new Map<string, readonly ClaimedQuantityLine[]>([[ORDER_LINE_ID, [{
+      orderLineId: ORDER_LINE_ID,
+      qtyClaimed: '0.5000',
+    }]]])
+
+    await expect(assertPendingClaimQuantitiesWithinSold(em, SCOPE, pending, { currentClaimId: CLAIM_ID }))
+      .resolves.toBeUndefined()
+    expect(forUpdate).toHaveBeenCalledTimes(1)
+    expect(claimLineWhere).toHaveBeenCalledWith('warranty_claims.id', '=', CLAIM_ID)
+  })
+
+  test('still rejects when persisted and pending quantities on the current claim exceed sold', async () => {
+    const selectFrom = jest.fn((table: string) => {
+      if (table === 'sales_order_lines') {
+        const builder = {
+          select: jest.fn(),
+          where: jest.fn(),
+          forUpdate: jest.fn(),
+          executeTakeFirst: jest.fn(async () => ({ id: ORDER_LINE_ID, quantity: '1.0000' })),
+        }
+        builder.select.mockReturnValue(builder)
+        builder.where.mockReturnValue(builder)
+        builder.forUpdate.mockReturnValue(builder)
+        return builder
+      }
+      const builder = {
+        innerJoin: jest.fn(),
+        select: jest.fn(),
         where: jest.fn(),
-        execute: jest.fn(async () => [{ qty_claimed: '0.7500' }]),
+        execute: jest.fn(async () => [{ id: LINE_ID, qty_claimed: '0.7500' }]),
       }
       builder.innerJoin.mockReturnValue(builder)
       builder.select.mockReturnValue(builder)
@@ -302,11 +340,8 @@ describe('warranty claim sold quantity guards', () => {
       qtyClaimed: '0.5000',
     }]]])
 
-    await expect(assertPendingClaimQuantitiesWithinSold(em, SCOPE, pending)).rejects.toMatchObject({
-      status: 400,
-      body: { error: 'warranty_claims.errors.qtyExceedsOrdered' },
-    })
-    expect(forUpdate).toHaveBeenCalledTimes(1)
+    await expect(assertPendingClaimQuantitiesWithinSold(em, SCOPE, pending, { currentClaimId: CLAIM_ID }))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.qtyExceedsOrdered' } })
   })
 
   test('sums id-less pending lines from the inline create path instead of self-excluding them', async () => {

@@ -144,7 +144,7 @@ Exact transition map (`data/constants.ts`): `draft → submitted|cancelled`; `su
 
 ### SLA, risk, and adjudication
 
-- **SLA**: `slaDueAt` is stamped at submit in business time (`lib/businessHours.ts`) from the tenant's `slaHours` and optional `businessHours` calendar. Entering `info_requested` pauses the clock (`slaPausedAt`) when enabled; leaving it re-anchors the remaining *business* time. A queue worker sweeps non-terminal, non-paused claims, emits `sla_at_risk` / `sla_breached` once per cycle (persisted notification stamps), and applies every crossed escalation tier in ascending order, bumping `escalationLevel` so each tier fires at most once.
+- **SLA**: `slaDueAt` is stamped at submit in business time (`lib/businessHours.ts`) from the tenant's `slaHours` and optional `businessHours` calendar. Entering `info_requested` pauses the clock (`slaPausedAt`) when enabled; leaving it re-anchors the remaining *business* time. A queue worker sweeps non-terminal, non-paused claims, records each `sla_at_risk` / `sla_breached` signal and its claim notification stamp in one transaction, then publishes the outbox row under a renewable lease with a stable delivery id. Failed or interrupted publication is retried without creating another logical signal. Every crossed escalation tier is applied in ascending order, bumping `escalationLevel` so each tier fires at most once.
 - **Risk signals** (`lib/risk.ts`, deterministic and tenant-scoped): `duplicate_serial`, `repeat_claimer`, `value_velocity`, `duplicate_order_claim`, `over_quantity_claim`, `outside_return_window`. Signals are advisory; a high signal forces manual review through the adjudication path but never denies.
 - **Adjudication**: default-off auto-approval evaluated synchronously inside the `submit` command's atomic flush, so a claim is never externally observable in a transient pre-adjudication state. Eligibility requires the setting enabled, at least one line, every line in warranty (when required), the claimed total within the configured maximum and matching currency, and zero risk flags. With `adjudicationUseRules` on and `business_rules` present, the decision delegates to a rule set. Auto-deny does not exist.
 
@@ -226,6 +226,10 @@ Indexes: customer, order, and status composites; partial unique indexes on `(ten
 - `body`: text null (encrypted); `payload`: jsonb null
 - `actor_user_id`, `actor_customer_id`: uuid null
 - `created_at` only — no `updated_at`/`deleted_at`; indexed on `(claim_id, created_at)`
+
+### WarrantyClaimSlaSignal — table `warranty_claim_sla_signals` (SLA outbox)
+
+One immutable logical row per `(tenant_id, organization_id, claim_id, event_id, cycle_key)`, containing the trusted event payload and stable delivery id. The cycle key is the pause-adjusted SLA due time, so a resumed SLA can notify again without duplicating a signal within one cycle. `published_at` marks successful enqueue; `lease_token` / `lease_expires_at` let overlapping sweep processes recover abandoned publication attempts without concurrently emitting the same row.
 
 ### WarrantyClaimSettings — table `warranty_claim_settings`
 
@@ -389,7 +393,7 @@ Certain paths are covered at unit level by design: the dual-feature 403 variants
 
 - The timeline table grows with activity but is bounded per claim, in the same growth class as audit logs; indexed on `(claim_id, created_at)`.
 - Notification volume targets the creator and assignee only, never the whole organization.
-- The escalation sweep is idempotent and tenant/org-scoped, and only notifies or reassigns — it moves no money.
+- The escalation sweep is tenant/org-scoped and uses a durable, leased outbox with a stable delivery id, so enqueue failures and process interruption are retryable without creating another logical signal. It only notifies or reassigns — it moves no money.
 - Source order-line lookups in the bridges are sequential per line, bounded by claim-line counts; batching is a recorded performance follow-up.
 
 ### Risk Register

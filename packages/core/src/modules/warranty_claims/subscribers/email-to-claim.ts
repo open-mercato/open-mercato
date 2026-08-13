@@ -129,15 +129,11 @@ function readSenderName(record: Record<string, unknown>): string | null {
 
 export default async function handle(payload: unknown, ctx: SubscriberContext): Promise<void> {
   const record = toRecord(payload)
-  const tenantId = readString(record, 'tenantId') ?? readString(record, 'tenant_id') ?? ctx.tenantId ?? null
-  const organizationId = readString(record, 'organizationId')
-    ?? readString(record, 'organization_id')
-    ?? readString(record, 'orgId')
-    ?? ctx.organizationId
-    ?? null
+  const tenantId = ctx.tenantId ?? null
+  const organizationId = ctx.organizationId ?? null
 
   if (!tenantId || !organizationId) {
-    logger.warn('[warranty_claims:email-to-claim] skipped inbound email payload', {
+    logger.warn('[warranty_claims:email-to-claim] skipped inbound email without trusted scope', {
       hasTenantId: Boolean(tenantId),
       hasOrganizationId: Boolean(organizationId),
     })

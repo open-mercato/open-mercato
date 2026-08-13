@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveAssigneeDisplayNames } from '../../lib/assigneeNames'
 
 const logger = createLogger('warranty_claims')
@@ -45,7 +46,13 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
     const { translate } = await resolveTranslations()
-    if (!auth || !auth.tenantId || !auth.orgId) {
+    if (!auth || !auth.tenantId) {
+      throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
+    }
+
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const tenantId = scope.tenantId ?? auth.tenantId
+    if (!tenantId) {
       throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
     }
 
@@ -54,8 +61,9 @@ export async function GET(req: Request) {
 
     const displayNames = await resolveAssigneeDisplayNames({
       container,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      tenantId,
+      organizationId: scope.selectedId,
+      organizationIds: scope.filterIds,
     }, requestedIds)
     const items = requestedIds.flatMap((id) => {
       const name = displayNames.get(id)
@@ -80,7 +88,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Resolve assignee user ids to display names',
-      description: `Resolves up to ${MAX_ASSIGNEE_LOOKUP_IDS} explicitly supplied user ids to their display name, scoped to the caller's tenant and active organization. Requires \`ids\`; it cannot enumerate the user directory, and it returns neither role assignments nor organization membership.`,
+      description: `Resolves up to ${MAX_ASSIGNEE_LOOKUP_IDS} explicitly supplied user ids to their display name, scoped to the caller's tenant and selected or visible organizations. Requires \`ids\`; it cannot enumerate the user directory, and it returns neither role assignments nor organization membership.`,
       query: querySchema,
       responses: [
         {

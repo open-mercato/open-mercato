@@ -20,6 +20,10 @@ describe('warranty_claims assignee lookup guard', () => {
   it('uses the decrypted lookup helper instead of reading encrypted user columns directly', () => {
     const source = readFileSync(join(__dirname, '../api/assignees/route.ts'), 'utf8')
     expect(source).toContain('resolveAssigneeDisplayNames')
+    expect(source).toContain('resolveOrganizationScopeForRequest')
+    expect(source).toContain('organizationId: scope.selectedId')
+    expect(source).toContain('organizationIds: scope.filterIds')
+    expect(source).not.toContain('organizationId: auth.orgId')
     expect(source).not.toContain("selectFrom('users')")
     expect(source).not.toContain("select(['id', 'name', 'email'])")
   })

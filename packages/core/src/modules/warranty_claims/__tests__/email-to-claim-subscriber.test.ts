@@ -44,12 +44,14 @@ function makeContext(options: {
   moduleConfigService?: Pick<ModuleConfigService, 'getValue'>
   includeModuleConfigService?: boolean
   em?: EntityManager
+  tenantId?: string | null
+  organizationId?: string | null
 } = {}) {
   const em = options.em ?? makeEntityManager()
   const includeModuleConfigService = options.includeModuleConfigService ?? true
   return {
-    tenantId: TENANT_ID,
-    organizationId: ORG_ID,
+    tenantId: options.tenantId === undefined ? TENANT_ID : options.tenantId,
+    organizationId: options.organizationId === undefined ? ORG_ID : options.organizationId,
     resolve: <T = unknown>(name: string): T => {
       if (name === 'em') return em as T
       if (name === 'moduleConfigService' && includeModuleConfigService && options.moduleConfigService) {
@@ -99,6 +101,29 @@ describe('warranty claim email-to-claim subscriber opt-in gate', () => {
       body: 'Pump does not power on.',
       intakeMessageRef: 'email-1',
     }))
+  })
+
+  test('uses trusted subscriber scope when payload scope is hostile', async () => {
+    const moduleConfigService = makeConfigService(true)
+
+    await handle(makePayload({ tenantId: 'hostile-tenant', organizationId: 'hostile-org' }), makeContext({ moduleConfigService }))
+
+    expect(moduleConfigService.getValue).toHaveBeenCalledWith('warranty_claims', 'emailIntakeEnabled', {
+      defaultValue: null,
+      scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+    })
+    expect(createOrGetClaimFromInboundMessageMock).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+    }))
+  })
+
+  test('fails closed when trusted subscriber scope is absent even if payload carries scope', async () => {
+    const moduleConfigService = makeConfigService(true)
+
+    await handle(makePayload(), makeContext({ moduleConfigService, tenantId: null, organizationId: null }))
+
+    expect(moduleConfigService.getValue).not.toHaveBeenCalled()
+    expect(createOrGetClaimFromInboundMessageMock).not.toHaveBeenCalled()
   })
 
   test('falls back to the env opt-in only when the config service is unavailable', async () => {

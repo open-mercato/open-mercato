@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
@@ -14,6 +15,7 @@ import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/l
 import { isMultipartRequestWithinUploadLimit } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
   ScopedAttachmentUploadError,
+  type ScopedAttachmentUploadErrorCode,
 } from '@open-mercato/core/modules/attachments/lib/scoped-upload-service'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
@@ -23,6 +25,11 @@ import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
 import { resolvePortalAttachmentUploadService } from '../../../lib/portalAttachmentUpload'
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
+const ATTACHMENT_ERROR_TRANSLATIONS: Partial<Record<ScopedAttachmentUploadErrorCode, readonly [string, string]>> = {
+  dangerous_executable: ['attachments.errors.dangerousExecutable', 'Executable file types are not allowed as attachments.'],
+  max_upload_size: ['attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'],
+  active_content: ['attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.'],
+}
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -273,7 +280,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
   }
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.portal.detail.attachmentError' }, { status: 413 })
+    const { t } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
 
   const form = await req.formData()
@@ -320,8 +331,11 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     if (error instanceof ScopedAttachmentUploadError) {
+      const { t } = await resolveTranslations()
+      const [key, fallback] = ATTACHMENT_ERROR_TRANSLATIONS[error.code]
+        ?? ['warranty_claims.portal.detail.attachmentError', 'Attachment upload failed.']
       return NextResponse.json(
-        { ok: false, error: 'warranty_claims.portal.detail.attachmentError', code: error.code },
+        { ok: false, error: t(key, fallback), code: error.code },
         { status: error.status },
       )
     }

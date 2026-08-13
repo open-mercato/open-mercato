@@ -29,7 +29,7 @@ describe('warranty registration created event hook', () => {
     expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
       'warranty_claims.registration.created',
       { registrationId: REGISTRATION_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
-      { persistent: true },
+      { persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID },
     )
   })
 

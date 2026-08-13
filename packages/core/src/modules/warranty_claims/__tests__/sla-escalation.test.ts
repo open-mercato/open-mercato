@@ -23,6 +23,7 @@ const createNotificationMock = jest.fn()
 const createForFeatureNotificationMock = jest.fn()
 
 let mockClaims: WarrantyClaim[] = []
+let mockSignals: Array<Record<string, unknown>> = []
 
 jest.mock('../events', () => ({
   emitWarrantyClaimsEvent: (eventId: string, payload: unknown, options?: unknown) =>
@@ -65,7 +66,10 @@ jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async () => mockClaims[0] ?? null,
-  findWithDecryption: async () => mockClaims,
+  findWithDecryption: async (_em: unknown, entity: { name?: string }) =>
+    entity?.name === 'WarrantyClaimSlaSignal'
+      ? mockSignals.filter((signal) => !signal.publishedAt)
+      : mockClaims,
 }))
 
 import handleSlaEscalationSweep from '../workers/sla-escalation-sweep'
@@ -259,12 +263,50 @@ function makeSweepClaim(fields: Partial<WarrantyClaim> = {}): WarrantyClaim {
 
 type SweepHandlerArgs = Parameters<typeof handleSlaEscalationSweep>
 
-function makeSweepContext(): { ctx: SweepHandlerArgs[1]; nativeUpdate: jest.Mock } {
-  const nativeUpdate = jest.fn(async (_entity: unknown, _where: unknown, data: Record<string, unknown>) => {
-    if (mockClaims[0]) Object.assign(mockClaims[0], data)
+function makeSweepContext(options: { failPublishUpdateOnce?: boolean } = {}): {
+  ctx: SweepHandlerArgs[1]
+  nativeUpdate: jest.Mock
+} {
+  let failPublishUpdate = options.failPublishUpdateOnce ?? false
+  const nativeUpdate = jest.fn(async (
+    entity: { name?: string },
+    where: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ) => {
+    if (entity?.name === 'WarrantyClaimSlaSignal') {
+      const signal = mockSignals.find((candidate) => candidate.id === where.id)
+      if (!signal) return 0
+      if (where.publishedAt === null && signal.publishedAt) return 0
+      if (typeof where.leaseToken === 'string' && signal.leaseToken !== where.leaseToken) return 0
+      if ('publishedAt' in data && failPublishUpdate) {
+        failPublishUpdate = false
+        return 0
+      }
+      Object.assign(signal, data)
+      return 1
+    }
+    const claim = mockClaims.find((candidate) => candidate.id === where.id)
+    if (!claim) return 0
+    if (where.slaAtRiskNotifiedAt === null && claim.slaAtRiskNotifiedAt) return 0
+    if (where.slaBreachedNotifiedAt === null && claim.slaBreachedNotifiedAt) return 0
+    Object.assign(claim, data)
     return 1
   })
-  const em = { nativeUpdate } as unknown as EntityManager
+  const em = {
+    nativeUpdate,
+    transactional: async (run: (tx: EntityManager) => Promise<unknown>) => run(em as unknown as EntityManager),
+    create: (entity: { name?: string }, data: Record<string, unknown>) => ({
+      ...data,
+      ...(entity?.name === 'WarrantyClaimSlaSignal'
+        ? { leaseToken: null, leaseExpiresAt: null, publishedAt: null, createdAt: new Date() }
+        : {}),
+    }),
+    persist: (entity: Record<string, unknown>) => ({
+      flush: async () => {
+        mockSignals.push(entity)
+      },
+    }),
+  }
   const ctx = {
     resolve: <T = unknown>(name: string): T => {
       if (name === 'em') return em as T
@@ -287,6 +329,7 @@ function emittedEventIds(): string[] {
 describe('warranty claim SLA escalation sweep dedupe', () => {
   beforeEach(() => {
     mockClaims = []
+    mockSignals = []
     emitWarrantyClaimsEventMock.mockReset()
     emitWarrantyClaimsEventMock.mockResolvedValue(undefined)
     resolveEffectiveWarrantyClaimSettingsMock.mockReset()
@@ -304,18 +347,48 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_at_risk'])
-    expect(nativeUpdate).toHaveBeenCalledTimes(1)
     expect(nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
-      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      {
+        id: CLAIM_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        slaAtRiskNotifiedAt: null,
+      },
       { slaAtRiskNotifiedAt: expect.any(Date) },
     )
     expect(mockClaims[0].slaAtRiskNotifiedAt).toBeInstanceOf(Date)
+    expect(mockSignals[0].publishedAt).toBeInstanceOf(Date)
 
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_at_risk'])
-    expect(nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(mockSignals).toHaveLength(1)
+  })
+
+  test('a resumed SLA cycle emits a new signal with a distinct cycle key', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-13T10:00:00.000Z'))
+    try {
+      mockClaims = [makeSweepClaim()]
+      const { ctx } = makeSweepContext()
+
+      await handleSlaEscalationSweep(makeSweepJob(), ctx)
+      const firstCycleKey = mockSignals[0].cycleKey
+
+      mockClaims[0].slaAtRiskNotifiedAt = null
+      mockClaims[0].slaDueAt = new Date(mockClaims[0].slaDueAt!.getTime() + HOUR_MS)
+      jest.advanceTimersByTime(HOUR_MS)
+      await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+      expect(emittedEventIds()).toEqual([
+        'warranty_claims.claim.sla_at_risk',
+        'warranty_claims.claim.sla_at_risk',
+      ])
+      expect(mockSignals).toHaveLength(2)
+      expect(mockSignals[1].cycleKey).not.toBe(firstCycleKey)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   test('breach emits once, stamps both timestamps, and never re-emits', async () => {
@@ -330,7 +403,12 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_breached'])
     expect(nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
-      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      {
+        id: CLAIM_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        slaBreachedNotifiedAt: null,
+      },
       { slaBreachedNotifiedAt: expect.any(Date), slaAtRiskNotifiedAt: expect.any(Date) },
     )
     expect(mockClaims[0].slaBreachedNotifiedAt).toBeInstanceOf(Date)
@@ -341,7 +419,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_breached'])
   })
 
-  test('does not stamp before a durable signal enqueue succeeds so the next sweep retries', async () => {
+  test('persists a pending signal before enqueue and retries it with the same delivery id', async () => {
     mockClaims = [makeSweepClaim()]
     const { ctx, nativeUpdate } = makeSweepContext()
     emitWarrantyClaimsEventMock
@@ -350,13 +428,39 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
 
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 
-    expect(mockClaims[0].slaAtRiskNotifiedAt).toBeNull()
-    expect(nativeUpdate).not.toHaveBeenCalled()
+    expect(mockClaims[0].slaAtRiskNotifiedAt).toBeInstanceOf(Date)
+    expect(mockSignals).toHaveLength(1)
+    expect(mockSignals[0].publishedAt).toBeNull()
 
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 
     expect(emitWarrantyClaimsEventMock).toHaveBeenCalledTimes(2)
-    expect(mockClaims[0].slaAtRiskNotifiedAt).toBeInstanceOf(Date)
+    expect(emitWarrantyClaimsEventMock.mock.calls[0][1]).toMatchObject({ deliveryId: mockSignals[0].id })
+    expect(emitWarrantyClaimsEventMock.mock.calls[1][1]).toMatchObject({ deliveryId: mockSignals[0].id })
+    expect(mockSignals[0].publishedAt).toBeInstanceOf(Date)
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: mockSignals[0].id }),
+      expect.objectContaining({ publishedAt: expect.any(Date) }),
+    )
+  })
+
+  test('retries after enqueue succeeds but publication stamping fails', async () => {
+    mockClaims = [makeSweepClaim()]
+    const { ctx } = makeSweepContext({ failPublishUpdateOnce: true })
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledTimes(1)
+    expect(mockSignals).toHaveLength(1)
+    expect(mockSignals[0].publishedAt).toBeNull()
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledTimes(2)
+    expect(emitWarrantyClaimsEventMock.mock.calls[0][1]).toMatchObject({ deliveryId: mockSignals[0].id })
+    expect(emitWarrantyClaimsEventMock.mock.calls[1][1]).toMatchObject({ deliveryId: mockSignals[0].id })
+    expect(mockSignals[0].publishedAt).toBeInstanceOf(Date)
   })
 
   test('sweep honors the pause-shifted due date instead of elapsed-since-submission', async () => {

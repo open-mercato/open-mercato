@@ -20,6 +20,7 @@ let mockClaims: Array<Record<string, unknown>> = []
 let mockLines: Array<Record<string, unknown>> = []
 let mockEvents: Array<Record<string, unknown>> = []
 let mockReturnRow: Record<string, unknown> | null = null
+let mockReturnLookupError: Error | null = null
 
 const enforceWithGuardsMock = jest.fn(async () => undefined)
 const commandBusExecuteMock = jest.fn<Promise<{ result: unknown }>, [string, { input: Record<string, unknown>; ctx: CommandRuntimeContext }]>()
@@ -104,6 +105,7 @@ function makeKysely() {
         },
         executeTakeFirst: async () => {
           if (table !== 'sales_returns') return undefined
+          if (mockReturnLookupError) throw mockReturnLookupError
           const idWhere = wheres.find(([column]) => column === 'id')
           if (mockReturnRow && idWhere && idWhere[2] === mockReturnRow.id) return mockReturnRow
           return undefined
@@ -192,6 +194,7 @@ beforeEach(() => {
   mockLines = []
   mockEvents = []
   mockReturnRow = { id: CREATED_RETURN_ID, updated_at: RETURN_UPDATED_AT }
+  mockReturnLookupError = null
   enforceWithGuardsMock.mockClear()
   commandBusExecuteMock.mockReset()
   commandBusExecuteMock.mockResolvedValue({ result: { returnId: CREATED_RETURN_ID } })
@@ -305,6 +308,21 @@ describe('warranty_claims.claim.create_sales_return', () => {
       .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.salesReturnAlreadyLinked' } })
     const deleteCall = commandBusExecuteMock.mock.calls.find(([commandId]) => commandId === 'sales.returns.delete')
     expect(deleteCall).toBeDefined()
+    expect(deleteCall?.[1].input).toMatchObject({ id: CREATED_RETURN_ID, orderId: ORDER_ID })
+  })
+
+  it('compensates when the created-return reference lookup fails', async () => {
+    seedClaim()
+    seedLine()
+    const lookupFailure = new Error('sales return lookup failed')
+    mockReturnLookupError = lookupFailure
+
+    await expect(createSalesReturnCommand.execute(
+      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      makeCtx(),
+    )).rejects.toBe(lookupFailure)
+
+    const deleteCall = commandBusExecuteMock.mock.calls.find(([commandId]) => commandId === 'sales.returns.delete')
     expect(deleteCall?.[1].input).toMatchObject({ id: CREATED_RETURN_ID, orderId: ORDER_ID })
   })
 

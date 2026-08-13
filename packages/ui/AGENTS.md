@@ -289,7 +289,6 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 - For filters, use `FilterBar`/`FilterOverlay` with async option loaders; keep `pageSize` at or below 100.
 - Support exports using `buildCrudExportUrl` and pass `exportOptions` to `DataTable`.
 - Use `RowActions` for per-row actions; navigate via `onRowClick` or action links.
-- Interactive cell content (`button`, `a`, `input`, `select`, `textarea`, `[role=combobox|listbox]`, `[contenteditable]`) swallows the row click; override or disable it via `rowClickInteractiveSelector`.
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
 - Keep `extensionTableId` stable and deterministic.
 - Prefer `showSaveViewButton` for "Save view" affordances; build your own on `viewApiRef`/`onColumnsDirtyChange` only for a host with a custom `toolbar`. Never patch `DataTable`. See `apps/docs/docs/framework/admin-ui/perspectives.mdx`.
