@@ -134,6 +134,18 @@
       "types": "./src/modules/api_keys/index.ts",
       "default": "./dist/modules/api_keys/index.js"
     },
+    "./modules/staff/contracts/identityResolver": {
+      "types": "./src/modules/staff/contracts/identityResolver.ts",
+      "default": "./dist/modules/staff/contracts/identityResolver.js"
+    },
+    "./modules/staff/contracts/identityProjectionResolver": {
+      "types": "./src/modules/staff/contracts/identityProjectionResolver.ts",
+      "default": "./dist/modules/staff/contracts/identityProjectionResolver.js"
+    },
+    "./modules/staff/contracts/candidateResolver": {
+      "types": "./src/modules/staff/contracts/candidateResolver.ts",
+      "default": "./dist/modules/staff/contracts/candidateResolver.js"
+    },
     "./modules/widgets/lib/injection": {
       "types": "./src/modules/widgets/lib/injection.ts",
       "default": "./dist/modules/widgets/lib/injection.js"

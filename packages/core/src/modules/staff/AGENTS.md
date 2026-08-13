@@ -16,7 +16,28 @@ See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../..
 
 | Key | Contract |
 |-----|----------|
-| `availabilityAccessResolver` | Resolves an `AvailabilityWriteAccess` shape for the authenticated request, including whether the caller may edit availability for all members vs only themselves. Consumed by `planner/api/access.ts` via `container.resolve(..., { allowUnregistered: true })` — planner gracefully degrades to `403 staff_module_not_loaded` when staff is absent. |
+| `staffIdentityResolver` | Request-scoped, read-only resolver for the current active Auth-to-Staff link in one exact tenant and organization. Consumers own authorization and MUST soft-resolve it when Staff is optional. |
+| `staffIdentityProjectionResolver` | Request-scoped, read-only hydration of at most 100 known Staff UUIDs into minimal active-or-inactive, non-deleted identity projections in one exact tenant and organization. It is presentation-only; consumers own authorization and MUST soft-resolve it when Staff is optional. |
+| `staffCandidateResolver` | Request-scoped, read-only, bounded candidate discovery for active Staff in one exact tenant and organization. `required` linkage includes only Auth-linked Staff; `any` also includes unlinked Staff. Consumers own authorization and MUST soft-resolve it when Staff is optional. |
+| `availabilityAccessResolver` | Resolves an `AvailabilityWriteAccess` shape for the authenticated request, including whether the caller may edit availability for all members vs only themselves. Consumed by `planner/api/access.ts` via `container.resolve(..., { allowUnregistered: true })` - planner gracefully degrades to `403 staff_module_not_loaded` when staff is absent. |
+
+`staffIdentityResolver` exposes only the types from
+`@open-mercato/core/modules/staff/contracts/identityResolver`. The contract returns a minimal
+identity projection and reports duplicate active Auth linkage as `ambiguous`; it never exposes a
+Staff entity. Database/decryption failures propagate and MUST NOT be treated as module absence.
+
+`staffIdentityProjectionResolver` exposes only the types from
+`@open-mercato/core/modules/staff/contracts/identityProjectionResolver`. It accepts known Staff
+UUIDs, includes inactive non-deleted identities for historical display, and returns only Staff UUID,
+decrypted display name, and active state. It performs no Auth lookup, search, paging, or authorization.
+Database/decryption failures propagate and MUST NOT be treated as module absence.
+
+`staffCandidateResolver` exposes only the types from
+`@open-mercato/core/modules/staff/contracts/candidateResolver`. It returns bounded, deterministic
+pages containing only active Staff UUID and decrypted display name. It performs no authentication,
+RBAC, resource policy, assignment eligibility, or HTTP handling. Consumers MUST derive scope from
+authenticated context and authorize the target before calling. Database/decryption failures
+propagate and MUST NOT be treated as module absence.
 
 Resolver shape (from `lib/availabilityAccess.ts`):
 
@@ -75,4 +96,7 @@ This asymmetry will be reconciled in the Phase 2/3 follow-up when staff becomes 
 |-------|-------|
 | DI registrar pattern | [`di.ts`](./di.ts) — call `register(container)` from bootstrap; never call directly from another module |
 | Availability access types | `import type { AvailabilityWriteAccess, AvailabilityAccessContext } from '@open-mercato/core/modules/planner/api/access'` (planner re-exports the same shape it consumes; do not import from staff directly) |
-| Anything else | Go through a public API route — never import entity classes |
+| Staff identity resolver types | `import type { StaffIdentityResolver, StaffIdentityLookupResult } from '@open-mercato/core/modules/staff/contracts/identityResolver'` |
+| Staff identity projection types | `import type { StaffIdentityProjectionResolver } from '@open-mercato/core/modules/staff/contracts/identityProjectionResolver'` |
+| Staff candidate resolver types | `import type { StaffCandidateResolver, StaffCandidatePage } from '@open-mercato/core/modules/staff/contracts/candidateResolver'` |
+| Anything else | Go through a public API route - never import entity classes |
