@@ -3,9 +3,9 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
 import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
+import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
 import { buildSalesOfferLabels } from '../../templates/quotes/sales-offer/labels'
 import { quoteDocumentInputSchema } from './validators'
-import { offerFilename } from './utils'
 import type {
   CustomerAddressRow,
   EntityCtor,
@@ -40,7 +40,7 @@ export class QuotesDocumentService extends BaseDocumentService {
       format: 'pdf',
       tags: ['offer', 'sales'],
       note: 'Rendered in the PDF tab on the Quote detail page (sales.document.detail.quote:tabs).',
-      filename: ({ data }) => offerFilename(data),
+      filename: ({ data }) => buildDocumentFilename(data, 'offer', 'pdf'),
       load: () =>
         import('../../templates/quotes/sales-offer/pdf').then(
           (module) => ({

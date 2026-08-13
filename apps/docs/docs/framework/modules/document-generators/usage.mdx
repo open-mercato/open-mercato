@@ -39,6 +39,7 @@ Place it in `src/modules/<your_module>/document-generators/services/`.
 // src/modules/my_module/document-generators/services/my-module-invoice-document-service.ts
 import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
 import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
+import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 export class MyModuleInvoiceDocumentService extends BaseDocumentService {
@@ -57,10 +58,7 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
       documentType: 'invoice',
       format: 'pdf',
       tags: ['invoice', 'my_module'],
-      filename: ({ data }) => {
-        const number = (data.document as { number?: string } | undefined)?.number
-        return number ? `invoice-${number}.pdf` : 'invoice.pdf'
-      },
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'pdf'),
       load: () =>
         import('../templates/invoice/my-module-invoice').then(
           (m) => ({

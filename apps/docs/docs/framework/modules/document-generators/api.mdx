@@ -156,6 +156,10 @@ Formats an ISO 8601 string using the locale's natural date convention and a fixe
 
 Formats a numeric amount with `Intl.NumberFormat`, including locale-correct separators, currency symbol and symbol placement.
 
+### `buildDocumentFilename(data, prefix, extension)` (`@open-mercato/document-generators/modules/document_generators/utils/filename`)
+
+Builds a format-specific filename from normalized `data.document.number`, falling back to `{prefix}.{extension}` when the number is unavailable. It is an optional convenience helper; templates may provide any custom `filename` implementation that fits their output contract.
+
 ### `TemplatesList`
 
 React component that renders the template list for a given resource. Normally rendered automatically by the core sales module.

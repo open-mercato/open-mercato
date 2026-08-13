@@ -3,9 +3,9 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
 import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
+import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
 import { buildOrderInvoiceLabels } from '../../templates/orders/order-invoice/labels'
 import { orderDocumentInputSchema } from './validators'
-import { invoiceFilename } from './utils'
 import type {
   CustomerAddressRow,
   EntityCtor,
@@ -40,7 +40,7 @@ export class OrdersDocumentService extends BaseDocumentService {
       format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
       note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
-      filename: ({ data }) => invoiceFilename(data, 'pdf'),
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'pdf'),
       load: () =>
         import('../../templates/orders/order-invoice/pdf').then(
           (module) => ({
@@ -58,7 +58,7 @@ export class OrdersDocumentService extends BaseDocumentService {
       format: 'md',
       tags: ['invoice', 'order', 'sales', 'markdown'],
       note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
-      filename: ({ data }) => invoiceFilename(data, 'md'),
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'md'),
       load: () =>
         import('../../templates/orders/order-invoice/markdown').then(
           (module) => ({
