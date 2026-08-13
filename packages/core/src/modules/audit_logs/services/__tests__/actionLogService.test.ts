@@ -199,6 +199,86 @@ describe('ActionLogService normalizeInput', () => {
     expect(garbage.actorUserId).toBeNull()
   })
 
+  it('keeps the system actor identifier in the log context instead of discarding it', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'example.todos.create',
+      actorUserId: 'system:example_customers_sync:outbound',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(parsed.actorUserId).toBeNull()
+    expect(parsed.context).toEqual({ systemActor: 'system:example_customers_sync:outbound' })
+    expect(parsed.tenantId).toBe('33333333-3333-4333-8333-333333333333')
+  })
+
+  it('merges the system actor into an existing context without clobbering it', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'scheduler.schedules.run',
+      actorUserId: 'system:scheduler',
+      context: { source: 'system', scheduleId: 'schedule-1' },
+    })
+
+    expect(parsed.context).toEqual({
+      source: 'system',
+      scheduleId: 'schedule-1',
+      systemActor: 'system:scheduler',
+    })
+  })
+
+  it('leaves real user and api key actors untouched and adds no system actor context', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const realUser = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'customers.people.update',
+      actorUserId: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(realUser.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
+    expect(realUser.context).toBeUndefined()
+
+    const apiKey = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'api.something',
+      actorUserId: 'api_key:22222222-2222-4222-8222-222222222222',
+    })
+    expect(apiKey.actorUserId).toBe('22222222-2222-4222-8222-222222222222')
+    expect(apiKey.context).toBeUndefined()
+  })
+
+  it('marks a system-originated entry as a system source while keeping the actor column null', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'example.todos.create',
+      actorUserId: 'system:example_customers_sync:outbound',
+    })
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, parsed)
+
+    expect(created.actorUserId).toBeNull()
+    expect(created.sourceKey).toBe('system')
+    expect(created.contextJson).toEqual({ systemActor: 'system:example_customers_sync:outbound' })
+  })
+
   it('populates projection columns when creating a log entity', () => {
     const service = new ActionLogService(
       {} as unknown as ConstructorParameters<typeof ActionLogService>[0],

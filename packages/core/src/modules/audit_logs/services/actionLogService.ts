@@ -34,6 +34,25 @@ const SORT_FIELDS = {
   createdAt: 'action_logs.created_at',
 } as const
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+const API_KEY_ACTOR_PREFIX = 'api_key:'
+const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
+
+function toNullableUuid(value: unknown): string | null {
+  return typeof value === 'string' && UUID_REGEX.test(value) ? value : null
+}
+
+function normalizeActorUserId(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null
+  const candidate = value.startsWith(API_KEY_ACTOR_PREFIX) ? value.slice(API_KEY_ACTOR_PREFIX.length) : value
+  return toNullableUuid(candidate)
+}
+
+function toSystemActorReference(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return null
+  return normalizeActorUserId(trimmed) ? null : trimmed
+}
 
 type ActionLogProjectionBackfillOptions = {
   batchSize?: number
@@ -202,6 +221,7 @@ export class ActionLogService {
   }
 
   private parseCreateInput(input: ActionLogCreateInput): ActionLogCreateInput {
+    const sanitized = this.sanitizeActor(input)
     let data: ActionLogCreateInput
     const schema = actionLogCreateSchema as typeof actionLogCreateSchema & { _zod?: unknown }
     const canValidate = Boolean(schema && typeof schema.parse === 'function')
@@ -209,7 +229,7 @@ export class ActionLogService {
 
     if (shouldValidate) {
       try {
-        data = schema.parse(input)
+        data = schema.parse(sanitized)
         runtimeValidationAvailable = true
       } catch (err) {
         if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
@@ -217,13 +237,31 @@ export class ActionLogService {
           logger.warn('Falling back to permissive action log payload parser', { err })
         }
         if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
-        data = this.normalizeInput(input)
+        data = this.normalizeInput(sanitized)
       }
     } else {
-      data = this.normalizeInput(input)
+      data = this.normalizeInput(sanitized)
     }
 
     return data
+  }
+
+  private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
+    if (!input) return input
+    const actorUserId = normalizeActorUserId(input.actorUserId)
+    const systemActorReference = toSystemActorReference(input.actorUserId)
+
+    if (!systemActorReference) {
+      if (actorUserId === (input.actorUserId ?? null)) return input
+      return { ...input, actorUserId }
+    }
+
+    const context = isRecord(input.context) ? { ...input.context } : {}
+    if (context[SYSTEM_ACTOR_CONTEXT_KEY] === undefined) {
+      context[SYSTEM_ACTOR_CONTEXT_KEY] = systemActorReference
+    }
+
+    return { ...input, actorUserId, context }
   }
 
   private createLogEntity(fork: EntityManager, data: ActionLogCreateInput): ActionLog {
@@ -286,13 +324,6 @@ export class ActionLogService {
       }
     }
 
-    const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-    const toNullableUuid = (value: unknown) => {
-      if (typeof value !== 'string' || value.length === 0) return null
-      const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
-      return UUID_REGEX.test(candidate) ? candidate : null
-    }
-
     const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
       if (value === null) return null
       if (Array.isArray(value)) return value
@@ -309,7 +340,7 @@ export class ActionLogService {
     return {
       tenantId: toNullableUuid(input.tenantId),
       organizationId: toNullableUuid(input.organizationId),
-      actorUserId: toNullableUuid(input.actorUserId),
+      actorUserId: normalizeActorUserId(input.actorUserId),
       commandId: typeof input.commandId === 'string' && input.commandId.length > 0 ? input.commandId : 'unknown',
       actionLabel: toOptionalString(input.actionLabel) ?? undefined,
       resourceKind: toOptionalString(input.resourceKind) ?? undefined,
