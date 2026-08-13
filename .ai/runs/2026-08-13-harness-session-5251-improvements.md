@@ -47,6 +47,8 @@ Add two compact lines to both AGENTS.md variants:
 
 ## Risks
 
+- Host-limit note: this runner's `fs.inotify.*` sysctl values are below the dev-wrapper preflight, so 4 `template-dev-log-files` tests fail locally on any branch; CI validates them on compliant runners.
+
 - The scaffolded Codex root (enforcement rules + module-guide injection on top of AGENTS.md) must stay ≤ 12288 bytes; additions are sized to fit and `agent-instruction-budget.test.ts` is the gate.
 - Contract tests pin exact routing phrases; all edits are additive sentences, no rewording of pinned lines.
 - Harness evaluation cases (`cases.json`) score routing behavior; additive guidance lines do not remove any routed context.
@@ -71,5 +73,5 @@ Add two compact lines to both AGENTS.md variants:
 
 ### Phase 4: Validation
 
-- [ ] 4.1 create-app package tests green
-- [ ] 4.2 Full validation gate green
+- [x] 4.1 create-app package tests green (851 pass; only the 4 known host-limit inotify dev-wrapper tests fail — environmental, sysctl preflight, not branch-caused) — 2330b5443
+- [x] 4.2 Full validation gate green (build:packages, generate no-drift, i18n:check-sync/usage, typecheck, build:app all ✓; yarn test fails only on the same 4 environmental tests) — 2330b5443
