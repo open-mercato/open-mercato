@@ -6,6 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import {
@@ -322,6 +323,15 @@ export async function POST(req: Request) {
   } catch (error) {
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
+    }
+    // A command interceptor that blocked with an explicit status made a deliberate
+    // business decision; answer with it instead of this route's generic 400/500
+    // (issue #5097). A rejection raised while importing an individual plot is caught
+    // by the per-item loop above and reported as a `failed[]` entry, so the batch
+    // semantics of this route are unchanged.
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     if (error instanceof z.ZodError) {
