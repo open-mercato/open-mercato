@@ -440,13 +440,11 @@ Open Mercato's continuous integration is powered by [Blacksmith](https://www.bla
 
 ### Catch The Tornado
 
-Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
+<a href="https://catchthetornado.com/">
+  <img src="./apps/mercato/public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
+</a>
 
-<div align="center">
-  <a href="https://catchthetornado.com/">
-    <img src="./apps/mercato//public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
-  </a>
-</div>
+Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
 
 ## CLI Commands
 
