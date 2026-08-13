@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import type { ComponentType } from 'react'
-import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useOverrideRegistryRevision, useOverrideUserFeatures } from './ComponentOverrideProvider'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -32,7 +32,7 @@ class ReplacementErrorBoundary extends React.Component<
   }
 }
 
-type ResolutionPlan<TProps> = {
+type Resolution<TProps> = {
   original: ComponentType<TProps> | null
   wrapped: ComponentType<TProps> | null
   transforms: Array<(props: TProps) => TProps>
@@ -64,22 +64,18 @@ function applyWrapper<TProps>(
   return composed
 }
 
-function emptyPlan<TProps>(): ResolutionPlan<TProps> {
-  return { original: null, wrapped: null, transforms: [], replacementOverride: null, replacementModule: 'unknown' }
-}
-
-function resolvePlan<TProps>(
+function resolveComponent<TProps>(
   componentId: string,
   fallback: ComponentType<TProps> | undefined,
   userFeatures: readonly string[],
-): ResolutionPlan<TProps> {
+): Resolution<TProps> {
   const entry = getComponentEntry(componentId)
   const original = (entry?.component as ComponentType<TProps> | undefined) ?? fallback ?? null
   if (!original) {
     if (process.env.NODE_ENV !== 'production' && !fallback) {
       logger.warn('Component is not registered', { componentId })
     }
-    return emptyPlan<TProps>()
+    return { original: null, wrapped: null, transforms: [], replacementOverride: null, replacementModule: 'unknown' }
   }
 
   const overrides = getComponentOverrides(componentId, userFeatures)
@@ -115,62 +111,33 @@ function resolvePlan<TProps>(
 }
 
 /**
- * Creates the component the hook hands back. Its identity is created once per
- * componentId and never changes afterwards: resolution happens inside its own
- * render, so a late override registration or a resolved feature grant makes the
- * subtree re-render instead of remounting. Remounting discards the state of
- * every input below this point, which is how typed credentials used to vanish
- * from the login form (issue #5037).
+ * The returned component's identity must depend only on `componentId` — never
+ * on the override registry, and never on the `fallback` a caller happens to
+ * pass on this render.
+ *
+ * Overrides arrive asynchronously: `ComponentOverridesBootstrap` dynamically
+ * imports the generated override module and hands the provider a fresh array,
+ * which bumps the registry revision some time after first paint. Resolving the
+ * component in a `useMemo` keyed on that revision handed callers a brand-new
+ * function on every bump, so React saw a different element type at that
+ * position and unmounted the whole subtree — discarding its DOM and state. On
+ * the login form that threw away credentials the user had already typed
+ * (#5037), and the same hazard applied to every host of a registered section.
+ *
+ * Resolution therefore happens *inside* a stable component. When the revision
+ * carries no override for this id, `wrapped` keeps its previous identity and
+ * React reconciles in place; only a genuine replacement or wrapper swaps the
+ * rendered type, where a remount is the correct behaviour.
+ *
+ * The identity is held in a ref rather than a `useMemo`, because `useMemo` is a
+ * performance hint React is free to discard, and identity here is a correctness
+ * requirement rather than an optimisation. `fallback` is read through a ref for
+ * the same reason: a host that builds its fallback inline would otherwise swap
+ * the component this hook hands back on every render. That still cannot save a
+ * subtree rendered *through* such a fallback — the fallback itself is then the
+ * element type, and only the host can stabilise it — but it keeps the churn
+ * from spreading to hosts whose id does resolve to a registered component.
  */
-function createRegisteredComponent<TProps>(
-  componentId: string,
-  fallbackRef: React.MutableRefObject<ComponentType<TProps> | undefined>,
-): ComponentType<TProps> {
-  const Registered = (props: TProps) => {
-    const userFeatures = useOverrideUserFeatures()
-    const overrideRevision = useOverrideRegistryRevision()
-    const fallback = fallbackRef.current
-    const plan = React.useMemo(
-      () => resolvePlan<TProps>(componentId, fallback, userFeatures),
-      [fallback, overrideRevision, userFeatures],
-    )
-
-    if (!plan.original || !plan.wrapped) return null
-
-    const transformed = plan.transforms.reduce((current, transform) => transform(current), props)
-    const Fallback = React.createElement(
-      plan.original as React.ComponentType<Record<string, unknown>>,
-      transformed as Record<string, unknown>,
-    )
-
-    if (
-      process.env.NODE_ENV !== 'production'
-      && plan.replacementOverride
-      && 'replacement' in plan.replacementOverride
-    ) {
-      const validation = plan.replacementOverride.propsSchema.safeParse(transformed)
-      if (!validation.success) {
-        logger.error('Props schema validation failed for replacement', { componentId, module: plan.replacementModule, issues: validation.error.format() })
-        return Fallback
-      }
-    }
-
-    return (
-      <ReplacementErrorBoundary
-        fallback={Fallback}
-        onError={(error) => {
-          logger.error('Component replacement failed', { componentId, module: plan.replacementModule, err: error })
-        }}
-      >
-        {React.createElement(plan.wrapped as React.ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)}
-      </ReplacementErrorBoundary>
-    )
-  }
-
-  Registered.displayName = `RegisteredComponent(${componentId})`
-  return Registered
-}
-
 export function useRegisteredComponent<TProps>(
   componentId: string,
   fallback?: ComponentType<TProps>,
@@ -178,11 +145,49 @@ export function useRegisteredComponent<TProps>(
   const fallbackRef = React.useRef<ComponentType<TProps> | undefined>(fallback)
   fallbackRef.current = fallback
 
-  const resolved = React.useRef<{ componentId: string; Component: ComponentType<TProps> } | null>(null)
-  if (!resolved.current || resolved.current.componentId !== componentId) {
-    resolved.current = { componentId, Component: createRegisteredComponent<TProps>(componentId, fallbackRef) }
+  const registered = React.useRef<{ componentId: string; Component: ComponentType<TProps> } | null>(null)
+  if (!registered.current || registered.current.componentId !== componentId) {
+    const Registered = (props: TProps) => {
+      const userFeatures = useOverrideUserFeatures()
+      const overrideRevision = useOverrideRegistryRevision()
+      const currentFallback = fallbackRef.current
+      const { original, wrapped, transforms, replacementOverride, replacementModule } = React.useMemo(
+        () => resolveComponent<TProps>(componentId, currentFallback, userFeatures),
+        [currentFallback, overrideRevision, userFeatures],
+      )
+
+      if (!original || !wrapped) return null
+
+      const transformed = transforms.reduce((current, transform) => transform(current), props)
+      const Fallback = React.createElement(original as React.ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)
+      if (
+        process.env.NODE_ENV !== 'production'
+        && replacementOverride
+        && 'replacement' in replacementOverride
+      ) {
+        const validation = replacementOverride.propsSchema.safeParse(transformed)
+        if (!validation.success) {
+          logger.error('Props schema validation failed for replacement', { componentId, module: replacementModule, issues: validation.error.format() })
+          return Fallback
+        }
+      }
+      return (
+        <ReplacementErrorBoundary
+          fallback={Fallback}
+          onError={(error) => {
+            logger.error('Component replacement failed', { componentId, module: replacementModule, err: error })
+          }}
+        >
+          {React.createElement(wrapped as React.ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)}
+        </ReplacementErrorBoundary>
+      )
+    }
+
+    Registered.displayName = `RegisteredComponent(${componentId})`
+    registered.current = { componentId, Component: Registered }
   }
-  return resolved.current.Component
+
+  return registered.current.Component
 }
 
 export default useRegisteredComponent

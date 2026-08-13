@@ -210,6 +210,30 @@ describe('useRegisteredComponent identity', () => {
     expect(screen.getByTestId('rendered')).toHaveTextContent('replacement')
   })
 
+  it('cannot save a subtree whose host re-creates the fallback on every render', () => {
+    const componentId = 'test.identity.inline-fallback'
+
+    function Consumer({ label }: { label: string }) {
+      // A fallback declared inside the host's render body is a new function on
+      // every render, and with no component registered under this id it *is*
+      // the component being rendered. The hook keeps its own identity stable,
+      // but it cannot make the caller's fallback stable — React sees a new
+      // element type below and must remount. Hosts that care about the state
+      // under an unregistered id have to hoist the fallback out of render.
+      const Fallback = (props: FieldProps) => <StatefulField {...props} />
+      const Resolved = useRegisteredComponent<FieldProps>(componentId, Fallback)
+      return <Resolved label={label} />
+    }
+
+    const { rerender } = render(<Consumer label="first" />)
+    typeIntoField('typed against an inline fallback')
+    expect(mounts.count).toBe(1)
+
+    rerender(<Consumer label="second" />)
+
+    expect(mounts.count).toBe(2)
+  })
+
   it('remounts when the host asks for a different component id', () => {
     function Consumer({ componentId }: { componentId: string }) {
       const Resolved = useRegisteredComponent<FieldProps>(componentId, StatefulField)
