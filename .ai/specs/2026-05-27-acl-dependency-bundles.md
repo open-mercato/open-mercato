@@ -293,7 +293,22 @@ Introducing the new view features is BC-safe (additive) and requires updating `s
 | `auth.roles.list` | — |
 | `auth.roles.manage` | `auth.roles.list` |
 | `auth.acl.manage` | `auth.users.list`, `auth.roles.list` |
-| `auth.sidebar.manage` | `auth.roles.list` |
+| `auth.sidebar.manage` | — (refined; was `auth.roles.list`) |
+
+Notes (enacted — see issue #2144):
+- `auth.sidebar.manage` was proposed as depending on `auth.roles.list`, but the module
+  audit refuted it: `SidebarCustomizationEditor` reads its role targets from
+  `GET /api/auth/sidebar/preferences`, whose `roles` payload is gated on
+  `auth.sidebar.manage` alone (`canApplyToRoles`), and the surface never calls
+  `/api/auth/roles`. Declaring the dependency would warn operators about a gap that
+  does not exist, so the row stays a root.
+- `auth.users.list` stays a root even though the users grid fetches `/api/auth/roles`
+  to populate its role **filter** options. That call degrades to an empty option list
+  on 403 and blocks nothing, so it is a soft dependency and not worth a standing
+  warning on the module's most commonly granted feature.
+- No new view-grained features were required: all eight ids already existed, so
+  `setup.ts` `defaultRoleFeatures` (`admin: ['auth.*']`) is unchanged and no
+  `sync-role-acls` run is needed for this module.
 
 ### 6.5 `configs`
 
