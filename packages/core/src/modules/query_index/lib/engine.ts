@@ -1096,9 +1096,12 @@ export class HybridQueryEngine implements QueryEngine {
 
       // Both count paths build the same rebuilt shape; for `canOptimizeCount`
       // queries `needsIndexRowset` is false, so the shape degenerates to
-      // base-scope + filters exactly as the optimized path always had. The gate
-      // is kept only as a debug label until the convergence proves total.
-      const runBoundedCount = async (optimized: boolean): Promise<{ total: number; warning?: ListCountCapWarning }> => {
+      // base-scope + filters exactly as the optimized path always had.
+      // `wasOptimizable` carries NO control flow — it only labels the debug
+      // timing so operators can keep telling the two shapes apart.
+      // TODO(2026-08-12): remove `canOptimizeCount` once the shape convergence
+      // has soaked (tracked in the #4552 spec as the Phase 2 follow-up).
+      const runBoundedCount = async (wasOptimizable: boolean): Promise<{ total: number; warning?: ListCountCapWarning }> => {
         const countRoot = db.selectFrom(`${baseTable} as b` as any)
         const shape = await applyCountShape(countRoot)
         const countQuery = countCap !== null
@@ -1113,7 +1116,7 @@ export class HybridQueryEngine implements QueryEngine {
         const countRow = await this.captureSqlTiming(
           'query:sql:count', entity,
           () => countQuery.executeTakeFirst(),
-          { optimized }, profiler,
+          { optimized: wasOptimizable }, profiler,
         )
         const probed = this.parseCount(countRow)
         if (countCap !== null && probed > countCap) {

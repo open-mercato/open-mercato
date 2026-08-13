@@ -78,8 +78,18 @@ have collected `total` rows.
 unadopted table renders the floor as if it were exact.
 
 **Escape hatch:** `OM_LIST_COUNT_CAP=0` disables capping and restores exact
-counts globally. It is read per request from the environment, is permanently
-supported, and needs no redeploy.
+count *values* globally. It is read per request from the environment, is
+permanently supported, and needs no redeploy. Note it restores the values, not
+the previous query shape: counts keep running through the rebuilt
+scope-and-filters query (with filters as `EXISTS` semi-joins), which is
+strictly lighter on unfiltered lists and plans set-oriented on filtered ones.
+
+**Doc-storage counts count rows, not distinct record ids.** Custom-entity
+(doc-storage) list counts changed from `count(distinct entity_id)` to
+`count(*)`. Within one organization the two are identical. Across a scope
+spanning several organizations that hold a row for the same record id, the
+count now matches the item list — which returns one row per storage row — where
+it previously under-reported relative to the items.
 
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 

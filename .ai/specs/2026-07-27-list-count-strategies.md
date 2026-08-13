@@ -633,7 +633,7 @@ The count query is rebuilt at all four sites rather than bounded: scope + filter
 
 - `BasicQueryEngine` — `packages/shared/src/lib/query/engine.ts`; extension and CF projection joins dropped from the count, CF filters compiled to `EXISTS`.
 - Hybrid optimized path and full-shape path — `packages/core/src/modules/query_index/lib/engine.ts`; the `groupBy(b.id)` is gone, and rowset-dependent predicates evaluate inside one seed-rowed `EXISTS` built from the display query's own join builders, so per-base-row filter semantics are identical by construction.
-- Custom-entity doc storage — same file; `applyCfFilterFromAlias` compiled to `EXISTS`, `distinct` dropped.
+- Custom-entity doc storage — same file; `applyCfFilterFromAlias` compiled to `EXISTS`, `distinct` dropped. Dropping the `distinct` is a deliberate value correction beyond capping: across a scope spanning organizations that hold a row for the same record id, `count(distinct entity_id)` under-reported relative to the item list (which returns one row per storage row); `count(*)` matches it. Pinned by a two-organization test against PostgreSQL and called out in `UPGRADE_NOTES.md`.
 
 `resolveListCountCap()` lives in `packages/shared/src/lib/query/count-cap.ts` (default `10000`, `0` = permanent kill switch, no entity parameter). `QueryResult` shape is unchanged; the cap surfaces as `meta.listCountCapWarning` from the engine and `totalIsCapped: true` spread onto CRUD payloads (`crud/factory.ts`, `openapi/crud.ts`).
 

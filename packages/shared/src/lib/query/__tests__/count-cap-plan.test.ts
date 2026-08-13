@@ -204,6 +204,33 @@ maybe('capped list COUNT against PostgreSQL', () => {
     await expectParity({ cf_color: { $in: ['red', 'blue'] } }, RED_ROWS)
   })
 
+  test('kill switch (cap=0): the cf-filtered count still plans set-oriented, not per-row', async () => {
+    // OM_LIST_COUNT_CAP=0 restores exact totals but runs them through the
+    // rebuilt shape. The documented escape hatch must not be slower than the
+    // problem: the uncapped EXISTS should plan as a semi-join or a hashed
+    // subplan, never an un-hashed per-row subplan re-executed for every row.
+    process.env.OM_LIST_COUNT_CAP = '0'
+    sqlLog = []; paramLog = []
+    const result = await makeEngine().query(ENTITY, {
+      ...baseOpts,
+      filters: { cf_color: { $eq: 'red' } },
+    })
+    expect(result.total).toBe(RED_ROWS)
+
+    const { text, params } = lastCountSql()
+    const explained = await sql
+      .raw(`explain (format json) ${text.replace(/\$(\d+)/g, (_, n) => {
+        const value = params[Number(n) - 1]
+        return typeof value === 'number' ? String(value) : `'${String(value).replace(/'/g, "''")}'`
+      })}`)
+      .execute(db)
+    const plan = (explained.rows[0] as any)['QUERY PLAN'][0].Plan
+    const all = collectNodes(plan)
+    const semiJoin = all.some((n) => /Semi/.test(String(n['Join Type'] ?? '')))
+    const hashedSubplan = all.some((n) => /hashed/i.test(String(n['Subplan Name'] ?? '')))
+    expect(semiJoin || hashedSubplan).toBe(true)
+  })
+
   test('sub-cap totals stay exact with the cap active', async () => {
     process.env.OM_LIST_COUNT_CAP = '1000'
     const result = await makeEngine().query(ENTITY, { ...baseOpts, filters: { cf_color: { $eq: 'red' } } })
