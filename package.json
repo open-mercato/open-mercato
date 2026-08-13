@@ -102,7 +102,7 @@
     "test:scripts": "node --test scripts/__tests__/*.test.mjs apps/mercato/scripts/__tests__/*.test.mjs",
     "test:repo-wide-guards": "node scripts/repo-wide-guards.mjs",
     "official-modules": "node scripts/official-modules.mjs",
-    "postinstall": "node scripts/official-modules-setup.mjs",
+    "postinstall": "node scripts/official-modules-setup.mjs && husky",
     "test:integration": "cross-env ENABLE_CRUD_API_CACHE=true npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
     "test:integration:coverage": "yarn mercato test:integration:coverage",
