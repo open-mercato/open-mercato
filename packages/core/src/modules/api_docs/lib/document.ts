@@ -10,6 +10,15 @@ import type { ApiRouteManifestEntry, Module } from '@open-mercato/shared/modules
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { resolveApiDocsBaseUrl } from './resources'
 
+/**
+ * The exports render differently for anonymous and authenticated callers, so
+ * they must never be served from a shared cache keyed on the URL alone.
+ */
+export const API_DOCS_CALLER_SCOPED_HEADERS = {
+  'cache-control': 'no-store',
+  vary: 'Cookie, Authorization',
+} as const
+
 export type ApiDocsDocumentInput = {
   modules: Module[]
   apiRoutes: ApiRouteManifestEntry[]

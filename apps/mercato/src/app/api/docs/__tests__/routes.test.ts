@@ -42,6 +42,17 @@ describe('public API docs export routes', () => {
     expect(JSON.stringify(body)).not.toContain('example.records.view')
   })
 
+  it('keeps the caller-scoped exports out of shared caches', async () => {
+    getAuthFromRequestMock.mockResolvedValue(null)
+    const { GET: openapiGet } = await import('../openapi/route')
+    const { GET: markdownGet } = await import('../markdown/route')
+
+    for (const response of [await openapiGet(request()), await markdownGet(request())]) {
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(response.headers.get('vary')).toBe('Cookie, Authorization')
+    }
+  })
+
   it('serves the ACL identifiers in the OpenAPI document to authenticated callers', async () => {
     getAuthFromRequestMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const { GET } = await import('../openapi/route')
