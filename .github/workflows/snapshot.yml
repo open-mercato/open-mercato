@@ -28,7 +28,7 @@ jobs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -41,7 +41,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable
@@ -135,7 +135,7 @@ jobs:
 
   standalone-integration:
     name: Standalone App Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: snapshot
     if: needs.snapshot.outputs.snapshot_version != ''
     services:
@@ -165,7 +165,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '24.19.0'
 
       - name: Enable Corepack
         run: corepack enable
@@ -233,7 +233,7 @@ jobs:
           # Without this every portal invite 502s (TC-AUTH-032/033, TC-CACC-INVITE-PERSON-001).
           PLATFORM_PORTAL_BASE_URL=http://localhost:3001
           AUTH_SECRET=ci-standalone-test-auth-secret
-          JWT_SECRET=ci-standalone-test-jwt-secret
+          JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min
           OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
@@ -246,7 +246,6 @@ jobs:
           MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret
           MOCK_INBOUND_WEBHOOK_SECRET=open-mercato-mock-dev-inbound-webhook-secret
-          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
@@ -291,7 +290,14 @@ jobs:
         # Retry through npm's post-publish quarantine window (see the script).
         run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
-      - name: Generate standalone app modules
+      - name: Generate runtime-disabled standalone baseline
+        working-directory: /tmp/standalone-app
+        run: yarn generate
+
+      - name: Verify disabled baseline and activate example integration fixture
+        run: yarn tsx scripts/prepare-standalone-example-integration.ts /tmp/standalone-app
+
+      - name: Generate activated standalone app modules
         working-directory: /tmp/standalone-app
         run: yarn generate
 
@@ -343,7 +349,7 @@ jobs:
           # writes captured emails here and TC-AUTH-033 reads them back.
           OM_TEST_EMAIL_CAPTURE_PATH: ${{ github.workspace }}/.ai/qa/email-capture.jsonl
           AUTH_SECRET: ci-standalone-test-auth-secret
-          JWT_SECRET: ci-standalone-test-jwt-secret
+          JWT_SECRET: ci-standalone-test-jwt-secret-32-chars-min
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
           MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret

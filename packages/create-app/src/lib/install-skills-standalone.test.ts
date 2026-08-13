@@ -127,7 +127,7 @@ test('standalone installer runs when invoked through a symlinked app path', { sk
     const result = run(aliasRoot, '--no-external')
     assert.equal(result.status, 0, result.stderr)
     assert.equal(fs.readlinkSync(path.join(root, '.agents', 'skills', 'om-alpha')), '../../.ai/skills/om-alpha')
-    assert.match(result.stdout, /Installed 1 local skills/)
+    assert.match(result.stdout, /^Installed 1 local skills/m)
   } finally {
     removeFixture(aliasParent)
     removeFixture(root)
