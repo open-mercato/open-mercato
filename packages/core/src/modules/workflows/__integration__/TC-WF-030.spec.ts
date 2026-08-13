@@ -62,16 +62,12 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
       expect(instanceId).toBeTruthy()
 
       // The demo exposes manual progression while an automated step is RUNNING.
-      // Advance at most twice; background processing may move beyond Customer Information.
+      // Advance at most twice: START -> Cart Validation -> Customer Information.
       const advanceButton = page.getByRole('button', { name: 'Advance to Next Step →', exact: true })
-      const postValidationStep = page.getByRole('heading', {
-        name: /^(Customer Information Required|Initiating Payment|Waiting for Payment Confirmation)$/,
-      })
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        await expect.poll(async () => (
-          await postValidationStep.isVisible() || await advanceButton.isVisible()
-        )).toBe(true)
-        if (await postValidationStep.isVisible()) break
+        const customerStep = page.getByRole('heading', { name: 'Customer Information', exact: true })
+        if (await customerStep.isVisible()) break
+        await expect(advanceButton).toBeVisible()
         await Promise.all([
           page.waitForResponse((response) =>
             response.url().includes(`/api/workflows/instances/${instanceId}/advance`)
@@ -80,7 +76,7 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
         ])
       }
 
-      await expect(postValidationStep).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Customer Information', exact: true })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Order Failed' })).toHaveCount(0)
       await expect(page.getByText(/CALL_WEBHOOK rejected unsafe URL|reason=invalid_url/)).toHaveCount(0)
     } finally {

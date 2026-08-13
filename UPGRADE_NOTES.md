@@ -454,17 +454,6 @@ export const bootstrap = createBootstrap(
 
 Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
 
-### `DataTable` can guard row clicks from interactive cell content
-
-`DataTable` now accepts an opt-in `rowClickInteractiveSelector` prop. When supplied, clicking matching cell content does not also trigger `onRowClick` / the row's `defaultRowAction`. The default remains `false`, preserving established click-anywhere row behavior for existing tables.
-
-```tsx
-// Swallow the row click for a selected set of elements
-<DataTable rowClickInteractiveSelector="button, a" … />
-```
-
-The default selector is exported as `DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR` from `@open-mercato/ui/backend/DataTable`. Covered by `DataTable.rowClickGuard.test.tsx`.
-
 ### `ComboboxInput` shows a "no matches" row for a non-empty query
 
 When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in every bundled locale.

@@ -123,13 +123,6 @@ function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
   })
 }
 
-/**
- * Cell content that can swallow a row click when a table opts into the guard, so
- * activating an inline control does not also fire the row's navigation.
- */
-export const DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR =
-  'button, a, input, select, textarea, [role="combobox"], [role="listbox"], [contenteditable="true"]'
-
 export type PaginationProps = {
   page: number
   pageSize: number
@@ -309,13 +302,6 @@ export type DataTableProps<T extends RowData> = {
   onRowClick?: (row: T) => void
   rowClickActionIds?: string[]
   disableRowClick?: boolean
-  /**
-   * CSS selector for interactive cell content that should swallow the row click
-   * instead of triggering `onRowClick` / the default row action. Defaults to `false`
-   * to preserve the established click-anywhere row behavior. Pass
-   * {@link DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR} or a narrower selector to opt in.
-   */
-  rowClickInteractiveSelector?: string | false
   bulkActions?: BulkAction<T>[]
   selectionScopeKey?: string
 
@@ -1227,7 +1213,6 @@ export function DataTable<T extends RowData>({
   onRowClick,
   rowClickActionIds,
   disableRowClick = false,
-  rowClickInteractiveSelector = false,
   bulkActions: bulkActionsProp,
   selectionScopeKey,
   searchValue,
@@ -3474,17 +3459,7 @@ export function DataTable<T extends RowData>({
                       if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
                         return
                       }
-                      // Don't trigger row click when the click lands on an interactive
-                      // control rendered inside a cell (inline selects, inputs, buttons) —
-                      // otherwise editing a cell also fires the row's default action.
-                      // Override or disable via `rowClickInteractiveSelector`.
-                      if (
-                        rowClickInteractiveSelector &&
-                        (e.target as HTMLElement).closest(rowClickInteractiveSelector)
-                      ) {
-                        return
-                      }
-
+                      
                       if (onRowClick) {
                         onRowClick(row.original as T)
                       } else if (defaultRowAction) {
