@@ -1,6 +1,8 @@
 {
   "sales_call_planner.brief.confirm.cancel": "Cancel",
   "sales_call_planner.brief.confirm.description": "This places an outbound phone call to the chief of sales, reads them a summary of {company}’s open deals, and turns their reply into tasks.",
+  "sales_call_planner.brief.confirm.phoneHint": "Use the international format, for example +48123456789.",
+  "sales_call_planner.brief.confirm.phoneLabel": "Chief of sales phone number",
   "sales_call_planner.brief.confirm.submit": "Start the call",
   "sales_call_planner.brief.confirm.title": "Start a briefing call?",
   "sales_call_planner.brief.error.forbidden": "You need permission to start workflow instances to brief the chief of sales.",

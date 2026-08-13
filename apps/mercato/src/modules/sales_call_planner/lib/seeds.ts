@@ -58,6 +58,7 @@ import {
   type WorkflowDefinitionData,
 } from '@open-mercato/core/modules/workflows/data/entities'
 import { workflowDefinitionDataSchema } from '@open-mercato/core/modules/workflows/data/validators'
+import { DEAL_BRIEFING_WORKFLOW_ID } from './deal-briefing-contract'
 import dealBriefingWorkflow from '../examples/deal-briefing-workflow.json'
 
 const logger = createLogger('sales_call_planner').child({ component: 'seeds' })
@@ -67,13 +68,13 @@ const logger = createLogger('sales_call_planner').child({ component: 'seeds' })
  * the integration tests (B7) name it by import rather than by retyping a string
  * whose typo fails only at run time.
  *
- * Deliberately carries NO `_v1` suffix. `findWorkflowDefinition` resolves a run
- * against `workflowId` + `version`, and the definition row carries `version` as
- * its own column, so a version baked into the id would make v2 a DIFFERENT
- * workflow rather than a new version of this one — and every caller holding the
- * old id would keep starting the old graph forever.
+ * It is DECLARED in `./deal-briefing-contract` and re-exported here, unchanged
+ * for every existing importer. This module reaches the ORM and the engine's
+ * validators, so a browser bundle cannot import it; the widget that starts a run
+ * is a client component and needs the same id. The declaration therefore lives
+ * in a module with no imports, and this stays the id's documented home.
  */
-export const DEAL_BRIEFING_WORKFLOW_ID = 'sales_call_planner_deal_briefing'
+export { DEAL_BRIEFING_WORKFLOW_ID }
 
 export type SalesCallPlannerSeedScope = {
   tenantId: string

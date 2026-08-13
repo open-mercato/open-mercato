@@ -1,6 +1,8 @@
 {
   "sales_call_planner.brief.confirm.cancel": "Cancelar",
   "sales_call_planner.brief.confirm.description": "Esto realiza una llamada saliente al director de ventas, le lee un resumen de las oportunidades abiertas de {company} y convierte su respuesta en tareas.",
+  "sales_call_planner.brief.confirm.phoneHint": "Usa el formato internacional, por ejemplo +48123456789.",
+  "sales_call_planner.brief.confirm.phoneLabel": "Número de teléfono del director de ventas",
   "sales_call_planner.brief.confirm.submit": "Iniciar la llamada",
   "sales_call_planner.brief.confirm.title": "¿Iniciar una llamada informativa?",
   "sales_call_planner.brief.error.forbidden": "Necesitas permiso para iniciar instancias de flujo de trabajo para informar al director de ventas.",

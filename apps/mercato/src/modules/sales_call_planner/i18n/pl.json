@@ -1,6 +1,8 @@
 {
   "sales_call_planner.brief.confirm.cancel": "Anuluj",
   "sales_call_planner.brief.confirm.description": "Spowoduje to wykonanie połączenia wychodzącego do dyrektora sprzedaży, odczytanie podsumowania otwartych szans firmy {company} i zamianę odpowiedzi na zadania.",
+  "sales_call_planner.brief.confirm.phoneHint": "Użyj formatu międzynarodowego, na przykład +48123456789.",
+  "sales_call_planner.brief.confirm.phoneLabel": "Numer telefonu dyrektora sprzedaży",
   "sales_call_planner.brief.confirm.submit": "Rozpocznij połączenie",
   "sales_call_planner.brief.confirm.title": "Rozpocząć rozmowę informacyjną?",
   "sales_call_planner.brief.error.forbidden": "Aby przekazać informacje dyrektorowi sprzedaży, potrzebujesz uprawnienia do uruchamiania instancji procesów.",

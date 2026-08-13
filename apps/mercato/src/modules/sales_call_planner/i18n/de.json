@@ -1,6 +1,8 @@
 {
   "sales_call_planner.brief.confirm.cancel": "Abbrechen",
   "sales_call_planner.brief.confirm.description": "Dabei wird der Vertriebsleitung ein Anruf zugestellt, eine Zusammenfassung der offenen Deals von {company} vorgelesen und die Antwort in Aufgaben überführt.",
+  "sales_call_planner.brief.confirm.phoneHint": "Internationales Format verwenden, zum Beispiel +48123456789.",
+  "sales_call_planner.brief.confirm.phoneLabel": "Telefonnummer der Vertriebsleitung",
   "sales_call_planner.brief.confirm.submit": "Anruf starten",
   "sales_call_planner.brief.confirm.title": "Briefing-Anruf starten?",
   "sales_call_planner.brief.error.forbidden": "Zum Briefen der Vertriebsleitung wird die Berechtigung zum Starten von Workflow-Instanzen benötigt.",
