@@ -88,7 +88,7 @@ function makeHarness(options: {
     attachmentQuotaService: quota,
     attachmentQuotaRecoveryScheduler: scheduler,
   })
-  return { service, order, attachment, driver, quota, dataEngine }
+  return { service, order, attachment, driver, quota, dataEngine, em }
 }
 
 const input = {
@@ -104,7 +104,7 @@ const input = {
 
 describe('ScopedAttachmentUploadService', () => {
   it('reserves quota before storage and completes it in the persistence transaction', async () => {
-    const { service, order, attachment, dataEngine } = makeHarness()
+    const { service, order, attachment, dataEngine, em } = makeHarness()
 
     await expect(service.upload(input)).resolves.toBe(attachment)
 
@@ -117,6 +117,13 @@ describe('ScopedAttachmentUploadService', () => {
       storagePath: 'tenant/org/upload.pdf',
     })
     expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'created' }))
+    expect(em.findOne).toHaveBeenCalledWith(expect.anything(), {
+      code: 'privateAttachments',
+      $or: [
+        { tenantId: null, organizationId: null },
+        { tenantId, organizationId },
+      ],
+    })
   })
 
   it('deletes stored content and releases quota when database persistence fails', async () => {

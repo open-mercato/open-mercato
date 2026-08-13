@@ -24,7 +24,7 @@ const httpUrlString = (max: number) =>
     z.string().trim().min(1).max(max).url().refine(
       (value) => value.startsWith('https://') || value.startsWith('http://'),
       { message: 'Only http(s) URLs are allowed' },
-    ).optional(),
+    ).nullable().optional(),
   )
 const requiredString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max))

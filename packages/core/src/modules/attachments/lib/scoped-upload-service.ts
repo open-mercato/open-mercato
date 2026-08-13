@@ -94,7 +94,13 @@ export class ScopedAttachmentUploadService {
     const { em, storageDriverFactory, attachmentQuotaService, attachmentQuotaRecoveryScheduler } = this.deps
     await ensureDefaultPartitions(em)
     const partitionCode = input.partitionCode ?? resolveDefaultPartitionCode(input.entityId)
-    const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
+    const partition = await em.findOne(AttachmentPartition, {
+      code: partitionCode,
+      $or: [
+        { tenantId: null, organizationId: null },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      ],
+    })
     if (!partition) throw new ScopedAttachmentUploadError('partition_unavailable', 400)
 
     const driver = await storageDriverFactory.resolveForPartition(partition.code, {

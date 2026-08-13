@@ -197,44 +197,57 @@ type PortalSalesDb = {
   }
 }
 
-async function loadOwnedOrder(context: PortalContext, orderId: string): Promise<PortalOrderLookup | null> {
+function isMissingSalesTableError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const candidate = err as { code?: unknown; message?: unknown }
+  return candidate.code === '42P01'
+    || (typeof candidate.message === 'string'
+      && candidate.message.includes('does not exist')
+      && (candidate.message.includes('sales_orders') || candidate.message.includes('sales_order_lines')))
+}
+
+async function loadOwnedOrders(
+  context: PortalContext,
+  orderIds: string[],
+): Promise<Map<string, PortalOrderLookup>> {
+  if (orderIds.length === 0) return new Map()
   try {
     const db = context.em.fork().getKysely<PortalSalesDb>()
-    const row = await db
+    const rows = await db
       .selectFrom('sales_orders')
       .select(['id', 'currency_code'])
-      .where('id', '=', orderId)
+      .where('id', 'in', orderIds)
       .where('tenant_id', '=', context.tenantId)
       .where('organization_id', '=', context.organizationId)
       .where('customer_entity_id', '=', context.customerId)
       .where('deleted_at', 'is', null)
-      .executeTakeFirst()
-    if (!row) return null
-    return { id: row.id, currencyCode: row.currency_code ?? null }
-  } catch {
-    return null
+      .execute()
+    return new Map(rows.map((row) => [row.id, { id: row.id, currencyCode: row.currency_code ?? null }]))
+  } catch (err) {
+    if (isMissingSalesTableError(err)) return new Map()
+    throw err
   }
 }
 
-async function loadOwnedOrderLine(
+async function loadOwnedOrderLines(
   context: PortalContext,
-  orderLineId: string,
-): Promise<{ line: PortalOrderLineLookup; order: PortalOrderLookup } | null> {
+  orderLineIds: string[],
+): Promise<Map<string, PortalOrderLineLookup>> {
+  if (orderLineIds.length === 0) return new Map()
   try {
     const db = context.em.fork().getKysely<PortalSalesDb>()
-    const row = await db
+    const rows = await db
       .selectFrom('sales_order_lines')
       .select(['id', 'order_id'])
-      .where('id', '=', orderLineId)
+      .where('id', 'in', orderLineIds)
       .where('tenant_id', '=', context.tenantId)
       .where('organization_id', '=', context.organizationId)
       .where('deleted_at', 'is', null)
-      .executeTakeFirst()
-    if (!row || !row.order_id) return null
-    const order = await loadOwnedOrder(context, row.order_id)
-    return order ? { line: { id: row.id, orderId: row.order_id }, order } : null
-  } catch {
-    return null
+      .execute()
+    return new Map(rows.map((row) => [row.id, { id: row.id, orderId: row.order_id }]))
+  } catch (err) {
+    if (isMissingSalesTableError(err)) return new Map()
+    throw err
   }
 }
 
@@ -242,9 +255,14 @@ async function validatePortalOrderOwnership(
   context: PortalContext,
   input: PortalIntakeInput,
 ): Promise<OrderValidationResult | Response> {
-  let resolvedOrder: PortalOrderLookup | null = null
+  const orderLineIds = Array.from(new Set(input.lines.flatMap((line) => line.orderLineId ? [line.orderLineId] : [])))
+  const orderLinesById = await loadOwnedOrderLines(context, orderLineIds)
+  const orderIds = new Set<string>()
+  if (input.orderId) orderIds.add(input.orderId)
+  for (const orderLine of orderLinesById.values()) orderIds.add(orderLine.orderId)
+  const ordersById = await loadOwnedOrders(context, Array.from(orderIds))
+  let resolvedOrder = input.orderId ? (ordersById.get(input.orderId) ?? null) : null
   if (input.orderId) {
-    resolvedOrder = await loadOwnedOrder(context, input.orderId)
     if (!resolvedOrder) {
       return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderNotOwned' }, { status: 404 })
     }
@@ -252,18 +270,19 @@ async function validatePortalOrderOwnership(
 
   for (const line of input.lines) {
     if (!line.orderLineId) continue
-    const resolvedLine = await loadOwnedOrderLine(context, line.orderLineId)
-    if (!resolvedLine) {
+    const resolvedLine = orderLinesById.get(line.orderLineId)
+    const lineOrder = resolvedLine ? ordersById.get(resolvedLine.orderId) : null
+    if (!resolvedLine || !lineOrder) {
       return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderLineMismatch' }, { status: 404 })
     }
-    if (resolvedOrder && resolvedLine.order.id !== resolvedOrder.id) {
+    if (resolvedOrder && lineOrder.id !== resolvedOrder.id) {
       const { translate } = await resolveTranslations()
       return NextResponse.json(
         { ok: false, error: translate('warranty_claims.errors.orderLineMismatch', 'Order line does not belong to the selected order') },
         { status: 400 },
       )
     }
-    if (!resolvedOrder) resolvedOrder = resolvedLine.order
+    if (!resolvedOrder) resolvedOrder = lineOrder
   }
 
   return {

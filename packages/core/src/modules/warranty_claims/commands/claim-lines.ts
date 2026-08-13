@@ -45,7 +45,7 @@ import {
   requireScopedClaim,
   type WarrantyClaimScope,
 } from './shared'
-import { assertClaimedQtyWithinSold, validateClaimReferences } from './claims'
+import { assertPendingClaimQuantitiesWithinSold, validateClaimReferences } from './claims'
 
 const claimCrudEvents: CrudEventsConfig = {
   module: 'warranty_claims',
@@ -613,10 +613,6 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     let nextLineNo = input.lineNo ?? 1
     await withAtomicFlush(em, [
       async () => {
-        // Lock the parent claim before reading siblings: the sold-quantity guard is a
-        // read-then-write, so two concurrent line creates on the same claim would each
-        // see the pre-insert sibling set, both pass, and jointly exceed the sold
-        // quantity. The lock serializes them inside this transaction.
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
         const existingLines = await findWithDecryption(
           em,
@@ -630,10 +626,12 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
           {},
           scope,
         )
-        await assertClaimedQtyWithinSold(ctx, scope, existingLines, {
-          orderLineId: input.orderLineId ?? null,
-          qtyClaimed: amountString(input.qtyClaimed, '1') ?? '1',
-        })
+        if (input.orderLineId) {
+          await assertPendingClaimQuantitiesWithinSold(em, scope, new Map([[input.orderLineId, [{
+            orderLineId: input.orderLineId,
+            qtyClaimed: amountString(input.qtyClaimed, '1') ?? '1',
+          }]]]))
+        }
         nextLineNo = input.lineNo ?? existingLines.reduce((max, entry) => Math.max(max, entry.lineNo), 0) + 1
       },
       () => {
@@ -708,30 +706,22 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     await withAtomicFlush(em, [
       async () => {
         if (!guardsClaimedQty) return
-        // Same read-then-write race as the create path — lock the parent claim so the
-        // sibling totals this guard reads cannot change before the update lands.
-        // Siblings are read on THIS EntityManager (not by claim id, which would fork a
-        // fresh one and read outside the transaction, defeating the lock).
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
-        const siblingLines = await findWithDecryption(
-          em,
-          WarrantyClaimLine,
-          {
-            claim: claim.id,
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-            deletedAt: null,
-          },
-          {},
-          scope,
-        )
-        await assertClaimedQtyWithinSold(ctx, scope, siblingLines, {
-          id: line.id,
-          orderLineId: hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null),
-          qtyClaimed: hasOwn(input, 'qtyClaimed')
-            ? (amountString(input.qtyClaimed, '1') ?? '1')
-            : line.qtyClaimed,
-        })
+        const orderLineId = hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null)
+        if (orderLineId) {
+          await assertPendingClaimQuantitiesWithinSold(
+            em,
+            scope,
+            new Map([[orderLineId, [{
+              id: line.id,
+              orderLineId,
+              qtyClaimed: hasOwn(input, 'qtyClaimed')
+                ? (amountString(input.qtyClaimed, '1') ?? '1')
+                : line.qtyClaimed,
+            }]]]),
+            { excludedLineIds: new Set([line.id]) },
+          )
+        }
       },
       () => {
         applyLineUpdate(line, input)

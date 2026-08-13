@@ -36,7 +36,13 @@ export class AttachmentTargetAccessService {
     )
     if (!attachment) return false
 
-    const partition = await this.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+    const partition = await this.em.findOne(AttachmentPartition, {
+      code: attachment.partitionCode,
+      $or: [
+        { tenantId: null, organizationId: null },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      ],
+    })
     if (!partition) return false
     if (!checkAttachmentAccess(input.auth, attachment, partition, { requireAuthForPublic: true }).ok) return false
 

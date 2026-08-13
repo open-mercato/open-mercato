@@ -30,6 +30,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 import { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
 import {
   assertClaimedQtyWithinSold,
+  assertPendingClaimQuantitiesWithinSold,
   type ClaimedQuantityLine,
 } from '../commands/claims'
 import { evaluateClaimRisk } from '../lib/risk'
@@ -267,6 +268,45 @@ describe('warranty claim sold quantity guards', () => {
       orderLineId: ORDER_LINE_ID,
       qtyClaimed: '0.5000',
     }))
+  })
+
+  test('locks the sales line and includes persisted claims before accepting a new claim', async () => {
+    const forUpdate = jest.fn()
+    const selectFrom = jest.fn((table: string) => {
+      if (table === 'sales_order_lines') {
+        const builder = {
+          select: jest.fn(),
+          where: jest.fn(),
+          forUpdate,
+          executeTakeFirst: jest.fn(async () => ({ id: ORDER_LINE_ID, quantity: '1.0000' })),
+        }
+        builder.select.mockReturnValue(builder)
+        builder.where.mockReturnValue(builder)
+        forUpdate.mockReturnValue(builder)
+        return builder
+      }
+      const builder = {
+        innerJoin: jest.fn(),
+        select: jest.fn(),
+        where: jest.fn(),
+        execute: jest.fn(async () => [{ qty_claimed: '0.7500' }]),
+      }
+      builder.innerJoin.mockReturnValue(builder)
+      builder.select.mockReturnValue(builder)
+      builder.where.mockReturnValue(builder)
+      return builder
+    })
+    const em = { getKysely: () => ({ selectFrom }) } as unknown as EntityManager
+    const pending = new Map<string, readonly ClaimedQuantityLine[]>([[ORDER_LINE_ID, [{
+      orderLineId: ORDER_LINE_ID,
+      qtyClaimed: '0.5000',
+    }]]])
+
+    await expect(assertPendingClaimQuantitiesWithinSold(em, SCOPE, pending)).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'warranty_claims.errors.qtyExceedsOrdered' },
+    })
+    expect(forUpdate).toHaveBeenCalledTimes(1)
   })
 
   test('sums id-less pending lines from the inline create path instead of self-excluding them', async () => {

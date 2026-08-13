@@ -20,7 +20,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Plus } from 'lucide-react'
 import { REGISTRATION_COVERAGE_TYPES, REGISTRATION_SOURCES } from '../../../data/validators'
 import { normalizeRegistration, type RegistrationRecord } from './registrationForm'
@@ -119,10 +119,10 @@ function registrationSegmentQuery(segment: RegistrationSegment): Record<string, 
   return {}
 }
 
-function formatDate(value: string | null): string | null {
+function formatDate(value: string | null, locale: string): string | null {
   if (!value) return null
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString()
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString(locale || undefined)
 }
 
 function hasExpired(value: string | null): boolean {
@@ -133,6 +133,7 @@ function hasExpired(value: string | null): boolean {
 
 export default function WarrantyClaimRegistrationsPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -422,7 +423,7 @@ export default function WarrantyClaimRegistrationsPage() {
         header: t('warranty_claims.registrations.list.column.warrantyExpiry', 'Warranty expiry'),
         cell: ({ row }) => (
           <span className={hasExpired(row.original.warrantyExpiresAt) ? 'text-sm text-status-error-text' : 'text-sm text-muted-foreground'}>
-            {formatDate(row.original.warrantyExpiresAt) ?? t('warranty_claims.common.noValue', 'Not set')}
+            {formatDate(row.original.warrantyExpiresAt, locale) ?? t('warranty_claims.common.noValue', 'Not set')}
           </span>
         ),
       },
@@ -433,7 +434,7 @@ export default function WarrantyClaimRegistrationsPage() {
         cell: ({ row }) => <span className="text-sm text-muted-foreground">{sourceLabel(row.original.source, t)}</span>,
       },
     ]
-  }, [customerNames, t])
+  }, [customerNames, locale, t])
 
   const activeTab = toStringOrNull(filterValues.coverageType) === 'standard'
     ? 'standard'

@@ -1,5 +1,6 @@
 import {
   claimLineCreateSchema,
+  claimSetReturnLabelSchema,
   registrationCreateSchema,
   registrationUpdateSchema,
   vendorPolicyCreateSchema,
@@ -79,5 +80,19 @@ describe('claim line nullable decimal fields', () => {
 
     expect(result.success).toBe(true)
     if (result.success) expect(result.data[field]).toBeNull()
+  })
+})
+
+describe('claimSetReturnLabelSchema', () => {
+  it('normalizes an empty label URL when another label reference is present', () => {
+    const result = claimSetReturnLabelSchema.safeParse({
+      ...scope,
+      id: CLAIM_ID,
+      labelUrl: '',
+      trackingNumber: 'TRACK-1',
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.labelUrl).toBeNull()
   })
 })

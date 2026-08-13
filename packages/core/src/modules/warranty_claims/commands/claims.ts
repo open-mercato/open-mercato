@@ -725,6 +725,28 @@ async function emitLineCrud(
   )
 }
 
+async function emitLineUndoCrud(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'updated' | 'deleted',
+  line: WarrantyClaimLine,
+): Promise<void> {
+  const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action,
+    entity: line,
+    identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+    indexer: { entityType: E.warranty_claims.warranty_claim_line },
+  })
+  await invalidateCrudCache(
+    ctx.container,
+    'warranty_claims.claim_line',
+    { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+    ctx.auth?.tenantId ?? null,
+    `warranty_claims.claim_line.undo.${action}`,
+  )
+}
+
 function resolveClaimNumberGenerator(ctx: CommandRuntimeContext, em: EntityManager): WarrantyClaimNumberGenerator {
   try {
     return ctx.container.resolve('warrantyClaimNumberGenerator') as WarrantyClaimNumberGenerator
@@ -792,6 +814,26 @@ type SalesReferenceDb = {
     total_gross_amount: string
     tenant_id: string | null
     organization_id: string | null
+    deleted_at: Date | null
+  }
+}
+
+type ClaimedQuantityDb = SalesReferenceDb & {
+  warranty_claims: {
+    id: string
+    status: string
+    tenant_id: string
+    organization_id: string
+    deleted_at: Date | null
+  }
+  warranty_claim_lines: {
+    id: string
+    claim_id: string
+    order_line_id: string | null
+    qty_claimed: string | null
+    line_status: string
+    tenant_id: string
+    organization_id: string
     deleted_at: Date | null
   }
 }
@@ -939,6 +981,62 @@ export async function assertClaimedQtyWithinSold(
   }
   if (claimedQuantity > soldQuantity) {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.qtyExceedsOrdered' })
+  }
+}
+
+export async function assertPendingClaimQuantitiesWithinSold(
+  em: EntityManager,
+  scope: WarrantyClaimScope,
+  pendingLinesByOrderLine: ReadonlyMap<string, readonly ClaimedQuantityLine[]>,
+  options: { excludedLineIds?: ReadonlySet<string> } = {},
+): Promise<void> {
+  const db = em.getKysely<ClaimedQuantityDb>()
+  const orderLineIds = Array.from(pendingLinesByOrderLine.keys()).sort((left, right) => left.localeCompare(right))
+  for (const orderLineId of orderLineIds) {
+    let soldRow: { id: string; quantity: string | null } | undefined
+    try {
+      soldRow = await db
+        .selectFrom('sales_order_lines')
+        .select(['id', 'quantity'])
+        .where('id', '=', orderLineId)
+        .where('tenant_id', '=', scope.tenantId)
+        .where('organization_id', '=', scope.organizationId)
+        .where('deleted_at', 'is', null)
+        .forUpdate()
+        .executeTakeFirst()
+    } catch (err) {
+      if (isMissingReferenceTableError(err)) return
+      throw err
+    }
+    const soldQuantity = claimedQuantityUnits(soldRow?.quantity)
+    if (!soldRow || soldQuantity === null) continue
+
+    const persistedRows = await db
+      .selectFrom('warranty_claim_lines')
+      .innerJoin('warranty_claims', 'warranty_claims.id', 'warranty_claim_lines.claim_id')
+      .select(['warranty_claim_lines.id', 'warranty_claim_lines.qty_claimed'])
+      .where('warranty_claim_lines.order_line_id', '=', orderLineId)
+      .where('warranty_claim_lines.tenant_id', '=', scope.tenantId)
+      .where('warranty_claim_lines.organization_id', '=', scope.organizationId)
+      .where('warranty_claim_lines.deleted_at', 'is', null)
+      .where('warranty_claim_lines.line_status', '!=', 'rejected')
+      .where('warranty_claims.tenant_id', '=', scope.tenantId)
+      .where('warranty_claims.organization_id', '=', scope.organizationId)
+      .where('warranty_claims.deleted_at', 'is', null)
+      .where('warranty_claims.status', '!=', 'cancelled')
+      .execute()
+
+    let claimedQuantity = 0n
+    for (const row of persistedRows) {
+      if (options.excludedLineIds?.has(row.id)) continue
+      claimedQuantity += claimedQuantityUnits(row.qty_claimed) ?? 0n
+    }
+    for (const line of pendingLinesByOrderLine.get(orderLineId) ?? []) {
+      claimedQuantity += claimedQuantityUnits(line.qtyClaimed) ?? 0n
+    }
+    if (claimedQuantity > soldQuantity) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.qtyExceedsOrdered' })
+    }
   }
 }
 
@@ -1379,10 +1477,6 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
       grouped.push(line)
       pendingLinesByOrderLine.set(line.orderLineId, grouped)
     }
-    await Promise.all(Array.from(pendingLinesByOrderLine.values()).map((groupedLines) => {
-      const candidateLine = groupedLines[groupedLines.length - 1]
-      return assertClaimedQtyWithinSold(ctx, scope, groupedLines.slice(0, -1), candidateLine)
-    }))
     const numberGenerator = resolveClaimNumberGenerator(ctx, em)
     const generated = await numberGenerator.generate({
       claimType: input.claimType,
@@ -1401,7 +1495,8 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
     let createdLines: WarrantyClaimLine[] = []
 
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        await assertPendingClaimQuantitiesWithinSold(em, scope, pendingLinesByOrderLine)
         claim = em.create(WarrantyClaim, {
           id: claimId,
           organizationId: scope.organizationId,
@@ -1493,6 +1588,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
       },
     ], { transaction: true, label: 'warranty_claims.claim.create.undo' })
     await emitClaimUndoCrud(ctx, 'deleted', claim)
+    await Promise.all(lines.map((line) => emitLineUndoCrud(ctx, 'deleted', line)))
   },
 }
 

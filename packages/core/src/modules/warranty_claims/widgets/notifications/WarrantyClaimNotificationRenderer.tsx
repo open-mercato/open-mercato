@@ -200,7 +200,7 @@ export function WarrantyClaimNotificationRenderer({
         <p className="truncate text-sm font-medium leading-5 text-foreground">{title}</p>
         <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-muted-foreground">
           {timeAgo ? <span className="whitespace-nowrap">{timeAgo}</span> : null}
-          {timeAgo && claimNumber ? <span aria-hidden="true" className="text-text-disabled">·</span> : null}
+          {timeAgo && claimNumber ? <span aria-hidden="true" className="text-text-disabled">—</span> : null}
           {claimNumber ? (
             <span className="inline-flex max-w-full items-center rounded bg-muted px-1.5 py-0.5 font-mono text-overline text-foreground">
               <span className="truncate">#{claimNumber}</span>

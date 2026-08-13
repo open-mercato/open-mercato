@@ -662,28 +662,40 @@ function BusinessHoursField({
                   <div className="flex-1 space-y-2">
                     {day.intervals.map((interval) => {
                       const intervalError = rowErrors?.[interval.key]
+                      const startInputId = `${id}-${day.weekday}-${interval.key}-start`
+                      const endInputId = `${id}-${day.weekday}-${interval.key}-end`
                       return (
                         <div key={interval.key} className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="time"
-                              className="w-32"
-                              value={interval.start}
-                              disabled={controlsDisabled}
-                              aria-label={translations.startLabel}
-                              aria-invalid={intervalError ? true : undefined}
-                              onChange={(event) => updateInterval(day.weekday, interval.key, { start: event.target.value })}
-                            />
-                            <span className="text-sm text-muted-foreground" aria-hidden="true">–</span>
-                            <Input
-                              type="time"
-                              className="w-32"
-                              value={interval.end}
-                              disabled={controlsDisabled}
-                              aria-label={translations.endLabel}
-                              aria-invalid={intervalError ? true : undefined}
-                              onChange={(event) => updateInterval(day.weekday, interval.key, { end: event.target.value })}
-                            />
+                          <div className="flex items-end gap-2">
+                            <div className="space-y-1">
+                              <Label htmlFor={startInputId} className="text-xs text-muted-foreground">
+                                {translations.startLabel}
+                              </Label>
+                              <Input
+                                id={startInputId}
+                                type="time"
+                                className="w-32"
+                                value={interval.start}
+                                disabled={controlsDisabled}
+                                aria-invalid={intervalError ? true : undefined}
+                                onChange={(event) => updateInterval(day.weekday, interval.key, { start: event.target.value })}
+                              />
+                            </div>
+                            <span className="pb-2 text-sm text-muted-foreground" aria-hidden="true">–</span>
+                            <div className="space-y-1">
+                              <Label htmlFor={endInputId} className="text-xs text-muted-foreground">
+                                {translations.endLabel}
+                              </Label>
+                              <Input
+                                id={endInputId}
+                                type="time"
+                                className="w-32"
+                                value={interval.end}
+                                disabled={controlsDisabled}
+                                aria-invalid={intervalError ? true : undefined}
+                                onChange={(event) => updateInterval(day.weekday, interval.key, { end: event.target.value })}
+                              />
+                            </div>
                             {day.intervals.length > 1 ? (
                               <IconButton
                                 type="button"
@@ -727,18 +739,24 @@ function BusinessHoursField({
         </div>
         {value.holidays.map((row) => {
           const holidayError = rowErrors?.[row.key]
+          const holidayInputId = `${id}-${row.key}-holiday`
           return (
             <div key={row.key} className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  className="w-44"
-                  value={row.date}
-                  disabled={controlsDisabled}
-                  aria-label={translations.holidayDateLabel}
-                  aria-invalid={holidayError ? true : undefined}
-                  onChange={(event) => updateHoliday(row.key, event.target.value)}
-                />
+              <div className="flex items-end gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor={holidayInputId} className="text-xs text-muted-foreground">
+                    {translations.holidayDateLabel}
+                  </Label>
+                  <Input
+                    id={holidayInputId}
+                    type="date"
+                    className="w-44"
+                    value={row.date}
+                    disabled={controlsDisabled}
+                    aria-invalid={holidayError ? true : undefined}
+                    onChange={(event) => updateHoliday(row.key, event.target.value)}
+                  />
+                </div>
                 <IconButton
                   type="button"
                   variant="ghost"

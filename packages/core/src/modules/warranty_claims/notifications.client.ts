@@ -69,7 +69,7 @@ export const warrantyClaimsNotificationTypes: NotificationTypeDefinition[] = [
     'warranty_claims.claim.customer_replied',
     'warranty_claims.notifications.customerReplied.title',
     'warranty_claims.notifications.customerReplied.body',
-    'message-square',
+    'message-square-reply',
   ),
 ]
 

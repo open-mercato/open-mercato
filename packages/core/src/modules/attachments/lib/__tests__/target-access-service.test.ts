@@ -16,7 +16,7 @@ function makeService(attachment: Record<string, unknown> | null) {
   const em = {
     findOne: jest.fn(async () => ({ code: 'private', isPublic: false })),
   } as unknown as EntityManager
-  return new AttachmentTargetAccessService(em)
+  return { service: new AttachmentTargetAccessService(em), em }
 }
 
 const input = {
@@ -42,7 +42,14 @@ describe('AttachmentTargetAccessService', () => {
       recordId: 'line-1',
       storageMetadata: null,
     })
-    await expect(direct.canAccessLinkedTarget(input)).resolves.toBe(true)
+    await expect(direct.service.canAccessLinkedTarget(input)).resolves.toBe(true)
+    expect(direct.em.findOne).toHaveBeenCalledWith(expect.anything(), {
+      code: 'private',
+      $or: [
+        { tenantId: null, organizationId: null },
+        { tenantId, organizationId },
+      ],
+    })
 
     const assigned = makeService({
       tenantId,
@@ -54,11 +61,11 @@ describe('AttachmentTargetAccessService', () => {
         assignments: [{ type: 'warranty_claims:warranty_claim', id: 'claim-1' }],
       },
     })
-    await expect(assigned.canAccessLinkedTarget(input)).resolves.toBe(true)
+    await expect(assigned.service.canAccessLinkedTarget(input)).resolves.toBe(true)
   })
 
   it('rejects an unrelated same-scope attachment', async () => {
-    const service = makeService({
+    const { service } = makeService({
       tenantId,
       organizationId,
       partitionCode: 'private',
