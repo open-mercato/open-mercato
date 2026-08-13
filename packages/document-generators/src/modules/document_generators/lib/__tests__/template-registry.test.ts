@@ -2,7 +2,7 @@ import type { ComponentType } from 'react'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { templateRegistry, UnknownTemplateError } from '../template-registry'
+import { DuplicateTemplateError, TemplateRegistry, UnknownTemplateError } from '../template-registry'
 import type { TemplateEntry } from '@open-mercato/shared/modules/document-generators'
 
 // Minimal React-PDF-like component stand-in — the registry only stores and returns it.
@@ -27,35 +27,33 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
   }
 }
 
-// The registry is a singleton — reset both lists before each test so cases don't leak.
 const translate = ((key: string, fallback?: string | Record<string, string | number>) => (
   key === 'document.label' ? 'translated:document.label' : (typeof fallback === 'string' ? fallback : key)
 )) as TranslateFn
 const ctx = { container: {} as AppContainer, auth: null as AuthContext | null, locale: 'en', translate }
+let templateRegistry: TemplateRegistry
 
 beforeEach(() => {
-  templateRegistry.registerInternal([])
-  templateRegistry.registerExternal([])
+  templateRegistry = new TemplateRegistry()
 })
 
 describe('templateRegistry.listTemplates', () => {
-  it('groups templates by source and strips runtime handlers to metadata only', () => {
-    templateRegistry.registerInternal([makeEntry({ id: 'internal-1' })])
-    templateRegistry.registerExternal([makeEntry({ id: 'external-1', module: 'custom' })])
+  it('lists templates from multiple registrations and strips runtime handlers', () => {
+    templateRegistry.register([makeEntry({ id: 'first' })])
+    templateRegistry.register([makeEntry({ id: 'second', module: 'custom' })])
 
-    const { internal, external } = templateRegistry.listTemplates()
+    const templates = templateRegistry.listTemplates()
 
-    expect(internal.map((t) => t.id)).toEqual(['internal-1'])
-    expect(external.map((t) => t.id)).toEqual(['external-1'])
+    expect(templates.map((template) => template.id)).toEqual(['first', 'second'])
     // Runtime handlers must not leak into the UI-facing metadata.
-    expect(internal[0]).not.toHaveProperty('fromRecord')
-    expect(internal[0]).not.toHaveProperty('filename')
-    expect(internal[0]).not.toHaveProperty('resourceId')
-    expect(internal[0]).not.toHaveProperty('resourceLabel')
-    expect(internal[0]).not.toHaveProperty('load')
-    expect(internal[0]).not.toHaveProperty('fetchData')
-    expect(internal[0]).toMatchObject({
-      id: 'internal-1',
+    expect(templates[0]).not.toHaveProperty('fromRecord')
+    expect(templates[0]).not.toHaveProperty('filename')
+    expect(templates[0]).not.toHaveProperty('resourceId')
+    expect(templates[0]).not.toHaveProperty('resourceLabel')
+    expect(templates[0]).not.toHaveProperty('load')
+    expect(templates[0]).not.toHaveProperty('fetchData')
+    expect(templates[0]).toMatchObject({
+      id: 'first',
       label: 'Sample Report',
       module: 'example',
       resourceKind: 'example.record',
@@ -64,15 +62,26 @@ describe('templateRegistry.listTemplates', () => {
     })
   })
 
-  it('returns empty groups when nothing is registered', () => {
-    expect(templateRegistry.listTemplates()).toEqual({ internal: [], external: [] })
+  it('returns an empty list when nothing is registered', () => {
+    expect(templateRegistry.listTemplates()).toEqual([])
   })
 
-  it('replaces (not appends) entries on re-registration', () => {
-    templateRegistry.registerInternal([makeEntry({ id: 'first' })])
-    templateRegistry.registerInternal([makeEntry({ id: 'second' })])
+  it('rejects a duplicate ID without partially registering the batch', () => {
+    templateRegistry.register([makeEntry({ id: 'existing' })])
 
-    expect(templateRegistry.listTemplates().internal.map((t) => t.id)).toEqual(['second'])
+    expect(() => templateRegistry.register([
+      makeEntry({ id: 'new' }),
+      makeEntry({ id: 'existing' }),
+    ])).toThrow(DuplicateTemplateError)
+    expect(templateRegistry.listTemplates().map((template) => template.id)).toEqual(['existing'])
+  })
+
+  it('rejects duplicate IDs within one batch', () => {
+    expect(() => templateRegistry.register([
+      makeEntry({ id: 'duplicate' }),
+      makeEntry({ id: 'duplicate', module: 'custom' }),
+    ])).toThrow('[internal] Duplicate template ID: duplicate')
+    expect(templateRegistry.listTemplates()).toEqual([])
   })
 })
 
@@ -103,7 +112,7 @@ describe('templateRegistry.load', () => {
       calls.push('load')
       return { type: 'react-pdf' as const, component: FakeComponent }
     })
-    templateRegistry.registerInternal([makeEntry({ fetchData, fromRecord, filename, resourceId, resourceLabel, load })])
+    templateRegistry.register([makeEntry({ fetchData, fromRecord, filename, resourceId, resourceLabel, load })])
 
     const result = await templateRegistry.load({ id: 'sample-report', data: { id: 'abc' } }, ctx)
 
@@ -121,7 +130,7 @@ describe('templateRegistry.load', () => {
     const requestTranslate = ((key: string, fallback?: string | Record<string, string | number>) => (
       key === 'example.templates.sample.label' ? 'Localized report' : (typeof fallback === 'string' ? fallback : key)
     )) as TranslateFn
-    templateRegistry.registerInternal([makeEntry({ label: 'example.templates.sample.label' })])
+    templateRegistry.register([makeEntry({ label: 'example.templates.sample.label' })])
 
     const result = await templateRegistry.load(
       { id: 'sample-report', data: {} },
@@ -135,7 +144,7 @@ describe('templateRegistry.load', () => {
     const fetchData = jest.fn(async ({ data }: { data: unknown }) => data)
     const auth = { tenantId: 't1', orgId: 'o1' } as unknown as AuthContext
     const container = { resolve: () => undefined } as unknown as AppContainer
-    templateRegistry.registerInternal([makeEntry({ fetchData })])
+    templateRegistry.register([makeEntry({ fetchData })])
 
     await templateRegistry.load({ id: 'sample-report', data: { id: 'abc' } }, { container, auth, locale: 'de', translate })
 
@@ -144,7 +153,7 @@ describe('templateRegistry.load', () => {
 
   it('passes raw data straight to fromRecord when the template has no fetchData', async () => {
     const fromRecord = jest.fn((data: unknown) => data as Record<string, unknown>)
-    templateRegistry.registerInternal([makeEntry({ fetchData: undefined, fromRecord })])
+    templateRegistry.register([makeEntry({ fetchData: undefined, fromRecord })])
 
     await templateRegistry.load({ id: 'sample-report', data: { id: 'raw' } }, ctx)
 
@@ -156,7 +165,7 @@ describe('templateRegistry.load', () => {
     const fetchData = jest.fn(async () => Promise.reject(failure))
     const load = jest.fn(async () => ({ type: 'react-pdf' as const, component: FakeComponent }))
     const fromRecord = jest.fn((data: unknown) => data as Record<string, unknown>)
-    templateRegistry.registerInternal([makeEntry({ fetchData, load, fromRecord })])
+    templateRegistry.register([makeEntry({ fetchData, load, fromRecord })])
 
     await expect(
       templateRegistry.load({ id: 'sample-report', data: { id: 'untrusted' } }, ctx),
@@ -166,8 +175,8 @@ describe('templateRegistry.load', () => {
     expect(fromRecord).not.toHaveBeenCalled()
   })
 
-  it('resolves templates registered by external modules', async () => {
-    templateRegistry.registerExternal([makeEntry({ id: 'custom-report', module: 'my_module' })])
+  it('resolves templates registered by modules', async () => {
+    templateRegistry.register([makeEntry({ id: 'custom-report', module: 'my_module' })])
 
     const result = await templateRegistry.load({ id: 'custom-report', data: {} }, ctx)
 
@@ -176,7 +185,7 @@ describe('templateRegistry.load', () => {
 
   it('loads a Markdown source as a Markdown template', async () => {
     const render = jest.fn(() => '# Document')
-    templateRegistry.registerInternal([makeEntry({
+    templateRegistry.register([makeEntry({
       id: 'sample-report-markdown',
       format: 'md',
       filename: () => 'report.md',
@@ -192,7 +201,7 @@ describe('templateRegistry.load', () => {
 
   it('forwards extensible formats without interpreting the source type', async () => {
     const source = { type: 'docx', document: { title: 'Document' } }
-    templateRegistry.registerInternal([makeEntry({
+    templateRegistry.register([makeEntry({
       id: 'custom-document',
       format: 'docx',
       filename: () => 'document.docx',
@@ -207,7 +216,7 @@ describe('templateRegistry.load', () => {
   })
 
   it('throws "Unknown template" for an unregistered id', async () => {
-    templateRegistry.registerInternal([makeEntry({ id: 'sample-report' })])
+    templateRegistry.register([makeEntry({ id: 'sample-report' })])
 
     await expect(
       templateRegistry.load({ id: 'does-not-exist', data: {} }, ctx),

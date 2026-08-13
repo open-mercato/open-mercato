@@ -5,26 +5,23 @@ import { listTemplates } from './helpers/fixtures'
 /**
  * TC-PDF-001: PDF templates endpoint lists the Sales-provided templates
  *
- * Calls GET /api/document-generators/templates and verifies the response is grouped
- * into { internal, external } and that the Sales templates — the Order
+ * Calls GET /api/document-generators/templates and verifies that the Sales
+ * templates — the Order
  * Invoice ('order-invoice') and the Sales Offer ('sales-offer') — are present
- * as module-provided templates with a well-formed metadata shape.
+ * with a well-formed metadata shape.
  */
 test.describe('TC-PDF-001: PDF templates listing', () => {
-  test('should return Sales templates grouped under external', async ({ request }) => {
+  test('should return Sales templates', async ({ request }) => {
     const token = await getAuthToken(request)
     const result = await listTemplates(request, token)
 
-    expect(Array.isArray(result.internal)).toBe(true)
-    expect(Array.isArray(result.external)).toBe(true)
+    expect(Array.isArray(result)).toBe(true)
+    const templateIds = result.map((template) => template.id)
+    expect(templateIds).toContain('order-invoice')
+    expect(templateIds).toContain('order-invoice-markdown')
+    expect(templateIds).toContain('sales-offer')
 
-    expect(result.internal).toEqual([])
-    const externalIds = result.external.map((template) => template.id)
-    expect(externalIds).toContain('order-invoice')
-    expect(externalIds).toContain('order-invoice-markdown')
-    expect(externalIds).toContain('sales-offer')
-
-    const orderInvoice = result.external.find((template) => template.id === 'order-invoice')
+    const orderInvoice = result.find((template) => template.id === 'order-invoice')
     expect(orderInvoice).toBeDefined()
     expect(orderInvoice).toMatchObject({
       module: 'sales',
@@ -36,14 +33,14 @@ test.describe('TC-PDF-001: PDF templates listing', () => {
     expect(orderInvoice?.label.length).toBeGreaterThan(0)
     expect(Array.isArray(orderInvoice?.tags)).toBe(true)
 
-    expect(result.external.find((template) => template.id === 'order-invoice-markdown')).toMatchObject({
+    expect(result.find((template) => template.id === 'order-invoice-markdown')).toMatchObject({
       module: 'sales',
       resourceKind: 'sales.order',
       documentType: 'invoice',
       format: 'md',
     })
 
-    const salesOffer = result.external.find((template) => template.id === 'sales-offer')
+    const salesOffer = result.find((template) => template.id === 'sales-offer')
     expect(salesOffer).toMatchObject({
       module: 'sales',
       resourceKind: 'sales.quote',

@@ -6,10 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
-
-type TemplatesResponse = { internal: TemplateMeta[]; external: TemplateMeta[] }
 
 type Translator = (key: string, fallback: string) => string
 
@@ -52,19 +49,13 @@ function buildColumns(t: Translator): ColumnDef<TemplateMeta>[] {
   ]
 }
 
-function groupByModule(
-  internal: TemplateMeta[],
-  external: TemplateMeta[],
-): Map<string, { internal: TemplateMeta[]; external: TemplateMeta[] }> {
-  const modules = new Map<string, { internal: TemplateMeta[]; external: TemplateMeta[] }>()
-
-  const ensure = (moduleId: string) => {
-    if (!modules.has(moduleId)) modules.set(moduleId, { internal: [], external: [] })
-    return modules.get(moduleId)!
+function groupByModule(templates: TemplateMeta[]): Map<string, TemplateMeta[]> {
+  const modules = new Map<string, TemplateMeta[]>()
+  for (const template of templates) {
+    const entries = modules.get(template.module) ?? []
+    entries.push(template)
+    modules.set(template.module, entries)
   }
-
-  for (const template of internal) ensure(template.module).internal.push(template)
-  for (const template of external) ensure(template.module).external.push(template)
 
   return modules
 }
@@ -72,20 +63,18 @@ function groupByModule(
 export default function DocumentGeneratorTemplatesPage() {
   const t = useT()
   const columns = React.useMemo(() => buildColumns(t), [t])
-  const [internal, setInternal] = React.useState<TemplateMeta[]>([])
-  const [external, setExternal] = React.useState<TemplateMeta[]>([])
+  const [templates, setTemplates] = React.useState<TemplateMeta[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
 
-    apiCall<TemplatesResponse>('/api/document-generators/templates', { method: 'GET' })
+    apiCall<TemplateMeta[]>('/api/document-generators/templates', { method: 'GET' })
       .then(({ ok, result }) => {
         if (!ok) throw new Error('[internal] Failed to load templates')
         if (cancelled) return
-        setInternal(result?.internal ?? [])
-        setExternal(result?.external ?? [])
+        setTemplates(Array.isArray(result) ? result : [])
       })
       .catch(() => {
         if (!cancelled) setError(t('document_generators.page.error', 'Failed to load templates.'))
@@ -99,7 +88,7 @@ export default function DocumentGeneratorTemplatesPage() {
     }
   }, [t])
 
-  const grouped = groupByModule(internal, external)
+  const grouped = groupByModule(templates)
 
   return (
     <Page data-testid="document-generators-templates-page">
@@ -115,32 +104,11 @@ export default function DocumentGeneratorTemplatesPage() {
           <DataTable columns={columns} data={[]} isLoading={loading} error={error} disableRowClick />
         ) : (
           <div className="flex flex-col gap-10">
-            {Array.from(grouped.entries()).map(([moduleId, { internal: moduleInternal, external: moduleExternal }]) => (
+            {Array.from(grouped.entries()).map(([moduleId, moduleTemplates]) => (
               <section key={moduleId}>
                 <h2 className="mb-4 text-base font-semibold capitalize">{moduleId}</h2>
-                <div className="flex flex-col gap-6 border-l pl-4">
-                  {moduleInternal.length > 0 && (
-                    <div>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {t('document_generators.page.internal', 'Internal')}
-                      </h3>
-                      <DataTable columns={columns} data={moduleInternal} disableRowClick />
-                    </div>
-                  )}
-                  <div>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('document_generators.page.external', 'External')}
-                    </h3>
-                    {moduleExternal.length > 0 ? (
-                      <DataTable columns={columns} data={moduleExternal} disableRowClick />
-                    ) : (
-                      <EmptyState
-                        size="sm"
-                        variant="subtle"
-                        title={t('document_generators.page.external_empty', 'No external templates registered.')}
-                      />
-                    )}
-                  </div>
+                <div className="border-l pl-4">
+                  <DataTable columns={columns} data={moduleTemplates} disableRowClick />
                 </div>
               </section>
             ))}

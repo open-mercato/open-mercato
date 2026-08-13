@@ -53,8 +53,7 @@ export interface RenderedDocument {
 }
 
 export interface TemplateRegistry {
-  registerInternal(entries: TemplateEntry[]): void
-  registerExternal(entries: TemplateEntry[]): void
-  listTemplates(): { internal: TemplateMeta[]; external: TemplateMeta[] }
+  register(entries: TemplateEntry[]): void
+  listTemplates(): TemplateMeta[]
   load(input: { id: string; data: unknown }, context: TemplateLoadContext): Promise<LoadedTemplate>
 }

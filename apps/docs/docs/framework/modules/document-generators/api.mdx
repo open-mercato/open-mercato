@@ -13,24 +13,21 @@ All endpoints require authentication. Preview and listing require `document_gene
 
 ### `GET /api/document-generators/templates`
 
-Returns all registered templates grouped by origin — internal (engine-owned) and external (provided by modules through `document-generators.ts`). The engine currently ships no domain templates, so Sales entries appear under `external`.
+Returns all templates registered by application modules through `document-generators.ts`.
 
 ```jsonc
 // Response
-{
-  "internal": [],
-  "external": [
-    {
-      "id": "order-invoice",
-      "label": "Order Invoice",
-      "description": "Standard invoice for sales orders.",
-      "module": "sales",
-      "resourceKind": "sales.order",
-      "documentType": "invoice",
-      "tags": ["invoice", "order"]
-    }
-  ]
-}
+[
+  {
+    "id": "order-invoice",
+    "label": "Order Invoice",
+    "description": "Standard invoice for sales orders.",
+    "module": "sales",
+    "resourceKind": "sales.order",
+    "documentType": "invoice",
+    "tags": ["invoice", "order"]
+  }
+]
 ```
 
 Use this endpoint to build custom template pickers or to verify that your registered templates are visible to the registry.

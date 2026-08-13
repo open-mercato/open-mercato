@@ -32,13 +32,9 @@ export function TemplatesList({ record, filter }: TemplatesListProps) {
   const [selected, setSelected] = React.useState<TemplateMeta | null>(null)
 
   React.useEffect(() => {
-    apiCall<{ internal: TemplateMeta[]; external: TemplateMeta[] }>('/api/document-generators/templates')
+    apiCall<TemplateMeta[]>('/api/document-generators/templates')
       .then(({ result }) => {
-        const all: TemplateMeta[] = [
-          ...(Array.isArray(result?.internal) ? result.internal : []),
-          ...(Array.isArray(result?.external) ? result.external : []),
-        ]
-        setTemplates(applyFilter(all, filter))
+        setTemplates(applyFilter(Array.isArray(result) ? result : [], filter))
       })
       .catch(() => {})
       .finally(() => setLoading(false))

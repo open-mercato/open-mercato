@@ -1,7 +1,7 @@
 import type { GeneratorPlugin } from '@open-mercato/shared/modules/generators'
 
 /**
- * Builds the content of the auto-generated registry file that collects external template entries.
+ * Builds the content of the auto-generated registry file that collects module template entries.
  *
  * @param importSection - Generated import statements for each convention file
  * @param entriesLiteral - Generated array literal entries
@@ -30,11 +30,11 @@ const documentGeneratorsPlugin: GeneratorPlugin = {
       `import { templateRegistry } from '@open-mercato/document-generators/modules/document_generators/lib/template-registry'`,
     ],
     buildCall: (name: string) =>
-      `templateRegistry.registerExternal(${name}.flatMap((e) => e.templates))`,
+      `templateRegistry.register(${name}.flatMap((e) => e.templates))`,
   },
 }
 
-/** Generator plugins consumed by `mercato generate registry` to produce the external template registry file. */
+/** Generator plugins consumed by `mercato generate registry` to produce the template registry file. */
 export const generatorPlugins: GeneratorPlugin[] = [documentGeneratorsPlugin]
 
 export default generatorPlugins

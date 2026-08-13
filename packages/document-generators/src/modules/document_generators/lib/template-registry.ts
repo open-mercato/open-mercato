@@ -17,56 +17,38 @@ export class UnknownTemplateError extends Error {
   }
 }
 
+export class DuplicateTemplateError extends Error {
+  constructor(id: string) {
+    super(`[internal] Duplicate template ID: ${id}`)
+    this.name = 'DuplicateTemplateError'
+  }
+}
+
 /**
- * Holds built-in and externally registered document templates.
+ * Holds document templates contributed by application modules.
  * Orchestrates server-side data fetching, normalization, and component loading via a single load() call.
  */
-class TemplateRegistry implements TemplateRegistryInterface {
-  private internal: TemplateEntry[] = []
-  private external: TemplateEntry[] = []
+export class TemplateRegistry implements TemplateRegistryInterface {
+  private templates = new Map<string, TemplateEntry>()
 
-  /**
-   * Registers built-in templates shipped with this package.
-   *
-   * @param entries - Template entries produced by document services
-   */
-  registerInternal(entries: TemplateEntry[]): void {
-    this.internal = entries
+  register(entries: TemplateEntry[]): void {
+    const templates = new Map(this.templates)
+    for (const entry of entries) {
+      if (templates.has(entry.id)) {
+        throw new DuplicateTemplateError(entry.id)
+      }
+      templates.set(entry.id, entry)
+    }
+    this.templates = templates
   }
 
   /**
-   * Registers templates contributed by external modules via the generator convention.
-   *
-   * @param entries - Template entries from the auto-generated registry file
+   * Returns template metadata for use in the templates listing endpoint.
    */
-  registerExternal(entries: TemplateEntry[]): void {
-    this.external = entries
-  }
-
-  private getInternal(): TemplateEntry[] {
-    return this.internal
-  }
-
-  private getExternal(): TemplateEntry[] {
-    return this.external
-  }
-
-  private getAll(): TemplateEntry[] {
-    return [...this.getInternal(), ...this.getExternal()]
-  }
-
-  /**
-   * Returns template metadata grouped by source, for use in the templates listing endpoint.
-   *
-   * @returns Object with `internal` and `external` arrays of TemplateMeta
-   */
-  listTemplates(): { internal: TemplateMeta[]; external: TemplateMeta[] } {
+  listTemplates(): TemplateMeta[] {
     const toMeta = ({ id, label, description, module, resourceKind, documentType, format, tags, note }: TemplateEntry): TemplateMeta =>
       ({ id, label, description, module, resourceKind, documentType, format, tags, note })
-    return {
-      internal: this.getInternal().map(toMeta),
-      external: this.getExternal().map(toMeta),
-    }
+    return Array.from(this.templates.values(), toMeta)
   }
 
   /**
@@ -74,7 +56,7 @@ class TemplateRegistry implements TemplateRegistryInterface {
    * @throws Error if template is not registered
    */
   private findTemplate(id: string): TemplateEntry {
-    const entry = this.getAll().find((template) => template.id === id)
+    const entry = this.templates.get(id)
     if (!entry) throw new UnknownTemplateError(id)
     return entry
   }

@@ -15,15 +15,10 @@ export interface TemplateMeta {
   note?: string
 }
 
-export interface TemplatesResponse {
-  internal: TemplateMeta[]
-  external: TemplateMeta[]
-}
-
 export async function listTemplates(
   request: APIRequestContext,
   token: string,
-): Promise<TemplatesResponse> {
+): Promise<TemplateMeta[]> {
   const response = await apiRequest(request, 'GET', '/api/document-generators/templates', { token })
   if (!response.ok()) {
     const body = await response.text()

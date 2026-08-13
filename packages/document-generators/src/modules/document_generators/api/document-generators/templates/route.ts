@@ -11,17 +11,15 @@ export const metadata = {
 }
 
 /**
- * Returns all available PDF templates grouped by source (internal and external).
+ * Returns all available document templates.
  *
- * @returns JSON with `{ internal: TemplateMeta[], external: TemplateMeta[] }`
+ * @returns JSON array of TemplateMeta
  */
 export async function GET() {
   const { t } = await resolveTranslations()
-  const templates = templateRegistry.listTemplates()
-  return NextResponse.json({
-    internal: templates.internal.map((template) => localizeTemplateMeta(template, t)),
-    external: templates.external.map((template) => localizeTemplateMeta(template, t)),
-  })
+  return NextResponse.json(
+    templateRegistry.listTemplates().map((template) => localizeTemplateMeta(template, t)),
+  )
 }
 
 function localizeTemplateMeta(template: TemplateMeta, translate: TranslateFn): TemplateMeta {
@@ -35,9 +33,9 @@ function localizeTemplateMeta(template: TemplateMeta, translate: TranslateFn): T
 export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
-      summary: 'List available PDF templates grouped by source',
+      summary: 'List available document templates',
       responses: [
-        { status: 200, description: '{ internal: TemplateMeta[], external: TemplateMeta[] }' },
+        { status: 200, description: 'TemplateMeta[]' },
         { status: 401, description: 'Unauthorized' },
       ],
     },
