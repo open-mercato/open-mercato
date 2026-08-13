@@ -11,6 +11,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ConsentItem } from '@open-mercato/core/modules/auth/lib/consentTypes'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   path: '/auth/users/consents',
@@ -46,7 +47,11 @@ export async function GET(req: Request) {
   const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
 
   if (!actorIsSuperAdmin && !tenantId) {
-    return NextResponse.json({ ok: false, error: 'Tenant context is required' }, { status: 403 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('auth.users.consents.errors.tenantContextRequired', 'Tenant context is required'),
+    }, { status: 403 })
   }
 
   if (auth.sub) {

@@ -8,6 +8,14 @@ const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockLogCrudAccess = jest.fn()
 const mockCommandExecute = jest.fn()
+const mockTranslate = jest.fn((key: string, fallback: string) => (
+  key === 'auth.users.consents.errors.tenantContextRequired'
+    ? 'Wymagany jest kontekst najemcy'
+    : fallback
+))
+const mockResolveTranslations = jest.fn(async () => ({
+  translate: mockTranslate,
+}))
 
 const mockEm = {
   find: jest.fn(),
@@ -32,6 +40,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(() => mockResolveTranslations()),
 }))
 
 type MockCrudAction = {
@@ -253,11 +265,17 @@ describe('auth user consents tenant scoping', () => {
     expect(consentQuery()).toBeUndefined()
   })
 
-  test('non-superadmin without a tenant scope is rejected (403)', async () => {
+  test('non-superadmin without a tenant scope gets a localized rejection (403)', async () => {
     setActor({ tenantId: null })
     mockUserTargets()
     const res = await consentsGet(jsonRequest(`http://localhost/api/auth/users/consents?userId=${foreignUserId}`, 'GET'))
     expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual({ ok: false, error: 'Wymagany jest kontekst najemcy' })
+    expect(mockResolveTranslations).toHaveBeenCalledTimes(1)
+    expect(mockTranslate).toHaveBeenCalledWith(
+      'auth.users.consents.errors.tenantContextRequired',
+      'Tenant context is required',
+    )
     expect(consentQuery()).toBeUndefined()
   })
 })

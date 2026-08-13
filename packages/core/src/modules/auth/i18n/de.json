@@ -149,6 +149,7 @@
   "auth.session.refresh.errors.invalidToken": "Ungültiges oder abgelaufenes Refresh-Token",
   "auth.signIn": "Anmelden",
   "auth.users.consents.empty": "Keine Einwilligungsdatensätze gefunden.",
+  "auth.users.consents.errors.tenantContextRequired": "Ein Mandantenkontext ist erforderlich",
   "auth.users.consents.field.createdAt": "Erstellt",
   "auth.users.consents.field.grantedAt": "Erteilt am",
   "auth.users.consents.field.integrity": "Integrität",
