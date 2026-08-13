@@ -220,4 +220,27 @@ describe('DealCustomFieldControl', () => {
       expect.objectContaining({ id: 'cf_widget', value: 'abc', setValue: onChange, disabled: false }),
     )
   })
+
+  it('does not duplicate a custom field error owned by the component', () => {
+    const component = ({ error }: { error?: string }) => (
+      <p data-testid="custom-error">{error}</p>
+    )
+    const { container } = render(
+      <DealCustomFieldControl
+        field={makeField({
+          id: 'cf_phone',
+          type: 'custom',
+          label: 'Phone',
+          component,
+          rendersOwnError: true,
+        })}
+        value=""
+        onChange={() => {}}
+        error="Required"
+      />,
+    )
+
+    expect(screen.getByTestId('custom-error')).toHaveTextContent('Required')
+    expect(container.querySelector('.text-xs.text-status-error-text')).toBeNull()
+  })
 })

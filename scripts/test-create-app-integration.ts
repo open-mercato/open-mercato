@@ -9,6 +9,13 @@ import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
+import {
+  EXAMPLE_ACTIVATION_ENTRY,
+  assertExampleActivation,
+  assertModulesUnregistered,
+  enableModuleEntry,
+  modulesConfigPath,
+} from './lib/module-activation-fixtures'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -94,7 +101,6 @@ function writeStandaloneEnv(appDir: string): void {
     'ENABLE_CRUD_API_CACHE=true',
     'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
     'MOCK_CARRIER_WEBHOOK_SECRET=open-mercato-mock-dev-carrier-webhook-secret',
-    'NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true',
     'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
@@ -234,7 +240,6 @@ async function main(): Promise<void> {
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
-    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
@@ -255,10 +260,15 @@ async function main(): Promise<void> {
   try {
     await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio', '--skip-agentic-setup'], { cwd: ROOT })
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'], { cwd: ROOT })
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded standalone app created')
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')
+    const yarnConfig = fs.readFileSync(path.join(appDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error(`Scaffolded standalone app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
+    }
+    console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
 
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)
@@ -267,12 +277,24 @@ async function main(): Promise<void> {
       env: standaloneInstallEnv,
     })
 
-    console.log(cyan('Building the scaffolded app in production mode'))
+    console.log(cyan('Building the runtime-disabled scaffold baseline in production mode'))
     runCommand('yarn', ['build'], {
       cwd: appDir,
       env: { ...integrationEnv, NODE_ENV: 'production' },
     })
     assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
+    await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+    console.log(green('✔ Runtime-disabled scaffold baseline contains no reference-module output'))
+
+    enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+    console.log(cyan('Building the explicitly activated example fixture in production mode'))
+    runCommand('yarn', ['build'], {
+      cwd: appDir,
+      env: { ...integrationEnv, NODE_ENV: 'production' },
+    })
+    assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ Activated ${label}`)) })
+    await assertExampleActivation(appDir)
+    console.log(green('✔ Activated disposable app exposes example without design_system'))
 
     const standalone = await waitForStandaloneEphemeralApp({
       appDir,

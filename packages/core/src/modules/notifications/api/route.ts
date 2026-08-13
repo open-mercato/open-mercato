@@ -8,6 +8,7 @@ import {
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
@@ -19,13 +20,16 @@ import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
   notificationValidationErrorResponse,
+  resolveGuardedNotificationContext,
   resolveNotificationContext,
   runGuardedNotificationWrite,
+  TENANT_SCOPE_REQUIRED_ERROR_CODE,
 } from '../lib/routeHelpers'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
   notificationItemSchema,
+  scopeErrorResponseSchema,
 } from './openapi'
 
 export const metadata = {
@@ -89,7 +93,9 @@ function isNotificationsListPayload(value: unknown): value is NotificationsListP
 }
 
 export async function GET(req: Request) {
-  const { ctx, scope } = await resolveNotificationContext(req)
+  const resolved = await resolveGuardedNotificationContext(req)
+  if (!resolved.ok) return resolved.response
+  const { ctx, scope } = resolved
   const em = ctx.container.resolve('em') as EntityManager
 
   const url = new URL(req.url)
@@ -226,7 +232,7 @@ export async function POST(req: Request) {
   }
 }
 
-export const openApi = buildNotificationsCrudOpenApi({
+const notificationsCrudOpenApi = buildNotificationsCrudOpenApi({
   resourceName: 'Notification',
   querySchema: listNotificationsSchema,
   listResponseSchema: createPagedListResponseSchema(notificationItemSchema),
@@ -236,3 +242,26 @@ export const openApi = buildNotificationsCrudOpenApi({
     description: 'Creates a notification for a user.',
   },
 })
+
+const notificationsCrudGet = notificationsCrudOpenApi.methods?.GET ?? {}
+
+// The CRUD factory documents errors only for DELETE, and POST already gets an auto-generated 403
+// from its `requireFeatures` metadata. GET is authenticated-only, so its tenant-scope rejection has
+// to be declared here to reach the generated spec.
+export const openApi: OpenApiRouteDoc = {
+  ...notificationsCrudOpenApi,
+  methods: {
+    ...notificationsCrudOpenApi.methods,
+    GET: {
+      ...notificationsCrudGet,
+      errors: [
+        ...(notificationsCrudGet.errors ?? []),
+        {
+          status: 403,
+          description: `Request could not be resolved to a tenant scope (code: ${TENANT_SCOPE_REQUIRED_ERROR_CODE})`,
+          schema: scopeErrorResponseSchema,
+        },
+      ],
+    },
+  },
+}

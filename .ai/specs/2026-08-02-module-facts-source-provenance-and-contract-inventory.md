@@ -306,7 +306,7 @@ No HTTP API changes are introduced. Generated-file changes are additive:
 - Duplicate module ID selection matches runtime provider selection.
 - Duplicate declarations of one `kind + id` select the runtime-authoritative source and emit deterministic rejected-source diagnostics.
 - Established subscriber, search, vector, integration, tool, and agent facts gain `factSources` references without duplicating their payloads in `ownedContracts`.
-- Every top-level `module-facts.json` key still resolves to a selected module ID; diagnostics remain inside the owning module entry.
+- Every top-level key in both the v1-compatible `module-facts.json` and corrected `module-facts.v2.json` resolves to a selected module ID; diagnostics remain inside the owning module entry.
 
 ### Runtime parity tests
 

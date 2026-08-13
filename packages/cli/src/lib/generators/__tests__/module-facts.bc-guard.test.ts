@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { extractAllModuleFacts, renderModuleFactsJson } from '../module-facts'
+import { extractAllModuleFacts, isExactSourceFilePath, renderModuleFactsJson } from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
 
@@ -17,11 +17,18 @@ function isUnique(values: string[]): boolean {
   return values.length === new Set(values).size
 }
 
+const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
+
+function collectLinkTargets(markdown: string): string[] {
+  return [...markdown.matchAll(MARKDOWN_LINK_TARGET)].map((match) => match[1])
+}
+
 describe('module-facts BC resolve guard (T2)', () => {
   const repoRoot = findRepoRoot()
   const sources = discoverPackageModuleSources(createResolver(repoRoot))
   const extractionStartedAt = process.cpuUsage()
   const { factsByModule, markdownByModule, frameworkMarkdown } = extractAllModuleFacts({ sources })
+  const legacyFactsByModule = extractAllModuleFacts({ sources, factsContractVersion: 1 }).factsByModule
   const extractionCpuUsage = process.cpuUsage(extractionStartedAt)
   const extractionCpuDurationMs = (extractionCpuUsage.user + extractionCpuUsage.system) / 1_000
 
@@ -34,6 +41,23 @@ describe('module-facts BC resolve guard (T2)', () => {
       expect(facts.extensionSurfaces).toBeDefined()
       expect(facts.extensionSurfaces?.unresolved).toEqual([])
     }
+  })
+
+  it('preserves stable v1 extension arrays while exposing corrected v2 facts separately', () => {
+    const legacySecurity = legacyFactsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    const v2Security = factsByModule.security.extensionSurfaces?.contributions.find(
+      (contribution) => contribution.id.includes('section:auth.login.form'),
+    )
+    expect(legacySecurity?.kind === 'component-override' ? legacySecurity.details.mode : null).toBe('replace')
+    expect(v2Security?.kind === 'component-override' ? v2Security.details.mode : null).toBe('wrapper')
+
+    const recoveredContribution = 'catalog.injection.product-bulk-delete@data-table:catalog.products.list:bulk-actions'
+    expect(legacyFactsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .not.toContain(recoveredContribution)
+    expect(factsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
+      .toContain(recoveredContribution)
   })
 
   it('keeps generated extension facts within bounded build-time and context budgets', () => {
@@ -83,26 +107,77 @@ describe('module-facts BC resolve guard (T2)', () => {
     // unrelated PRs at random. 90s keeps it meaningful — a real blow-up here is
     // multiplicative, not a few percent — while leaving CI roughly 3x headroom.
     expect(extractionCpuDurationMs).toBeLessThan(90_000)
-    // JSON and markdown caps raised a fourth time, for a different reason than the
-    // three above: those tracked a schema change, this one tracks ordinary repo
-    // growth. Measured on the 56-module tree that adds `channel_discord`, the
-    // previous caps were all but exhausted before this module existed — 3,488,120
-    // of 3,500,000 JSON bytes (99.66%) and 1,520,711 of 1,550,000 markdown bytes
-    // (98.11%). A whole communication-channel provider costs 15,920 JSON bytes and
-    // 9,239 markdown bytes (`channel_gmail` costs 6,886 / `channel_imap` 6,798;
-    // the difference is a gateway worker, a CLI command, a signed route and a
-    // subscriber, spread proportionally across overrideTargets, extensionSurfaces,
-    // factSources and ownedContracts — no duplicated payloads). So the caps had
-    // stopped detecting blow-ups and started rejecting the next module of any
-    // size, whichever PR happened to add it. Raising them to ~20% headroom above
-    // the current tree keeps the guard doing its job: a real blow-up here is
-    // multiplicative — a duplicated provenance payload or a contribution body
-    // copied per resolution — not one provider's worth of references. Growth that
-    // eats this headroom linearly is tracked separately; the guard is deliberately
-    // not the place to ration per-module budget.
+    // JSON cap raised a fourth time by the injection-table slot normalization:
+    // `extractInjectionTable` previously did `if (!Array.isArray(entries)) continue`,
+    // silently dropping every string and single-object slot form that
+    // `ModuleInjectionTable` allows. Twelve real contributions across catalog, sales,
+    // wms, staff, integrations and checkout were therefore invisible to every fact
+    // consumer — `integrations` published no contributions at all. Reading them costs
+    // ~28KB, which is the fix working, not drift.
+    // The additive EUDR module contributes its real routes, ACL, events,
+    // entities, and extension surfaces without changing the extraction shape.
+    //
+    // Raised a fifth time, for a different reason than every raise above: those all
+    // tracked a schema or extraction change, this one tracks ordinary repo growth.
+    // `channel_discord` is an additive module, and a whole communication-channel
+    // provider costs ~15.9KB JSON and ~9.2KB markdown (`channel_gmail` costs 6,886 /
+    // `channel_imap` 6,798; the difference is a gateway worker, a CLI command, a
+    // signed route and a subscriber, spread proportionally across overrideTargets,
+    // extensionSurfaces, factSources and ownedContracts — no duplicated payloads).
+    // The base caps were all but exhausted by the tree before this module existed, so
+    // they had stopped detecting blow-ups and started rejecting the next additive
+    // module of any size, whichever PR happened to add it. Keeping headroom above the
+    // merged tree keeps the guard doing its job: a real blow-up here is multiplicative
+    // — a duplicated provenance payload or a contribution body copied per resolution —
+    // not one provider's worth of references. Growth that eats this headroom linearly
+    // is tracked separately; the guard is deliberately not the place to ration
+    // per-module budget.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(4_200_000)
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
+    // Markdown cap raised with the source-link contract: entities, events, ACL
+    // features, DI tokens, search entities, notifications, UMES hosts and UMES
+    // contributions all render a resolved Source cell, and contribution
+    // resolutions render as their own source-linked section — plus the additive
+    // `channel_discord` module's own render, per the growth note above.
     expect(markdownBytes).toBeLessThan(1_850_000)
+  })
+
+  it('links every generated fact to an exact resolvable file, never a directory', () => {
+    const packageLinkRoot = path.join(repoRoot, 'node_modules', '@open-mercato')
+    const canCheckDisk = fs.existsSync(packageLinkRoot)
+    const nonExactTargets = new Set<string>()
+    const unresolvedTargets = new Set<string>()
+    let checkedTargets = 0
+
+    for (const markdown of Object.values(markdownByModule)) {
+      for (const target of collectLinkTargets(markdown)) {
+        checkedTargets += 1
+        if (!isExactSourceFilePath(target)) {
+          nonExactTargets.add(target)
+          continue
+        }
+        if (!canCheckDisk) continue
+        const absolute = path.join(repoRoot, target)
+        if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) unresolvedTargets.add(target)
+      }
+    }
+
+    expect(checkedTargets).toBeGreaterThan(1_000)
+    expect([...nonExactTargets]).toEqual([])
+    expect([...unresolvedTargets]).toEqual([])
+  })
+
+  it('keeps directory-valued provenance readable as plain text', () => {
+    const frameworkHostMarkdowns = Object.values(markdownByModule)
+      .filter((markdown) => markdown.includes('packages/ui/src'))
+    expect(frameworkHostMarkdowns.length).toBeGreaterThan(0)
+    for (const markdown of frameworkHostMarkdowns) {
+      expect(markdown).not.toContain('(../../../packages/ui/src)')
+    }
+    for (const [moduleId, facts] of Object.entries(factsByModule)) {
+      expect(markdownByModule[moduleId]).toContain(`Source root: ${facts.sourceRoot}\n`)
+      expect(markdownByModule[moduleId]).not.toContain(`(../../../${facts.sourceRoot})`)
+    }
   })
 
   it('discovers a superset of the historical core modules', () => {

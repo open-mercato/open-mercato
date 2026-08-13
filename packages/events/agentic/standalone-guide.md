@@ -113,5 +113,12 @@ Missing `tenantId` in payload = no delivery.
 
 For production, start the event worker:
 ```bash
-yarn mercato events worker event-processing --concurrency=5
+yarn mercato queue worker events --concurrency=5
 ```
+
+If the app and the worker run as separate services, make sure the worker service actually drains the
+`events` queue. When the app is started through `mercato server start` with `AUTO_SPAWN_WORKERS=false`,
+that bootstrap rewrites `OM_EVENTS_SINGLE_DELIVERY=false` (running subscribers inline) unless you set
+`OM_EVENTS_EXTERNAL_WORKER=true` to acknowledge the out-of-process worker. The event bus itself never
+second-guesses worker availability - the queue is durable, so an emit with no worker is delayed rather
+than lost.

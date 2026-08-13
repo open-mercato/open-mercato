@@ -87,9 +87,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
-  // Live DS component gallery at /backend/design-system (feature-gated by
-  // design_system.view). Disable by removing this line.
-  { id: 'design_system', from: '@open-mercato/core' },
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'workflows', from: '@open-mercato/core' },
@@ -134,35 +131,10 @@ export const enabledModules: ModuleEntry[] = [
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
-  {
-    id: 'example',
-    from: '@app',
-    overrides: {
-      acl: {
-        features: { 'example.manage': null },
-      },
-      // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
-      // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
-      nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
-        ? { groupOrder: ['example.nav.group'] }
-        : undefined,
-      routes: {
-        api: {
-          'GET /api/example/override-probe': {
-            handler: async () => Response.json({
-              ok: true,
-              source: 'modules.ts override',
-              route: 'example.override-probe',
-            }),
-            metadata: { requireAuth: false },
-          },
-        },
-      },
-    },
-  },
   { id: 'ratelimit_probe', from: '@app' },
 ]
 
