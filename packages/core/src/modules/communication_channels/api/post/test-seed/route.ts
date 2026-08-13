@@ -232,8 +232,10 @@ export async function POST(req: Request): Promise<Response> {
 
   // action === 'ingest-inbound' | 'emit-inbound' — both address an existing channel.
   const em = (container.resolve('em') as EntityManager).fork()
+  // Only the `emit-inbound` branch stamps a caller-chosen provider key onto the
+  // rows it seeds; `ingest-inbound` takes the channel's own (see below).
   const providerKey =
-    body.action === 'ingest-inbound' ? TEST_SEED_CHAT_PROVIDER_KEY : body.providerKey ?? TEST_SEED_PROVIDER_KEY
+    body.action === 'emit-inbound' ? body.providerKey ?? TEST_SEED_PROVIDER_KEY : TEST_SEED_PROVIDER_KEY
 
   // `channelId` is caller-supplied, so confirm it names a channel this tenant/org
   // actually owns before seeding rows that reference it. Mirrors the ownership
@@ -290,11 +292,26 @@ export async function POST(req: Request): Promise<Response> {
     // `messages.messages.compose`. Nothing is short-circuited, so a hub contract
     // the provider cannot satisfy surfaces here as a failure instead of hiding
     // behind seeded rows (#4975).
+    // The channel's own provider key, never a hardcoded one: ingest does not
+    // check that `providerKey` matches the channel it names, so passing a
+    // different one would silently stamp the wrong provider onto the link.
+    const channelProviderKey = ownedChannel.providerKey
+    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            'ingest-inbound requires a channel connected with providerFlavor: "chat"; ' +
+            `channel ${body.channelId} is '${channelProviderKey}'`,
+        },
+        { status: 422 },
+      )
+    }
+
     const commandBus = container.resolve('commandBus') as CommandBus
     const adapterRegistry = container.resolve('channelAdapterRegistry') as {
       get: (key: string) => { normalizeInbound: (raw: unknown) => Promise<unknown> } | undefined
     }
-    const adapter = adapterRegistry.get(providerKey)
+    const adapter = adapterRegistry.get(channelProviderKey)
     if (!adapter) {
       return NextResponse.json(
         { error: '[internal] test-seed chat adapter is not registered' },
@@ -316,7 +333,7 @@ export async function POST(req: Request): Promise<Response> {
 
     const ingestInput = {
       channelId: body.channelId,
-      providerKey,
+      providerKey: channelProviderKey,
       channelType: ownedChannel.channelType,
       scope: { tenantId, organizationId },
       message: normalized,

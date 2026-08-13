@@ -91,6 +91,7 @@ beforeEach(() => {
   mockFindOneWithDecryption.mockResolvedValue({
     id: CHANNEL_ID,
     userId: CALLER_USER,
+    providerKey: '__test_seed_chat__',
     channelType: 'discord',
     // A real chat channel carries no email-derived identifier (#4977).
     externalIdentifier: null,
@@ -158,6 +159,24 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
       channelLinkId: 'link-1',
       channelType: 'discord',
     })
+  })
+
+  it('refuses to ingest against a channel connected with the email-shaped stub', async () => {
+    // Ingest does not verify that providerKey matches the channel it names, so
+    // accepting an email-flavored channel here would silently stamp the wrong
+    // provider onto the link — and normalizeInbound would throw anyway.
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      userId: CALLER_USER,
+      providerKey: '__test_seed__',
+      channelType: 'email',
+      externalIdentifier: 'seed@test-seed.local',
+    })
+
+    const response = await POST(ingestRequest())
+
+    expect(response.status).toBe(422)
+    expect(mockCommandExecute).not.toHaveBeenCalled()
   })
 
   it('refuses to ingest against a channel the caller does not own', async () => {

@@ -95,6 +95,13 @@ test.describe('TC-CHANNEL-IDENTITY-001: inbound compose without a sender email a
       // message landed. (The composed message itself is participant-scoped: its
       // author is the module's system user and it has no recipient, so an admin
       // is not authorized to read it through `GET /api/messages/[id]`.)
+      //
+      // Asserted on the window total, not on `counts.delivered`: a real inbound
+      // link is written with `deliveryStatus: 'received'`, which the health route
+      // does not have a bucket for and folds into `counts.other`. The predecessor
+      // test asserted `counts.delivered` and passed only because the seeding
+      // shortcut it drove wrote `'delivered'` by hand — one more way that fixture
+      // described a message the ingest path never produces.
       const healthResponse = await apiRequest(
         request,
         'GET',
@@ -102,11 +109,14 @@ test.describe('TC-CHANNEL-IDENTITY-001: inbound compose without a sender email a
         { token },
       )
       expect(healthResponse.status(), 'GET /channels/[id]/health should return 200').toBe(200)
-      const health = await readJsonSafe<{ counts?: Record<string, number> }>(healthResponse)
+      const health = await readJsonSafe<{
+        counts?: Record<string, number>
+        totalsLast24h?: number
+      }>(healthResponse)
       expect(
-        health?.counts?.delivered ?? 0,
+        health?.totalsLast24h ?? 0,
         'the ingested message must be counted against the channel',
-      ).toBeGreaterThan(0)
+      ).toBe(1)
 
       // That the hub invents no address for such a sender — option C, rejected
       // by #4975 — is pinned by unit tests over the compose payload:
