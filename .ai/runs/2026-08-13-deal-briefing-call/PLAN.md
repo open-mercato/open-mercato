@@ -70,9 +70,9 @@ turns their reply into CRM tasks.
 | # | Task | Status | Commit |
 |---|---|---|---|
 | B1 | Module scaffold: `index.ts`, `acl.ts`, `setup.ts`, validators, i18n (5 locales), registration | DONE | `4ab48d6ab` |
-| B2 | The three agents: two native researchers + one external voice agent on the ElevenLabs connector | TODO | |
-| B3 | Idempotent `ensure_task` command + `registerWorkflowSafeCommands` + tests | TODO | |
-| B4 | Notification subscriber: `EMIT_EVENT` → `notificationService.create` | TODO | |
+| B2 | The three agents: two native researchers + one external voice agent on the ElevenLabs connector | DONE | `72ec54bc7` |
+| B3 | Idempotent `ensure_task` command + `registerWorkflowSafeCommands` + tests | DONE | `7de4d553b` |
+| B4 | Notification subscriber: `EMIT_EVENT` → `notificationService.create` | DONE | `da0e7fa2b` |
 | B5 | The workflow JSON definition + idempotent seeding from `setup.ts` | TODO | |
 | B6 | Company-page widget: the button, its ACL gate, and run status | TODO | |
 | B7 | End-to-end verification + integration coverage | TODO | |
@@ -224,3 +224,63 @@ Append one entry per task as it lands.
   `@open-mercato/enterprise` from `dist`); `yarn generate` has been observed deleting committed
   `docker/opencode/**` files in this worktree — check `git status` after every run; a connector edit needs a
   server restart, not HMR; and `apps/mercato/src/modules.ts` is in template-sync's `SYNC_ROOT_FILES`.
+
+- 2026-08-13 — **B2 done.** The voice agent IMPORTS `voiceCallResultSchema` from the connector package
+  rather than restating it: `completeExternalRun` validates `normalize()`'s output against whatever the
+  agent registered, so a hand-copied schema drifting by one field would fail every real call AFTER the
+  person had been spoken to. A test asserts schema identity (`toBe`) so a future local copy is caught.
+- 2026-08-13 — B2 profile name is **`sales_chief_call`**, not `default`. `default` is whichever ElevenLabs
+  agent a tenant configured first, so sharing it would read a deal briefing through someone else's script
+  to a real person. `resolveCallProfile` fails closed on an unconfigured name, so the operator step is
+  mandatory: **Integrations → ElevenLabs → Call Profiles → add a profile named exactly `sales_chief_call`.**
+- 2026-08-13 — B2 documented the provider-side prompt contract: the ElevenLabs prompt may reference
+  `{{brief}}` (agent 1's `spokenSummary`) and `{{company_name}}` from the node's `variables` map. **If B5
+  passes different keys, that agent's operator docs must be updated to match** — they are the only place the
+  provider-side prompt author learns them.
+- 2026-08-13 — **B3 done, and the design's core assumption was FALSE.**
+  `customers.interactions.create` accepts a caller-supplied `id` but does NOT upsert — it spreads the id
+  into `em.create` and flushes, so a second create with the same id hits the primary key and throws
+  Postgres `23505`. A deterministic id alone would have produced a FAILING retry, not an idempotent one.
+  The command therefore does find-then-create-or-update, with catch-and-update as a backstop for a
+  concurrent invocation that wins the race between the read and the write.
+- 2026-08-13 — B3: a task a human SOFT-DELETED is left alone and reported `skipped` — a retry must not
+  resurrect a task somebody removed. Rows are stamped `source: 'sales_call_planner.deal_brief'`.
+- 2026-08-13 — B3 priority map: `low→25, medium→50, high→75, urgent→100`, **absent → null** (unspecified and
+  low are different facts). **Open question for the parent:** the CRM's own `ScheduleActivityDialog` stores
+  its `low|medium|high|urgent` in a CUSTOM FIELD `taskPriority`, not the numeric column — so these tasks may
+  not render with the CRM's priority chip unless both are set.
+- 2026-08-13 — B3: `ownerHint` is NOT written to the row (the interaction has no name field, and
+  synthesising prose into `body` would be invented CRM content and an un-i18n'd string). Unresolved hints
+  return in `unresolvedOwnerHints`.
+- 2026-08-13 — **B3 command registration is per-FILE and lazy**: `yarn generate` scans `commands/*.ts` and
+  AST-extracts the literal `id`; `commands/index.ts` is EXCLUDED from the scan and is dead weight at
+  runtime. Basenames `index`, `shared`, `factory` are skipped — which is why the pure helpers live in
+  `commands/shared.ts`.
+- 2026-08-13 — **B4 done. `clientBroadcast: false`, for three independent reasons.** (a) The bridge forwards
+  to every backoffice connection without evaluating ACL features, so a live feed of which companies are
+  being phoned would undo the default-off invoke gate. (b) It would be MECHANICALLY INERT anyway: the bridge
+  needs a TOP-LEVEL `tenantId` and `executeEmitEvent` nests scope under `_workflow` — a flag reading "on"
+  while doing nothing is worse than off. (c) The realtime need is already served, because
+  `notificationService.create` emits an event addressed to one recipient.
+- 2026-08-13 — **B4 honest finding on `persistent: true`:** `executeEmitEvent` emits with NO persistent
+  option, so the bus never enqueues and handlers run INLINE in the transition activity's own call. It buys
+  no retry today; it is correct declared intent that becomes real if the event is ever emitted persistently.
+  Corollary: a subscriber throw CANNOT fail the workflow run, but also gets no retry and no dead-letter —
+  hence the handler swallows, matching `deliverTaskNotification`'s best-effort contract.
+- 2026-08-13 — B4 recipient is the run's INITIATOR, read from the `WorkflowInstance` because `{{workflow.*}}`
+  does not expose `initiatedBy`. `createForRole` was rejected — it needs a roleId this module does not
+  configure and would announce who is being phoned to a whole queue. If team visibility is ever wanted,
+  `createForFeature('sales_call_planner.brief.run')` is the variant that cannot over-deliver.
+- 2026-08-13 — **B5 contract from B4:** emit both events as TRANSITION activities. `cause` must be a
+  LITERAL per failure route (`agentError` / `guardrailBlocked` / `callNotReached` / `callTimeout` /
+  `taskCreationFailed`), NEVER `{{context.__error}}` — anything unrecognised silently becomes `unknown`.
+  `EMIT_EVENT` THROWS on any unresolved `{{…}}`, so every path referenced must exist in the run context.
+  `companyId` in the event must be the COMPANY uuid used in the detail route, not the
+  `customer_entities.id` B3's tasks use.
+- 2026-08-13 — **Copy nit for B7:** `notifications.briefFailed.body` says "Open the workflow run for
+  details" but `linkHref` goes to the COMPANY page. A run link was deliberately not added — it needs a
+  sixth key in five locales and `/backend/instances/<id>` is gated by `workflows.instances.view`, which a
+  salesperson holding only `brief.run` may lack; a 403 link is worse than the company page. Fix the copy.
+- 2026-08-13 — **Pre-existing, decide before merge:** `@open-mercato/agent-elevenlabs` is NOT in
+  `apps/mercato/package.json`, though `modules.ts` and the generated registries already reference it. It
+  resolves through the root workspace symlink for both TS and jest.
