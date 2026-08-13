@@ -71,8 +71,6 @@ export async function GET(req: Request) {
     }
   }
 
-  // An "all tenants" super-admin scope narrows to the target user's own tenant;
-  // dropping the tenant filter here would span every tenant.
   let scopeTenantId = tenantId
   if (!scopeTenantId) {
     const target = await findOneWithDecryption(
