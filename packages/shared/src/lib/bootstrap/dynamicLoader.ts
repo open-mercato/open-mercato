@@ -477,7 +477,7 @@ async function compileAndImport(
   try {
     const outputHash = contentHash(fs.readFileSync(jsPath))
     const fileUrl = `${pathToFileURL(jsPath).href}?cache=${outputHash}`
-    return await import(fileUrl)
+    return await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ fileUrl)
   } catch (error) {
     if (!allowRecovery) {
       throw error
