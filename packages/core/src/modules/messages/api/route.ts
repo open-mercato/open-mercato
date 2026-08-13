@@ -27,7 +27,7 @@ import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMut
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
-  composeMessageSchema as composeSchema,
+  composeMessageRequestSchema as composeSchema,
   composeResponseSchema,
   listMessagesSchema as listSchema,
   messageListItemSchema,

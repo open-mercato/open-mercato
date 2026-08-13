@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   attachmentIdsPayloadSchema,
+  composeMessageRequestSchema,
   composeMessageSchema,
   executeActionSchema,
   forwardMessageSchema,
@@ -265,6 +266,7 @@ export {
   messageObjectSchema,
   messageRecipientSchema,
   composeMessageSchema,
+  composeMessageRequestSchema,
   listMessagesSchema,
   forwardMessageSchema,
   replyMessageSchema,

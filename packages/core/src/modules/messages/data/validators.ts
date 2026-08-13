@@ -100,7 +100,7 @@ export const messageActionDataSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
-export const composeMessageSchema = z.object({
+const composeMessageBaseSchema = z.object({
   type: z.string().optional().default('default'),
   visibility: z.enum(['public', 'internal']).nullable().optional(),
   sourceEntityType: z.string().min(1).optional(),
@@ -128,7 +128,14 @@ export const composeMessageSchema = z.object({
   sendViaEmail: z.boolean().optional().default(false),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
-}).superRefine((value, ctx) => {
+})
+
+type ComposeMessageRefinementValue = Omit<
+  z.infer<typeof composeMessageBaseSchema>,
+  'sourceChannelType'
+> & { sourceChannelType?: string }
+
+function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false
   const visibility = value.visibility ?? 'internal'
   const recipientCount = value.recipients.length
@@ -189,7 +196,26 @@ export const composeMessageSchema = z.object({
   }
 
   validateDefaultWithObjectsPayload(value, ctx)
-})
+}
+
+/**
+ * Full compose contract, including the server-resolved `sourceChannelType`.
+ * Used by the `messages.messages.compose` command and by the HTTP route AFTER
+ * it has resolved the channel type itself.
+ */
+export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineComposeMessage)
+
+/**
+ * Client-facing compose contract — the same rules minus `sourceChannelType`,
+ * which is never accepted from a request body (#4975). Published in OpenAPI so
+ * the documented request shape matches what `POST /api/messages` actually reads:
+ * the route discards any client-sent channel type, resolves the real one from
+ * the referenced conversation or parent message, and only then validates against
+ * {@link composeMessageSchema}.
+ */
+export const composeMessageRequestSchema = composeMessageBaseSchema
+  .omit({ sourceChannelType: true })
+  .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({
   type: z.string().optional(),
