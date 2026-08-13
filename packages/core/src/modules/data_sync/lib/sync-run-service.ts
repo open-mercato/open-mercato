@@ -403,8 +403,13 @@ export function createSyncRunService(em: EntityManager) {
      * walk instead of the whole thing. Reset flows MUST call this alongside
      * their `SyncCursor` delete; it is a no-op when nothing is interrupted.
      *
-     * Only runs that never reached `completed` are cleared, because those are
-     * the only ones `resolveResumeCursor` will read.
+     * The `status` filter here selects which rows to clear. It is deliberately
+     * NOT the read-side filter {@link resolveResumeCursor} avoids: that method
+     * reads the single most recent run whatever its status, precisely so an
+     * older interrupted run cannot outlive a later completed walk. Clearing
+     * every interrupted run is enough to start fresh either way — if the latest
+     * run was interrupted its cursor is now null, and if it completed the resume
+     * path already returns null.
      */
     async resetResumePosition(
       integrationId: string,
