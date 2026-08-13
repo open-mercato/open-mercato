@@ -191,14 +191,10 @@ body {
   min-width: unset;
 }
 
-.copy-page-toc-button {
+.copy-page-content-button {
+  display: flex;
+  justify-content: flex-end;
   margin-bottom: 0.75rem;
-}
-
-@media (min-width: 997px) {
-  .copy-page-toc-button--mobile {
-    display: none;
-  }
 }
 
 .copy-page-button__label {

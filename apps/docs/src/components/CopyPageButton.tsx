@@ -1,28 +1,48 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useDoc } from '@docusaurus/plugin-content-docs/client';
 
 export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React.ReactElement {
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [source, setSource] = useState<string | null | undefined>(undefined);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { metadata } = useDoc();
+  const sourcePath = metadata.source?.replace('@site/docs/', '') || '';
 
-  async function handleCopy() {
-    const sourcePath = metadata.source?.replace('@site/docs/', '') || '';
-    if (!sourcePath) return;
-
-    try {
-      const response = await fetch(`/raw/${sourcePath}`);
-      if (!response.ok) {
-        flashState('error');
-        return;
-      }
-
-      const mdxContent = await response.text();
-      await navigator.clipboard.writeText(mdxContent);
-      flashState('copied');
-    } catch {
-      flashState('error');
+  useEffect(() => {
+    if (!sourcePath) {
+      setSource(null);
+      return;
     }
+
+    let cancelled = false;
+
+    void fetch(`/raw/${sourcePath}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('[internal] Unable to load raw documentation source.');
+        return response.text();
+      })
+      .then((content) => {
+        if (!cancelled) setSource(content);
+      })
+      .catch(() => {
+        if (!cancelled) flashState('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sourcePath]);
+
+  function handleCopy() {
+    if (typeof source !== 'string') {
+      flashState('error');
+      return;
+    }
+
+    void navigator.clipboard.writeText(source).then(
+      () => flashState('copied'),
+      () => flashState('error'),
+    );
   }
 
   function flashState(next: 'copied' | 'error') {
@@ -31,12 +51,20 @@ export default function CopyPageButton({ wide }: { wide?: boolean } = {}): React
     timeoutRef.current = setTimeout(() => setState('idle'), 2000);
   }
 
-  const label = state === 'copied' ? 'Copied!' : state === 'error' ? 'Failed to copy' : 'Copy page';
+  const label =
+    state === 'copied'
+      ? 'Copied!'
+      : state === 'error'
+        ? 'Failed to copy'
+        : source === undefined
+          ? 'Preparing copy'
+          : 'Copy page';
 
   return (
     <button
       data-copy-page-button
       type="button"
+      disabled={source === undefined}
       className={[
         'copy-page-button',
         state === 'copied' && 'copy-page-button--copied',
