@@ -19,6 +19,30 @@ export const API_DOCS_CALLER_SCOPED_HEADERS = {
   vary: 'Cookie, Authorization',
 } as const
 
+/**
+ * The Explorer renders server-side and needs the visitor's session to receive
+ * the full document, but `resolveApiDocsBaseUrl()` is operator-configurable —
+ * so the session cookie only travels when the export route lives on the very
+ * origin that served the page.
+ */
+export function resolveForwardableCookieHeader(
+  targetUrl: string,
+  requestHeaders: Pick<Headers, 'get'>,
+): string | null {
+  const cookieHeader = requestHeaders.get('cookie')
+  if (!cookieHeader) return null
+  const host = requestHeaders.get('x-forwarded-host') ?? requestHeaders.get('host')
+  if (!host) return null
+  const protocol = requestHeaders.get('x-forwarded-proto') ?? 'https'
+  try {
+    const target = new URL(targetUrl)
+    const origin = new URL(`${protocol}://${host}`)
+    return target.host === origin.host ? cookieHeader : null
+  } catch {
+    return null
+  }
+}
+
 export type ApiDocsDocumentInput = {
   modules: Module[]
   apiRoutes: ApiRouteManifestEntry[]

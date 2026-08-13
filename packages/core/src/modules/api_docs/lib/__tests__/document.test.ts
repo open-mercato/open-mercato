@@ -1,4 +1,8 @@
-import { buildApiDocsOpenApiDocument, shouldExposeAccessControlMetadata } from '../document'
+import {
+  buildApiDocsOpenApiDocument,
+  resolveForwardableCookieHeader,
+  shouldExposeAccessControlMetadata,
+} from '../document'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { Module, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
 
@@ -60,6 +64,36 @@ describe('shouldExposeAccessControlMetadata', () => {
     await expect(shouldExposeAccessControlMetadata(new Request('http://localhost/api/docs/openapi'))).resolves.toBe(
       false,
     )
+  })
+})
+
+describe('resolveForwardableCookieHeader', () => {
+  function requestHeaders(entries: Record<string, string>): Pick<Headers, 'get'> {
+    return { get: (name: string) => entries[name.toLowerCase()] ?? null }
+  }
+
+  it('forwards the session cookie to an export route on the serving origin', () => {
+    const forwarded = resolveForwardableCookieHeader(
+      'https://shop.example.com/api',
+      requestHeaders({ cookie: 'auth_token=abc', host: 'shop.example.com', 'x-forwarded-proto': 'https' }),
+    )
+
+    expect(forwarded).toBe('auth_token=abc')
+  })
+
+  it('withholds the session cookie when the docs base URL points at another origin', () => {
+    const forwarded = resolveForwardableCookieHeader(
+      'https://external.example.net/api',
+      requestHeaders({ cookie: 'auth_token=abc', host: 'shop.example.com', 'x-forwarded-proto': 'https' }),
+    )
+
+    expect(forwarded).toBeNull()
+  })
+
+  it('returns null when the visitor sends no cookies', () => {
+    expect(
+      resolveForwardableCookieHeader('https://shop.example.com/api', requestHeaders({ host: 'shop.example.com' })),
+    ).toBeNull()
   })
 })
 

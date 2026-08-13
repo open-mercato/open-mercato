@@ -1,6 +1,7 @@
 import { headers } from 'next/headers'
 import ApiDocsExplorer from './Explorer'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
+import { resolveForwardableCookieHeader } from '@open-mercato/core/modules/api_docs/lib/document'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 
@@ -52,10 +53,11 @@ function buildTagOrder(doc: any, operations: ExplorerOperation[]): string[] {
 
 export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
-  const cookieHeader = (await headers()).get('cookie')
+  const requestHeaders = await headers()
+  const forwardedCookie = resolveForwardableCookieHeader(baseUrl, requestHeaders)
   const response = await fetch(`${baseUrl}/docs/openapi`, {
     cache: 'no-store',
-    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    headers: forwardedCookie ? { cookie: forwardedCookie } : undefined,
   })
   const doc = response.ok
     ? await response.json() as OpenApiDocument
