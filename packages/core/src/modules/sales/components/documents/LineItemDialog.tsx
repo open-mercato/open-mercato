@@ -50,6 +50,7 @@ import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
+import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
 import {
   normalizeCustomFieldSubmitValue,
   extractCustomFieldValues,
@@ -513,6 +514,7 @@ export function LineItemDialog({
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
     [kind],
   );
+  const isShippedOrderLine = kind === "order" && shippedQuantity > 0;
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const customFieldEntityId =
     kind === "order" ? E.sales.sales_order_line : E.sales.sales_quote_line;
@@ -1509,9 +1511,20 @@ export function LineItemDialog({
       }
       if (resolvedName) payload.name = resolvedName;
 
+      const submittedPayload = prepareShippedLineUpdatePayload(
+        payload,
+        isShippedOrderLine && initialLine
+          ? {
+              quantity: initialLine.quantity,
+              totalNetAmount: initialLine.totalNet,
+              totalGrossAmount: initialLine.totalGross,
+            }
+          : null,
+      );
+
       try {
         if (onDraftSaved) {
-          await onDraftSaved(payload, editingId);
+          await onDraftSaved(submittedPayload, editingId);
           closeDialog();
           return;
         }
@@ -1521,7 +1534,9 @@ export function LineItemDialog({
           () =>
             action(
               resourcePath,
-              editingId ? { id: editingId, ...payload } : payload,
+              editingId
+                ? { id: editingId, ...submittedPayload }
+                : submittedPayload,
               {
                 errorMessage: t(
                   "sales.documents.items.errorSave",
@@ -1552,6 +1567,8 @@ export function LineItemDialog({
       documentKey,
       documentUpdatedAt,
       editingId,
+      initialLine,
+      isShippedOrderLine,
       onDraftSaved,
       priceOptions,
       productOption,
@@ -1613,6 +1630,7 @@ export function LineItemDialog({
                   type="button"
                   size="sm"
                   variant={mode === "catalog" ? "default" : "ghost"}
+                  disabled={isShippedOrderLine}
                   onClick={() => switchMode("catalog")}
                 >
                   {t("sales.documents.items.lineMode.catalog", "Catalog item")}
@@ -1621,6 +1639,7 @@ export function LineItemDialog({
                   type="button"
                   size="sm"
                   variant={mode === "custom" ? "default" : "ghost"}
+                  disabled={isShippedOrderLine}
                   onClick={() => switchMode("custom")}
                 >
                   {t("sales.documents.items.lineMode.custom", "Custom line")}
@@ -1801,6 +1820,7 @@ export function LineItemDialog({
                       },
                     )
                   }
+                  disabled={isShippedOrderLine}
                 />
               ),
             } satisfies CrudField,
@@ -1960,7 +1980,7 @@ export function LineItemDialog({
                         },
                       )
                     }
-                    disabled={!productId}
+                    disabled={isShippedOrderLine || !productId}
                   />
                 );
               },
@@ -1984,6 +2004,49 @@ export function LineItemDialog({
                   typeof values?.variantId === "string"
                     ? values.variantId
                     : null;
+                const selectedPriceId =
+                  typeof value === "string" ? value : null;
+                const selectedPrice = selectedPriceId
+                  ? (priceOptions.find(
+                      (entry) => entry.id === selectedPriceId,
+                    ) ?? null)
+                  : null;
+                const lockedSelectionId =
+                  selectedPriceId ??
+                  (isShippedOrderLine
+                    ? `shipped-line-${editingId ?? "current"}`
+                    : null);
+                const lockedSelectionAmount = normalizeNumber(
+                  values?.unitPrice,
+                  Number.NaN,
+                );
+                const lockedSelectionCurrency =
+                  typeof values?.currencyCode === "string"
+                    ? values.currencyCode
+                    : currencyCode;
+                const selectedLookupOption = selectedPrice
+                  ? {
+                      id: selectedPrice.id,
+                      title: selectedPrice.label,
+                      subtitle:
+                        selectedPrice.priceKindTitle ??
+                        selectedPrice.priceKindCode ??
+                        undefined,
+                      description: selectedPrice.scopeReason ?? undefined,
+                      rightLabel: selectedPrice.currencyCode ?? undefined,
+                    }
+                  : isShippedOrderLine &&
+                      lockedSelectionId &&
+                      Number.isFinite(lockedSelectionAmount)
+                    ? {
+                        id: lockedSelectionId,
+                        title: formatMoney(
+                          lockedSelectionAmount,
+                          lockedSelectionCurrency ?? undefined,
+                        ),
+                        rightLabel: lockedSelectionCurrency ?? undefined,
+                      }
+                    : null;
                 return (
                   <LookupSelect
                     key={
@@ -1991,7 +2054,7 @@ export function LineItemDialog({
                         ? `${productId}-${variantId ?? "no-variant"}`
                         : "price"
                     }
-                    value={typeof value === "string" ? value : null}
+                    value={lockedSelectionId}
                     onChange={(next) => {
                       setValue(next ?? null);
                       const selected = next
@@ -2052,6 +2115,9 @@ export function LineItemDialog({
                         }));
                     }}
                     minQuery={0}
+                    options={
+                      selectedLookupOption ? [selectedLookupOption] : undefined
+                    }
                     loading={priceLoading}
                     searchPlaceholder={t(
                       "sales.documents.items.priceSearch",
@@ -2069,7 +2135,7 @@ export function LineItemDialog({
                       "ui.lookupSelect.startTyping",
                       "Start typing to search.",
                     )}
-                    disabled={!productId}
+                    disabled={isShippedOrderLine || !productId}
                   />
                 );
               },
@@ -2133,9 +2199,11 @@ export function LineItemDialog({
                   }
                   onChange={(event) => setValue(event.target.value)}
                   placeholder="0.00"
+                  disabled={isShippedOrderLine}
                 />
                 <Select
                   value={mode}
+                  disabled={isShippedOrderLine}
                   onValueChange={(value) => {
                     const nextMode = value === "net" ? "net" : "gross";
                     setFormValue?.("priceMode", nextMode);
@@ -2222,7 +2290,7 @@ export function LineItemDialog({
               <Select
                 value={resolvedValue || undefined}
                 onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
-                disabled={!taxRates.length}
+                disabled={isShippedOrderLine || !taxRates.length}
               >
                 <SelectTrigger>
                   <SelectValue
@@ -2292,6 +2360,7 @@ export function LineItemDialog({
               <Input
                 value={typeof value === "string" ? value : ""}
                 onChange={(event) => setValue(event.target.value || null)}
+                disabled={isShippedOrderLine}
                 placeholder={t(
                   "sales.documents.items.quantityUnitPlaceholder",
                   "e.g. pc",
@@ -2349,7 +2418,7 @@ export function LineItemDialog({
                   });
                 }
               }}
-              disabled={!productId}
+              disabled={isShippedOrderLine || !productId}
             >
               <SelectTrigger>
                 <SelectValue
@@ -2394,7 +2463,7 @@ export function LineItemDialog({
                 typeof values?.quantityUnit === "string"
                   ? values.quantityUnit
                   : null;
-              if (productId) {
+              if (productId && !isShippedOrderLine) {
                 const selectedPriceId =
                   typeof values?.priceId === "string" ? values.priceId : null;
                 const selectedPriceKindId =
@@ -2549,6 +2618,8 @@ export function LineItemDialog({
     resolveTaxSelection,
     selectPriceAfterRefresh,
     hasTaxMetadata,
+    isShippedOrderLine,
+    editingId,
   ]);
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
@@ -2914,6 +2985,16 @@ export function LineItemDialog({
               : t("sales.documents.items.addTitle", "Add line")}
           </DialogTitle>
         </DialogHeader>
+        {isShippedOrderLine ? (
+          <Alert status="information" style="lighter">
+            <AlertDescription>
+              {t(
+                "sales.documents.items.errorPriceShipped",
+                "You cannot change the price or unit of a line that has shipped items.",
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <CrudForm<LineFormState>
           key={formResetKey}
           embedded
