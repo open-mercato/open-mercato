@@ -19,6 +19,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../adapter-registry', () => ({
+  ...jest.requireActual('../adapter-registry'),
   getDataSyncAdapter: (...args: unknown[]) => mockGetDataSyncAdapter(...args),
 }))
 
@@ -225,8 +226,7 @@ describe('sync engine honours persistsSharedCursor per entity type', () => {
       expect.any(Object),
       'export-cursor',
       SCOPE,
-      expect.any(Number),
-      { persistSharedCursor: false },
+      { expectedBatchesCompleted: expect.any(Number), persistSharedCursor: false },
     )
   })
 })

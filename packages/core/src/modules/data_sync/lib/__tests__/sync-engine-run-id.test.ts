@@ -11,6 +11,7 @@ const mockEmitDataSyncEvent = jest.fn(async () => undefined)
 const mockRefreshCoverageSnapshot = jest.fn(async () => undefined)
 
 jest.mock('../adapter-registry', () => ({
+  ...jest.requireActual('../adapter-registry'),
   getDataSyncAdapter: (...args: unknown[]) => mockGetDataSyncAdapter(...args),
 }))
 
@@ -440,8 +441,7 @@ describe('data sync engine forwards run context to adapters', () => {
       expect.objectContaining({ updatedCount: 1, batchesCompleted: 1 }),
       'checkpoint-2',
       createScope(),
-      4,
-      { persistSharedCursor: true },
+      { expectedBatchesCompleted: 4, persistSharedCursor: true },
     )
   })
 })
@@ -519,7 +519,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
 
     await buildEngine(syncRunService).runImport('run-chain', 100, createScope())
 
-    expect(commitBatchProgress.mock.calls.map((call) => [call[2], call[4]])).toEqual([
+    expect(commitBatchProgress.mock.calls.map((call) => [call[2], call[4]?.expectedBatchesCompleted])).toEqual([
       ['c1', 0],
       ['c2', 1],
     ])
@@ -552,7 +552,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
 
     await buildEngine(syncRunService).runImport('run-repeat', 100, createScope())
 
-    expect(commitBatchProgress.mock.calls.map((call) => call[4])).toEqual([0, 1])
+    expect(commitBatchProgress.mock.calls.map((call) => call[4]?.expectedBatchesCompleted)).toEqual([0, 1])
   })
 
   it('yields the run instead of failing it when another worker already advanced it', async () => {

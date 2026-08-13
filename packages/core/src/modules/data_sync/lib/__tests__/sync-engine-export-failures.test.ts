@@ -10,6 +10,7 @@ const mockGetIntegration = jest.fn()
 const mockEmitDataSyncEvent = jest.fn(async () => undefined)
 
 jest.mock('../adapter-registry', () => ({
+  ...jest.requireActual('../adapter-registry'),
   getDataSyncAdapter: (...args: unknown[]) => mockGetDataSyncAdapter(...args),
 }))
 
@@ -135,7 +136,7 @@ describe('data sync engine export item failures', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       userId: 'user-1',
-    }, 0, { persistSharedCursor: true })
+    }, { expectedBatchesCompleted: 0, persistSharedCursor: true })
     expect((integrationLogService as any).write).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: 'sync_magento',
       runId: 'run-1',

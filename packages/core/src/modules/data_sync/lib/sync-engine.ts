@@ -7,7 +7,7 @@ import type { ProgressService } from '../../progress/lib/progressService'
 import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
-import { getDataSyncAdapter } from './adapter-registry'
+import { getDataSyncAdapter, resolveProviderKey } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 import { SyncRunOwnershipConflictError } from './sync-run-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -27,10 +27,6 @@ type EngineDeps = {
   integrationLogService: IntegrationLogService
   integrationStateService?: IntegrationStateService
   progressService: ProgressService
-}
-
-function resolveProviderKey(integrationId: string): string {
-  return getIntegration(integrationId)?.providerKey ?? integrationId
 }
 
 function applyImportCounters(batch: ImportBatch): Pick<Required<SyncCounterDelta>, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount'> {
@@ -504,8 +500,7 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
-            committedBatches,
-            { persistSharedCursor },
+            { expectedBatchesCompleted: committedBatches, persistSharedCursor },
           )
           committedBatches += 1
 
@@ -666,8 +661,7 @@ export function createSyncEngine(deps: EngineDeps) {
             },
             batch.cursor,
             scope,
-            committedBatches,
-            { persistSharedCursor },
+            { expectedBatchesCompleted: committedBatches, persistSharedCursor },
           )
           committedBatches += 1
           await updateProgress(run.progressJobId, processedCount, null, scope)
