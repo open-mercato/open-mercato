@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "shareName": "library-books-spec-session",
+  "createdAt": "2026-08-13T11:45:42.553Z",
+  "session": {
+    "collection": "turns",
+    "entries": 431,
+    "recognizedTurns": 73,
+    "userTurns": 12,
+    "assistantTurns": 61,
+    "firstRecognizedRole": "user",
+    "lastRecognizedRole": "assistant",
+    "bytes": 597071,
+    "sha256": "286df5a2efd4f78f775d43493fe578d3b9a673a785a244ad47c3140ba0887914"
+  },
+  "generatedFiles": [
+    {
+      "path": ".ai/specs/2026-08-13-library-books-lending.md",
+      "mode": "644",
+      "originalBytes": 33706,
+      "sanitizedBytes": 33701,
+      "sha256": "ea753a28a11b14f26dc1e6a1e0f95aee6d05b942043975835e96ce899b3b1514"
+    }
+  ],
+  "artifacts": {
+    "generated-files.zip": {
+      "bytes": 11573,
+      "sha256": "ccb6df1e67a763677ede56dba16213766dfb2f6a9e7f5ea1b9be8d60ee8096f0"
+    },
+    "privacy-report.json": {
+      "bytes": 476,
+      "sha256": "8739f7dce8ff6e42eca496810ced91d68d0f2f2c15039155b3aa22d9205957cb"
+    }
+  }
+}
