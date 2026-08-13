@@ -986,30 +986,32 @@ export class HybridQueryEngine implements QueryEngine {
         }
         if (!orGroupsRowsetDependent) next = applyOrGroupedBaseFilters(next)
         if (needsIndexRowset) {
-          next = next.where((eb: any) => {
-            // One seed row per base row, then the display query's own join
-            // builders — the rowset inside the EXISTS is the display rowset.
-            let rowset: AnyBuilder = eb
-              .selectFrom(sql`(select 1)`.as('om_count_seed'))
-              .select(sql<number>`1`.as('one'))
-            rowset = applyEntityIndexesJoin(rowset)
-            rowset = applyCustomFieldSourceJoins(rowset)
-            rowset = applyCfFilters(rowset)
-            for (const filter of rowsetRegularFilters) {
-              const baseField = resolveBaseColumn(String(filter.field))
-              if (!baseField) {
-                rowset = this.applyIndexDocFilterFromAlias(
-                  rowset, 'ei', entity, String(filter.field), filter.op, filter.value, qualify('id'), searchRuntime,
-                )
-                continue
-              }
-              rowset = this.applyColumnFilter(rowset, qualify(baseField), filter, {
-                ...searchRuntime, entity, field: String(filter.field), recordIdColumn: qualify('id'),
-              })
+          // One seed row per base row, then the display query's own join
+          // builders — the rowset inside the EXISTS is the display rowset.
+          // Built from `db` (not the where-callback's expression builder),
+          // matching applyJoinFilters' detached-subquery idiom; correlated
+          // references to the outer base alias resolve at compile time.
+          let rowset: AnyBuilder = db
+            .selectFrom(sql`(select 1)`.as('om_count_seed'))
+            .select(sql<number>`1`.as('one'))
+          rowset = applyEntityIndexesJoin(rowset)
+          rowset = applyCustomFieldSourceJoins(rowset)
+          rowset = applyCfFilters(rowset)
+          for (const filter of rowsetRegularFilters) {
+            const baseField = resolveBaseColumn(String(filter.field))
+            if (!baseField) {
+              rowset = this.applyIndexDocFilterFromAlias(
+                rowset, 'ei', entity, String(filter.field), filter.op, filter.value, qualify('id'), searchRuntime,
+              )
+              continue
             }
-            if (orGroupsRowsetDependent) rowset = applyOrGroupedBaseFilters(rowset)
-            return eb.exists(rowset)
-          })
+            rowset = this.applyColumnFilter(rowset, qualify(baseField), filter, {
+              ...searchRuntime, entity, field: String(filter.field), recordIdColumn: qualify('id'),
+            })
+          }
+          if (orGroupsRowsetDependent) rowset = applyOrGroupedBaseFilters(rowset)
+          const capturedRowset = rowset
+          next = next.where((eb: any) => eb.exists(capturedRowset))
         }
         next = await applyJoinFilters({
           db,

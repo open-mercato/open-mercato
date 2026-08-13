@@ -192,10 +192,12 @@ maybe('capped list COUNT against PostgreSQL', () => {
     await expectParity({ $and: [{ status: { $eq: 'open' } }, { cf_color: { $eq: 'red' } }] }, RED_ROWS / 2)
     // Base-column-only $or exercises the or-group path in the count shape.
     await expectParity({ $or: [{ status: { $eq: 'open' } }, { status: { $eq: 'closed' } }] }, ROWS)
-    // A cf clause inside $or is extracted and ANDed by normalizeFilters (both
-    // in the display and the count query — pre-existing engine semantics, kept
-    // consistent here): only parity is asserted, not a ground-truth total.
-    await expectParity({ $or: [{ status: { $eq: 'closed' } }, { cf_color: { $eq: 'red' } }] })
+    // Mixed base + cf disjunction (#5039): the count shape must compile the cf
+    // leaf to an EXISTS rather than dropping it — a dropped leaf narrows the OR
+    // and undercounts. closed (60) ∪ red (30, half of which are closed) = 75.
+    await expectParity({ $or: [{ status: { $eq: 'closed' } }, { cf_color: { $eq: 'red' } }] }, ROWS / 2 + RED_ROWS / 2)
+    // cf-only disjunction: red (30) ∪ blue (0) = 30.
+    await expectParity({ $or: [{ cf_color: { $eq: 'red' } }, { cf_color: { $eq: 'blue' } }] }, RED_ROWS)
     await expectParity({ cf_color: { $eq: 'blue' } }, 0)
     await expectParity({ cf_color: { $eq: null } }, ROWS - RED_ROWS)
     await expectParity({ cf_color: { $ne: 'red' } }, 0)

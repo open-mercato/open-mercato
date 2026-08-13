@@ -308,6 +308,37 @@ describe('BasicQueryEngine — rebuilt list COUNT query (#4552 Phase 2)', () => 
     expect(dataCall).toBeTruthy()
   })
 
+  test('a cf leaf inside $or compiles to EXISTS on the count shape instead of being dropped (#5039)', async () => {
+    const selects: any[] = []
+    const fakeDb = createFakeKysely(selects, {
+      custom_field_defs: [
+        { key: 'color', entity_id: 'scheduler:scheduled_job', is_active: true, tenant_id: null, kind: 'text', config_json: '{}' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'scheduled_jobs', column_name: 'id' },
+        { table_name: 'scheduled_jobs', column_name: 'tenant_id' },
+        { table_name: 'scheduled_jobs', column_name: 'status' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { $or: [{ status: { $eq: 'closed' } }, { cf_color: { $eq: 'red' } }] },
+      page: { page: 1, pageSize: 20 },
+    })
+
+    const countCall = findCountShapeCall(fakeDb, 'scheduled_jobs')
+    expect(countCall._ops.joins.length).toBe(0)
+    // The whole disjunction lands in one OR where-entry whose parts include an
+    // EXISTS (the cf leaf) — dropping it would narrow the OR and undercount.
+    const orEntries = countCall._ops.wheres.filter((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntries.length).toBeGreaterThan(0)
+    const hasExistsPart = orEntries.some((entry: any) =>
+      (entry[1] ?? []).some((part: any) => part?.kind === 'exists' || (part?.kind === 'and' && part.parts?.some((p: any) => p?.kind === 'exists'))))
+    expect(hasExistsPart).toBe(true)
+  })
+
   test('the probe LIMIT is cap + 1 on the row-producing inner query, counted by an outer aggregate', async () => {
     process.env.OM_LIST_COUNT_CAP = '100'
     const selects: any[] = []

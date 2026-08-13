@@ -643,7 +643,7 @@ Decoupled and adjacent work folded in: encrypted-sort truncation now runs its ow
 
 Test coverage per the mandated plan: compiled-SQL shape assertions per site (`EXISTS` rendering, no `GROUP BY`/`DISTINCT` beneath the probe `LIMIT`, projection joins absent), cap boundary (cap−1/cap/cap+1/0/unparseable), a count-parity matrix at `cap=0` against both ground truth and the display query's own rowset, an encrypted-sort regression, and the `EXPLAIN`-backed plan guard against a live PostgreSQL 16 (gated on `OM_COUNT_CAP_PG_URL`) asserting `Limit → scan` with no blocking node below the `Limit`.
 
-One pre-existing engine quirk surfaced and was left alone as out of scope: a `cf:` clause inside `$or` is extracted and ANDed. It behaves consistently in both the display and count queries, so parity holds.
+`cf:` clauses inside `$or` (proper OR-group support landed on `develop` via #5039/#5056 while this phase was in review): the count shape compiles an OR-grouped cf leaf to the same correlated `EXISTS` used for ANDed cf filters, gated on key resolution — the count-side mirror of the display query's `cfValueExprByKey` applicability test — so a disjunct is never narrowed by a dropped leaf and count/display parity holds.
 
 ### 2026-08-04 — Phase 1 implemented ([#4942](https://github.com/open-mercato/open-mercato/pull/4942))
 
