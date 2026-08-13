@@ -14,6 +14,8 @@ import type { LinkedEntity } from './useScheduleFormState'
 
 const ENTITY_LINK_TYPES = ['company', 'deal', 'offer'] as const
 
+const PAGE_SIZE = 20
+
 function readLabelCandidate(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -78,7 +80,10 @@ function EntityLinkSearchPopover({
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ id: string; label: string }>>([])
   const [page, setPage] = React.useState(1)
-  const [totalPages, setTotalPages] = React.useState(1)
+  // Short-page termination instead of a `total`/`totalPages` bound: a full page
+  // is the only reliable "there may be more" signal, since a reported total can
+  // under-report (a capped list count) or drift between requests.
+  const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const selectableResults = React.useMemo(
     () => results.filter((result) => !existingIds.has(result.id)),
@@ -90,12 +95,12 @@ function EntityLinkSearchPopover({
     const controller = new AbortController()
     setLoading(true)
     const searchParam = query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''
-    const pagingParam = `&page=${page}&pageSize=20`
+    const pagingParam = `&page=${page}&pageSize=${PAGE_SIZE}`
     const endpoint = linkType === 'company'
       ? `/api/customers/companies?sortField=name&sortDir=asc${pagingParam}${searchParam}`
       : linkType === 'deal'
-        ? `/api/customers/deals?pageSize=20&page=${page}${searchParam}`
-        : `/api/sales/quotes?pageSize=20&page=${page}${searchParam}`
+        ? `/api/customers/deals?pageSize=${PAGE_SIZE}&page=${page}${searchParam}`
+        : `/api/sales/quotes?pageSize=${PAGE_SIZE}&page=${page}${searchParam}`
     readApiResultOrThrow<{ items?: Array<Record<string, unknown>>; totalPages?: number; page?: number; pageSize?: number; total?: number }>(endpoint, { signal: controller.signal })
       .then((data) => {
         const items = Array.isArray(data?.items) ? data.items : []
@@ -109,15 +114,12 @@ function EntityLinkSearchPopover({
           nextResults.forEach((entry) => merged.set(entry.id, entry))
           return Array.from(merged.values())
         })
-        if (typeof data?.totalPages === 'number') {
-          setTotalPages(data.totalPages)
-        } else if (typeof data?.total === 'number' && typeof data?.pageSize === 'number') {
-          setTotalPages(Math.max(1, Math.ceil(data.total / data.pageSize)))
-        } else {
-          setTotalPages(1)
-        }
+        setHasMore(items.length >= PAGE_SIZE)
       })
-      .catch(() => setResults([]))
+      .catch(() => {
+        setResults([])
+        setHasMore(false)
+      })
       .finally(() => setLoading(false))
     return () => controller.abort()
   }, [open, page, query, linkType])
@@ -212,7 +214,7 @@ function EntityLinkSearchPopover({
               </Button>
             )
           })}
-          {!loading && page < totalPages ? (
+          {!loading && hasMore ? (
             <div className="px-2 py-2">
               <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
                 {t('customers.schedule.loadMore', 'Load more')}

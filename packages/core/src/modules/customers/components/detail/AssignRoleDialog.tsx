@@ -75,6 +75,10 @@ export function AssignRoleDialog({
   const [activeTeam, setActiveTeam] = React.useState('all')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [totalUsers, setTotalUsers] = React.useState(0)
+  // Short-page termination instead of `users.length >= totalUsers`: the
+  // reported total can under-report (a capped list count) or drift between
+  // requests, which hid team members the API would still return.
+  const [hasMore, setHasMore] = React.useState(false)
   const [currentPage, setCurrentPage] = React.useState(1)
   const deferredSearchQuery = React.useDeferredValue(searchQuery)
   const requestSequenceRef = React.useRef(0)
@@ -154,6 +158,7 @@ export function AssignRoleDialog({
           return Array.from(merged.values())
         })
         setTotalUsers(result.total)
+        setHasMore(result.items.length >= ASSIGNABLE_STAFF_PAGE_SIZE)
         setCurrentPage(result.page)
         setLoadError(null)
       } catch {
@@ -161,6 +166,7 @@ export function AssignRoleDialog({
         if (!append) {
           setUsers([])
           setTotalUsers(0)
+          setHasMore(false)
           setCurrentPage(1)
         }
         setLoadError(
@@ -189,14 +195,14 @@ export function AssignRoleDialog({
   }, [deferredSearchQuery, searchUsers, step])
 
   const handleLoadMore = React.useCallback(() => {
-    if (loading || loadingMore || users.length >= totalUsers) return
+    if (loading || loadingMore || !hasMore) return
     // fire-and-forget: search results populate async; errors shown in list UI
     searchUsers({
       query: deferredSearchQuery,
       page: currentPage + 1,
       append: true,
     }).catch(() => {})
-  }, [currentPage, deferredSearchQuery, loading, loadingMore, searchUsers, totalUsers, users.length])
+  }, [currentPage, deferredSearchQuery, hasMore, loading, loadingMore, searchUsers])
 
   const selectedRole = React.useMemo(
     () => roleTypes.find((roleType) => roleType.value === selectedRoleType) ?? null,
@@ -262,7 +268,7 @@ export function AssignRoleDialog({
     )
   }, [t, totalUsers, users.length])
 
-  const canLoadMore = users.length < totalUsers
+  const canLoadMore = hasMore
 
   const handleAssign = React.useCallback(async () => {
     if (!selectedRoleType || !selectedUser) return

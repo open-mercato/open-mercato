@@ -21,6 +21,8 @@ type AttachmentsResponse = {
   error?: string
 }
 
+const PAGE_SIZE = 24
+
 type Props = {
   entityId: string
   recordId: string | null
@@ -45,7 +47,10 @@ function AttachmentsSectionImpl({
   const t = useT()
   const [items, setItems] = React.useState<AttachmentItem[]>([])
   const [page, setPage] = React.useState(1)
-  const [totalPages, setTotalPages] = React.useState(1)
+  // Short-page termination instead of a `total`/`totalPages` bound: a page that
+  // comes back full is the only reliable "there may be more" signal. A reported
+  // total can under-report (a capped list count) or drift while the user pages.
+  const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
@@ -65,7 +70,7 @@ function AttachmentsSectionImpl({
         entityId,
         recordId,
         page: String(targetPage),
-        pageSize: '24',
+        pageSize: String(PAGE_SIZE),
       })
       const call = await apiCall<AttachmentsResponse>(
         `/api/attachments?${params.toString()}`,
@@ -80,7 +85,7 @@ function AttachmentsSectionImpl({
       const nextItems = Array.isArray(payload.items) ? payload.items : []
       setItems((current) => (replace ? nextItems : [...current, ...nextItems]))
       setPage(typeof payload.page === 'number' ? payload.page : targetPage)
-      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+      setHasMore(nextItems.length >= PAGE_SIZE)
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {
@@ -94,7 +99,7 @@ function AttachmentsSectionImpl({
     } else {
       setItems([])
       setPage(1)
-      setTotalPages(1)
+      setHasMore(false)
       setError(null)
     }
   }, [load, recordId])
@@ -323,7 +328,7 @@ function AttachmentsSectionImpl({
         </div>
       )}
 
-      {items.length > 0 && page < totalPages ? (
+      {items.length > 0 && hasMore ? (
         <div className="flex justify-center">
           <Button
             type="button"

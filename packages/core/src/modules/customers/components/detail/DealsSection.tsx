@@ -545,17 +545,11 @@ export function DealsSection({
         return [...updatedPrev, ...appended]
       })
       pageRef.current = nextPage
-      const totalPagesRaw = payload?.totalPages
-      const totalPages =
-        typeof totalPagesRaw === 'number'
-          ? totalPagesRaw
-          : typeof totalPagesRaw === 'string' && totalPagesRaw.trim().length
-            ? Number(totalPagesRaw)
-            : null
-      const nextHasMore =
-        totalPages && Number.isFinite(totalPages)
-          ? nextPage < totalPages
-          : mapped.length === DEALS_PAGE_SIZE
+      // Short-page termination, unconditionally: a full page is the only
+      // reliable "there may be more" signal. `totalPages` derives from a
+      // reported total, which can under-report (a capped list count) or drift
+      // between requests, and preferring it hid deals that do exist.
+      const nextHasMore = mapped.length >= DEALS_PAGE_SIZE
       hasMoreRef.current = nextHasMore
       setHasMore(nextHasMore)
       setLoadError(null)

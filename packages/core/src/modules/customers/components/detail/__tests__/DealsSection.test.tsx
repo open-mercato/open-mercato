@@ -305,4 +305,58 @@ describe('DealsSection', () => {
       )
     })
   })
+
+  // `hasMore` used to prefer `nextPage < totalPages` and only fall back to page
+  // fullness. A totalPages of 1 next to a full page — an under-reporting or
+  // capped total — hid the button and made the remaining deals unreachable.
+  describe('load-more termination', () => {
+    const makeFullPage = (offset = 0) =>
+      Array.from({ length: 10 }, (_, index) =>
+        makeDeal({ id: `deal-${offset + index + 1}`, title: `Deal ${offset + index + 1}` }))
+
+    it('offers Load more on a full page even when totalPages reports a single page', async () => {
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: makeFullPage(),
+        totalPages: 1,
+        total: 4,
+      })
+
+      renderWithProviders(
+        <DealsSection
+          scope={{ kind: 'person', entityId: 'person-1' }}
+          addActionLabel="Add deal"
+          emptyLabel="—"
+          emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+        />,
+      )
+
+      expect(await screen.findByRole('button', { name: 'Load more deals' })).toBeInTheDocument()
+    })
+
+    it('hides Load more once a page comes back short', async () => {
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [makeDeal()],
+        // A large total must not conjure a next page.
+        totalPages: 99,
+        total: 999,
+      })
+
+      renderWithProviders(
+        <DealsSection
+          scope={{ kind: 'person', entityId: 'person-1' }}
+          addActionLabel="Add deal"
+          emptyLabel="—"
+          emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+        />,
+      )
+
+      await waitFor(() => {
+        expect(readApiResultOrThrowMock).toHaveBeenCalled()
+      })
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more deals' })).toBeNull()
+      })
+    })
+  })
+
 })

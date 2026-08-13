@@ -106,6 +106,92 @@ describe('AssignRoleDialog', () => {
     })
   })
 
+  // The load-more guard used to be `users.length >= totalUsers`. When the
+  // reported total under-reports the result set — a capped list count, or rows
+  // inserted between requests — the button vanished and the remaining members
+  // were unreachable. Termination now follows the page being full.
+  it('offers Load more when the page came back full even though total under-reports', async () => {
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 24 }, (_, index) => ({
+          userId: `user-${index + 1}`,
+          displayName: `User ${index + 1}`,
+          teamName: 'Sales',
+          user: { email: `user${index + 1}@example.com` },
+        })),
+        // Deliberately lower than the rows actually available.
+        total: 5,
+        page: 1,
+        pageSize: 24,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            userId: 'user-25',
+            displayName: 'User 25',
+            teamName: 'Sales',
+            user: { email: 'user25@example.com' },
+          },
+        ],
+        total: 5,
+        page: 2,
+        pageSize: 24,
+      })
+
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[{ id: 'rt-1', value: 'account_manager', label: 'Account manager' }]}
+        entityName="Acme Corp"
+        initialRoleType="account_manager"
+      />,
+    )
+
+    const loadMore = await screen.findByRole('button', { name: 'Load more' })
+    fireEvent.click(loadMore)
+
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
+        2,
+        '/api/staff/team-members/assignable?page=2&pageSize=24',
+        undefined,
+      )
+    })
+    expect(await screen.findByText('User 25')).toBeInTheDocument()
+  })
+
+  it('stops offering Load more once a page comes back short', async () => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: Array.from({ length: 3 }, (_, index) => ({
+        userId: `user-${index + 1}`,
+        displayName: `User ${index + 1}`,
+        teamName: 'Sales',
+        user: { email: `user${index + 1}@example.com` },
+      })),
+      // A total far above the rows returned must not conjure a next page.
+      total: 999,
+      page: 1,
+      pageSize: 24,
+    })
+
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[{ id: 'rt-1', value: 'account_manager', label: 'Account manager' }]}
+        entityName="Acme Corp"
+        initialRoleType="account_manager"
+      />,
+    )
+
+    expect(await screen.findByText('User 1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+  })
+
   it('keeps the footer actions available after selecting a user and can load more results', async () => {
     readApiResultOrThrowMock
       .mockResolvedValueOnce({
