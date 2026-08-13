@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
 import {
@@ -202,21 +202,21 @@ function bannerMessage(claim: PortalClaim, t: TranslateFn): string {
   }
 }
 
-function formatShortDate(value: string | null): string | null {
+function formatShortDate(value: string | null, locale: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale || undefined, { month: 'short', day: 'numeric' })
 }
 
-function formatLongDate(value: string | null): string | null {
+function formatLongDate(value: string | null, locale: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale || undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-function buildTrackerSteps(claim: PortalClaim, t: TranslateFn): TrackerStep[] {
+function buildTrackerSteps(claim: PortalClaim, t: TranslateFn, locale: string): TrackerStep[] {
   const currentIndex = STATUS_STEP_INDEX[claim.status] ?? 1
   const terminalComplete = claim.status === 'resolved' || claim.status === 'closed'
   return TRACKER_STEP_KEYS.map((key, index) => {
@@ -226,12 +226,13 @@ function buildTrackerSteps(claim: PortalClaim, t: TranslateFn): TrackerStep[] {
         ? 'current'
         : 'pending'
     let dateLabel: string | null = null
-    if (index === 0 && state === 'complete') dateLabel = formatShortDate(claim.submittedAt)
+    if (index === 0 && state === 'complete') dateLabel = formatShortDate(claim.submittedAt, locale)
     if (index === TRACKER_STEP_KEYS.length - 1 && state === 'complete') {
       dateLabel = formatShortDate(
         claim.status === 'closed'
           ? claim.closedAt ?? claim.resolvedAt
           : claim.resolvedAt ?? claim.closedAt,
+        locale,
       )
     }
     if (state === 'current') dateLabel = t('warranty_claims.portal.tracker.step.now')
@@ -254,14 +255,14 @@ function buildClaimTitle(claim: PortalClaim, t: TranslateFn): string {
   return t('warranty_claims.portal.tracker.titleFallback', { type: typeLabel })
 }
 
-function buildClaimSubtitle(claim: PortalClaim, t: TranslateFn): string {
+function buildClaimSubtitle(claim: PortalClaim, t: TranslateFn, locale: string): string {
   if (claim.status === 'draft') {
-    const created = formatLongDate(claim.createdAt)
+    const created = formatLongDate(claim.createdAt, locale)
     return created
       ? t('warranty_claims.portal.tracker.draftCreated', { date: created })
       : t('warranty_claims.portal.detail.notSubmitted')
   }
-  const submitted = formatLongDate(claim.submittedAt) ?? formatLongDate(claim.createdAt)
+  const submitted = formatLongDate(claim.submittedAt, locale) ?? formatLongDate(claim.createdAt, locale)
   if (!submitted) return t('warranty_claims.portal.value.notAvailable')
   if (claim.orderNumber) {
     return t('warranty_claims.portal.tracker.submittedFromOrder', { date: submitted, order: claim.orderNumber })
@@ -325,6 +326,7 @@ const DARK_BUTTON_CLASS = 'rounded-md px-3 py-2 text-sm font-medium'
 
 export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
@@ -594,7 +596,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     return <ErrorMessage label={error ?? t('warranty_claims.portal.detail.loadError')} />
   }
 
-  const trackerSteps = buildTrackerSteps(claim, t)
+  const trackerSteps = buildTrackerSteps(claim, t, locale)
   const isDraft = claim.status === 'draft'
   const canWithdraw = claim.status === 'draft' || claim.status === 'submitted'
   const tone = bannerTone(claim.status)
@@ -653,7 +655,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             {buildClaimTitle(claim, t)}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {buildClaimSubtitle(claim, t)}
+            {buildClaimSubtitle(claim, t, locale)}
           </p>
         </div>
 
@@ -763,7 +765,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                     <p className="text-sm font-medium text-foreground">{entry.title}</p>
                     <div className="min-w-px flex-1" />
                     {entry.createdAt ? (
-                      <p className="text-xs text-muted-foreground">{formatShortDate(entry.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">{formatShortDate(entry.createdAt, locale)}</p>
                     ) : null}
                   </div>
                   {entry.href ? (

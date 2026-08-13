@@ -19,16 +19,6 @@ Covers claim lifecycle + line dispositions, receiving & grading, SLA pause/escal
 11. MUST keep optimistic locking on by default for CRUD and settings; action endpoints use `enforceCommandOptimisticLock`, and UI line mutations send each line's own `updatedAt` header.
 12. MUST keep free-text/correspondence fields in `encryption.ts` encrypted and excluded from search sources in `search.ts`.
 
-## Design System — scoped Figma exemption
-
-The **backend** pages follow the normal DS rules: semantic tokens only, no arbitrary values, no hardcoded hex, no `dark:` overrides on status tokens.
-
-The **portal claim tracker** (`frontend/[orgSlug]/portal/claims/**`) is a deliberate pixel-exact build of the approved Figma frame `79:1013`, so it pins literal values (`text-[14px]`, `rounded-[16px]`, `#0f0f12`, …) and pairs each light literal with an explicit `dark:` token. This is the documented exception the root `AGENTS.md` DS rules allow for Figma-exact work — it is scoped to those files and is not a precedent.
-
-- MUST keep the exemption inside `frontend/[orgSlug]/portal/claims/**`; any new backend surface uses DS tokens.
-- MUST pair every pinned **surface, border, and body-text** literal with a `dark:` counterpart, so the portal still themes correctly. Saturated **accent fills** that carry their own contrast (white on the `#21ad61` / `#6552e3` tracker chips) are deliberately theme-invariant and take no `dark:` override.
-- Ask before restyling these pages away from Figma, or before extending literal-value styling to another directory.
-
 ## Ask First
 
 - Ask before adding, renaming, or removing claim statuses, line statuses, dispositions, event ids, notification ids, API paths, widget spot ids, ACL ids, DI keys, or search entity ids.

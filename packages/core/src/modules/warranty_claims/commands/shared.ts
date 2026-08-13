@@ -6,6 +6,8 @@ import { assertFound } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   WarrantyClaim,
@@ -175,6 +177,31 @@ export async function reconcileVendorRecoverySourceClaim(
     { transaction: true, label: 'warranty_claims.vendor_recovery.reconciliation' },
   )
 
+  const dataEngine = ctx.resolve<DataEngine>('dataEngine')
+  await emitCrudSideEffects({
+    dataEngine,
+    action: 'updated',
+    entity: sourceClaim,
+    identifiers: {
+      id: sourceClaim.id,
+      organizationId: sourceClaim.organizationId,
+      tenantId: sourceClaim.tenantId,
+    },
+    indexer: { entityType: 'warranty_claims:warranty_claim' },
+    events: {
+      module: 'warranty_claims',
+      entity: 'claim',
+      persistent: true,
+      buildPayload: () => ({
+        id: sourceClaim.id,
+        organizationId: sourceClaim.organizationId,
+        tenantId: sourceClaim.tenantId,
+        claimType: sourceClaim.claimType,
+        status: sourceClaim.status,
+      }),
+    },
+  })
+  await flushCrudSideEffects(dataEngine)
   await invalidateCrudCache(
     ctx as unknown as Parameters<typeof invalidateCrudCache>[0],
     'warranty_claims.claim',

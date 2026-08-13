@@ -131,6 +131,14 @@ function findIdWhere(wheres: Array<[string, string, unknown]>): string | null {
   return typeof idWhere?.[2] === 'string' ? idWhere[2] : null
 }
 
+function rowSatisfiesWheres(row: Record<string, unknown>, wheres: Array<[string, string, unknown]>): boolean {
+  return wheres.every(([column, op, value]) => {
+    if (op === 'is' && value === null) return row[column] === null || row[column] === undefined
+    if (op === 'in' && Array.isArray(value)) return value.includes(row[column])
+    return row[column] === value
+  })
+}
+
 function makeKysely() {
   return {
     selectFrom: (table: string) => {
@@ -142,7 +150,9 @@ function makeKysely() {
           return builder
         },
         limit: () => builder,
-        execute: async () => [],
+        execute: async () => table === 'sales_order_lines'
+          ? Array.from(mockSourceLineRows.values()).filter((row) => rowSatisfiesWheres(row, wheres))
+          : [],
         executeTakeFirst: async () => {
           const id = findIdWhere(wheres)
           if (table === 'sales_order_lines') return id ? mockSourceLineRows.get(id) : undefined
@@ -250,6 +260,8 @@ function sourceLine(overrides: Record<string, unknown> = {}): Record<string, unk
     unit_price_net: '12.3400',
     unit_price_gross: '14.7580',
     tax_rate: '19.5000',
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
     ...overrides,
   }
 }

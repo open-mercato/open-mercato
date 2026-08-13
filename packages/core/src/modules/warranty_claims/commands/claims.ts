@@ -881,6 +881,7 @@ async function querySalesOrderLineReferences(
   ctx: CommandRuntimeContext,
   scope: WarrantyClaimScope,
   ids: string[],
+  select: string[] = ['id', 'order_id'],
 ): Promise<Record<string, unknown>[] | undefined> {
   if (ids.length === 0) return []
   const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -888,7 +889,7 @@ async function querySalesOrderLineReferences(
   try {
     const rows = await db
       .selectFrom('sales_order_lines')
-      .select(['id', 'order_id'])
+      .select(select as never[])
       .where('id', 'in', ids)
       .where('tenant_id', '=', scope.tenantId)
       .where('organization_id', '=', scope.organizationId)
@@ -2675,6 +2676,13 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
       {},
       scope,
     )
+    const sourceLineRows = await querySalesOrderLineReferences(
+      ctx,
+      scope,
+      Array.from(new Set(claimLines.flatMap((line) => line.orderLineId ? [line.orderLineId] : []))),
+      ['id', 'order_id', 'name', 'currency_code', 'quantity', 'total_net_amount', 'total_gross_amount', 'tax_rate'],
+    )
+    const sourceLinesById = new Map((sourceLineRows ?? []).map((row) => [readString(row, 'id'), row]))
     const preparedLines: PreparedCreditMemoLine[] = []
     const skippedLineIds: string[] = []
     for (const claimLine of claimLines) {
@@ -2690,22 +2698,7 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
         continue
       }
 
-      const sourceLine = await querySalesReferenceRow(
-        ctx,
-        'sales_order_lines',
-        scope,
-        claimLine.orderLineId,
-        [
-          'id',
-          'order_id',
-          'name',
-          'currency_code',
-          'quantity',
-          'total_net_amount',
-          'total_gross_amount',
-          'tax_rate',
-        ],
-      )
+      const sourceLine = sourceLinesById.get(claimLine.orderLineId) ?? null
       const sourceCurrencyCode = sourceLine ? readString(sourceLine, 'currency_code') : null
       if (
         !sourceLine
@@ -3028,6 +3021,24 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       {},
       scope,
     )
+    const sourceLineRows = await querySalesOrderLineReferences(
+      ctx,
+      scope,
+      Array.from(new Set(lines.flatMap((line) => line.orderLineId ? [line.orderLineId] : []))),
+      [
+        'id',
+        'order_id',
+        'product_id',
+        'product_variant_id',
+        'name',
+        'kind',
+        'currency_code',
+        'unit_price_net',
+        'unit_price_gross',
+        'tax_rate',
+      ],
+    )
+    const sourceLinesById = new Map((sourceLineRows ?? []).map((row) => [readString(row, 'id'), row]))
     const replacementLines: ReplacementOrderLineInput[] = []
     const skippedLineIds: string[] = []
     for (const line of lines) {
@@ -3043,24 +3054,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
         continue
       }
 
-      const sourceLine = await querySalesReferenceRow(
-        ctx,
-        'sales_order_lines',
-        scope,
-        line.orderLineId,
-        [
-          'id',
-          'order_id',
-          'product_id',
-          'product_variant_id',
-          'name',
-          'kind',
-          'currency_code',
-          'unit_price_net',
-          'unit_price_gross',
-          'tax_rate',
-        ],
-      )
+      const sourceLine = sourceLinesById.get(line.orderLineId) ?? null
       const productId = sourceLine ? readString(sourceLine, 'product_id') : null
       const productVariantId = sourceLine ? readString(sourceLine, 'product_variant_id') : null
       const name = sourceLine ? readString(sourceLine, 'name') : null

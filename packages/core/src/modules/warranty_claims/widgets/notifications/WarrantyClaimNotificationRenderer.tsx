@@ -172,19 +172,10 @@ export function WarrantyClaimNotificationRenderer({
   return (
     <div
       className={cn(
-        'group relative flex cursor-pointer items-start gap-3 rounded-xl border-l-4 p-3 transition-colors hover:bg-muted/40',
+        'group relative flex items-start gap-3 rounded-xl border-l-4 p-3 transition-colors hover:bg-muted/40',
         classes.border,
         isUnread && classes.unread,
       )}
-      onClick={handleView}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          handleView()
-        }
-      }}
-      role="button"
-      tabIndex={0}
     >
       <div className={cn('relative flex size-10 shrink-0 items-center justify-center rounded-full', classes.avatar)}>
         <meta.Icon className={cn('size-5', classes.icon)} aria-hidden="true" />

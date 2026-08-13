@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { ChevronRight, Plus, ShieldCheck } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
@@ -41,11 +41,11 @@ type PortalClaimsResponse = {
   totalPages: number
 }
 
-function formatDate(value: string | null, fallback: string): string {
+function formatDate(value: string | null, fallback: string, locale: string): string {
   if (!value) return fallback
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(locale || undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -54,6 +54,7 @@ function formatDate(value: string | null, fallback: string): string {
 
 export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
@@ -185,7 +186,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
     {
       accessorKey: 'createdAt',
       header: t('warranty_claims.portal.list.column.submittedAt', 'Submitted'),
-      cell: ({ row }) => formatDate(row.original.createdAt, t('warranty_claims.portal.value.notAvailable')),
+      cell: ({ row }) => formatDate(row.original.createdAt, t('warranty_claims.portal.value.notAvailable'), locale),
       meta: { maxWidth: 160 },
     },
     {
@@ -200,7 +201,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
       meta: { maxWidth: 48 },
       cell: () => <ChevronRight aria-hidden="true" className="size-4 text-muted-foreground" />,
     },
-  ], [t])
+  ], [locale, t])
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Spinner /></div>

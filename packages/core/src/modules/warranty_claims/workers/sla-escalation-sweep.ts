@@ -161,21 +161,9 @@ async function deliverSlaSignal(
         slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
       }
     : { slaAtRiskNotifiedAt: now }
+  await emitSlaSignal(eventId, claim, scope, progressPct, elapsedBusinessMillis)
   await stampSlaSignal(em, claim, scope, stamps)
   Object.assign(claim, stamps)
-  try {
-    await emitSlaSignal(eventId, claim, scope, progressPct, elapsedBusinessMillis)
-  } catch (error) {
-    const rollback = eventId === 'warranty_claims.claim.sla_breached'
-      ? {
-          slaBreachedNotifiedAt: null,
-          slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt === now ? null : claim.slaAtRiskNotifiedAt,
-        }
-      : { slaAtRiskNotifiedAt: null }
-    await stampSlaSignal(em, claim, scope, rollback)
-    Object.assign(claim, rollback)
-    throw error
-  }
 }
 
 function buildCommandContext(container: ResolverContainer, scope: SweepScope): CommandRuntimeContext {

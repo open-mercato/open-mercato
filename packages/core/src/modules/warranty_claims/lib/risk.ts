@@ -319,7 +319,7 @@ export async function evaluateClaimRisk(
 
   const customerId = claim.customerId ?? null
   if (customerId) {
-    const windowStart = riskWindowStart()
+    const windowStart = riskWindowStart(now)
     const repeatRow = await db
       .selectFrom('warranty_claims')
       .select(sql<NumericAggregateValue>`count(*)`.as('count'))

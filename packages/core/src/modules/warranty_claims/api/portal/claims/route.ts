@@ -100,24 +100,33 @@ function relationId(value: unknown): string | null {
   return typeof record.id === 'string' ? record.id : null
 }
 
-function decimalNumber(value: unknown): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
-  if (typeof value === 'string') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : 0
-  }
-  return 0
+const CREDIT_SCALE = 10_000n
+
+function decimalUnits(value: unknown): bigint {
+  const normalized = typeof value === 'number'
+    ? (Number.isFinite(value) ? value.toFixed(4) : '')
+    : typeof value === 'string' ? value.trim() : ''
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(normalized)
+  if (!match) return 0n
+  const [, sign, whole, fraction = ''] = match
+  let units = BigInt(whole) * CREDIT_SCALE + BigInt(fraction.slice(0, 4).padEnd(4, '0'))
+  if (fraction.length > 4 && fraction[4] >= '5') units += 1n
+  return sign === '-' ? -units : units
 }
 
-function decimalString(value: number): string {
-  return value.toFixed(4).replace(/\.?0+$/, '')
+function decimalString(value: bigint): string {
+  const sign = value < 0n ? '-' : ''
+  const absolute = value < 0n ? -value : value
+  const whole = absolute / CREDIT_SCALE
+  const fraction = String(absolute % CREDIT_SCALE).padStart(4, '0').replace(/0+$/, '')
+  return `${sign}${whole}${fraction ? `.${fraction}` : ''}`
 }
 
 function summarizeLines(lines: WarrantyClaimLine[]): LineSummary {
-  let creditTotal = 0
+  let creditTotal = 0n
   const statuses: Record<string, number> = {}
   for (const line of lines) {
-    creditTotal += decimalNumber(line.creditAmount)
+    creditTotal += decimalUnits(line.creditAmount)
     statuses[line.lineStatus] = (statuses[line.lineStatus] ?? 0) + 1
   }
   return {

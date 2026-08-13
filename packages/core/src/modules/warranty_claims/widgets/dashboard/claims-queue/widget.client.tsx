@@ -132,7 +132,7 @@ const WarrantyClaimsQueueWidget: React.FC<DashboardWidgetComponentProps<Warranty
   }
 
   if (error) {
-    return <p className="text-sm text-destructive">{error}</p>
+    return <p className="text-sm text-status-error-text">{error}</p>
   }
 
   if (loading && !stats) {

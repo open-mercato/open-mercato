@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, FileText, Plus, Send, Trash2 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
@@ -212,29 +212,30 @@ function defaultQuantity(value: string | number | null | undefined): string {
   return String(parsePositiveNumber(value) ?? 1)
 }
 
-function formatDate(value: string | null, fallback: string): string {
+function formatDate(value: string | null, fallback: string, locale: string): string {
   if (!value) return fallback
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(locale || undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   })
 }
 
-function formatQuantity(value: string | number | null | undefined, fallback: string): string {
+function formatQuantity(value: string | number | null | undefined, fallback: string, locale: string): string {
   const parsed = parsePositiveNumber(value)
-  return parsed === null ? fallback : parsed.toLocaleString()
+  return parsed === null ? fallback : parsed.toLocaleString(locale || undefined)
 }
 
-function formatOrderTotal(value: string | number | null, currencyCode: string | null, fallback: string): string {
+function formatOrderTotal(value: string | number | null, currencyCode: string | null, fallback: string, locale: string): string {
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
   if (!Number.isFinite(parsed)) return fallback
   if (currencyCode && /^[A-Z]{3}$/.test(currencyCode)) {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(parsed)
+    return new Intl.NumberFormat(locale || undefined, { style: 'currency', currency: currencyCode }).format(parsed)
   }
-  return currencyCode ? `${parsed.toLocaleString()} ${currencyCode}` : parsed.toLocaleString()
+  const formatted = parsed.toLocaleString(locale || undefined)
+  return currencyCode ? `${formatted} ${currencyCode}` : formatted
 }
 
 function optionLabel(options: PortalOption[], value: string): string {
@@ -268,6 +269,7 @@ const CREATE_MUTATION_CONTEXT_ID = 'warranty_claims.portal.claim.create'
 
 export default function WarrantyClaimPortalNewPage({ params }: Props) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
@@ -1002,8 +1004,8 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-foreground">{order.orderNumber}</p>
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                            <span>{formatDate(order.placedAt, t('warranty_claims.portal.value.notAvailable'))}</span>
-                            <span>{formatOrderTotal(order.grandTotalGrossAmount, order.currencyCode, t('warranty_claims.portal.value.notAvailable'))}</span>
+                            <span>{formatDate(order.placedAt, t('warranty_claims.portal.value.notAvailable'), locale)}</span>
+                            <span>{formatOrderTotal(order.grandTotalGrossAmount, order.currencyCode, t('warranty_claims.portal.value.notAvailable'), locale)}</span>
                           </div>
                         </div>
                       </div>
@@ -1069,7 +1071,7 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                     <h3 className="text-sm font-semibold">{t('warranty_claims.portal.new.orderLinesTitle')}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {selectedOrderNumber}
-                      {selectedOrderPlacedAt ? ` - ${formatDate(selectedOrderPlacedAt, t('warranty_claims.portal.value.notAvailable'))}` : ''}
+                      {selectedOrderPlacedAt ? ` - ${formatDate(selectedOrderPlacedAt, t('warranty_claims.portal.value.notAvailable'), locale)}` : ''}
                     </p>
                   </div>
                   {orderLinesLoading ? <Spinner /> : null}
@@ -1096,7 +1098,7 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                                   <p className="mt-1 text-xs text-muted-foreground">
                                     {orderLine.sku ?? t('warranty_claims.portal.value.notAvailable')}
                                     {' - '}
-                                    {formatQuantity(orderLine.quantity, t('warranty_claims.portal.value.notAvailable'))}
+                                    {formatQuantity(orderLine.quantity, t('warranty_claims.portal.value.notAvailable'), locale)}
                                   </p>
                                 </div>
                                 {orderLine.estimatedWarrantyStatus !== 'unknown' ? (

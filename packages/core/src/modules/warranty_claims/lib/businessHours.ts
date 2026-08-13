@@ -168,7 +168,17 @@ function parseIntervals(value: unknown): TimeInterval[] {
     if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) continue
     intervals.push({ startMinutes, endMinutes })
   }
-  return intervals.sort((left, right) => left.startMinutes - right.startMinutes)
+  const sorted = intervals.sort((left, right) => left.startMinutes - right.startMinutes)
+  const merged: TimeInterval[] = []
+  for (const interval of sorted) {
+    const previous = merged[merged.length - 1]
+    if (!previous || interval.startMinutes > previous.endMinutes) {
+      merged.push({ ...interval })
+      continue
+    }
+    previous.endMinutes = Math.max(previous.endMinutes, interval.endMinutes)
+  }
+  return merged
 }
 
 function parseHolidays(value: unknown): Set<string> {

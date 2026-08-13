@@ -168,22 +168,7 @@ async function ensureWarrantyClaimDictionaryEntry(
     organizationId: scope.organizationId,
     normalizedValue,
   })
-  if (existing) {
-    let changed = false
-    if (color !== undefined && existing.color !== color) {
-      existing.color = color ?? null
-      changed = true
-    }
-    if (icon !== undefined && existing.icon !== icon) {
-      existing.icon = icon ?? null
-      changed = true
-    }
-    if (changed) {
-      existing.updatedAt = new Date()
-      em.persist(existing)
-    }
-    return existing
-  }
+  if (existing) return existing
   const now = new Date()
   const entry = em.create(DictionaryEntry, {
     dictionary,

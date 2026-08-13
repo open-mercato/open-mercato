@@ -104,6 +104,23 @@ describe('warranty claim SLA escalation helpers', () => {
     })).toBe(1 * HOUR_MS)
   })
 
+  test('overlapping business windows count shared time once', () => {
+    const overlapping = {
+      timezone: 'UTC',
+      week: {
+        mon: [
+          { start: '09:00', end: '12:00' },
+          { start: '11:00', end: '14:00' },
+        ],
+      },
+    }
+    const start = new Date('2026-01-05T09:00:00.000Z')
+    const end = new Date('2026-01-05T14:00:00.000Z')
+
+    expect(businessMillisBetween(start, end, overlapping)).toBe(5 * HOUR_MS)
+    expect(addBusinessMillis(start, 5 * HOUR_MS, overlapping)).toEqual(end)
+  })
+
   test('slaProgressPct uses business time and can exceed one hundred percent', () => {
     expect(slaProgressPct(
       new Date('2026-01-05T09:00:00.000Z'),
@@ -324,7 +341,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_breached'])
   })
 
-  test('rolls back a signal stamp when enqueue fails so the next sweep retries', async () => {
+  test('does not stamp before a durable signal enqueue succeeds so the next sweep retries', async () => {
     mockClaims = [makeSweepClaim()]
     const { ctx, nativeUpdate } = makeSweepContext()
     emitWarrantyClaimsEventMock
@@ -334,11 +351,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 
     expect(mockClaims[0].slaAtRiskNotifiedAt).toBeNull()
-    expect(nativeUpdate).toHaveBeenLastCalledWith(
-      expect.anything(),
-      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
-      { slaAtRiskNotifiedAt: null },
-    )
+    expect(nativeUpdate).not.toHaveBeenCalled()
 
     await handleSlaEscalationSweep(makeSweepJob(), ctx)
 

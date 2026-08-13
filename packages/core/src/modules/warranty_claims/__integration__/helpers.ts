@@ -834,8 +834,18 @@ export async function cancelThenDeleteClaimIfPossible(
   claimId: string | null,
 ): Promise<void> {
   if (!token || !claimId) return
-  const claim = await readClaimMaybe(request, token, claimId).catch(() => null)
+  let claim = await readClaimMaybe(request, token, claimId).catch(() => null)
   if (!claim) return
+  if (claim.status === 'resolved') {
+    await transitionClaim(request, token, { id: claimId, toStatus: 'closed' }, claim.updatedAt).catch(() => undefined)
+    claim = await readClaimMaybe(request, token, claimId).catch(() => null)
+    if (!claim) return
+  }
+  if (claim.status === 'closed') {
+    await transitionClaim(request, token, { id: claimId, toStatus: 'in_review' }, claim.updatedAt).catch(() => undefined)
+    claim = await readClaimMaybe(request, token, claimId).catch(() => null)
+    if (!claim) return
+  }
   if (claim.status && ['draft', 'submitted', 'in_review', 'info_requested', 'approved', 'received', 'inspecting'].includes(claim.status)) {
     const lines = await listClaimLines(request, token, claimId).catch(() => [])
     for (const line of lines) {
