@@ -11,7 +11,7 @@ import { mapInteractionToCalendarItem } from '../../../lib/calendar/mapItem'
 import { expandOccurrences } from '../../../lib/calendar/recurrence'
 import { getFetchWindow } from '../../../lib/calendar/range'
 import type { CalendarItem } from '../types'
-import { fetchInteractionWindow } from '../useCalendarItems'
+import { fetchCalendarCandidates } from '../useCalendarItems'
 import { fetchDealById, fetchRelatedEntityById, findStaffMemberName } from './lookups'
 
 // Edit-mode prefill stores ids only (parseItemToFormState is pure); resolve the
@@ -118,7 +118,7 @@ export function useConflictProbe(
     let active = true
     const timer = setTimeout(async () => {
       try {
-        const { payloads } = await fetchInteractionWindow(fetchWindow, controller.signal)
+        const { payloads } = await fetchCalendarCandidates(fetchWindow, controller.signal)
         if (!active) return
         const others: CalendarItem[] = []
         for (const payload of payloads) {

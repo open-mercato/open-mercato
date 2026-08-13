@@ -57,6 +57,9 @@ await buildPackage(packageDir, {
     // in an incremental `dist/` from an older build. Mirrors packages/create-app/build.mjs;
     // conceptual guides remain while stale single-dot package guides are removed below.
     rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
+    rmSync(join(guidesDestDir, 'reference-modules'), { recursive: true, force: true })
+    rmSync(join(guidesDestDir, 'reference-module-facts.json'), { force: true })
+    rmSync(join(guidesDestDir, 'module-facts.v2.json'), { force: true })
     for (const entry of readdirSync(guidesDestDir)) {
       if (/^core\..+\.md$/.test(entry)) {
         rmSync(join(guidesDestDir, entry))
@@ -88,18 +91,28 @@ await buildPackage(packageDir, {
       console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
     }
 
-    // Generate per-module fact-sheets (Layer 2) for every package-provided module via
-    // the freshly built ts-morph extractor + resolver-routed discovery, so
+    // Generate per-module fact-sheets plus legacy-v1 and corrected-v2 JSON sidecars
+    // for every package-provided module via the freshly built ts-morph extractor and
+    // resolver-routed discovery, so
     // `mercato agentic:init` bundles the same guides as a create-mercato-app scaffold
     // (packages/create-app/build.mjs). Discovery goes through the resolver, never a
     // hardcoded packages/* path (.ai/lessons/standalone-scaffolding-and-generators-must-not-assume.md).
-    const { extractAllModuleFacts, renderModuleFactsJson } = await import(
-      pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href
-    )
-    const { discoverPackageModuleSources } = await import(
+    const {
+      assertPackageModuleFactsOnly,
+      extractAllModuleFacts,
+      extractLocalReferenceModuleFacts,
+      renderModuleFactsJson,
+      renderReferenceModuleFactsJson,
+    } = await import(pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href)
+    const { discoverLocalReferenceModuleSource, discoverPackageModuleSources } = await import(
       pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts-discovery.js')).href
     )
     const { createResolver } = await import(pathToFileURL(join(outdir, 'lib', 'resolver.js')).href)
+
+    // Mirrors packages/create-app/build.mjs: the disabled app-local example never enters
+    // the normal package outputs and is projected into its own reference bundle so
+    // `mercato agentic:init` bundles exactly what a create-mercato-app scaffold does.
+    const REFERENCE_MODULE_IDS = ['example']
 
     const sources = discoverPackageModuleSources(createResolver(join(packagesDir, '..')))
     if (sources.length > 0) {
@@ -116,17 +129,54 @@ await buildPackage(packageDir, {
         registryPath: existsSync(registryPath) ? registryPath : null,
         coreVersion,
       })
+      const { factsByModule: legacyFactsByModule } = extractAllModuleFacts({
+        sources,
+        registryPath: existsSync(registryPath) ? registryPath : null,
+        coreVersion,
+        factsContractVersion: 1,
+      })
+
+      assertPackageModuleFactsOnly(factsByModule)
+      assertPackageModuleFactsOnly(legacyFactsByModule)
 
       const modulesGuidesDir = join(guidesDestDir, 'modules')
       mkdirSync(modulesGuidesDir, { recursive: true })
       for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
         writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
       }
-      writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+      writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(legacyFactsByModule))
+      writeFileSync(join(guidesDestDir, 'module-facts.v2.json'), renderModuleFactsJson(factsByModule))
       writeFileSync(join(guidesDestDir, 'framework-extension-points.md'), frameworkMarkdown)
 
       for (const warning of warnings) console.warn(warning)
       console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
+
+      const referenceBundle = {}
+      const referenceGuidesDir = join(guidesDestDir, 'reference-modules')
+      const templateRoot = join(packagesDir, 'create-app', 'template')
+      for (const moduleId of REFERENCE_MODULE_IDS) {
+        const reference = discoverLocalReferenceModuleSource({ appRoot: templateRoot, moduleId })
+        if (!reference) {
+          throw new Error(`[module-facts] reference module "${moduleId}" is missing from the create-app template`)
+        }
+        const { entry, markdown, warnings: referenceWarnings, unresolvedTargets } = extractLocalReferenceModuleFacts({
+          packageSources: sources,
+          reference,
+          registryPath: existsSync(registryPath) ? registryPath : null,
+          coreVersion,
+        })
+        referenceBundle[moduleId] = entry
+        mkdirSync(referenceGuidesDir, { recursive: true })
+        writeFileSync(join(referenceGuidesDir, `${moduleId}.md`), markdown)
+        for (const warning of referenceWarnings) console.warn(warning)
+        for (const target of unresolvedTargets) {
+          console.warn(`[module-facts][reference] unresolved first-party target: ${target}`)
+        }
+      }
+      writeFileSync(join(guidesDestDir, 'reference-module-facts.json'), renderReferenceModuleFactsJson(referenceBundle))
+      console.log(
+        `Generated ${REFERENCE_MODULE_IDS.length} local reference projection(s) → dist/agentic/guides/reference-modules/`,
+      )
     } else {
       console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
     }

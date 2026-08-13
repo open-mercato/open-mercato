@@ -29,6 +29,7 @@
     "harness:validate": "node ./scripts/evaluate-agent-harness.mjs",
     "harness:fixture": "node ./scripts/prepare-agent-harness-fixture.mjs",
     "harness:release": "node ./scripts/run-agent-harness-release.mjs",
+    "harness:validate-knowledge-change": "node ./scripts/validate-knowledge-change.mjs",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",
@@ -79,7 +80,7 @@
     "@simplewebauthn/types": "^12.0.0",
     "@napi-rs/canvas": "^1.0.3",
     "@tanstack/react-query": "^5.101.4",
-    "@tanstack/react-table": "^8.20.5",
+    "@tanstack/react-table": "^9.0.0",
     "@tanstack/react-virtual": "^3.14.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/html-to-text": "^9.0.4",
@@ -102,7 +103,7 @@
     "newrelic": "^14.3.4",
     "next": "16.3.0",
     "pg": "8.22.0",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "^6.2.108",
     "react": "19.2.8",
     "react-big-calendar": "^1.20.0",
     "react-dom": "19.2.8",
@@ -144,10 +145,10 @@
     "typescript": "^6.0.3"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^13.0.2",
-    "bullmq": "^6.0.2",
+    "better-sqlite3": "^13.0.3",
+    "bullmq": "^6.0.9",
     "bullmq-otel": "^1.3.1",
-    "ioredis": "^5.11.1"
+    "ioredis": "^6.0.0"
   },
   "resolutions": {
     "lodash": "4.18.1",

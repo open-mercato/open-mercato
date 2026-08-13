@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { requirePackageBuild } from './package-build-artifacts.js'
 import { selectModuleFactSheets } from '../setup/tools/shared.js'
 
 const D5_MODULES = [
@@ -22,24 +24,21 @@ const pkgRoot = fileURLToPath(new URL('../../', import.meta.url))
 const guidesDir = join(pkgRoot, 'dist', 'agentic', 'guides')
 const templateRoot = join(pkgRoot, 'template')
 const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'shared', 'ui']
-let buildComplete = false
 
-function ensureBuilt() {
-  if (buildComplete) return
-  execSync('node build.mjs', { cwd: pkgRoot, stdio: 'ignore' })
-  buildComplete = true
-}
+requirePackageBuild(pkgRoot)
 
 test('build emits customers facts and the framework extension catalog (T5)', () => {
-  ensureBuilt()
   assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
+  assert.ok(fs.existsSync(join(guidesDir, 'module-facts.v2.json')), 'module-facts.v2.json sidecar should exist')
   assert.ok(
     fs.existsSync(join(guidesDir, 'framework-extension-points.md')),
     'framework extension catalog should exist',
   )
   const facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.json'), 'utf8'))
+  const v2Facts = JSON.parse(fs.readFileSync(join(guidesDir, 'module-facts.v2.json'), 'utf8'))
   assert.ok(facts.customers, 'module-facts.json should contain the customers entry')
+  assert.ok(v2Facts.customers, 'module-facts.v2.json should contain the customers entry')
   assert.equal(
     facts.customers.sourceRoot,
     'node_modules/@open-mercato/core/src/modules/customers',
@@ -75,10 +74,66 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
   const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
   assert.match(frameworkMarkdown, /^# Framework extension points/m)
   assert.match(frameworkMarkdown, /menu/i)
+
+  const legacySecurityOverride = facts.security.extensionSurfaces.contributions.find(
+    (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
+  )
+  const v2SecurityOverride = v2Facts.security.extensionSurfaces.contributions.find(
+    (contribution: { id: string }) => contribution.id.includes('section:auth.login.form'),
+  )
+  assert.equal(legacySecurityOverride.details.mode, 'replace')
+  assert.equal(v2SecurityOverride.details.mode, 'wrapper')
+})
+
+test('fresh scaffolds receive the disabled local-reference projection', () => {
+  const parent = fs.mkdtempSync(join(tmpdir(), 'om-reference-projection-'))
+  try {
+    const target = join(parent, 'reference-projection-app')
+    try {
+      execFileSync(
+        process.execPath,
+        [join(pkgRoot, 'dist', 'index.js'), target, '--preset', 'classic', '--agents', 'codex', '--no-init-git'],
+        {
+          cwd: pkgRoot,
+          env: { ...process.env, OM_SKIP_EXTERNAL_SKILLS: '1' },
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      )
+    } catch (error) {
+      const failed = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string }
+      const stdout = failed.stdout?.toString().trim()
+      const stderr = failed.stderr?.toString().trim()
+      throw new Error([
+        'create-app scaffold failed while verifying the reference projection',
+        stdout ? `stdout:\n${stdout}` : null,
+        stderr ? `stderr:\n${stderr}` : null,
+        !stdout && !stderr ? failed.message : null,
+      ].filter(Boolean).join('\n'))
+    }
+
+    for (const relativePath of [
+      '.ai/guides/module-facts.json',
+      '.ai/guides/module-facts.v2.json',
+      '.ai/guides/reference-module-facts.json',
+      '.ai/guides/reference-modules/example.md',
+    ]) {
+      assert.equal(fs.existsSync(join(target, relativePath)), true, `${relativePath} must reach a fresh scaffold`)
+    }
+    const manifest = JSON.parse(
+      fs.readFileSync(join(target, '.ai', 'harness', 'manifest.json'), 'utf8'),
+    ) as { files: Array<{ path: string }> }
+    const ownedPaths = new Set(manifest.files.map((entry) => entry.path))
+    assert.equal(ownedPaths.has('.ai/guides/module-facts.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/module-facts.v2.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-module-facts.json'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-modules/example.md'), true)
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true })
+  }
 })
 
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
-  ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
       fs.existsSync(join(guidesDir, 'modules', `${moduleId}.md`)),
@@ -88,7 +143,6 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
 })
 
 test('every default-controller module fact is exercised by the evaluation catalog', () => {
-  ensureBuilt()
   const moduleGuidesDir = join(guidesDir, 'modules')
   const selectedModuleIds = selectModuleFactSheets(templateRoot, moduleGuidesDir)
   const cases = JSON.parse(fs.readFileSync(
@@ -112,7 +166,6 @@ test('every default-controller module fact is exercised by the evaluation catalo
 })
 
 test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () => {
-  ensureBuilt()
   for (const moduleId of D5_MODULES) {
     assert.ok(
       !fs.existsSync(join(guidesDir, `core.${moduleId}.md`)),
@@ -121,8 +174,19 @@ test('build no longer emits legacy core.<module>.md redirect stubs (#3754)', () 
   }
 })
 
+// dist/ is published (package.json `files`), so a staging tree the build forgot to swap in or clean
+// up would ship with the package — and a surviving `agentic.previous` would mean the swap never
+// completed (#5059).
+test('build leaves no staging artifacts behind in dist', () => {
+  for (const leftover of ['agentic.staging', 'agentic.previous']) {
+    assert.ok(
+      !fs.existsSync(join(pkgRoot, 'dist', leftover)),
+      `dist/${leftover} must not survive the build`,
+    )
+  }
+})
+
 test('build does not emit unreachable package-level standalone guides', () => {
-  ensureBuilt()
   for (const guide of LEGACY_PACKAGE_GUIDES) {
     assert.ok(
       !fs.existsSync(join(guidesDir, `${guide}.md`)),
@@ -131,26 +195,60 @@ test('build does not emit unreachable package-level standalone guides', () => {
   }
 })
 
-// A fact-sheet no case routes at all is a capability the catalog cannot even offer an agent.
-// This guard closes that tier only: an `allowedExtra` reference counts as routed, and it never
-// fails a run that skips the read, so being routed is weaker than being asserted (#4603 tracks
-// tightening this to "required by some case"). Selection uses the same production intersection
-// the scaffold applies, so enabling a module in the template without a case fails here (#4565).
-test('every module fact-sheet a scaffold ships is routed by at least one catalog case', () => {
-  ensureBuilt()
+// An `allowedExtra` reference offers a fact-sheet to an agent but never asserts it: the reference
+// permits the read and never fails a run that skips it, so an agent that rebuilds the capability
+// still passes. This guard therefore demands `context.required`, the reference that actually fails
+// a run (#4603, tightened from the weaker "routed by some case" predicate #4565 shipped).
+//
+// The exemption owns no duplicable surface: `api_docs` ships no entity, no migration, and an empty
+// `features` array, so it has no schema an agent could re-create and no access-control posture it
+// could get wrong — requiring the read would assert nothing. It stays reachable through
+// `allowedExtra` without being asserted.
+//
+// `design_system` was exempt for the same reason until fresh standalone registries stopped enabling
+// it; the scaffold no longer ships its fact-sheet at all, so the exemption has nothing left to
+// excuse and the stale-exemption guard below rejects it.
+const FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE = ['api_docs']
+
+test('every module fact-sheet a scaffold ships is required by at least one catalog case', () => {
   const shipped = selectModuleFactSheets(join(pkgRoot, 'template'), join(guidesDir, 'modules'))
   assert.ok(shipped.length > 0, 'the scaffold must ship at least one module fact-sheet')
 
   const cases = JSON.parse(
     fs.readFileSync(join(pkgRoot, 'agentic', 'shared', 'ai', 'harness', 'cases.json'), 'utf8'),
   ) as Array<{ context: { required: string[]; allowedExtra?: string[] } }>
+  const required = new Set(cases.flatMap((entry) => entry.context.required))
   const routed = new Set(cases.flatMap((entry) => [...entry.context.required, ...(entry.context.allowedExtra ?? [])]))
+  const guide = (moduleId: string) => `.ai/guides/modules/${moduleId}.md`
 
-  const uncovered = shipped.filter((moduleId) => !routed.has(`.ai/guides/modules/${moduleId}.md`))
+  const unasserted = shipped
+    .filter((moduleId) => !FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE.includes(moduleId))
+    .filter((moduleId) => !required.has(guide(moduleId)))
   assert.deepEqual(
-    uncovered,
+    unasserted,
     [],
-    `these shipped module fact-sheets are absent from every case context: ${uncovered.join(', ')}. `
-    + 'Add a case that requires .ai/guides/modules/<id>.md, or stop enabling the module in the template.',
+    `these shipped module fact-sheets are in no case's context.required: ${unasserted.join(', ')}. `
+    + 'Add a case whose prompt forces the read and lists .ai/guides/modules/<id>.md in context.required '
+    + '(widening another case\'s allowedExtra does not assert it), or stop enabling the module in the template.',
+  )
+
+  // An exemption that stops being true is a coverage hole hiding behind a stale list, so the list
+  // is held to the same standard as the modules it excuses.
+  const staleExemptions = FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE
+    .filter((moduleId) => !shipped.includes(moduleId) || required.has(guide(moduleId)))
+  assert.deepEqual(
+    staleExemptions,
+    [],
+    `these exemptions are obsolete: ${staleExemptions.join(', ')}. `
+    + 'The module is either no longer shipped or now required by a case — drop it from '
+    + 'FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE.',
+  )
+
+  const unroutedExemptions = FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE.filter((moduleId) => !routed.has(guide(moduleId)))
+  assert.deepEqual(
+    unroutedExemptions,
+    [],
+    `these exempt fact-sheets are absent from every case context: ${unroutedExemptions.join(', ')}. `
+    + 'An exempt sheet must still be offerable through some case\'s allowedExtra.',
   )
 })

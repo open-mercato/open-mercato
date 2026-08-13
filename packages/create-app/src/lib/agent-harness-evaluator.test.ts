@@ -9,12 +9,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
+const generatedGuidesRoot = fileURLToPath(new URL('../../dist/agentic/guides/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
+const sourceDesignSourceContract = path.join(sharedRoot, 'scripts', 'design-source-contract.mjs')
 const sourceExecutionSandbox = path.join(sharedRoot, 'scripts', 'execution-sandbox.mjs')
 const sourceToolServer = path.join(sharedRoot, 'scripts', 'agent-harness-tool-server.mjs')
 const sourceFixturePreparer = path.join(sharedRoot, 'scripts', 'prepare-agent-harness-fixture.mjs')
 const sourceFrameworkContext = path.join(sharedRoot, 'scripts', 'framework-context.mjs')
+const templateExampleModule = fileURLToPath(new URL('../../template/src/modules/example/', import.meta.url))
 const typescriptPackageRoot = path.dirname(fileURLToPath(import.meta.resolve('typescript-standalone/package.json')))
 const targetSandboxAvailable = process.platform === 'darwin'
   || (process.platform === 'linux' && spawnSync('bwrap', ['--version'], { encoding: 'utf8' }).status === 0)
@@ -85,6 +88,7 @@ function isInitialContextPath(relative: string): boolean {
   return !relative.includes('/references/')
     && !relative.startsWith('.ai/framework-context/')
     && !relative.startsWith('.ai/guides/modules/')
+    && !relative.startsWith('.ai/guides/reference-modules/')
     && !relative.startsWith('.ai/guides/upstream/')
     && !relative.startsWith('.agents/skills/')
 }
@@ -97,11 +101,17 @@ function stageApp(): string {
     path.join(root, '.ai', 'guides', 'framework-extension-points.md'),
     '# Framework extension points\nGenerated framework extension facts.\n',
   )
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+    '# Local reference module: example\nGenerated contribution, activation, and override-target facts.\n',
+  )
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'upstream'), { recursive: true })
   fs.writeFileSync(path.join(root, '.ai', 'guides', 'upstream', 'BACKWARD_COMPATIBILITY.md'), '# Backward compatibility\nPreserve public contracts.\n')
   fs.copyFileSync(path.join(sharedRoot, 'AGENTS.md.template'), path.join(root, 'AGENTS.md'))
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.copyFileSync(sourceEvaluator, path.join(root, 'scripts', 'evaluate-agent-harness.mjs'))
+  fs.copyFileSync(sourceDesignSourceContract, path.join(root, 'scripts', 'design-source-contract.mjs'))
   fs.copyFileSync(sourceExecutionSandbox, path.join(root, 'scripts', 'execution-sandbox.mjs'))
   fs.copyFileSync(sourceToolServer, path.join(root, 'scripts', 'agent-harness-tool-server.mjs'))
   fs.copyFileSync(sourceFixturePreparer, path.join(root, 'scripts', 'prepare-agent-harness-fixture.mjs'))
@@ -109,6 +119,31 @@ function stageApp(): string {
   fs.mkdirSync(path.join(root, 'node_modules'))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  // Every generated preset ships the example module source-present and runtime-disabled, and the
+  // cases that declare `context.exampleRoots` resolve their capability IDs against its emitted
+  // `references/surface-inventory.json`. Staging it keeps this fixture a faithful fresh scaffold.
+  fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'src', 'app'), { recursive: true })
+  fs.copyFileSync(
+    path.join(fileURLToPath(new URL('../../template/', import.meta.url)), 'src', 'app', 'globals.css'),
+    path.join(root, 'src', 'app', 'globals.css'),
+  )
+  for (const [packageName, relativePaths] of Object.entries({
+    core: [
+      'src/modules/design_system/gallery/entries/buttons.tsx',
+      'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
+    ],
+    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+  })) {
+    const sourcePackage = fileURLToPath(new URL(`../../../${packageName}/`, import.meta.url))
+    const installedPackage = path.join(root, 'node_modules', '@open-mercato', packageName)
+    fs.mkdirSync(installedPackage, { recursive: true })
+    fs.copyFileSync(path.join(sourcePackage, 'package.json'), path.join(installedPackage, 'package.json'))
+    for (const relativePath of relativePaths) {
+      fs.mkdirSync(path.dirname(path.join(installedPackage, relativePath)), { recursive: true })
+      fs.copyFileSync(path.join(sourcePackage, relativePath), path.join(installedPackage, relativePath))
+    }
+  }
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-evaluator-fixture","private":true}\n')
   fs.symlinkSync(typescriptPackageRoot, path.join(root, 'node_modules', 'typescript'), process.platform === 'win32' ? 'junction' : 'dir')
   return root
@@ -296,7 +331,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 46)
+  assert.equal(validators.catalog.writableCaseIds.length, 48)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -305,6 +340,8 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-191', 420_000],
     ['OMH-192', 600_000],
     ['OMH-193', 600_000],
+    ['OMH-223', 600_000],
+    ['OMH-224', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -517,6 +554,38 @@ test('deterministic evaluation rejects a case its own budgets cannot satisfy (#4
   }
 })
 
+test('deterministic evaluation keeps timeoutMs a writable-only budget (#5057)', () => {
+  // Duration is a property of the operator's runner, not of the case: the same routing case has
+  // measured 147 s and 132 s on consecutive runs of the same model. Files and bytes measure the
+  // agent's context discipline and belong to the portable catalog; a per-case duration would encode
+  // one machine's speed into it. The runner-aware operator floors in resolveLiveCaseTimeout carry
+  // that budget instead, and this pins the catalog side of that decision.
+  const root = stageApp()
+  try {
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+      id: string
+      evaluationKind: string
+      timeoutMs?: number
+    }>
+    const routing = cases.find((entry) => entry.evaluationKind === 'routing')
+    const writable = cases.find((entry) => entry.evaluationKind === 'implementation' && entry.timeoutMs === undefined)
+    assert.ok(routing, 'the catalog must still carry a routing case')
+    assert.ok(writable, 'the catalog must still carry a writable case without its own timeout')
+    routing.timeoutMs = 420_000
+    writable.timeoutMs = 420_000
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, new RegExp(`FAIL ${routing.id}:.*timeoutMs must be a writable-case duration`))
+    assert.doesNotMatch(result.stderr, new RegExp(`FAIL ${writable.id}:.*timeoutMs`))
+    assert.match(result.stdout, new RegExp(`PASS ${writable.id} `))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the evaluator, the mirrored helper, and the calibration template agree on initial-context exclusions (#4565)', () => {
   const evaluatorSource = fs.readFileSync(sourceEvaluator, 'utf8')
   const productionRule = /function isInitialContextPath\(relative\) \{\n([\s\S]*?)\n\}/.exec(evaluatorSource)
@@ -576,12 +645,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-203', () => {
+test('deterministic evaluation enforces the case schema through OMH-229', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-203')
+    assert.equal(cases.at(-1)?.id, 'OMH-229')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -619,7 +688,7 @@ test('deterministic evaluation rejects dangling relations, excessive budgets, an
       fixture: { setup: string[] }
     }>
     cases[0].relatedCases = ['OMH-999']
-    cases[1].maxTotalContextBytes = 999_999
+    cases[1].maxTotalContextBytes = 1_048_577
     cases[8].fixture.setup = ['node dangerous-script.mjs']
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
     const routingSchemaPath = path.join(root, '.ai', 'harness', 'routing-response.schema.json')
@@ -873,7 +942,8 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
   const search = `${materializedRoot}/search.txt`
   const personSource = `${materializedRoot}/source/customers/backend/person-page.tsx`
   const companySource = `${materializedRoot}/source/customers/backend/company-page.tsx`
-  const frameworkEvidence = [manifest, search, companySource, personSource]
+  const fallbackSource = `${materializedRoot}/source/customers/backend/customers/people-v2/[id]/page.tsx`
+  const frameworkEvidence = [manifest, search, companySource, fallbackSource, personSource]
   const decisions = [
     'extension-mechanism',
     'additive-before-replacement',
@@ -922,6 +992,7 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
       const traceOrder = frameworkFirst
         ? ['AGENTS.md', ...frameworkEvidence, ...guidance.slice(1)]
         : [...guidance, ...frameworkEvidence]
+      const traceCommand = `cat ${traceOrder.map((entry) => `'${entry}'`).join(' ')}`
       const bin = installFakeRunner(controller, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
@@ -943,7 +1014,7 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   decisions: ${JSON.stringify(decisions)},
   violations: [],
 }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat ' + ${JSON.stringify(traceOrder)}.join(' ') } }))
+console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: ${JSON.stringify(traceCommand)} } }))
 `)
       const run = runEvaluator(controller, ['--runner', 'codex', '--case', 'OMH-203'], {
         ...process.env,
@@ -1967,7 +2038,9 @@ for (const command of [
     assert.ok(!storedResults(root)[0].actualContext.paths.includes('.ai/specs'))
     assert.ok(!storedResults(root)[0].actualContext.initialPaths.includes('.agents/skills/om-spec-writing/SKILL.md'))
     assert.deepEqual(storedResults(root)[0].actualContext.metadataPaths, ['.ai/specs'])
-    assert.equal(storedResults(root)[0].actualContext.metadataEntries, 3)
+    // Derived from what the scaffold emits plus the one spec this fixture writes, so shipping
+    // another reserved spec stays a one-file change instead of a literal this test contradicts.
+    assert.equal(storedResults(root)[0].actualContext.metadataEntries, fs.readdirSync(emittedSpecRoot).length + 1)
     assert.ok(storedResults(root)[0].actualContext.metadataBytes > 0)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
@@ -3449,5 +3522,1306 @@ process.exit(9)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// SPEC-P2 spec-first routing oracle
+//
+// The six planning decisions are scored as `{ decision, reasonCodes, coveringSpecPath? }`
+// so a result can separate "picked the wrong branch" from "picked the right branch for the
+// wrong reason". No catalog case declares the contract yet, so these tests also pin that
+// every shipped case stays completely unaffected.
+// ---------------------------------------------------------------------------
+
+const SPEC_ROUTING_VALIDATOR = 'routing.spec-decision'
+const SPEC_ROUTING_DECISIONS = ['spec-first', 'direct', 'reuse-spec', 'ask']
+
+type SpecRoutingDeclaration = {
+  decision: string
+  requiredReasonCodes: string[]
+  reasonCodeVocabulary: string[]
+  coveringSpecPath?: string
+}
+
+type SpecRoutingEvaluator = {
+  validateSpecRoutingDeclaration: (record: unknown) => string[]
+  evaluateSpecRoutingDecision: (record: unknown, response: unknown, observedWrites?: string[]) => string[]
+  isSpecRoutingCase: (record: unknown) => boolean
+  specRoutingBaseline: (record: unknown, writable: boolean, root: string) => Map<string, string> | undefined
+  specRoutingObservedWrites: (
+    record: unknown,
+    writable: boolean,
+    baseline: Map<string, string> | undefined,
+    root: string,
+  ) => string[]
+}
+
+async function loadSpecRoutingEvaluator(): Promise<SpecRoutingEvaluator> {
+  return await import(pathToFileURL(sourceEvaluator).href) as SpecRoutingEvaluator
+}
+
+const specFirstDeclaration: SpecRoutingDeclaration = {
+  decision: 'spec-first',
+  requiredReasonCodes: ['NEW_CAPABILITY'],
+  reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX', 'EXPLICIT_SKIP_REQUESTED'],
+}
+
+function specRoutingCase(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'OMH-901',
+    evaluationKind: 'routing',
+    context: { required: ['AGENTS.md'], forbidden: ['.env*'] },
+    validators: ['catalog.schema', 'router.contract', 'context.budget', 'context.forbidden', SPEC_ROUTING_VALIDATOR],
+    expectedSpecRouting: specFirstDeclaration,
+    ...overrides,
+  }
+}
+
+function declareStagedSpecRoutingCase(root: string, caseId: string, declaration: unknown): void {
+  const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+  const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{
+    id: string
+    validators: string[]
+    expectedSpecRouting?: unknown
+  }>
+  const record = cases.find((entry) => entry.id === caseId)
+  assert.ok(record, `staged catalog is missing ${caseId}`)
+  record.expectedSpecRouting = declaration
+  if (!record.validators.includes(SPEC_ROUTING_VALIDATOR)) record.validators.push(SPEC_ROUTING_VALIDATOR)
+  fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+}
+
+// The runner runs inside the target sandbox with the app root bound read-only and no other
+// writable path the test can read afterwards, so prompt assertions are made by the fake
+// runner itself: a mismatch exits non-zero and the evaluated case fails.
+function installSpecRoutingRunner(
+  root: string,
+  prompt: { mustInclude?: string[]; mustExclude?: string[] },
+  structuredResponse: Record<string, unknown>,
+): string {
+  return installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const prompt = fs.readFileSync(0, 'utf8')
+for (const needle of ${JSON.stringify(prompt.mustInclude ?? [])}) {
+  if (!prompt.includes(needle)) { console.error('prompt is missing: ' + needle); process.exit(9) }
+}
+for (const needle of ${JSON.stringify(prompt.mustExclude ?? [])}) {
+  if (prompt.includes(needle)) { console.error('prompt unexpectedly contains: ' + needle); process.exit(9) }
+}
+fs.writeFileSync(args[args.indexOf('-o') + 1], ${JSON.stringify(JSON.stringify(structuredResponse))})
+for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+  console.log(JSON.stringify({ type: 'item.completed', item: {
+    type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+  }}))
+}
+`)
+}
+
+const omh001Response = {
+  selectedRouter: ['architecture'],
+  selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: [],
+}
+
+test('the spec routing oracle separates a wrong decision from a wrong reason code', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const record = specRoutingCase()
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'] } }),
+    [],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'direct', reasonCodes: ['NEW_CAPABILITY'] } }),
+    ['wrong spec routing decision: expected spec-first, received direct'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'spec-first', reasonCodes: ['BOUNDED_FIX'] } }),
+    ['missing spec routing reason code NEW_CAPABILITY', 'unmandated spec routing reason code BOUNDED_FIX'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { specRouting: { decision: 'spec-first', reasonCodes: ['SOUNDS_PLAUSIBLE'] } }),
+    ['missing spec routing reason code NEW_CAPABILITY', 'unexpected spec routing reason code SOUNDS_PLAUSIBLE'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(record, { ...omh001Response }),
+    ['missing specRouting decision'],
+  )
+})
+
+test('the spec routing oracle binds coveringSpecPath to the reuse-spec branch only', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const reuse = specRoutingCase({
+    expectedSpecRouting: {
+      decision: 'reuse-spec',
+      requiredReasonCodes: ['COVERING_SPEC_EXISTS'],
+      reasonCodeVocabulary: ['COVERING_SPEC_EXISTS', 'NEW_CAPABILITY'],
+      coveringSpecPath: '.ai/specs/2026-07-24-standalone-ai-development-harness.md',
+    },
+  })
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(reuse, {
+      specRouting: {
+        decision: 'reuse-spec',
+        reasonCodes: ['COVERING_SPEC_EXISTS'],
+        coveringSpecPath: '.ai/specs/2026-07-24-standalone-ai-development-harness.md',
+      },
+    }),
+    [],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(reuse, {
+      specRouting: { decision: 'reuse-spec', reasonCodes: ['COVERING_SPEC_EXISTS'] },
+    }),
+    ['wrong covering spec path: expected .ai/specs/2026-07-24-standalone-ai-development-harness.md, received null'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(reuse, {
+      specRouting: {
+        decision: 'reuse-spec',
+        reasonCodes: ['COVERING_SPEC_EXISTS'],
+        coveringSpecPath: '.ai/specs/2026-08-01-something-else.md',
+      },
+    }),
+    ['wrong covering spec path: expected .ai/specs/2026-07-24-standalone-ai-development-harness.md, received .ai/specs/2026-08-01-something-else.md'],
+  )
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(specRoutingCase(), {
+      specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'], coveringSpecPath: '.ai/specs/anything.md' },
+    }),
+    ['covering spec path is valid only for a reuse-spec decision'],
+  )
+})
+
+test('the spec routing oracle rejects tool writes observed during a read-only planning case', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(
+      specRoutingCase(),
+      { specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'] } },
+      ['.ai/specs/2026-08-04-invented.md', 'src/modules/rentals/index.ts'],
+    ),
+    [
+      'spec routing case is read-only but changed .ai/specs/2026-08-04-invented.md',
+      'spec routing case is read-only but changed src/modules/rentals/index.ts',
+    ],
+  )
+})
+
+test('the read-only write baseline is taken for spec routing cases and skipped for every other routing case', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-spec-routing-writes-')))
+  try {
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), '# root\n')
+    const specCase = specRoutingCase()
+    const plainCase = { ...specRoutingCase(), expectedSpecRouting: undefined }
+
+    assert.equal(evaluator.specRoutingBaseline(plainCase, false, root), undefined)
+    assert.deepEqual(evaluator.specRoutingObservedWrites(plainCase, false, undefined, root), [])
+    // A writable case keeps its own pre-existing baseline; this one never doubles up.
+    assert.equal(evaluator.specRoutingBaseline(specCase, true, root), undefined)
+
+    const baseline = evaluator.specRoutingBaseline(specCase, false, root)
+    assert.ok(baseline instanceof Map, 'a spec routing case must take a filesystem baseline')
+    assert.deepEqual(evaluator.specRoutingObservedWrites(specCase, false, baseline, root), [])
+
+    fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.ai', 'specs', 'leaked.md'), '# leaked\n')
+    assert.deepEqual(
+      evaluator.specRoutingObservedWrites(specCase, false, baseline, root),
+      ['.ai', '.ai/specs', '.ai/specs/leaked.md'],
+    )
+    assert.deepEqual(evaluator.specRoutingObservedWrites(specCase, true, baseline, root), [])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the spec routing declaration contract fails closed on every malformed shape', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  assert.deepEqual(evaluator.validateSpecRoutingDeclaration(specRoutingCase()), [])
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({ validators: ['catalog.schema'] })),
+    [`expectedSpecRouting requires the ${SPEC_ROUTING_VALIDATOR} validator`],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration({ ...specRoutingCase(), expectedSpecRouting: undefined }),
+    [`${SPEC_ROUTING_VALIDATOR} requires an expectedSpecRouting declaration`],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration({ ...specRoutingCase(), evaluationKind: 'implementation' }),
+    ['expectedSpecRouting is a read-only planning contract and cannot be declared on a writable case'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, decision: 'spec-later' },
+    })),
+    ['expectedSpecRouting.decision must be one of spec-first, direct, reuse-spec, ask'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, requiredReasonCodes: ['NOT_IN_VOCABULARY'] },
+    })),
+    ['expectedSpecRouting.requiredReasonCodes must be a non-empty unique subset of the declared vocabulary'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: {
+        decision: 'spec-first',
+        requiredReasonCodes: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+        reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+      },
+    })),
+    ['expectedSpecRouting.reasonCodeVocabulary must add at least one contrastive reason code'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, decision: 'reuse-spec' },
+    })),
+    ['expectedSpecRouting.coveringSpecPath must be a path-safe .ai/specs/ reference'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: {
+        ...specFirstDeclaration,
+        decision: 'reuse-spec',
+        coveringSpecPath: '.ai/specs/never-routed.md',
+      },
+    })),
+    ['expectedSpecRouting.coveringSpecPath must be declared as required or allowed-extra context'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, coveringSpecPath: '.ai/specs/anything.md' },
+    })),
+    ['expectedSpecRouting.coveringSpecPath is valid only for a reuse-spec decision'],
+  )
+  assert.deepEqual(
+    evaluator.validateSpecRoutingDeclaration(specRoutingCase({
+      expectedSpecRouting: { ...specFirstDeclaration, extra: true },
+    })),
+    ['unknown expectedSpecRouting property extra'],
+  )
+})
+
+// The SPEC-P2 decision table, one shipped read-only case per row — all six rows, since the
+// scaffold now emits `.ai/specs/2026-08-06-reference-module-activation.md`. That file is the
+// honest covering spec the `reuse-spec` oracle needs: it genuinely describes the opt-in the
+// shipped-but-unregistered reference modules require, so OMH-227 can declare it as context
+// without a fixture, which a read-only routing case is forbidden to carry.
+const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
+  ['OMH-214', 'spec-first'],
+  ['OMH-215', 'direct'],
+  ['OMH-216', 'direct'],
+  ['OMH-217', 'direct'],
+  ['OMH-218', 'ask'],
+  ['OMH-227', 'reuse-spec'],
+]
+
+test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
+  assert.equal(cases.length, 229)
+  const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
+  const inert = cases.filter((record) => !declaring.has(record.id))
+  assert.equal(inert.length, cases.length - declaring.size)
+  for (const record of inert) {
+    const shaped = record as unknown as { expectedSpecRouting?: unknown; validators: string[] }
+    assert.equal(shaped.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
+    assert.equal(
+      shaped.validators.includes(SPEC_ROUTING_VALIDATOR),
+      false,
+      `${record.id} must not register ${SPEC_ROUTING_VALIDATOR}`,
+    )
+    assert.equal(evaluator.isSpecRoutingCase(record), false, `${record.id} must not be a spec routing case`)
+    assert.deepEqual(evaluator.validateSpecRoutingDeclaration(record), [], `${record.id} declaration contract must stay silent`)
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        selectedRouter: [],
+        selectedSkills: [],
+        selectedContext: ['AGENTS.md'],
+        decisions: record.requiredDecisions ?? [],
+        violations: [],
+      }),
+      [],
+      `${record.id} must score no spec routing violation`,
+    )
+  }
+  // An answer that volunteers the contract without a case declaring it is still unmandated
+  // output, exactly like an unmandated decision label.
+  assert.deepEqual(
+    evaluator.evaluateSpecRoutingDecision(cases[0], {
+      ...omh001Response,
+      specRouting: { decision: 'direct', reasonCodes: ['BOUNDED_FIX'] },
+    }),
+    ['unexpected specRouting for a case with no spec-routing contract'],
+  )
+})
+
+test('every shipped spec-gate case scores its own decision table row and rejects the neighbouring rows', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
+  const byId = new Map(cases.map((record) => [record.id, record as unknown as {
+    id: string
+    evaluationKind: string
+    validators: string[]
+    requiredDecisions?: string[]
+    decisionVocabulary?: string[]
+    context?: { required?: string[]; allowedExtra?: string[] }
+    expectedSpecRouting?: SpecRoutingDeclaration
+  }]))
+
+  const declared = cases
+    .filter((record) => (record as unknown as { expectedSpecRouting?: unknown }).expectedSpecRouting !== undefined)
+    .map((record) => record.id)
+  assert.deepEqual(declared, shippedSpecRoutingDecisions.map(([id]) => id))
+
+  for (const [id, decision] of shippedSpecRoutingDecisions) {
+    const record = byId.get(id)
+    assert.ok(record, `${id} must ship in the catalog`)
+    const declaration = record.expectedSpecRouting
+    assert.ok(declaration, `${id} must declare expectedSpecRouting`)
+    assert.equal(declaration.decision, decision, `${id} must decide ${decision}`)
+    assert.equal(record.evaluationKind, 'routing', `${id} must stay a read-only routing case`)
+    assert.ok(record.validators.includes(SPEC_ROUTING_VALIDATOR), `${id} must register ${SPEC_ROUTING_VALIDATOR}`)
+    assert.equal(evaluator.isSpecRoutingCase(record), true, `${id} must be a spec routing case`)
+    assert.deepEqual(evaluator.validateSpecRoutingDeclaration(record), [], `${id} declaration must be well formed`)
+    // The structured branch label and the prose-free decision label are scored separately, so
+    // both must name the same branch or a right answer could pass one gate and fail the other.
+    assert.deepEqual(record.requiredDecisions, [decision], `${id} decision label must match its branch`)
+    assert.ok(
+      (record.decisionVocabulary ?? []).length > (record.requiredDecisions ?? []).length,
+      `${id} must offer a contrastive decision label`,
+    )
+
+    const correct = {
+      ...omh001Response,
+      specRouting: {
+        decision: declaration.decision,
+        reasonCodes: [...declaration.requiredReasonCodes],
+        ...(declaration.coveringSpecPath === undefined ? {} : { coveringSpecPath: declaration.coveringSpecPath }),
+      },
+    }
+    assert.deepEqual(evaluator.evaluateSpecRoutingDecision(record, correct), [], `${id} must accept its own answer`)
+
+    const wrongBranch = SPEC_ROUTING_DECISIONS.find((candidate) => candidate !== decision)
+    assert.ok(wrongBranch)
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        ...correct,
+        specRouting: { ...correct.specRouting, decision: wrongBranch },
+      }),
+      [`wrong spec routing decision: expected ${decision}, received ${wrongBranch}`],
+      `${id} must reject the neighbouring branch`,
+    )
+
+    const [firstRequired, ...restRequired] = declaration.requiredReasonCodes
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        ...correct,
+        specRouting: { ...correct.specRouting, reasonCodes: restRequired },
+      }),
+      [`missing spec routing reason code ${firstRequired}`],
+      `${id} must reject a right branch justified by too few reasons`,
+    )
+
+    const distractor = declaration.reasonCodeVocabulary
+      .find((code) => !declaration.requiredReasonCodes.includes(code))
+    assert.ok(distractor, `${id} must offer a contrastive reason code`)
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, {
+        ...correct,
+        specRouting: { ...correct.specRouting, reasonCodes: [...declaration.requiredReasonCodes, distractor] },
+      }),
+      [`unmandated spec routing reason code ${distractor}`],
+      `${id} must reject an offered distractor reason`,
+    )
+
+    assert.deepEqual(
+      evaluator.evaluateSpecRoutingDecision(record, correct, ['src/modules/orders/index.ts']),
+      ['spec routing case is read-only but changed src/modules/orders/index.ts'],
+      `${id} must reject a write observed during planning`,
+    )
+
+    if (decision === 'reuse-spec') {
+      // The reuse row is the only one that may name a covering spec, and the path it names has
+      // to be a file a fresh scaffold actually emits — otherwise the case grades an answer that
+      // no agent could honestly give.
+      assert.ok(declaration.coveringSpecPath, `${id} must name the covering spec it reuses`)
+      const emittedSpec = path.join(sharedRoot, 'ai', declaration.coveringSpecPath.slice('.ai/'.length))
+      assert.ok(fs.existsSync(emittedSpec), `${id} must reuse a spec the scaffold emits (${declaration.coveringSpecPath})`)
+      const declaredContext = [...(record.context?.required ?? []), ...(record.context?.allowedExtra ?? [])]
+      assert.ok(
+        declaredContext.includes(declaration.coveringSpecPath),
+        `${id} must declare the covering spec as readable context`,
+      )
+      assert.deepEqual(
+        evaluator.evaluateSpecRoutingDecision(record, {
+          ...correct,
+          specRouting: { decision: declaration.decision, reasonCodes: [...declaration.requiredReasonCodes] },
+        }),
+        [`wrong covering spec path: expected ${declaration.coveringSpecPath}, received null`],
+        `${id} must reject a reuse decision that names no spec`,
+      )
+      assert.deepEqual(
+        evaluator.evaluateSpecRoutingDecision(record, {
+          ...correct,
+          specRouting: { ...correct.specRouting, coveringSpecPath: '.ai/specs/2026-08-06-invented.md' },
+        }),
+        [`wrong covering spec path: expected ${declaration.coveringSpecPath}, received .ai/specs/2026-08-06-invented.md`],
+        `${id} must reject an invented covering spec`,
+      )
+    } else {
+      assert.equal(declaration.coveringSpecPath, undefined, `${id} must not claim a covering spec`)
+    }
+  }
+})
+
+test('catalog validation rejects a malformed spec routing declaration and an unregistered validator', () => {
+  const root = stageApp()
+  try {
+    declareStagedSpecRoutingCase(root, 'OMH-001', {
+      decision: 'reuse-spec',
+      requiredReasonCodes: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+      reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX'],
+    })
+    const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+    const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<{ id: string; validators: string[] }>
+    const second = cases.find((entry) => entry.id === 'OMH-002')
+    assert.ok(second)
+    second.validators.push(SPEC_ROUTING_VALIDATOR)
+    fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /expectedSpecRouting\.reasonCodeVocabulary must add at least one contrastive reason code/)
+    assert.match(result.stderr, /expectedSpecRouting\.coveringSpecPath must be a path-safe \.ai\/specs\/ reference/)
+    assert.match(result.stderr, /routing\.spec-decision requires an expectedSpecRouting declaration/)
+    assert.match(result.stderr, /cases schema: \$\[0\]\.expectedSpecRouting\.coveringSpecPath is required/)
+    assert.doesNotMatch(result.stderr, /TypeError|ERR_INVALID_ARG_TYPE/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the shipped harness contracts declare the spec routing surfaces', () => {
+  const routingSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'routing-response.schema.json'), 'utf8')) as {
+    required: string[]
+    properties: {
+      specRouting: {
+        required: string[]
+        additionalProperties: boolean
+        properties: {
+          decision: { enum: string[] }
+          reasonCodes: { items: { pattern: string } }
+          coveringSpecPath: { type: string }
+        }
+      }
+    }
+  }
+  // Optional on the wire: every shipped case must stay able to answer without it.
+  assert.equal(routingSchema.required.includes('specRouting'), false)
+  assert.deepEqual(routingSchema.properties.specRouting.required, ['decision', 'reasonCodes'])
+  assert.equal(routingSchema.properties.specRouting.additionalProperties, false)
+  assert.deepEqual(routingSchema.properties.specRouting.properties.decision.enum, ['spec-first', 'direct', 'reuse-spec', 'ask'])
+  assert.equal(routingSchema.properties.specRouting.properties.reasonCodes.items.pattern, '^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$')
+  assert.equal(routingSchema.properties.specRouting.properties.coveringSpecPath.type, 'string')
+
+  const casesSchema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.schema.json'), 'utf8')) as {
+    items: { required: string[]; properties: { expectedSpecRouting: { required: string[]; allOf: unknown[] } } }
+    $defs: { specReasonCode: { pattern: string }; specPath: { pattern: string } }
+  }
+  assert.equal(casesSchema.items.required.includes('expectedSpecRouting'), false)
+  assert.deepEqual(casesSchema.items.properties.expectedSpecRouting.required, ['decision', 'requiredReasonCodes', 'reasonCodeVocabulary'])
+  assert.deepEqual(casesSchema.items.properties.expectedSpecRouting.allOf, [
+    { if: { properties: { decision: { const: 'reuse-spec' } } }, then: { required: ['coveringSpecPath'] } },
+  ])
+  assert.equal(casesSchema.$defs.specReasonCode.pattern, '^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$')
+  assert.match('.ai/specs/2026-08-01-standalone-agent-spec-first-routing.md', new RegExp(casesSchema.$defs.specPath.pattern))
+  for (const rejected of ['.ai/specs/../secrets.md', 'specs/plan.md', '.ai/specs/plan.txt']) {
+    assert.doesNotMatch(rejected, new RegExp(casesSchema.$defs.specPath.pattern), rejected)
+  }
+
+  const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
+    validators: Record<string, { kind: string; implementation: string }>
+  }
+  assert.deepEqual(registry.validators[SPEC_ROUTING_VALIDATOR], { kind: 'routing', implementation: 'validateSpecRoutingDecision' })
+})
+
+test('catalog validation requires the routing response schema to expose the spec routing contract', () => {
+  const root = stageApp()
+  try {
+    const schemaPath = path.join(root, '.ai', 'harness', 'routing-response.schema.json')
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as {
+      properties: { specRouting: { properties: { decision: { enum: string[] }; reasonCodes: { items: { pattern: string } } } } }
+    }
+    schema.properties.specRouting.properties.decision.enum = ['spec-first', 'direct']
+    schema.properties.specRouting.properties.reasonCodes.items.pattern = '.*'
+    fs.writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`)
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /routing response schema must expose every spec routing decision in canonical order/)
+    assert.match(result.stderr, /routing response schema must constrain spec routing reason codes/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+const specRoutingPromptFragments = [
+  'specRouting.decision is exactly one of spec-first, direct, reuse-spec, ask',
+  'NEW_CAPABILITY, BOUNDED_FIX, EXPLICIT_SKIP_REQUESTED',
+  'only when the decision is reuse-spec',
+]
+
+test('live routing asks for a spec decision only when the case declares one', { skip: !targetSandboxAvailable }, () => {
+  const inertRoot = stageApp()
+  try {
+    const bin = installSpecRoutingRunner(inertRoot, { mustExclude: ['specRouting'] }, omh001Response)
+    const result = runEvaluator(inertRoot, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(
+      result.status,
+      0,
+      `a shipped case prompt must not mention the spec routing contract:\n${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(inertRoot), null, 2)}`,
+    )
+  } finally {
+    fs.rmSync(inertRoot, { recursive: true, force: true })
+  }
+
+  const specRoot = stageApp()
+  try {
+    declareStagedSpecRoutingCase(specRoot, 'OMH-001', specFirstDeclaration)
+    const bin = installSpecRoutingRunner(specRoot, { mustInclude: specRoutingPromptFragments }, {
+      ...omh001Response,
+      specRouting: { decision: 'spec-first', reasonCodes: ['NEW_CAPABILITY'] },
+    })
+    const result = runEvaluator(specRoot, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(specRoot), null, 2)}`)
+    assert.match(result.stdout, /PASS OMH-001/)
+  } finally {
+    fs.rmSync(specRoot, { recursive: true, force: true })
+  }
+})
+
+test('live routing fails a declared spec case whose emitted decision and reason code are wrong', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  try {
+    declareStagedSpecRoutingCase(root, 'OMH-001', specFirstDeclaration)
+    const bin = installSpecRoutingRunner(root, { mustInclude: specRoutingPromptFragments }, {
+      ...omh001Response,
+      specRouting: { decision: 'direct', reasonCodes: ['BOUNDED_FIX'] },
+    })
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const violations = storedResults(root)[0].violations
+    assert.ok(
+      violations.includes('wrong spec routing decision: expected spec-first, received direct'),
+      JSON.stringify(violations, null, 2),
+    )
+    assert.ok(violations.includes('missing spec routing reason code NEW_CAPABILITY'), JSON.stringify(violations, null, 2))
+    assert.ok(violations.includes('unmandated spec routing reason code BOUNDED_FIX'), JSON.stringify(violations, null, 2))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live routing rejects a structurally invalid spec routing payload before scoring it', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  try {
+    declareStagedSpecRoutingCase(root, 'OMH-001', specFirstDeclaration)
+    const bin = installSpecRoutingRunner(root, { mustInclude: specRoutingPromptFragments }, {
+      ...omh001Response,
+      specRouting: { decision: 'spec first, probably', reasonCodes: ['new capability: it is big'] },
+    })
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    const violations = storedResults(root)[0].violations
+    assert.ok(
+      violations.some((entry) => entry.includes('specRouting.decision must be a known planning decision')),
+      JSON.stringify(violations, null, 2),
+    )
+    assert.ok(
+      violations.some((entry) => entry.includes('specRouting.reasonCodes must be unique upper-snake-case reason codes')),
+      JSON.stringify(violations, null, 2),
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------------------
+// SPEC-P2 writable planning proofs (OMH-223, OMH-224) and their fixed Markdown oracle.
+// ---------------------------------------------------------------------------------------
+
+const specOracle = path.join(sourceHarness, 'writable-spec-oracles.mjs')
+const emittedSpecRoot = path.join(sharedRoot, 'ai', 'specs')
+const newFeatureSpecPath = '.ai/specs/2026-08-04-warehouse-stock-transfers.md'
+const coveringSpecPath = '.ai/specs/2026-08-04-service-appointment-reminders.md'
+
+type SpecOracleReport = {
+  status: number | null
+  passed: boolean
+  failures: string[]
+  checks: Array<{ id: string; passed: boolean; requirement: string }>
+}
+
+function seededFixtureFiles(fixtureId: string): Record<string, string> {
+  const seeds = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'fixtures', 'seeds.json'), 'utf8')) as {
+    fixtures: Record<string, Record<string, string>>
+  }
+  const files = seeds.fixtures[fixtureId]
+  assert.ok(files, `fixture ${fixtureId} must ship a seed entry`)
+  return files
+}
+
+// A disposable stand-in for the prepared writable target: the emitted `.ai/specs` scaffolding,
+// a fresh module tree, and exactly the files the case fixture seeds.
+function stageSpecTarget(fixtureId: string): string {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-spec-')))
+  fs.mkdirSync(path.join(root, '.ai', 'specs'), { recursive: true })
+  // Derived, not listed: the emitted scaffolding now includes the shipped covering spec the
+  // `reuse-spec` routing row names, and a stale literal here would stage a target the oracle's
+  // reserved-file checks legitimately reject.
+  for (const name of fs.readdirSync(emittedSpecRoot).filter((entry) => entry.endsWith('.md'))) {
+    fs.copyFileSync(path.join(emittedSpecRoot, name), path.join(root, '.ai', 'specs', name))
+  }
+  // The module-shaped half of the new-feature oracle reads the reference module's own inventory
+  // and resolves every source path the plan names against it, so the stand-in stages the real
+  // emitted tree rather than an empty directory.
+  fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = ['example']\n")
+  fs.mkdirSync(path.join(root, '.ai', 'guides'), { recursive: true })
+  fs.copyFileSync(
+    path.join(generatedGuidesRoot, 'reference-module-facts.json'),
+    path.join(root, '.ai', 'guides', 'reference-module-facts.json'),
+  )
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
+  fs.copyFileSync(
+    path.join(generatedGuidesRoot, 'reference-modules', 'example.md'),
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+  )
+  const sourceLinks = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8')) as {
+    records: Array<Record<string, unknown>>
+  }
+  const designReferenceFixture = [
+    ['om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx', 'design-system-gallery', 'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx'],
+    ['om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx', 'design-system-implementation', 'node_modules/@open-mercato/ui/src/primitives/button.tsx'],
+    ['om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx', 'figma-code-connect', 'node_modules/@open-mercato/ui/figma/button.figma.tsx'],
+    ['om-backend-ui-design/frontend-and-design-system:src/app/globals.css', 'design-foundation-token', 'src/app/globals.css'],
+  ] as const
+  for (const [referenceId, referenceRole, resolvedPath] of designReferenceFixture) {
+    if (sourceLinks.records.some((entry) => entry.referenceId === referenceId)) continue
+    sourceLinks.records.push({
+      referenceId,
+      requirement: 'source-required',
+      originAsset: '.ai/guides/backend-ui.md',
+      targetKind: resolvedPath.startsWith('node_modules/') ? 'installed-package' : 'app-local',
+      readStatus: 'readable',
+      resolvedPath,
+      referenceRole,
+      presets: ['classic', 'crm', 'empty'],
+      tiers: ['core'],
+      galleryItemIds: ['buttons/button'],
+      visualReferences: [{
+        galleryItemId: 'buttons/button',
+        familyId: 'buttons',
+        entryId: 'button',
+        importPath: '@open-mercato/ui/primitives/button',
+        route: '/backend/design-system/buttons',
+        availabilityByPreset: { classic: 'source-only', crm: 'source-only', empty: 'source-only' },
+        featureId: 'design_system.view',
+        designFoundation: {
+          galleryNodeId: 'buttons/button',
+          codeConnectNodeId: 'button.figma',
+          nodeComparison: 'mapped',
+          publicationStatus: 'not-evidenced',
+        },
+      }],
+    })
+  }
+  fs.mkdirSync(path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'harness', 'source-link-inventory.json'), JSON.stringify(sourceLinks, null, 2))
+  const exampleInventoryPath = path.join(root, 'src', 'modules', 'example', 'references', 'surface-inventory.json')
+  const exampleInventory = JSON.parse(fs.readFileSync(exampleInventoryPath, 'utf8')) as Record<string, unknown>
+  exampleInventory.designSystemInventoryPath = '.ai/harness/design-system-inventory.json'
+  exampleInventory.designSystemGallery = {
+    itemCount: 1,
+    familyIds: ['buttons'],
+    referenceCount: 4,
+    rowsWithoutVisualCoverage: 0,
+    coverageGapCount: 0,
+  }
+  exampleInventory.designFoundation = {
+    mappedItemCount: 1,
+    nodeComparisonCounts: { mapped: 1 },
+    designSkillAvailability: 'available-with-design-tier',
+    publicationStatus: 'not-evidenced',
+    codeConnectArtifactAvailability: 'packed-source',
+    codeConnectExportStatus: 'not-exported-runtime',
+  }
+  fs.writeFileSync(exampleInventoryPath, JSON.stringify(exampleInventory, null, 2))
+  for (const [relative, content] of Object.entries(seededFixtureFiles(fixtureId))) {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true })
+    fs.writeFileSync(path.join(root, relative), content)
+  }
+  return root
+}
+
+function runSpecOracle(root: string, caseId: string, phase: 'before' | 'after'): SpecOracleReport {
+  const result = spawnSync(process.execPath, [specOracle, '--root', root, '--case', caseId, '--phase', phase, '--json'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
+  return { status: result.status, ...(JSON.parse(result.stdout) as Omit<SpecOracleReport, 'status'>) }
+}
+
+function failedSpecCheckIds(report: SpecOracleReport): string[] {
+  return report.checks.filter((entry) => !entry.passed).map((entry) => entry.id).sort()
+}
+
+// A plausible complete answer for OMH-223. Every graded property is present exactly once, so a
+// single targeted mutation below can flip exactly one named check.
+const deliveredTransferSpec = `# Warehouse Stock Transfers
+
+**Date**: 2026-08-04
+**Status**: Ready for implementation
+
+## TLDR
+
+Branch managers move stock between warehouses on paper today. This slice records a transfer request, tracks it through packing and receipt, and moves stock levels only when the receiving warehouse confirms what actually arrived.
+
+## Problem Statement
+
+Stock moves between the two regional warehouses several times a week, and nothing in the app knows about it. A manager telephones the sending warehouse, someone writes the items on a delivery note, and the receiving warehouse corrects its own counts by hand days later. Because the app is told nothing, the sending warehouse still shows stock it no longer holds and the receiving warehouse cannot sell stock it already has on the shelf. When a case is short or refused nobody records why, so the same dispute repeats every quarter and the finance team cannot reconcile the two sets of counts. Managers have asked for the request, the dispatch, and the confirmed receipt to live in the app, with stock moving only on that confirmed receipt so a number is never adjusted twice.
+
+## Users, Permissions, and Scope
+
+| Actor | Allowed outcomes | Scope rule | Required feature IDs |
+|---|---|---|---|
+| Branch manager | raise a transfer request and read its history | own organization | stock_transfers.manage |
+| Warehouse operator | dispatch a request and confirm a receipt | own organization | stock_transfers.operate |
+
+Tenant and organization always come from the trusted request context, never from the request body, and every read and write filters on that scope so one organization can never see or move another organization's stock.
+
+## API, Command, and Error Contracts
+
+| Method / command | Path / ID | Auth and feature gate | Input | Success response / event | Errors and concurrency |
+|---|---|---|---|---|---|
+| GET | /api/stock-transfers | auth + stock_transfers.manage | status, page, pageSize | { items, totalCount } | 400 invalid query, 403 wrong feature |
+| POST | /api/stock-transfers | auth + stock_transfers.manage | source, destination, and requested lines | 201 and stock_transfers.transfer.requested | 400 invalid body, 403 wrong feature |
+| POST | /api/stock-transfers/dispatch | auth + stock_transfers.operate | transfer id, packed lines, version | 200 and stock_transfers.transfer.dispatched | 409 stale version, 422 line not requested |
+| POST | /api/stock-transfers/receive | auth + stock_transfers.operate | transfer id, received lines, version | 200 and stock_transfers.transfer.received | 409 stale version, 422 more received than dispatched |
+
+The list route uses the CRUD route factory. Dispatch and receive are guarded command routes because each one changes a lifecycle state and has downstream effects. Both carry the caller's record version and refuse a stale write with a conflict rather than overwriting a concurrent edit. The receive command is the only writer of stock levels: it applies the confirmed quantities inside one transaction, records a shortfall line for anything missing, and emits its event after the transaction commits so a failed adjustment never announces a receipt that did not happen.
+
+## Integration Coverage
+
+Each test creates its own tenant, organization, warehouses, users, and stock rows, and removes them in a finally block, so the suite is stable without seeded demonstration data.
+
+| Test ID | Level | Setup / fixture | Actions | Assertions |
+|---|---|---|---|---|
+| TEST-001 | integration | two warehouses and one stocked article | request, dispatch, and receive the full quantity | both stock rows match the moved quantity and three lifecycle events were emitted in order |
+| TEST-002 | integration | a dispatched transfer | receive less than was dispatched | a shortfall line is recorded, both warehouses are notified, and stock moves by the received quantity only |
+| TEST-003 | security | two organizations with one transfer each | read and dispatch across the organization boundary | both attempts fail closed and no identifier from the other organization is returned |
+| TEST-004 | integration | a dispatched transfer and two concurrent receipts | submit both receipts with the same record version | exactly one succeeds, the other returns a conflict, and stock moves once |
+| TEST-005 | integration | 250 authorized transfer rows with one short receipt and one cancelled row | start the bulk dispatch action and observe the returned job | the same progressJobId reaches the progress observer, both workers finish, the top bar completes, partial failure remains visible, cancellation is scoped, retry is idempotent, and the table refreshes |
+
+## Implementation Phases
+
+Phases are dependency ordered; each one leaves the application working and closes with its own evidence.
+
+Module work routes to om-module-scaffold and UI work routes to om-backend-ui-design. Planning starts at the reference module's entry document and its surface index, then checks .ai/guides/reference-modules/example.md against .ai/guides/reference-module-facts.json. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
+
+The generated reference projection binds the planned seams exactly. The bulk action uses capability umes.injection.datatable-bulk-action, contribution example.injection.todo-bulk-complete@data-table:example.todos.list:bulk-actions, activation widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer, and override target 53534ccb2cedeb06. Durable progress uses capability runtime.bulk-operation-progress, workers example:todos-bulk-dispatch and example:todos-bulk-complete, and override targets 3cce1583e990d1d5 and f13b1b4f95dcb7af. The lifecycle definition uses capability workflows.code-definition and the specialist contribution workflow:example.todo-created-reference at specialistRoute workflows from src/modules/example/workflows.ts.
+
+The exact source-reference IDs are om-module-scaffold/data-and-migrations:data/entities.ts, om-module-scaffold/api-and-domain:commands/todos.ts, and om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts. The action styling additionally checks om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx, om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx, om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx, and om-backend-ui-design/frontend-and-design-system:src/app/globals.css. Those records correlate gallery item buttons/button, family buttons, and entry button. Gallery package evidence is bf25803d7a8c85c8552db9e76c7cc4398d1768be; foundation evidence keeps audited head fb9b8ddfe4470ef11d312caa4628c46af7d48adf separate from merged package b2d26489c683edc44265212ac8a79be1b981774f. Every preset remains source-only; /backend/design-system is mentioned only as an explicit activation fixture. Figma publication is publication not-evidenced, and its packed source grants no credential, network, push, or publish authority.
+
+### Phase 1 — Transfer record and scoped read path
+
+- **Depends on:** none
+- **Outcome:** a manager can raise a transfer request and see its state.
+- **Deliverables:** the transfer and transfer-line entities with their scope columns and version column, the migration, the zod validators, the list and create routes on the CRUD route factory, the access-control features, and the module registration.
+- **Adapted from:** data.entities at src/modules/example/data/entities.ts, data.validators at src/modules/example/data/validators.ts, and api.crud-factory at src/modules/example/api/customer-priorities/route.ts.
+- **Tests:** TEST-003
+- **Validation:** yarn generate, focused typecheck, and the named security test.
+- **Exit gate:** a request raised in one organization is invisible to another organization on every route.
+
+### Phase 2 — Dispatch, confirmed receipt, and stock movement
+
+- **Depends on:** Phase 1 exit gate
+- **Outcome:** stock levels move only when the receiving warehouse confirms what arrived.
+- **Deliverables:** the guarded dispatch and receive commands, the transactional stock adjustment, the shortfall line, the optimistic-lock conflict path, the typed events, and the notification to both warehouses.
+- **Adapted from:** commands.write at src/modules/example/commands/todos.ts and events.typed-definitions at src/modules/example/events.ts.
+- **Tests:** TEST-001, TEST-002, TEST-004
+- **Validation:** focused command tests plus the three named integration tests.
+- **Exit gate:** a full receipt, a short receipt, and two concurrent receipts each leave the two stock counts correct exactly once.
+
+### Phase 3 — Bulk dispatch progress and operator UI
+
+- **Depends on:** Phase 2 exit gate
+- **Outcome:** an operator can dispatch a bounded selection and watch the durable operation complete without blocking the request.
+- **Deliverables:** the bound DataTable bulk-action contribution, the dispatch and completion workers, one returned progressJobId passed unchanged to the operation-progress observer, the visible top-bar lifecycle, partial-failure and cancellation states, idempotent retry, and a button built from the public primitive with the gallery and foundation records used only as visual and token evidence.
+- **Adapted from:** umes.injection.datatable-bulk-action and runtime.bulk-operation-progress through the generated identities recorded above.
+- **Tests:** TEST-005
+- **Validation:** the named integration test, focused worker tests, and backend UI validation.
+- **Exit gate:** selected-row start, worker execution, completion refresh, partial failure, cancellation, retry, and organization scope are all proven by the connected TEST-005 path.
+
+## Requirement Traceability
+
+One row per extension surface this specification adds. Each names the source it is adapted from, the phase that lands it, its own self-contained integration test, and the one mechanism classification it uses.
+
+| Requirement | Extension surface | Adapted from | Phase | Test | Mechanism |
+|---|---|---|---|---|---|
+| REQ-001 | scoped transfer entities and guarded commands | data.entities at src/modules/example/data/entities.ts via om-module-scaffold/data-and-migrations:data/entities.ts; commands.write at src/modules/example/commands/todos.ts via om-module-scaffold/api-and-domain:commands/todos.ts | Phase 1 | TEST-003 in __integration__ | emitted-example |
+| REQ-002 | workflow-defined transfer lifecycle | workflows.code-definition; workflow:example.todo-created-reference; specialistRoute workflows; src/modules/example/workflows.ts | Phase 2 | TEST-001 in __integration__ | emitted-example |
+| REQ-003 | bound bulk-action start | umes.injection.datatable-bulk-action; example.injection.todo-bulk-complete@data-table:example.todos.list:bulk-actions; widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer; om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts | Phase 3 | TEST-005 in __integration__ | emitted-example |
+| REQ-004 | durable connected progress lifecycle | runtime.bulk-operation-progress; example:todos-bulk-dispatch; example:todos-bulk-complete; override targets 53534ccb2cedeb06, 3cce1583e990d1d5, f13b1b4f95dcb7af; the request's progressJobId is passed unchanged to the observer | Phase 3 | TEST-005 in __integration__ | emitted-example |
+| REQ-005 | public Button implementation with visual and foundation evidence | om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx; om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx; om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx; om-backend-ui-design/frontend-and-design-system:src/app/globals.css; buttons/button; bf25803d7a8c85c8552db9e76c7cc4398d1768be; b2d26489c683edc44265212ac8a79be1b981774f | Phase 3 | TEST-005 in __integration__ | framework-only |
+
+## Risks and Tradeoffs
+
+| Risk / tradeoff | Impact | Mitigation / detection | Residual risk |
+|---|---|---|---|
+| Two operators confirm the same receipt at once | stock moved twice | record version on the receive command, asserted by TEST-004 | an operator who edits from two windows still sees one conflict message |
+| A dispatch is never received | stock stranded between warehouses | ageing report on dispatched transfers | a physically lost consignment still needs a manual write-off |
+
+## Changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-04 | Initial covering specification for warehouse stock transfers. |
+`
+
+// The OMH-224 answer is the seeded covering spec plus the contract change the prompt asks for.
+// Each edit is anchored and asserted, so a silent no-op replacement cannot fake an amendment.
+function amendCoveringSpec(seeded: string): string {
+  const edits: Array<[string, string]> = [
+    [
+      '## Users, Permissions, and Scope',
+      [
+        'A reminder is now produced for three appointment moments rather than one. A confirmed appointment still',
+        'produces the original reminder. An appointment rescheduled into another slot produces its own reminder naming',
+        'the new day and time, and an appointment cancelled by either side produces a reminder telling the customer not',
+        'to travel. Reminders go out by e-mail and by SMS text message, and the app records a delivery outcome per',
+        'channel so a manager can see which channel actually reached the customer.',
+        '',
+        '## Users, Permissions, and Scope',
+      ].join('\n'),
+    ],
+    [
+      '| TEST-003 | integration |',
+      [
+        '| TEST-004 | integration | one appointment rescheduled into a later slot | run the reminder worker | a rescheduled reminder names the new slot and the original reminder is left intact |',
+        '| TEST-005 | integration | one appointment cancelled after it was agreed | run the reminder worker | a cancelled reminder exists and no further reminder is produced for that appointment |',
+        '| TEST-006 | integration | one agreed appointment with a refusing SMS sender | run the reminder worker | the e-mail outcome is accepted, the SMS outcome is refused, and both per-channel results are visible to a manager |',
+        '| TEST-003 | integration |',
+      ].join('\n'),
+    ],
+    [
+      '## Risks and Tradeoffs',
+      [
+        '### Phase 3 — Rescheduled and cancelled reminders across both channels',
+        '',
+        '- **Depends on:** Phase 2 exit gate',
+        '- **Outcome:** a moved or called-off appointment reaches the customer on both channels and the manager can see which one worked.',
+        '- **Deliverables:** the reminder-reason column and its migration, the SMS sender behind the same command seam, the per-channel outcome rows, the worker branches for a moved and a called-off appointment, and the manager view of each channel result.',
+        '- **Tests:** TEST-004, TEST-005, TEST-006',
+        '- **Validation:** focused worker and command tests plus the three named integration tests.',
+        '- **Exit gate:** rescheduling an appointment and cancelling one each produce exactly one reminder of the right reason on both channels, and a refused channel is visible without hiding the accepted one.',
+        '',
+        '## Risks and Tradeoffs',
+      ].join('\n'),
+    ],
+    [
+      '| 2026-08-04 | Initial covering specification for reminders on a confirmed appointment. |',
+      [
+        '| 2026-08-04 | Initial covering specification for reminders on a confirmed appointment. |',
+        '| 2026-08-05 | Extended the contract to a rescheduled and a cancelled appointment, added the SMS channel alongside e-mail, and required a per-channel delivery outcome with its own integration coverage. |',
+      ].join('\n'),
+    ],
+  ]
+  let amended = seeded
+  for (const [anchor, replacement] of edits) {
+    assert.equal(amended.split(anchor).length - 1, 1, `covering spec must contain exactly one ${anchor}`)
+    amended = amended.replace(anchor, replacement)
+  }
+  assert.notEqual(amended, seeded)
+  return amended
+}
+
+test('the new-feature planning proof fails on its seeded scaffold and passes on one complete covering spec', () => {
+  const root = stageSpecTarget('planning-new-feature')
+  try {
+    const before = runSpecOracle(root, 'OMH-223', 'before')
+    assert.equal(before.passed, false)
+    assert.equal(before.status, 1)
+    assert.deepEqual(failedSpecCheckIds(before), ['spec.single'])
+
+    fs.writeFileSync(path.join(root, newFeatureSpecPath), deliveredTransferSpec)
+    const after = runSpecOracle(root, 'OMH-223', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function rewriteNewFeatureSpec(root: string, edit: (spec: string) => string): void {
+  const file = path.join(root, newFeatureSpecPath)
+  const before = fs.readFileSync(file, 'utf8')
+  const after = edit(before)
+  // A negative control that silently edited nothing would assert against the passing answer.
+  assert.notEqual(after, before, 'the negative control must actually change the delivered spec')
+  fs.writeFileSync(file, after)
+}
+
+// Each row breaks exactly one graded property of the passing answer and names the check that
+// must go red. Without these, a grader that silently stopped asserting would still look green.
+const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
+  ['a second authored spec', (root) => {
+    fs.writeFileSync(path.join(root, '.ai/specs/2026-08-04-warehouse-notes.md'), deliveredTransferSpec)
+  }, 'spec.single'],
+  ['a spec that ignores the naming convention', (root) => {
+    fs.renameSync(path.join(root, newFeatureSpecPath), path.join(root, '.ai/specs/warehouse-stock-transfers.md'))
+  }, 'spec.named'],
+  ['an implementation plan with a single phase', (root) => {
+    const file = path.join(root, newFeatureSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+      .replace('### Phase 2 — Dispatch, confirmed receipt, and stock movement', '#### Continued work'))
+  }, 'spec.phases.ordered'],
+  ['a contract section left as template slots', (root) => {
+    const file = path.join(root, newFeatureSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+      .replace('The list route uses the CRUD route factory.', 'The list route uses {the chosen route mechanism}.'))
+  }, 'spec.substantive.contracts'],
+  ['a test section with no named coverage', (root) => {
+    const file = path.join(root, newFeatureSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll(/TEST-00\d/g, 'the case'))
+  }, 'spec.tests.identified'],
+  ['an implementation started during planning', (root) => {
+    fs.mkdirSync(path.join(root, 'src', 'modules', 'warehouse_transfers'), { recursive: true })
+  }, 'planning.implementation-absent'],
+  ['the emitted README repurposed as the specification', (root) => {
+    fs.writeFileSync(path.join(root, '.ai/specs/README.md'), deliveredTransferSpec)
+  }, 'reserved.README.md'],
+  // Module-shaped clauses. One row per graded property, same discipline as above.
+  ['a plan that never routes module work to the scaffold skill', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('om-module-scaffold', 'the scaffold workflow'))
+  }, 'plan.module-scaffold-route'],
+  ['a plan that names no reference capability IDs', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec
+      .replaceAll('data.entities', 'the entity file')
+      .replaceAll('data.validators', 'the validator file')
+      .replaceAll('api.crud-factory', 'the CRUD route')
+      .replaceAll('commands.write', 'the write command')
+      .replaceAll('events.typed-definitions', 'the event definitions')
+      .replaceAll('umes.injection.datatable-bulk-action', 'the bulk-action seam')
+      .replaceAll('runtime.bulk-operation-progress', 'the progress seam')
+      .replaceAll('workflows.code-definition', 'the workflow seam'))
+  }, 'plan.example-capability-ids'],
+  ['a plan whose reference sources are directory hints rather than files', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(/src\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+/g, 'src/modules/example/data/'))
+  }, 'plan.example-no-directory-hint'],
+  ['a plan that names a reference source the inventory does not map', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('src/modules/example/events.ts', 'src/modules/example/invented/transfers.ts'))
+  }, 'plan.example-paths-resolve'],
+  ['a plan that describes the reference module as already live', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it;',
+      'The reference module is already running in this app, so its routes and grants are live today;',
+    ))
+  }, 'plan.example-after-opt-in'],
+  ['a target with no generated reference-facts bundle', (root) => {
+    fs.rmSync(path.join(root, '.ai/guides/reference-module-facts.json'))
+  }, 'plan.reference-facts-readable'],
+  ['a plan that omits the generated reference sheet route', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('.ai/guides/reference-modules/example.md', 'the generated guide'))
+  }, 'plan.reference-sheet-route'],
+  ['a plan that drops the exact progress capability', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('runtime.bulk-operation-progress', 'the progress capability'))
+  }, 'plan.required-capability-identities'],
+  ['a plan that drops the generated bulk activation identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(
+      'widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer',
+      'the widget consumer',
+    ))
+  }, 'plan.contribution-activation-identities'],
+  ['a plan that drops one generated override-target identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('3cce1583e990d1d5', 'the dispatch worker override'))
+  }, 'plan.override-target-identities'],
+  ['a plan that names a generic specialist instead of the generated workflow identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('workflow:example.todo-created-reference', 'the workflow specialist'))
+  }, 'plan.specialist-identities'],
+  ['a plan that invents a second progress channel instead of naming progressJobId', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('progressJobId', 'localProgressId'))
+  }, 'plan.bulk-progress-identities'],
+  ['a target whose exact design source-reference record is unavailable', (root) => {
+    const file = path.join(root, '.ai/harness/source-link-inventory.json')
+    const inventory = JSON.parse(fs.readFileSync(file, 'utf8')) as { records: Array<Record<string, unknown>> }
+    inventory.records = inventory.records.filter((entry) => entry.referenceRole !== 'figma-code-connect')
+    fs.writeFileSync(file, JSON.stringify(inventory, null, 2))
+  }, 'plan.source-reference-inventory-readable'],
+  ['a plan that cites a gallery path but not its exact source-reference identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll(
+      'om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+      'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+    ))
+  }, 'plan.source-reference-identities'],
+  ['a plan that names no exact gallery item identity', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('buttons/button', 'the Button gallery row'))
+  }, 'plan.gallery-identities'],
+  ['a target whose canonical inventory does not project design facts', (root) => {
+    const file = path.join(root, 'src/modules/example/references/surface-inventory.json')
+    const inventory = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+    delete inventory.designFoundation
+    fs.writeFileSync(file, JSON.stringify(inventory, null, 2))
+  }, 'plan.design-inventory-projection'],
+  ['a UI plan that treats the gallery route as generally live', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec
+      .replaceAll('source-only', 'live in every preset')
+      .replaceAll('explicit activation', 'normal navigation'))
+  }, 'plan.ui-design-route'],
+  ['a design plan that conflates the audited head with merged package provenance', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('b2d26489c683edc44265212ac8a79be1b981774f', 'the audited head'))
+  }, 'plan.design-provenance'],
+  ['a plan that proposes a second teaching module', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'adapted into the new stock_transfers module',
+      'used to build another example module beside it',
+    ))
+  }, 'plan.rejects.shadow-teaching-module'],
+  ['a plan that copies the whole reference tree', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'never edited and never copied wholesale',
+      'delivered by copying the entire example module tree and renaming it',
+    ))
+  }, 'plan.rejects.whole-example-copy'],
+  ['a plan that treats the rate-limit probe as a blueprint', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'and adapted into the new stock_transfers module',
+      'and modelled on ratelimit_probe',
+    ))
+  }, 'plan.rejects.ratelimit-probe-blueprint'],
+  ['a traceability table with fewer rows than added surfaces', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec
+      .replace(/\| REQ-002 \|[^\n]*\n/, '')
+      .replace(/\| REQ-003 \|[^\n]*\n/, ''))
+  }, 'plan.traceability.rows'],
+  ['a traceability row with no integration test', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('| TEST-001 in __integration__ |', '| covered by unit tests |'))
+  }, 'plan.traceability.complete'],
+  ['a traceability row with no mechanism classification', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      '| TEST-001 in __integration__ | emitted-example |',
+      '| TEST-001 in __integration__ | the usual way |',
+    ))
+  }, 'plan.traceability.classification'],
+  ['a proposed surface classified as a negative fixture', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      '| TEST-003 in __integration__ | emitted-example |',
+      '| TEST-003 in __integration__ | negative-fixture |',
+    ))
+  }, 'plan.traceability.no-negative-fixture'],
+  ['a framework-owned design row misclassified as emitted example code', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const row = spec.match(/\| REQ-005 \|[^\n]*\n/)?.[0]
+      assert.ok(row)
+      return spec.replace(row, row.replace('framework-only', 'emitted-example'))
+    })
+  }, 'plan.traceability.binding.ui-foundation'],
+  ['traceability rows whose requirement and phase order is reversed', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const second = spec.match(/\| REQ-002 \|[^\n]*\n/)?.[0]
+      const third = spec.match(/\| REQ-003 \|[^\n]*\n/)?.[0]
+      assert.ok(second && third)
+      return spec.replace(second, '__TRACEABILITY_ROW__\n').replace(third, second).replace('__TRACEABILITY_ROW__\n', third)
+    })
+  }, 'plan.traceability.ordering'],
+  ['a bulk-action traceability row that separates its activation from its contribution', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      '; widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer;',
+      '; the widget activation;',
+    ))
+  }, 'plan.traceability.binding.bulk-action'],
+  ['a progress traceability row that omits the dispatch worker override', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const row = spec.match(/\| REQ-004 \|[^\n]*\n/)?.[0]
+      assert.ok(row)
+      return spec.replace(row, row.replace('3cce1583e990d1d5', 'dispatch override'))
+    })
+  }, 'plan.traceability.binding.bulk-progress'],
+  ['a design traceability row that loses the foundation baseline', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => {
+      const row = spec.match(/\| REQ-005 \|[^\n]*\n/)?.[0]
+      assert.ok(row)
+      return spec.replace(row, row.replace('b2d26489c683edc44265212ac8a79be1b981774f', 'foundation baseline'))
+    })
+  }, 'plan.traceability.binding.ui-foundation'],
+]
+
+for (const [label, breakIt, expectedCheck] of newFeatureNegatives) {
+  test(`the new-feature planning proof rejects ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), deliveredTransferSpec)
+      assert.equal(runSpecOracle(root, 'OMH-223', 'after').passed, true)
+      breakIt(root)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      assert.equal(report.passed, false)
+      assert.ok(failedSpecCheckIds(report).includes(expectedCheck), JSON.stringify(failedSpecCheckIds(report)))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+test('the existing-spec planning proof fails on the seeded covering spec and passes once it is amended', () => {
+  const root = stageSpecTarget('planning-existing-spec')
+  try {
+    const before = runSpecOracle(root, 'OMH-224', 'before')
+    assert.equal(before.passed, false)
+    assert.equal(before.status, 1)
+    // The seeded spec is already structurally complete: only the contract change the prompt
+    // introduces is missing, so a fail-before cannot be mistaken for a malformed seed.
+    assert.deepEqual(failedSpecCheckIds(before), [
+      'spec.amendment.per-channel-outcome',
+      'spec.amendment.rescheduled-and-cancelled',
+      'spec.changelog.amended',
+    ])
+
+    const seeded = fs.readFileSync(path.join(root, coveringSpecPath), 'utf8')
+    fs.writeFileSync(path.join(root, coveringSpecPath), amendCoveringSpec(seeded))
+    const after = runSpecOracle(root, 'OMH-224', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+const existingSpecNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
+  ['a second specification alongside the covering one', (root) => {
+    fs.copyFileSync(path.join(root, coveringSpecPath), path.join(root, '.ai/specs/2026-08-05-appointment-reminders-v2.md'))
+  }, 'spec.single'],
+  ['an amendment that drops the contract it already promised', (root) => {
+    const file = path.join(root, coveringSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('confirmed appointment', 'booked visit'))
+  }, 'spec.preserved.confirmed-reminder'],
+  ['an amendment that never reaches the changelog', (root) => {
+    const file = path.join(root, coveringSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').split('\n')
+      .filter((line) => !line.startsWith('| 2026-08-05 |')).join('\n'))
+  }, 'spec.changelog.amended'],
+  ['an amendment that omits the per-channel outcome', (root) => {
+    const file = path.join(root, coveringSpecPath)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replaceAll('SMS', 'a second route'))
+  }, 'spec.amendment.per-channel-outcome'],
+  ['an implementation started during planning', (root) => {
+    fs.mkdirSync(path.join(root, 'src', 'modules', 'appointment_reminders'), { recursive: true })
+  }, 'planning.implementation-absent'],
+]
+
+for (const [label, breakIt, expectedCheck] of existingSpecNegatives) {
+  test(`the existing-spec planning proof rejects ${label}`, () => {
+    const root = stageSpecTarget('planning-existing-spec')
+    try {
+      const seeded = fs.readFileSync(path.join(root, coveringSpecPath), 'utf8')
+      fs.writeFileSync(path.join(root, coveringSpecPath), amendCoveringSpec(seeded))
+      assert.equal(runSpecOracle(root, 'OMH-224', 'after').passed, true)
+      breakIt(root)
+      const report = runSpecOracle(root, 'OMH-224', 'after')
+      assert.equal(report.passed, false)
+      assert.ok(failedSpecCheckIds(report).includes(expectedCheck), JSON.stringify(failedSpecCheckIds(report)))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+test('the spec oracle refuses an unknown case, an unknown phase, and a relative root', () => {
+  const root = stageSpecTarget('planning-new-feature')
+  try {
+    for (const args of [
+      ['--root', root, '--case', 'OMH-193', '--phase', 'after', '--json'],
+      ['--root', root, '--case', 'OMH-223', '--phase', 'midway', '--json'],
+      ['--root', '.', '--case', 'OMH-223', '--phase', 'after', '--json'],
+    ]) {
+      const result = spawnSync(process.execPath, [specOracle, ...args], { encoding: 'utf8', timeout: 30_000 })
+      assert.equal(result.status, 2, `${args.join(' ')} -> ${result.stdout}`)
+      const report = JSON.parse(result.stdout) as { passed: boolean; checks: unknown[] }
+      assert.equal(report.passed, false)
+      assert.deepEqual(report.checks, [])
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the two planning proofs are the only writable cases graded by the spec oracle', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as Array<{
+    id: string
+    evaluationKind: string
+    validators: string[]
+    tags: string[]
+    allowedWrites?: string[]
+    oracle?: { validatorIds: string[]; expectedArtifacts: string[] }
+    expectedSpecRouting?: unknown
+  }>
+  const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
+    validators: Record<string, { runners?: string[] }>
+  }
+  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse']
+  for (const validatorId of planningOracles) {
+    assert.deepEqual(registry.validators[validatorId]?.runners, ['writable-spec-oracles.mjs'])
+  }
+  const declaring = cases.filter((record) => record.validators.some((entry) => planningOracles.includes(entry)))
+  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224'])
+  for (const record of declaring) {
+    assert.equal(record.evaluationKind, 'implementation', `${record.id} must be a writable case`)
+    // The planning gate itself is scored by the read-only routing contract; a writable proof
+    // must never also declare it.
+    assert.equal(record.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
+    assert.ok(record.tags.includes('writable'))
+    for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
+      assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+    }
+  }
+  assert.deepEqual(declaring[0].allowedWrites, ['.ai/specs/**'])
+  assert.deepEqual(declaring[1].allowedWrites, [coveringSpecPath])
+})
+
+test('catalog validation binds each semantic oracle to its own fixed runner', () => {
+  const root = stageApp()
+  try {
+    const registryPath = path.join(root, '.ai', 'harness', 'validators.json')
+    const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')) as {
+      validators: Record<string, { runners: string[] }>
+    }
+    // A planning oracle may not fall back to the TypeScript grader...
+    registry.validators['oracle.planning.spec-first'].runners = ['writable-ast-oracles.mjs']
+    // ...and a TypeScript oracle may not swap itself onto the Markdown grader.
+    registry.validators['oracle.module.entity'].runners = ['writable-spec-oracles.mjs']
+    fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`)
+
+    const result = runEvaluator(root, ['--all'])
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.match(result.stderr, /oracle validator oracle\.planning\.spec-first must include the fixed oracle writable-spec-oracles\.mjs/)
+    assert.match(result.stderr, /oracle validator oracle\.module\.entity must include the fixed oracle writable-ast-oracles\.mjs/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
   }
 })

@@ -71,7 +71,7 @@ describe('ComboboxInput clearable behavior', () => {
       />
     )
 
-    const input = screen.getByRole('textbox') as HTMLInputElement
+    const input = screen.getByRole('combobox') as HTMLInputElement
     expect(input.value).toBe('Red')
 
     fireEvent.focus(input)
@@ -96,7 +96,7 @@ describe('ComboboxInput clearable behavior', () => {
       />
     )
 
-    const input = screen.getByRole('textbox') as HTMLInputElement
+    const input = screen.getByRole('combobox') as HTMLInputElement
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: '' } })
 
@@ -111,7 +111,7 @@ describe('ComboboxInput clearable behavior', () => {
     const onChange = jest.fn()
     render(<Harness initialValue="red" clearable onChange={onChange} />)
 
-    const input = screen.getByRole('textbox') as HTMLInputElement
+    const input = screen.getByRole('combobox') as HTMLInputElement
     expect(input.value).toBe('Red')
 
     const clearBtn = screen.getByRole('button', { name: /clear value/i })

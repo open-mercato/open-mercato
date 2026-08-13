@@ -5,7 +5,7 @@ import { extensionPoints } from '@open-mercato/core/modules/messages/extension-p
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'

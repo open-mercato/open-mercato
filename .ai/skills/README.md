@@ -73,7 +73,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
-| `migration` | opt-in | 2 | One-shot, version-pinned migrations. Install only when needed. |
+| `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
 | external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
@@ -247,6 +247,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) â€
 |-------|-------------|
 | `om-auto-upgrade-0.4.10-to-0.5.0` | Migrate a downstream Open Mercato user codebase from 0.4.10 to 0.5.0. Executable companion to UPGRADE_NOTES.md â€” detects which codemod patterns are in use, applies them in place, typechecks, and reports what still needs human review. Triggers on "upgrade open-mercato to 0.5.0", "bump to 0.5.0", or "apply UPGRADE_NOTES migrations". |
 | `om-auto-upgrade-0.6.6-to-0.6.7` | Migrate downstream Open Mercato user code from 0.6.6 to 0.6.7. Applies the pg-errors import move, safely unwraps proven scheduler queue payload consumers, audits query-index callbacks and removed scheduler metadata, then typechecks and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.6.7", "migrate 0.6.6 to 0.6.7", or "apply the 0.6.7 upgrade notes". |
+| `om-auto-upgrade-0.6.7-to-0.7.0` | Migrate downstream Open Mercato user code from 0.6.7 to 0.7.0. Applies exact TanStack, settings-group, and removed-env edits; audits auth, search, workflow, facts, Redis, webhook, and security-header changes; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.7.0", "migrate 0.6.7 to 0.7.0", or "apply the 0.7.0 upgrade notes". |
 
 ### infra
 
