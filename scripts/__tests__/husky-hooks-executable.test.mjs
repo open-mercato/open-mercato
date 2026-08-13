@@ -8,8 +8,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const EXECUTABLE_MODE = '100755'
 
 // Mirrors the hook list husky@9 installs wrappers for (node_modules/husky/index.js).
-// Anything else under .husky/ — a sourced common.sh, a README — is never invoked by
-// git and must stay outside this assertion.
 const GIT_HOOK_NAMES = new Set([
   'applypatch-msg',
   'commit-msg',
@@ -35,11 +33,10 @@ function listTrackedHuskyHooks() {
   return git(['ls-files', '--stage', '-z', '--', '.husky'])
     .split('\0')
     .filter(Boolean)
-    .map((entry) => {
-      const [meta, relPath] = entry.split('\t')
-      const [mode] = meta.split(' ')
-      return { mode, relPath }
-    })
+    .map((entry) => ({
+      mode: entry.slice(0, entry.indexOf(' ')),
+      relPath: entry.slice(entry.indexOf('\t') + 1),
+    }))
     .filter(({ relPath }) => !relPath.startsWith('.husky/_/'))
     .filter(({ relPath }) => GIT_HOOK_NAMES.has(path.basename(relPath)))
 }
