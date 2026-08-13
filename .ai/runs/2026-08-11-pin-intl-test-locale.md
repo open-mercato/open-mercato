@@ -103,6 +103,35 @@ application locale now reads `95,00 USD` in the items table, `RAZEM (NETTO) 549,
 assertion is stated as an absence — no `$1,234.56`-shaped string may survive anywhere on that
 page — so a future regression fails loudly instead of merely looking plausible.
 
+### Resume — close the strict-review Medium (timezone-dependent date assertion)
+
+@haxiorz's strict review of head `1920268` raised one Medium: pinning the *locale* left the date
+assertions pinned to an *instant*, so they still varied with the runner's `TZ`. The suite this PR
+exists to make environment-independent therefore still failed at the extremes —
+`2026-06-09T10:00:00.000Z` renders as June 10 under `Pacific/Kiritimati` (UTC+14) and June 8 under
+`Etc/GMT+12`, while the assertion said June 9. Evidence: PR comment `#issuecomment-5270691297`.
+
+The fix is the one the reviewer asked for: feed the formatters a date-time literal **without an
+offset** (`2026-06-09T12:00:00`), which ECMAScript parses as local time, so it lands on the same
+calendar day in every timezone. Midday keeps it clear of any DST transition.
+
+- [x] `sales/components/documents/__tests__/documentLocaleFormatting.test.ts` — replace the
+      instant with a local `LOCAL_MIDDAY` constant, with a comment naming both failing zones
+- [x] `ui/src/utils/__tests__/format.test.ts` — same treatment for the last remaining
+      instant-based date assertions; the day-agnostic regexes (`/^Jun \d{1,2}, 2026$/`,
+      `/^\d{1,2} cze 2026$/`) tighten to exact strings now that the day is stable
+- [x] Reproduce the reported failure and prove the fix with direct `Intl` probes in five zones
+- [x] Re-run every test suite this PR touches under both `Pacific/Kiritimati` and `Etc/GMT+12`
+- [x] Reply to the review comment and post the resume summary
+
+Direct `Intl` probe, old input vs new, `dateStyle: 'medium'`:
+
+| TZ | old `…T10:00:00.000Z` | new `…T12:00:00` |
+|---|---|---|
+| `Pacific/Kiritimati` (UTC+14) | `10 cze 2026` / `Jun 10, 2026` ❌ | `9 cze 2026` / `Jun 9, 2026` ✅ |
+| `Etc/GMT+12` (UTC−12) | `8 cze 2026` / `Jun 8, 2026` ❌ | `9 cze 2026` / `Jun 9, 2026` ✅ |
+| `UTC`, `Europe/Warsaw`, `America/Los_Angeles` | `9 cze 2026` / `Jun 9, 2026` ✅ | `9 cze 2026` / `Jun 9, 2026` ✅ |
+
 ## Notes / follow-ups
 
 - `detail/utils.formatCurrency` still has four call sites (`ActiveDealCard`, `ActiveDealWidget`,
