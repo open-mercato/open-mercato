@@ -8,6 +8,14 @@ import { formatDisplayDate } from '../ReturnsSection'
 // `Intl.*(undefined, …)` fails loudly instead of merely looking plausible.
 const normalize = (value: string) => value.replace(/ | /g, ' ')
 
+// A date-time literal without an offset is parsed as *local* time, so it lands on the same
+// calendar day in every timezone and the day token can be asserted exactly. An instant does
+// not: `2026-06-09T10:00:00.000Z` renders as June 10 under `Pacific/Kiritimati` (UTC+14) and
+// June 8 under `Etc/GMT+12`, which made this suite fail for contributors and CI runners at the
+// extremes — the very machine-dependence this PR exists to remove. Midday keeps it clear of
+// any DST transition.
+const LOCAL_MIDDAY = '2026-06-09T12:00:00'
+
 describe('sales document adjustments — percentage formatting', () => {
   it('formats in the requested locale rather than the runtime default', () => {
     expect(normalize(formatPercent(12.5, 'pl-PL'))).toBe('12,5%')
@@ -26,8 +34,8 @@ describe('sales document adjustments — percentage formatting', () => {
 
 describe('sales returns — date formatting', () => {
   it('formats in the requested locale rather than the runtime default', () => {
-    expect(formatDisplayDate('2026-06-09T10:00:00.000Z', 'pl-PL')).toBe('9 cze 2026')
-    expect(formatDisplayDate('2026-06-09T10:00:00.000Z', 'en-US')).toBe('Jun 9, 2026')
+    expect(formatDisplayDate(LOCAL_MIDDAY, 'pl-PL')).toBe('9 cze 2026')
+    expect(formatDisplayDate(LOCAL_MIDDAY, 'en-US')).toBe('Jun 9, 2026')
   })
 
   it('returns null for an absent or unparseable value', () => {

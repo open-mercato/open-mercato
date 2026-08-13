@@ -6,9 +6,11 @@ import { formatCurrency, formatDate } from '../format'
 const EN = 'en-US'
 const PL = 'pl-PL'
 
-// Midday UTC keeps the calendar month stable in every real timezone, so the month token can be
-// asserted without the suite depending on the runner's TZ.
-const MIDDAY_UTC = '2026-06-09T12:00:00.000Z'
+// A date-time literal without an offset is parsed as *local* time, so it lands on the same
+// calendar day in every timezone and both the month and the day can be asserted exactly. The
+// instant form cannot: midday UTC keeps the month stable but still shifts the day at the
+// extremes (UTC+14 / UTC-12), which is why the assertions below no longer use one.
+const LOCAL_MIDDAY = '2026-06-09T12:00:00'
 
 describe('formatCurrency', () => {
   it('returns null for empty input', () => {
@@ -60,10 +62,10 @@ describe('formatDate', () => {
   })
 
   it('formats a valid ISO date as a localized short date', () => {
-    expect(formatDate(MIDDAY_UTC, EN)).toMatch(/^Jun \d{1,2}, 2026$/)
+    expect(formatDate(LOCAL_MIDDAY, EN)).toBe('Jun 9, 2026')
   })
 
   it('formats in the requested locale rather than the runtime default', () => {
-    expect(formatDate(MIDDAY_UTC, PL)).toMatch(/^\d{1,2} cze 2026$/)
+    expect(formatDate(LOCAL_MIDDAY, PL)).toBe('9 cze 2026')
   })
 })
