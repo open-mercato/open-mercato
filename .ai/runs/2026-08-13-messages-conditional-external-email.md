@@ -95,13 +95,13 @@ A+ and B stay available as later, purely additive extensions. C (synthesising
 
 ### Phase 1: Hub contract — conditional, fail-closed `externalEmail`
 
-- [ ] 1.1 Channel-type helper, `sourceChannelType` input, conditional `superRefine` + unit tests
-- [ ] 1.2 Client-facing request contract in `api/openapi.ts` and the route `openApi` doc
+- [x] 1.1 Channel-type helper, `sourceChannelType` input, conditional `superRefine` + unit tests — 9044a659d1
+- [x] 1.2 Client-facing request contract in `api/openapi.ts` and the route `openApi` doc — 48ec4f656f
 
 ### Phase 2: Both call sites of `composeMessageSchema`
 
-- [ ] 2.1 Ingest path passes the channel type through `messages.messages.compose`
-- [ ] 2.2 `POST /api/messages` resolves the channel type server-side via a soft-resolved facade
+- [x] 2.1 Ingest path passes the channel type through `messages.messages.compose` — 5e27fd3812
+- [x] 2.2 `POST /api/messages` resolves the channel type server-side via a soft-resolved facade — e9b54c0b95
 
 ### Phase 3: Remove the bypass and add the acceptance test
 
