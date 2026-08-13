@@ -45,6 +45,16 @@
  * `error` handle. That is an honest "we stopped waiting", not a false
  * "we hung up".
  *
+ * ─── THE RECORDING IS BORROWED, NEVER TAKEN ──────────────────────────────────
+ *
+ * `fetchRecording` streams `GET /v1/convai/conversations/{id}/audio` through to
+ * the operator who asked for it. No copy is stored: a recording is the caller's
+ * VOICE, so storing one would make this deployment a second controller of
+ * biometric-grade material for content nothing downstream reads. ElevenLabs
+ * already retains it; the platform brokers access to it. The run-detail card
+ * says so in as many words, because an operator who does not know where the
+ * file lives cannot answer an erasure request about it.
+ *
  * ─── MOCK IS DELIBERATELY NOT IMPLEMENTED ────────────────────────────────────
  *
  * A connector with no `mock` REFUSES on the dry-run and eval paths (T2.2), which
@@ -65,6 +75,7 @@ import {
 import { voiceCallInputSchema, type VoiceCallInput } from '../data/validators'
 import {
   OUTBOUND_CALL_PATHS,
+  fetchConversationAudio,
   startOutboundCall,
   type ElevenLabsDynamicVariables,
   type ElevenLabsFetch,
@@ -256,6 +267,47 @@ export function createElevenLabsVoiceConnector(
      */
     extractExternalRunId(rawPayload: unknown): string | null {
       return extractElevenLabsConversationId(rawPayload)
+    },
+
+    /**
+     * The recording, borrowed from ElevenLabs for one operator who asked.
+     *
+     * Nothing here writes, buffers or hashes the audio: the provider's response
+     * body is handed back as a stream and the run-detail route pipes it. That is
+     * the whole design — ElevenLabs stays the single controller of the caller's
+     * voice, and this deployment holds no copy to erase, purge or leak.
+     *
+     * The API key is read per call from THIS tenant's credentials through the
+     * caller's container, exactly as `start` and `verifyCallback` do; the
+     * connector is process-global and never holds a secret.
+     */
+    async fetchRecording(externalRunId, scope) {
+      const conversationId = externalRunId.trim()
+      if (!conversationId) return null
+
+      const credentials = await deps.readCredentials(scope)
+      const response = await fetchConversationAudio({
+        apiKey: credentials.apiKey,
+        conversationId,
+        fetchImpl: fetchImpl,
+        baseUrl: deps.baseUrl,
+      })
+      // Null covers both "ElevenLabs has no recording for this conversation"
+      // (404) and a 200 that somehow carried no body — neither is a fault, and
+      // the route turns both into a readable "nothing to play".
+      if (!response?.body) return null
+
+      const declaredLength = Number(response.headers.get('content-length'))
+      return {
+        // The provider's own type, never inferred: a workspace configured for a
+        // different codec would otherwise be served under a wrong label.
+        mimeType: response.headers.get('content-type') ?? 'audio/mpeg',
+        stream: response.body,
+        contentLength: Number.isFinite(declaredLength) && declaredLength >= 0 ? declaredLength : null,
+        // The conversation id is the operator's handle on the ElevenLabs
+        // dashboard, so the downloaded file names itself after it.
+        fileName: `elevenlabs-conversation-${conversationId}.mp3`,
+      }
     },
   }
 }

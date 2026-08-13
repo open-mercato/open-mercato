@@ -54,8 +54,16 @@ import {
  *     later. A downstream planning agent acting on "we could not reach the
  *     owner" when we did is precisely the failure this seam must not produce.
  *
- * T3.1 is where the recording becomes an `AgentRunArtifact`; until then the
- * audio delivery has nowhere useful to go.
+ * THE AUDIO DELIVERY HAS NOWHERE TO GO, PERMANENTLY. T3.1 decided the recording
+ * is never stored here and T3.4 made it fetch-on-demand instead
+ * (`fetchRecording`), so a `post_call_audio` body carries nothing this platform
+ * wants: the operator reads the recording live from the provider whenever they
+ * ask. The rare audio-first ordering above therefore still costs a run, and
+ * closing it needs a SECOND connector member — one that lets a connector say
+ * "this payload is not a settlement" so the route can 200 without claiming the
+ * row. That is a real follow-up, deliberately not folded into the recording
+ * member: the two answer different questions, and widening the connector
+ * interface twice in one task would have made both harder to review.
  */
 export class ElevenLabsAudioOnlyCallbackError extends Error {
   readonly code = 'ELEVENLABS_AUDIO_ONLY_CALLBACK'

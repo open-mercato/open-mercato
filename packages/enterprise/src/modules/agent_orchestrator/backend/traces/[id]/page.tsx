@@ -36,6 +36,7 @@ import { findProposalOption, normalizeProposalEnvelope, rankProposalOptions } fr
 import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTimeline'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
+import { ExternalRunCard, ExternalRerunDialog } from '../../../components/ExternalRunPanel'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -727,6 +728,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   const [inEvalSet, setInEvalSet] = React.useState(false)
   const [flagging, setFlagging] = React.useState(false)
   const [rerunning, setRerunning] = React.useState(false)
+  // Only ever opened for an external run — see `requestRerun` below.
+  const [rerunConfirmOpen, setRerunConfirmOpen] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.traces',
@@ -794,28 +797,65 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
     }
   }, [runMutation, retryLastMutation, runId, t])
 
-  const rerunAgent = React.useCallback(async () => {
-    setRerunning(true)
-    try {
-      let newRunId: string | null = null
-      await runMutation({
-        operation: async () => {
-          const call = await apiCallOrThrow<{ runId: string | null }>(
-            `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/rerun`,
-            { method: 'POST' },
-          )
-          newRunId = call.result?.runId ?? null
-        },
-        context: { retryLastMutation },
-      })
-      flash(t('agent_orchestrator.traces.detail.actionRerunDone'), 'success')
-      if (newRunId) router.push(`/backend/traces/${encodeURIComponent(newRunId)}`)
-    } catch (err) {
-      flash(err instanceof Error ? err.message : t('agent_orchestrator.traces.detail.actionRerunError'), 'error')
-    } finally {
-      setRerunning(false)
+  /**
+   * `confirmExternalCall` is sent ONLY after the operator acknowledged the
+   * dialog. The route refuses an unconfirmed external re-run with 428, so this
+   * flag is the client half of a gate that is enforced on the server — the
+   * dialog is the explanation, not the enforcement.
+   */
+  const rerunAgent = React.useCallback(
+    async (confirmExternalCall: boolean) => {
+      setRerunning(true)
+      try {
+        let newRunId: string | null = null
+        let suspended = false
+        await runMutation({
+          operation: async () => {
+            const call = await apiCallOrThrow<{ runId: string | null; status?: string }>(
+              `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/rerun`,
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ confirmExternalCall }),
+              },
+            )
+            newRunId = call.result?.runId ?? null
+            // 202: the external run started and answers out of band. Reporting
+            // it as an ordinary completion would tell the operator the call is
+            // over while it is still connected.
+            suspended = call.result?.status === 'suspended'
+          },
+          context: { retryLastMutation },
+        })
+        flash(
+          suspended
+            ? t('agent_orchestrator.traces.detail.actionRerunSuspended')
+            : t('agent_orchestrator.traces.detail.actionRerunDone'),
+          'success',
+        )
+        if (newRunId) router.push(`/backend/traces/${encodeURIComponent(newRunId)}`)
+      } catch (err) {
+        flash(err instanceof Error ? err.message : t('agent_orchestrator.traces.detail.actionRerunError'), 'error')
+      } finally {
+        setRerunning(false)
+        setRerunConfirmOpen(false)
+      }
+    },
+    [runMutation, retryLastMutation, runId, router, t],
+  )
+
+  /**
+   * An external run re-executes a real-world action, so it asks first. Every
+   * other runtime keeps today's one-click behaviour byte for byte — the cost of
+   * a confirmation is only paid where a phone would actually ring.
+   */
+  const requestRerun = React.useCallback(() => {
+    if (detail?.run.runtime === 'external') {
+      setRerunConfirmOpen(true)
+      return
     }
-  }, [runMutation, retryLastMutation, runId, router, t])
+    void rerunAgent(false)
+  }, [detail, rerunAgent])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1063,11 +1103,18 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </Button>
                         </SimpleTooltip>
                       )}
-                      <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.actionRerunTooltip', 'Re-run this agent with the same input')}>
+                      <SimpleTooltip
+                        side="bottom"
+                        content={
+                          run.runtime === 'external'
+                            ? t('agent_orchestrator.traces.detail.actionRerunExternalTooltip')
+                            : t('agent_orchestrator.traces.detail.actionRerunTooltip', 'Re-run this agent with the same input')
+                        }
+                      >
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => void rerunAgent()}
+                          onClick={requestRerun}
                           disabled={rerunning}
                         >
                           <RotateCcw className="size-4" />
@@ -1143,6 +1190,24 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     />
                   </div>
                 </section>
+
+                {/* The external half of the run — renders nothing at all unless
+                    this run has an `agent_external_runs` correlation row, so a
+                    native run's layout is untouched. Placed directly under the
+                    header because it explains the header: an external run's
+                    duration tile is the provider's call length, not the wall
+                    clock the operator watched. */}
+                <ExternalRunCard
+                  runId={run.id}
+                  run={{ createdAt: run.createdAt, completedAt: run.completedAt, latencyMs: run.latencyMs }}
+                />
+
+                <ExternalRerunDialog
+                  open={rerunConfirmOpen}
+                  onOpenChange={setRerunConfirmOpen}
+                  onConfirm={() => void rerunAgent(true)}
+                  busy={rerunning}
+                />
 
                 {/* Execution timeline + Evaluation results — two columns */}
                 <div className="grid gap-6 lg:grid-cols-2">

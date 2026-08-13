@@ -27,6 +27,7 @@ import { WebSearchActivity } from '../../components/WebSearchActivity'
 import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
+import { readSuspendedRun, type SuspendedRunState } from '../../components/playgroundSuspension'
 import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
 import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
 import { deriveEnvelopeConfidence, normalizeProposalEnvelope, readProposalActions } from '../../data/proposalEnvelope'
@@ -227,6 +228,12 @@ export default function AgentPlaygroundPage() {
   const [toolPanel, setToolPanel] = React.useState<ToolPanelState>({ mode: 'idle' })
   const [error, setError] = React.useState<string | null>(null)
   const [guardrailBlock, setGuardrailBlock] = React.useState<{ guardrailKind: string; phase: string } | null>(null)
+  /**
+   * An EXTERNAL agent's run is accepted, not finished (route answers 202). It is
+   * its own state rather than a `result`, because it is neither a result nor an
+   * error and rendering it as either lies about a call that is still connected.
+   */
+  const [suspended, setSuspended] = React.useState<SuspendedRunState | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -280,6 +287,7 @@ export default function AgentPlaygroundPage() {
     setGuardrailBlock(null)
     setRunning(true)
     setResult(null)
+    setSuspended(null)
     setRunId(null)
     setProposalId(null)
     setToolPanel({ mode: 'idle' })
@@ -305,6 +313,15 @@ export default function AgentPlaygroundPage() {
         return
       }
       const data = call.result
+      // Checked BEFORE the result arm: a 202 is a 2xx, so it reaches this branch
+      // and would otherwise be rendered as an `AgentResult` with no `kind` —
+      // i.e. as a silent blank success, while a phone is ringing.
+      const suspension = readSuspendedRun(data)
+      if (suspension) {
+        setSuspended(suspension)
+        setRunId(suspension.runId)
+        return
+      }
       setResult(data)
       setRunId(typeof data.runId === 'string' ? data.runId : null)
       setProposalId(typeof data.proposalId === 'string' ? data.proposalId : null)
@@ -348,7 +365,7 @@ export default function AgentPlaygroundPage() {
     [run],
   )
 
-  const hasOutcome = Boolean(result || running || error || guardrailBlock)
+  const hasOutcome = Boolean(result || suspended || running || error || guardrailBlock)
 
   return (
     <Page>
@@ -470,7 +487,7 @@ export default function AgentPlaygroundPage() {
               <span className="text-sm font-semibold text-foreground">
                 {t('agent_orchestrator.playground.resultTitle', 'Result')}
               </span>
-              {result && runId ? (
+              {(result || suspended) && runId ? (
                 <span className="flex items-center gap-3">
                   <a
                     href={`/backend/traces/${encodeURIComponent(runId)}`}
@@ -506,6 +523,25 @@ export default function AgentPlaygroundPage() {
                         phase: guardrailBlock.phase,
                       })}
                     </span>
+                  </div>
+                </Alert>
+              ) : null}
+
+              {/* The external agent's run was ACCEPTED, not completed. Stated as
+                  an info alert rather than a result, and it names where the
+                  answer will appear — the run is real, it is running, and the
+                  operator's next move is to watch it settle, not to re-run. */}
+              {suspended ? (
+                <Alert status="information" style="light">
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium">{t('agent_orchestrator.playground.suspended.title')}</span>
+                    <span>{t('agent_orchestrator.playground.suspended.body')}</span>
+                    {suspended.externalRunId ? (
+                      <span className="text-xs">
+                        {t('agent_orchestrator.playground.suspended.providerRunId')}:{' '}
+                        <span className="font-mono">{suspended.externalRunId}</span>
+                      </span>
+                    ) : null}
                   </div>
                 </Alert>
               ) : null}

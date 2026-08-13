@@ -108,6 +108,26 @@ export type ExternalAgentConnectorStartResult =
   | { externalRunId: string; expectsCallback: true }
   | { externalRunId: string; expectsCallback: false; result: unknown }
 
+/**
+ * One provider-held recording, borrowed rather than taken.
+ *
+ * `stream` is the provider's response body handed straight through. It is
+ * deliberately a stream and not a `Buffer`/`Uint8Array`: the platform's promise
+ * to the tenant is that it does not hold a copy of the audio, and a member
+ * returning materialised bytes would make that promise depend on every caller
+ * remembering not to persist them.
+ */
+export type ExternalAgentConnectorRecording = {
+  /** The provider's own media type, e.g. `audio/mpeg`. Never guessed from the id. */
+  mimeType: string
+  /** The provider's bytes, unbuffered — the platform pipes, it does not read. */
+  stream: ReadableStream<Uint8Array>
+  /** `Content-Length` when the provider declared one; null when it streams unsized. */
+  contentLength?: number | null
+  /** Suggested download name; the route falls back to a run-derived one. */
+  fileName?: string | null
+}
+
 export interface ExternalAgentConnector {
   /** Stable connector id referenced by `defineExternalAgent({ connectorId })`, e.g. `'elevenlabs.voice'`. */
   id: string
@@ -209,6 +229,48 @@ export interface ExternalAgentConnector {
    * workflow down the `error` handle.
    */
   cancel?(externalRunId: string, scope: ExternalAgentConnectorScope): Promise<void>
+
+  /**
+   * Optional: fetch the provider's RECORDING of this run, on demand, for one
+   * operator who asked for it (tracker task 3.4).
+   *
+   * WHY FETCH AND NOT STORE. T3.1 deliberately captures the transcript as an
+   * `AgentRunArtifact` and deliberately does NOT capture the audio, and the
+   * reason is controllership rather than size: a transcript is text about a
+   * person, a recording is that person's VOICE. Copying it would make this
+   * platform a SECOND controller of biometric-grade material — doubling the
+   * DSAR/erasure surface (a row here plus an object in storage) for content no
+   * downstream consumer reads, in a module that has no artifact retention
+   * sweeper, so the copy would be permanent by default. The provider already
+   * retains it and is already the controller. So the platform brokers ACCESS
+   * instead of taking custody.
+   *
+   * THE CONTRACT THAT MAKES THAT TRUE: an implementation returns a STREAM, and
+   * the route pipes it to the operator without buffering it, writing it to
+   * storage, or recording an artifact row. Returning bytes the platform then
+   * had to hold would quietly re-introduce the copy this member exists to
+   * avoid, one process at a time.
+   *
+   * Shaped after `cancel` (the provider's own run id first) and given the
+   * CALLBACK scope rather than the plain one, so a connector can reach this
+   * tenant's credentials through `scope.container` — the seam T4.1 opened on
+   * `normalize`. `cancel` still takes the narrow scope; the asymmetry is
+   * deliberate rather than overlooked, since widening it would change a member
+   * two shipped connectors already decline to implement.
+   *
+   * Return `null` — never throw — for "this run has no recording": a call that
+   * was never answered, a tenant who disabled call recording, a provider that
+   * has aged the file out. The route turns that into a 404 the operator can
+   * read, while a THROW is a genuine integration fault and surfaces as a 502.
+   *
+   * Omitting the member is how a connector says its provider has no recording
+   * concept at all. The run-detail control is rendered only when it is present,
+   * so an operator is never offered a button that cannot work.
+   */
+  fetchRecording?(
+    externalRunId: string,
+    scope: ExternalAgentConnectorCallbackScope,
+  ): Promise<ExternalAgentConnectorRecording | null>
 
   /**
    * Optional simulation for the dry-run and eval paths.

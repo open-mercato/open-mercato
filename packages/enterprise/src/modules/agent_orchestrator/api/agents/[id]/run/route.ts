@@ -13,6 +13,7 @@ import {
   AgentGuardrailBlockedError,
   AgentNotFoundError,
   AgentOutputInvalidError,
+  AgentRunSuspendedError,
   AgentRunTimeoutError,
   type AgentRunCtx,
   type AgentRuntimeService,
@@ -31,6 +32,14 @@ const guardrailBlockedErrorSchema = errorSchema.extend({
   kind: guardrailKind,
   phase: guardrailPhase,
   guardrailSetVersion: z.string().nullable(),
+})
+
+/** 202 body for an external agent: started, still in flight, no result yet. */
+const suspendedRunSchema = z.object({
+  runId: z.string().uuid().nullable(),
+  proposalId: z.null(),
+  status: z.literal('suspended'),
+  externalRunId: z.string().nullable(),
 })
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -107,6 +116,26 @@ export async function POST(req: Request, ctx: RouteContext) {
     if (err instanceof AgentNotFoundError) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
+    // An EXTERNAL agent answers out of band, so there is no result to return —
+    // but the run genuinely started and a real phone is ringing. T3.3 left the
+    // Playground dialling on purpose (it is the only end-to-end smoke test a
+    // connector has, and it sits behind two grants), and this arm is the other
+    // half of that decision: rethrowing the suspension made an accepted call
+    // look like an HTTP 500, which is the one outcome an operator must not be
+    // shown while a call is live. 202 says exactly what happened — accepted,
+    // not finished — and hands back the run id so the operator can follow it
+    // into the trace and watch the callback settle it.
+    if (err instanceof AgentRunSuspendedError) {
+      return NextResponse.json(
+        {
+          runId: err.runId,
+          proposalId: null,
+          status: 'suspended',
+          externalRunId: err.externalRunId || null,
+        },
+        { status: 202 },
+      )
+    }
     // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
     // the typed reason (kind/phase/set version) must reach the client instead
     // of the generic invalid-output message (data-honesty spec §3.6).
@@ -178,7 +207,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Run an agent',
       description:
-        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for researcher runs).',
+        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for researcher runs). An agent with `runtime: "external"` answers 202 instead: the run was started at the provider and settles later through its callback.',
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,
@@ -191,6 +220,12 @@ export const openApi: OpenApiRouteDoc = {
           schema: baseAgentResultSchema.and(
             z.object({ runId: z.string().uuid().nullable(), proposalId: z.string().uuid().nullable() }),
           ),
+        },
+        {
+          status: 202,
+          description:
+            'The agent runs at an external provider and answers out of band. The run was started and is still in flight; there is no result yet, so the body carries `status: "suspended"` plus the run id to follow it with.',
+          schema: suspendedRunSchema,
         },
       ],
       errors: [

@@ -5,7 +5,7 @@
  *   POST /v1/convai/twilio/outbound-call      start a call on a Twilio-backed number
  *   POST /v1/convai/sip-trunk/outbound-call   start a call on a SIP-trunk number
  *   GET  /v1/convai/conversations/{id}        poll / backfill one conversation
- *   GET  /v1/convai/conversations/{id}/audio  the recording
+ *   GET  /v1/convai/conversations/{id}/audio  the recording (fetch-on-demand only)
  *
  * Auth is the `xi-api-key` header on every request.
  *
@@ -145,6 +145,45 @@ export async function probeConversationsEndpoint(args: {
   const url = `${args.baseUrl ?? resolveElevenLabsBaseUrl()}/v1/convai/conversations/${encodeURIComponent(args.conversationId)}`
   const response = await args.fetchImpl(url, { method: 'GET', headers: authHeaders(args.apiKey) })
   return { status: response.status }
+}
+
+/**
+ * The recording of one conversation, as a live response.
+ *
+ * Returns the `Response` rather than its bytes ON PURPOSE. The platform's
+ * fetch-on-demand contract is that no copy of the audio is made here, and the
+ * only way to keep that true by construction is to never materialise it: the
+ * caller reads `response.body` and pipes it. A helper that returned a `Buffer`
+ * would put a full recording in this process's heap on every operator click,
+ * for a file this deployment is not supposed to be holding.
+ *
+ * A 404 is NOT an error: a call that was never answered, a tenant with call
+ * recording disabled, and a recording ElevenLabs has aged out all produce one,
+ * and each is an ordinary "there is nothing to play" rather than a fault.
+ */
+export async function fetchConversationAudio(args: {
+  apiKey: string
+  conversationId: string
+  fetchImpl: ElevenLabsFetch
+  baseUrl?: string
+}): Promise<Response | null> {
+  const url = `${args.baseUrl ?? resolveElevenLabsBaseUrl()}/v1/convai/conversations/${encodeURIComponent(args.conversationId)}/audio`
+  const response = await args.fetchImpl(url, {
+    method: 'GET',
+    headers: { 'xi-api-key': args.apiKey, accept: 'audio/mpeg' },
+  })
+
+  if (response.status === 404) return null
+  if (!response.ok) {
+    // As everywhere in this file, the provider's body is not interpolated: an
+    // error body can echo request material, and this message reaches an
+    // operator's screen.
+    throw new ElevenLabsApiError(
+      `ElevenLabs rejected the conversation-audio request with HTTP ${response.status}`,
+      response.status,
+    )
+  }
+  return response
 }
 
 async function readJson(response: Response): Promise<unknown> {
