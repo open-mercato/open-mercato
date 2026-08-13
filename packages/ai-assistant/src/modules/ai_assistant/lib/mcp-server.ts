@@ -4,7 +4,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { toolInputJsonSchema } from './tool-input-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
@@ -132,8 +132,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       tools: accessibleTools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        // Cast to any for Zod v4 compatibility with zod-to-json-schema
-        inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+        inputSchema: toolInputJsonSchema(tool.inputSchema),
       })),
     }
   })

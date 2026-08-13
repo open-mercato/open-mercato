@@ -60,7 +60,7 @@ jobs:
   # matrix when nothing is in scope, which skips the mutate job entirely rather
   # than reporting a synthetic score.
   scope:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       matrix: ${{ steps.scope.outputs.matrix }}
       has_work: ${{ steps.scope.outputs.has_work }}
@@ -82,7 +82,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       # Every value that originates outside this file is read from the environment
       # rather than interpolated into the script. `${{ … }}` expands as text before
@@ -117,8 +117,8 @@ jobs:
   mutate:
     needs: scope
     if: needs.scope.outputs.has_work == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 60
     # Advisory: a low score annotates the PR, it does not fail the check. Flipping
     # MUTATION_ENFORCE to 'true' is what turns this into a real gate.
     continue-on-error: ${{ vars.MUTATION_ENFORCE != 'true' }}
@@ -137,7 +137,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Enable Corepack
         run: corepack enable
@@ -217,7 +217,7 @@ jobs:
       always() &&
       needs.scope.outputs.has_work == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Convenience surface only: the job summary is primary and needs no token. See
     # the per-job note at the top of this file.
     continue-on-error: true
@@ -231,7 +231,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.19.0
 
       - name: Download mutation reports
         uses: actions/download-artifact@v6
