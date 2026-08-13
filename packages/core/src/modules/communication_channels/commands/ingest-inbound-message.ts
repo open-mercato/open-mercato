@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { htmlToPlainText } from '../../inbox_ops/lib/htmlToPlainText'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
@@ -337,14 +337,33 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     //     ExternalMessage.rawPayload if needed for forensic / forward use.
     //   - Some legitimate messages have no subject (notifications, bounce
     //     digests). Substitute a placeholder instead of failing ingest.
-    //   - HTML bodies are converted to plain text rather than merely relabelled
-    //     as `text`: `messages` has no HTML renderer, so an unconverted body is
-    //     displayed as literal markup (doctype, <style> blocks, tags). The raw
-    //     HTML stays available in `bodyHtml` on the channel link payload.
+    //   - HTML bodies land in the platform body as plain text rather than being
+    //     merely relabelled as `text`: `MarkdownContent` renders a `text` body
+    //     verbatim, so unconverted markup shows up as literal doctype, <style>
+    //     blocks and tags in the inbox preview and the detail body. The source
+    //     markup is untouched in `channelPayload.html`, which `data/enrichers.ts`
+    //     sanitizes into `_channelPayload.sanitizedHtml` for the channel-payload
+    //     renderer widget mounted at `detail:messages:message:body:after`.
+    //   - The plain-text alternative wins over conversion when the sender's
+    //     client supplied one (`multipart/alternative`), because that part is
+    //     what a human actually wrote; `html-to-text` output — inlined link
+    //     URLs, flattened tables, synthesized list markers — is the fallback for
+    //     HTML-only senders. `lib/email-mime.ts` preferred `bodyHtml` when
+    //     picking `body`, but preserved the text part at `channelPayload.text`.
     const MAX_COMPOSE_BODY = 50_000
+    // Bound the synchronous parse: inbound mail is untrusted and the 5MB body
+    // ceiling from `lib/email-capabilities.ts` would otherwise block the ingest
+    // worker on a single oversized document. The cap is two orders of magnitude
+    // above the 50k that survives truncation, so no realistic message is cut.
+    const MAX_HTML_PARSE_INPUT = 512 * 1024
     const TRUNCATE_MARKER =
       '\n\n[…message truncated by Open Mercato — full body preserved in ExternalMessage.rawPayload]'
-    const rawBody = m.bodyFormat === 'html' ? htmlToPlainText(m.body ?? '') : (m.body ?? '')
+    const sourceBody = m.body ?? ''
+    const plainAlternative =
+      typeof m.channelPayload?.text === 'string' ? m.channelPayload.text.trim() : ''
+    const rawBody = m.bodyFormat === 'html'
+      ? (plainAlternative || htmlToPlainText(sourceBody.slice(0, MAX_HTML_PARSE_INPUT)))
+      : sourceBody
     const truncatedBody =
       rawBody.length > MAX_COMPOSE_BODY
         ? rawBody.slice(0, MAX_COMPOSE_BODY - TRUNCATE_MARKER.length) + TRUNCATE_MARKER

@@ -380,7 +380,11 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
     }
   }
 
-  function makeInput(body: string, bodyFormat: 'text' | 'html'): IngestInboundMessageInput {
+  function makeInput(
+    body: string,
+    bodyFormat: 'text' | 'html',
+    channelPayload: Record<string, unknown> = {},
+  ): IngestInboundMessageInput {
     return {
       channelId: '550e8400-e29b-41d4-a716-446655440040',
       providerKey: 'imap',
@@ -396,7 +400,7 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
         body,
         bodyFormat,
         timestamp: new Date(),
-        channelPayload: {},
+        channelPayload,
         channelContentType: 'email/mime',
         channelMetadata: {},
       },
@@ -456,5 +460,65 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
     const { input: composed } = composedInput(commandBus)
     expect(composed.bodyFormat).toBe('text')
     expect(composed.body).toBe('Hello!\n\nRegards,\nJane')
+  })
+
+  it('stores the sender\'s own plain part verbatim for a multipart/alternative email', async () => {
+    // `lib/email-mime.ts` prefers the HTML part when picking `body` but keeps
+    // the text/plain alternative at `channelPayload.text`. That part is what a
+    // human actually composed, so it must beat html-to-text output — which
+    // inlines link URLs, flattens tables and synthesizes list markers.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const plain = 'Cześć,\n\nSzczegóły: https://example.com/order/1234\n\nPozdrawiam,\nJan'
+    const html = '<html><body><p>Cześć,</p><p>Szczegóły: <a href="https://example.com/order/1234">tutaj</a></p><p>Pozdrawiam,<br>Jan</p></body></html>'
+
+    await ingestInboundMessageCommand.execute(
+      makeInput(html, 'html', { html, text: plain }) as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe(plain)
+    // The conversion artefact the plain part exists to avoid.
+    expect(composed.body).not.toContain('[https://example.com/order/1234]')
+  })
+
+  it('still converts when the sender supplied no usable plain alternative', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const html = '<html><body><p>HTML only sender</p></body></html>'
+
+    await ingestInboundMessageCommand.execute(
+      makeInput(html, 'html', { html, text: '   ' }) as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe('HTML only sender')
+  })
+
+  it('bounds the synchronous parse of an oversized HTML body', async () => {
+    // Inbound mail is untrusted and `lib/email-capabilities.ts` allows bodies up
+    // to 5MB, so the whole document used to be parsed before the 50k truncation
+    // could apply. The pre-parse cap bounds that work.
+    //
+    // The padding is a <style> block, which the converter skips — so the marker
+    // that follows it survives truncation and is observable in the composed
+    // body. Without the cap the parser reaches it; with the cap the input is cut
+    // mid-<style> and the marker is never seen.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const cssPadding = '/* padding */ .a { color: #ffffff; }\n'.repeat(20_000)
+    const html = `<html><body><p>Opening line</p><style>${cssPadding}</style><p>MARKER-BEYOND-CAP</p></body></html>`
+    expect(cssPadding.length).toBeGreaterThan(512 * 1024)
+
+    await ingestInboundMessageCommand.execute(makeInput(html, 'html') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.body).toContain('Opening line')
+    expect(composed.body).not.toContain('MARKER-BEYOND-CAP')
+    expect(composed.body.length).toBeLessThanOrEqual(50_000)
   })
 })
