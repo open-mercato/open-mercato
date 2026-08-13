@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
+
+Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**
+
+**The full-app compose stacks no longer default `JWT_SECRET`.** `docker-compose.fullapp.yml` and its create-app template twin used to resolve `${JWT_SECRET:-JWT}`, so a deployment that never set the variable signed its tokens with the literal `JWT` — a value published in this repository. Both files now declare `${JWT_SECRET:?…}`, so `docker compose up` fails fast with an explanatory message instead of starting an impersonatable stack. The same files also stopped pinning `NODE_ENV: development` over an image whose `runner` stage already sets `NODE_ENV=production`; they now default to `${NODE_ENV:-production}`. The Next.js server child was already insulated (the CLI forces production for it), but the pin leaked into every other process in those containers — `mercato init`, migrations, the auto-spawned worker supervisor and scheduler, and the entire MCP sidecar — which is where a `NODE_ENV`-keyed safety check like the one below would otherwise have downgraded itself to a warning.
+
+Set the variable in the `.env` file **next to the compose file** (the repository root) — not in `apps/mercato/.env`, which cannot override a variable the compose file passes into the container:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+**The app refuses to run in production with an unsafe signing secret.** At startup (and on every secret read, which covers worker, scheduler, and CLI processes) Open Mercato now rejects a `JWT_SECRET` — or a per-audience `JWT_<AUDIENCE>_SECRET` override — that is missing, shorter than 32 characters, or one of the placeholder values shipped in this repository's examples, including the old 32-character guide value `your-secure-jwt-secret-change-me`. Outside production the same conditions only log a warning, so local development is unaffected. If your production deployment currently uses a short-but-real secret, rotate it to `openssl rand -hex 32` **before** upgrading; rotating logs every user out.
+
+**Legacy fallback now requires a fixed cutover.** `JWT_LEGACY_GRACE_MINUTES` was read as an on/off switch: any value other than `0`, `false`, or `off` enabled raw-secret verification of pre-migration tokens *forever*, and those tokens are accepted without a session id — so they survive logout and password reset. The value is now honored as minutes measured against the token's own `iat`, but that relative age is not sufficient by itself because anyone holding the former secret can choose a fresh `iat`. Raw-secret fallback therefore stays disabled unless `JWT_LEGACY_CUTOVER_AT` contains a valid future ISO-8601 instant. Tokens issued more than 60 seconds in the future are also rejected.
+
+For a rolling deployment that must preserve pre-migration sessions, set both `JWT_LEGACY_GRACE_MINUTES=480` and a near-term `JWT_LEGACY_CUTOVER_AT` before rollout. The 480-minute age cap remains the default once a cutover is configured. Deployments that have already migrated should set `JWT_LEGACY_GRACE_MINUTES=0`; fresh installs have no pre-migration tokens and should start there. Without a valid cutover, pre-migration tokens are rejected and those users must sign in again.
+
 ### Login rejects users with `isConfirmed: false` (#4541)
 
 `POST /api/auth/login` and `resolveCanonicalStaffAuthContext` now treat `isConfirmed === false` as "deactivated" and refuse the session, returning the same generic `401` as a wrong password. Deactivating a user through `PUT /api/auth/users` with `{ isConfirmed: false }` additionally deletes that user's `sessions` rows, so existing tokens stop resolving immediately.
