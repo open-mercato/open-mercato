@@ -57,17 +57,17 @@ Add two compact lines to both AGENTS.md variants:
 
 ### Phase 1: Standalone root routing guidance
 
-- [ ] 1.1 Missing-skill install-skills line in both AGENTS.md variants
-- [ ] 1.2 Fact-sheet oversize read hint in both AGENTS.md variants
+- [x] 1.1 Missing-skill install-skills line in both AGENTS.md variants — 8e8d16ff4
+- [x] 1.2 Fact-sheet oversize read hint in both AGENTS.md variants — 8e8d16ff4
 
 ### Phase 2: Reference Display Rule
 
-- [ ] 2.1 SPEC-000 template UI-contract rule
-- [ ] 2.2 backend-ui.md cross-record reference rule
+- [x] 2.1 SPEC-000 template UI-contract rule — 0c178c7e1
+- [x] 2.2 backend-ui.md cross-record reference rule — 0c178c7e1
 
 ### Phase 3: om-module-scaffold inventory pointer
 
-- [ ] 3.1 SKILL.md location note for surface-inventory.json
+- [x] 3.1 SKILL.md location note for surface-inventory.json — 5f10d6d24
 
 ### Phase 4: Validation
 
