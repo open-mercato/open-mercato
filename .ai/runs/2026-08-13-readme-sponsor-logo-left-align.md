@@ -35,15 +35,17 @@ Make the Catch The Tornado sponsor logo in the main `README.md` left-aligned, ma
 
 ## Progress
 
+PR: #5258
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix README alignment (develop)
 
-- [ ] 1.1 Left-align the Catch The Tornado logo in `README.md` and fix the double-slash path
+- [x] 1.1 Left-align the Catch The Tornado logo in `README.md` and fix the double-slash path — 326e66bd0
 
 ### Phase 2: Validate and finalize PR
 
-- [ ] 2.1 Docs-only validation gate (diff re-read; no markdown lint command configured) and PR finalization
+- [x] 2.1 Docs-only validation gate (diff re-read; no markdown lint command configured) and PR finalization — diff re-read clean, markup mirrors the Blacksmith entry
 
 ### Phase 3: Backport to main
 
