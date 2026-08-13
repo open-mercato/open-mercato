@@ -1908,6 +1908,66 @@ describe('all generated files are valid with varying subsets', () => {
     expect(sudoTargets).toContain('sudoTargets')
   })
 
+  it('rejects generator plugins that declare the same output file', async () => {
+    scaffoldModule(tmpDir, 'security_ext', 'pkg', ['security.mfa-providers.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'security_ext', 'generators.ts'),
+      SECURITY_GENERATORS_CONTENT.replace(
+        "outputFileName: 'security-sudo.generated.ts'",
+        "outputFileName: 'security-mfa-providers.generated.ts'",
+      ),
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'security_ext', from: '@open-mercato/core' },
+    ])
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      "declare the same output file 'security-mfa-providers.generated.ts'",
+    )
+  })
+
+  it('rejects runtime imports in generators.ts before loading the plugin', async () => {
+    scaffoldModule(tmpDir, 'security_ext', 'pkg', ['security.mfa-providers.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'security_ext', 'generators.ts'),
+      `import { randomUUID } from 'node:crypto'\n${SECURITY_GENERATORS_CONTENT}`,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'security_ext', from: '@open-mercato/core' },
+    ])
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      'generators.ts may use only `import type`',
+    )
+  })
+
+  it('repairs stale plugin output and removes it when the declaring module is disabled', async () => {
+    scaffoldModule(tmpDir, 'security_ext', 'pkg', ['security.mfa-providers.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'security_ext', 'generators.ts'),
+      SECURITY_GENERATORS_CONTENT,
+    )
+    const activeResolver = createMockResolver(tmpDir, [
+      { id: 'security_ext', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver: activeResolver, quiet: true })
+
+    const outputPath = path.join(tmpDir, 'output', 'generated', 'security-mfa-providers.generated.ts')
+    const checksumPath = path.join(tmpDir, 'output', 'generated', 'security-mfa-providers.generated.checksum')
+    const manifestPath = path.join(tmpDir, 'output', 'generated', '.generator-plugin-outputs.json')
+    const expected = fs.readFileSync(outputPath, 'utf8')
+    fs.writeFileSync(outputPath, 'stale output\n')
+
+    await generateModuleRegistry({ resolver: activeResolver, quiet: true })
+    expect(fs.readFileSync(outputPath, 'utf8')).toBe(expected)
+
+    const disabledResolver = createMockResolver(tmpDir, [])
+    await generateModuleRegistry({ resolver: disabledResolver, quiet: true })
+    expect(fs.existsSync(outputPath)).toBe(false)
+    expect(fs.existsSync(checksumPath)).toBe(false)
+    expect(fs.existsSync(manifestPath)).toBe(false)
+  })
+
   it('notifications.generated.ts uses typed fallback for legacy "types" export', async () => {
     scaffoldModule(tmpDir, 'notif_mod', 'pkg', ['notifications.ts'])
     const resolver = createMockResolver(tmpDir, [

@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.7 → 0.6.8 (unreleased)
+## 0.6.7 → 0.7.0 (2026-08-12)
 
 ### Login rejects users with `isConfirmed: false` (#4541)
 
@@ -134,6 +134,159 @@ const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
 **Action for authors of stored workflow definitions:** an activity that previously "succeeded" while silently shipping an unresolved template now fails. That is almost always the bug becoming visible rather than a new one, but there is a genuine regression case: a definition that deliberately passes brace-delimited text through to a field the target command accepts verbatim — a message body, a note, or a template meant to be rendered later downstream. The guard cannot tell that apart from a missing context key, so such a definition now fails the activity.
 
 If you hit this, the fix is to stop routing literal `{{...}}` text through `UPDATE_ENTITY` input or `EMIT_EVENT` payload fields — escape it, or move the templating to the consumer that is supposed to render it. Search stored definitions for `{{` in activity `config.input` and `config.payload` before upgrading if you want to find these ahead of time.
+
+### Credential-free integrations now resolve as configured (#4897)
+
+An integration whose effective credentials schema declares `fields: []` now resolves through the
+payment-gateway descriptor as credential-free: `requiresConfiguration: false`, `isConfigured: true`,
+and `configurationStatus: 'unmanaged'`. Previously the descriptor attempted a credential lookup and
+reported `requiresConfiguration: true`, `isConfigured: false`, and
+`configurationStatus: 'missing_credentials'`, which could disable an otherwise usable provider.
+
+**Action for integration authors:** none. Providers that declare one or more credential fields keep
+the existing credential and state checks. If an integration inherits credentials from its bundle,
+the bundle's effective schema is still used, so declaring `fields: []` on the integration does not
+bypass required bundle credentials.
+
+### `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` is removed
+
+The `example` module's `widgets/injection-table.ts` used to export a value chosen by a
+ternary — `(NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED || NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED)
+? { …always, …crossModule } : always` — and `widgets/components.ts` exported a
+conditionally spread array keyed on `NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED`.
+Both exports are now single, unconditional literals.
+
+The reason is not cosmetic. The module fact extractor
+(`packages/cli/src/lib/generators/module-extension-facts.ts` → `readRootObject` /
+`extractObjectConvention` → `staticValue`) folds only statically known values, and it folds a
+ternary solely when both branches are deeply equal. Neither export qualified, so the
+framework's own reader published **zero** contributions for both files: every scaffolded app
+and every agent fact-sheet saw the canonical reference module as contributing no widget
+injection and no component override at all. Running the real extractor over the module now
+reads 26 injection-table contributions and 3 component-override contributions where it
+previously read 0 and 0.
+
+**What replaces the flag.** Nothing, by design. The cross-module entries (customers, catalog,
+sales) ship unconditionally, and they are inert without their host module: each of them is
+keyed on a spot id that only `customers`, `catalog`, or `sales` renders, and a module that is
+not installed renders no spot. The change also adds nothing to the widget registry — the
+loader reads widget entries (`loadWidgetEntries`) and injection tables (`loadInjectionTable`)
+from two independent sources, so every `example` widget was already enumerated regardless of
+what the table said. On top of that, `injection-loader.ts` skips any widget whose
+`metadata.requiredModules` names a module that is not in the enabled set; the `example`
+widgets do not declare `requiredModules` today, which is the mechanism to reach for if you
+copy one of these entries into a widget that calls another module's API directly. The two
+checkout demo overrides also register unconditionally, but their `wrapper`
+returns the original component **by identity** while
+`NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED` is off. Because
+`resolveRegisteredComponent` does `resolved = override.wrapper(resolved)`, an identity return
+is indistinguishable from no override, so the rendered DOM is unchanged and that flag keeps
+its existing meaning and default.
+
+**Which behavior this settles on.** The documented default was misleading. `apps/mercato/.env.example`
+ships `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=true`, and that flag was OR-ed into the
+same condition, so any app started from the monorepo `.env.example` already had every
+cross-module example injection **enabled** — directly contradicting the
+`NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false` line and its `(default: false)` comment
+sitting a few lines below it. This change settles on the behavior those apps were actually
+getting: cross-module example injections are always on. It also decouples them from
+`NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED`, which is a `CrudForm` event-emission switch
+and never should have gated an injection table.
+
+**This is a real default change for scaffolded standalone apps.** An app created by
+`create-mercato-app` sets neither flag, so before this change it registered only the
+example-owned demo surfaces; now it also registers the cross-module entries targeting
+`customers`, `catalog` and `sales`. They stay inert unless the host module is enabled — a
+cross-module entry is keyed on a spot id only its host renders — but the registrations are
+present, and the UMES DevTool will list them. If you want a scaffolded app to carry the
+example's source without its cross-module injections, remove the entries from
+`src/modules/example/widgets/injection-table.ts` in your app, or disable the `example`
+module entirely (it ships unregistered in every built-in preset).
+
+**Action for downstream apps:** delete `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` from
+your `.env` files and from any CI/deployment environment that exports it; it is now dead
+configuration and setting it has no effect. It has been removed from
+`apps/mercato/.env.example` (`packages/create-app/template/.env.example` never documented it).
+If you copied `example/widgets/injection-table.ts` into your own module and kept the
+`false` branch to hide the cross-module entries, delete the entries you do not want instead of
+gating them — an env-gated export is unreadable to the fact extractor and will make your
+module look empty to the agent harness.
+
+**Action for module authors generally:** export `injectionTable` and `componentOverrides` as
+plain literals. Gate behavior *inside* a widget or wrapper, or declare
+`metadata.requiredModules` on the widget; do not branch the exported registry value itself.
+
+
+### Generated facts gain a v2 sidecar, and extension joins now derive irregular plurals (#4897)
+
+`BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
+generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
+exact public IDs, as STABLE once published. Four changes land against that surface and the
+adjacent generator/query types. Three correct values that named something nonexistent, and the
+fourth fixes a join that resolved to a table that does not exist, but correctness does not erase
+the published contract: each is a visible value change for anyone who reads the generated facts
+or extends an entity.
+
+The generated-facts boundary is now explicitly versioned. `.ai/guides/module-facts.json` remains
+the v1 compatibility artifact: its stable extension-surface arrays, exact contribution IDs,
+classification modes, and correlation behavior are generated with the legacy reader contract.
+`.ai/guides/module-facts.v2.json` is an additive sibling containing the corrected reader facts.
+Newly generated harness consumers prefer v2 and fall back to v1, while downstream tools that have
+not migrated keep reading the original path without observing stable-value changes. Both files
+retain the frozen top-level `Record<moduleId, ModuleFactsJsonEntry>` shape; the version is carried
+by the filename rather than an invented non-module key.
+
+**Action for direct extractor callers:** omission of `factsContractVersion` selects v2. Pass
+`factsContractVersion: 1` only while reproducing the legacy sidecar during the compatibility
+window; migrate comparisons and pinned IDs to v2, then remove the explicit v1 selection.
+
+**1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
+`packages/cli/src/lib/generators/module-extension-facts.ts` now folds
+`ComponentReplacementHandles.section('ui.detail', 'NotesSection')` into the handle the runtime
+actually registers, so the contribution publishes `section:ui.detail.NotesSection` where it
+previously published `ui.detail`. The old value named no component — `ui.detail` is the section
+namespace, not a component id — so nothing could have correlated against it successfully. Still,
+it is an exact public ID changing: a scaffolded app or downstream tool that pinned the old string
+should move to `module-facts.v2.json` and repin. The same applies to the sibling `page`,
+`dataTable`, and `crudForm` formulas. The legacy sidecar keeps the old strings during the bridge.
+
+**2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
+The component-override reader used to discriminate `mode` on an `entry.props` property that the
+`ComponentOverride` union has no member for; together with the other reader fixes in this change it
+now discriminates on the union's real members (`wrapper` / `propsTransform` / `replacement`).
+Measured across a 55-module corpus, `section:auth.login.form` (enterprise `security`) is the only
+leaf whose value changes in v2; every other contribution keeps the mode it published. `wrapper` is
+what that entry has always done at runtime — the v1 fact sheet was wrong, not the module. The v1
+sidecar continues to publish `replace` during the bridge.
+
+**3. Recovered injection-table contributions (additive).** The extractor silently dropped every
+string-form and single-object-form slot declaration, hiding twelve real contributions across six
+modules — `integrations` published none at all. Those contributions appear in v2. This is additive:
+no previously published ID disappears or changes. The v1 sidecar preserves its published arrays;
+the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold the corrected projection.
+
+**4. `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`.**
+`packages/shared/src/lib/query/engine.ts` derived an extension's physical table by appending an
+`s` to the entity segment, while the same file already used `pluralizeBaseName` for every other
+table-name fallback. Any third-party extension whose entity segment ends in `y` therefore joined
+a table that does not exist: `foo:company` derived `companys`. It now derives `companies`.
+
+**Action for module authors:** this is a runtime behavior change in the shared query engine. If
+you worked around the old derivation by adding a `y`-ending entity's real table under
+`EntityExtension.table`, that declaration is now redundant but still honored — an explicit
+`table` always wins, so nothing breaks either way. Keep `table` for plurals no guesser can win
+(`person` → `people`) and for any entity whose `@Entity({ tableName })` simply does not match the
+derived name. Behavior is unchanged for every entity segment that does not end in `y`.
+
+**Type-surface note (#4897).** `ExtractAllModuleFactsResult`
+(`packages/cli/src/lib/generators/module-facts.ts`) gains optional
+`unresolvedFirstPartyTargets?: string[]` and `factCoverage?: ModuleFactCoverageFamily[]` fields.
+The implementation always populates both, while optionality preserves source compatibility for
+existing constructors, mocks, and wrappers. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
+in the other direction and needs no action: `headers` accepts a function in addition to
+`string[]`, and `row` gains a second `ctx` parameter, so every existing `(item) => …`
+implementation stays assignable.
+
 
 ### Settings sections are identified by their untranslated group id (#4843)
 

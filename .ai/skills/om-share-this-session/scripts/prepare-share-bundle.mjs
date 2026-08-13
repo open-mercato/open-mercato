@@ -168,10 +168,7 @@ function sanitizeString(input, key, state) {
   value = replaceMatches(value, /\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{1,4}\b/gi, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '«redacted:identifier»', state, 'identifiers')
   value = replaceMatches(value, /\b[0-9a-f]{64,}\b/gi, '«redacted:hex-secret»', state, 'secrets')
-  const phonePattern = key === 'generated-file-path'
-    ? /(?<![A-Za-z0-9_])\+?\d[\d ()-]{7,}\d(?![A-Za-z0-9_])/g
-    : /\+?\d[\d ()-]{7,}\d/g
-  value = value.replace(phonePattern, (candidate) => {
+  value = value.replace(/(?<![A-Za-z0-9_])\+?\d[\d ()-]{7,}\d(?![A-Za-z0-9_])/g, (candidate) => {
     const digits = candidate.replace(/\D/g, '')
     if (digits.length < 9 || digits.length > 15) return candidate
     countReplacement(state, 'pii')

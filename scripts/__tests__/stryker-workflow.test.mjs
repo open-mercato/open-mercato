@@ -42,7 +42,7 @@ test('skips entirely when the diff contains nothing in scope', () => {
 
 test('one slow package never hides another, and a run is time-bounded', () => {
   assert.equal(workflow.jobs.mutate.strategy['fail-fast'], false)
-  assert.equal(workflow.jobs.mutate['timeout-minutes'], 20)
+  assert.equal(workflow.jobs.mutate['timeout-minutes'], 60)
 })
 
 test('fans out over the matrix the scope job computed', () => {

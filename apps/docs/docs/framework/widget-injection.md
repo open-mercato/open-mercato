@@ -275,17 +275,14 @@ When enabled (`true`, default), `CrudForm` emits:
 
 The `example` module ships demo injection widgets (CRUD validation panel, sales todos tab, catalog SEO report, sample menu items).
 
-These widgets are disabled by default. Enable them with:
+These widgets are registered unconditionally. `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`
+used to gate them and **no longer exists** — the registry is now a plain static declaration so the
+module fact extractor can read it (a conditional export folded to nothing, and every entry was
+invisible to generated facts).
 
-```bash
-NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
-```
-
-Default:
-
-```bash
-NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false
-```
+Registering an entry is not the same as rendering one: a cross-module entry is keyed on a spot id
+that only its host module renders, so it stays inert when that module is absent. To gate a widget on
+another module explicitly, declare `metadata.requiredModules` — `injection-loader.ts` enforces it.
 
 ### Operation Progress Tracking
 

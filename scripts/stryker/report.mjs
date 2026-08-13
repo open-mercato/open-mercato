@@ -56,23 +56,10 @@ function sliceOriginal(source, location) {
   return [first, ...middle, last].join('\n')
 }
 
-/**
- * Survivor cells carry arbitrary source text into a markdown table that is also
- * posted as a PR comment, so two characters have to be neutralised: `|` would break
- * the table structure, and a backtick would close the inline code span the cell
- * wraps its content in.
- *
- * Escaping the backtick is also what keeps `@mention` text inert. GitHub does not
- * linkify a mention inside a code span, so an intact span means a mutated line
- * containing `@someone` renders as text instead of notifying that person — the span
- * only leaks if a stray backtick ends it early, which is exactly what this prevents.
- */
-function toSingleLine(text) {
-  return String(text ?? '')
-    .replace(/\s+/g, ' ')
-    .replace(/\|/g, '\\|')
-    .replace(/`/g, '\\`')
-    .trim()
+function toInlineCode(text) {
+  const singleLine = String(text ?? '').match(/\S+/gu)?.join(' ') ?? ''
+  const encoded = Array.from(singleLine, (character) => `&#${character.codePointAt(0)};`).join('')
+  return `<code>${encoded}</code>`
 }
 
 /**
@@ -123,7 +110,7 @@ export function collectSurvivors(report) {
 export function renderMarkdown(report, options = {}) {
   const { packageName = null, enforced = false, droppedFiles = [] } = options
   const { survivors, totals, score } = collectSurvivors(report)
-  const heading = packageName === null ? '## Mutation testing' : `## Mutation testing — \`${packageName}\``
+  const heading = packageName === null ? '## Mutation testing' : `## Mutation testing — ${toInlineCode(packageName)}`
   const lines = [heading, '']
 
   if (score === null) {
@@ -156,8 +143,9 @@ export function renderMarkdown(report, options = {}) {
     lines.push('| --- | --- | --- | --- |')
     for (const survivor of survivors) {
       lines.push(
-        `| \`${survivor.file}:${survivor.line}:${survivor.column}\` | ${survivor.mutator} | ` +
-          `\`- ${toSingleLine(survivor.original)}\` | \`+ ${toSingleLine(survivor.replacement)}\` |`,
+        `| ${toInlineCode(`${survivor.file}:${survivor.line}:${survivor.column}`)} | ` +
+          `${toInlineCode(survivor.mutator)} | - ${toInlineCode(survivor.original)} | ` +
+          `+ ${toInlineCode(survivor.replacement)} |`,
       )
     }
     lines.push('')
@@ -173,7 +161,7 @@ export function renderMarkdown(report, options = {}) {
     lines.push('')
     lines.push(
       `**Not measured:** the file cap was reached, so ${droppedFiles.length} changed file(s) ` +
-        `were not mutated: ${droppedFiles.map((file) => `\`${file}\``).join(', ')}.`,
+        `were not mutated: ${droppedFiles.map((file) => toInlineCode(file)).join(', ')}.`,
     )
   }
 
@@ -209,7 +197,7 @@ export function parseReportArgs(argv) {
  * the summary blank buries its only explanation in the step log.
  */
 export function renderMissingReportMarkdown(packageName = null) {
-  const suffix = packageName === null ? '' : ` for \`${packageName}\``
+  const suffix = packageName === null ? '' : ` for ${toInlineCode(packageName)}`
   return (
     `## Mutation testing\n\nNo mutation report was produced${suffix}. ` +
     'The mutation run did not get far enough to write `mutation.json` — check the ' +
