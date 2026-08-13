@@ -18,6 +18,11 @@ type StoredJob<T> = QueuedJob<T> & {
   attemptCount?: number
 }
 
+type QueueFileIdentity = {
+  device: number
+  inode: number
+}
+
 function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
   if (!payload || typeof payload !== 'object') return false
   const scopedPayload = payload as { tenantId?: unknown; organizationId?: unknown; jobType?: unknown }
@@ -31,8 +36,10 @@ function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
   return true
 }
 
-/** Default polling interval in milliseconds */
+/** Polling interval while delayed or retrying work remains queued. */
 const DEFAULT_POLL_INTERVAL = 1000
+/** Idle safety interval for missed filesystem watcher events. */
+const DEFAULT_FALLBACK_POLL_INTERVAL = 5000
 const DEFAULT_LOCAL_QUEUE_BASE_DIR = '.mercato/queue'
 const DEFAULT_MAX_ATTEMPTS = 3
 const RETRY_BACKOFF_BASE_MS = 1000
@@ -120,10 +127,17 @@ export function createLocalQueue<T = unknown>(
   // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
   const concurrency = options?.concurrency ?? 1
   const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
+  const fallbackPollInterval = Math.max(pollInterval, DEFAULT_FALLBACK_POLL_INTERVAL)
 
   // Worker state for continuous polling
   let pollingTimer: ReturnType<typeof setInterval> | null = null
+  let queuedPollTimer: ReturnType<typeof setTimeout> | null = null
+  let queueWatcher: fs.FSWatcher | null = null
+  let queueWatcherIdentity: QueueFileIdentity | null = null
+  let watcherRefreshChain: Promise<void> = Promise.resolve()
+  let hasQueuedJobs = false
   let isProcessing = false
+  let pollRequested = false
   let activeHandler: JobHandler<T> | null = null
   const inFlightJobIds = new Set<string>()
 
@@ -439,6 +453,7 @@ export function createLocalQueue<T = unknown>(
       const jobsRead = await readQueue()
       return { state: stateRead, jobs: jobsRead }
     })
+    hasQueuedJobs = jobs.length > 0
 
     const pendingJobs = jobs.filter((job) => {
       if (!job.availableAt) return true
@@ -503,6 +518,7 @@ export function createLocalQueue<T = unknown>(
             .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
             .map((j) => retryUpdates.get(j.id) ?? j)
           await writeQueue(updatedJobs)
+          hasQueuedJobs = updatedJobs.length > 0
 
           const newState: LocalState = {
             lastProcessedId: lastJobId,
@@ -524,18 +540,94 @@ export function createLocalQueue<T = unknown>(
   /**
    * Poll for and process new jobs.
    */
-  async function pollAndProcess(): Promise<void> {
-    // Skip if already processing to avoid concurrent file access
-    if (isProcessing || !activeHandler) return
+  async function pollAndProcess(rethrow = false): Promise<void> {
+    if (!activeHandler) return
+    if (isProcessing) {
+      pollRequested = true
+      return
+    }
 
     isProcessing = true
     try {
-      await processBatch(activeHandler)
+      do {
+        pollRequested = false
+        const handler = activeHandler
+        if (!handler) break
+        await processBatch(handler)
+      } while (pollRequested)
     } catch (error) {
+      if (rethrow) throw error
       logger.error('Polling error', { err: error })
     } finally {
       isProcessing = false
+      scheduleQueuedPoll()
     }
+  }
+
+  function scheduleQueuedPoll(): void {
+    if (!activeHandler || !hasQueuedJobs) {
+      if (queuedPollTimer) {
+        clearTimeout(queuedPollTimer)
+        queuedPollTimer = null
+      }
+      return
+    }
+    if (queuedPollTimer) return
+    queuedPollTimer = setTimeout(() => {
+      queuedPollTimer = null
+      void pollAndProcess()
+    }, pollInterval)
+  }
+
+  function closeQueueWatcher(): void {
+    if (queueWatcher) {
+      queueWatcher.close()
+      queueWatcher = null
+    }
+    queueWatcherIdentity = null
+  }
+
+  function refreshQueueWatcher(): Promise<void> {
+    const refresh = watcherRefreshChain.then(async () => {
+      if (!activeHandler) return
+      try {
+        await ensureDir()
+        const stats = await fsp.stat(queueFile)
+        const nextIdentity = { device: stats.dev, inode: stats.ino }
+        if (
+          queueWatcher
+          && queueWatcherIdentity?.device === nextIdentity.device
+          && queueWatcherIdentity.inode === nextIdentity.inode
+        ) {
+          return
+        }
+
+        closeQueueWatcher()
+        const watcher = fs.watch(queueFile, (eventType) => {
+          if (eventType === 'rename') {
+            queueWatcherIdentity = null
+            void refreshQueueWatcher()
+          }
+          void pollAndProcess()
+        })
+        watcher.on('error', (err) => {
+          logger.error('Queue watch error; fallback polling remains active', { err })
+          if (queueWatcher === watcher) {
+            closeQueueWatcher()
+          }
+        })
+        if (!activeHandler) {
+          watcher.close()
+          return
+        }
+        queueWatcher = watcher
+        queueWatcherIdentity = nextIdentity
+      } catch (err) {
+        logger.error('Failed to watch queue file; fallback polling remains active', { err })
+      }
+    })
+    watcherRefreshChain = refresh.catch(() => undefined)
+    return refresh
   }
 
   async function process(
@@ -547,18 +639,26 @@ export function createLocalQueue<T = unknown>(
       return processBatch(handler, options)
     }
 
+    if (activeHandler) {
+      await close()
+    }
+
     // Start continuous polling mode (like BullMQ Worker)
     activeHandler = handler
 
-    // Process any pending jobs immediately
-    await processBatch(handler)
+    try {
+      await refreshQueueWatcher()
+      await pollAndProcess(true)
+    } catch (error) {
+      await close()
+      throw error
+    }
 
-    // Start polling interval for new jobs
     pollingTimer = setInterval(() => {
-      pollAndProcess().catch((err) => {
+      refreshQueueWatcher().then(() => pollAndProcess()).catch((err) => {
         logger.error('Poll cycle error', { err })
       })
-    }, pollInterval)
+    }, fallbackPollInterval)
 
     logger.info('Worker started', { concurrency })
 
@@ -571,6 +671,8 @@ export function createLocalQueue<T = unknown>(
       const jobs = await readQueue()
       const removed = jobs.length
       await writeQueue([])
+      hasQueuedJobs = false
+      scheduleQueuedPoll()
       // Reset state but preserve counts for historical tracking
       const state = await readState()
       await writeState({
@@ -589,18 +691,25 @@ export function createLocalQueue<T = unknown>(
       if (removed > 0) {
         await writeQueue(retainedJobs)
       }
+      hasQueuedJobs = retainedJobs.length > 0
+      scheduleQueuedPoll()
       return { removed }
     })
   }
 
   async function close(): Promise<void> {
+    activeHandler = null
+    if (queuedPollTimer) {
+      clearTimeout(queuedPollTimer)
+      queuedPollTimer = null
+    }
+    closeQueueWatcher()
+
     // Stop polling timer
     if (pollingTimer) {
       clearInterval(pollingTimer)
       pollingTimer = null
     }
-    activeHandler = null
-
     // Wait for any in-progress processing to complete (with timeout)
     const SHUTDOWN_TIMEOUT = 5000
     const startTime = Date.now()
