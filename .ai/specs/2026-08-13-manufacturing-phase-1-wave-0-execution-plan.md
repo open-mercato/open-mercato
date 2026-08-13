@@ -61,13 +61,13 @@ The first two workstreams can begin in parallel. The third can define contracts 
 |---|---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Yes | Parent roadmap | Consistent implementation specs; no accidental hard dependency or duplicated ownership |
 | P1.1 | Decouple WMS from Sales | `wms` | `sales`, `feature_toggles`, commands, events, API routes, widgets, module metadata | Yes | Backward-compatibility plan | WMS-only and Manufacturing-only deployments; future Procurement and ERP consumers |
-| P1.2 | Establish minimal plant/site foundation | New `sites` foundation | auth/organization scope, `wms`, number ranges | Yes | Tenant/organization invariants | Stable `siteId`, site-to-warehouse roles, production/batch/lot number ranges |
+| P1.2 | Establish minimal production-site and warehouse-role model | `wms` | auth/organization scope and WMS warehouse topology | Yes | Tenant/organization invariants | Stable `siteId` and effective site-to-warehouse roles; number ranges remain deferred to the first production-order lifecycle |
 | P1.3 | Establish production quantity, UoM, and precision rules | `catalog` + `wms` | UoM conversions, inventory balances, production posting inputs | Yes | Current precision audit | Safe fractional consumption, conversion, partial completion, reversal, and drift tests |
 | P1.4 | Author draft BOMs | Discrete definition capability in future `production` | `catalog` | Yes | Product/variant and UoM references | Editable component structures and versioned drafts without inventory effects |
 | P1.5 | Author draft routings and operations | Discrete definition capability in future `production` | `resources`, `planner` | Yes | Resource/calendar ownership decision | Editable operation sequences, routing times, and work-center applicability |
 | P1.6 | Establish work-center extension boundary | `manufacturing` kernel / definition capability | `resources`, `planner`; assets and workforce as optional providers | Yes | P1.0 | Work centers without duplicate resource or calendar master data |
-| P1.7 | Define released-definition lifecycle and immutable snapshots | `manufacturing` kernel + future `production` | `sites`, `catalog`, attachments/documents, P1.3 | Yes as contract work; implementation follows prerequisites | P1.2, P1.3, P1.6 | Released BOM/routing/instruction package and safe order creation |
-| P1.8 | Add production-capable WMS posting contract | `wms` | `manufacturing`, `sites`, `catalog`, command/event contracts | Yes | P1.1–P1.3 | Semantic reservation, issue, return, backflush, output receipt, scrap, and reversal postings |
+| P1.7 | Define released-definition lifecycle and immutable snapshots | `manufacturing` kernel + future `production` | `wms` production sites, `catalog`, attachments/documents, P1.3 | Yes as contract work; implementation follows prerequisites | P1.2, P1.3, P1.6 | Released BOM/routing/instruction package and safe order creation |
+| P1.8 | Add production-capable WMS posting contract | `wms` | `manufacturing`, production sites, `catalog`, command/event contracts | Yes | P1.1–P1.3 | Semantic reservation, issue, return, backflush, output receipt, scrap, and reversal postings |
 | P1.9 | Define manufacturing facts and ERP–MES confirmations | `manufacturing` kernel | `events`, `queue`, WMS posting IDs, optional MES/edge provider | Yes as contract and spike work | P1.0, P1.8 for final correlation | Append-only accepted facts, idempotency, replay, compensation, and offline confirmation handling |
 | P1.10 | Add first discrete production-order lifecycle | `production` | `manufacturing`, `sites`, released-definition contract | No as a shippable feature until P1.7 is complete | P1.2, P1.7, P1.9 | Orders created from an immutable released snapshot; single-level first core |
 | P1.11 | Add stock-affecting production execution | `production` | `wms`, `manufacturing`, `sites`, P1.3 | No | P1.8, P1.9, P1.10 | Material issue/return/backflush, output receipt, scrap, reversal, and reconciliation |
@@ -100,7 +100,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 | Area | Authoritative owner | Manufacturing may do | Manufacturing must not do |
 |---|---|---|---|
 | Product, variant, UoM | `catalog` | Reference and snapshot released values/conversions | Duplicate product or UoM masters |
-| Plant identity and warehouse roles | `sites` | Reference site and role snapshots | Treat a warehouse as permanent plant identity |
+| Production-site identity and warehouse roles | `wms` | Reference site and role snapshots | Treat a warehouse as permanent plant identity |
 | Physical stock, lots, serials, reservations, movements | `wms` | Request semantic production postings and store returned posting IDs | Maintain a competing inventory ledger or committed-stock balance |
 | Shared resource identity and base capacity | `resources` | Add manufacturing work-center extensions by IDs | Duplicate resource master data |
 | Availability and calendars | `planner` | Consume applicable calendar inputs | Become calendar master |
@@ -111,8 +111,8 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | Sequence | Work items | Reason |
 |---|---|---|
-| First parallel increment | P1.1 WMS–Sales decoupling, P1.2 sites discovery/design, P1.4 BOM drafts, P1.5 routing drafts, P1.6 resource/work-center boundary | These have high learning value and do not require stock-affecting production execution |
-| Second parallel increment | P1.2 sites implementation, P1.3 precision rules, P1.7 release/snapshot contract, P1.8 WMS posting contract, P1.9 facts/MES contract | These establish the contracts that turn drafts into safe operational data |
+| First parallel increment | P1.1 WMS–Sales decoupling, P1.2 production-site discovery/design, P1.4 BOM drafts, P1.5 routing drafts, P1.6 resource/work-center boundary | These have high learning value and do not require stock-affecting production execution |
+| Second parallel increment | P1.2 production-site implementation, P1.3 precision rules, P1.7 release/snapshot contract, P1.8 WMS posting contract, P1.9 facts/MES contract | These establish the contracts that turn drafts into safe operational data |
 | Validation increment | Throwaway vertical spike: one site, one discrete order, explicit issue, backflush, output receipt, minimum facts | Validates atomicity, precision, lot numbering, and reversal before public contracts freeze |
 | First shippable production increment | P1.10 production order lifecycle followed by P1.11 execution | Only after the prerequisite contracts and spike outcomes are accepted |
 
@@ -153,7 +153,7 @@ The following future boundaries are binding because they originate in the parent
 Phase 1/Wave 0 is ready to approve the detailed discrete `production` specification only when the parent roadmap's fourteen gates have evidence. At a minimum, the evidence must demonstrate:
 
 1. WMS operates without Sales and the optional WMS–Sales flow retains current behaviour.
-2. A site and effective site-to-warehouse role mapping are available with tenant/org/site isolation.
+2. A WMS-owned production site and effective site-to-warehouse role mapping are available with tenant/org/site isolation.
 3. Released definitions and orders preserve immutable, versioned snapshots with valid-time semantics.
 4. Production WMS postings are semantic, idempotent, reversible, reconcilable, and safe under precision reference cases.
 5. Facts and MES confirmation handling cover partial, duplicate, out-of-order, offline, rejected, reversed, and replayed messages.
@@ -169,3 +169,4 @@ The WMS–Sales work is especially contract-sensitive: current sales-order event
 ## Changelog
 
 - 2026-08-13: Created Phase 1/Wave 0 execution plan from the approved Manufacturing roadmap, separating early manufacturing-definition draft work from WMS-dependent execution work.
+- 2026-08-13: Assigned the minimal `ProductionSite` and site-to-warehouse-role model to `wms`; deferred number ranges until the first production-order lifecycle.
