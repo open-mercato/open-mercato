@@ -352,3 +352,109 @@ describe('ingestInboundMessageCommand — concurrent-insert race (M3)', () => {
     expect(result.status).toBe('duplicate')
   })
 })
+
+describe('ingestInboundMessageCommand — HTML body normalization', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'imap' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function makeInput(body: string, bodyFormat: 'text' | 'html'): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'imap',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-html-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'jane@example.com',
+        body,
+        bodyFormat,
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups() {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // no duplicate ExternalMessage
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'imap',
+        channelType: 'email',
+        userId: 'u-1',
+      } as never) // channel
+      .mockResolvedValue(null as never) // conversation + mapping → created
+  }
+
+  function composedInput(commandBus: { execute: jest.Mock }) {
+    const call = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
+    expect(call).toBeDefined()
+    return (call as unknown[])[1] as { input: { body: string; bodyFormat: string } }
+  }
+
+  it('converts an HTML body to plain text instead of relabelling it as text', async () => {
+    // `messages` renders bodies as plain text, so an HTML body that is merely
+    // relabelled surfaces raw markup (doctype, <style> blocks) in the inbox.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const html = [
+      '<!DOCTYPE html><html><head>',
+      '<style>body { margin: 0; font-size: 14px; }</style>',
+      '<script>console.log("tracking")</script>',
+      '</head><body><p>Cześć,</p><p>w nawiązaniu do spotkania.</p></body></html>',
+    ].join('')
+
+    await ingestInboundMessageCommand.execute(makeInput(html, 'html') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toContain('Cześć,')
+    expect(composed.body).toContain('w nawiązaniu do spotkania.')
+    expect(composed.body).not.toContain('<!DOCTYPE')
+    expect(composed.body).not.toContain('<p>')
+    expect(composed.body).not.toContain('font-size')
+    expect(composed.body).not.toContain('tracking')
+  })
+
+  it('leaves a plain-text body untouched', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(makeInput('Hello!\n\nRegards,\nJane', 'text') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe('Hello!\n\nRegards,\nJane')
+  })
+})

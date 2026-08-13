@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { htmlToPlainText } from '../../inbox_ops/lib/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
@@ -336,10 +337,14 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     //     ExternalMessage.rawPayload if needed for forensic / forward use.
     //   - Some legitimate messages have no subject (notifications, bounce
     //     digests). Substitute a placeholder instead of failing ingest.
+    //   - HTML bodies are converted to plain text rather than merely relabelled
+    //     as `text`: `messages` has no HTML renderer, so an unconverted body is
+    //     displayed as literal markup (doctype, <style> blocks, tags). The raw
+    //     HTML stays available in `bodyHtml` on the channel link payload.
     const MAX_COMPOSE_BODY = 50_000
     const TRUNCATE_MARKER =
       '\n\n[…message truncated by Open Mercato — full body preserved in ExternalMessage.rawPayload]'
-    const rawBody = m.body ?? ''
+    const rawBody = m.bodyFormat === 'html' ? htmlToPlainText(m.body ?? '') : (m.body ?? '')
     const truncatedBody =
       rawBody.length > MAX_COMPOSE_BODY
         ? rawBody.slice(0, MAX_COMPOSE_BODY - TRUNCATE_MARKER.length) + TRUNCATE_MARKER
