@@ -50,3 +50,7 @@ PR: #5258
 ### Phase 3: Backport to main
 
 - [x] 3.1 Cherry-pick the README fix onto a branch off `origin/main` and open a PR targeting `main` — fec30d14d (PR #5259)
+
+### Phase 4: Unblock failing `test` CI job (pre-existing on develop)
+
+- [x] 4.1 Scale the lessons-catalog byte budget with the record count (fixed 32 KiB cap kept breaking as lessons grow), sync the stale declared lesson count (128 → 130), add a unit test — 95f9cd6a9
