@@ -1,0 +1,460 @@
+{
+  "workflowId": "sales_call_planner_deal_briefing",
+  "workflowName": "Deal Briefing Call",
+  "description": "Briefs the chief of sales by phone about one company's open deals and turns their reply into CRM tasks. Three researcher agents run in sequence: sales_call_planner.deal_brief reads the CRM, sales_call_planner.sales_chief_call places an ElevenLabs voice call and parks the run until the provider calls back, and sales_call_planner.task_extractor turns the conversation into task actions. The run then calls the idempotent sales_call_planner.ensure_task command and announces itself with sales_call_planner.brief.completed. Every failure path — an agent error, a guardrail block, an unanswered call, a task write that failed — ends at the same visible END step and emits sales_call_planner.brief.failed with a classified cause.",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "Sales",
+    "tags": ["agent", "voice", "customers", "sales"],
+    "icon": "phone-call"
+  },
+  "definition": {
+    "contextSchema": {
+      "input": {
+        "fields": [
+          {
+            "name": "companyId",
+            "type": "text",
+            "label": "Company id",
+            "required": true
+          },
+          {
+            "name": "chiefOfSalesPhone",
+            "type": "text",
+            "label": "Chief of sales phone (E.164)",
+            "required": true
+          },
+          {
+            "name": "companyName",
+            "type": "text",
+            "label": "Company name (display only)"
+          }
+        ]
+      }
+    },
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Briefing requested",
+        "stepType": "START",
+        "description": "Someone pressed \"Brief chief of sales\" on a company page, or an API caller started this workflow with the same input."
+      },
+      {
+        "stepId": "prepare_brief",
+        "stepName": "Prepare the deal brief",
+        "stepType": "AUTOMATED",
+        "description": "Reads this company's deals and recent activity and writes the briefing the voice agent reads aloud. INVOKE_AGENT always parks on its own queue, so the step waits on agent_orchestrator.proposal.ready even though the agent is native.",
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        },
+        "activities": [
+          {
+            "activityId": "invoke_deal_brief",
+            "activityName": "deal_brief",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "sales_call_planner.deal_brief",
+              "input": {
+                "companyId": "{{context.companyId}}"
+              },
+              "onResult": {
+                "alwaysAsk": true
+              },
+              "outputMapping": {
+                "brief": "data"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "call_chief",
+        "stepName": "Call the chief of sales",
+        "stepType": "AUTOMATED",
+        "description": "Places a real outbound ElevenLabs call and parks until the provider posts a signed callback or the agent's 30-minute deadline sweeps it. Deliberately on the linear path: an out-of-band agent inside a PARALLEL_FORK branch is refused by the engine, and by then the call has already been placed.",
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        },
+        "activities": [
+          {
+            "activityId": "invoke_sales_chief_call",
+            "activityName": "sales_chief_call",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "sales_call_planner.sales_chief_call",
+              "input": {
+                "toNumber": "{{context.chiefOfSalesPhone}}",
+                "brief": "{{context.brief.spokenSummary}}",
+                "variables": {
+                  "company_name": "{{context.brief.companyName}}"
+                }
+              },
+              "onResult": {
+                "alwaysAsk": true
+              },
+              "outputMapping": {
+                "call": "data"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "check_reached",
+        "stepName": "Did anyone answer?",
+        "stepType": "IF_ELSE",
+        "description": "A dialled-but-unanswered call, a voicemail box and a call that never initiated all settle as a valid researcher outcome with call.reached false. Branching here is what stops a run announcing success over an empty task list."
+      },
+      {
+        "stepId": "extract_tasks",
+        "stepName": "Extract the follow-up tasks",
+        "stepType": "AUTOMATED",
+        "description": "Reads the brief and the conversation and returns only the actions the chief of sales actually asked for.",
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        },
+        "activities": [
+          {
+            "activityId": "invoke_task_extractor",
+            "activityName": "task_extractor",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "sales_call_planner.task_extractor",
+              "input": {
+                "brief": "{{context.brief}}",
+                "call": "{{context.call}}"
+              },
+              "onResult": {
+                "alwaysAsk": true
+              },
+              "outputMapping": {
+                "plan": "data"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "record_tasks",
+        "stepName": "Record the follow-up tasks",
+        "stepType": "AUTOMATED",
+        "description": "Carries no activities of its own. It exists so the CRM write and the completion event ride a NORMAL route, whose failure the engine offers to a wired error route; a failing outcome route fails the run outright with nothing emitted."
+      },
+      {
+        "stepId": "brief_delivered",
+        "stepName": "Briefing delivered",
+        "stepType": "END",
+        "description": "The chief of sales was briefed and everything they asked for is in the CRM."
+      },
+      {
+        "stepId": "brief_failed",
+        "stepName": "Briefing did not complete",
+        "stepType": "END",
+        "description": "Every failure path lands here. The route that reached it has already emitted sales_call_planner.brief.failed with the cause that route stands for."
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "t_start",
+        "transitionName": "Begin briefing",
+        "fromStepId": "start",
+        "toStepId": "prepare_brief",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "t_brief_ready",
+        "transitionName": "Brief ready",
+        "fromStepId": "prepare_brief",
+        "toStepId": "call_chief",
+        "trigger": "auto",
+        "priority": 100,
+        "kind": "outcome",
+        "outcomeKind": "researcher"
+      },
+      {
+        "transitionId": "t_brief_error",
+        "transitionName": "Brief failed",
+        "fromStepId": "prepare_brief",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 90,
+        "kind": "outcome",
+        "outcomeKind": "error",
+        "activities": [
+          {
+            "activityId": "emit_failed_brief_error",
+            "activityName": "announce_brief_error",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "agentError"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_brief_guardrail",
+        "transitionName": "Brief blocked by a guardrail",
+        "fromStepId": "prepare_brief",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 80,
+        "kind": "outcome",
+        "outcomeKind": "guardrailBlocked",
+        "activities": [
+          {
+            "activityId": "emit_failed_brief_guardrail",
+            "activityName": "announce_brief_guardrail",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "guardrailBlocked"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_call_settled",
+        "transitionName": "Call settled",
+        "fromStepId": "call_chief",
+        "toStepId": "check_reached",
+        "trigger": "auto",
+        "priority": 100,
+        "kind": "outcome",
+        "outcomeKind": "researcher"
+      },
+      {
+        "transitionId": "t_call_error",
+        "transitionName": "Call failed",
+        "fromStepId": "call_chief",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 90,
+        "kind": "outcome",
+        "outcomeKind": "error",
+        "activities": [
+          {
+            "activityId": "emit_failed_call_error",
+            "activityName": "announce_call_error",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "agentError"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_call_guardrail",
+        "transitionName": "Call answer blocked by a guardrail",
+        "fromStepId": "call_chief",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 80,
+        "kind": "outcome",
+        "outcomeKind": "guardrailBlocked",
+        "activities": [
+          {
+            "activityId": "emit_failed_call_guardrail",
+            "activityName": "announce_call_guardrail",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "guardrailBlocked"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_reached",
+        "transitionName": "The chief of sales answered",
+        "fromStepId": "check_reached",
+        "toStepId": "extract_tasks",
+        "trigger": "auto",
+        "priority": 100,
+        "condition": {
+          "field": "call.reached",
+          "operator": "==",
+          "value": true
+        }
+      },
+      {
+        "transitionId": "t_not_reached",
+        "transitionName": "Nobody answered",
+        "fromStepId": "check_reached",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 0,
+        "activities": [
+          {
+            "activityId": "emit_failed_not_reached",
+            "activityName": "announce_not_reached",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "callNotReached"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_tasks_extracted",
+        "transitionName": "Tasks extracted",
+        "fromStepId": "extract_tasks",
+        "toStepId": "record_tasks",
+        "trigger": "auto",
+        "priority": 100,
+        "kind": "outcome",
+        "outcomeKind": "researcher"
+      },
+      {
+        "transitionId": "t_extract_error",
+        "transitionName": "Extraction failed",
+        "fromStepId": "extract_tasks",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 90,
+        "kind": "outcome",
+        "outcomeKind": "error",
+        "activities": [
+          {
+            "activityId": "emit_failed_extract_error",
+            "activityName": "announce_extract_error",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "agentError"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_extract_guardrail",
+        "transitionName": "Extraction blocked by a guardrail",
+        "fromStepId": "extract_tasks",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 80,
+        "kind": "outcome",
+        "outcomeKind": "guardrailBlocked",
+        "activities": [
+          {
+            "activityId": "emit_failed_extract_guardrail",
+            "activityName": "announce_extract_guardrail",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "guardrailBlocked"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_tasks_recorded",
+        "transitionName": "Follow-up tasks written",
+        "fromStepId": "record_tasks",
+        "toStepId": "brief_delivered",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "ensure_follow_up_tasks",
+            "activityName": "ensure_tasks",
+            "activityType": "UPDATE_ENTITY",
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 20000
+            },
+            "config": {
+              "commandId": "sales_call_planner.ensure_task",
+              "input": {
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "stepId": "{{workflow.currentStepId}}",
+                "entityId": "{{context.companyId}}",
+                "tasks": "{{context.plan.tasks}}"
+              }
+            }
+          },
+          {
+            "activityId": "emit_brief_completed",
+            "activityName": "announce_completed",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.completed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "taskCount": "{{context.ensure_tasks.result.ensured}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "t_tasks_failed",
+        "transitionName": "Follow-up tasks could not be written",
+        "fromStepId": "record_tasks",
+        "toStepId": "brief_failed",
+        "trigger": "auto",
+        "priority": 0,
+        "kind": "error",
+        "activities": [
+          {
+            "activityId": "emit_failed_task_creation",
+            "activityName": "announce_task_creation_failed",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventName": "sales_call_planner.brief.failed",
+              "payload": {
+                "companyId": "{{context.companyId}}",
+                "companyName": "{{ context.companyName | default('') }}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "cause": "taskCreationFailed"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

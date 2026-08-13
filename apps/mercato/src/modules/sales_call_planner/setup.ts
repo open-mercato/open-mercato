@@ -1,4 +1,5 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { seedDealBriefingWorkflow } from './lib/seeds'
 
 export const setup: ModuleSetupConfig = {
   /**
@@ -28,13 +29,29 @@ export const setup: ModuleSetupConfig = {
     employee: ['sales_call_planner.brief.run'],
   },
 
-  async seedDefaults() {
-    // Tracker task B5 seeds the deal-briefing workflow definition from here:
-    // add `await seedDealBriefingWorkflow(ctx)` (idempotent upsert by
-    // definition slug, mirroring agent_orchestrator's `lib/seeds.ts`) and take
-    // the `{ em, tenantId, organizationId, container }` context back as this
-    // hook's parameter. Nothing else belongs in this hook — the role grants
-    // above are declarative and the ACL feature needs no seeding.
+  /**
+   * `seedDefaults`, not `seedExamples`: the definition IS the feature. The
+   * button B6 puts on the company page can only 404 without it, so a tenant
+   * initialised with `--no-examples` must still get it — unlike
+   * `agent_orchestrator`'s demo workflows, which are illustrations a real
+   * deployment can do without.
+   *
+   * Idempotent and version-aware; see `lib/seeds.ts` for why it creates rather
+   * than upserts. Nothing else belongs in this hook — the role grants above are
+   * declarative and the ACL feature needs no seeding.
+   *
+   * Two operator steps still gate a run END TO END, and neither can be seeded
+   * from here without handing this module a decision that belongs to the
+   * tenant: the `sales_call_planner.ensure_task` command must be enabled in
+   * Settings → Workflows → Commands, and an ElevenLabs call profile named
+   * `sales_chief_call` must exist. Both fail visibly down a wired failure route
+   * rather than silently.
+   */
+  async seedDefaults(ctx) {
+    await seedDealBriefingWorkflow(ctx.em, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
   },
 }
 

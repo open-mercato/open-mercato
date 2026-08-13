@@ -31,6 +31,7 @@ import {
   eventsConfig,
 } from '../../events'
 import { notificationTypes } from '../../notifications'
+import { DEAL_BRIEFING_WORKFLOW_ID } from '../../lib/seeds'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -56,7 +57,7 @@ function completedPayload(extra: Record<string, unknown> = {}) {
     ...extra,
     _workflow: {
       workflowInstanceId: INSTANCE_ID,
-      workflowId: 'sales_call_planner.deal_briefing',
+      workflowId: DEAL_BRIEFING_WORKFLOW_ID,
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
     },
@@ -72,7 +73,7 @@ function failedPayload(extra: Record<string, unknown> = {}) {
     ...extra,
     _workflow: {
       workflowInstanceId: INSTANCE_ID,
-      workflowId: 'sales_call_planner.deal_briefing',
+      workflowId: DEAL_BRIEFING_WORKFLOW_ID,
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
     },
