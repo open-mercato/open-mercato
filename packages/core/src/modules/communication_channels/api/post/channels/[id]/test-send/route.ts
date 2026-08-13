@@ -36,10 +36,12 @@ export const metadata = {
 // `to` is deliberately NOT typed as an email here. The recipient shape depends
 // on the provider (an email address for Gmail/IMAP, a channel snowflake for
 // Discord), and the adapter is only known once the channel is loaded — so the
-// schema accepts any non-empty string and `validateOutboundRecipient` applies
-// the provider-appropriate rules below, defaulting to email.
+// schema accepts any non-empty single-line string and `validateOutboundRecipient`
+// applies the provider-appropriate rules below, defaulting to email. The CR/LF
+// rejection stays at the schema level so a header-injection attempt is refused
+// before the request reaches the channel lookup or the mutation guard.
 const bodySchema = z.object({
-  to: z.string().min(1).max(MAX_OUTBOUND_RECIPIENT_LENGTH),
+  to: z.string().min(1).max(MAX_OUTBOUND_RECIPIENT_LENGTH).regex(/^[^\r\n]*$/),
   subject: z.string().min(1).max(500).optional(),
   body: z.string().max(50_000).optional(),
 })
