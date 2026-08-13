@@ -22,6 +22,12 @@ manufacturing (shared kernel)
 
 **Parent roadmap:** `2026-08-13-production-module-architecture-roadmap.md`.
 
+**P1.3 capability specifications:**
+
+- P1.3a: `2026-08-13-catalog-quantity-normalization.md`;
+- P1.3b: `2026-08-13-wms-quantity-precision-alignment.md`;
+- P1.3c: `2026-08-13-wms-quantity-evidence-reversal.md`.
+
 **Relationship to Wave 0:** The parent roadmap has fourteen Wave 0 gates. This document groups those gates into deliverable-sized epics and defines their dependency order. It does not weaken a gate or create a shortcut around the requirement that the detailed `production` core specification remains blocked until Wave 0 passes.
 
 **Phase 1 meaning in this document:** Wave 0 readiness plus the definition-authoring work that is safe to start before stock-affecting execution. It is not a release promise for MRP, APS, MES, QMS, costing, traceability, process manufacturing, subcontracting, or a full production-order execution flow.
@@ -62,7 +68,9 @@ The first two workstreams can begin in parallel. The third can define contracts 
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Yes | Parent roadmap | Consistent implementation specs; no accidental hard dependency or duplicated ownership |
 | P1.1 | Decouple WMS from Sales | `wms` | `sales`, `feature_toggles`, commands, events, API routes, widgets, module metadata | Yes | Backward-compatibility plan | WMS-only and Manufacturing-only deployments; future Procurement and ERP consumers |
 | P1.2 | Establish minimal WMS site and current warehouse-role model | `wms` | auth/organization scope, custom-field framework, CrudForm/DataTable extension hosts, and WMS warehouse topology | Yes | Tenant/organization invariants | Stable custom-field-extensible `siteId`; closed role assignments; exactly one current default per configured role; minimal setup-once UI; immutable snapshots remain a consumer duty |
-| P1.3 | Establish production quantity, UoM, and precision rules | `catalog` + `wms` | UoM conversions, inventory balances, production posting inputs | Yes | Current precision audit | Safe fractional consumption, conversion, partial completion, reversal, and drift tests |
+| P1.3a | Establish exact Catalog/Sales quantity normalization | `catalog` | Existing Catalog/Sales UoM contract and exact decimal utilities | Yes; blocking before quantity schemas freeze | None; begins with current-state audit | One Catalog-owned resolver and deterministic quantity snapshots |
+| P1.3b | Align WMS quantity precision, arithmetic, and profile UoM | `wms` | Inventory profiles, balances, movements, reservations, import/reconciliation | Yes; WMS backlog, non-critical for current operation and early authoring | P1.3a | WMS no longer narrows accepted normalized quantities or drifts under fractional arithmetic |
+| P1.3c | Add WMS immutable quantity evidence and correlated reversal | `wms` | Reservations, movements, idempotency, reconciliation | After P1.3b; WMS backlog, non-critical until stock-affecting production | P1.3a–b | Historical UoM evidence and exact full/partial reversal; mandatory for P1.8/P1.11 |
 | P1.4 | Author draft BOMs | Discrete definition capability in future `production` | `catalog` | Yes | Product/variant and UoM references | Editable component structures and versioned drafts without inventory effects |
 | P1.5 | Author draft routings and operations | Discrete definition capability in future `production` | `resources`, `planner` | Yes | Resource/calendar ownership decision | Editable operation sequences, routing times, and work-center applicability |
 | P1.6 | Establish work-center extension boundary | `manufacturing` kernel / definition capability | `resources`, `planner`; assets and workforce as optional providers | Yes | P1.0 | Work centers without duplicate resource or calendar master data |
@@ -80,7 +88,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | Capability | Primary module | Why it is safe before WMS |
 |---|---|---|
-| BOM draft CRUD | Future discrete definition capability | It stores proposed component structure and references catalog products/UoM; it does not reserve or consume stock |
+| BOM draft domain/UI exploration | Future discrete definition capability | It may explore component structure and Catalog references without freezing quantity columns, public API shapes, or snapshot semantics before P1.3 passes |
 | Routing draft CRUD | Future discrete definition capability | It stores proposed operation order, times, and applicability; it does not report physical completion |
 | Work-center applicability | `manufacturing` extension over `resources` | It links manufacturing constraints by scalar IDs and does not replace resource/calendar ownership |
 | Draft versioning and validation | Future discrete definition capability | It can reject incomplete definitions without making any WMS claim |
@@ -112,8 +120,8 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | Sequence | Work items | Reason |
 |---|---|---|
-| First parallel increment | P1.1 WMS–Sales decoupling, P1.2 WMS site design, P1.4 BOM drafts, P1.5 routing drafts, P1.6 resource/work-center boundary | These have high learning value and do not require stock-affecting production execution |
-| Second parallel increment | P1.2 WMS site implementation, P1.3 precision rules, P1.7 release/snapshot contract, P1.8 WMS posting contract, P1.9 facts/MES contract, P1.13 numbering contract | These establish the contracts that turn drafts into safe operational data |
+| First parallel increment | P1.1 WMS–Sales decoupling, P1.2 WMS site design, P1.3a Catalog/Sales normalization, P1.4 BOM domain/UI exploration, P1.5 routing drafts, P1.6 resource/work-center boundary | These have high learning value and do not require stock-affecting production execution; P1.4 may not freeze quantity schema/API before P1.3a–c pass |
+| Second parallel increment | P1.2 WMS site implementation, P1.3b WMS precision alignment, P1.3c WMS evidence/reversal, P1.7 release/snapshot contract, P1.8 WMS posting contract, P1.9 facts/MES contract, P1.13 numbering contract | These establish the contracts that turn drafts into safe operational data; P1.3b follows P1.3a and P1.3c follows both |
 | Validation increment | Throwaway vertical spike: one site, one discrete order, explicit issue, backflush, output receipt, minimum facts | Validates atomicity, precision, lot numbering, and reversal before public contracts freeze |
 | First shippable production increment | P1.10 production order lifecycle followed by P1.11 execution | Only after the prerequisite contracts and spike outcomes are accepted |
 
@@ -161,6 +169,7 @@ Phase 1/Wave 0 is ready to approve the detailed discrete `production` specificat
 6. Quality-aware availability excludes unavailable stock; WMS is the sole owner of committed physical stock.
 7. Disabled optional modules degrade safely and all changed API/UI paths have self-contained integration coverage.
 8. The separate P1.13 specification and implementation prove concurrency-safe site/type-scoped numbering before production orders, batches, lots, or serials allocate identifiers.
+9. P1.3a proves one Catalog-owned exact-decimal policy before Manufacturing quantity schemas freeze. P1.3b–c remain visible WMS backlog and do not block Site, draft definitions, or other non-stock work, but must prove non-narrowing storage, immutable UoM evidence, and zero-drift reversal before P1.8/P1.11 stock-affecting production.
 
 ## Migration and Backward Compatibility
 
@@ -174,3 +183,4 @@ The WMS–Sales work is especially contract-sensitive: current sales-order event
 - 2026-08-13: Assigned the minimal `Site` and current site-to-warehouse-role model to `wms`.
 - 2026-08-13: Revision aligned P1.2 with current-only assignments, one default warehouse per configured role, and immutable consumer snapshots; scheduled/effective-dated assignments and site timezone are later features. Added P1.13 as the separate mandatory production-number-range gate before P1.10/P1.11 allocate identifiers.
 - 2026-08-13: Refined the P1.2 UI baseline for infrequent setup: full canonical custom fields and field injection on `Site`, no custom fields on assignments, minimalist DataTables with stable extension hosts, and no built-in CRM-scale search/filter/view/export/bulk controls.
+- 2026-08-13: Split P1.3 into Catalog/Sales exact normalization and two WMS-owned work items. P1.3a blocks quantity-schema freeze; P1.3b–c document the existing WMS mismatch as non-critical backlog for current/early work but remain mandatory before stock-affecting production.

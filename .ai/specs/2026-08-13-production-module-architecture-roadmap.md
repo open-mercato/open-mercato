@@ -151,7 +151,7 @@ The contract must provide one of the following, chosen in the detailed spec:
 
 Manufacturing owns orchestration and business validity. WMS owns stock validation and the resulting physical ledger entries. WMS returns stable posting identifiers; Manufacturing stores them in its append-only transaction facts. Reversal creates compensating records and never deletes history.
 
-Backflush is a first-class posting mode: on operation/order completion WMS posts the derived component issues and the output receipt in one atomic unit, reverses them symmetrically on reversal, and is covered by the §6 precision cases. New reservation sources, movement reference types, and movement types are added additively to the WMS enums for production issue/return/scrap/output/backflush; `manual` and `adjust` must never represent production postings.
+Backflush is a first-class posting mode: on operation/order completion WMS posts the derived component issues and the output receipt in one atomic unit, reverses them symmetrically on reversal, and is covered by the §5 precision cases. New reservation sources, movement reference types, and movement types are added additively to the WMS enums for production issue/return/scrap/output/backflush; `manual` and `adjust` must never represent production postings.
 
 Lot/serial identity is assigned by Manufacturing at production time from the site/type-scoped number range (§1), so labels/travelers can be produced and offline capture works before posting. Manufacturing supplies the pre-assigned identifier on the output-receipt request; WMS records it and validates uniqueness, and never mints a competing identity.
 
@@ -163,9 +163,9 @@ Before this contract is frozen, the existing `wms` hard requirement on `sales` m
 
 ### 5. UoM precision and immutable conversions
 
-Catalog remains the UoM master. The core spec must define variant policy, canonical normalization, rounding, allowable loss, and immutable conversion snapshots for definitions, orders, and postings.
+Catalog remains the UoM master. P1.3 is delivered through three specifications: `2026-08-13-catalog-quantity-normalization.md` freezes variant policy and exact normalization; the WMS-owned `2026-08-13-wms-quantity-precision-alignment.md` aligns WMS storage, arithmetic, and profile identity; and the WMS-owned `2026-08-13-wms-quantity-evidence-reversal.md` adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. Process loss, yield, and domain tolerance policies remain with their later manufacturing capabilities.
 
-The current Catalog precision and WMS `numeric(16,4)` storage differ. Wave 0 must either align supported precision safely or define validated conversion and rounding rules that prevent silent inventory drift. No BOM or order schema may freeze before this decision.
+The current Catalog precision and WMS `numeric(16,4)` storage already differ. P1.3a must freeze canonical normalization before a BOM or order quantity schema freezes. P1.3b–c track the existing WMS inconsistency as non-critical WMS backlog for current and non-stock work, but they must align storage/evidence before production posts inventory so the new module does not amplify that debt.
 
 ### 6. Minimum append-only manufacturing facts
 
@@ -234,9 +234,9 @@ Every detailed capability spec must use these meanings:
 
 | Capability | Owned data | Hard runtime requirements | Soft integrations/providers | Snapshot/fallback when absent | Placement/licensing |
 |---|---|---|---|---|---|
-| Catalog and product master | Products, variants, UoM and conversions | Existing Catalog requirements | Product configuration, compliance | Manufacturing snapshots released values | Existing OSS foundation |
+| Catalog and product master | Products, variants, UoM and conversions | Existing Catalog requirements | Product configuration, compliance | Manufacturing snapshots released values | Existing OSS foundation; P1.3a exact normalization is the blocking quantity-schema contract |
 | WMS sites | Stable, custom-field-extensible site identity and closed current warehouse-role assignments | Existing WMS requirements; site contract itself adds no Manufacturing requirement | Manufacturing consumers, directory, network planning | Required before released production; consumers snapshot assignments; no warehouse-as-site fallback | Existing OSS `wms` module per P1.2 spec; setup-once UI remains deliberately minimal |
-| WMS and inventory | Warehouses, locations, stock, lots, serials, reservations and movement ledger | Current code: Catalog, Sales, feature toggles; Sales coupling is a Wave 0 blocker | Sales and Manufacturing consumers | Physical ledger remains usable without manufacturing | Existing OSS foundation; sales glue must become optional consumer |
+| WMS and inventory | Warehouses, locations, stock, lots, serials, reservations and movement ledger | Current code: Catalog, Sales, feature toggles; Sales coupling is a Wave 0 blocker | Sales and Manufacturing consumers | Physical ledger remains usable without manufacturing | Existing OSS foundation; sales glue must become optional consumer. P1.3b precision/profile alignment and P1.3c evidence/reversal are WMS-owned work to resolve an existing UoM mismatch; non-critical for current operation and early authoring, mandatory before stock-affecting production |
 | Resources and calendars | Resource identity/capacity and planner availability rules | Current code: `resources` requires `planner` | Assets, workforce, manufacturing extensions | Released work snapshots applicable capacity inputs | Existing foundations; boundary frozen in Wave 0 |
 | Attachments, audit and workflows | Generic files, audit evidence and workflow orchestration | Their existing package contracts | Document control, engineering and approvals | Manufacturing remains authoritative when workflow is absent | Existing foundations |
 | Manufacturing kernel | Site/applicability/effectivity, released-definition contract, accepted facts and posting/confirmation interfaces | Auth/organization, Catalog, and the WMS site data prerequisite; exact runtime composition frozen by core spec | WMS posting provider, resources/calendars, documents, quality, MES | Cannot execute stock-affecting production without a compatible WMS provider | Standalone `manufacturing` package that all manufacturing models depend on; encodes no discrete- or process-only aggregate |
@@ -367,14 +367,14 @@ This graph shows product/data direction, not automatic runtime `requires`. Full 
 
 ### Wave 0: architecture and contract readiness
 
-All gates below must pass before the detailed `production` core spec is approved:
+All blocking clauses below must pass before the detailed `production` core spec is approved. A clause explicitly marked as a later WMS execution prerequisite may remain open during core authoring but must pass before the named stock-affecting capability freezes or ships:
 
 1. Minimal WMS-owned site identity and current site-to-warehouse assignments are specified, including tenant/organization invariants, one-default-per-configured-role semantics, immutable consumer snapshots, migration/backfill strategy, canonical custom fields on the site record, closed assignment semantics, and a deliberately minimal setup-once DataTable/CrudForm UI. Effective-dated assignments are an optional later capability.
 2. Resource, work-center, asset, staff, and calendar ownership is frozen against the actual `resources` and `planner` contracts.
 3. Released-definition and immutable order/document/UoM snapshot semantics are specified for discrete and process sibling models.
 4. WMS supports named production reservation/issue/return/output/scrap/reversal semantics with atomicity or durable saga behavior, stable posting IDs, idempotency, and reconciliation.
 5. WMS-to-Sales hard coupling is removed from the manufacturing composition or consciously approved and documented.
-6. Quantity precision and rounding pass reference cases for fractional consumption, conversion, reversal, partial completion, and cumulative drift.
+6. P1.3a proves one Catalog-owned exact-decimal normalization policy before quantity-bearing Manufacturing schemas freeze. P1.3b–c remain explicit WMS-owned, non-critical backlog for current operation and do not block early core authoring; their acceptance reports become mandatory before P1.8 stock-posting payloads freeze or P1.11 stock-affecting execution ships, proving non-narrowing WMS storage, immutable operational UoM evidence, and reference cases for fractional consumption, conversion, reversal, partial completion, and cumulative drift.
 7. Minimum manufacturing facts and the ERP-to-MES confirmation lifecycle cover partial, final, duplicate, out-of-order, offline, rejected, reversed, and replayed confirmations.
 8. Quality-aware availability excludes held/quarantined/rejected/expired stock from MRP/ATP and allocation reference scenarios.
 9. Dependency tables distinguish hard runtime requirements from product prerequisites and optional providers; disabled-module tests are planned.
@@ -639,7 +639,7 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 
 ### Verdict
 
-**Roadmap architecture approved conditionally.** It is suitable to govern product discussion and Wave 0 foundation specs. The detailed `production` implementation spec remains blocked until all Wave 0 gates pass.
+**Roadmap architecture approved conditionally.** It is suitable to govern product discussion and Wave 0 foundation specs. The detailed `production` implementation spec remains blocked until all blocking Wave 0 clauses pass; explicitly marked WMS execution prerequisites may remain open only until their named stock-affecting gate.
 
 ## Changelog
 
@@ -655,6 +655,7 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-13 (Revision 3): Expanded Wave 0 gates (11–14), risks, validation scenarios, ownership matrix, and the dependency diagram (now shows costing and the peg→reservation flow) to match the above.
 - 2026-08-13 (Revision 4): Aligned the roadmap with the accepted P1.2 WMS `Site` design: current warehouse-role assignments with one default replace effective-dated mappings in the MVP; consumers preserve history through immutable snapshots; site timezone/effective dating are future capabilities; production number ranges move to a separate mandatory Wave 0 specification.
 - 2026-08-13 (Revision 5): Clarified that `Site` uses the full canonical custom-field/CrudForm/undo extension pipeline while warehouse-role assignments remain closed; the setup-once UI keeps stable DataTable injection hosts but deliberately omits CRM-scale search, filters, column chooser, saved views, exports, selection, and bulk actions.
+- 2026-08-13 (Revision 6): Split the audited P1.3 quantity work into Catalog/Sales normalization plus two WMS-owned specifications for precision/profile alignment and evidence/reversal; corrected the backflush precision cross-reference. P1.3a blocks quantity-schema freeze, while the existing WMS mismatch is tracked as non-critical backlog until it becomes mandatory for stock-affecting production.
 
 ### Review - 2026-08-13
 
