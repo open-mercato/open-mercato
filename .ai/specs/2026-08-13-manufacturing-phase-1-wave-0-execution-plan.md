@@ -44,7 +44,7 @@ Run three coordinated workstreams:
 
 ```text
 Platform and inventory readiness
-  WMS–Sales decoupling → sites → UoM/precision → production-capable WMS postings
+  WMS–Sales decoupling → WMS sites → UoM/precision → production-capable WMS postings
 
 Definition authoring and shared kernel
   draft BOMs → draft routings → work-center extension → release/snapshot semantics
@@ -61,17 +61,18 @@ The first two workstreams can begin in parallel. The third can define contracts 
 |---|---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Yes | Parent roadmap | Consistent implementation specs; no accidental hard dependency or duplicated ownership |
 | P1.1 | Decouple WMS from Sales | `wms` | `sales`, `feature_toggles`, commands, events, API routes, widgets, module metadata | Yes | Backward-compatibility plan | WMS-only and Manufacturing-only deployments; future Procurement and ERP consumers |
-| P1.2 | Establish minimal production-site and warehouse-role model | `wms` | auth/organization scope and WMS warehouse topology | Yes | Tenant/organization invariants | Stable `siteId` and effective site-to-warehouse roles; number ranges remain deferred to the first production-order lifecycle |
+| P1.2 | Establish minimal WMS site and current warehouse-role model | `wms` | auth/organization scope, custom-field framework, CrudForm/DataTable extension hosts, and WMS warehouse topology | Yes | Tenant/organization invariants | Stable custom-field-extensible `siteId`; closed role assignments; exactly one current default per configured role; minimal setup-once UI; immutable snapshots remain a consumer duty |
 | P1.3 | Establish production quantity, UoM, and precision rules | `catalog` + `wms` | UoM conversions, inventory balances, production posting inputs | Yes | Current precision audit | Safe fractional consumption, conversion, partial completion, reversal, and drift tests |
 | P1.4 | Author draft BOMs | Discrete definition capability in future `production` | `catalog` | Yes | Product/variant and UoM references | Editable component structures and versioned drafts without inventory effects |
 | P1.5 | Author draft routings and operations | Discrete definition capability in future `production` | `resources`, `planner` | Yes | Resource/calendar ownership decision | Editable operation sequences, routing times, and work-center applicability |
 | P1.6 | Establish work-center extension boundary | `manufacturing` kernel / definition capability | `resources`, `planner`; assets and workforce as optional providers | Yes | P1.0 | Work centers without duplicate resource or calendar master data |
-| P1.7 | Define released-definition lifecycle and immutable snapshots | `manufacturing` kernel + future `production` | `wms` production sites, `catalog`, attachments/documents, P1.3 | Yes as contract work; implementation follows prerequisites | P1.2, P1.3, P1.6 | Released BOM/routing/instruction package and safe order creation |
-| P1.8 | Add production-capable WMS posting contract | `wms` | `manufacturing`, production sites, `catalog`, command/event contracts | Yes | P1.1–P1.3 | Semantic reservation, issue, return, backflush, output receipt, scrap, and reversal postings |
+| P1.7 | Define released-definition lifecycle and immutable snapshots | `manufacturing` kernel + future `production` | WMS `Site`, `catalog`, attachments/documents, P1.3 | Yes as contract work; implementation follows prerequisites | P1.2, P1.3, P1.6 | Released BOM/routing/instruction package and safe order creation |
+| P1.8 | Add production-capable WMS posting contract | `wms` | `manufacturing`, WMS `Site`, `catalog`, command/event contracts | Yes | P1.1–P1.3 | Semantic reservation, issue, return, backflush, output receipt, scrap, and reversal postings |
 | P1.9 | Define manufacturing facts and ERP–MES confirmations | `manufacturing` kernel | `events`, `queue`, WMS posting IDs, optional MES/edge provider | Yes as contract and spike work | P1.0, P1.8 for final correlation | Append-only accepted facts, idempotency, replay, compensation, and offline confirmation handling |
-| P1.10 | Add first discrete production-order lifecycle | `production` | `manufacturing`, `sites`, released-definition contract | No as a shippable feature until P1.7 is complete | P1.2, P1.7, P1.9 | Orders created from an immutable released snapshot; single-level first core |
-| P1.11 | Add stock-affecting production execution | `production` | `wms`, `manufacturing`, `sites`, P1.3 | No | P1.8, P1.9, P1.10 | Material issue/return/backflush, output receipt, scrap, reversal, and reconciliation |
+| P1.10 | Add first discrete production-order lifecycle | `production` | `manufacturing`, WMS `Site`, released-definition and numbering contracts | No as a shippable feature until P1.7 and P1.13 are complete | P1.2, P1.7, P1.9, P1.13 | Orders created from an immutable released snapshot with an allocated production-order number; single-level first core |
+| P1.11 | Add stock-affecting production execution | `production` | `wms`, `manufacturing`, WMS `Site`, P1.3, numbering contract | No | P1.8–P1.10, P1.13 | Material issue/return/backflush, output receipt, scrap, reversal, and reconciliation with valid lot/serial identity |
 | P1.12 | Cross-cutting readiness and integration coverage | Each owning module | `shared`, `events`, `queue`, UI, module-discovery and compatibility contracts | Starts with each epic | Respective implementation | Tenant/org/site isolation, disabled-module, conflict, reversal, partial-failure, and compatibility evidence |
+| P1.13 | Specify and implement production number ranges | Dedicated Wave 0 contract; exact WMS-local owner frozen by its spec | WMS `Site`, production-order/batch/lot/serial identity, concurrency and offline allocation | Contract work may start now; implementation follows identity decisions | P1.2 plus P1.7/P1.8 identity inputs | Site/type-scoped production numbers; mandatory before P1.10/P1.11 allocate any identifier |
 
 ## BOM and Routing Scope Boundary
 
@@ -89,10 +90,10 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | Capability | Required before it can be implemented or released |
 |---|---|
-| Release of a manufacturing definition | `siteId`, effective dating, UoM/precision rules, work-center ownership, immutable snapshot contract |
+| Release of a manufacturing definition | active `siteId`, current warehouse-role assignment snapshot, definition effectivity, UoM/precision rules, work-center ownership, immutable snapshot contract |
 | Creation of an executable production order | Released-definition contract and minimum manufacturing-fact contract |
 | Component issue, return, and backflush | Production-capable WMS posting contract and idempotency/reversal semantics |
-| Output receipt, lot/serial identity, and scrap | WMS posting contract, sites/WMS numbering authority, and precision rules |
+| Output receipt, lot/serial identity, and scrap | WMS posting contract, separate P1.13 number-range contract, and precision rules |
 | Completion of a physical production operation | A successful, correlated WMS posting or an explicitly compensatable durable saga |
 
 ## Module Ownership and Dependency Rules
@@ -100,7 +101,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 | Area | Authoritative owner | Manufacturing may do | Manufacturing must not do |
 |---|---|---|---|
 | Product, variant, UoM | `catalog` | Reference and snapshot released values/conversions | Duplicate product or UoM masters |
-| Production-site identity and warehouse roles | `wms` | Reference site and role snapshots | Treat a warehouse as permanent plant identity |
+| Site identity and current warehouse roles | `wms` | Reference `siteId` and snapshot the exact role/warehouse choices used | Treat a warehouse as permanent plant identity or reconstruct history from current mappings |
 | Physical stock, lots, serials, reservations, movements | `wms` | Request semantic production postings and store returned posting IDs | Maintain a competing inventory ledger or committed-stock balance |
 | Shared resource identity and base capacity | `resources` | Add manufacturing work-center extensions by IDs | Duplicate resource master data |
 | Availability and calendars | `planner` | Consume applicable calendar inputs | Become calendar master |
@@ -111,8 +112,8 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | Sequence | Work items | Reason |
 |---|---|---|
-| First parallel increment | P1.1 WMS–Sales decoupling, P1.2 production-site discovery/design, P1.4 BOM drafts, P1.5 routing drafts, P1.6 resource/work-center boundary | These have high learning value and do not require stock-affecting production execution |
-| Second parallel increment | P1.2 production-site implementation, P1.3 precision rules, P1.7 release/snapshot contract, P1.8 WMS posting contract, P1.9 facts/MES contract | These establish the contracts that turn drafts into safe operational data |
+| First parallel increment | P1.1 WMS–Sales decoupling, P1.2 WMS site design, P1.4 BOM drafts, P1.5 routing drafts, P1.6 resource/work-center boundary | These have high learning value and do not require stock-affecting production execution |
+| Second parallel increment | P1.2 WMS site implementation, P1.3 precision rules, P1.7 release/snapshot contract, P1.8 WMS posting contract, P1.9 facts/MES contract, P1.13 numbering contract | These establish the contracts that turn drafts into safe operational data |
 | Validation increment | Throwaway vertical spike: one site, one discrete order, explicit issue, backflush, output receipt, minimum facts | Validates atomicity, precision, lot numbering, and reversal before public contracts freeze |
 | First shippable production increment | P1.10 production order lifecycle followed by P1.11 execution | Only after the prerequisite contracts and spike outcomes are accepted |
 
@@ -131,7 +132,7 @@ This planning specification introduces no endpoint, entity, migration, route, ev
 The following future boundaries are binding because they originate in the parent roadmap:
 
 - cross-module links are scalar IDs plus historical snapshots, never direct ORM relations;
-- all operational records validate tenant, organization, and applicable site scope;
+- all operational records validate tenant, organization, active site, and applicable warehouse-assignment scope;
 - every user-editable entity uses `updated_at` and optimistic locking;
 - manufacturing facts are append-only; reversals are compensating facts and postings, never deletion;
 - WMS owns physical stock and physical commitment; Manufacturing owns production intent and orchestration;
@@ -153,12 +154,13 @@ The following future boundaries are binding because they originate in the parent
 Phase 1/Wave 0 is ready to approve the detailed discrete `production` specification only when the parent roadmap's fourteen gates have evidence. At a minimum, the evidence must demonstrate:
 
 1. WMS operates without Sales and the optional WMS–Sales flow retains current behaviour.
-2. A WMS-owned production site and effective site-to-warehouse role mapping are available with tenant/org/site isolation.
-3. Released definitions and orders preserve immutable, versioned snapshots with valid-time semantics.
+2. A WMS-owned site and current warehouse-role assignments are available with tenant/org/site isolation, multiple warehouses per fixed role, and one default per configured role. Site custom fields round-trip through CrudForm/API/commands/undo; assignments reject custom fields; stable DataTable/CrudForm extension hosts exist without enabling unneeded search, filter, view, export, selection, or bulk controls.
+3. Released definitions and orders preserve immutable, versioned site/warehouse snapshots even after administrators change the current WMS assignment; definition effectivity retains its own valid-time semantics.
 4. Production WMS postings are semantic, idempotent, reversible, reconcilable, and safe under precision reference cases.
 5. Facts and MES confirmation handling cover partial, duplicate, out-of-order, offline, rejected, reversed, and replayed messages.
 6. Quality-aware availability excludes unavailable stock; WMS is the sole owner of committed physical stock.
 7. Disabled optional modules degrade safely and all changed API/UI paths have self-contained integration coverage.
+8. The separate P1.13 specification and implementation prove concurrency-safe site/type-scoped numbering before production orders, batches, lots, or serials allocate identifiers.
 
 ## Migration and Backward Compatibility
 
@@ -169,4 +171,6 @@ The WMS–Sales work is especially contract-sensitive: current sales-order event
 ## Changelog
 
 - 2026-08-13: Created Phase 1/Wave 0 execution plan from the approved Manufacturing roadmap, separating early manufacturing-definition draft work from WMS-dependent execution work.
-- 2026-08-13: Assigned the minimal `ProductionSite` and site-to-warehouse-role model to `wms`; deferred number ranges until the first production-order lifecycle.
+- 2026-08-13: Assigned the minimal `Site` and current site-to-warehouse-role model to `wms`.
+- 2026-08-13: Revision aligned P1.2 with current-only assignments, one default warehouse per configured role, and immutable consumer snapshots; scheduled/effective-dated assignments and site timezone are later features. Added P1.13 as the separate mandatory production-number-range gate before P1.10/P1.11 allocate identifiers.
+- 2026-08-13: Refined the P1.2 UI baseline for infrequent setup: full canonical custom fields and field injection on `Site`, no custom fields on assignments, minimalist DataTables with stable extension hosts, and no built-in CRM-scale search/filter/view/export/bulk controls.

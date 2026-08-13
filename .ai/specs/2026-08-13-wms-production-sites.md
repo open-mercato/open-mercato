@@ -1,14 +1,16 @@
-# WMS Production Sites and Warehouse Roles
+# WMS Sites and Warehouse Roles
 
 ## TLDR
 
-Add a minimal, WMS-owned production-site model. A `ProductionSite` represents the factory context used by future Manufacturing definitions and orders; it is not a tenant, organization, warehouse, or a new standalone `sites` module. A `ProductionSiteWarehouseRole` maps a site to an existing WMS warehouse for an effective period and one of the roles `raw_material`, `line_side`, `wip`, `finished_goods`, `quarantine`, or `shipping`.
+Add a minimal, WMS-owned `Site` representing a stable factory context inside one tenant and organization. A site is not a tenant, organization, warehouse, generic enterprise location hierarchy, or standalone `sites` module. `SiteWarehouseRole` assigns one or more existing WMS warehouses to a site under a fixed production role and identifies exactly one default warehouse per configured role.
 
-The first release provides CRUD APIs, backend management UI, ACL, commands, events, migrations, and integration coverage. It does not add production orders, BOM/routing release, stock-affecting production postings, WMS numbering ranges, or a generic enterprise location hierarchy.
+Wave 0 stores only the current assignment state. Administrators change it directly; audit logs retain prior values, while future production definitions, orders, postings, and facts must snapshot the exact site and warehouse assignment they used. Scheduled/effective-dated assignments, site timezone/calendars, and production number ranges are explicitly deferred to separate specifications.
+
+The release provides command-backed CRUD APIs, backend management UI, ACL, events, migrations, optimistic locking, and self-contained integration coverage. `Site` supports create, read, update, activation, and deactivation, but not delete.
 
 ## Overview
 
-**Status:** Proposed implementation specification for Wave 0 P1.2. Implementation is not approved until this spec completes the standard pre-implementation review.
+**Status:** Proposed implementation specification for Wave 0 P1.2. Implementation remains blocked until the pre-implementation review accepts this revision.
 
 **Parent documents:**
 
@@ -17,209 +19,396 @@ The first release provides CRUD APIs, backend management UI, ACL, commands, even
 
 ## Problem Statement
 
-Open Mercato scopes WMS records by tenant and organization. Its `Warehouse` entity represents a physical stock location, with locations, balances, lots, serials, reservations, and movements. It has no manufacturing-site identity and no way to state that a warehouse serves a particular production purpose for a factory.
+Open Mercato scopes WMS records by tenant and organization. Its `Warehouse` entity represents a physical stock location with locations, balances, lots, serials, reservations, and movements. It has no stable factory identity and cannot express which warehouses currently serve production purposes for a factory.
 
-Using `Tenant` as a factory is incorrect because it is the customer/data-isolation boundary. Using `Organization` as a factory is also incorrect: it is the business-unit and RBAC scope, and splitting one organization into factories would fragment inventory, permissions, reporting, and internal transfers. Treating a `Warehouse` itself as the factory would force manufacturing definitions and orders to depend on one physical warehouse rather than a stable production context.
+Using `Tenant` as a factory would confuse a data-isolation boundary with a physical plant. Using `Organization` would fragment inventory, permissions, reporting, and internal transfers when one organization operates several factories. Treating one `Warehouse` as the factory would bind manufacturing definitions and orders to a replaceable storage location.
 
-The smallest useful solution is a WMS-owned site identity plus a mapping from that identity to warehouses by role. WMS is the correct initial home because the only current purpose of a site is to resolve physical inventory locations for future Manufacturing execution. This decision avoids a premature generic `sites` module.
+The smallest useful foundation is therefore a WMS-owned site identity plus explicit current warehouse-role assignments. The model deliberately avoids scheduled changes, routing policy, calendars, and number allocation until their concrete production lifecycle is specified.
+
+## Primary Use Cases
+
+1. An administrator creates an inactive site, assigns active warehouses to the required roles, verifies defaults, and activates the site.
+2. A larger plant assigns several raw-material warehouses and explicitly promotes one as the current default.
+3. An administrator changes a role default; existing inventory is not moved and already-created production records retain their stored snapshots.
+4. WMS shows an assignment whose warehouse was later deactivated, warns that it is ineligible, and requires an explicit replacement rather than silently choosing one.
+5. WMS remains fully loadable and the site configuration remains manageable when Manufacturing is not installed.
 
 ## Scope and Non-Goals
 
 ### In scope
 
-- `ProductionSite` CRUD within `wms`;
-- effective-dated mapping of a site to existing WMS warehouses by production role;
-- backend list, create/edit, and detail management screens using `DataTable` and `CrudForm`;
-- WMS ACL features, commands, audit/undo behaviour, CRUD events, OpenAPI, query indexing, optimistic locking, and integration coverage;
-- tenant, organization, and site-scope validation.
+- `Site` create/read/update, activation, and deactivation within `wms`;
+- assignment of one or more same-scope WMS warehouses to each fixed production role;
+- exactly one default warehouse for every `(site, role)` that has at least one live assignment;
+- a setup-once backend UI: minimal `DataTable` lists and `CrudForm`-based site/mapping forms;
+- tenant-defined custom fields on `Site`, including create/update/read/undo and field-injection support;
+- WMS ACL, commands, audit/undo, events, OpenAPI, query indexing, optimistic locking, migrations, and integration coverage;
+- tenant, organization, site, warehouse-active, uniqueness, and default-selection invariants.
 
 ### Out of scope
 
-- a standalone `sites` module or a general location/network hierarchy;
-- number ranges for production orders, batches, lots, or serials;
+- deleting a site or reusing its stable identity;
+- effective-dated, scheduled, or historical-as-of warehouse assignments;
+- site timezone, shifts, calendars, or mid-day warehouse switching;
+- production-order, batch, lot, or serial number ranges;
 - production orders, BOMs, routings, release status, work centers, or manufacturing execution;
 - changing stock balances, reservations, movements, or warehouse/location topology;
-- changing Sales integration or making Sales optional for WMS; that is tracked separately by issue #5260;
-- cross-organization sites, warehouses, or mappings.
+- configurable/custom warehouse roles or automatic warehouse-selection rules;
+- custom fields on `SiteWarehouseRole`;
+- list search bars, advanced filters, column choosers, saved views/perspectives, exports, or bulk actions in the Phase 1 site/mapping UI;
+- changing Sales integration or making Sales optional for WMS; issue #5260 tracks that work;
+- cross-organization sites, warehouses, or assignments;
+- a standalone `sites` module or generic enterprise location/network hierarchy.
 
 ## Proposed Solution
 
-Add two WMS entities and expose them through the existing command-backed CRUD pattern.
-
 ```text
 Organization
-  ├─ ProductionSite (WMS-owned context; e.g. Warsaw factory)
-  │    ├─ raw_material   → Warehouse A
-  │    ├─ wip            → Warehouse B
-  │    └─ finished_goods → Warehouse C
-  └─ Warehouse …
+  |-- Site (WMS-owned stable factory context)
+  |    |-- raw_material
+  |    |     |-- Warehouse A (default)
+  |    |     `-- Warehouse B
+  |    |-- wip            --> Warehouse C (default)
+  |    `-- finished_goods --> Warehouse D (default)
+  `-- Warehouse ...
 ```
 
-One warehouse may serve multiple roles for one site and may be shared by several sites. A site may exist without a role mapping during configuration. Future released definitions and orders may not use a site until their detailed specification defines the required role set for the operation.
+A warehouse may serve multiple roles and sites. A site may temporarily have no assignments while it is being configured. The first assignment for a `(site, role)` becomes the default automatically. Later assignments are non-default unless the request explicitly promotes them; promotion atomically demotes the previous default.
 
-The mapping is valid-time data. Its effective interval is half-open: `[effectiveFrom, effectiveTo)`. `effectiveTo = null` means no scheduled end. For each `(site, role)`, intervals must not overlap; this gives a deterministic role-to-warehouse resolution for every date.
+Assignments describe current configuration only. Changing a default does not move inventory, rewrite existing production records, or schedule a future switch. Future consumers must persist scalar `siteId` and immutable snapshots containing the concrete warehouse IDs and roles used by each release, order, posting, or fact.
 
 ## Architecture and Ownership
 
-| Concept | Owner | Reason |
+| Concept | Owner | Rule |
 |---|---|---|
-| Tenant and organization hierarchy | `directory` | Existing data isolation and RBAC scope |
-| Production-site identity and site-to-warehouse role mapping | `wms` | Initial consumer is inventory topology for production |
-| Warehouse, location, stock, lots, serials, reservations, and movements | `wms` | Existing physical inventory authority |
-| Future definition/order references | `manufacturing` / `production` | They store scalar `siteId` plus historical snapshots; no cross-module ORM relation |
-| Future number ranges | Detailed `production`/kernel specification | Defer until order/batch/lot lifecycle needs them |
+| Tenant and organization hierarchy | `directory` | Existing isolation and RBAC scope |
+| Site identity and current site-to-warehouse roles | `wms` | Stable factory context backed by current inventory topology |
+| Warehouse, location, stock, lots, serials, reservations, movements | `wms` | Existing physical inventory authority |
+| Future definition/order references | `manufacturing` / `production` | Scalar `siteId` plus immutable site/warehouse-role snapshots; no cross-module ORM relation |
+| Future scheduled assignments | Dedicated follow-up specification | Additive temporal layer; must not reinterpret stored production snapshots |
+| Future timezone and calendars | `planner` plus a dedicated site/calendar contract | Added before a site is used by timezone-sensitive execution |
+| Future number ranges | Dedicated Wave 0 specification | Required before production numbers are allocated; not part of P1.2 |
 
-This does not make a warehouse a site. `ProductionSite` is an independent WMS entity, and `ProductionSiteWarehouseRole` is the explicit bridge to a warehouse.
+WMS must not import, require, or resolve Manufacturing to provide this capability. The optional consumer owns future integration glue and must degrade safely when absent.
+
+No new DI service is required for Phase 1; commands use the established WMS command registration and scoped ORM patterns. If a resolver service is later introduced, it must be a stable WMS DI contract specified before consumers depend on it.
 
 ## Data Models
 
-### `ProductionSite`
+### `Site`
 
-Table: `wms_production_sites`.
+Table: `wms_sites`.
+
+| Column | Type | Rules |
+|---|---|---|
+| `id` | UUID | Primary key; stable identity |
+| `tenant_id` | UUID | Required |
+| `organization_id` | UUID | Required |
+| `code` | text | Required; trim, uppercase, 1-80 chars; case-insensitive unique among live sites in tenant + organization |
+| `name` | text | Required; trim, 1-200 chars |
+| `is_active` | boolean | Required; defaults to `true`; controls operational eligibility, not configurability |
+| `metadata` | JSONB nullable | Inherited WMS storage detail; excluded from Phase 1 API, UI, search, audit change keys, and business semantics |
+| `created_at`, `updated_at`, `deleted_at` | timestamps | Standard WMS lifecycle fields; `updated_at` provides optimistic locking |
+
+No route or normal command sets `deleted_at` on a site. Undoing site creation deactivates the record instead of deleting it, preserving the stable ID. Undoing a site update restores the previous editable snapshot subject to optimistic locking.
+
+Required indexes:
+
+- `(organization_id, tenant_id)` for scoped access;
+- unique `(tenant_id, organization_id, lower(code)) WHERE deleted_at IS NULL` with a named expression index.
+
+Register `wms:site` in `wms/ce.ts` with `labelField: 'name'`, `showInSidebar: false`, `defaultEditor: false`, and no module-shipped default fields. This registration deliberately enables tenant-defined custom fields without adding another generic record editor. `SiteWarehouseRole` is not registered as a custom-field host: it is a constrained configuration assignment whose meaning must remain limited to site, warehouse, fixed role, and default status.
+
+### `SiteWarehouseRole`
+
+Table: `wms_site_warehouse_roles`.
 
 | Column | Type | Rules |
 |---|---|---|
 | `id` | UUID | Primary key |
-| `tenant_id` | UUID | Required, tenant-scoped |
-| `organization_id` | UUID | Required, organization-scoped |
-| `code` | text | Required, trim, 1–80 chars; unique among non-deleted sites in an organization |
-| `name` | text | Required, trim, 1–200 chars |
-| `timezone` | text | Required IANA timezone, 1–120 chars |
-| `is_active` | boolean | Required; defaults to `true` |
-| `metadata` | JSONB nullable | Existing WMS metadata convention; no production semantics in Phase 1 |
-| `created_at`, `updated_at`, `deleted_at` | timestamps | Standard WMS soft-delete and optimistic-locking fields |
-
-`timezone` is explicit even when a warehouse also stores one: one site can use several warehouses, and the site is the future source of production-calendar and fact timezone interpretation.
-
-### `ProductionSiteWarehouseRole`
-
-Table: `wms_production_site_warehouse_roles`.
-
-| Column | Type | Rules |
-|---|---|---|
-| `id` | UUID | Primary key |
-| `tenant_id`, `organization_id` | UUID | Required; copied and validated against both linked records |
-| `production_site_id` | UUID FK to `wms_production_sites` | Same-module ORM relation; required |
-| `warehouse_id` | UUID FK to `wms_warehouses` | Same-module ORM relation; required |
+| `tenant_id`, `organization_id` | UUID | Required; copied from and validated against both linked records |
+| `site_id` | UUID FK to `wms_sites` | Required same-module ORM relation |
+| `warehouse_id` | UUID FK to `wms_warehouses` | Required same-module ORM relation |
 | `role` | text enum | `raw_material`, `line_side`, `wip`, `finished_goods`, `quarantine`, `shipping` |
-| `effective_from` | date | Required; inclusive |
-| `effective_to` | date nullable | Exclusive; if present, must be later than `effective_from` |
-| `created_at`, `updated_at`, `deleted_at` | timestamps | Standard soft-delete and optimistic-locking fields |
+| `is_default` | boolean | Required; exactly one live default when a `(site, role)` group is non-empty |
+| `metadata` | JSONB nullable | Inherited storage detail; not exposed or assigned business semantics |
+| `created_at`, `updated_at`, `deleted_at` | timestamps | Soft-delete plus optimistic-locking fields |
 
-Database enforcement must prevent overlapping non-deleted effective intervals for the same `(production_site_id, role)`. The migration may use PostgreSQL `btree_gist` plus an exclusion constraint over the half-open `daterange`; the implementation must document the exact generated SQL and ensure the constraint has a descriptive name.
+`site_id` and `role` are immutable after creation. Correcting either uses delete-and-create so the default invariant is evaluated explicitly. `warehouse_id` may be changed to another active, same-scope warehouse when uniqueness remains valid.
 
-The command layer must additionally validate:
+Required indexes and constraints:
 
-1. site and warehouse have the same `tenantId` and `organizationId` as the request;
-2. the warehouse is active when creating or updating a currently effective mapping;
-3. `effectiveTo` is later than `effectiveFrom`;
-4. no overlapping mapping exists, returning a translated field error rather than a raw database error.
+- `(organization_id, tenant_id, site_id)` for the site detail table;
+- `(organization_id, tenant_id, warehouse_id)` for warehouse eligibility/impact lookups;
+- unique `(site_id, role, warehouse_id) WHERE deleted_at IS NULL`;
+- unique `(site_id, role) WHERE is_default = true AND deleted_at IS NULL`.
 
-An inactive site cannot receive a new mapping. Deactivating a site does not delete role history; future production execution will reject inactive sites in its own contract.
+The database enforces at most one default; commands enforce that a non-empty role group has at least one. Both named unique constraints must be translated to stable field/conflict errors, including concurrent races.
+
+## Business Invariants and Transactions
+
+All mutations validate Zod input before persistence and execute through registered WMS commands.
+
+1. Site, warehouse, request, tenant, and organization scopes must match. Foreign-scope IDs fail closed without revealing the record.
+2. Site codes are normalized to uppercase before uniqueness checks and persistence.
+3. Inactive sites remain configurable. Future operational consumers must reject an inactive site.
+4. Only an active warehouse can be newly assigned or selected by an update.
+5. Later warehouse deactivation retains the assignment for audit/context, but the assignment is operationally ineligible and is shown with a warning in UI.
+6. The first live assignment for `(site, role)` is automatically default.
+7. Promoting an assignment atomically demotes the previous default and promotes the target.
+8. A default cannot be demoted without promoting a replacement in the same transaction.
+9. Deleting a default is blocked while sibling assignments remain. The administrator first promotes a successor; deleting the last assignment in a role is allowed.
+10. Creating, updating, deleting, promoting, and undoing assignments use `withAtomicFlush(..., { transaction: true })` where more than one row can change.
+11. Preflight uniqueness checks provide field errors; named constraint violations handle concurrent races and return the same translated contract.
 
 ## API Contracts
 
-All APIs use `makeCrudRoute`, canonical command handlers, organization/tenant scoping, Zod validation, OpenAPI, query indexing, mutation guards, and default optimistic locking.
+Both route files use `makeCrudRoute`, method-level `metadata`, scoped payload helpers, OpenAPI exports, query indexing, mutation guards, command writes, `pageSize <= 100`, and disabled list cache. API responses use the exact camelCase shapes below; no vague camel/snake compatibility requirement is introduced. Only the site route enables canonical custom-field decoration.
 
-### Production sites
+### Sites
 
-| Method | Path | Required feature | Behaviour |
-|---|---|---|---|
-| `GET` | `/api/wms/production-sites` | `wms.view` | Paginated list/detail by `id`; filters `search`, `ids`, `isActive`; returns `updated_at` |
-| `POST` | `/api/wms/production-sites` | `wms.manage_production_sites` | Creates a site in the authenticated organization scope |
-| `PUT` | `/api/wms/production-sites` | `wms.manage_production_sites` | Updates a site using the optimistic-lock header derived from `updatedAt` |
-| `DELETE` | `/api/wms/production-sites` | `wms.manage_production_sites` | Soft-deletes only when no currently effective mapping remains; otherwise returns translated conflict/validation error |
+Path: `/api/wms/sites`.
 
-Commands: `wms.production-sites.create`, `wms.production-sites.update`, `wms.production-sites.delete`.
+| Method | Feature | Request / behavior |
+|---|---|---|
+| `GET` | `wms.view` | `page`, `pageSize`, `search`, `ids`, `isActive`, `sortField`, `sortDir`, or detail by `id` |
+| `POST` | `wms.manage_sites` | `{ code, name, isActive?, ...customFieldValues }`; returns `201 { id }` |
+| `PUT` | `wms.manage_sites` | `{ id, code?, name?, isActive?, ...customFieldValues }`; requires optimistic-lock header; returns `{ ok: true }` |
+
+There is no `DELETE` export, OpenAPI operation, command, or UI action for a site.
+
+Site list/detail item:
+
+```typescript
+{
+  id: string
+  code: string
+  name: string
+  isActive: boolean
+  customValues: Record<string, unknown>
+  customFields: Array<Record<string, unknown>>
+  createdAt: string
+  updatedAt: string
+}
+```
+
+The site route configures `decorateCustomFields: { entityIds: [E.wms.site], stripPrefixedKeys: true }`. Prefixed `cf_`/`cf:` inputs are accepted only through the standard payload split/normalization helpers; responses expose the canonical `customValues` and `customFields` fields without duplicate prefixed top-level keys. Commands: `wms.sites.create`, `wms.sites.update`.
 
 ### Site warehouse roles
 
-| Method | Path | Required feature | Behaviour |
-|---|---|---|---|
-| `GET` | `/api/wms/production-site-warehouse-roles` | `wms.view` | Paginated list/detail; filters `productionSiteId`, `warehouseId`, `role`, `effectiveAt`, `ids`; returns `updated_at` |
-| `POST` | `/api/wms/production-site-warehouse-roles` | `wms.manage_production_sites` | Creates a valid-time mapping |
-| `PUT` | `/api/wms/production-site-warehouse-roles` | `wms.manage_production_sites` | Edits role, warehouse, or effective interval with optimistic locking |
-| `DELETE` | `/api/wms/production-site-warehouse-roles` | `wms.manage_production_sites` | Soft-deletes a mapping; this is configuration removal, not a production-history change |
+Path: `/api/wms/site-warehouse-roles`.
 
-Commands: `wms.production-site-warehouse-roles.create`, `wms.production-site-warehouse-roles.update`, `wms.production-site-warehouse-roles.delete`.
+| Method | Feature | Request / behavior |
+|---|---|---|
+| `GET` | `wms.view` | `page`, `pageSize`, `siteId`, `warehouseId`, `role`, `isDefault`, `ids`, `sortField`, `sortDir`, or detail by `id` |
+| `POST` | `wms.manage_sites` | `{ siteId, warehouseId, role, isDefault? }`; first role assignment becomes default; returns `201 { id }` |
+| `PUT` | `wms.manage_sites` | `{ id, warehouseId?, isDefault? }`; `siteId` and `role` are immutable; requires the mapping's optimistic-lock header |
+| `DELETE` | `wms.manage_sites` | `{ id }`; requires the mapping's optimistic-lock header and obeys the default-removal rule |
 
-All list/detail response schemas expose camel/snake compatibility according to the existing CRUD factory conventions and must include `updatedAt` for edit forms. The dedicated implementation spec may add an additive, read-only role-summary field to the site response only if it is batch-enriched and does not create an N+1 query.
+Mapping list/detail item:
 
-## Events, Audit, Undo, and Search
+```typescript
+{
+  id: string
+  siteId: string
+  warehouseId: string
+  role: 'raw_material' | 'line_side' | 'wip' | 'finished_goods' | 'quarantine' | 'shipping'
+  isDefault: boolean
+  warehouse: { id: string; code: string; name: string; isActive: boolean }
+  createdAt: string
+  updatedAt: string
+}
+```
 
-Declare WMS CRUD events through `createModuleEvents`:
+The warehouse presentation is loaded in one scoped batch for list results; it must not produce an N+1 query. Commands: `wms.site-warehouse-roles.create`, `wms.site-warehouse-roles.update`, `wms.site-warehouse-roles.delete`.
 
-- `wms.production_site.created`, `wms.production_site.updated`, `wms.production_site.deleted`;
-- `wms.production_site_warehouse_role.created`, `wms.production_site_warehouse_role.updated`, `wms.production_site_warehouse_role.deleted`.
+### Error contract
 
-Each command is audited and undoable using the current WMS command conventions. Undo must restore the record only when doing so would not violate the effective-interval exclusion constraint; otherwise it must fail safely with an actionable internal/audited error rather than corrupt role history.
+| Case | Status | Contract |
+|---|---|---|
+| Invalid body, role, filter, or blank fields | `400` | Translated validation response with `fieldErrors` where applicable |
+| Foreign-scope or unknown site/warehouse/mapping ID | `404` | Non-disclosing not-found response |
+| Duplicate site code, duplicate assignment, default race, or invalid default removal | `409` | Stable translated error; constraint names never leak |
+| Stale site or mapping version | `409` | Standard optimistic-lock conflict body consumed by `surfaceRecordConflict` |
+| Inactive warehouse selected | `422` | Translated `warehouseId` field error |
 
-Both entities receive query-index entity IDs and standard search configuration sufficient for list search by site code/name and role mapping filters. No cross-module search index is required.
+Update schemas require at least one mutable field in addition to `id`; empty updates fail validation. ORM/query-engine parameters remain parameterized. Constraint translation matches named constraints and never interpolates user input into SQL or exposes database details.
+
+Site command writes use `runCrudCommandWrite` (or the equivalent canonical helper if the implementation proves a module-local constraint requires it) so scalar changes, custom-field values, and CRUD side effects share one logical atomic flow. Form submissions collect custom values with `collectCustomFieldValues()`. Command snapshots store `snapshot.custom` before and after each site mutation and undo restores differences with `buildCustomFieldResetMap`. Mapping commands do not accept, persist, decorate, or restore custom fields.
+
+## Security and Failure Handling
+
+- Every API method exports metadata with `requireAuth: true` and the feature shown above. Every page has matching `page.meta.ts` guards.
+- Every read and write query includes both `tenant_id` and `organization_id`; linked site and warehouse records are reloaded in the authenticated scope rather than trusted from request payloads.
+- Foreign-scope IDs use the same non-disclosing not-found response as unknown IDs.
+- `code` and `name` are plain text. UI renders them through normal escaped React text nodes; no HTML/Markdown input or unsafe raw rendering is accepted.
+- Base fields accept no URL, file path, credential, secret, or executable content. `metadata` is not accepted or returned. Tenant-defined custom fields use the existing definition validation, scoped data engine, and encryption configuration; this module does not bypass or duplicate those controls.
+- Logs and database errors contain stable internal identifiers and translated error keys, not raw SQL, constraint diagnostics, tokens, or request headers.
+- A command failure or constraint race rolls back the full transaction. Events, audit completion, indexing, and response success occur only for the committed outcome.
+
+## Events, Audit, Undo, Search, and Cache
+
+Declare additive events through `createModuleEvents`:
+
+- `wms.site.created`, `wms.site.updated`;
+- `wms.site_warehouse_role.created`, `wms.site_warehouse_role.updated`, `wms.site_warehouse_role.deleted`.
+
+Every payload contains `id`, `tenantId`, and `organizationId`, with optional `actorUserId`. Site events also contain `siteId`, `code`, `name`, and `isActive`. Mapping events contain `mappingId`, `siteId`, `warehouseId`, `role`, and `isDefault`. Both update events additionally contain a required `previous` object with the corresponding pre-update business fields. Published fields may not later be removed or narrowed.
+
+Audit/undo rules:
+
+- site create undo deactivates the site, clears/restores its custom-field contribution according to the canonical create-undo snapshot, and never deletes the stable identity;
+- site update undo restores the editable scalar and custom-field snapshots;
+- mapping create undo follows the same default-removal invariant as delete;
+- mapping update/delete undo restores its snapshot only if uniqueness and default invariants remain valid;
+- a conflicting undo fails with a translated `409` and an actionable audit entry; it never partially changes siblings.
+
+`Site` receives a query-index entity ID and global search configuration for code/name. Tenant-defined custom fields are not automatically added to global search in Phase 1. `SiteWarehouseRole` receives the stable CRUD/DataTable entity ID required by `makeCrudRoute`, but no global search result configuration; its API filters serve programmatic callers and the scoped detail loader.
+
+Both list APIs set `disableListCache: true`, matching current WMS configuration CRUD. No cache invalidation contract is required in Phase 1. If caching is introduced later, keys and tags must include tenant and organization, and mapping writes must invalidate the parent site projection.
 
 ## Backend UI and ACL
 
-Add `wms.manage_production_sites` to `wms/acl.ts` and grant it to default WMS administrators in `setup.ts`; preserve wildcard ACL behavior.
+Add `wms.manage_sites` to `wms/acl.ts`, grant it to `admin` through `setup.ts`, preserve `wms.*` wildcard behavior, and run the existing ACL sync mechanism for installed tenants. `employee` retains read-only access through `wms.view`.
 
 Backend routes:
 
-- `/backend/wms/production-sites` — `DataTable` list with code, name, timezone, active status, and count/summary of current mappings where batch data is available;
-- `/backend/wms/production-sites/create` — `CrudForm` for a production site;
-- `/backend/wms/production-sites/[id]` — `CrudForm` edit/detail with a secondary `DataTable` of warehouse-role mappings;
-- mapping create/edit uses `CrudForm` in a shared dialog or page pattern, with `Cmd/Ctrl+Enter` submit and `Escape` cancel.
+- `/backend/wms/sites` — guarded by `wms.view`; minimal `DataTable` columns: code, name, active status;
+- `/backend/wms/sites/create` — guarded by `wms.manage_sites`; `CrudForm` for code, name, active state, injected fields, and tenant-defined site custom fields;
+- `/backend/wms/sites/[id]` — guarded by `wms.view`; editable site `CrudForm` for users with `wms.manage_sites`, including injected/custom fields, plus a secondary assignments `DataTable`;
+- mapping create/edit uses one shared `CrudForm` dialog; there is no alternative page flow.
 
-The role form selects only warehouses in the current tenant/organization. It displays role, warehouse, effective-from and effective-to dates. User-facing copy and validation errors use WMS locale keys; no hard-coded UI strings or status colors are permitted.
+This is setup-once configuration, not an operational work queue. The Phase 1 tables intentionally omit search inputs, filter overlays, advanced filters, column choosers, perspectives/saved views, exports, row selection, and bulk actions. The sites table defaults to `code ASC`, paginates at 25 rows, offers refresh and stable `open`/`edit` row actions, and uses the shared `ListEmptyState`. The assignments table is always scoped to the current `siteId`, orders by `role ASC, isDefault DESC, warehouse.code ASC`, paginates at 25 rows, and offers stable `edit`/`delete` actions plus a scoped empty state. The underlying APIs retain narrow filters/search for integrations and bounded lookup use; omitting UI controls does not remove those API contracts.
 
-The site form must receive `updatedAt` from the API so `CrudForm` supplies the normal update/delete optimistic-lock header. The mapping form has its own `updatedAt`; it must not reuse the parent site version when mutating a mapping.
+Add `sitesTable` and `siteWarehouseRolesTable` through `dataTableExtensionHost` in `wms/extension-points.ts`, with stable table IDs `wms.sites.list` and `wms.site_warehouse_roles.list` bound to their real client components. Add `siteForm` and `siteWarehouseRoleForm` through `crudFormExtensionHost`, bound to the corresponding form components. These hosts expose the normal DataTable and CrudForm injection surfaces without enabling built-in controls prematurely. The base sites table does not pass custom-field `entityIds` and does not synthesize custom-field columns: custom fields remain editable record data, while injected modules may add purpose-built columns through the stable table host.
 
-## Failure Handling and Security
+Site forms use stable entity/custom-field host `E.wms.site` (`wms:site`), pass `entityIds={[E.wms.site]}`, and preserve stable base field IDs `code`, `name`, `isActive` plus group IDs `general`, `status`, and `custom`. CrudForm normalizes the entity ID for the stable `crud-form:wms.site:fields` injection surface while loading custom fields under `wms:site`. The mapping form uses stable entity ID `E.wms.site_warehouse_role` and base IDs `role`, `warehouseId`, `isDefault`, but passes no custom-field entity IDs. All HTTP uses `apiCall` helpers; writes use `createCrud`/`updateCrud`, and mapping delete uses `deleteCrud`. Local validation throws `createCrudFormError`; success/error feedback uses translated `flash()` messages. Site update uses the site's `updatedAt`; mapping update/delete uses that mapping's `updatedAt`, never the parent version.
 
-| Case | Expected behaviour |
+The mapping dialog:
+
+- filters warehouse options to the current tenant and organization and to active warehouses;
+- displays role, warehouse, and default state;
+- makes role immutable while editing;
+- explains that changing a default does not move inventory;
+- supports `Cmd/Ctrl+Enter` submit and `Escape` cancel.
+
+An assignment whose warehouse was later deactivated remains visible with a semantic warning `StatusBadge`/`Alert` and cannot be selected for a new assignment or update. All copy and errors use WMS locale keys; no hard-coded UI strings, status colors, arbitrary values, raw controls, or inline SVGs are permitted.
+
+### Frontend architecture contract
+
+#### Server/client boundary map
+
+| Route | Server root | Client islands | Data owner |
+|---|---|---|---|
+| `/backend/wms/sites` | `backend/wms/sites/page.tsx` | `SitesTableClient` | `/api/wms/sites` |
+| `/backend/wms/sites/create` | `backend/wms/sites/create/page.tsx` | `SiteFormClient` | `/api/wms/sites` |
+| `/backend/wms/sites/[id]` | `backend/wms/sites/[id]/page.tsx` | `SiteFormClient`, `SiteWarehouseRolesClient`, `SiteWarehouseRoleDialog` | both scoped CRUD APIs |
+
+Page roots remain server components and contain no `"use client"`. They own page composition and missing-record boundaries; client islands own only table/form/dialog state. Record-backed loading follows `loading -> notFound -> error -> ready` and uses `LoadingMessage`/`ErrorMessage`; forms and actions are not rendered for a missing site.
+
+#### `"use client"` ledger
+
+| Client file | Exact browser capability | Heavy dependencies | Guardrail / rejected alternative |
+|---|---|---|---|
+| `SitesTableClient.tsx` | Minimal DataTable paging, refresh, navigation, organization-scope refresh | Existing DataTable only | No search/filter/view/export state and no local full dataset |
+| `SiteFormClient.tsx` | CrudForm state, custom-field collection, submit, conflict recovery | Existing CrudForm only | Shared field/group/schema builders for create/detail; no custom form framework |
+| `SiteWarehouseRolesClient.tsx` | Child DataTable state and mapping dialog orchestration | Existing DataTable only | Split dialog into a leaf before either file exceeds 300 LOC |
+| `SiteWarehouseRoleDialog.tsx` | Dialog open state, bounded warehouse search, keyboard submit/cancel | Existing CrudForm/dialog primitives only | No global provider and no preloaded warehouse catalogue |
+
+#### Budgets, bootstrap, and evidence
+
+| Budget | Spec value |
 |---|---|
-| Cross-tenant or cross-organization site/warehouse ID | Fail closed as not found/forbidden according to the canonical scoped command pattern; never reveal the foreign record |
-| Unknown timezone or invalid date interval | Zod/translatable field validation error |
-| Overlapping role interval | Validation conflict on the effective interval; no partial write |
-| Site deleted with current mappings | Reject deletion and direct the user to retire/remove mappings first |
-| Concurrent site or mapping update/delete | HTTP 409 optimistic-lock conflict; standard conflict UI is shown |
-| Warehouse later deactivated | Existing mapping history remains; future production execution validates operational eligibility before posting |
-| Optional Manufacturing absent | WMS production sites remain manageable; no hard dependency on Manufacturing is added |
+| New page-root `"use client"` directives | `0` |
+| New/touched client files over 300 LOC | `0`; split before merge |
+| New heavy browser libraries or page-root providers | `0` |
+| Incremental first-load JS for each new route | no new heavy chunk and target <= 20 KiB gzip beyond reused WMS/UI chunks; any exception requires architecture approval |
+| Hydration smoke tests | required for all three routes |
+| Interaction tests | create/update site; create/promote/delete mapping; conflict retry; keyboard submit/cancel |
+| Performance evidence | `yarn check:client-boundaries`, application build route output, and Playwright hydration/interaction results recorded in the PR |
+
+No provider, bootstrap registry, global context, or app-shell import is added. Auto-discovered pages and generated registries are the only bootstrap changes. Warehouse options use bounded server/API search (`pageSize <= 100`), and no client island retains an unbounded warehouse dataset.
 
 ## Migration and Backward Compatibility
 
-This change is additive: new tables, routes, commands, ACL feature IDs, events, pages, and generated registrations are introduced. Existing WMS APIs, entities, warehouse semantics, and inventory movements do not change.
+The change is additive: new tables, routes, commands, ACL, events, pages, and generated registrations. Existing warehouse semantics and APIs remain unchanged.
 
 The migration must:
 
-1. create both WMS-prefixed tables, indexes, foreign keys, and soft-delete/optimistic-lock columns;
-2. create the effective-interval non-overlap enforcement and any required PostgreSQL extension safely and idempotently;
-3. update the WMS migration snapshot;
-4. create no default production site or warehouse-role mapping automatically, because there is no safe way to infer a plant or role from an existing `isPrimary` warehouse.
+1. create `wms_sites` and `wms_site_warehouse_roles` with standard WMS scope/lifecycle columns;
+2. create the named indexes and foreign keys defined above;
+3. use partial/expression indexes supported by the existing PostgreSQL deployment without installing a new extension;
+4. update the WMS migration snapshot;
+5. create no default site or assignment because `Warehouse.isPrimary` cannot safely infer a factory or production role.
 
-No existing warehouse is reclassified. Administrators configure sites explicitly after upgrade.
+Run `yarn db:generate` as a schema-diff probe, retain only intended WMS output, review SQL and snapshot, and rerun it as a no-op check. Do not apply the migration locally without explicit approval.
+
+No existing warehouse is reclassified. New event, command, API, ACL, and entity IDs become frozen/stable contract surfaces once released.
+
+## Implementation Phases
+
+### Phase 1 — Data and invariants
+
+1. Add entity types, validators, entities, named indexes, migration, and snapshot.
+2. Register `wms:site` in `ce.ts`; add canonical site custom-field collection, command persistence, response decoration, snapshots, and undo.
+3. Add transaction-safe commands, constraint translation, audit snapshots, and undo tests.
+4. Result: scoped site and assignment operations work through commands without UI.
+
+### Phase 2 — API and contracts
+
+1. Add method metadata, CRUD routes, OpenAPI schemas, response transforms, site custom-field decoration, query indexes, and events.
+2. Add concurrency, scope, custom-field roundtrip, N+1, and exact response-shape tests.
+3. Result: complete public API with no site delete surface.
+
+### Phase 3 — Backend UI and ACL
+
+1. Add ACL/setup grants, locales, pages, minimalist stable DataTables, shared site CrudForm builders, native site custom fields, and the mapping dialog.
+2. Add field injection, conflict handling, inactive-warehouse warning, keyboard behavior, empty/loading/error states, and route guards.
+3. Result: administrators can configure sites and defaults end to end.
+
+### Phase 4 — Integration and compatibility gate
+
+1. Add self-contained API/UI fixtures and cleanup in `finally`.
+2. Verify absent-Manufacturing composition, generator output, ACL sync behavior, migrations, and backward compatibility.
+3. Result: P1.2 evidence is ready for Wave 0 review.
 
 ## Testing and Acceptance Criteria
 
-### Unit and command tests
+### Unit and command coverage
 
-- validators accept each role and reject invalid roles, invalid timezones, blank codes/names, and invalid intervals;
-- commands reject tenant/organization mismatches, inactive-site mapping creation, and currently inactive warehouses;
-- overlapping date intervals are rejected before persistence and database enforcement is covered as defense in depth;
-- create/update/delete and undo preserve audit/undo semantics;
-- optimistic locking covers both site and mapping update/delete.
+- site code normalization, case-insensitive collision, blank values, and length boundaries;
+- all six fixed roles accepted; custom/unknown roles rejected;
+- scope mismatch and inactive-warehouse assignment fail closed;
+- first mapping becomes default;
+- concurrent default promotions leave exactly one default;
+- duplicate assignment and database constraint races return translated errors;
+- default deletion/demotion is blocked while siblings remain; last mapping deletion succeeds;
+- inactive site remains configurable;
+- site create undo deactivates rather than deletes;
+- mapping undo respects current uniqueness/default invariants;
+- optimistic locking covers site update and mapping update/delete.
+- site custom fields create/update/read correctly and scalar plus custom snapshots round-trip through undo;
+- mapping validators reject prefixed/custom-field payload keys.
 
-### Integration tests
+### Self-contained integration coverage
 
-- a WMS administrator can create, list, edit, and soft-delete a site with `updatedAt` returned by GET;
-- a same-scope warehouse can be mapped to each role; the same warehouse can support multiple roles;
-- a second effective interval may start exactly when the previous interval ends, but an overlap is rejected;
-- a site cannot be deleted while it has a current mapping;
-- cross-tenant and cross-organization IDs never create, read, update, or delete mappings;
-- a user without `wms.manage_production_sites` can view but cannot mutate;
-- WMS loads with Manufacturing absent, proving the new site model introduces no production dependency;
-- backend UI covers list, create, edit, conflict, and mapping dialog keyboard behaviour.
+- create fixtures through APIs, never seeded/demo assumptions, and clean them in `finally`;
+- GET/POST/PUT site paths return exact camelCase shapes including `updatedAt`; no site DELETE handler or OpenAPI operation exists;
+- site custom fields appear in create/edit CrudForm, persist through the API, return only through canonical `customValues`/`customFields`, and field injection resolves at `crud-form:wms.site:fields`;
+- GET/POST/PUT/DELETE mapping paths work for authorized users;
+- several warehouses can share one role while exactly one is default;
+- promotion is atomic and does not move stock;
+- cross-tenant and cross-organization IDs cannot read or mutate assignments;
+- a user with `wms.view` but without `wms.manage_sites` can read and cannot mutate;
+- later warehouse deactivation leaves a visible warning and blocks new operational selection;
+- WMS loads with Manufacturing absent;
+- UI covers list, create, edit, activation/deactivation, mapping dialog, keyboard behavior, and site/mapping optimistic conflicts;
+- the base tables render no search, filter, column-chooser, perspective, export, selection, or bulk-action controls while their stable extension hosts still accept injected contributions;
+- list enrichment performs a bounded batch warehouse query rather than one query per row.
 
 ### Validation commands
 
-Run the smallest relevant set in one chosen runner mode:
+Choose local or Docker runner once for the gate and record it:
 
 ```bash
 yarn db:generate
@@ -227,30 +416,90 @@ yarn generate
 yarn workspace @open-mercato/core test
 yarn workspace @open-mercato/core build
 yarn typecheck
+yarn i18n:check-hardcoded
 ```
+
+## Future Enhancements
+
+The following are separate capabilities, not unfinished work inside P1.2:
+
+1. **Scheduled/effective-dated assignments:** allow an administrator to plan a default warehouse change for a future site-local date and query historical configuration as-of a date. The future design must define timezone, correction semantics, overlap constraints, migration from current assignments, and snapshot compatibility.
+2. **Site timezone and production calendars:** add timezone only when calendar, shift, MES timestamp, or execution semantics require it. Existing sites must be migrated/configured before timezone-sensitive execution is enabled.
+3. **Production number ranges:** a separate mandatory Wave 0 specification defines site/type-scoped numbering for production orders, batches, lots, and serials, concurrency, reset policy, offline allocation, and WMS validation. Production must not allocate these identifiers before that gate passes.
+4. **Warehouse selection policy:** item-, operation-, capacity-, or routing-aware selection may extend explicit assignments later. Phase 1 provides only a deterministic default and explicit warehouse choice.
 
 ## Risks and Impact Review
 
-| Risk | Severity | Mitigation | Residual risk |
-|---|---|---|---|
-| `ProductionSite` is later overloaded into a generic enterprise location master | Medium | Keep its WMS-specific name, scope, and minimal fields; introduce a separate foundation only when a non-WMS consumer has a proven need | Future migration may still require an additive general-site bridge |
-| Mapping history becomes ambiguous through overlapping dates | High | Half-open date intervals and database exclusion constraint | Operational staff must enter dates correctly |
-| Existing primary warehouse is assumed to be a production site | Medium | No automatic migration/backfill; explicit admin configuration | Initial setup requires an administrator action |
-| Child mapping update applies parent optimistic-lock version | Medium | Separate mapping entity/version and `CrudForm` initial values | Custom UI code must preserve this rule |
-| New site causes hidden Manufacturing dependency in WMS | High | No imports, `ModuleInfo.requires`, or runtime resolves of Manufacturing; disabled-module test | Future callers must remain optional consumers until they declare a hard need |
+| Risk | Severity | Detection | Mitigation | Residual risk |
+|---|---|---|---|---|
+| `Site` becomes a generic location master | Medium | New non-WMS consumers demand unrelated fields | Keep WMS ownership, namespace, and minimal fields; require a separate foundation decision for broader use | A future additive bridge may still be required |
+| Current-only mappings are mistaken for historical truth | High | A report joins old records to the current default | Require immutable snapshots in every future release/order/posting/fact; document audit log as evidence, not an as-of resolver | Scheduled/as-of configuration remains unavailable until its follow-up |
+| Concurrent writes produce zero or two defaults | High | Constraint/command test or production `409` metric | Transactional promotion, partial unique index, named error translation, concurrency tests | Operators may need to retry a raced update |
+| Warehouse deactivation leaves an unusable default | High | Site UI warning and future operational eligibility checks | Preserve assignment, warn visibly, block operational use, require explicit replacement | Configuration remains degraded until an administrator acts |
+| Site identity is accidentally deleted through undo | High | Command regression tests and audit review | No DELETE command; create undo deactivates rather than deletes | Erroneous inactive records remain visible to administrators |
+| Parent optimistic-lock version is reused for a mapping | Medium | UI conflict tests | Mapping forms carry their own `updatedAt` | Custom future UI must preserve the rule |
+| Number allocation begins without its contract | High | Wave 0 gate and production spec review | Separate mandatory number-range spec before production numbering | Delivery sequencing must enforce the gate |
+| Assignment enrichment becomes N+1 | Medium | Query-count integration test | One scoped batch warehouse lookup; no optional summary on site list | Very large assignment lists still require normal pagination |
 
-## Final Compliance Report
+## Final Compliance Report — 2026-08-13
+
+### AGENTS.md files and guides reviewed
+
+- root `AGENTS.md`;
+- `.ai/specs/AGENTS.md`;
+- `packages/core/AGENTS.md`;
+- `packages/core/src/modules/customers/AGENTS.md` as CRUD reference;
+- `packages/ui/AGENTS.md`;
+- `packages/cli/AGENTS.md`;
+- `BACKWARD_COMPATIBILITY.md`;
+- `.ai/skills/om-spec-writing/SKILL.md` and its review checklist.
+
+### Compliance matrix
 
 | Requirement | Status | Notes |
 |---|---|---|
-| Tenant and organization isolation | Planned | Required in entity, validators, commands, routes, and tests |
-| No cross-module ORM relation | Planned | All future Manufacturing references are scalar IDs |
-| Zod, command writes, mutation guards, OpenAPI | Planned | Uses established WMS CRUD pattern |
-| Optimistic locking | Planned | Both user-editable entities expose `updatedAt` |
-| API/UI integration tests | Planned | Listed in acceptance criteria |
-| Backward compatibility | Planned | Additive only; no reclassification of existing warehouses |
-| `yarn generate` after discovered files | Planned | Required during implementation |
+| One independently deployable capability | Compliant | Site identity and its current warehouse-role assignments form one WMS configuration slice |
+| Tenant and organization isolation | Compliant | Entity, command, route, index, error, and test rules are explicit |
+| No cross-module ORM relation | Compliant | Future consumers store scalar IDs and snapshots |
+| Zod, commands, transactions, mutation guards, OpenAPI | Compliant | Exact API and concurrency contracts are defined |
+| Optimistic locking | Compliant | Site update and mapping update/delete expose and use their own `updatedAt` |
+| Stable site identity | Compliant | No delete surface; creation undo deactivates |
+| Sensitive data/encryption | Compliant | No PII field is introduced; untyped metadata is not exposed or assigned semantics |
+| API/UI canonical mechanisms | Compliant | `makeCrudRoute`, `CrudForm`, `DataTable`, API helpers, conflict UI, and stable IDs are required |
+| Custom fields | Compliant | Full canonical pipeline is required for `Site`; closed mapping assignments intentionally reject custom fields |
+| Proportional list UX | Compliant | Setup-once tables retain native hosts, paging, states, actions, and refresh while omitting unjustified CRM-scale controls |
+| Design system and i18n | Compliant | Semantic primitives/tokens, locale keys, keyboard behavior, and no raw controls are required |
+| Cache and N+1 | Compliant | List cache disabled; warehouse presentation is batch-loaded |
+| Migration/backward compatibility | Compliant | Additive tables/contracts; no existing warehouse is reclassified |
+| Integration coverage | Compliant | Every affected API method and key UI flow has self-contained coverage |
+| Future temporal/numbering features | Compliant | Explicitly separated and gated; no placeholder semantics leak into Phase 1 |
+
+### Internal consistency check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data model matches API | Pass | No temporal/timezone fields or site delete route remain |
+| API matches UI | Pass | Site form and mapping dialog consume exact camelCase response fields |
+| Default invariant is complete | Pass | First default, promotion, demotion, deletion, undo, and races are covered |
+| Commands cover all mutations | Pass | Site create/update and mapping create/update/delete are defined |
+| Risks cover critical writes | Pass | Identity, concurrency, eligibility, snapshots, numbering, and enrichment are included |
+
+### Verdict
+
+**Approved design pending implementation evidence.** The revised specification is internally coherent and ready for the standard pre-implementation readiness audit. P1.2 does not satisfy the separate production-number-range gate.
 
 ## Changelog
 
-- 2026-08-13: Created implementation specification for the minimal WMS-owned production-site and warehouse-role model, replacing the premature standalone `sites` module proposal in Phase 1 planning.
+- 2026-08-13: Created the implementation specification for the minimal WMS-owned `Site` and warehouse-role model, replacing a premature standalone `sites` module proposal.
+- 2026-08-13: Review revision removed effective dating and timezone from Phase 1, made site identity non-deletable, allowed multiple warehouses per fixed role with one atomic default, normalized site codes, restricted assignments to active warehouses, removed business/API use of metadata, separated number ranges into a mandatory follow-up gate, and completed API, transaction, undo, UI, testing, risk, and compliance contracts.
+- 2026-08-13: Added the proportional native UI baseline: complete canonical custom fields and CrudForm field injection for `Site`; closed assignments without custom fields; minimalist paginated DataTables with stable extension hosts but without search/filter/view/export/selection/bulk controls.
+
+### Review — 2026-08-13
+
+- **Reviewer**: Agent with maintainer decisions
+- **Security**: Passed; scoped lookups fail closed and no new sensitive field is exposed.
+- **Performance**: Passed; indexes, pagination, disabled list cache, and batch enrichment are specified.
+- **Cache**: Passed; Phase 1 explicitly disables list caching.
+- **Commands**: Passed; all mutations, transaction boundaries, optimistic locking, default invariants, and undo outcomes are defined.
+- **Risks**: Passed; current-only history, stable identity, warehouse eligibility, concurrency, N+1, and deferred numbering are covered.
+- **Verdict**: Approved design pending pre-implementation evidence.
