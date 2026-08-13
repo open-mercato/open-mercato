@@ -1,0 +1,602 @@
+---
+title: External Agents
+description: Call an agent that runs at a third party and answers minutes later — the suspend/resume runtime, the connector seam, the two callback routes, and the governance rules that keep it propose-only.
+---
+
+# External Agents
+
+An **external agent** is an agent the platform does not run. A connector starts it
+at a third party, the workflow step parks, and the provider's callback — arriving
+seconds or half an hour later — completes the `AgentRun` and wakes the step. The
+shipped example places an outbound voice call and comes back with what the
+conversation collected.
+
+To a workflow author it is the same `INVOKE_AGENT` node as any other agent: same
+config schema, same five outcome handles, same `outputMapping`. The whole
+difference is that the answer arrives out of band.
+
+## When to reach for one
+
+Use an external agent when the work happens somewhere else and takes longer than a
+request:
+
+- a voice provider that phones a person and reports what they said;
+- a partner service that runs its own model and posts a signed result back;
+- any HTTP service that answers "started, I'll call you" rather than a body.
+
+Do **not** use one for work that finishes in-process. A native `defineAgent`
+already gives you the model call, the trace and the disposition path with none of
+the callback surface. And do not reach for one to get "a long-running step" —
+`WAIT_FOR_SIGNAL` does that without an agent run.
+
+What the external runtime buys over hand-wiring `CALL_WEBHOOK` + `WAIT_FOR_SIGNAL`
+is everything that hangs off an `AgentRun`: the cockpit row, the trace, the
+guardrail screening of the answer, cost and latency, eval cases, artifacts, and a
+typed `outputMapping` in the Studio's variable picker.
+
+## Governance: researcher-kind only
+
+`defineExternalAgent` **refuses** a `result.kind` other than `researcher`, and
+that refusal is the feature's governance boundary rather than a simplification:
+
+> an external *proposal* agent would let a third party's self-reported confidence
+> clear `autoApproveThreshold` and auto-approve a domain write.
+
+An external agent reports facts. The *next* (native) agent proposes, and the
+platform's existing proposal → disposition → effector path executes under a human's
+threshold. That keeps the module's propose-only rule intact without weakening it
+for a class of agent nobody in this deployment wrote.
+
+Three further rules follow from the same reasoning and are enforced in code:
+
+1. **Outbound contact is its own default-off ACL feature** —
+   `agent_orchestrator.external_agents.invoke`, checked before the run row opens
+   and long before a connector dials.
+2. **The returned answer is untrusted input.** It is a third party's free text
+   about what a human said. It goes through the run's output guardrails on arrival,
+   and the downstream planning agent screens it again as an input span.
+3. **Whether to make contact at all is the workflow author's decision, never the
+   model's.** Consent, quiet hours and do-not-call belong in a condition node
+   upstream of the agent step.
+
+## Authoring an external agent
+
+An external agent is an ordinary registry entry with `runtime: 'external'`, so the
+cockpit, `listAgentOutcomeContracts()` and the workflows context ledger all keep
+working unchanged.
+
+```ts
+// packages/agent-elevenlabs/src/modules/agent_elevenlabs/ai-agents.ts
+import { defineExternalAgent } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/defineExternalAgent'
+import { voiceCallResultSchema } from './data/validators'
+import { ELEVENLABS_VOICE_CONNECTOR_ID } from './lib/connector'
+
+defineExternalAgent({
+  id: 'voice.owner_call',
+  moduleId: 'agent_elevenlabs',
+  label: 'Call a person and collect an answer',
+  description: 'Places an outbound voice call, states the brief, and reports what it collected.',
+  connectorId: ELEVENLABS_VOICE_CONNECTOR_ID,
+  profile: 'default',
+  agentType: 'researcher',
+  result: { kind: 'researcher', schema: voiceCallResultSchema },
+  timeout: '30m',
+  instructions: 'Operator-facing notes — the prompt itself lives at the provider.',
+  sampleInput: { toNumber: '+48123456789', brief: 'Deal at risk…' },
+})
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `id`, `moduleId`, `label`, `description` | yes | As `defineAgent`. |
+| `connectorId` | yes | Which registered connector starts and settles this agent. Resolved **at run time**, so registration order between `di.ts` and `ai-agents.ts` does not matter. |
+| `result` | yes | `{ kind: 'researcher', schema }` — anything else throws. |
+| `timeout` | yes | Deadline, in the same grammar workflow authors type (`'30m'`, `'2h'`). Mandatory: without it a call nobody answers parks the workflow forever. |
+| `profile` | no | Names which of the tenant's connector profiles to use. A blank string throws; an unknown name fails **closed** at start, before any contact. |
+| `agentType`, `instructions`, `sampleInput`, `facts` | no | As `defineAgent`. `instructions` is operator documentation here, not a prompt — the prompt lives at the provider. |
+
+### The OUTCOME schema is the envelope
+
+`result.schema` must be the **envelope**, not the inner shape:
+
+```ts
+export const voiceCallResultSchema = z.object({
+  kind: z.literal('researcher'),
+  data: voiceCallOutcomeSchema,
+})
+```
+
+`resolveAgentOutcomeZod` projects the contract from that envelope. An agent that
+passes the inner shape registers with a warning and then silently vanishes from
+the workflows ledger, so `outputMapping: { call: 'data.transcript' }` types as
+`unknown` in the Studio picker instead of resolving.
+
+Keep the schema honest about what `normalize()` actually produces. The callback
+validates the normalized payload against it, and a mismatch is classified as an
+integration defect (see [Failure arms](#failure-arms)).
+
+## The connector contract
+
+A connector is a plain object registered in a package's `di.ts` — not in
+`ai-agents.ts`, because the unauthenticated callback route needs the connector
+without ever loading the agent registry.
+
+```ts
+// lib/runtime/externalConnectorRegistry.ts
+export interface ExternalAgentConnector {
+  id: string
+
+  start(args: ExternalAgentConnectorStartArgs): Promise<ExternalAgentConnectorStartResult>
+
+  verifyCallback(
+    headers: Headers,
+    rawBody: string,
+    scope: ExternalAgentConnectorCallbackScope,
+  ): Promise<boolean> | boolean
+
+  normalize(
+    rawPayload: unknown,
+    context?: ExternalAgentConnectorCallbackScope,
+  ): unknown | Promise<unknown>
+
+  extractExternalRunId?(rawPayload: unknown): string | null
+  cancel?(externalRunId: string, scope: ExternalAgentConnectorScope): Promise<void>
+  fetchRecording?(
+    externalRunId: string,
+    scope: ExternalAgentConnectorCallbackScope,
+  ): Promise<ExternalAgentConnectorRecording | null>
+  mock?(args: ExternalAgentConnectorStartArgs): unknown
+}
+```
+
+Register it idempotently — `createRequestContainer()` replays every module's
+`register()` per request, and `registerExternalAgentConnector` throws on a
+duplicate id (a second package claiming an id would be handed that provider's
+inbound callbacks):
+
+```ts
+export function register(container: AppContainer) {
+  if (!getExternalAgentConnector(MY_CONNECTOR_ID)) {
+    registerExternalAgentConnector(createMyConnector({ /* deps */ }))
+  }
+}
+```
+
+### `start` — must never block on completion
+
+```ts
+type ExternalAgentConnectorStartResult =
+  | { externalRunId: string; expectsCallback: true }
+  | { externalRunId: string; expectsCallback: false; result: unknown }
+```
+
+`start()` kicks the work off and returns. **It must not poll to completion.** A
+blocking connector pins a `workflow-invoke-agent` worker slot for the whole
+external run, and a deploy mid-call loses it while the provider still calls back
+into nothing. That is the failure mode the whole suspend/resume design exists to
+avoid.
+
+`expectsCallback: false` is the synchronous escape hatch: the connector already has
+the answer, no callback will come, and the step never parks. It still settles
+through the same completion function, so it gets the same output guardrails,
+the same audit ordering and the same single-shot claim.
+
+`args` carries `agentEntry`, `input`, `callbackUrl`, `callbackToken`, `scope`
+(`tenantId` + `organizationId`) and an optional `container` — resolve the tenant's
+credentials from `integrations` per call under the run's own scope. Never close
+over a container at registration time: it is a per-request container holding a
+forked `em` from a finished request.
+
+### `verifyCallback` — the only place verification happens
+
+Verification lives in the connector, never in the route — the same rule
+`registerWebhookEndpointAdapter()` follows. The route hands over the **exact
+received bytes**; do not re-serialize (`JSON.stringify(JSON.parse(rawBody))` is the
+single easiest way to silently break every signature check). Any replay window is
+the connector's to enforce, because only the provider's package knows its header
+format.
+
+### `normalize` — provider payload → the declared outcome
+
+`normalize` may be async and receives the callback scope, so a connector whose
+mapping is per tenant can read its own configuration. Fewer-parameter and
+plain-value implementations remain assignable.
+
+A connector may return **one** reserved, platform-owned sibling to `kind`/`data`:
+
+```ts
+{ kind: 'researcher', data: { … }, usage: { costMinor, currency, durationMs } }
+```
+
+`usage` is in platform units (integer minor units, ISO-4217 currency, milliseconds)
+because only the connector knows which of its numbers is money. The completion path
+**strips** the key before the agent's schema sees the payload, so a `.strict()`
+envelope still validates and the transcript artifact, the guardrail and
+`outputMapping` see exactly what they saw before.
+
+### Optional members
+
+| Member | Implement it when | Consequence of omitting |
+|---|---|---|
+| `extractExternalRunId` | the provider configures webhooks at workspace level and cannot accept a per-call URL | the static connector-addressed route answers 404 for this connector — the per-run token route is used instead |
+| `cancel` | the provider has a genuine abort/hang-up endpoint | the deadline sweep logs that it stopped waiting instead of claiming it cancelled. An honest "we stopped waiting" beats a false "we hung up" |
+| `mock` | a "would do" is falsifiable (`would POST to X`) | eval replays **refuse** rather than dial. Omit it when a fabricated answer would be indistinguishable downstream from a real one |
+| `fetchRecording` | the provider retains a recording you want operators to reach | no recording control is rendered at all |
+
+`fetchRecording` returns a **stream**, never a `Buffer`, and that is the design: the
+platform's promise is that it holds no copy of a caller's voice, and with a stream
+"no copy exists" is a property of the type rather than of every future caller
+remembering. `null` means nothing to play (404); a throw means integration fault
+(502).
+
+## The two callback routes
+
+Both routes are unauthenticated (`metadata = { POST: { requireAuth: false } }`) —
+the verified provider signature establishes the scope, **never the body**. Both
+rate-limit, cap the body, and settle through the same single-shot claim, so a
+redelivery is a no-op that answers `already_settled`.
+
+### Per-run token route — preferred
+
+```
+POST /api/agent_orchestrator/external-runs/{token}/callback
+```
+
+The runner mints an opaque single-use token per run, hands it to the connector as
+`callbackUrl` + `callbackToken`, and stores only its lowercase SHA-256 hex digest.
+The row is found by hashing what arrived. Two independent proofs must line up: the
+token and the connector's signature.
+
+Use it whenever the provider accepts a per-call webhook URL. The generic HTTP
+connector (`http.generic`) uses it.
+
+### Static connector-addressed route — the weaker one
+
+```
+POST /api/agent_orchestrator/external-runs/connectors/{connectorId}/callback
+```
+
+One stable URL per connector, pasted once into the provider's workspace settings.
+It exists because some providers — ElevenLabs among them — configure post-call
+webhooks at the workspace/agent level and their outbound-call request body has no
+webhook field, so a per-run URL can never reach them.
+
+The run is resolved by the provider's own id via `extractExternalRunId`, against
+the `(organization_id, connector_id, external_run_id)` unique. Tenancy is settled
+by the **signature**: every candidate row is verified against its own tenant's
+webhook secret, and at most one can verify because the secret is per tenant.
+
+:::caution This route is deliberately weaker than the token route
+Two proofs become one. A provider run id is guessable and visible in provider
+dashboards, so the per-tenant webhook secret carries the entire weight — a leaked
+secret lets an attacker settle any of *that tenant's* pending runs. The route also
+has to `JSON.parse` **before** verifying (to find the lookup key), which the token
+route refuses to do; the parse is bounded by the body cap and the raw string is
+never rebuilt from it. Candidate rows are capped at 10.
+
+Prefer the token route. Implement `extractExternalRunId` only when the provider
+leaves you no choice.
+:::
+
+An unknown connector answers **404** here (not 503), so the route is not a probe
+for which connector packages a deployment runs.
+
+### Status codes
+
+| Status | Token route | Connector route |
+|---|---|---|
+| 200 | settled: `completed` / `failed` / `already_settled` | same |
+| 400 | body is not JSON | body is not JSON, or the connector could not self-address it |
+| 401 | signature verification failed | no candidate row verified |
+| 404 | missing/oversize token, unknown token, or scope denied | unknown/oversize connector id, connector without `extractExternalRunId`, no candidate rows, or scope denied |
+| 413 | body over the cap | body over the cap |
+| 429 | rate limited | rate limited |
+| 503 | no connector registered in this process (row untouched, a redelivery after the deploy settles normally) | — |
+
+A `normalize()` that **throws** settles the run as a connector failure with **200**,
+on purpose: the payload is deterministic, so a redelivery cannot help, and waking
+the step down `error` now beats parking it for the full deadline.
+
+### Failure arms
+
+| What happened | Handle | Why it is not the other one |
+|---|---|---|
+| Payload does not match the declared envelope | `error` | The connector's `normalize()` is wrong — an integration defect, not a content decision |
+| Output guardrail blocked the answer | `guardrailBlocked` | A well-formed answer refused on content is the human-escalation path |
+| Connector reported failure | `error` | |
+| Deadline passed with no callback | `error` | |
+
+Collapsing the first two — as the native runner does — would route every connector
+bug to the human escalation queue.
+
+:::note Grounding is skipped for external answers
+The cite-or-abstain check scores claims against the run's citable sources, which
+were assembled in another process half an hour earlier and cannot be reconstructed
+in the callback. Running it would block every external answer for citing nothing.
+Screening the answer as untrusted text is the *downstream* agent's input guardrail,
+which still happens.
+:::
+
+## The workflow author's view
+
+Nothing new to learn. It is the same `INVOKE_AGENT` node, the same
+`invokeAgentConfigSchema` (`agentId` · `input` · `onResult` · `outputMapping?` ·
+`subject?` · `review?`), and the same five outcome handles — `approved`,
+`researcher`, `rejected`, `guardrailBlocked`, `error`.
+
+`outputMapping` works exactly as it does for a native researcher: the envelope is
+`{ kind: 'researcher', data: <outcome> }`, so `data.*` paths resolve identically.
+The mapping travels on the correlation row and is applied at resume time, which is
+why both callback routes honour it. A **declared** mapping that resolves nothing
+yields `{}` rather than falling back to the legacy fixed keys — matching core, so
+the two paths never disagree about one definition. With no mapping declared you get
+the legacy keys (`disposition`, `agentId`, `<stepId>_agent`), byte-identical to
+before.
+
+### An external agent cannot go inside a parallel branch
+
+The inline parallel-branch path resolves the bridge synchronously and cannot park a
+branch — and `sendSignal`'s forked-branch resume only matches `WAIT_FOR_SIGNAL`
+steps, so an out-of-band answer has nowhere to land. The engine refuses with
+`AgentSuspensionUnsupportedError`, which carries two structural markers:
+`retryable = false` (closes the queue path) and `agentSuspensionUnsupported`
+(breaks the executor's own in-process retry loop). Both matter: by the time it
+throws, the external effector has already run, and a default `maxAttempts: 3` would
+have placed three real phone calls.
+
+The refusal is deliberately **absorbable** by an `error` route,
+`continueOnActivityFailure` or an `errorDirective` — the effector genuinely ran, so
+it is an ordinary activity failure and the author's declared failure handling
+should apply.
+
+The Studio catches it earlier: the Problems panel raises a **warning** (never an
+error — a definition mid-edit must stay saveable) when a step naming an
+out-of-band agent sits inside a `PARALLEL_FORK` region. The same check runs
+server-side through `evaluateWorkflowDefinition`, so the prompt-to-draft agent,
+`validate_definition`, `validate_workflow_definition`, `create_definition` and
+`update_definition` all raise it too — the AI draft agent cannot author the mistake
+unnoticed.
+
+Both checks **degrade to silence**: the set of out-of-band agent ids comes from the
+optional `agent_orchestrator` peer, and an absent peer reports nothing rather than
+guessing.
+
+## Operations
+
+### The grant
+
+`agent_orchestrator.external_agents.invoke` is declared in `acl.ts` (depends on
+`agent_orchestrator.agents.run`) and is **deliberately absent from every persona**
+in `setup.ts` — reachable only through the `agent_orchestrator.*` wildcard held by
+`superadmin` and `admin`. This follows the `web_search` / `web_fetch` precedent:
+adding it to a persona would defeat the point.
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Existing tenants need that after deploy. Until a caller holds the grant, an
+`INVOKE_AGENT` step naming an external agent fails down the `error` handle instead
+of dialling — nothing is attempted, and no `AgentRun` row is written.
+
+:::note A denied invocation leaves only a log line
+Because nothing is attempted, a refusal produces a WARN log and no row. If your
+governance needs a durable audit trail of *attempted* outbound contact, that needs
+a row and is an open follow-up.
+:::
+
+### The deadline sweep
+
+Every external agent declares a `timeout`, and a run that is not answered by then is
+failed and its step woken down the `error` handle. Two mechanisms run, because
+their failure modes do not overlap:
+
+- a **delayed job** enqueued at `start()` for `expires_at + 5s` — precise, but lost
+  if the queue backend drops it and blind to rows written before it existed;
+- a **periodic per-organization tick** every 60 s, registered by `setup.ts` as a
+  scheduler entry — self-healing, but it depends on the optional
+  `@open-mercato/scheduler` package, which `setup.ts` no-ops without.
+
+Running both costs nothing: settlement is a single-shot conditional UPDATE in SQL,
+so a double fire is a no-op. Each tick claims at most 100 rows per organization.
+`connector.cancel?.()` runs **last**, in its own try/catch, and only for the claim
+winner — the likeliest reason a run is expiring is that the provider is
+unreachable, so its `cancel` is the call most likely to hang, and it must never
+delay the resume.
+
+A `timeout` above 24 h logs a warning rather than being capped — past that point the
+delayed job would have to survive days and deploys, so the guarantee leans entirely
+on the periodic sweep.
+
+### What an operator sees
+
+The run detail page renders an **external run** card: connector id, provider run id,
+status (*Waiting for the provider* / *Answered* / *Failed* / *Deadline passed* /
+*Cancelled*), the
+deadline, the parked step, and two clocks side by side — **parked for**
+(`completed_at − created_at`, the wall clock) and **talked for** (the
+provider-reported duration the run's latency column carries). Shown together on
+purpose: latency alone makes a 28-minute park look like a millisecond-scale event,
+and wall clock alone makes every agent look slow because someone took 20 minutes to
+answer.
+
+The connector's normalized answer is also captured as a normal `AgentRunArtifact`
+(`external-run-transcript.json`), so the run detail lists it and the ordinary
+artifact download route serves it. Capture is best-effort by contract — by the time
+it runs the external run is already terminal, and a propagating error would 500 the
+public callback route and strand the parked step.
+
+Two read routes back the card, both gated on `agent_orchestrator.trace.view` (not
+the dial grant — reading a call that happened is a lesser act than placing one):
+
+```
+GET /api/agent_orchestrator/runs/{id}/external
+GET /api/agent_orchestrator/runs/{id}/recording
+```
+
+The recording route streams straight from the provider and persists nothing.
+
+### Cost and latency
+
+The `cost_minor` / `currency` / latency columns are stamped from the connector's
+`usage` report. Two rules the shipped voice connector had to get right and yours
+will too:
+
+- report **money**, not provider credits — a credits integer stamped as cents
+  reports dollars for a five-cent call;
+- report the **provider's own duration**, not the wall clock. A native run's latency
+  deliberately excludes queue wait and context assembly; call duration is that same
+  quantity for a remote effector. Under wall clock, the p50/p95 rollups and the
+  `latency` eval scorer would be measuring how promptly the people you phone pick
+  up. The wall clock needs no column — it is `completed_at − created_at`.
+
+A failed run is stamped too: a call that connected, cost money and was *then*
+guardrail-blocked still charged the tenant.
+
+### Dry runs, evals and the Playground
+
+- **Workflow dry runs never reach the runner.** `INVOKE_AGENT` carries an
+  activity-level mock that short-circuits earlier, in core.
+- **Eval replays are gated in the runner**, where a connector author cannot undo
+  it. A replay against a connector with no `mock` raises
+  `ExternalAgentSimulationUnavailableError` (`external_agent_simulation_unavailable`)
+  instead of dialling. A supplied `mock`'s payload is nested under `wouldDo`, never
+  spread, so even a mock returning a plausible-looking answer cannot read as one.
+  Simulated runs get `simulated://` placeholders instead of a minted bearer, write
+  no correlation row and enqueue no deadline job.
+- **The Playground deliberately dials.** It is an explicit human action behind both
+  `agents.run` and the default-off invoke grant, and it is the only way to
+  smoke-test a connector end to end. It will not quietly simulate when a `mock`
+  exists. It answers **202** with the run id and a `suspended` status.
+
+External runs promote to eval cases with no special handling — `createFromRun`
+reads `run.input` / `run.output` and is runtime-agnostic.
+
+### Re-running an external run
+
+`POST /api/agent_orchestrator/runs/{id}/rerun` answers **428 Precondition Required**
+with `code: 'external_call_confirmation_required'` when the source run's `runtime`
+column is `external` and the body does not carry `{ "confirmExternalCall": true }`.
+428 rather than 409 on purpose: 409 is this codebase's optimistic-lock status and
+the client conflict helpers key off it. The gate reads the source run's stored
+runtime, not the registry, so it stays truthful for an agent whose package was
+since undeployed, and it runs before the mutation guard so nothing has happened
+when it refuses. Once confirmed it answers **202** — an external run has no result
+yet. Native reruns are byte-identical to before.
+
+## Configuration
+
+Nothing here is required to run an external agent; every value has a working
+default.
+
+| Env var | Default | What it does |
+|---|---|---|
+| `OM_AGENT_EXTERNAL_CALLBACK_MAX_BODY_BYTES` | `8388608` (8 MiB) | Body cap on both callback routes. Sized for a provider that inlines base64 audio. Minimum 1024; a non-integer value falls back to the default. |
+| `OM_AGENT_ARTIFACT_MAX_BYTES` | `26214400` (25 MiB) | Per-artifact size cap, shared with the file-agent artifact plane. Applies to the captured answer. |
+| `OM_AGENT_ARTIFACT_MAX_COUNT` | `20` | Per-run artifact count cap, shared with the same plane. |
+| `APP_URL` / `NEXT_PUBLIC_APP_URL` | — | Base of the callback URL handed to the provider. **Refuses to start a run in production when unset** rather than falling back to localhost — that fallback is right for a call back into this process and catastrophic for a URL handed to a third party. Resolved before the run row opens, so a misconfigured deployment never dials. |
+| `OM_AGENT_HTTP_ALLOW_PRIVATE_URLS` | `false` | `@open-mercato/agent-http` only: lets the generic connector's start URL resolve to a private address in development. **Ignored in production** (forced off, with a warning), mirroring the `CALL_WEBHOOK` precedent. |
+| `OM_ENABLE_ENTERPRISE_MODULES`, `OM_ENABLE_ENTERPRISE_MODULES_AGENTS` | `false` | Both must be true for `agent_orchestrator` and any connector package to load at all. |
+
+Constants that are not env-tunable, for when you are reading a log line and
+wondering where a number came from:
+
+| Value | Where |
+|---|---|
+| 60 s periodic sweep interval, per organization | `setup.ts` scheduler entry |
+| 5 s expiry grace (`EXTERNAL_RUN_EXPIRY_GRACE_MS`) | `lib/runtime/externalRunSweep.ts` |
+| 100 rows per tick per organization | same file |
+| 24 h deadline warning threshold | `lib/runtime/externalAgentRunner.ts` |
+| Token route rate limits: 60/min per IP, 20/min per token digest | `api/external-runs/[token]/callback/route.ts` |
+| Connector route rate limits: 60/min per IP, 600/min per connector (deployment-wide), 60/min per organization — the last charged only *after* a signature verifies | `api/external-runs/connectors/[connectorId]/callback/route.ts` |
+| 10 candidate rows per connector-addressed callback | same file |
+
+Four events are emitted — `agent_orchestrator.external_run.started` / `.completed` /
+`.failed` / `.expired`. All four are **not** client-broadcast, deliberately: the DOM
+event bridge forwards to every backoffice connection in the tenant and organization
+without evaluating ACL features, so a live org-wide feed of who is being phoned
+would undo the default-off gate. Payloads are built key by key — ids and a
+classified cause only, never a transcript, a phone number or a token.
+
+## Shipped connectors
+
+| Package | Connector id | Callback route | `mock` | `cancel` | `fetchRecording` |
+|---|---|---|---|---|---|
+| `@open-mercato/agent-elevenlabs` | `elevenlabs.voice` | static (connector-addressed) | no | no | yes |
+| `@open-mercato/agent-http` | `http.generic` | per-run token | yes | no | no |
+
+`@open-mercato/agent-elevenlabs` ships the `voice.owner_call` agent and is wired
+into `apps/mercato/src/modules.ts` behind the enterprise-agents flags — see
+[ElevenLabs Voice Agent](./elevenlabs-voice.mdx) for the operator setup.
+
+`@open-mercato/agent-http` is the generic proof that the seam is not
+ElevenLabs-shaped: a tenant-configured start URL, an HMAC-verified callback and a
+JSON-path result mapping, all from credentials. It is **not** enabled in
+`apps/mercato/src/modules.ts` — add
+`enabledModules.push({ id: 'agent_http', from: '@open-mercato/agent-http' })` inside
+the enterprise-agents block to use it. Its node input carries no URL or header
+field on purpose: a workflow definition is authored material *and* AI-draftable, so
+a per-call target would make it an aimable SSRF gadget carrying tenant credentials.
+The configured URL rides the same shared outbound guard `CALL_WEBHOOK` uses.
+
+:::note A connector instance is process-global and sticky
+`di.ts` guards on `getExternalAgentConnector`, so editing connector code needs a
+server **restart**, not HMR. And `packages/enterprise` is resolved from `dist` by
+the dev server — run `yarn build:packages` before believing a new route works.
+:::
+
+## Limitations and open follow-ups
+
+Honest list of what this feature does **not** do today.
+
+- **Audio is never stored, and the reason is controllership rather than size.** A
+  transcript is text about a person; a recording is the person's voice. Copying it
+  makes this platform a second controller, doubling the DSAR/erasure surface for
+  content no downstream consumer reads — the workflow branches on collected fields,
+  the eval scorer reads the transcript, nothing reads audio. `fetchRecording`
+  preserves operator access with zero bytes stored.
+- **`AgentRunArtifact` has no retention or erasure sweeper.** That was already true
+  for file-agent artifacts; the captured answer now inherits it. Stored artifacts
+  are permanent by default.
+- **A late answer is dropped.** When the sweep wins the race, a genuine,
+  correctly-signed callback arriving afterwards gets a 200 and its payload is *not*
+  persisted — recording it would contradict the row's `expired` status, and the
+  workflow has already branched down `error`.
+- **The audio-arrives-first hazard is open.** If a provider delivers an audio-only
+  webhook before its transcript webhook, `normalize()` throws, the run settles
+  `failed` down `error`, and the real transcript arriving seconds later is discarded
+  by the spent single-shot claim. Today's behaviour is at least safe and pinned by
+  tests (no re-settle, no second resume). Closing it needs a new connector member
+  that lets a connector say "this payload is not a settlement" so the route can 200
+  without spending the claim.
+- **Nothing bounds in-flight external runs.** The admission gate is released when
+  `start()` returns — it models this process's DB pool, LLM provider and OpenCode
+  container, none of which a parked call consumes, and it could not be released
+  correctly anyway (a process-local semaphore versus a callback landing on whichever
+  replica the provider reached). The ceiling is the provider's own limits plus the
+  deadline sweep.
+- **`continueWithFallback` can advance past a live external run.** The same property
+  any side-effecting activity already has, and the reason the Studio warning exists.
+- **The recording route has no rate limit.** Each click is a live provider call.
+- **A refused invocation writes no row** — only a WARN log line.
+- **Out-of-band-ness has one fact and two sources.** The browser derives it from
+  `runtime === 'external'` on the agents endpoint; the server uses the `suspends`
+  flag. Harmless today because `external` is the only suspending runtime, but a
+  future suspending runtime would make the server warn while the browser stays
+  silent. Collapsing them means serving `suspends` from the agents route.
+- **`cancel` receives no container**, so a connector needing credentials to cancel
+  cannot reach them. Neither shipped connector implements `cancel`.
+- **No per-node profile override.** A profile is chosen per agent, not per
+  `INVOKE_AGENT` node; the per-call input override is the escape hatch.
+- **Contact eligibility is not modelled.** Consent, recording notice, quiet hours
+  and do-not-call are the workflow author's to encode in a condition node. Placing a
+  call to a human is regulated in most jurisdictions, and enabling call recording in
+  a credential form does not by itself satisfy a notice or consent obligation.
+
+## Related
+
+- [AI Agents](./agents.mdx) — the native `defineAgent` contract these build on.
+- [ElevenLabs Voice Agent](./elevenlabs-voice.mdx) — operator setup for the shipped
+  voice connector.
+- [Workflows: Run Outcomes](../workflows/run-outcomes.mdx) — the five outcome
+  handles and how a step resumes.

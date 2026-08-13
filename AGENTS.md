@@ -93,7 +93,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, `entry.overrides`) | `ai-assistant` → Loop controls + How to Override; in `.ai/specs/implemented/`: `2026-04-28-ai-agents-agentic-loop-controls`, `2026-04-30-ai-overrides-and-module-disable`, `2026-05-04-modules-ts-unified-overrides` |
 | **Specific Modules** | |
 | Module-specific work (customers as CRUD reference, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
-| Agent orchestration: propose-only agents, runs/proposals/disposition, traces, evals, guardrails, TDCR, principals, cockpit, file-defined OpenCode agents, `INVOKE_AGENT` | `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` + `.ai/skills/om-create-opencode-agent/SKILL.md` |
+| Agent orchestration: propose-only agents, runs/proposals/disposition, traces, evals, guardrails, TDCR, principals, cockpit, file-defined OpenCode/external agents, `INVOKE_AGENT` | `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` + `.ai/skills/om-create-opencode-agent/SKILL.md` + `apps/docs/docs/framework/ai-assistant/external-agents.mdx` |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `webhooks` (cross-refs `queue`, `events`, `core:integrations`, `ui`) |
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
 | Agent web search/fetch — a new `@open-mercato/web-research-*` adapter, or racing/fusion/browser/SSRF/policy behaviour | `.ai/skills/om-create-web-research-adapter/SKILL.md` + `apps/docs/docs/framework/ai-assistant/web-research.mdx` + `web-research` |
@@ -139,12 +139,12 @@ Most `om-*` skills come from the shared [open-mercato/skills](https://github.com
 
 ## Workflow Orchestration
 
-1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; name new spec files `{YYYY-MM-DD}-{kebab-case-title}.md`. Skip for small fixes. Skills: `om-spec-writing` (research/phasing), `om-pre-implement-spec` (readiness audit), `om-implement-spec` (execution).
-2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
-3.  **Self-improvement**: After corrections, scan `.ai/lessons.md`; update one tagged lesson record + index row or the relevant AGENTS.md. Never bulk-read lessons.
-4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
-5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
-6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
+1. **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; name new spec files `{YYYY-MM-DD}-{kebab-case-title}.md`. Skip for small fixes. Skills: `om-spec-writing` (research/phasing), `om-pre-implement-spec` (readiness audit), `om-implement-spec` (execution).
+2. **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
+3. **Self-improvement**: After corrections, scan `.ai/lessons.md`; update one tagged lesson record + index row or the relevant AGENTS.md. Never bulk-read lessons.
+4. **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
+5. **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
+6. **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
 
 ## PR Workflow
 
@@ -170,8 +170,8 @@ Full policy — label taxonomy, priority/risk inference tables, pipeline transit
 
 ### Apps (`apps/`)
 
--   **mercato**: Main Next.js app. Put user-created modules in `apps/mercato/src/modules/`.
--   **docs**: Documentation site.
+- **mercato**: Main Next.js app. Put user-created modules in `apps/mercato/src/modules/`.
+- **docs**: Documentation site.
 
 ### Packages (`packages/`)
 
@@ -231,38 +231,38 @@ These are critical project-wide rules. The top-level `Always`, `Ask First`, and 
 
 ### Architecture
 
--   **NO direct ORM relationships between modules** — use foreign key IDs, fetch separately
--   Always filter by `organization_id` for tenant-scoped entities
--   Never expose cross-tenant data from API handlers
--   Use DI (Awilix) to inject services; avoid `new`-ing directly
--   Modules must remain isomorphic and independent
--   When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`
+- **NO direct ORM relationships between modules** — use foreign key IDs, fetch separately
+- Always filter by `organization_id` for tenant-scoped entities
+- Never expose cross-tenant data from API handlers
+- Use DI (Awilix) to inject services; avoid `new`-ing directly
+- Modules must remain isomorphic and independent
+- When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`
 
 ### Data & Security
 
--   Validate all inputs with zod; place validators in `data/validators.ts`
--   Derive TypeScript types from zod via `z.infer<typeof schema>`
--   Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
--   Default migration workflow: update ORM entities, run `yarn db:generate`, and review the generated SQL plus `migrations/.snapshot-open-mercato.json`
--   Coding-agent exception: if `yarn db:generate` emits unrelated migrations, delete the unrelated output, keep or write only the intended SQL migration for this entity change, and update the affected module's `.snapshot-open-mercato.json`. Never run `yarn db:migrate` just to make the generator quiet.
--   Hash passwords with bcryptjs (cost >=10), never log credentials
--   Return minimal error messages for auth (avoid revealing whether email exists)
--   RBAC: prefer declarative guards (`requireAuth`, `requireFeatures`) in page metadata; avoid `requireRoles` — role names are mutable and can be spoofed; use feature-based guards with immutable IDs from `acl.ts` instead
--   Portal RBAC: use `requireCustomerAuth` and `requireCustomerFeatures` in page metadata for portal pages
+- Validate all inputs with zod; place validators in `data/validators.ts`
+- Derive TypeScript types from zod via `z.infer<typeof schema>`
+- Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
+- Default migration workflow: update ORM entities, run `yarn db:generate`, and review the generated SQL plus `migrations/.snapshot-open-mercato.json`
+- Coding-agent exception: if `yarn db:generate` emits unrelated migrations, delete the unrelated output, keep or write only the intended SQL migration for this entity change, and update the affected module's `.snapshot-open-mercato.json`. Never run `yarn db:migrate` just to make the generator quiet.
+- Hash passwords with bcryptjs (cost >=10), never log credentials
+- Return minimal error messages for auth (avoid revealing whether email exists)
+- RBAC: prefer declarative guards (`requireAuth`, `requireFeatures`) in page metadata; avoid `requireRoles` — role names are mutable and can be spoofed; use feature-based guards with immutable IDs from `acl.ts` instead
+- Portal RBAC: use `requireCustomerAuth` and `requireCustomerFeatures` in page metadata for portal pages
 
 ### UI & HTTP
 
--   Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
--   If a backend page cannot use `CrudForm`, wrap every write (`POST`/`PUT`/`PATCH`/`DELETE`) in `useGuardedMutation(...).runMutation(...)` and include `retryLastMutation` in the injection context
--   For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
--   For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
--   Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`
--   Use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail`
--   i18n: `useT()` client-side, `resolveTranslations()` server-side
--   Never hard-code user-facing strings — use locale files
--   Prefix purely internal `throw new Error(...)` / `createCrudFormError(...)` / `toast.*(...)` messages with `[internal]` so the i18n hardcoded-string checker treats them as opted out; user-facing variants MUST route through `t('module.errors.<key>')`. Run `yarn i18n:check-hardcoded` (and `yarn i18n:check-values` for non-English coverage) to inspect the surface — both are advisory in Phase 1 of `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md`. Use `<module>/i18n/.hardcoded-allowlist.json` for module-scoped exceptions (legal copy, framework chrome).
--   Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
--   Keep `pageSize` at or below 100
+- Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
+- If a backend page cannot use `CrudForm`, wrap every write (`POST`/`PUT`/`PATCH`/`DELETE`) in `useGuardedMutation(...).runMutation(...)` and include `retryLastMutation` in the injection context
+- For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
+- For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
+- Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`
+- Use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail`
+- i18n: `useT()` client-side, `resolveTranslations()` server-side
+- Never hard-code user-facing strings — use locale files
+- Prefix purely internal `throw new Error(...)` / `createCrudFormError(...)` / `toast.*(...)` messages with `[internal]` so the i18n hardcoded-string checker treats them as opted out; user-facing variants MUST route through `t('module.errors.<key>')`. Run `yarn i18n:check-hardcoded` (and `yarn i18n:check-values` for non-English coverage) to inspect the surface — both are advisory in Phase 1 of `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md`. Use `<module>/i18n/.hardcoded-allowlist.json` for module-scoped exceptions (legal copy, framework chrome).
+- Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
+- Keep `pageSize` at or below 100
 
 ### Code Quality
 
@@ -290,13 +290,13 @@ These are critical project-wide rules. The top-level `Always`, `Ask First`, and 
 ## Key Commands
 
 ```bash
-yarn dev                  # Compact dev runtime; press `d` for raw logs (`:verbose`, `:app`, `:greenfield` variants)
-yarn dev:reset            # Clear .mercato/next/dev plus legacy .next caches when Turbopack serves stale chunks
-yarn build                # Build everything (`build:packages` / `build:app` for one side)
-yarn lint                 # Lint all packages
-yarn test                 # Run unit tests (`test:integration` for Playwright, headless)
-yarn generate             # Run module generators
-yarn db:generate          # Generate database migrations (`db:migrate` applies them — ask first)
-yarn initialize           # Full project initialization
-yarn agents:check-budget  # Verify AGENTS.md files fit the agent instruction budget
+yarn dev                 # Compact dev runtime; press `d` for raw logs (`:verbose`, `:app`, `:greenfield` variants)
+yarn dev:reset           # Clear .mercato/next/dev plus legacy .next caches when Turbopack serves stale chunks
+yarn build               # Build everything (`build:packages` / `build:app` for one side)
+yarn lint                # Lint all packages
+yarn test                # Run unit tests (`test:integration` for Playwright, headless)
+yarn generate            # Run module generators
+yarn db:generate         # Generate database migrations (`db:migrate` applies them — ask first)
+yarn initialize          # Full project initialization
+yarn agents:check-budget # Verify AGENTS.md files fit the agent instruction budget
 ```

@@ -372,5 +372,39 @@ Custom write endpoints (`claim`, `heartbeat`, `result`, `input`, A2A inbound/cal
 
 ## Changelog
 
+- **2026-08-13:** **The runtime-adapter layer now partly exists, shipped by
+  `next/2026-08-12-external-agent-invocation-analysis.md`** (Phases 1–4, tracker
+  `.ai/runs/2026-08-12-external-agents/PLAN.md`). Concretely, this spec's "Transport & Runtime
+  Adapters" section can now be written against real code rather than designed from scratch:
+  - **`ExternalAgentConnector` is the runtime adapter**, registered in a provider package's `di.ts`
+    (`registerExternalAgentConnector` / `getExternalAgentConnector`) instead of selected by an
+    `AgentBinding.runtime` DB row. Its members are `start` (must not block), `verifyCallback`,
+    `normalize`, and optional `extractExternalRunId` / `cancel` / `mock` / `fetchRecording`. An `a2a`
+    adapter is one more implementation of that interface; nothing in it is provider-shaped, which two
+    shipped connectors (`elevenlabs.voice`, `http.generic`) demonstrate.
+  - **The a2a-push callback intake exists in a general form**: two unauthenticated, connector-verified
+    routes — `POST /api/agent_orchestrator/external-runs/:token/callback` (per-run single-use bearer,
+    preferred) and `POST /api/agent_orchestrator/external-runs/connectors/:connectorId/callback`
+    (one static URL per connector, for providers that configure webhooks at workspace level, with the
+    signature disambiguating tenancy). This answers this spec's assumption that A2A callbacks must
+    ride the `webhooks` module: they need not — the rate-limit and bounded-body helpers live in
+    `@open-mercato/shared`, so a dedicated route costs no cross-module dependency.
+  - **`AgentExternalRun` is the single-binding stand-in for `AgentTask`**: `(run_id, connector_id,
+    external_run_id)` correlation, `pending → completed|failed|expired|cancelled`, `expires_at`, and
+    the `(process_id, step_id, signal_name)` triple that resumes the parked workflow step. Its
+    provider-id unique is org-scoped, because a provider run id is unique per provider *account*.
+  - **Lease + heartbeat stayed unbuilt and unnecessary**, exactly as §5.6 of the external-agent
+    analysis predicted: the workflow's own park plus a two-armed deadline sweep (a delayed job and a
+    60 s per-organization scheduler tick, both settling through one single-shot conditional UPDATE)
+    covers the single-claimant case. A lease is still the right answer when *multiple* workers can
+    claim one unit of work — i.e. the `pull` transport — which is still net-new.
+  - **A new core seam this spec can rely on:** the bridge outcome union gained
+    `{ kind: 'suspended'; runId; externalRunId? }`, and `AgentOutcomeContractSnapshot` gained an
+    optional `suspends` flag so core can classify out-of-band agents without learning the peer's
+    runtime names. Any dispatch transport that answers later can reuse both instead of inventing a
+    parallel suspension vocabulary.
+  - **Still net-new for this spec:** `AgentTask` / `AgentBinding` / `AgentTaskLease`, capability
+    routing, the pull transport and its OAuth client-credentials worker auth, the A2A server side,
+    and `/metrics`. Nothing in the connector seam has to be undone to build them.
 - **2026-06-20:** Added the `## Integration Coverage` section (per GAP-17) enumerating the dispatch test surface — internal/pull claim+complete through the one `AgentTask` contract, the `claim→heartbeat→result→input` worker cycle, dead-worker re-dispatch after lease expiry with stale-result rejection, the `input_required ↔ USER_TASK` round-trip, `idempotencyKey` dedupe, A2A inbound→`AgentTask` + Agent Card (if in scope), and the mandatory cross-tenant denial harness; anchored to the `.ai/qa` Playwright harness with self-contained fixtures + teardown. Cross-cutting corrections: clarified that **canary/percentage gating is computed inside `TaskRouter`** (deterministic hash-bucket on a stable key) because `feature_toggles` only stores per-`(toggle, tenantId)` overrides and has **no native %-rollout bucketing** (cross-ref GAP-14); made the **net-new OAuth client-credentials dependency explicit** — `api_keys` has no client-credentials endpoint today, so pull/A2A worker auth depends on the identity spec's net-new token server (cross-ref GAP-16) and the identity spec must precede dispatch Phase 4; and confirmed lease/heartbeat is **app-modeled** (the `AgentTaskLease` unique-active-lease index + a scheduler-driven sweeper), not a `packages/scheduler` feature. Added matching Risks rows and a cross-spec sequencing note.
 - **2026-06-19:** Rewrote `SPEC-DISPATCH-01` to real OM conventions and the verified 2026-06-19 architecture. Renamed to `2026-06-19-agent-dispatch.md`. Set module id `agent_orchestrator` (core module, not a standalone package); promoted entities to full MikroORM v7 (`AgentTask`, `AgentTaskEvent` complete; `AgentBinding`/`AgentTaskLease` abbreviated with house-style notes), two-column tenancy, `agent_` table prefix. Corrected: lease sweeper uses `packages/scheduler`; A2A push callbacks via the `webhooks` module; worker auth via agent-principal OAuth client-credentials (not bespoke tokens); `/metrics` reads this module's tables + queue depth (telemetry-and-otel does not exist); orchestration drives dispatch via an `EXECUTE_FUNCTION` step in Phase 1 because `workflows` activities are a fixed enum; canonical `agent_orchestrator.*` events and `/api/agent_orchestrator/` paths. Kept the strong original intent: `AgentTask` single source of truth, queue-as-transport, authoritative lease, `idempotencyKey`, payload-by-reference, internal/pull/A2A transports, OM as A2A mesh node, "LLM proposes, OM disposes".

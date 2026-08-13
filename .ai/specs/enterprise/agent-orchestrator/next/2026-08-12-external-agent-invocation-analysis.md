@@ -218,6 +218,24 @@ export interface ExternalAgentConnector {
 
 This mirrors `registerWebhookEndpointAdapter()` (`webhooks/lib/adapter-registry.ts`) deliberately — same shape, same "verify in the adapter, not the route" rule, so the two are learnable as one pattern.
 
+> **Correction (2026-08-13, as shipped).** The sketch above is missing what a connector needs to
+> reach *tenant* state, and the gap was wider than expected: `normalize` took no scope and was
+> **synchronous**, so a connector whose mapping is per tenant was structurally impossible — exactly
+> what the generic HTTP connector needs. The shipped interface therefore threads an optional
+> container/scope through `start`, `verifyCallback` and `normalize`, and lets `normalize` return a
+> promise; `verifyCallback` may also be async. Fewer-parameter and plain-value implementations stay
+> assignable, so a connector written against the sketch still compiles. Three optional members were
+> added that the design did not anticipate: `extractExternalRunId` (the opt-in to §5.5's static
+> route), `mock` (dry-run/eval parity — see §9 Q2) and `fetchRecording` (stream-through operator
+> access — see *What shipped*). `cancel` gained the run's scope as a second argument. All are
+> additive and recorded in `BACKWARD_COMPATIBILITY.md`.
+>
+> One structural finding is worth keeping: **the callback half of the seam is addressed by TENANT,
+> never by AGENT.** A callback resolves a *run*; the agent is known only to the correlation row. So
+> verification and normalization config can only ever be per `(tenant, connector)` — which is why the
+> generic connector fails closed on `defineExternalAgent({ profile })` instead of half-honouring it,
+> and why anything wanting per-agent callback behaviour has to travel on the correlation row.
+
 ### 5.4 Authoring an external agent
 
 ```ts
@@ -239,6 +257,24 @@ defineExternalAgent({
 
 Per-tenant credentials (API key, ElevenLabs agent id, caller number) go in the `integrations` module credential store — `secret`-typed fields, read with `findOneWithDecryption`, resolved by the connector at `start()`. Per repo convention the provider lives in its **own workspace package** (`packages/agent-elevenlabs`), never inside `packages/core/src/modules/`.
 
+> **Addition (2026-08-13, as shipped).** `defineExternalAgent` also takes an optional `profile`, and
+> `timeout` is **mandatory** rather than merely recommended. Profiles exist because one provider
+> account usually serves several agents (owner call, satisfaction survey, payment chase): without
+> them the ElevenLabs agent id has to be typed into every workflow node's `input`, which puts
+> per-tenant configuration inside workflow definitions where it cannot be rotated centrally. The
+> credential store holds a list of named profiles; `start()` resolves per-call override → the agent's
+> named profile → `default`, and an agent naming an unconfigured profile fails **closed** before
+> making contact. The five original flat credential fields *are* the `default` profile, so an
+> already-configured tenant's next call is byte-identical.
+>
+> The store was never the constraint — the **admin write path** was: `CredentialFieldType` has no
+> list/group/json member and `saveCredentialsSchema` types every credential value as
+> `string | number | boolean | null`, so an array through `PUT /api/integrations/[id]/credentials` is
+> a 422 whatever a package declares. Profiles therefore ride ONE `text` credential holding a JSON
+> document, parsed in-package with a `.strict()` per-profile schema. A `text` field is not masked on
+> read-back, so no secret may go in it. A `json`/`textarea` `CredentialFieldType` in `integrations`
+> would remove that awkwardness for every provider — a platform follow-up, not in this scope.
+
 ### 5.5 Correlation + callback
 
 New append-only-ish table `agent_external_runs` (a sibling of `AgentRunSession`, not a reuse — the OpenCode store is `dispose()`d in a `finally` and has no deadline, process or step columns):
@@ -258,6 +294,33 @@ New append-only-ish table `agent_external_runs` (a sibling of `AgentRunSession`,
 Route: `POST /api/agent_orchestrator/external-runs/[token]/callback` with `metadata = { POST: { requireAuth: false } }`, exactly like `/trace/ingest` — **the verified provider signature establishes the scope, never the body**. The route rate-limits and dedupes; the connector verifies and normalizes; the command completes the run and resumes the step. Alternatively the same logic can ride the `webhooks` module's inbound receiver as a `WebhookEndpointAdapter`, which buys dedupe/rate-limiting/logging for free — worth choosing during implementation, not now.
 
 **Deadline:** enqueue a delayed job at `start()` (the `workflow-invoke-agent` queue already takes `delayMs`). On fire, if the row is still `pending`: `connector.cancel?.()`, fail the run, and resume the step down the **`error` handle** via the existing `resumeInvokeAgentWithError` path. A call nobody answers must never leave a workflow parked forever.
+
+> **Corrections (2026-08-13, as shipped).**
+>
+> - **The column is `callback_token_hash`**, a lowercase SHA-256 hex digest with a unique index; the
+>   raw token is never stored. It is deliberately NOT encrypted — already one-way, and the lookup
+>   must stay SQL-queryable. The table also gained `output_mapping` (jsonb, plaintext: it holds
+>   Studio-authored context key names the definition already stores in plaintext) so the resume
+>   applies the author's mapping; without it an external step landed on the LEGACY fixed context
+>   keys, which defeats the whole point of §1's graph. `process_id`/`step_id`/`signal_name` are
+>   all-or-nothing in the validator: a row naming a step but no process could never be resumed.
+> - **`external_run_id` uniqueness is `(organization_id, connector_id, external_run_id)`**, not
+>   global — a provider run id is unique within the provider *account*, so two tenants on their own
+>   workspaces can legitimately mint the same id.
+> - **A SECOND, static callback route ships beside the token one** —
+>   `POST /api/agent_orchestrator/external-runs/connectors/[connectorId]/callback`. ElevenLabs
+>   configures post-call webhooks at the workspace/agent level and its verified outbound-call body has
+>   no webhook field, so the per-run URL can never be delivered to it; without this route no real call
+>   could resume a workflow. The run is resolved by the provider's own id through the connector's
+>   `extractExternalRunId`, and tenancy is settled by the SIGNATURE — every candidate row is verified
+>   against its own tenant's secret and at most one can verify. It is deliberately the WEAKER of the
+>   two (two proofs become one; it must parse before verifying) and the token route stays primary.
+> - **Both deadline arms ship**, because their failure modes do not overlap: the delayed job is
+>   precise but lost if the queue backend drops it and blind to rows written before it existed, while
+>   the 60 s per-organization scheduler tick is self-healing but depends on the OPTIONAL
+>   `@open-mercato/scheduler`. Running both is free — settlement is a single-shot conditional UPDATE,
+>   so a double fire is a no-op. The sweep runs on its own queue, not `workflow-invoke-agent`.
+> - The `webhooks`-module alternative in the paragraph below was **not** taken; §9 Q1 records why.
 
 ### 5.6 How this stays compatible with the dispatch roadmap
 
@@ -341,11 +404,60 @@ Phase 1+2 is the substantive work — a focused two to three week effort for one
 ## 9. Open questions for the maintainer
 
 1. **Callback transport** — a dedicated `agent_orchestrator` route, or a `WebhookEndpointAdapter` on the existing `webhooks` inbound receiver (free dedupe/rate-limit/delivery log, at the cost of a cross-module hop)?
+   **Answered (shipped): dedicated routes.** The rate-limit and bounded-body helpers everyone assumed lived in the `webhooks` module actually live in `@open-mercato/shared` (`lib/ratelimit/helpers`, `lib/webhooks`) — the `shipping_carriers` provider webhook is the precedent — so reuse cost no cross-module dependency, and riding `WebhookEndpointAdapter` would have *created* the coupling the question feared.
 2. **`suspended` and the eval harness** — should a suspended run be replayable in an eval (mock connector) or excluded like a dry run? (Dry run already refuses: `INVOKE_AGENT`'s mock names the agent and fails closed to `human_review`, never fabricating an outcome — an external connector should refuse identically.)
+   **Answered (shipped): replayable only when the connector supplies a `mock`, otherwise refused — and the guarantee lives in the RUNNER, not in the connector.** This was the single most dangerous finding of the build: `evalReplayService` calls `agentRuntime.run()` for real, so replaying 50 eval cases against a voice agent would have placed 50 real phone calls. The runner now inspects `ctx.source` before starting anything. A supplied mock's payload is nested under `wouldDo`, never spread, so a mock can never read as an outcome. The voice connector deliberately supplies none: a fabricated transcript is indistinguishable downstream from something a human actually said.
 3. **External *proposal* agents** — worth allowing later, or a permanent boundary? Allowing one means a third party's `confidence` can auto-approve a domain write.
+   **Answered (shipped): a hard boundary for now.** `defineExternalAgent` throws on any `result.kind` other than `researcher`. Lifting it is a deliberate future decision, not a gap.
 4. **Tenant-configurable external agents** — is code-defined + integrations-credentials enough, or does this need the dispatch spec's DB-backed `AgentBinding` sooner than planned (e.g. so a tenant can point the node at *their own* ElevenLabs agent id without a deploy)?
+   **Answered (shipped): enough, via named profiles.** A tenant edits its own provider agent ids in the credential store and an agent names a profile; no deploy, no `AgentBinding`. Still open: a per-NODE profile override, so one definition can name a rotatable profile per step.
 5. **Consent/compliance ownership** — who signs off on outbound-call eligibility rules before Phase 2 ships?
+   **Still open.** Unchanged: the platform keeps the capability default-off and puts eligibility in the author's hands (a condition node), which is a mitigation, not an owner.
+
+---
+
+## 10. What shipped (2026-08-13)
+
+Phases 1–4 landed on `analysis/external-invoke-agent`; the implementation tracker with the full
+decisions log is `.ai/runs/2026-08-12-external-agents/PLAN.md`. Developer documentation:
+`apps/docs/docs/framework/ai-assistant/external-agents.mdx` (+ `elevenlabs-voice.mdx` for operators).
+
+The design held: the `INVOKE_AGENT` node config, the workflow schema, the five outcome handles and
+the output-mapping envelope are all unchanged, and Option 2 needed no walk-back. What the design did
+**not** anticipate:
+
+| Addition | Why it exists |
+|---|---|
+| **The static connector-addressed callback route** | ElevenLabs cannot accept a per-call webhook URL. Without it the two halves of the design never meet. §5.5 records the security trade. |
+| **Named provider profiles** (`defineExternalAgent({ profile })`) | One provider account serves several agents; without profiles per-tenant configuration ends up inside workflow definitions. §5.4. |
+| **The simulation gate in the runner** (`mock` / refuse) | `connector.mock` as designed was read by nothing; the eval replay path dialled for real. §9 Q2. |
+| **A reserved `usage` sibling on the connector's payload** | Voice minutes are not LLM tokens (design R8). A connector reports `{ costMinor, currency, durationMs }` in platform units because only it knows which of its numbers is money; the completion path strips the key before the agent's schema sees it. Two traps: provider "credits" are not money, and the latency column carries the **provider-reported call duration**, not the wall clock — under wall clock the p50/p95 rollups and the `latency` eval scorer would measure how promptly the people we phone pick up. The wall clock needs no column: it is `completed_at − created_at`. |
+| **`fetchRecording`, streaming and never stored** | R6/GDPR: a recording is the person's voice. Copying it makes us a second controller, doubling the erasure surface for content no downstream consumer reads — and `AgentRunArtifact` has no retention sweeper. |
+| **`outputMapping` on the correlation row** | A suspended run returns before the worker applies the mapping, and the resume happens in a different process. Reading the mapping from the row (rather than projecting it at the call site) is why the brand-new static route honoured author mappings with zero changes on its side. |
+| **`AgentOutcomeContractSnapshot.suspends`** | R4's authoring guard was browser-only: `listAgentOutcomeContracts()` was the only server-side seam and carried no runtime, so the AI draft agent could still author an external agent into a parallel branch. `suspends` rather than `runtime` keeps core from holding a list of the peer's runtime names. |
+| **The 428 rerun gate and the 202 arms** | Re-running an external run repeats a real-world action. 428 (not 409 — that is the optimistic-lock status the client helpers key off), then 202, because an accepted call is not a finished one. |
+
+Behaviour changes beyond external agents, both intended: `agentRuntime.run()` now **throws** for an
+unknown runtime instead of falling through to `NativeAgentRunner` (§2.3's latent trap), and
+`agent_orchestrator.external_agents.invoke` must be granted (`yarn mercato auth sync-role-acls`)
+before any external step can run.
+
+Risk outcomes: R1 (version skew) ordered as designed. R2 (parked forever) closed with two independent
+sweep arms. R3 (forgery) closed on the token route and *mitigated* on the static one — its residual
+is higher by construction. R4 refused at run time and warned at authoring time, browser and server.
+R5 unchanged. R6 remains open on the compliance side. R7 closed (the registry holds a `connectorId`
+only). R8 answered by the `usage` seam.
+
+Known limitations are enumerated in the docs page's *Limitations and open follow-ups* section — the
+load-bearing ones are: a late answer after the sweep wins is dropped, the audio-arrives-first hazard
+is open, `AgentRunArtifact` has no retention sweeper, and a denied invocation leaves only a log line.
 
 ## Changelog
 
+- **2026-08-13:** Implementation feedback. Corrected §5.3 (the connector interface gained scope/async
+  on `verifyCallback`/`normalize` plus `extractExternalRunId`/`mock`/`fetchRecording`), §5.4 (mandatory
+  `timeout`, optional `profile`, and why profiles ride one JSON `text` credential), §5.5 (the column
+  is `callback_token_hash`; `output_mapping` added; org-scoped provider-id unique; the static
+  connector-addressed route; both deadline arms). Answered §9 Q1–Q4 from what shipped and left Q5
+  open. Added §10 *What shipped* recording the additions the design did not anticipate.
 - **2026-08-12:** Initial analysis. Verified the current `INVOKE_AGENT` chain end to end, identified `runtime: 'external'` as a declared-but-undispatched value, and proposed the suspend/resume design (Option 2) as a compatible down-payment on `2026-06-19-agent-dispatch.md`.

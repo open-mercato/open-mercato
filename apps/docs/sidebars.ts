@@ -424,6 +424,8 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/mcp",
             "framework/ai-assistant/developer-guide",
             "framework/ai-assistant/agents",
+            "framework/ai-assistant/external-agents",
+            "framework/ai-assistant/elevenlabs-voice",
             "framework/ai-assistant/ui-parts",
             "framework/ai-assistant/attachments",
             "framework/ai-assistant/web-research",

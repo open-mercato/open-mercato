@@ -29,7 +29,7 @@ top of that seam.
 | 2.5 | Bridge: `invokeAgentForWorkflow` returns `{ kind: 'suspended' }` | DONE | `5d0204bc6` |
 | 2.6 | API: callback route + command (unauthenticated, connector-verified, idempotent, `openApi`) | DONE | `e3057ada1` |
 | 2.7 | Deadline: delayed sweep job → cancel + fail + resume down the `error` route | DONE | `b3618aee1` |
-| 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (4 locales) | DONE | `17e444185` |
+| 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (5 locales) | DONE | `17e444185` |
 | 2.9 | Package: `@open-mercato/agent-elevenlabs` — integration provider + voice connector | DONE | `a89629580` |
 | 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | DONE | `dfec0fded` |
 | — | Follow-up: fix the two policy-test violations 2.10 surfaced in this feature's files | DONE | `77ba223e1` |
@@ -44,7 +44,7 @@ top of that seam.
 | **Phase 4 — generalize the seam** | | | |
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | DONE | `5e545ff8d` |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
-| 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | TODO | |
+| 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | DONE | |
 | 4.4 | **Server-side out-of-band flag** (added 2026-08-12 — the AI draft agent can still author T4.2's mistake) | DONE | `8b6c83ba6` |
 
 ---
@@ -129,7 +129,8 @@ Old-core + new-enterprise is the broken combination; new-core + old-enterprise i
 - `acl.ts`: `agent_orchestrator.external_agents.invoke`, **default off** (the `web_search` precedent).
 - `setup.ts` `defaultRoleFeatures` + note that existing tenants need `yarn mercato auth sync-role-acls`.
 - `events.ts`: `external_run.started` / `.completed` / `.failed` / `.expired`, `as const`.
-- `di.ts` registration; i18n keys in all four locales.
+- `di.ts` registration; i18n keys in all FIVE locales (`en`, `pl`, `de`, `es`, `ko` — see the
+  2026-08-12 correction in the notes log).
 
 **2.9 — `@open-mercato/agent-elevenlabs`**
 Verified against the live ElevenLabs docs (2026-08-12):
@@ -877,10 +878,33 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   `f78e533c5` ("task becomes process") and reds `@open-mercato/core`. Pre-existing on this branch.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
-  the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
+  the correct fill). Every "4 locales" instruction in this file is wrong; **fixed by T4.3** (task row
+  2.8 and the Phase 2 detail now say five and name them).
 - 2026-08-12 — T4.2 scope limit, deliberate: step activities only. An INVOKE_AGENT hand-authored onto a
   TRANSITION also runs with the branch token, but its subject is a route, and naming the route's source step
   would be wrong for a fork's own branch-opening transitions.
 - 2026-08-12 — **Recurring test hazard in this module:** a PARTIAL `jest.mock('../lib/runtime/persistence')`
   silently turns a NEW export into `undefined`, which surfaced as `resume: 'failed'` in three unrelated
   suites. Any task adding an export to a widely-mocked module must top up those mocks.
+- 2026-08-13 — **T4.3 done. Two docs pages, not one:**
+  `apps/docs/docs/framework/ai-assistant/external-agents.mdx` (developer: governance framing,
+  `defineExternalAgent`, the connector contract, both callback routes and why the static one is
+  weaker, the workflow author's view, operations, every env var and tunable, an honest limitations
+  list) and `elevenlabs-voice.mdx` (operator: credentials, named profiles, where to paste the static
+  callback URL, the `{{om_callback_url}}` prohibition, and that the integration ships disabled). Both
+  registered in `apps/docs/sidebars.ts` under the AI Assistant category; `yarn workspace
+  open-mercato-docs build` passes with no new broken links or anchors.
+- 2026-08-13 — **T4.3 found the T2.9 note "modules.ts was deliberately NOT touched" is now STALE.**
+  `dfec0fded` (T2.10) added the `agent_elevenlabs` push inside the enterprise-agents block, plus the
+  `OM_INTEGRATION_TEST`-gated `agent_probe` push. The docs say so. `@open-mercato/agent-http` is
+  still NOT wired into `apps/mercato/src/modules.ts` — documented as a one-line opt-in. Also worth
+  recording: `scripts/template-sync.ts` lists `modules.ts` in `SYNC_ROOT_FILES`, but the create-app
+  template has no `src/modules.ts`, so the existence filter skips it and nothing drifted.
+- 2026-08-13 — **T4.3 budget note: the root `AGENTS.md` had FOUR bytes of headroom.** Adding a
+  dedicated Task Router row (~170 B) was impossible, so the existing agent-orchestration row was
+  extended instead ("file-defined OpenCode/external agents" + the docs page), paid for with 71 bytes
+  of purely cosmetic normalization — `-   ` / `1.  ` list markers collapsed to one space, and the
+  Key Commands comment column tightened by one. Net root size is UNCHANGED at 31228/31232. No rule,
+  reference or section was removed. **The next task that needs root-file space cannot do this again**;
+  it has to move long-form procedure into `.ai/docs/*` (the optimistic-locking bullet and the
+  Documentation-and-Specifications subsection are the two obvious candidates).

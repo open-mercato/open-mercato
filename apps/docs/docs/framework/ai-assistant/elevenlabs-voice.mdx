@@ -1,0 +1,219 @@
+---
+title: ElevenLabs Voice Agent
+description: Operator setup for the shipped outbound-voice connector — credentials, named call profiles, the static callback URL, and what the ElevenLabs prompt may and may not reference.
+---
+
+# ElevenLabs Voice Agent
+
+`@open-mercato/agent-elevenlabs` places outbound voice calls from a workflow step
+and resumes the workflow with what the conversation collected. It is the reference
+implementation of the [external agent](./external-agents.mdx) connector seam.
+
+It ships **disabled**, three times over. Deploying the code never dials anything:
+
+1. the module only loads when `OM_ENABLE_ENTERPRISE_MODULES=true` **and**
+   `OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true` (both default `false`);
+2. the integration record is stored `enabled: false` unless
+   `OM_INTEGRATION_ELEVENLABS_ENABLED=true`;
+3. placing a call requires the default-off ACL feature
+   `agent_orchestrator.external_agents.invoke`.
+
+## What you need from ElevenLabs
+
+- an **API key** with Conversational AI access (dashboard → Developers → API Keys);
+- a **conversational agent** whose prompt is your call script;
+- a **phone number** attached to it (dashboard → Conversational AI → Phone
+  Numbers) — you need its ElevenLabs *id*, not the number itself;
+- the **post-call webhook signing secret** (dashboard → Settings → Webhooks).
+
+## Step 1 — enable the module
+
+`agent_elevenlabs` is already wired into `apps/mercato/src/modules.ts` inside the
+enterprise-agents block, so enabling it is env only:
+
+```bash
+OM_ENABLE_ENTERPRISE_MODULES=true
+OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true
+```
+
+## Step 2 — grant outbound contact
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Then grant `agent_orchestrator.external_agents.invoke` to the role that will run
+the workflow. It is intentionally in no default persona — only the
+`agent_orchestrator.*` wildcard (superadmin, admin) carries it. Until the caller
+holds it, an `INVOKE_AGENT` step naming the voice agent fails down the `error`
+handle and no call is placed.
+
+## Step 3 — enter credentials
+
+Backoffice → **Integrations** → *ElevenLabs Conversational AI*. Credentials are
+per tenant, stored encrypted, and resolved per call under the run's own scope.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| API Key | secret | yes | Used for every outbound call this tenant places. |
+| Post-call Webhook Secret | secret | yes | The signing secret of the post-call webhook. See step 4 — until the webhook is pointed at this deployment, calls are placed but no workflow ever resumes. |
+| Agent ID | text | no | The ElevenLabs agent used by the **default** call profile. |
+| Phone Number ID | text | no | The ElevenLabs id of the number for the default profile. |
+| Telephony Provider | select | no | `Twilio` or `SIP trunk` — selects which outbound-call endpoint is used. Leave on Twilio unless the number is on a SIP trunk. |
+| Default Caller ID | text | no | Number presented to the person called. Set per tenant, never per workflow — who is calling is a compliance decision. |
+| Record Calls | boolean | no | Leave unset to use whatever the ElevenLabs agent is configured to do. |
+| Call Profiles (JSON) | text | no | Extra named profiles — see below. |
+
+Agent ID and Phone Number ID are optional in the form so a profiles-only tenant can
+save. A tenant with neither those nor a `default` profile fails at dial time with a
+clear message rather than at save time.
+
+You can also preconfigure from env at tenant creation:
+
+```bash
+yarn mercato agent_elevenlabs configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
+It reads `OM_INTEGRATION_ELEVENLABS_API_KEY`,
+`OM_INTEGRATION_ELEVENLABS_WEBHOOK_SECRET`, `OM_INTEGRATION_ELEVENLABS_AGENT_ID`,
+`OM_INTEGRATION_ELEVENLABS_PHONE_NUMBER_ID`, and optionally
+`OM_INTEGRATION_ELEVENLABS_TELEPHONY_PROVIDER`,
+`OM_INTEGRATION_ELEVENLABS_DEFAULT_CALLER_ID`,
+`OM_INTEGRATION_ELEVENLABS_CALL_RECORDING_ENABLED`,
+`OM_INTEGRATION_ELEVENLABS_PROFILES`, `OM_INTEGRATION_ELEVENLABS_ENABLED` (default
+`false`) and `OM_INTEGRATION_ELEVENLABS_FORCE_PRECONFIGURE`. Setting none is a
+silent no-op; setting some but not all throws. `OM_INTEGRATION_ELEVENLABS_API_BASE_URL`
+overrides the API host (default `https://api.elevenlabs.io`).
+
+### Named call profiles
+
+One ElevenLabs account often serves several voice agents — an owner call, a
+satisfaction survey, a payment chase. Rather than typing an ElevenLabs agent id into
+every workflow node, define **profiles** once and let each agent name one:
+
+```json
+[
+  { "name": "survey",  "agentId": "agent_...", "phoneNumberId": "phnum_..." },
+  { "name": "chase",   "agentId": "agent_...", "phoneNumberId": "phnum_...",
+    "telephonyProvider": "sip_trunk", "callRecordingEnabled": false }
+]
+```
+
+A record form is accepted too (`{ "survey": { "agentId": …, "phoneNumberId": … } }`).
+Per profile: `agentId` and `phoneNumberId` are required; `telephonyProvider`
+(`twilio` | `sip_trunk`), `defaultCallerId` and `callRecordingEnabled` are optional.
+The schema is strict, so a typo'd key is a named error rather than a silently
+defaulted phone number. Duplicate names are rejected.
+
+- The five flat fields above **are** the `default` profile, so an already-configured
+  tenant does nothing: the next call is byte-identical.
+- An explicit `default` entry in the JSON wins over the flat fields.
+- Resolution order at dial time: per-call `input` override → the agent's declared
+  `profile` → `default`.
+- An agent naming a profile you have not configured **fails before dialling**,
+  rather than calling with the wrong one.
+- Profiles never multiply webhook setup — the callback URL is per *connector*.
+
+:::caution Never put a secret in Call Profiles
+Unlike the API key and webhook secret, this is a `text` field and is shown in full
+when the form is reloaded.
+:::
+
+## Step 4 — point the post-call webhook here
+
+In the ElevenLabs dashboard → Settings → Webhooks, set the post-call webhook URL to:
+
+```
+https://<your-deployment>/api/agent_orchestrator/external-runs/connectors/elevenlabs.voice/callback
+```
+
+One static URL. Paste it once; every call from every profile in every tenant of
+this deployment uses it. ElevenLabs configures post-call webhooks at the workspace
+and agent level and its outbound-call request carries no webhook field, which is
+why this connector uses the [static connector-addressed
+route](./external-agents.mdx#static-connector-addressed-route--the-weaker-one)
+rather than the stronger per-run token route.
+
+Consequences worth understanding before you go live:
+
+- **The webhook secret is the only credential that callback carries.** Every payload
+  is HMAC-verified against it, and it is what proves the answer belongs to your
+  tenant. Anything that fails to verify is discarded with a `401` and no detail.
+- The run is found by the ElevenLabs `conversation_id`, and tenancy is settled by
+  the signature — a payload can only settle a run belonging to the tenant whose
+  secret signed it.
+- Until this webhook is configured, calls are placed and never resume a workflow;
+  the deadline sweep fails each run down the `error` handle when its `timeout`
+  passes.
+
+Also set `APP_URL` (or `NEXT_PUBLIC_APP_URL`) on the deployment. In production an
+external run refuses to start when it is unset, rather than handing a third party a
+localhost URL.
+
+## Step 5 — write the ElevenLabs prompt
+
+The prompt lives entirely at ElevenLabs. This side of the boundary owns only the
+contract: which dynamic variables the prompt may reference, and which fields the
+workflow gets back.
+
+The workflow node's `input` may carry `toNumber` (required), `brief`, `variables`,
+plus per-call overrides `agentId`, `agentPhoneNumberId`, `telephonyProvider`,
+`callRecordingEnabled`, `firstMessage` and `language`.
+
+The prompt may reference:
+
+- `` `{{brief}}` `` — the node input's `brief`;
+- `` `{{<key>}}` `` for every key of the node input's `variables` object.
+
+:::danger The prompt must never reference `om_callback_url`
+`` `{{om_callback_url}}` `` is a reserved variable carrying a bearer credential (the
+callback token is in its path). An agent prompt that reads it could **speak it
+aloud** on the call. It is sent only as inert correlation data — it is not how the
+answer gets home; the static webhook is. The whole `om_` prefix is reserved: any
+author variable starting with it is dropped rather than merged.
+:::
+
+## What comes back
+
+The `voice.owner_call` agent's outcome — the shape `outputMapping` paths resolve
+against, under `data.*`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `conversationId` | string | ElevenLabs `conversation_id`. |
+| `reached` | boolean | True only when the transcript has at least one non-empty caller turn. |
+| `status` | string | Provider status (`done`, `failed`, …) or `initiation_failed`. |
+| `callSuccessful` | `success` \| `failure` \| `unknown` | The provider's own verdict. |
+| `summary` | string \| null | Provider transcript summary. |
+| `collected` | record of string/number/boolean/null | The provider's data-collection results. |
+| `criteria` | record of `{ result, rationale }` | Evaluation-criteria results. |
+| `transcript` | array of `{ role, message, timeInCallSecs }` | The turns. |
+| `durationSeconds` | number \| null | Provider-reported call duration. |
+| `failureReason` | string \| null | |
+
+So a node can declare `outputMapping: { call: 'data.collected.owner_decision' }` and
+the next step reads `` `{{context.call}}` `` with the Studio's variable picker typing
+it correctly.
+
+## Operating notes
+
+- **`cancel` is not implemented, deliberately.** ElevenLabs has no hang-up endpoint
+  for a live conversation; the nearest thing deletes the conversation record, which
+  would destroy the transcript and audit trail *without* ending the call. When the
+  deadline passes, the platform stops waiting and says so, rather than claiming it
+  hung up.
+- **`mock` is not implemented, deliberately.** A fabricated transcript is
+  indistinguishable downstream from something a human actually said, so eval replays
+  **refuse** rather than dial or invent.
+- **Recordings are not stored here.** The run detail page offers *Fetch recording
+  from provider*, which streams the audio straight through from
+  ElevenLabs — no copy is persisted by this application.
+- The Playground **does** place a real call. That is intentional: it is the only way
+  to smoke-test the connector end to end, and it is behind both `agents.run` and the
+  invoke grant. It answers `202` with a run id while the phone rings.
+- Re-running a voice run from the cockpit requires an explicit confirmation
+  (`428` → confirm → `202`), because it places a second real call.
+- Calling a human is regulated. Consent, recording notice, quiet hours and
+  do-not-call belong in a condition node upstream of the voice step, never in the
+  model's judgement — and enabling *Record Calls* here does not by itself satisfy a
+  notice or consent obligation.

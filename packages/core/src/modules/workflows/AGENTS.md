@@ -193,6 +193,47 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - Author-time checks live in `validateOutcomeRoutes` (unknown outcome kind, two routes claiming the
   same kind on one step) and surface through the Problems panel.
 
+## Out-Of-Band Agents (the `suspended` bridge outcome)
+
+- **`suspended` is the FIFTH bridge outcome**, `{ kind: 'suspended'; runId: string; externalRunId?:
+  string }`, declared in BOTH duck-typed copies (`lib/activity-executor.ts`,
+  `lib/activity-worker-handler.ts` — core never imports the enterprise peer, so a field-name drift
+  fails silently at runtime). `handleInvokeAgentJob` treats it exactly like `user_task`: log, return,
+  leave the step parked on `agent_orchestrator.proposal.ready`. The peer's callback later fires that
+  same signal. **Do NOT widen `AgentResultEnvelope` (`lib/agent-result-mapping.ts`) to carry it** — it
+  keeps only the four SETTLED kinds, which is what makes a missing `suspended` early-return a COMPILE
+  error instead of a silent resume with an empty payload.
+- **A suspended outcome is REFUSED on the inline parallel-branch path** (`context.branchInstanceId`):
+  a branch resolves the bridge synchronously and `sendSignal`'s forked resume only matches
+  `WAIT_FOR_SIGNAL` steps, so the out-of-band answer has nowhere to land.
+  `AgentSuspensionUnsupportedError` carries TWO structural markers and needs both — `retryable = false`
+  (read by `isRetryableError`, closes the queue path) and `agentSuspensionUnsupported` (read by
+  `isAgentSuspensionUnsupported`, breaks `executeActivity`'s own in-process `retryPolicy` loop,
+  mirroring the `isDryRunRefusal` break). Without the second, the default `maxAttempts: 3` calls the
+  bridge three times — and a `suspended` outcome means the external effector ALREADY RAN, so that is
+  three real phone calls. Any future side-effecting refusal needs both markers.
+- **The refusal is deliberately ABSORBABLE** by an `error` route, `continueOnActivityFailure` and
+  `errorDirective` — unlike `WorkflowDryRunRefusalError`, which is a non-absorbable STOP whose
+  criterion is "nothing was attempted". Here the effector genuinely ran, so it is an ordinary activity
+  failure and the author's declared failure handling applies.
+- **The Studio warns at authoring time** — `lib/parallel-branch-agent-warnings.ts` (PURE) reports a
+  step naming an out-of-band agent inside a `PARALLEL_FORK` region. WARNING, never an error (a
+  definition mid-edit must stay saveable; the runtime refusal is absorbable; and "answers out of band"
+  is registry state the definition does not carry). The branch-region walk mirrors the ENGINE's
+  `openFork`, so warning and runtime agree by construction. SCOPE: step activities only, not
+  transition-hosted INVOKE_AGENTs.
+- **Server-side the flag is `suspends`, not `runtime`** — `AgentOutcomeContractSnapshot.suspends?:
+  boolean` (optional, so an older bridge stays valid and degrades to SILENCE). A `runtime` string would
+  force core to hold a list of the peer's runtime names; with `suspends` the peer classifies its own
+  runtimes and core asks one question it can answer. Warmed beside `agentOutcomeContracts` in
+  `lib/server-output-contract.ts` and threaded to `evaluateWorkflowDefinition` as the explicit
+  `outOfBandAgentIds` option — explicit because `lib/definition-evaluation.ts` is imported by a CLIENT
+  component and must not pull `server-output-contract.ts` into the browser bundle. FIVE call sites
+  covered: the prompt-to-draft route, `validate_definition`, `validate_workflow_definition`,
+  `create_definition`, `update_definition`. (`api/definitions/route.ts` and `[id]/route.ts` never call
+  it — they use `normalizeDefinitionValidationIssues` directly.)
+- Mechanism + connector authoring: `apps/docs/docs/framework/ai-assistant/external-agents.mdx`.
+
 ## Agent Disposition Review & SLAs (spec §7.5)
 
 - **The disposition task is a REAL task, built by this module.** `lib/agent-disposition-task.ts`
