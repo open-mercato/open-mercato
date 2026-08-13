@@ -84,5 +84,5 @@ PR: #5267
 
 ### Phase 5: Fact-sheet split analysis and spec (resume)
 
-- [ ] 5.1 Measure built sheets + inventory the single-file contract surface
-- [ ] 5.2 Land `.ai/specs/2026-08-13-module-fact-sheet-sectioned-reading.md` (Proposed) with the phased design
+- [x] 5.1 Measure built sheets + inventory the single-file contract surface — 3d66237de
+- [x] 5.2 Land `.ai/specs/2026-08-13-module-fact-sheet-sectioned-reading.md` (Proposed) with the phased design — 3d66237de
