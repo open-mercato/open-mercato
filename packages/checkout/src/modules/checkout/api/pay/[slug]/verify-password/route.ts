@@ -65,11 +65,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
 export const openApi = {
   tags: [checkoutTag],
-  POST: {
-    responses: [
-      { status: 429, description: 'Too many password attempts', schema: rateLimitErrorSchema },
-      { status: 503, description: 'Rate limiting could not be enforced, so the attempt was rejected', schema: rateLimitErrorSchema },
-    ],
+  methods: {
+    POST: {
+      errors: [
+        { status: 429, description: 'Too many password attempts', schema: rateLimitErrorSchema },
+        { status: 503, description: 'Rate limiting could not be enforced, so the attempt was rejected', schema: rateLimitErrorSchema },
+      ],
+    },
   },
 }
 
