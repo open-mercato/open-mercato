@@ -131,7 +131,7 @@ Abstract base class. Extend once per category of documents in your module.
 | `label` (abstract) | Human-readable name shown in the admin page |
 | `module` (abstract) | Top-level module name — used for grouping (`'sales'`, `'my_module'`) |
 | `resourceKind` (abstract) | Framework resource kind matching the detail page (`'sales.order'`, `'sales.quote'`) |
-| `registerTemplate(entry)` | Registers a template with this service |
+| `registerTemplate(entry)` | Registers a template with its format-specific `filename` and `load` handlers |
 | `getEntries()` | Returns all registered templates ready for the global registry |
 | `toTemplateData({ data, locale, translate })` (abstract) | Maps the enriched server record to template data using the active locale and request translator |
 | `fetchData(input, ctx)` | Server-side hook called before `toTemplateData`. Override to load related data via DI. Default: passes data through unchanged |
@@ -181,7 +181,7 @@ Design tokens from the PDF template toolkit, exported by `@open-mercato/document
 | `TemplateEntry` | Full descriptor — `TemplateMeta` plus runtime handlers |
 | `TemplateRegistryEntry` | Neutral runtime hooks; `load()` returns a format-neutral `DocumentTemplateSource` |
 | `TemplateFilter` | Plugin UI filter: `{ resourceKind?, documentType?, format?, tags? }` |
-| `DocumentTemplateEntry` | Shape passed to `registerTemplate()` |
+| `DocumentTemplateEntry` | Shape passed to `registerTemplate()`; requires `format`, `filename`, and `load` |
 | `DocumentTemplateSource` | Shared extensible source shape: `{ type: string; [key: string]: unknown }` |
 | `DocumentRenderInput` | Plugin runtime input: `{ format: string, source, data }` |
 | `LoadedTemplate` | Format-neutral prepared template and its render input |

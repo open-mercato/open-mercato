@@ -248,6 +248,9 @@ interface TemplateRegistryEntry {
 // TemplateEntry = TemplateMeta & TemplateRegistryEntry (full descriptor used in the registry)
 type TemplateEntry = TemplateMeta & TemplateRegistryEntry
 
+// Every DocumentTemplateEntry registered by a service owns its format-specific
+// filename handler; BaseDocumentService does not provide a filename fallback.
+
 interface DocumentTemplateSource {
   type: string
   [key: string]: unknown
@@ -338,6 +341,7 @@ export class QuotesDocumentService extends BaseDocumentService {
       id: 'sales-offer',
       documentType: 'offer',
       format: 'pdf',
+      filename: ({ data }) => `offer-${String(data.document.number)}.pdf`,
       load: async () => ({ type: 'react-pdf', component: (await import('...')).default }),
       ...
     })
@@ -354,12 +358,11 @@ export class QuotesDocumentService extends BaseDocumentService {
 ```
 
 `BaseDocumentService` provides:
-- `registerTemplate(entry)` — registers a lazy-loaded template
+- `registerTemplate(entry)` — registers a template with required format-specific `filename` and lazy `load` handlers
 - `getEntries()` — returns entries with `module`, `resourceKind`, normalization, output metadata, and fetching bound to the service
 - `fetchData({ data }, { container, auth })` — default no-op; override to enrich data before normalization with request scope available
 - `toTemplateData({ data, locale, translate })` — **abstract**; override to map enriched data using the required request locale and translator
-- `filename({ data })` — returns `'document.pdf'` by default; override for document-specific names
-- a registered template may provide its own `filename({ data })` when its extension differs from the service default
+- each registered template owns its required `filename({ data })`; the service provides no format-specific filename fallback
 
 `formatDate(iso, locale)` and `formatMoney(amount, currency, locale)` remain standalone utilities with no default locale. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
 
@@ -764,6 +767,8 @@ No released template ID, route, or public contract is removed or renamed. Domain
 
 The unreleased registry contract is simplified before merge from separate `registerInternal` / `registerExternal` methods and a grouped response to one `register` method and a flat `TemplateMeta[]` response. The registry validates each batch before mutation and rejects duplicate IDs instead of silently shadowing or dropping templates. Existing template IDs remain unchanged.
 
+The unreleased `BaseDocumentService.filename()` fallback is also removed before merge. Every `DocumentTemplateEntry` requires its own `filename` handler so output naming stays colocated with `format` and `load`; multi-format services cannot accidentally reuse a PDF extension for another renderer.
+
 ## Final Compliance Report — 2026-08-10
 
 ### Compliance Matrix
@@ -848,3 +853,4 @@ The unreleased registry contract is simplified before merge from separate `regis
 | 2026-08-13 | Codex | Replaced the bundled Inter family with React-PDF's built-in Helvetica. Removed local TTF and generated base64 assets, build-time font generation, runtime registration side effects, and the now-unused `glob` dependency; synchronized built-in templates, examples, and authoring documentation. |
 | 2026-08-13 | Codex | Completed request-scoped localization of the document surface: template labels/descriptions and persisted history labels resolve through existing metadata fields, API errors use stable codes plus translated messages, currency uses `Intl.NumberFormat`, and dates use each locale's natural convention in UTC. Removed three dead keys across all locales and corrected the format-neutral templates-page fallback; internal structured log messages remain stable English diagnostics. |
 | 2026-08-13 | Codex | Simplified the unreleased template registry to a single `register`/flat-list contract, added atomic duplicate-ID rejection, updated generated bootstrap registration, API/UI consumers, integration coverage, docs, and removed the now-unused internal/external section translations. |
+| 2026-08-13 | Codex | Made `filename` a required template-level handler and removed the service-level fallback, keeping filename, format, and loader ownership together for PDF, Markdown, and future formats. Updated Sales registrations, shared contracts/tests, examples, and docs. |

@@ -117,6 +117,10 @@ export class ExampleInvoicesDocumentService extends BaseDocumentService {
       format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
       note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
+      filename: ({ data }) => {
+        const number = documentNumber(data)
+        return number ? `invoice-${number}.pdf` : 'invoice.pdf'
+      },
       load: () =>
         import('../templates/example-invoice/pdf').then(
           (m) => ({
@@ -194,11 +198,6 @@ export class ExampleInvoicesDocumentService extends BaseDocumentService {
       logger.error('Failed to load invoice data', { err })
       return data
     }
-  }
-
-  override filename({ data }: { data: Record<string, unknown> }): string {
-    const num = documentNumber(data)
-    return num ? `invoice-${num}.pdf` : 'invoice.pdf'
   }
 
   override resourceId({ data }: { data: Record<string, unknown> }): string {

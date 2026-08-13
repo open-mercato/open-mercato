@@ -57,6 +57,10 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
       documentType: 'invoice',
       format: 'pdf',
       tags: ['invoice', 'my_module'],
+      filename: ({ data }) => {
+        const number = (data.document as { number?: string } | undefined)?.number
+        return number ? `invoice-${number}.pdf` : 'invoice.pdf'
+      },
       load: () =>
         import('../templates/invoice/my-module-invoice').then(
           (m) => ({
@@ -84,11 +88,6 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
       lines:    [],
       totals:   { subtotal: 0, tax: 0, total: 0, currency: 'PLN' },
     }
-  }
-
-  override filename({ data }: { data: Record<string, unknown> }): string {
-    const doc = data.document as { number?: string } | undefined
-    return doc?.number ? `invoice-${doc.number}.pdf` : 'invoice.pdf'
   }
 
   override resourceId({ data }: { data: Record<string, unknown> }): string {

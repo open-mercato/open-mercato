@@ -8,6 +8,6 @@ export interface DocumentTemplateEntry {
   format: string
   tags: string[]
   note?: string
-  filename?: (input: { data: Record<string, unknown> }) => string
+  filename: (input: { data: Record<string, unknown> }) => string
   load: () => Promise<DocumentTemplateSource>
 }

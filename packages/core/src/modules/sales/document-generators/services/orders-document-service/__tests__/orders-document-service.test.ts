@@ -150,18 +150,6 @@ describe('OrdersDocumentService.toTemplateData', () => {
   })
 })
 
-describe('OrdersDocumentService.filename', () => {
-  it('includes the document number when present', () => {
-    const service = new OrdersDocumentService()
-    expect(service.filename({ data: { document: { number: 'ORD-9' } } })).toBe('invoice-ORD-9.pdf')
-  })
-
-  it('falls back to invoice.pdf when the number is missing', () => {
-    const service = new OrdersDocumentService()
-    expect(service.filename({ data: {} })).toBe('invoice.pdf')
-  })
-})
-
 describe('OrdersDocumentService templates', () => {
   it('registers PDF and Markdown variants of the order invoice', async () => {
     const service = new OrdersDocumentService()
@@ -172,8 +160,12 @@ describe('OrdersDocumentService templates', () => {
       { id: 'order-invoice-markdown', format: 'md' },
     ])
 
+    const pdf = entries.find((entry) => entry.id === 'order-invoice')
     const markdown = entries.find((entry) => entry.id === 'order-invoice-markdown')
+    expect(pdf?.filename({ data: { document: { number: 'ORD-9' } } })).toBe('invoice-ORD-9.pdf')
+    expect(pdf?.filename({ data: {} })).toBe('invoice.pdf')
     expect(markdown?.filename({ data: { document: { number: 'ORD-9' } } })).toBe('invoice-ORD-9.md')
+    expect(markdown?.filename({ data: {} })).toBe('invoice.md')
     await expect(markdown?.load()).resolves.toMatchObject({ type: 'markdown' })
   })
 })

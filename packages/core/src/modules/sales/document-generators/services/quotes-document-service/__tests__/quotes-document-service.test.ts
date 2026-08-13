@@ -152,15 +152,13 @@ describe('QuotesDocumentService.toTemplateData', () => {
   })
 })
 
-describe('QuotesDocumentService.filename', () => {
-  it('includes the document number when present', () => {
+describe('QuotesDocumentService templates', () => {
+  it('registers the PDF filename with the template', () => {
     const service = new QuotesDocumentService()
-    expect(service.filename({ data: { document: { number: 'Q-9' } } })).toBe('offer-Q-9.pdf')
-  })
+    const [template] = service.getEntries()
 
-  it('falls back to offer.pdf when the number is missing', () => {
-    const service = new QuotesDocumentService()
-    expect(service.filename({ data: {} })).toBe('offer.pdf')
+    expect(template.filename({ data: { document: { number: 'Q-9' } } })).toBe('offer-Q-9.pdf')
+    expect(template.filename({ data: {} })).toBe('offer.pdf')
   })
 })
 

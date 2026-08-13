@@ -5,6 +5,7 @@ import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/sha
 import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
 import { buildSalesOfferLabels } from '../../templates/quotes/sales-offer/labels'
 import { quoteDocumentInputSchema } from './validators'
+import { offerFilename } from './utils'
 import type {
   CustomerAddressRow,
   EntityCtor,
@@ -39,6 +40,7 @@ export class QuotesDocumentService extends BaseDocumentService {
       format: 'pdf',
       tags: ['offer', 'sales'],
       note: 'Rendered in the PDF tab on the Quote detail page (sales.document.detail.quote:tabs).',
+      filename: ({ data }) => offerFilename(data),
       load: () =>
         import('../../templates/quotes/sales-offer/pdf').then(
           (module) => ({
@@ -116,11 +118,6 @@ export class QuotesDocumentService extends BaseDocumentService {
       billingAddressSnapshot,
       lines,
     } satisfies QuoteRecord
-  }
-
-  override filename({ data }: { data: Record<string, unknown> }): string {
-    const number = (data.document as { number?: string } | undefined)?.number
-    return number ? `offer-${number}.pdf` : 'offer.pdf'
   }
 
   override resourceLabel({ data }: { data: Record<string, unknown> }): string | undefined {

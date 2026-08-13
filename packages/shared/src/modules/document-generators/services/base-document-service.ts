@@ -18,10 +18,6 @@ export abstract class BaseDocumentService {
 
   abstract toTemplateData(input: { data: unknown } & TemplateDataContext): Record<string, unknown>
 
-  filename(_input: { data: Record<string, unknown> }): string {
-    return 'document.pdf'
-  }
-
   resourceLabel(_input: { data: Record<string, unknown> }): string | undefined {
     return undefined
   }
@@ -55,7 +51,7 @@ export abstract class BaseDocumentService {
         locale,
         translate: translate ?? untranslated,
       }),
-      filename: template.filename ?? ((input) => this.filename(input)),
+      filename: template.filename,
       resourceId: (input) => this.resourceId(input),
       resourceLabel: (input) => this.resourceLabel(input),
       fetchData: (input, context) => this.fetchData(input, context),

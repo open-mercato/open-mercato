@@ -5,6 +5,7 @@ import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/sha
 import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
 import { buildOrderInvoiceLabels } from '../../templates/orders/order-invoice/labels'
 import { orderDocumentInputSchema } from './validators'
+import { invoiceFilename } from './utils'
 import type {
   CustomerAddressRow,
   EntityCtor,
@@ -39,6 +40,7 @@ export class OrdersDocumentService extends BaseDocumentService {
       format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
       note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
+      filename: ({ data }) => invoiceFilename(data, 'pdf'),
       load: () =>
         import('../../templates/orders/order-invoice/pdf').then(
           (module) => ({
@@ -56,10 +58,7 @@ export class OrdersDocumentService extends BaseDocumentService {
       format: 'md',
       tags: ['invoice', 'order', 'sales', 'markdown'],
       note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
-      filename: ({ data }) => {
-        const number = (data.document as { number?: string } | undefined)?.number
-        return number ? `invoice-${number}.md` : 'invoice.md'
-      },
+      filename: ({ data }) => invoiceFilename(data, 'md'),
       load: () =>
         import('../../templates/orders/order-invoice/markdown').then(
           (module) => ({
@@ -137,11 +136,6 @@ export class OrdersDocumentService extends BaseDocumentService {
       billingAddressSnapshot,
       lines,
     } satisfies OrderRecord
-  }
-
-  override filename({ data }: { data: Record<string, unknown> }): string {
-    const number = (data.document as { number?: string } | undefined)?.number
-    return number ? `invoice-${number}.pdf` : 'invoice.pdf'
   }
 
   override resourceLabel({ data }: { data: Record<string, unknown> }): string | undefined {

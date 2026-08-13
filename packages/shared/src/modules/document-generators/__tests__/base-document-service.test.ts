@@ -15,6 +15,10 @@ function makeTemplate(overrides: Partial<DocumentTemplateEntry> = {}): DocumentT
     format: 'pdf',
     tags: ['example', 'report'],
     note: undefined,
+    filename: ({ data }) => {
+      const number = (data.document as { number?: string } | undefined)?.number
+      return number ? `report-${number}.pdf` : 'report.pdf'
+    },
     load: async () => ({ type: 'react-pdf', component: FakeComponent }),
     ...overrides,
   }
@@ -30,12 +34,6 @@ class TestDocumentService extends BaseDocumentService {
   toTemplateData({ data, locale, translate }: { data: unknown; locale: string; translate: TranslateFn }): Record<string, unknown> {
     const { id } = data as { id: string }
     return { document: { number: id }, locale, label: translate('test.label') }
-  }
-
-  // Reads the *unwrapped* normalized data — this is exactly what C4 broke.
-  override filename({ data }: { data: Record<string, unknown> }): string {
-    const num = (data.document as { number?: string } | undefined)?.number
-    return num ? `report-${num}.pdf` : 'report.pdf'
   }
 
   override resourceLabel({ data }: { data: Record<string, unknown> }): string | undefined {
@@ -82,10 +80,7 @@ describe('BaseDocumentService.getEntries', () => {
     expect(service.getEntries().map((e) => e.id)).toEqual(['a', 'b'])
   })
 
-  // Regression guard for C4: the filename binding used to double-wrap the argument
-  // as { data: { data } }, so the override's `data.document` was always undefined
-  // and every filename fell back to the default.
-  it('binds filename so the override receives the unwrapped normalized data', () => {
+  it('uses the filename registered by the template', () => {
     const service = new TestDocumentService()
     service.registerTemplate(makeTemplate())
 
@@ -94,7 +89,7 @@ describe('BaseDocumentService.getEntries', () => {
     expect(entry.filename({ data: { document: { number: '42' } } })).toBe('report-42.pdf')
   })
 
-  it('uses a template-specific filename when one is registered', () => {
+  it('supports format-specific filenames', () => {
     const service = new TestDocumentService()
     service.registerTemplate(makeTemplate({
       format: 'md',
@@ -107,7 +102,7 @@ describe('BaseDocumentService.getEntries', () => {
     expect(entry.filename({ data: { document: { number: '42' } } })).toBe('report-42.md')
   })
 
-  it('falls back to the default filename only when the number is absent', () => {
+  it('uses the template filename fallback when the number is absent', () => {
     const service = new TestDocumentService()
     service.registerTemplate(makeTemplate())
 
@@ -172,11 +167,6 @@ describe('BaseDocumentService defaults', () => {
       return data as Record<string, unknown>
     }
   }
-
-  it('returns document.pdf as the default filename when not overridden', () => {
-    const service = new MinimalService()
-    expect(service.filename({ data: {} })).toBe('document.pdf')
-  })
 
   it('returns no resource label by default', () => {
     const service = new MinimalService()
