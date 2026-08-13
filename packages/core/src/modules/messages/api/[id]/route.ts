@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../auth/data/entities'
@@ -37,6 +38,36 @@ type MessageObjectPreviewPayload = {
   statusColor?: string
   metadata?: Record<string, string>
 } | null
+
+type RbacServiceLike = {
+  getGrantedFeatures?: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<string[]>
+}
+
+/**
+ * Feature list for the enricher ACL gate, resolved from RBAC.
+ *
+ * Mirrors `customers/api/interactions/route.ts`. Returning `undefined` on
+ * failure is deliberate — the runner then treats every feature-gated enricher
+ * as denied, which is the safe direction.
+ */
+async function resolveGrantedFeatures(
+  container: { resolve: (name: string) => unknown },
+  scope: { tenantId: string; organizationId: string | null; userId: string },
+): Promise<string[] | undefined> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.getGrantedFeatures) return undefined
+    return await rbac.getGrantedFeatures(scope.userId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  } catch {
+    return undefined
+  }
+}
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
@@ -190,7 +221,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
   }
 
-  return Response.json({
+  const detail: Record<string, unknown> = {
     id: message.id,
     updatedAt: message.updatedAt ?? null,
     type: message.type,
@@ -265,7 +296,44 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
     conversationArchived,
     conversationAllUnread,
-  })
+  }
+
+  // Response enrichers targeting `messages.message`.
+  //
+  // Without this the detail response carries no `_`-prefixed enrichment, and
+  // every consumer of one silently renders nothing — including the shipped
+  // `communication_channels` channel-payload renderer, whose whole job is to
+  // display the sanitized email HTML / Block Kit payload below the body. The
+  // enricher and the widget both exist; only this call was missing to connect
+  // them.
+  //
+  // Errors are swallowed deliberately: an enricher is decoration, and losing
+  // the message body because a decorator threw is the worse failure. The
+  // runner already records per-enricher errors in `_meta.enricherErrors`.
+  //
+  // Features come from RBAC, NOT from `resolveUserFeatures(ctx.auth)`: the
+  // session token carries `roles`, never `features`, so reading them off auth
+  // yields an empty list and the runner's ACL filter drops every feature-gated
+  // enricher — including `communication_channels.message-channel`, which is
+  // gated on `communication_channels.view`. That failure is silent: the
+  // response is well-formed, just missing the enrichment. Verified against a
+  // live instance before and after.
+  let enrichedDetail = detail
+  try {
+    const enriched = await applyResponseEnricherToRecord(detail, 'messages.message', {
+      organizationId: scope.organizationId ?? '',
+      tenantId: scope.tenantId,
+      userId: scope.userId,
+      em,
+      container: ctx.container,
+      userFeatures: await resolveGrantedFeatures(ctx.container, scope),
+    })
+    enrichedDetail = enriched.record
+  } catch (error) {
+    logger.warn('response enrichers failed for message detail', { messageId: params.id, err: error })
+  }
+
+  return Response.json(enrichedDetail)
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
