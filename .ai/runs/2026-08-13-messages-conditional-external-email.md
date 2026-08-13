@@ -91,6 +91,8 @@ A+ and B stay available as later, purely additive extensions. C (synthesising
 
 ## Progress
 
+PR: #5252
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Hub contract — conditional, fail-closed `externalEmail`
@@ -105,9 +107,30 @@ A+ and B stay available as later, purely additive extensions. C (synthesising
 
 ### Phase 3: Remove the bypass and add the acceptance test
 
-- [ ] 3.1 Test-seed drives the real ingest command for a non-email channel
-- [ ] 3.2 Acceptance test — a non-email provider completes an inbound compose end to end
+- [x] 3.1 Test-seed drives the real ingest command for a non-email channel — 18bab988c3
+- [x] 3.2 Acceptance test — a non-email provider completes an inbound compose end to end — 18bab988c3
 
 ### Phase 4: Record the decision
 
-- [ ] 4.1 Spec § Open decision closed out with Variant A
+- [x] 4.1 Spec § Open decision closed out with Variant A — 298d51852d
+
+## Validation gate
+
+Run locally in the isolated worktree (local mode — no compose `app` container running),
+in the order `.ai/agentic.config.json` declares:
+
+| Command | Result |
+|---|---|
+| `yarn build:packages` | ✅ |
+| `yarn generate` | ✅ (no generated-file drift to commit) |
+| `yarn build:packages` | ✅ |
+| `yarn i18n:check-sync` | ✅ |
+| `yarn i18n:check-usage` | ✅ |
+| `yarn typecheck` | ✅ 22/22 tasks |
+| `yarn test` | ✅ `@open-mercato/core` 9656 passed / 1241 suites; every other package green |
+| `yarn build:app` | ✅ 5m34s |
+| `yarn lint` | ✅ 0 errors (pre-existing warnings only) |
+
+One real failure surfaced and was fixed rather than worked around: the repo's explicit-comparator
+guard (`src/__tests__/explicit-sort-comparators.test.ts`, #3620) caught a bare `.sort()` in the new
+diagnostic helper — fixed in `bdefda3d3f`.
