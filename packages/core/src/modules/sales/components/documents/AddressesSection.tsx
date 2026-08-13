@@ -75,20 +75,7 @@ const emptyDraft: AddressEditorDraft = {
   isPrimary: false,
 }
 
-const EDITABLE_SNAPSHOT_KEYS = new Set([
-  'name',
-  'purpose',
-  'companyName',
-  'addressLine1',
-  'addressLine2',
-  'buildingNumber',
-  'flatNumber',
-  'city',
-  'region',
-  'postalCode',
-  'country',
-  'isPrimary',
-])
+const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
 
 function normalizeAddressDraft(
   draft?: AddressEditorDraft | null,

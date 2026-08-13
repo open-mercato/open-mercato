@@ -85,18 +85,23 @@ jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
 
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({
   AddressEditor: ({ value, onChange }: any) => (
-    <button
-      type="button"
-      onClick={() =>
-        onChange(
-          Object.fromEntries(
-            Object.keys(value ?? {}).map((key) => [key, typeof value[key] === 'boolean' ? false : '']),
-          ),
-        )
-      }
-    >
-      Clear address fields
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          onChange(
+            Object.fromEntries(
+              Object.keys(value ?? {}).map((key) => [key, typeof value[key] === 'boolean' ? false : '']),
+            ),
+          )
+        }
+      >
+        Clear address fields
+      </button>
+      <button type="button" onClick={() => onChange({ ...value, city: '' })}>
+        Clear city
+      </button>
+    </>
   ),
 }))
 
@@ -306,5 +311,35 @@ describe('SalesDocumentAddressesSection', () => {
     const [, request] = mockApiCallOrThrow.mock.calls[0]
     const payload = JSON.parse(request.body)
     expect(payload.shippingAddressSnapshot).toBeNull()
+  })
+
+  it('lets a cleared editable field stay cleared while unowned keys survive', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: 'PL1234567890',
+        }}
+      />,
+    )
+
+    await screen.findByRole('button', { name: 'Update addresses' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear city' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, request] = mockApiCallOrThrow.mock.calls[0]
+    const payload = JSON.parse(request.body)
+    expect(payload.shippingAddressSnapshot).not.toHaveProperty('city')
+    expect(payload.shippingAddressSnapshot).toMatchObject({
+      addressLine1: '12 Market Street',
+      taxId: 'PL1234567890',
+    })
   })
 })
