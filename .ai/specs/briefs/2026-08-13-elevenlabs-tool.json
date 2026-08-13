@@ -1,0 +1,44 @@
+{
+  "_comment": "POST body for https://api.elevenlabs.io/v1/convai/tools. The response returns { id }. Put that id into the agent's conversation_config.agent.prompt.tool_ids. Replace APP_URL and the omk_ key before sending — never commit a real key.",
+  "tool_config": {
+    "type": "webhook",
+    "name": "get_deal_notes",
+    "description": "Fetches the notes, past activity and deal history recorded on this account in the CRM.\n\nCall this ONLY when the chief of sales asks about notes, history, background, prior conversations, or what was agreed with this customer before. Never call it on your own initiative and never call it to enrich the briefing you already have.\n\nThe response contains a notes array. Each note is something a colleague wrote on the account; authorUserId says who and createdAt says when. Report only what is actually there.\n\nIf this call fails or returns nothing, say in one sentence that you could not reach the CRM right now. Do not guess what a note might have said.",
+    "api_schema": {
+      "url": "APP_URL/api/ai_assistant/tools/execute",
+      "method": "POST",
+      "content_type": "application/json",
+      "request_headers": {
+        "Authorization": "Bearer OMK_KEY_HERE",
+        "Content-Type": "application/json"
+      },
+      "request_body_schema": {
+        "type": "object",
+        "required": ["toolName", "args"],
+        "properties": {
+          "toolName": {
+            "type": "string",
+            "description": "Always the literal string customers.get_company",
+            "constant_value": "customers.get_company"
+          },
+          "args": {
+            "type": "object",
+            "required": ["companyId", "includeRelated"],
+            "properties": {
+              "companyId": {
+                "type": "string",
+                "description": "Always the literal value of the company_id dynamic variable",
+                "constant_value": "{{company_id}}"
+              },
+              "includeRelated": {
+                "type": "boolean",
+                "description": "Always true",
+                "constant_value": true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

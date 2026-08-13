@@ -24,6 +24,47 @@ present — no missing-variable failure class.
 
 ---
 
+## 0. Apply it with three curls instead of clicking
+
+Faster than the UI, repeatable, and the JSON is the artifact that becomes the module's sample.
+Run these yourself — they carry your workspace API key and an `omk_` key, and neither belongs
+in a transcript or a commit.
+
+```bash
+export XI=<your ElevenLabs API key>          # Settings → API Keys
+export AGENT=agent_9901kzxm41v0ewsbqarhjtd6zxjg
+
+# 1. Read the current config first. This is also how you confirm the one key path
+#    below that the public docs do not spell out (platform_settings.data_collection).
+curl -s -H "xi-api-key: $XI" \
+  "https://api.elevenlabs.io/v1/convai/agents/$AGENT" | jq '.platform_settings'
+
+# 2. Create the webhook tool. Fill in APP_URL and the omk_ key in the file first.
+curl -s -X POST "https://api.elevenlabs.io/v1/convai/tools" \
+  -H "xi-api-key: $XI" -H "Content-Type: application/json" \
+  -d @2026-08-13-elevenlabs-tool.json | jq '.id'
+
+# 3. Put that id into tool_ids in the agent JSON, then push the whole agent.
+curl -s -X PATCH "https://api.elevenlabs.io/v1/convai/agents/$AGENT" \
+  -H "xi-api-key: $XI" -H "Content-Type: application/json" \
+  -d @2026-08-13-elevenlabs-agent.json | jq '.agent_id'
+```
+
+Verified key paths (ElevenLabs API reference): `conversation_config.agent.prompt.prompt`,
+`.first_message`, `.prompt.llm`, `.prompt.temperature`, `.prompt.tool_ids`, `.agent.language`,
+`conversation_config.conversation.max_duration_seconds`,
+`platform_settings.evaluation.criteria` (a **list** of `{id, name, conversation_goal_prompt}`).
+
+**One path inferred rather than read**: `platform_settings.data_collection` as a dict keyed by
+identifier with `{type, description}`. The public docs describe the UI flow and not the JSON, but
+the post-call webhook returns `analysis.data_collection_results` keyed by identifier — and OM's
+connector parses it that way (`normalize.ts`: `z.record(z.string(), dataCollectionEntrySchema)`).
+Step 1's `GET` settles it in ten seconds; if the shape differs, fix the file and say so here.
+
+The sections below are the same content for anyone doing it by hand in the UI.
+
+---
+
 ## 1. Agent settings
 
 | Where | Setting | Value |
