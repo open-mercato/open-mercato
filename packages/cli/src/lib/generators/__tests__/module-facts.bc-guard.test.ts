@@ -124,10 +124,13 @@ describe('module-facts BC resolve guard (T2)', () => {
     // `channel_imap` 6,798; the difference is a gateway worker, a CLI command, a
     // signed route and a subscriber, spread proportionally across overrideTargets,
     // extensionSurfaces, factSources and ownedContracts — no duplicated payloads).
-    // The base caps were all but exhausted by the tree before this module existed, so
-    // they had stopped detecting blow-ups and started rejecting the next additive
-    // module of any size, whichever PR happened to add it. Keeping headroom above the
-    // merged tree keeps the guard doing its job: a real blow-up here is multiplicative
+    // Measured on the merged tree that adds it: 3,689,499 JSON bytes, a 1,618,721
+    // legacy delta and 1,610,698 markdown bytes — against the base caps that is 98.4%
+    // of the JSON budget and 97.6% of the markdown budget consumed before any further
+    // module exists, so they had stopped detecting blow-ups and started rejecting the
+    // next additive module of any size, whichever PR happened to add it. The caps here
+    // restore ~14% headroom over that measurement, which keeps the guard doing its
+    // job: a real blow-up here is multiplicative
     // — a duplicated provenance payload or a contribution body copied per resolution —
     // not one provider's worth of references. Growth that eats this headroom linearly
     // is tracked separately; the guard is deliberately not the place to ration
