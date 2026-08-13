@@ -973,6 +973,7 @@
   "staff.timesheets.my.daily_average": "일 평균",
   "staff.timesheets.my.daily_total": "일 합계",
   "staff.timesheets.my.duration.blocked": "저장하려면 표시된 시간을 수정하세요",
+  "staff.timesheets.my.duration.cellLabel": "{date} {project} 작업 시간",
   "staff.timesheets.my.duration.errors.invalid": "인식할 수 없는 시간입니다. 8, 1.5, 1:30, 90m 또는 1h 30m 형식을 사용하세요.",
   "staff.timesheets.my.duration.errors.out_of_range": "하루 최대 24시간입니다. 더 짧은 입력에는 1:30 또는 90m을 사용하세요.",
   "staff.timesheets.my.duration.hint": "시간(8 또는 1.5), h:mm(1:30) 또는 분(90m)을 입력하세요. 하루 최대 24시간.",

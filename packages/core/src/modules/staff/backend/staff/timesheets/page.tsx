@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { InlineInput } from '@open-mercato/ui/primitives/inline-input'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -91,6 +92,10 @@ function getLocalizedDayName(date: Date): string {
   return date.toLocaleDateString(undefined, { weekday: 'short' })
 }
 
+function getLocalizedCellDate(date: Date): string {
+  return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+}
+
 // --- Derived date ranges ---
 
 function getWeekDays(weekStart: Date): Date[] {
@@ -177,6 +182,11 @@ export default function MyTimesheetsPage() {
     'staff.timesheets.my.duration.hint',
     'Enter hours (8 or 1.5), h:mm (1:30) or minutes (90m). Max 24h per day.',
   )
+  const describeDurationCell = React.useCallback((projectName: string, date: Date): string => (
+    t('staff.timesheets.my.duration.cellLabel', 'Duration for {project} on {date}')
+      .replace('{project}', projectName)
+      .replace('{date}', getLocalizedCellDate(date))
+  ), [t])
   const describeDurationError = React.useCallback((reason: DurationParseError): string => (
     reason === 'out_of_range'
       ? t('staff.timesheets.my.duration.errors.out_of_range', 'Maximum 24h per day. Use 1:30 or 90m for shorter entries.')
@@ -908,24 +918,25 @@ export default function MyTimesheetsPage() {
                           {weekend ? (
                             <div className="rounded px-1 py-1 text-center text-xs text-muted-foreground/50">-</div>
                           ) : (
-                            <input
+                            <InlineInput
                               type="text"
                               inputMode="text"
-                              className={`mx-auto block rounded border text-center tabular-nums transition-colors
-                                ${viewMode === 'weekly' ? 'w-12 px-1 py-0.5 text-xs' : 'w-8 px-0 py-1 text-[10px]'}
+                              showBorderOnHover={false}
+                              className={`mx-auto flex h-6 border transition-colors
+                                ${viewMode === 'weekly' ? 'w-12 px-1' : 'w-8 px-0'}
                                 ${cellError
-                                  ? 'border-status-error-border bg-status-error-bg text-status-error-text focus:border-status-error-border'
+                                  ? 'bg-status-error-bg'
                                   : isDirty
-                                    ? 'border-status-warning-border bg-status-warning-bg focus:border-primary'
-                                    : 'border-muted-foreground/20 bg-transparent focus:border-primary'}
-                                ${!cellError && cellMinutes > 0 ? 'font-semibold' : ''}
-                                ${!cellError && cellMinutes === 0 ? 'text-muted-foreground' : ''}
-                                hover:border-muted-foreground/40 focus:bg-background focus:outline-none`}
+                                    ? 'border-status-warning-border bg-status-warning-bg'
+                                    : 'border-muted-foreground/20 bg-transparent hover:border-muted-foreground/40'}`}
+                              inputClassName={`text-center text-xs tabular-nums
+                                ${cellError ? 'text-status-error-text' : cellMinutes > 0 ? 'font-semibold' : 'text-muted-foreground'}`}
                               value={rawText[project.id]?.[dateKey] ?? formatMinutesAsDecimal(cellMinutes)}
                               onChange={(e) => handleCellChange(project.id, dateKey, e.target.value)}
                               onBlur={(event) => handleCellBlur(project.id, dateKey, event.currentTarget.value)}
                               placeholder={t('staff.timesheets.my.durationPlaceholder', '0')}
                               aria-invalid={cellError !== undefined}
+                              aria-label={describeDurationCell(project.name, date)}
                               title={cellErrorMessage ?? durationFormatHint}
                             />
                           )}

@@ -187,6 +187,29 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
     expect(screen.queryAllByText('2')).toHaveLength(0)
   })
 
+  it('names every duration cell after its own project and date', async () => {
+    const inputs = await renderGrid()
+    const names = inputs.map((input) => input.getAttribute('aria-label') ?? '')
+
+    expect(names).toHaveLength(inputs.length)
+    for (const name of names) {
+      expect(name).toMatch(/^Duration for Build on .+/)
+    }
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('keeps the accessible name on a rejected cell so the invalid state is announced with it', async () => {
+    const inputs = await renderGrid()
+    const accessibleName = inputs[0].getAttribute('aria-label') as string
+    typeAndBlur(inputs[0], 'abc')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    const byAccessibleName = screen.getByRole('textbox', { name: accessibleName })
+    expect(byAccessibleName).toBe(inputs[0])
+    expect(byAccessibleName).toHaveAttribute('aria-invalid', 'true')
+    expect(byAccessibleName).toHaveValue('abc')
+  })
+
   it('renders the duration format hint so the accepted forms are discoverable', async () => {
     await renderGrid()
     expect(

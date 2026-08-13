@@ -973,6 +973,7 @@
   "staff.timesheets.my.daily_average": "Daily Average",
   "staff.timesheets.my.daily_total": "Daily Total",
   "staff.timesheets.my.duration.blocked": "Corrige las duraciones marcadas para guardar",
+  "staff.timesheets.my.duration.cellLabel": "Duración de {project} el {date}",
   "staff.timesheets.my.duration.errors.invalid": "Duración no reconocida. Usa 8, 1,5, 1:30, 90m o 1h 30m.",
   "staff.timesheets.my.duration.errors.out_of_range": "Máximo 24 h por día. Usa 1:30 o 90m para entradas más cortas.",
   "staff.timesheets.my.duration.hint": "Introduce horas (8 o 1,5), h:mm (1:30) o minutos (90m). Máximo 24 h por día.",

@@ -973,6 +973,7 @@
   "staff.timesheets.my.daily_average": "Daily Average",
   "staff.timesheets.my.daily_total": "Daily Total",
   "staff.timesheets.my.duration.blocked": "Markierte Zeiten korrigieren, um zu speichern",
+  "staff.timesheets.my.duration.cellLabel": "Dauer für {project} am {date}",
   "staff.timesheets.my.duration.errors.invalid": "Zeitangabe nicht erkannt. Verwende 8, 1,5, 1:30, 90m oder 1h 30m.",
   "staff.timesheets.my.duration.errors.out_of_range": "Maximal 24 h pro Tag. Verwende 1:30 oder 90m für kürzere Eintragungen.",
   "staff.timesheets.my.duration.hint": "Stunden (8 oder 1,5), h:mm (1:30) oder Minuten (90m) eingeben. Max. 24 h pro Tag.",

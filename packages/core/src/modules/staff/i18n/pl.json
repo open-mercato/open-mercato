@@ -973,6 +973,7 @@
   "staff.timesheets.my.daily_average": "Średnia dzienna",
   "staff.timesheets.my.daily_total": "Suma dzienna",
   "staff.timesheets.my.duration.blocked": "Popraw zaznaczone czasy, aby zapisać",
+  "staff.timesheets.my.duration.cellLabel": "Czas dla {project} w dniu {date}",
   "staff.timesheets.my.duration.errors.invalid": "Nierozpoznany czas. Użyj 8, 1,5, 1:30, 90m lub 1h 30m.",
   "staff.timesheets.my.duration.errors.out_of_range": "Maksymalnie 24 h na dzień. Dla krótszych wpisów użyj 1:30 lub 90m.",
   "staff.timesheets.my.duration.hint": "Podaj godziny (8 lub 1,5), h:mm (1:30) albo minuty (90m). Maks. 24 h na dzień.",
