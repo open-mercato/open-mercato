@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cache",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "license": "MIT",
   "description": "Multi-strategy cache service with tag-based invalidation support",
   "type": "module",
@@ -44,7 +44,7 @@
   ],
   "peerDependencies": {
     "better-sqlite3": ">=9.0.0",
-    "ioredis": "^5.0.0"
+    "ioredis": "^5.0.0 || ^6.0.0"
   },
   "peerDependenciesMeta": {
     "better-sqlite3": {
@@ -59,9 +59,9 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.2",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
   "publishConfig": {

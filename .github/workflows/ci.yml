@@ -26,6 +26,9 @@ env:
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
 
+# `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
+# `develop`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `develop`.
 on:
   push:
     branches:
@@ -272,6 +275,7 @@ jobs:
   # half of the pair (#4479).
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: audit-scope
     if: needs.audit-scope.outputs.should_run == 'true'
     steps:
@@ -315,7 +319,14 @@ jobs:
         run: yarn install --immutable
 
       - name: Audit dependencies for known CVEs
-        run: yarn npm audit --all --recursive --severity high
+        # Uses scripts/audit-ci.mjs instead of `yarn npm audit` as a workaround for
+        # an npm registry bug: the bulk advisories endpoint returns a gzip body with
+        # no `Content-Encoding` header, so yarn 4.x fails with a JSON ParseError
+        # before evaluating any advisory. The script runs the same high+ severity
+        # gate over every resolved package with defensive gunzip and fails closed.
+        # Revert to `yarn npm audit --all --recursive --severity high` once npm
+        # restores the encoding header on that endpoint.
+        run: node scripts/audit-ci.mjs --severity high
 
   # ── Lint ─────────────────────────────────────────────────────────────────────
   # Fast static analysis — runs in parallel with prepare and audit.
@@ -372,6 +383,119 @@ jobs:
         # Intentional stdout (CLI output, module cli.ts) is allowlisted in
         # scripts/logger-console-allowlist.json.
         run: yarn logger:check-console:ci
+
+  # ── DS lint (advisory) ──────────────────────────────────────────────────────
+  # Reports per-rule DS lint counts and the delta vs the base branch on every
+  # PR. Advisory by construction: joins no `needs` chain and is not a required
+  # status check — making it required is gated on the first per-module `error`
+  # flip (see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md,
+  # Workstream 1). Runs in parallel with the heavy jobs: the plugin is plain JS
+  # and @typescript-eslint/parser needs no compiled packages. Both lint runs
+  # use the HEAD's plugin + config so rule changes in the PR cannot skew the
+  # comparison. ESLint is invoked through the TypeScript 7 require hook — the
+  # native compiler has no JS API, so the parser's `typescript` import must be
+  # redirected to `typescript-js`.
+  ds-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      - name: DS lint (head)
+        # `|| true`: the report must be published even when error-level
+        # findings exist; enforcement is the separate `--check` step below.
+        run: |
+          node --require ./scripts/typescript-js-require-hook.cjs \
+            node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs \
+            packages apps --format json --output-file /tmp/ds-head.json || true
+
+      - name: DS lint (base)
+        # Same plugin + config as the head run: flat-config `files` globs
+        # resolve against cwd (the base worktree) while the config's imports
+        # resolve against the config file's own location in the head checkout.
+        # Isolated in its own step so a failure (e.g. a base predating the DS
+        # config) degrades to "delta n/a (no base data)" in the report.
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=1
+          git worktree add /tmp/ds-base origin/${{ github.base_ref }}
+          (cd /tmp/ds-base && node --require "$GITHUB_WORKSPACE/scripts/typescript-js-require-hook.cjs" \
+            "$GITHUB_WORKSPACE/node_modules/eslint/bin/eslint.js" \
+            --config "$GITHUB_WORKSPACE/eslint.ds.config.mjs" \
+            packages apps --format json --output-file /tmp/ds-base.json) || true
+
+      - name: Report
+        id: ds-report
+        run: |
+          node scripts/ci/ds-lint-report.mjs /tmp/ds-head.json /tmp/ds-base.json \
+            --base-dir /tmp/ds-base --comment-file /tmp/ds-lint-comment.md
+
+      - name: Sticky PR comment
+        # Same-repo PRs only (fork PRs have a read-only token and rely on the
+        # job summary). Created only when the delta is non-zero or error-level
+        # findings exist; an existing comment is updated in place (never
+        # duplicated) — including back to "+0" when a delta is reverted.
+        if: >
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v8
+        env:
+          SHOULD_COMMENT: ${{ steps.ds-report.outputs.should_comment }}
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- ds-lint-report -->'
+            const body = fs.readFileSync('/tmp/ds-lint-comment.md', 'utf8')
+            const { owner, repo } = context.repo
+            const issue_number = context.payload.pull_request.number
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            })
+            const existing = comments.find((c) => c.body && c.body.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            } else if (process.env.SHOULD_COMMENT === 'true') {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            }
+
+      - name: Enforce error-level findings
+        # Exit 0 while all findings are warn-level; error-level findings
+        # (post-escalation, Workstream 2) fail the job — the enforcement teeth
+        # once per-module flips begin.
+        run: node scripts/ci/ds-lint-report.mjs --check /tmp/ds-head.json
 
   # ── Quality checks ──────────────────────────────────────────────────────────
   # Typechecking and unit tests. Runs in parallel with ephemeral-integration
@@ -506,6 +630,14 @@ jobs:
         # Turbo never picks up root-level scripts — run explicitly.
         run: yarn test:scripts
 
+      - name: Check DS token snapshot drift (always, unfiltered)
+        # .ai/ds/ds-tokens.json is the committed canonical mirror of the token
+        # blocks in apps/mercato/src/app/globals.css. It is not a package, so
+        # the turbo-scoped Test step never guards it — check explicitly, like
+        # the template-parity guard below: a PR that edits a token without
+        # running `yarn ds:tokens` fails here instead of drifting silently.
+        run: yarn ds:tokens:check
+
       - name: Check create-app template parity (always, unfiltered)
         # The create-app package guards byte-parity between the monorepo app shell
         # (apps/mercato/**) and the standalone template (packages/create-app/template/**).
@@ -516,6 +648,27 @@ jobs:
         # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
         # suite unconditionally here so template drift fails the PR, not develop.
         run: yarn workspace create-mercato-app test
+
+      - name: Run repo-wide audit guards (always, unfiltered)
+        # Same class as the create-app parity step above, generalized (#4534). A handful of
+        # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
+        # other packages, apps/ or scripts/. The turbo filter selects packages, not paths, so
+        # a PR touching only scripts/ selects no package and those audits never run — the
+        # violation then lands on develop and the post-merge unfiltered `yarn test` goes red
+        # for everyone (#4527). Run them unconditionally so they fail their own PR — do not
+        # move this step behind an `if:`, or the silent skip comes straight back.
+        #
+        # The guards are enumerated in exactly one place: REPO_WIDE_GUARDS in
+        # scripts/repo-wide-guards.mjs, where each entry carries the reason it is repo-wide.
+        # Print the current set with `yarn test:repo-wide-guards --list`. This comment does
+        # not repeat it: a second copy went stale the first time a guard was added (#4770),
+        # and a stale list in CI config is worse than none because the next reader trusts it.
+        # scripts/__tests__/repo-wide-guards.test.mjs fails if the enumeration reappears here.
+        #
+        # Not here because they already run unfiltered: the create-app parity guards (step
+        # above), `yarn agents:check-budget`, `yarn test:scripts`. All guards are static file
+        # scans — the whole set is ~10 s, so it stays on the common PR path.
+        run: yarn test:repo-wide-guards
 
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.

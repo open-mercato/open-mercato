@@ -10,6 +10,7 @@ When working on search functionality, use this guide. It covers indexing, queryi
 4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
 5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
 6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search and the AI tools fail closed, so an entity without it silently vanishes from results for every non-superadmin.
 
 ## Ask First
 
@@ -41,6 +42,8 @@ Choose strategies based on what users need:
 | **Tokens** | When you need baseline keyword search that always works, even without external services | PostgreSQL (always available) |
 
 Strategies automatically become unavailable if their backend is not configured (e.g., no `MEILISEARCH_HOST` means fulltext is unavailable).
+
+Availability covers the **store**, not just its credentials. `VectorDriver` exposes optional `isHealthy()` / `getStatus()`; the pgvector driver reports `false` when the `vector` extension is neither installed nor installable, and `VectorSearchStrategy.isAvailable()` consumes it. Writes (`index`/`delete`/`purge`) stay fail-loud for available strategies — a driver that cannot serve its backend MUST report itself unhealthy rather than throwing per record. Settings > Search shows the reason when the store is unavailable.
 
 ## Configure Global Search (Cmd+K)
 
@@ -302,6 +305,9 @@ formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | n
     { href: `/backend/module/${ctx.record.id}/edit`, label: 'Edit', kind: 'secondary' },
   ],
 
+  /** Per-entity view feature(s) required to read this entity through search */
+  aclFeatures: ['module.entity.view'],
+
   /** FOR FULLTEXT: Control field indexing */
   fieldPolicy: {
     searchable: ['name', 'description'],
@@ -519,6 +525,7 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 
 | Endpoint | Method | Permission | When to use |
 |----------|--------|------------|-------------|
+| `/api/search/search/global` | GET | `search.global` | When you need the Cmd+K palette's results (filtered by the caller's per-entity view features) |
 | `/api/search/settings/global-search` | GET | `search.view` | When you need to read which strategies are enabled for Cmd+K |
 | `/api/search/settings/global-search` | POST | `search.manage` | When you need to update enabled strategies for a tenant |
 | `/api/search/reindex` | POST | `search.manage` | When you need to trigger a fulltext reindex (after bulk data changes) |
@@ -541,7 +548,11 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `OM_SEARCH_ENABLE_PARTIAL` | When trading `search_tokens` size for prefix matching | Default: `true`. Prefix/partial expansion for tokens (Meilisearch unaffected); increases `search_tokens` size ~5–6×. **Token strategy only** |
 | `OM_SEARCH_HASH_ALGO` | When choosing the token hash algorithm | Default: `sha256` (accepts `sha1`, `md5`). **Token strategy only** |
 | `OM_SEARCH_STORE_RAW_TOKENS` | Almost never — debugging tokenization only | Default: `false`. Stores plaintext token alongside the hash — **security-sensitive**, retains plaintext of otherwise-hashed values. **Token strategy only** |
-| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field names, merged with built-in `password,token,secret,hash`. **Token strategy only** |
+| `OM_SEARCH_FIELD_BLOCKLIST` | When extra fields must never be tokenized | Comma-separated field-name substrings, merged with built-in `password,token,secret,hash`; prefix an entry with `entityType@` to scope it to one entity. Applies to per-field tokens and aggregate `search_text`; reindex affected entities after changes. **Token strategy only** |
+| `OM_SEARCH_MAX_FIELD_CHARS` | When bounding large searchable values | Default: `20000`. Maximum input characters considered per field value before splitting or prefix expansion; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_MAX_TOKENS_PER_FIELD` | When bounding token fan-out for one field | Default: `5000`. Maximum distinct token rows across all values of one field; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | When bounding token fan-out for one record | Default: `20000`. Maximum token rows across all fields in one indexed record; `0` disables the limit. **Token strategy only** |
+| `OM_SEARCH_TOKEN_PRESENCE_CACHE_MS` | When tuning the query engines' "does this entity have search tokens?" probe | Default: `30000` (ms); `0` disables. Process-level TTL cache in `@open-mercato/shared/lib/search/availability` — bounds how long a token purge or first-index is invisible to like/ilike routing. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
 | `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 
@@ -706,6 +717,7 @@ buildSource: async (ctx) => {
 
 - [ ] Create `search.ts` in the module directory
 - [ ] Export `searchConfig` with correct `entityId` matching the entity registry
+- [ ] Declare `aclFeatures` with the owning module's view feature(s) — omitting it hides the entity from global search for every non-superadmin
 - [ ] Define `fieldPolicy` for fulltext (mark sensitive fields as `excluded` or `hashOnly`)
 - [ ] Define `buildSource` for vector search (include `checksumSource`)
 - [ ] Define `formatResult` for tokens strategy

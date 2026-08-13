@@ -56,11 +56,16 @@ const mockDataEngine = {
   flushOrmEntityChanges: jest.fn(async () => {}),
 }
 
+let mockAttachmentQuotaService: any = null
+const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (k: string) => {
       if (k === 'em') return mockEm
       if (k === 'dataEngine') return mockDataEngine
+      if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
+      if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
       return null
     },
   }),
@@ -142,6 +147,8 @@ describe('attachments API', () => {
     delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
+    mockAttachmentQuotaService = null
+    mockAttachmentQuotaRecoveryScheduler.mockClear()
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
@@ -229,6 +236,69 @@ describe('attachments API', () => {
     // so a custom-field failure aborts the whole unit and never emits a created event.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(mockDataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(fsp.rm).toHaveBeenCalled()
+  })
+
+  it('fails closed before storage when quota accounting is unavailable', async () => {
+    mockAttachmentQuotaService = {
+      recoverExpired: jest.fn(async () => {}),
+      reserve: jest.fn(async () => {
+        throw Object.assign(new Error('quota accounting unavailable'), { code: 'quota_accounting_unavailable' })
+      }),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const res = await upload(new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file) as any,
+    }))
+
+    expect(res.status).toBe(500)
+    expect(fsp.writeFile).not.toHaveBeenCalled()
+  })
+
+  it('maps a concurrent quota rejection to 413 while the first upload remains active', async () => {
+    let pendingBytes = 0
+    mockAttachmentQuotaService = {
+      recoverExpired: jest.fn(async () => {}),
+      reserve: jest.fn(async ({ bytes }: { bytes: number }) => {
+        if (pendingBytes + bytes > 3) {
+          throw Object.assign(new Error('quota exceeded'), { code: 'quota_exceeded' })
+        }
+        pendingBytes += bytes
+        return {
+          id: `reservation-${pendingBytes}`,
+          leaseToken: `lease-${pendingBytes}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        }
+      }),
+      markStored: jest.fn(async () => {}),
+      completeAttachment: jest.fn(async () => { pendingBytes = 0 }),
+      release: jest.fn(async () => { pendingBytes = 0 }),
+    }
+
+    let releaseFirstWrite!: () => void
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      ;(fsp.writeFile as jest.Mock).mockImplementationOnce(async () => {
+        resolve()
+        await new Promise<void>((release) => { releaseFirstWrite = release })
+      })
+    })
+    const { POST: upload } = await loadHandlers()
+    const makeRequest = () => new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })) as any,
+    })
+
+    const first = upload(makeRequest())
+    await firstWriteStarted
+    const second = upload(makeRequest())
+    const secondResponse = await second
+    releaseFirstWrite()
+    const firstResponse = await first
+
+    expect([firstResponse.status, secondResponse.status].sort()).toEqual([200, 413])
+    expect(mockAttachmentQuotaService.reserve).toHaveBeenCalledTimes(2)
   })
 
   it('rejects files that exceed configured size limit', async () => {
@@ -255,6 +325,35 @@ describe('attachments API', () => {
     expect(res.status).toBe(413)
     const payload = await res.json()
     expect(payload.error).toMatch(/maximum upload size/i)
+  })
+
+  it('rejects an oversized multipart body without a content length before materializing metadata', async () => {
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.000001'
+    const { POST: upload } = await loadHandlers()
+    const boundary = 'oversized-metadata'
+    const body = new TextEncoder().encode([
+      `--${boundary}\r\nContent-Disposition: form-data; name="entityId"\r\n\r\nexample:todo\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="recordId"\r\n\r\nr1\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="fieldKey"\r\n\r\nattachments\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="customFields"\r\n\r\n`,
+      'x'.repeat(1024 * 1024),
+      `\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="small.pdf"\r\n`,
+      'Content-Type: application/pdf\r\n\r\n\u0001\r\n',
+      `--${boundary}--\r\n`,
+    ].join(''))
+    const req = new Request('http://x/api/attachments', {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      body,
+    })
+
+    expect(req.headers.get('content-length')).toBeNull()
+    const res = await upload(req)
+
+    expect(res.status).toBe(413)
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/maximum upload size/i),
+    })
   })
 
   it('rejects uploads that exceed the tenant storage quota', async () => {

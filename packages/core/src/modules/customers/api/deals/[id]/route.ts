@@ -56,6 +56,7 @@ type DealAssociation = {
   label: string
   subtitle: string | null
   kind: 'person' | 'company'
+  isPrimary?: boolean
 }
 
 function normalizePersonAssociation(entity: CustomerEntity): { label: string; subtitle: string | null } {
@@ -602,13 +603,19 @@ export async function GET(request: Request, context: { params?: Record<string, u
             )
           : [],
       ])
+      const primaryPersonIds = new Set(
+        personLinkRows
+          .filter((link) => link.isPrimary === true)
+          .map((link) => (typeof link.person === 'string' ? link.person : link.person?.id))
+          .filter((value): value is string => typeof value === 'string'),
+      )
       const previewPeopleMap = new Map(previewPeople.map((entity) => [entity.id, entity]))
       const previewCompaniesMap = new Map(previewCompanies.map((entity) => [entity.id, entity]))
       const people = linkedPersonIds.slice(0, 3).reduce<DealAssociation[]>((acc, personId) => {
         const entity = previewPeopleMap.get(personId) ?? null
         if (!entity || entity.deletedAt) return acc
         const { label, subtitle } = normalizePersonAssociation(entity)
-        acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+        acc.push({ id: entity.id, label, subtitle, kind: 'person', isPrimary: primaryPersonIds.has(entity.id) })
         return acc
       }, [])
       const companies = linkedCompanyIds.slice(0, 3).reduce<DealAssociation[]>((acc, companyId) => {
@@ -654,7 +661,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       const entity = link.person as CustomerEntity | null
       if (!entity || entity.deletedAt) return acc
       const { label, subtitle } = normalizePersonAssociation(entity)
-      acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+      acc.push({ id: entity.id, label, subtitle, kind: 'person', isPrimary: link.isPrimary === true })
       return acc
     }, [])
 
@@ -927,6 +934,7 @@ const dealDetailResponseSchema = z.object({
       label: z.string(),
       subtitle: z.string().nullable().optional(),
       kind: z.literal('person'),
+      isPrimary: z.boolean().optional(),
     }),
   ),
   companies: z.array(

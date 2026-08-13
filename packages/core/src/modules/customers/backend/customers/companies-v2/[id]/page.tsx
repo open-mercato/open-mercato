@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -69,6 +70,17 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
+
+  const handleTabChange = React.useCallback(
+    (tab: CompanyTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
@@ -471,8 +483,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection */}
-          <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent company header */}
           <CompanyDetailHeader
@@ -500,7 +512,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 <CrudForm<CompanyEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.company"
+                  injectionSpotId={extensionPoints.hosts.companyForm.spotId}
                   entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
                   schema={formSchema}
                   fields={formFields}
@@ -519,7 +531,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             zone2={
               <CompanyDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
@@ -606,7 +618,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           />
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog */}
           <ScheduleActivityDialog

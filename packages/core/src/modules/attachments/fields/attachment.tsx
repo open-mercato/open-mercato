@@ -50,11 +50,13 @@ export const AttachmentInput = ({
   recordId,
   def,
   disabled,
+  onUploaded,
 }: {
   entityId?: string
   recordId?: string
   def?: AttachmentFieldDef
   disabled?: boolean
+  onUploaded?: () => void
 }) => {
   const t = useT()
   const [items, setItems] = React.useState<Array<{ id: string; url: string; fileName: string; fileSize: number }>>([])
@@ -92,6 +94,7 @@ export const AttachmentInput = ({
     if (!files || !entityId || !recordId) return
     setError(null)
     setUploading(true)
+    let uploadedCount = 0
     try {
       for (const file of Array.from(files)) {
         const ext = (file.name || '').split('.').pop()?.toLowerCase() || ''
@@ -119,8 +122,10 @@ export const AttachmentInput = ({
           setError(call.result?.error || t('attachments.library.upload.failed', 'Upload failed.'))
           break
         }
+        uploadedCount += 1
       }
       await load()
+      if (uploadedCount > 0) onUploaded?.()
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -162,7 +167,7 @@ export const AttachmentInput = ({
           />
         </div>
       )}
-      {error ? <div className="text-xs text-red-600">{error}</div> : null}
+      {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
       <div className="space-y-1">
         {loading ? <div className="text-xs text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div> : null}
         {items.map(it => (

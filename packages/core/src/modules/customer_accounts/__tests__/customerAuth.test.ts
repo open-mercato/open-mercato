@@ -7,6 +7,7 @@ import {
 const findActiveSessionById = jest.fn()
 const findOneWithDecryption = jest.fn()
 const loadAcl = jest.fn()
+const getEffectiveFeatures = jest.fn()
 const mockEm = {}
 const containerResolve = jest.fn()
 const createRequestContainer = jest.fn(async () => ({
@@ -61,7 +62,7 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
         return { findActiveSessionById }
       }
       if (name === 'customerRbacService') {
-        return { loadAcl }
+        return { loadAcl, getEffectiveFeatures }
       }
       if (name === 'em') return mockEm
       return null
@@ -73,6 +74,7 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
       isActive: true,
     })
     loadAcl.mockResolvedValue({ isPortalAdmin: false, features: ['customer_portal.view'] })
+    getEffectiveFeatures.mockResolvedValue(['customer_portal.view'])
     findActiveSessionById.mockResolvedValue({
       id: sessionId,
       deletedAt: null,
@@ -178,6 +180,7 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
 
   it('resolves features from DB instead of trusting JWT claims', async () => {
     loadAcl.mockResolvedValueOnce({ isPortalAdmin: false, features: ['portal.orders.view'] })
+    getEffectiveFeatures.mockResolvedValueOnce(['portal.orders.view'])
     const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload({
       resolvedFeatures: ['portal.admin.all', 'portal.users.manage'],
     }))
@@ -193,8 +196,9 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     expect(result!.resolvedFeatures).not.toContain('portal.users.manage')
   })
 
-  it('grants wildcard features for portal admins', async () => {
+  it('returns concrete effective features and admin status for portal admins', async () => {
     loadAcl.mockResolvedValueOnce({ isPortalAdmin: true, features: ['portal.orders.view'] })
+    getEffectiveFeatures.mockResolvedValueOnce(['portal.orders.view'])
     const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
     const req = new Request('http://localhost/api/customer/me', {
       headers: { cookie: buildCustomerCookieHeader(token) },
@@ -203,6 +207,7 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     const result = await getCustomerAuthFromRequest(req)
 
     expect(result).not.toBeNull()
-    expect(result!.resolvedFeatures).toEqual(['*'])
+    expect(result!.resolvedFeatures).toEqual(['portal.orders.view'])
+    expect(result!.isPortalAdmin).toBe(true)
   })
 })

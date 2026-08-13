@@ -1,8 +1,10 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/catalog/extension-points'
 import Link from 'next/link'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -696,7 +698,7 @@ export default function ProductsDataTable({
         onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
         sorting={sorting}
         onSortingChange={setSorting}
-        injectionSpotId="data-table:catalog.products"
+        injectionSpotId={extensionPoints.hosts.productsTable.baseSpotId}
         injectionContext={{
           search,
           filters: filterValues,
@@ -721,7 +723,7 @@ export default function ProductsDataTable({
         }}
         exporter={exportConfig}
         isLoading={isLoading}
-        perspective={{ tableId: 'catalog.products.list' }}
+        perspective={{ tableId: extensionPoints.hosts.productsTable.tableId }}
         stickyActionsColumn
         rowActions={(row) => (
           <RowActions

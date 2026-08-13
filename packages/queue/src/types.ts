@@ -81,6 +81,8 @@ export type RedisConnectionOptions = {
   db?: number
   /** TLS configuration for rediss / encrypted Redis */
   tls?: Record<string, unknown>
+  /** IP family used by Redis DNS resolution */
+  family?: number
 }
 
 /**
@@ -91,6 +93,12 @@ export type AsyncQueueOptions = {
   connection?: RedisConnectionOptions
   /** Number of concurrent job processors. Defaults to 1 */
   concurrency?: number
+  /** Number of attempts for newly enqueued jobs. Defaults to 3. */
+  attempts?: number
+  /** How long a job lock is held before the job counts as stalled, in ms. Defaults to 30000. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. Defaults to 1. */
+  maxStalledCount?: number
 }
 
 /**
@@ -250,6 +258,10 @@ export type WorkerMeta = {
   id?: string
   /** Worker concurrency (default: 1) */
   concurrency?: number
+  /** How long a job lock is held before the job counts as stalled, in ms. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
 }
 
 /**
@@ -265,4 +277,8 @@ export type WorkerDescriptor<T = unknown> = {
   handler: JobHandler<T>
   /** Concurrency level */
   concurrency: number
+  /** How long a job lock is held before the job counts as stalled, in ms. */
+  lockDuration?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
 }

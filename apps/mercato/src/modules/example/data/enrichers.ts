@@ -10,8 +10,18 @@
  * every CRUD list cache hit so the counts stay fresh. See the
  * `cacheableOnListHit` guidance in packages/core/AGENTS.md for when an enricher
  * may opt into being served from the list cache on a hit.
+ *
+ * `Todo.notes` is an encrypted field (see `../encryption.ts`), so every `Todo`
+ * read here goes through `findWithDecryption`. The fork below inherits the
+ * request container's ORM subscribers, so `onLoad` would already decrypt and
+ * this enricher only counts rows — but an enricher that later reads a `Todo`
+ * field, or runs on a fork created with `freshEventManager: true`, would silently
+ * observe ciphertext. The explicit helper is the rule the rest of this module
+ * follows, and it is idempotent: plaintext that is not a v1 payload is left alone.
  */
 
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { ExampleCustomerPriority, Todo } from './entities'
 
@@ -54,6 +64,15 @@ function buildBucketStats(todos: Todo[]): Map<number, { todoCount: number; openT
   return stats
 }
 
+/**
+ * `EnricherContext.em` is typed `unknown` precisely so each consumer narrows it to the
+ * handle it actually needs. Narrowing to `EntityManager` keeps every downstream
+ * `em.find` / `em.findOne` typed; `as any` would erase all of them.
+ */
+function forkEnricherEntityManager(context: EnricherContext): EntityManager {
+  return (context.em as EntityManager).fork()
+}
+
 const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment> = {
   id: 'example.customer-todo-count',
   targetEntity: 'customers.person',
@@ -65,12 +84,12 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
   },
 
   async enrichOne(record, context) {
-    const em = (context.em as any).fork()
-    const todos = await em.find(Todo, {
+    const em = forkEnricherEntityManager(context)
+    const todos = await findWithDecryption(em, Todo, {
       organizationId: context.organizationId,
       tenantId: context.tenantId,
       deletedAt: null,
-    })
+    }, undefined, { tenantId: context.tenantId, organizationId: context.organizationId })
     const statsByBucket = buildBucketStats(todos)
     const scoped = statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 }
     const priority = await em.findOne(ExampleCustomerPriority, {
@@ -91,12 +110,12 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
   },
 
   async enrichMany(records, context) {
-    const em = (context.em as any).fork()
-    const todos = await em.find(Todo, {
+    const em = forkEnricherEntityManager(context)
+    const todos = await findWithDecryption(em, Todo, {
       organizationId: context.organizationId,
       tenantId: context.tenantId,
       deletedAt: null,
-    })
+    }, undefined, { tenantId: context.tenantId, organizationId: context.organizationId })
     const statsByBucket = buildBucketStats(todos)
     const customerIds = records.map((record) => record.id)
     const priorities: ExampleCustomerPriority[] = customerIds.length > 0

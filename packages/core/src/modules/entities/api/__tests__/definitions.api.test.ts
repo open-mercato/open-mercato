@@ -9,7 +9,7 @@ const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
 }))
 
 const loadEntityFieldsetConfigsMock = jest.fn(async () => new Map())
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockRbac = { userHasAllFeatures: jest.fn(), loadAcl: jest.fn() }
 const mockResolveOrganizationScopeForRequest = jest.fn(async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }))
 
 const mockEm = {
@@ -67,7 +67,58 @@ describe('entities/definitions API', () => {
     mockEm.find.mockResolvedValue([])
     mockEm.findOne.mockResolvedValue(null)
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['*'], organizations: null })
     mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-1' })
+  })
+
+  it('does not expose definitions when the caller lacks Data Designer and owning-module view access', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [], organizations: null })
+    mockEm.find
+      .mockResolvedValueOnce([{
+        key: 'private_note',
+        kind: 'text',
+        entityId: 'customers:customer_person_profile',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        updatedAt: new Date(),
+        configJson: { label: 'Private note' },
+      }])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person_profile'),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ items: [] })
+  })
+
+  it('does not expose restricted custom-entity definitions to a coarse records reader', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.loadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['entities.records.view'],
+      organizations: null,
+    })
+    mockEm.find.mockResolvedValueOnce([{
+      entityId: 'hr:salaries',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      isActive: true,
+      accessRestricted: true,
+    }])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=hr:salaries'),
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      fieldsetsByEntity: {},
+      entitySettings: {},
+    })
   })
 
   it('synchronizes module-backed definitions for requested entities when the caller can manage definitions', async () => {
@@ -146,6 +197,50 @@ describe('entities/definitions API', () => {
     expect(status?.defaultValue).toBe('customer')
     expect(isVip?.defaultValue).toBe(true)
     expect(notes?.defaultValue).toBeUndefined()
+  })
+
+  it('exposes relation targets only for relation-kind fields', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'goods',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Goods', relatedEntityId: 'custom:goods' },
+        },
+        {
+          key: 'missing_target',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Missing target', relatedEntityId: '  ' },
+        },
+        {
+          key: 'notes',
+          kind: 'text',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Notes', relatedEntityId: 'custom:goods' },
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=custom:stock_in'),
+    )
+
+    expect(response.status).toBe(200)
+    const items = (await response.json()).items as Array<Record<string, unknown>>
+    expect(items.find((item) => item.key === 'goods')?.relatedEntityId).toBe('custom:goods')
+    expect(items.find((item) => item.key === 'missing_target')?.relatedEntityId).toBeUndefined()
+    expect(items.find((item) => item.key === 'notes')?.relatedEntityId).toBeUndefined()
   })
 
   it('passes phone defaultCountryIso2 from configJson into the normalized response (#62)', async () => {
