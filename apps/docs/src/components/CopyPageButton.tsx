@@ -14,36 +14,33 @@ export default function CopyPageButton({ wide }: { wide?: boolean }): React.Reac
     : null;
   const rawSourceUrl = useBaseUrl(sourcePath ? `raw/${sourcePath}` : 'raw/');
 
-  useEffect(() => () => clearTimeout(timeoutRef.current), []);
-
   useEffect(() => {
+    const controller = new AbortController();
+
     setSource(undefined);
 
     if (!sourcePath) {
       setSource(null);
       flashState('error');
-      return;
-    }
-
-    let cancelled = false;
-
-    void fetch(rawSourceUrl)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('[internal] Unable to load raw documentation source.');
-        return response.text();
-      })
-      .then((content) => {
-        if (!cancelled) setSource({ path: sourcePath, content });
-      })
-      .catch(() => {
-        if (!cancelled) {
+    } else {
+      void fetch(rawSourceUrl, { signal: controller.signal })
+        .then(async (response) => {
+          if (!response.ok) throw new Error('[internal] Unable to load raw documentation source.');
+          return response.text();
+        })
+        .then((content) => {
+          setSource({ path: sourcePath, content });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return;
           setSource(null);
           flashState('error');
-        }
-      });
+        });
+    }
 
     return () => {
-      cancelled = true;
+      controller.abort();
+      clearTimeout(timeoutRef.current);
     };
   }, [rawSourceUrl, sourcePath]);
 
