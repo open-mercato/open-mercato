@@ -211,11 +211,16 @@ right now. Do not guess what a note might have said.
 key carrying the caller's own roles, so a key minted by `admin@acme.com` gives the voice
 agent exactly the chief's visibility — not a god token.
 
-**Verify with curl before configuring**, two things: that `customers.get_company` with
-`includeRelated: true` returns the deal's comments, and how large the payload is. If the
-comments are not there, switch to `customers.get_deal` and ask Patryk for `deal_id` in
-`variables` instead. If the payload is heavy, that is when a thin endpoint earns its place —
-not before.
+**Settled from the code, no call needed**: `customers.get_company` with `includeRelated: true`
+calls `buildRelatedRecords` (`ai-tools/_shared.ts:260`), which maps `data.comments` into
+`related.notes`. So the CEO's `CustomerComment` comes back on a company-scoped fetch, and
+`company_id` is the only variable this tool needs — there is no fallback to `get_deal` and
+no `deal_id` to ask Patryk for.
+
+`related` also carries addresses, activities, tasks, interactions, tags, deals and people.
+On the seeded Brightside Solar account that is a handful of rows and harmless mid-call. If a
+fatter account ever makes the response slow to chew, that is when a thin notes-only endpoint
+earns its place — not before.
 
 ## 5. Data collection
 
