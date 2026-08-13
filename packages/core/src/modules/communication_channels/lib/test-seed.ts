@@ -41,6 +41,19 @@ import { hasChannelAdapter, registerChannelAdapter } from './adapter-registry-si
 /** Provider key for the network-free test stub adapter. */
 export const TEST_SEED_PROVIDER_KEY = '__test_seed__'
 
+/**
+ * Provider key for the network-free stub adapter that stands in for a CHAT
+ * provider — one whose senders are identified by an opaque handle and have no
+ * email address at all (Discord, Slack, Telegram…).
+ *
+ * It exists because the email-shaped stub above can only ever prove the hub
+ * accepts email-shaped data. That is precisely how CI stayed green while every
+ * real inbound Discord message was rejected (#4975): the fixture invented an
+ * address the provider can never produce. Tests that need to prove the hub's
+ * non-email identity contract MUST drive this provider instead.
+ */
+export const TEST_SEED_CHAT_PROVIDER_KEY = '__test_seed_chat__'
+
 /** Env flag that unlocks test-only channel seeding. Off in production. */
 export const TEST_CHANNEL_SEEDING_ENV = 'OM_ENABLE_TEST_CHANNEL_SEEDING'
 
@@ -121,12 +134,58 @@ class TestSeedChannelAdapter implements ChannelAdapter {
   }
 }
 
+/**
+ * Chat-flavoured twin of {@link TestSeedChannelAdapter}: same network-free
+ * behaviour, but it declares a non-email `channelType`, so a channel connected
+ * through it is shaped like a real chat channel — including an
+ * `externalIdentifier` of NULL when no email-ish credential key is supplied.
+ */
+class TestSeedChatChannelAdapter extends TestSeedChannelAdapter {
+  readonly providerKey = TEST_SEED_CHAT_PROVIDER_KEY
+  readonly channelType = 'discord'
+
+  async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
+    // Unlike the email stub, this one is reachable: the test-seed ingest action
+    // feeds it a chat-shaped frame so the message travels the real ingest path
+    // (and therefore the real compose validation) rather than a SQL shortcut.
+    const frame = (raw.raw ?? {}) as Record<string, unknown>
+    const senderIdentifier = String(frame.senderIdentifier ?? '')
+    if (!senderIdentifier) {
+      throw new Error('[internal] TestSeedChatChannelAdapter requires a senderIdentifier')
+    }
+    return {
+      externalMessageId: String(frame.externalMessageId ?? ''),
+      externalConversationId: String(frame.externalConversationId ?? ''),
+      senderIdentifier,
+      senderDisplayName:
+        typeof frame.senderDisplayName === 'string' ? frame.senderDisplayName : undefined,
+      body: typeof frame.body === 'string' ? frame.body : '',
+      bodyFormat: 'text',
+      timestamp: new Date(),
+      channelPayload: {},
+      channelContentType: 'text/plain',
+      channelMetadata: {},
+    }
+  }
+}
+
 let cachedTestSeedAdapter: TestSeedChannelAdapter | null = null
+let cachedTestSeedChatAdapter: TestSeedChatChannelAdapter | null = null
 
 function getTestSeedChannelAdapter(): TestSeedChannelAdapter {
   if (!cachedTestSeedAdapter) cachedTestSeedAdapter = new TestSeedChannelAdapter()
   return cachedTestSeedAdapter
 }
+
+function getTestSeedChatChannelAdapter(): TestSeedChatChannelAdapter {
+  if (!cachedTestSeedChatAdapter) cachedTestSeedChatAdapter = new TestSeedChatChannelAdapter()
+  return cachedTestSeedChatAdapter
+}
+
+/** Provider keys the test-seed harness may connect a channel for. */
+export const TEST_SEED_PROVIDER_KEYS = [TEST_SEED_PROVIDER_KEY, TEST_SEED_CHAT_PROVIDER_KEY] as const
+
+export type TestSeedProviderKey = (typeof TEST_SEED_PROVIDER_KEYS)[number]
 
 /**
  * Register the test-seed adapter exactly once, but ONLY when the env flag is set.
@@ -135,6 +194,10 @@ function getTestSeedChannelAdapter(): TestSeedChannelAdapter {
  */
 export function ensureTestSeedAdapterRegistered(): void {
   if (!isTestChannelSeedingEnabled()) return
-  if (hasChannelAdapter(TEST_SEED_PROVIDER_KEY)) return
-  registerChannelAdapter(getTestSeedChannelAdapter())
+  if (!hasChannelAdapter(TEST_SEED_PROVIDER_KEY)) {
+    registerChannelAdapter(getTestSeedChannelAdapter())
+  }
+  if (!hasChannelAdapter(TEST_SEED_CHAT_PROVIDER_KEY)) {
+    registerChannelAdapter(getTestSeedChatChannelAdapter())
+  }
 }
