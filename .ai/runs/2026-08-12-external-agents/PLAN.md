@@ -31,7 +31,8 @@ top of that seam.
 | 2.7 | Deadline: delayed sweep job → cancel + fail + resume down the `error` route | DONE | `b3618aee1` |
 | 2.8 | Wiring: ACL feature (default-off), `setup.ts`, events, DI, i18n (4 locales) | DONE | `17e444185` |
 | 2.9 | Package: `@open-mercato/agent-elevenlabs` — integration provider + voice connector | DONE | `a89629580` |
-| 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | TODO | |
+| 2.10 | Tests: unit + cross-tenant denial + end-to-end suspend/resume | DONE | `dfec0fded` |
+| — | Follow-up: fix the two policy-test violations 2.10 surfaced in this feature's files | DONE | `77ba223e1` |
 | 2.11 | **Thread `outputMapping` to the external resume** (added 2026-08-12 — the driving use case needs it) | DONE | `1c9182ddd` |
 | 2.12 | **Static connector-addressed callback route** (added 2026-08-12 — ElevenLabs cannot accept a per-run URL) | DONE | `59f15f105` |
 | 2.13 | **Named provider profiles** (added 2026-08-12 — many agents from one provider) | DONE | `c6dbbe966` |
@@ -843,6 +844,37 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   (T3.4) — all additive optional changes to public types. Plus new routes `GET /runs/:id/external` and
   `GET /runs/:id/recording`, and the behaviour change that `POST /agents/:id/run` and `POST /runs/:id/rerun`
   can now answer **202**, with rerun answering **428** unless an external call is confirmed.
+- 2026-08-13 — **T2.10 done: 10 integration specs, all passing against a live app + DB.** The flagship
+  (`TC-AGENT-EXT-001`) proves the whole feature at the HTTP boundary — park → signed callback → resume with
+  the author's `outputMapping` keys in context. Also: redelivery advancing EXACTLY once (asserted on row
+  state, not just the 200), both cross-tenant cases, the sweep dropping a late answer, the ACL gate proven
+  by `start()` never running, the new read routes, and rerun's 428/202 arms.
+- 2026-08-13 — **T2.10 ENVIRONMENT FINDING that undermines how earlier tasks verified routes:**
+  `packages/enterprise/dist` was STALE, so every `agent_orchestrator` route 500'd with module-not-found
+  until `yarn build:packages`. The dev server resolves `@open-mercato/enterprise` to `dist` — so any task
+  that added an API route and ran only unit tests never saw its route actually served. Applies to T2.6,
+  T2.12 and T3.4. Run `build:packages` before believing a route works.
+- 2026-08-13 — **T2.10 found a whole suite that did not COMPILE:** `packages/shared/.../command-bus.test.ts`
+  had a missing brace, so 8 tests silently never ran — including this branch's own `runAs` on-behalf-of
+  audit tests. Pre-existing; fixed in `dfec0fded`.
+- 2026-08-13 — **Two policy tests were RED because of this feature's own files; fixed in `77ba223e1`.**
+  (1) Four bare `.sort()` calls — the repo forbids them because UTF-16 coercion is only accidentally correct
+  and mis-orders on type drift. (2) `externalAgentRunner.ts` hand-rolled `isSuperAdmin` + `hasAllFeatures`
+  from the LOW-LEVEL matcher; it now routes through `authorizeFeatures`, which owns the full ordering
+  (scope → removed/disabled → unrestricted → wildcard-aware match). Two ordering differences, both strictly
+  TIGHTENING and both the sanctioned policy: a super-admin no longer passes when the feature is nulled by an
+  ACL override or the module is not enabled. Fail-closed behaviour unchanged.
+- 2026-08-13 — T2.10: the probe module lives at `apps/mercato/src/modules/agent_probe/`, gated behind
+  `OM_INTEGRATION_TEST` inside the enterprise-agents block, following the `ratelimit_probe` precedent.
+  **Two open caveats:** root `AGENTS.md` forbids code under `apps/mercato/src/` outside generated
+  registries, and `modules.ts` is template-synced — the create-app mirror needs the same lines or
+  template-sync flags drift. Alternative if that is unacceptable: move the probe into `packages/enterprise`
+  behind the same flag; the specs move unchanged.
+- 2026-08-13 — T2.10 seam notes for T4.3 docs: a connector instance is process-global and sticky (`di.ts`
+  guards on `getExternalAgentConnector`), so editing connector code needs a server RESTART, not HMR. And
+  `drainIntegrationQueue` without `OM_TEST_APP_ROOT` runs app code in the TEST process with the test's cwd.
+- 2026-08-13 — **Still open, NOT ours:** `optimistic-lock-command-coverage.test.ts` names a route deleted by
+  `f78e533c5` ("task becomes process") and reds `@open-mercato/core`. Pre-existing on this branch.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
