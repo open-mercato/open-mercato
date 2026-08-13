@@ -169,7 +169,7 @@ test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
         },
       },
     )
-    expect(sudoVerify.status).not.toBe(200)
+    expect(sudoVerify.status).toBe(401)
     expect(sudoVerify.body.sudoToken).toBeFalsy()
 
     test.skip(

@@ -24,6 +24,16 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### Passkey MFA verification requires a real WebAuthn assertion (#3852)
+
+`PasskeyProvider` used to accept a second verification payload shape — `{ credentialId, challenge }` — alongside the genuine `{ response }` WebAuthn assertion, and approved it by string-comparing two values the server hands the client anyway. That made the passkey second factor passable without an authenticator signature, for login MFA and for passkey sudo step-up alike. The shape is now rejected: `POST /api/security/mfa/verify` and `POST /api/security/sudo/verify` answer `401` for it.
+
+**Client action**: send the WebAuthn assertion. If your client posts `{ credentialId, challenge }`, replace it with `{ response }` carrying the object returned by `startAuthentication()` from `@simplewebauthn/browser` — the same payload the first-party UI has always sent. No other part of either route changed: same URL, same method, same success body, same `401` for a failed verification.
+
+**Operator action — check for unverifiable credentials.** The passkey *setup* path still accepts a legacy confirmation shape that stores a client-supplied `publicKey` without attestation. Credentials enrolled that way hold a public key no authenticator can sign for; they were only ever verifiable through the fallback this change removes, so they now fail every verification. This upgrade deliberately ships **no migration that deletes them** — silently removing someone's MFA method is its own lockout and security hazard — so clear them deliberately instead. A user whose only MFA method is such a credential cannot complete login until an administrator resets it with `POST /api/security/users/{id}/mfa/reset`.
+
+Passkeys registered through the UI (`startRegistration()`) store a genuine COSE public key and are unaffected — in practice this only bites environments where passkeys were provisioned by scripts or QA fixtures rather than by a real authenticator.
+
 ### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
 
 Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**

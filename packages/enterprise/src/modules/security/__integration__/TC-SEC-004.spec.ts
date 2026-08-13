@@ -64,7 +64,7 @@ test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
       pendingLogin.challenge_id as string,
       enrollment.credentialId,
     )
-    expect(verifyResponse.status).not.toBe(200)
+    expect(verifyResponse.status).toBe(401)
     expect(verifyResponse.body.ok).not.toBe(true)
     expect(verifyResponse.body.token).toBeFalsy()
     expect(verifyResponse.body.redirect).toBeFalsy()

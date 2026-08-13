@@ -127,7 +127,7 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
         },
       },
     )
-    expect(manageVerify.status).not.toBe(200)
+    expect(manageVerify.status).toBe(401)
     expect(manageVerify.body.sudoToken).toBeFalsy()
 
     test.skip(

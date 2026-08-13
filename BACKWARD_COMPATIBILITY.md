@@ -333,3 +333,21 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. Third-party transports that call `commandBus.execute` inside their own `try/catch` can honour the same contract in two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
+
+---
+
+## Passkey MFA Verification Payload (2026-08-13)
+
+Issue #3852 removes the non-cryptographic `{ credentialId, challenge }` verification payload from `PasskeyProvider`. This is a **deliberate breaking change to a STABLE surface, shipped without a deprecation bridge**, because the shape being removed *is* an authentication bypass: both values are public (`prepareChallenge` returns them to the client, and `GET /api/security/mfa/methods` discloses `providerMetadata.credentialId`), so anyone able to reach the verify step passed the passkey second factor without an authenticator signature. Honouring the usual "keep a working bridge for at least one minor version" protocol would keep that bypass live for a release, which is why it is not honoured here.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API request shape (`POST /api/security/mfa/verify`, `POST /api/security/sudo/verify`, `methodType: 'passkey'`) | The `{ credentialId, challenge }` payload is no longer accepted; it now answers `401` instead of succeeding. The `{ response }` WebAuthn assertion payload is unchanged | ⚠ BREAKING (API routes, request shape narrowed) — **intentional, no bridge**; see rationale above |
+| API route URLs, HTTP methods, response shapes | No change — both routes keep their URL, method, success body, and the `401` they already documented for a failed verification | ✓ n/a |
+| Type interfaces (`MfaProviderInterface`, `MfaProviderSetup`, `MfaVerifyContext`) | No change — `verifySchema` stays a `z.ZodSchema`; only this provider's own schema narrowed, and it is never serialized into an API response | ✓ n/a |
+| Function signatures (`PasskeyProvider.verify`, `MfaVerificationService.verifyChallenge`, `SudoChallengeService.verify`) | No change | ✓ n/a |
+| Database schema, event IDs, ACL features, DI names, CLI commands, generated files | No change | ✓ n/a |
+
+**Who is affected**: only a client that posted the removed shape directly. The first-party UI is unaffected — `PasskeyChallengeVerify.tsx` sends `{ response }` from `startAuthentication()`. A third-party client sending `{ credentialId, challenge }` was, by construction, not performing cryptographic verification, and must migrate to a real WebAuthn assertion.
+
+**Migration path for existing data**: credentials enrolled through the *setup* side's still-present legacy branch (`setupConfirmationPayloadSchema`'s `{ credentialId, publicKey, challenge }` member) carry a client-supplied public key that no authenticator can sign for. Those rows were only ever verifiable through the removed fallback, so they are now permanently unverifiable. No migration deletes them — silently removing a user's MFA method is its own security and lockout hazard — so the remediation is operational and documented in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md): identify affected `user_mfa_methods` rows and clear them with the existing admin reset (`POST /api/security/users/{id}/mfa/reset`). Real passkeys registered through the UI's `startRegistration()` flow store a genuine COSE public key and keep working.
