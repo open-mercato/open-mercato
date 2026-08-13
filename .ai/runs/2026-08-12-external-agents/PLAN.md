@@ -39,7 +39,7 @@ top of that seam.
 | 3.1 | Artifacts: transcript captured as an `AgentRunArtifact` (audio deliberately not stored) | DONE | `4cf4c49cd` |
 | 3.2 | Cost/latency: connector-reported cost + duration on the run row | DONE | `43301b37c` |
 | 3.3 | Eval + dry run: mock/refuse parity for external connectors; external runs → eval cases | DONE | `c77f6eb01` |
-| 3.4 | Cockpit: external-run surfacing + agents registry + **fetch-on-demand audio** + **rerun/Playground UX** | TODO | |
+| 3.4 | Cockpit: external-run surfacing + agents registry + **fetch-on-demand audio** + **rerun/Playground UX** | DONE | `ad4dd7a5f` |
 | **Phase 4 — generalize the seam** | | | |
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | DONE | `5e545ff8d` |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
@@ -809,6 +809,40 @@ Append one entry per task as it lands — decisions made, surprises found, devia
   them by serving `suspends` from `api/agents/route.ts` and reading it in `useOutOfBandAgents.ts`.
 - 2026-08-13 — **BC lines for T4.3:** `AgentOutcomeContractSnapshot.suspends` (T4.4) and the `normalize`
   context/async widening (T4.1) are both ADDITIVE optional changes to public types.
+- 2026-08-13 — **T3.4 done. `fetchRecording` returns a STREAM, not bytes — and that is the design, not a
+  detail.** T3.1's promise is that the platform holds no copy of a caller's voice. A member returning a
+  materialised `Buffer` would make that promise depend on every future caller remembering not to persist it;
+  with a stream, "no copy exists" is a property of the TYPE, and it is testable — the test asserts the route
+  never takes a reader. `null` = nothing to play (404), a throw = integration fault (502), OMITTING the
+  member = this provider has no recording concept, so no unusable control is ever rendered.
+- 2026-08-13 — **T3.4 rerun gate: 428, deliberately NOT 409.** 409 is this codebase's optimistic-lock status
+  and the client conflict helpers key off it, so reusing it would surface a "record changed" bar for
+  something that is not a concurrency problem. The gate reads the SOURCE RUN's `runtime` column rather than
+  the registry, so it stays truthful for an agent whose package was since undeployed, and it runs BEFORE the
+  mutation guard so nothing has happened when it refuses. Native reruns are byte-identical.
+- 2026-08-13 — T3.4: the Playground and a confirmed rerun both answer **202** with the run id. This is the
+  other half of T3.3's decision to let the Playground dial — if it dials, it must say the call was ACCEPTED,
+  not finished. Because 202 is 2xx it reaches the page's success path, so the suspended check runs BEFORE the
+  result arm; otherwise it renders as a blank success while a phone is ringing.
+- 2026-08-13 — T3.4: the park needed its OWN formatter. The shared `formatDurationMs` renders a half-hour as
+  `1680.0s`, and widening it would have re-rendered the span timeline and duration tile for every native run.
+  The pair is always shown together — latency alone makes a 28-minute park look like a 74ms-scale event;
+  wall clock alone makes every agent look slow because someone took 20 minutes to answer.
+- 2026-08-13 — **T3.4 correction to an assumption in this plan:** `fetchRecording` does NOT close T3.1's
+  audio-arrives-first hazard. Now that audio is fetch-on-demand, a `post_call_audio` webhook body carries
+  nothing we want at all; closing it needs a SECOND, different member — one letting a connector say "this
+  payload is not a settlement" so the route can 200 without spending the single-shot claim. Reasoning is
+  recorded in `agent-elevenlabs/.../lib/normalize.ts`.
+- 2026-08-13 — T3.4 open follow-ups: (a) the recording route has **no rate limit** — each click is a live
+  provider call, and the callback routes' `lib/ratelimit/helpers` precedent drops in cleanly; (b)
+  `fetchRecording` is gated on `trace.view`, deliberately NOT `external_agents.invoke` — reading a call that
+  happened is a lesser act than placing one, and reusing the dial grant would force review-only operators to
+  hold it.
+- 2026-08-13 — **T4.3 BC lines, now three:** `AgentOutcomeContractSnapshot.suspends` (T4.4), the `normalize`
+  context/async widening (T4.1), and `ExternalAgentConnector.fetchRecording` + `ExternalAgentConnectorRecording`
+  (T3.4) — all additive optional changes to public types. Plus new routes `GET /runs/:id/external` and
+  `GET /runs/:id/recording`, and the behaviour change that `POST /agents/:id/run` and `POST /runs/:id/rerun`
+  can now answer **202**, with rerun answering **428** unless an external call is confirmed.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
