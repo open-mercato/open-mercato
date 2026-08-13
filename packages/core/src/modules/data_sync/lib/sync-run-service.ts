@@ -35,6 +35,27 @@ export type CursorCommitOptions = {
   persistSharedCursor?: boolean
 }
 
+/**
+ * Raised when a batch commit loses the ownership compare-and-swap, meaning
+ * another delivery of the same job advanced the run while this worker was
+ * streaming.
+ *
+ * BullMQ guarantees at-least-once delivery: a job whose lock is not renewed is
+ * redelivered under the SAME job id, whether the previous worker died or is only
+ * blocked. No identity token can tell those apart, so ownership is enforced here
+ * — on the write that matters — instead of at claim time. The loser aborts and
+ * leaves the run to the worker that is still making progress.
+ */
+export class SyncRunOwnershipConflictError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly expectedBatchesCompleted: number,
+  ) {
+    super(`[internal] Sync run ${runId} advanced past batch ${expectedBatchesCompleted} under a concurrent worker`)
+    this.name = 'SyncRunOwnershipConflictError'
+  }
+}
+
 export function createSyncRunService(em: EntityManager) {
   async function resolveCursorRow(run: SyncRun, scope: SyncScope): Promise<SyncCursor | null> {
     return findOneWithDecryption(
@@ -166,7 +187,11 @@ export function createSyncRunService(em: EntityManager) {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             deletedAt: null,
-            status: 'pending',
+            // A BullMQ stalled-job redelivery finds the run in `running` after
+            // the previous worker was hard-killed. Treat that transition as an
+            // idempotent claim while still excluding terminal states so a
+            // cancelled or completed run cannot be revived.
+            status: { $in: ['pending', 'running'] },
           },
           {
             status,
@@ -194,6 +219,12 @@ export function createSyncRunService(em: EntityManager) {
       return row
     },
 
+    /**
+     * @deprecated Use {@link commitBatchProgress}, which writes counters and
+     * cursor in one transaction behind the ownership fence. This method updates
+     * counters unfenced, so two deliveries of the same job can lose each other's
+     * increments. Kept for external callers only.
+     */
     async updateCounts(
       runId: string,
       delta: Partial<Pick<SyncRun, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted'>>,
@@ -211,6 +242,11 @@ export function createSyncRunService(em: EntityManager) {
       return row
     },
 
+    /**
+     * @deprecated Use {@link commitBatchProgress}. This method advances the
+     * cursor without the ownership fence, so a stale delivery can move the
+     * cursor of a run another worker owns. Kept for external callers only.
+     */
     async updateCursor(runId: string, cursor: string, scope: SyncScope, options?: CursorCommitOptions): Promise<void> {
       const run = await this.getRun(runId, scope)
       if (!run) return
@@ -221,18 +257,63 @@ export function createSyncRunService(em: EntityManager) {
       ], { transaction: true })
     },
 
+    /**
+     * Commits one batch's counters and cursor in a single transaction.
+     *
+     * Passing `expectedBatchesCompleted` fences the write: the run must still be
+     * `running` and still sit on that batch count, or another delivery of the
+     * same BullMQ job owns the run and this commit throws
+     * `SyncRunOwnershipConflictError` and rolls back. Omitting it keeps the
+     * legacy unguarded write for callers outside the engine.
+     *
+     * The fence token is `batchesCompleted` rather than `cursor` because it
+     * advances by construction on every commit. A cursor is a free-form adapter
+     * string that an adapter may legitimately repeat between batches — the
+     * Akeneo products adapter does, between its final page and the
+     * reconciliation batch that follows it — and a repeated token fences
+     * nothing.
+     *
+     * The guard's `UPDATE` also holds the row lock for the rest of the
+     * transaction, so a competing commit blocks here and then re-reads the
+     * advanced count instead of interleaving with this one. That is what lets
+     * the counters below stay a plain read-modify-write against the snapshot
+     * read above: a commit that wins the fence has proven that nothing else
+     * landed since it read.
+     */
     async commitBatchProgress(
       runId: string,
       delta: Partial<Pick<SyncRun, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount' | 'batchesCompleted'>>,
       cursor: string,
       scope: SyncScope,
+      expectedBatchesCompleted?: number,
       options?: CursorCommitOptions,
     ): Promise<SyncRun | null> {
       const run = await this.getRun(runId, scope)
       if (!run) return null
       const persistSharedCursor = options?.persistSharedCursor ?? true
       const cursorRow = persistSharedCursor ? await resolveCursorRow(run, scope) : null
+      const claimRunOwnership = async () => {
+        if ((delta.batchesCompleted ?? 0) < 1) {
+          throw new Error(`[internal] A fenced commit for sync run ${runId} must advance batchesCompleted`)
+        }
+        const owned = await em.nativeUpdate(
+          SyncRun,
+          {
+            id: runId,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+            status: 'running',
+            batchesCompleted: expectedBatchesCompleted,
+          },
+          { updatedAt: new Date() },
+        )
+        if (owned === 0) {
+          throw new SyncRunOwnershipConflictError(runId, expectedBatchesCompleted ?? 0)
+        }
+      }
       await withAtomicFlush(em, [
+        ...(expectedBatchesCompleted === undefined ? [] : [claimRunOwnership]),
         () => {
           run.createdCount += delta.createdCount ?? 0
           run.updatedCount += delta.updatedCount ?? 0

@@ -1,7 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { AGENT_TOOL_IDS, parseAgentsValue, promptSelection } from './wizard.js'
 import type { AskFn } from './wizard.js'
+
+const wizardPath = fileURLToPath(new URL('./wizard.ts', import.meta.url))
 
 test('parseAgentsValue: single tool', () => {
   assert.deepEqual(parseAgentsValue('claude-code'), { skip: false, tools: ['claude-code'] })
@@ -57,17 +64,16 @@ async function withTty(stdin: boolean, stdout: boolean, run: () => Promise<void>
   }
 }
 
-test('promptSelection: a non-interactive shell takes the advertised default without prompting', async () => {
-  await withTty(false, false, async () => {
+test('promptSelection: piped stdin takes the advertised default without prompting', async () => {
+  await withTty(false, true, async () => {
     const refuse: AskFn = () => Promise.reject(new Error('prompted in a non-interactive shell'))
     assert.deepEqual(await promptSelection(refuse), ['claude-code'])
   })
 })
 
-test('promptSelection: a piped stdout alone is enough to skip the prompt', async () => {
+test('promptSelection: piped stdout still accepts a selection from interactive stdin', async () => {
   await withTty(true, false, async () => {
-    const refuse: AskFn = () => Promise.reject(new Error('prompted while stdout was piped'))
-    assert.deepEqual(await promptSelection(refuse), ['claude-code'])
+    assert.deepEqual(await promptSelection(() => Promise.resolve('5')), ['skip'])
   })
 })
 
@@ -77,4 +83,33 @@ test('promptSelection: an interactive shell still honors the answer', async () =
     assert.deepEqual(await promptSelection(() => Promise.resolve('')), ['claude-code'])
     assert.deepEqual(await promptSelection(() => Promise.resolve('5')), ['skip'])
   })
+})
+
+test('runAgenticSetup: embeds skill installer output at the wizard margin', () => {
+  const targetDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-wizard-indent-')))
+  const script = `
+    import { runAgenticSetup } from ${JSON.stringify(pathToFileURL(wizardPath).href)}
+    await runAgenticSetup(${JSON.stringify(targetDir)}, async () => '', { tool: 'test-output' })
+  `
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '--eval', script],
+      {
+        cwd: path.dirname(wizardPath),
+        encoding: 'utf8',
+        env: { ...process.env, OM_SKIP_EXTERNAL_SKILLS: '1' },
+      },
+    )
+
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /^   Installed \d+ local skills/m)
+    assert.match(result.stdout, /^   External skills:/m)
+    assert.match(result.stdout, /^   Layout:/m)
+    assert.match(result.stdout, /^   Tip:/m)
+    assert.doesNotMatch(result.stdout, /^(?:Installed \d+ local skills|External skills:|Layout:|Tip:)/m)
+  } finally {
+    fs.rmSync(targetDir, { recursive: true, force: true })
+  }
 })

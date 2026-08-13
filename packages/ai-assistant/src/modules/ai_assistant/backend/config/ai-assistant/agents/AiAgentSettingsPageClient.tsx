@@ -121,6 +121,14 @@ type AgentResolution = {
   modelId: string
   baseURL: string | null
   source: string
+  moderation?: {
+    /** `untrustedInput` agents enforce moderation (non-editable). */
+    enforced: boolean
+    /** Per-agent control value: null = inherit, true = on, false = off. */
+    override: boolean | null
+    /** Resolved runtime policy after the precedence chain. */
+    effective: 'enforced' | 'on' | 'off'
+  }
 }
 
 type TenantAllowlist = {
@@ -706,7 +714,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         </div>
 
         <Alert
-          variant="info"
+          status="information"
           icon={<ShieldAlert aria-hidden="true" />}
           data-ai-agent-mutation-policy-notice
         >
@@ -732,7 +740,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
             )}
           />
         ) : query.isError ? (
-          <Alert variant="destructive" data-ai-agent-mutation-policy-load-error>
+          <Alert status="error" data-ai-agent-mutation-policy-load-error>
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.loadErrorTitle',
@@ -820,7 +828,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         )}
 
         {state.kind === 'success' ? (
-          <Alert variant="success" data-ai-agent-mutation-policy-state="success">
+          <Alert status="success" data-ai-agent-mutation-policy-state="success">
             <AlertTitle>
               {t('ai_assistant.agents.mutation_policy.savedTitle', 'Mutation policy updated')}
             </AlertTitle>
@@ -828,7 +836,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           </Alert>
         ) : null}
         {state.kind === 'error' ? (
-          <Alert variant="destructive" data-ai-agent-mutation-policy-state="error">
+          <Alert status="error" data-ai-agent-mutation-policy-state="error">
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.errorTitle',
@@ -870,6 +878,142 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
             <span>{t('ai_assistant.agents.mutation_policy.save', 'Save override')}</span>
           </Button>
         </div>
+      </div>
+    </section>
+  )
+}
+
+type ModerationControlValue = 'inherit' | 'on' | 'off'
+
+function ModerationSection({ agent }: { agent: AgentSettings }) {
+  const t = useT()
+  const queryClient = useQueryClient()
+  const settingsQuery = useQuery<RuntimeSettingsResponse>({
+    queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+    queryFn: fetchRuntimeSettings,
+    retry: false,
+  })
+  const agentResolution = settingsQuery.data?.agents.find((entry) => entry.agentId === agent.id) ?? null
+  const moderation = agentResolution?.moderation ?? null
+  const enforced = moderation?.enforced === true
+  const currentValue: ModerationControlValue =
+    moderation?.override === true ? 'on' : moderation?.override === false ? 'off' : 'inherit'
+  const [isSaving, setIsSaving] = React.useState(false)
+  const { runMutation } = useGuardedMutation({ contextId: `ai-agent-moderation-${agent.id}` })
+
+  const save = React.useCallback(
+    async (value: ModerationControlValue) => {
+      if (isSaving || enforced) return
+      setIsSaving(true)
+      try {
+        const inputModeration = value === 'inherit' ? null : value === 'on'
+        await runMutation({
+          operation: async () => {
+            const { ok, status, result } = await apiCall<{ error?: string }>(
+              '/api/ai_assistant/settings',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ agentId: agent.id, inputModeration }),
+              },
+            )
+            if (!ok) {
+              throw new Error(result?.error ?? `[internal] Failed to save moderation setting (${status}).`)
+            }
+          },
+          context: {},
+        })
+        flash(t('ai_assistant.agents.moderation.saved', 'Input moderation setting saved.'), 'success')
+        await queryClient.invalidateQueries({
+          queryKey: ['ai_assistant', 'agent_settings', 'runtime_settings'],
+        })
+      } catch (err) {
+        flash(err instanceof Error ? err.message : String(err), 'error')
+      } finally {
+        setIsSaving(false)
+      }
+    },
+    [agent.id, enforced, isSaving, queryClient, runMutation, t],
+  )
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-background p-4"
+      data-ai-agent-moderation={agent.id}
+    >
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <ShieldAlert className="size-4 text-muted-foreground" aria-hidden />
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold">
+              {t('ai_assistant.agents.moderation.title', 'Input moderation')}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'ai_assistant.agents.moderation.subtitle',
+                'Screen user input for unsafe content before the model runs. Applies only when the resolved provider supports moderation.',
+              )}
+            </p>
+          </div>
+        </div>
+        {moderation ? (
+          <StatusBadge
+            variant={moderation.effective === 'off' ? 'neutral' : 'info'}
+            dot
+            data-ai-agent-moderation-effective
+          >
+            {moderation.effective === 'enforced'
+              ? t('ai_assistant.agents.moderation.effectiveEnforced', 'Enforced')
+              : moderation.effective === 'on'
+                ? t('ai_assistant.agents.moderation.effectiveOn', 'On')
+                : t('ai_assistant.agents.moderation.effectiveOff', 'Off')}
+          </StatusBadge>
+        ) : null}
+      </header>
+
+      <div className="mt-3">
+        {enforced ? (
+          <div className="flex flex-wrap items-center gap-2" data-ai-agent-moderation-enforced>
+            <StatusBadge variant="warning" dot>
+              {t('ai_assistant.agents.moderation.enforcedBadge', 'Enforced')}
+            </StatusBadge>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'ai_assistant.agents.moderation.enforcedHint',
+                'This agent accepts untrusted input, so moderation is always on and cannot be disabled here.',
+              )}
+            </p>
+          </div>
+        ) : (
+          <div className="max-w-xs">
+            <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('ai_assistant.agents.moderation.controlLabel', 'Moderation')}
+            </span>
+            <div className="mt-1">
+              <Select
+                value={currentValue}
+                onValueChange={(value) => save(value as ModerationControlValue)}
+                disabled={isSaving || !agentResolution}
+              >
+                <SelectTrigger aria-label={t('ai_assistant.agents.moderation.controlLabel', 'Moderation')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="inherit">
+                    {t('ai_assistant.agents.moderation.inheritLabel', 'Inherit')}
+                  </SelectItem>
+                  <SelectItem value="on">
+                    {t('ai_assistant.agents.moderation.onLabel', 'On')}
+                  </SelectItem>
+                  <SelectItem value="off">
+                    {t('ai_assistant.agents.moderation.offLabel', 'Off')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   )
@@ -1190,7 +1334,7 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
             )}
           />
         ) : settingsQuery.isError ? (
-          <Alert variant="destructive" data-ai-agent-model-override-load-error>
+          <Alert status="error" data-ai-agent-model-override-load-error>
             <AlertTitle>
               {t(
                 'ai_assistant.agents.model_override.loadErrorTitle',
@@ -1400,12 +1544,12 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
         ) : null}
 
         {state.kind === 'success' ? (
-          <Alert variant="success" data-ai-agent-model-override-state="success">
+          <Alert status="success" data-ai-agent-model-override-state="success">
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
         {state.kind === 'error' ? (
-          <Alert variant="destructive" data-ai-agent-model-override-state="error">
+          <Alert status="error" data-ai-agent-model-override-state="error">
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
@@ -1649,7 +1793,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
             message={t('ai_assistant.agents.loop_policy.loading', 'Loading loop policy...')}
           />
         ) : query.isError ? (
-          <Alert variant="destructive" data-ai-agent-loop-policy-load-error>
+          <Alert status="error" data-ai-agent-loop-policy-load-error>
             <AlertTitle>
               {t('ai_assistant.agents.loop_policy.loadErrorTitle', 'Failed to load loop policy')}
             </AlertTitle>
@@ -1747,7 +1891,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
             </div>
 
             {state.kind === 'success' ? (
-              <Alert variant="success" data-ai-agent-loop-policy-state="success">
+              <Alert status="success" data-ai-agent-loop-policy-state="success">
                 <AlertTitle>
                   {t('ai_assistant.agents.loop_policy.savedTitle', 'Loop policy updated')}
                 </AlertTitle>
@@ -1755,7 +1899,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
               </Alert>
             ) : null}
             {state.kind === 'error' ? (
-              <Alert variant="destructive" data-ai-agent-loop-policy-state="error">
+              <Alert status="error" data-ai-agent-loop-policy-state="error">
                 <AlertTitle>
                   {t(
                     'ai_assistant.agents.loop_policy.errorTitle',
@@ -2063,6 +2207,8 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
 
       <AgentModelOverrideSection agent={agent} />
 
+      <ModerationSection agent={agent} />
+
       <MutationPolicySection agent={agent} />
 
       <LoopPolicySection agent={agent} />
@@ -2100,7 +2246,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         </header>
         <div className="mt-3">
           <Alert
-            variant="info"
+            status="information"
             icon={<Wand2 aria-hidden="true" />}
             data-ai-agent-prompt-notice
           >
@@ -2116,7 +2262,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </Alert>
         </div>
         {saveState.kind === 'success' ? (
-          <Alert variant="success" className="mt-3" data-ai-agent-prompt-state="success">
+          <Alert status="success" className="mt-3" data-ai-agent-prompt-state="success">
             <AlertTitle>
               {saveState.version > 0
                 ? t('ai_assistant.agents.override.savedTitle', 'Prompt override saved')
@@ -2130,7 +2276,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </Alert>
         ) : null}
         {saveState.kind === 'error' ? (
-          <Alert variant="destructive" className="mt-3" data-ai-agent-prompt-state="error">
+          <Alert status="error" className="mt-3" data-ai-agent-prompt-state="error">
             <AlertTitle>
               {t('ai_assistant.agents.override.errorTitle', 'Failed to save prompt override')}
             </AlertTitle>
@@ -2250,7 +2396,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
               )}
             />
           ) : overrideQuery.isError ? (
-            <Alert variant="destructive" data-ai-agent-override-history-error>
+            <Alert status="error" data-ai-agent-override-history-error>
               <AlertTitle>
                 {t(
                   'ai_assistant.agents.override.history.errorTitle',
@@ -2359,7 +2505,7 @@ export function AiAgentSettingsPageClient() {
 
   if (isError) {
     return (
-      <Alert variant="destructive" data-ai-agent-settings-error>
+      <Alert status="error" data-ai-agent-settings-error>
         <AlertTitle>
           {t('ai_assistant.agents.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>

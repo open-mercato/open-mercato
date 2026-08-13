@@ -2,6 +2,7 @@
 
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runPaymentGatewayMutationGuardAfterSuccess,
   runPaymentGatewayMutationGuards,
@@ -95,6 +96,40 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
       expect(response.status).toBe(201)
       expect(service.createPaymentSession).toHaveBeenCalledTimes(1)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces an order reconciliation conflict as 409 instead of a gateway error', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        conflict('Payment session amount 1 does not match the amount due for order o-1'),
+      )
+      const response = await createSession(buildRequest(body))
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        error: 'Payment session amount 1 does not match the amount due for order o-1',
+      })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+
+    it('preserves a typed missing-adapter response as 422', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        new CrudHttpError(422, { error: 'No gateway adapter registered for provider: missing' }),
+      )
+
+      const response = await createSession(buildRequest(body))
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({ error: 'No gateway adapter registered for provider: missing' })
+    })
+
+    it('does not expose unexpected internal errors in a 502 response', async () => {
+      service.createPaymentSession.mockRejectedValue(
+        new Error('[internal] Completed payment session is missing its gateway transaction'),
+      )
+
+      const response = await createSession(buildRequest(body))
+
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({ error: 'Failed to create payment session' })
     })
   })
 

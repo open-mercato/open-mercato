@@ -86,3 +86,80 @@ describe('LookupSelect onReady stability', () => {
     expect(input.value).toBe('Mercato Fashion Online')
   })
 })
+
+describe('LookupSelect keyboard accessibility', () => {
+  const ITEMS = [
+    { id: 'plot-1', title: 'Fazenda Norte' },
+    { id: 'plot-2', title: 'Fazenda Sul' },
+  ]
+
+  function renderWithResults(onChange: (next: string | null) => void) {
+    const utils = render(
+      <LookupSelect
+        value={null}
+        onChange={onChange}
+        fetchItems={async () => ITEMS}
+        minQuery={2}
+      />,
+    )
+    return utils
+  }
+
+  it('exposes combobox/listbox/option semantics once results render', async () => {
+    const { container } = renderWithResults(() => {})
+    const input = getInput(container)
+    expect(input).toHaveAttribute('role', 'combobox')
+    expect(input).toHaveAttribute('aria-autocomplete', 'list')
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    const options = await screen.findAllByRole('option')
+    expect(options).toHaveLength(2)
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('selects the highlighted result with ArrowDown + Enter', async () => {
+    const onChange = jest.fn()
+    const { container } = renderWithResults(onChange)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toHaveAttribute('aria-activedescendant')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith('plot-1')
+  })
+
+  it('moves the highlight with repeated arrows and wraps', async () => {
+    const onChange = jest.fn()
+    const { container } = renderWithResults(onChange)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith('plot-2')
+  })
+
+  it('clears the query with Escape instead of leaking it to the dialog', async () => {
+    const escapeSpy = jest.fn()
+    const { container } = render(
+      <div onKeyDown={escapeSpy}>
+        <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={2} />
+      </div>,
+    )
+    const input = getInput(container)
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+
+    escapeSpy.mockClear()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.value).toBe('')
+    expect(escapeSpy).not.toHaveBeenCalled()
+  })
+})

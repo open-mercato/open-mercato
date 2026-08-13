@@ -123,7 +123,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
               <a
                 key={idx}
                 href={it.href}
-                className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-red-600' : ''}`}
+                className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-destructive' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()
@@ -138,7 +138,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className={`w-full justify-start rounded-none font-normal ${it.destructive ? 'text-red-600' : ''}`}
+                className={`w-full justify-start rounded-none font-normal ${it.destructive ? 'text-destructive' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()

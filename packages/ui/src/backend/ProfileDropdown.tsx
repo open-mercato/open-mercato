@@ -7,6 +7,7 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useIsomorphicLayoutEffect } from '@open-mercato/ui/hooks/useIsomorphicLayoutEffect'
 import { IconButton } from '../primitives/icon-button'
 import { Switch } from '../primitives/switch'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
@@ -22,13 +23,12 @@ export type ProfileDropdownProps = {
   notificationsHref?: string
 }
 
-const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect
-
 const localeLabels: Record<Locale, string> = {
   en: 'English',
   de: 'Deutsch',
   es: 'Español',
   pl: 'Polski',
+  ko: '한국어',
 }
 
 export function ProfileDropdown({

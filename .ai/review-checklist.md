@@ -13,6 +13,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] Entity IDs resolved at runtime via `getEntityIds()`, not at import time
 - [ ] All queries on tenant-scoped entities filter by `organization_id` AND `tenant_id`
 - [ ] No cross-tenant data leaks in API responses
+- [ ] Cross-module customer/host references are resolved under trusted tenant + organization scope and persist only scalar IDs plus intentional snapshots — no duplicate local identity and no cross-module ORM relation
 - [ ] Services resolved via DI (Awilix) — never `new` directly
 - [ ] No hardcoded module-specific logic in `setup-app.ts`
 - [ ] Code placed in correct location (core features in `packages/`, app-specific in `apps/mercato/src/modules/`)
@@ -60,6 +61,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] `makeCrudRoute` used with `indexer: { entityType }` for query index coverage
 - [ ] Zod validation on all request inputs
 - [ ] Tenant scoping applied in all queries
+- [ ] Public request/OpenAPI schemas do not accept or require runtime `tenantId` / `organizationId`; handlers derive scope from trusted context and ignore same-named payload fields
 - [ ] `apiCall`/`apiCallOrThrow` used — no raw `fetch`
 - [ ] `readJsonSafe(response, fallback)` for JSON parsing — no `.json().catch()`
 - [ ] CRUD operations use `createCrud`/`updateCrud`/`deleteCrud`
@@ -84,12 +86,16 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] All write operations implemented as commands via `registerCommand`
 - [ ] Multi-step operations use compound commands
 - [ ] Every command is undoable with before/after snapshots
+- [ ] Each declared create/update/delete/action command independently reaches its required lock/transaction and undo seams; helper names elsewhere in the module are not evidence for that command
+- [ ] Create undo removes or soft-deletes the created record, while delete undo restores it; event/audit side effects match the resulting lifecycle state
 - [ ] `extractUndoPayload()` used from `@open-mercato/shared/lib/commands/undo.ts`
 - [ ] Custom field snapshots captured in `snapshot.custom`
 - [ ] Undo restores via `buildCustomFieldResetMap(before.custom, after.custom)`
 - [ ] `buildLog()` loads snapshots via forked `EntityManager` or `refresh: true`
 - [ ] Side effects (`emitCrudSideEffects`) called OUTSIDE `withAtomicFlush`
 - [ ] Both `emitCrudSideEffects` and `emitCrudUndoSideEffects` include `indexer: { entityType, cacheAliases }`
+- [ ] Availability/uniqueness decisions that race use a database constraint, lock, compare-and-swap, or one atomic claim seam; no read/check followed by an unguarded create
+- [ ] Idempotency retries return the original outcome and concurrent contenders have a deterministic single winner
 
 ## 7. Search Configuration
 
@@ -105,9 +111,9 @@ Apply every applicable section based on which files changed. Skip sections that 
 
 ## 8. Cache
 
-- [ ] Resolved via DI: `container.resolve('cacheService')` — never raw Redis/SQLite
+- [ ] Resolved via DI: `container.resolve('cache')` — never raw Redis/SQLite
 - [ ] Scoped to tenant: `tenantId` in keys or `runWithCacheTenant()`
-- [ ] Tag-based invalidation for CRUD side effects
+- [ ] Tag-based invalidation for CRUD side effects via `cache.deleteByTags([...])`
 - [ ] Every write operation lists which cache tags it invalidates
 - [ ] Nested data declares invalidation chains (child change invalidates parent cache)
 - [ ] No stale cross-tenant data possible
@@ -120,6 +126,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] Concurrency <= 20
 - [ ] I/O-bound: concurrency 5-10; CPU-bound: 1-2; database-heavy: 3-5
 - [ ] Works with both `local` and `async` strategies
+- [ ] Tenant-wide or organization-optional jobs use an explicitly installed system-scope contract; ordinary jobs carry trusted tenant + organization and never infer scope from payload records
 
 ## 10. Module Setup
 
@@ -235,6 +242,8 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] Changed behavior is covered by unit tests and/or integration tests
 - [ ] High-risk changes (auth, tenant isolation, payments, workflows, undo/redo, eventing) include integration tests
 - [ ] Tests validate both happy path and key failure/edge cases
+- [ ] Standalone Jest files import `describe` / `it` or `test` / `expect` / `jest` from `@jest/globals` when the app `tsconfig` does not provide Jest globals, and the focused test command discovers and executes them
+- [ ] Concurrency-sensitive commands have an executable two-contender test plus deterministic-retry assertion; lifecycle tests distinguish create-undo from delete-undo
 - [ ] New API behavior is covered by route-level integration tests
 - [ ] Missing test coverage is explicitly called out in review findings with proposed test files/cases
 

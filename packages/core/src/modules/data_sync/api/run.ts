@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
@@ -30,8 +31,12 @@ export const openApi = {
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth.orgId) {
+    if (!auth?.tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const organizationId = resolveActiveOrganizationId(auth)
+    if (!organizationId) {
+      return organizationScopeRequiredResponse()
     }
 
     const payload = await readJsonSafe(req)
@@ -46,7 +51,7 @@ export async function POST(req: Request) {
     const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
 
     const scope = {
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     }
 

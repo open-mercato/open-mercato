@@ -1,5 +1,8 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { attachTraceMetadata, runJobInTrace } from '../tracing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const packageLogger = createLogger('queue')
@@ -7,13 +10,14 @@ const packageLogger = createLogger('queue')
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
 type ConnectionOptions = {
-  url?: string
   host?: string
   port?: number
   username?: string
   password?: string
   db?: number
   tls?: Record<string, unknown>
+  family?: number
+  protocol?: RedisProtocolVersion
 }
 
 interface BullQueueInterface<T> {
@@ -43,13 +47,22 @@ interface BullWorkerInterface {
 }
 
 interface BullMQModule {
-  Queue: new <T>(name: string, opts: { connection: ConnectionOptions }) => BullQueueInterface<T>
+  Queue: new <T>(name: string, opts: { connection: ConnectionOptions; telemetry?: unknown }) => BullQueueInterface<T>
   Worker: new <T>(
     name: string,
     processor: (job: { id?: string; data: T; attemptsMade: number }) => Promise<void>,
-    opts: { connection: ConnectionOptions; concurrency: number }
+    opts: {
+      connection: ConnectionOptions
+      concurrency: number
+      telemetry?: unknown
+      lockDuration?: number
+      maxStalledCount?: number
+    }
   ) => BullWorkerInterface
 }
+
+/** The `bullmq-otel` package (optional). Loaded only when an OTLP backend is active. */
+type BullMQOtelModule = { BullMQOtel: new (tracerName: string) => object }
 
 const REMOVABLE_JOB_STATES = ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children']
 
@@ -69,13 +82,13 @@ function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
 /**
  * Resolves Redis connection options from various sources.
  *
- * BullMQ expects an ioredis-compatible connection object. Preserve the full
- * Redis URL under the `url` key so rediss://, username, database, and query
- * params are not lost in translation.
+ * BullMQ expects ioredis connection fields rather than a nested URL string.
+ * Parse URL-based configuration at this boundary while keeping the public
+ * queue API compatible with existing `{ url }` callers.
  */
 function resolveConnection(options?: AsyncQueueOptions['connection']): ConnectionOptions {
   if (options?.url) {
-    return { url: options.url }
+    return parseRedisUrl(options.url)
   }
 
   if (options?.host) {
@@ -86,10 +99,12 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
       password: options.password,
       db: options.db,
       tls: options.tls,
+      family: options.family,
+      protocol: REDIS_WIRE_PROTOCOL,
     }
   }
 
-  return { url: getRedisUrlOrThrow('QUEUE') }
+  return parseRedisUrl(getRedisUrlOrThrow('QUEUE'))
 }
 
 /**
@@ -111,11 +126,18 @@ export function createAsyncQueue<T = unknown>(
 ): Queue<T> {
   const connection = resolveConnection(options?.connection)
   const concurrency = options?.concurrency ?? 1
+  const attempts = options?.attempts ?? 3
+  const lockDuration = options?.lockDuration
+  const maxStalledCount = options?.maxStalledCount
   const logger = packageLogger.child({ queue: name })
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
+  // Resolved once: a BullMQOtel instance (delegate async tracing to BullMQ) or
+  // undefined (use our own metadata._trace carrier instead). Memoized as the
+  // in-flight promise so concurrent first-time callers share one resolution.
+  let telemetryPromise: Promise<object | undefined> | null = null
 
   // -------------------------------------------------------------------------
   // Lazy BullMQ initialization
@@ -134,10 +156,35 @@ export function createAsyncQueue<T = unknown>(
     return bullmqModule
   }
 
+  /**
+   * When an OTLP backend is active, delegate async-queue tracing to `bullmq-otel`
+   * (richer BullMQ-internal spans: add / process / wait / attempts). Returns
+   * `undefined` — meaning "use our own `metadata._trace` carrier" — when telemetry
+   * is off, a non-OTEL backend is selected, or `bullmq-otel` isn't installed. (The
+   * `local` strategy always uses our carrier; it isn't BullMQ, so `bullmq-otel`
+   * cannot instrument it.)
+   */
+  async function getQueueTelemetry(): Promise<object | undefined> {
+    if (!telemetryPromise) {
+      telemetryPromise = (async () => {
+        if (!getTelemetryRuntime()?.canUseGlobalTracePropagation()) return undefined
+        try {
+          const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
+          return new mod.BullMQOtel('open-mercato')
+        } catch {
+          packageLogger.warn('bullmq-otel not available; using built-in trace carrier', { queue: name })
+          return undefined
+        }
+      })()
+    }
+    return telemetryPromise
+  }
+
   async function getQueue(): Promise<BullQueueInterface<QueuedJob<T>>> {
     if (!bullQueue) {
       const { Queue: BullQueueClass } = await getBullMQ()
-      bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection })
+      const telemetry = await getQueueTelemetry()
+      bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection, ...(telemetry ? { telemetry } : {}) })
     }
     return bullQueue
   }
@@ -148,17 +195,21 @@ export function createAsyncQueue<T = unknown>(
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
     const queue = await getQueue()
+    // When bullmq-otel handles propagation, don't also attach our carrier.
+    const telemetry = await getQueueTelemetry()
+    const metadata = telemetry ? undefined : attachTraceMetadata(undefined)
     const jobData: QueuedJob<T> = {
       id: crypto.randomUUID(),
       payload: data,
       createdAt: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
     }
 
     const job = await queue.add(jobData.id, jobData, {
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
       removeOnFail: 1000,
-      attempts: 3,
+      attempts,
       backoff: { type: 'exponential', delay: 1000 },
     })
 
@@ -167,21 +218,33 @@ export function createAsyncQueue<T = unknown>(
 
   async function process(handler: JobHandler<T>): Promise<ProcessResult> {
     const { Worker } = await getBullMQ()
+    const telemetry = await getQueueTelemetry()
 
     // Create worker that processes jobs
     bullWorker = new Worker<QueuedJob<T>>(
       name,
       async (job) => {
         const jobData = job.data
-        await handler(jobData, {
+        const ctx = {
           jobId: job.id ?? jobData.id,
           attemptNumber: job.attemptsMade + 1,
           queueName: name,
-        })
+        }
+        // With bullmq-otel active, BullMQ owns the process span and active
+        // context (the handler's pg/undici spans nest under it). Otherwise
+        // continue the trace from our own carrier.
+        if (telemetry) {
+          await handler(jobData, ctx)
+        } else {
+          await runJobInTrace(name, jobData.metadata, () => handler(jobData, ctx))
+        }
       },
       {
         connection,
         concurrency,
+        ...(telemetry ? { telemetry } : {}),
+        ...(lockDuration !== undefined ? { lockDuration } : {}),
+        ...(maxStalledCount !== undefined ? { maxStalledCount } : {}),
       }
     )
 
@@ -195,6 +258,16 @@ export function createAsyncQueue<T = unknown>(
       const jobWithId = job as { id?: string } | undefined
       const error = err as Error
       logger.error('Job failed', { jobId: jobWithId?.id, err: error })
+    })
+
+    // A stalled job is redelivered under the same id while the previous worker
+    // may still be running it, so this is the signal that a handler is about to
+    // be executed twice. BullMQ's docs require surfacing it: without this line
+    // duplicate processing is invisible.
+    bullWorker.on('stalled', (jobId) => {
+      logger.warn('Job stalled and will be redelivered — the handler may run concurrently with a previous delivery', {
+        jobId: typeof jobId === 'string' ? jobId : null,
+      })
     })
 
     bullWorker.on('error', (err) => {

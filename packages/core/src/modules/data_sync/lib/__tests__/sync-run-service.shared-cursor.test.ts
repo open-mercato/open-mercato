@@ -75,6 +75,7 @@ describe('SyncRunService cursor commits honour persistSharedCursor', () => {
       { createdCount: 2, batchesCompleted: 1 },
       'batch-2',
       SCOPE,
+      undefined,
       { persistSharedCursor: false },
     )
 
@@ -96,6 +97,7 @@ describe('SyncRunService cursor commits honour persistSharedCursor', () => {
       { updatedCount: 1, batchesCompleted: 1 },
       'batch-3',
       SCOPE,
+      undefined,
       { persistSharedCursor: false },
     )
 
@@ -108,7 +110,7 @@ describe('SyncRunService cursor commits honour persistSharedCursor', () => {
     mockLookups(buildRun(), { cursor: 'inherited-cursor' })
 
     const service = createSyncRunService(em as any)
-    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'batch-4', SCOPE, { persistSharedCursor: false })
+    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'batch-4', SCOPE, undefined, { persistSharedCursor: false })
 
     const cursorLookups = (findOneWithDecryption as jest.Mock).mock.calls.filter(([, entity]) => entity === SyncCursor)
     expect(cursorLookups).toHaveLength(0)

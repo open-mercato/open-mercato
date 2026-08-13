@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -1209,7 +1210,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                 data={pagedBalances}
                 disableRowClick
                 entityId={E.wms.inventory_balance}
-                perspective={{ tableId: 'wms.lot.distribution' }}
+                perspective={{ tableId: extensionPoints.hosts.lotDistributionTable.tableId }}
                 pagination={{
                   page: distributionPage,
                   pageSize: distributionPageSize,
@@ -1250,7 +1251,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
               data={movementsQuery.data ?? []}
               disableRowClick
               entityId={E.wms.inventory_movement}
-              perspective={{ tableId: 'wms.lot.activity' }}
+              perspective={{ tableId: extensionPoints.hosts.lotActivityTable.tableId }}
               emptyState={t('wms.backend.lot.activity.empty', 'No recent movements for this lot.')}
               actions={(
                 <Button asChild type="button" variant="ghost" size="sm">

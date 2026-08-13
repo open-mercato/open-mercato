@@ -104,6 +104,24 @@ export interface DataSyncAdapter {
   readonly runMode?: 'generic' | 'provider'
   readonly operationalTelemetry?: boolean
 
+  /**
+   * Batch work MUST be replay-safe.
+   *
+   * Sync jobs are delivered at least once: BullMQ redelivers a job whose lock
+   * was not renewed, and the engine resumes the run from its last committed
+   * cursor. A batch the generator already yielded can therefore be produced and
+   * executed again, and the engine only fences its own commit — anything the
+   * generator itself did before yielding has already happened.
+   *
+   * Upserts keyed by `externalId` satisfy this. Per-record side effects that are
+   * not idempotent (sending mail, posting to a third party, incrementing a
+   * remote counter) do not, and will run twice on a resume. Make them
+   * conditional on state the adapter can re-read, or move them behind an event
+   * the engine emits after the commit.
+   *
+   * `cursor` is a resume position, not an identity: repeating it between batches
+   * is allowed.
+   */
   streamImport?(input: StreamImportInput): AsyncIterable<ImportBatch>
   streamExport?(input: StreamExportInput): AsyncIterable<ExportBatch>
   /**

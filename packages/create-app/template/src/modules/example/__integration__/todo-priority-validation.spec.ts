@@ -5,6 +5,27 @@ import {
 } from '@open-mercato/core/helpers/integration/api'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
+async function readTodoSeverity(request: Parameters<typeof apiRequest>[0], token: string, todoId: string): Promise<string | null> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/example/todos?ids=${encodeURIComponent(todoId)}&page=1&pageSize=1`,
+    { token },
+  )
+  if (!response.ok()) return null
+  const body = await response.json() as { items?: Array<Record<string, unknown>> }
+  const item = body.items?.[0]
+  if (!item) return null
+  const direct = item.cf_severity
+  if (typeof direct === 'string') return direct
+  const customFields = item.customFields
+  if (customFields && typeof customFields === 'object' && !Array.isArray(customFields)) {
+    const nested = (customFields as Record<string, unknown>).severity
+    if (typeof nested === 'string') return nested
+  }
+  return null
+}
+
 test.describe('Todo priority validation', () => {
   let adminToken: string
 
@@ -165,14 +186,23 @@ test.describe('Todo priority validation', () => {
       todoId = body.id ?? null
       expect(todoId).toBeTruthy()
 
+      await expect
+        .poll(() => readTodoSeverity(request, adminToken, todoId!), { timeout: 15_000 })
+        .toBe('medium')
+
       await login(page, 'admin')
-      await page.goto(`/backend/todos/${encodeURIComponent(todoId!)}/edit`, { waitUntil: 'commit' })
+      const editUrl = `/backend/todos/${encodeURIComponent(todoId!)}/edit`
+      await page.goto(editUrl, { waitUntil: 'commit' })
 
       await expect(page.locator('main').getByText('Edit Todo').first()).toBeVisible()
       await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue(title)
       const severityField = page.locator('[data-crud-field-id="cf_severity"]').first()
       const severitySelect = severityField.getByRole('combobox').first()
       await expect(severitySelect).toBeVisible()
+      if (!/medium/i.test(await severitySelect.textContent() ?? '')) {
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await expect(page.locator('main').getByText('Edit Todo').first()).toBeVisible()
+      }
       await expect(severitySelect).toContainText(/medium/i)
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId)
