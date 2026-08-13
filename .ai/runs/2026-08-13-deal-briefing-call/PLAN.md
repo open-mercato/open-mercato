@@ -69,7 +69,7 @@ turns their reply into CRM tasks.
 
 | # | Task | Status | Commit |
 |---|---|---|---|
-| B1 | Module scaffold: `index.ts`, `acl.ts`, `setup.ts`, validators, i18n (5 locales), registration | TODO | |
+| B1 | Module scaffold: `index.ts`, `acl.ts`, `setup.ts`, validators, i18n (5 locales), registration | DONE | `4ab48d6ab` |
 | B2 | The three agents: two native researchers + one external voice agent on the ElevenLabs connector | TODO | |
 | B3 | Idempotent `ensure_task` command + `registerWorkflowSafeCommands` + tests | TODO | |
 | B4 | Notification subscriber: `EMIT_EVENT` → `notificationService.create` | TODO | |
@@ -184,6 +184,41 @@ Append one entry per task as it lands.
 - 2026-08-13 — Ground-truth research done before planning; every file path, spot id, route, schema and
   command id in this plan carries file:line evidence in the research report.
 - 2026-08-13 — **User decision: the idempotent-command route for task creation** (see Decisions above).
+- 2026-08-13 — **B1 done.** ACL feature `sales_call_planner.brief.run`, `dependsOn:
+  ['workflows.instances.create']` (the button's only action is that route, so without it the button can only
+  403). It deliberately does NOT depend on `agent_orchestrator.external_agents.invoke`: that grant is
+  default-off BY DESIGN, and listing it as a dependency would advertise it in the role editor as a
+  prerequisite an admin should grant — the opposite of default-off. `employee` (the sales-facing persona)
+  gets `brief.run`, so a salesperson can START a briefing while placing the call stays behind the separate
+  grant, failing closed on an un-opted-in tenant.
+- 2026-08-13 — **B3 CORRECTION to this plan's id formula.** `${instanceId}:${stepId}:${index}` implied one
+  invocation per task, but `executeUpdateEntity` runs a transition activity ONCE and the task count is data
+  the author cannot know when writing the JSON. So `ensureTaskInputSchema` takes the whole bounded `tasks`
+  ARRAY and `index` is the element's position. Consequence: the array is ORDER-SENSITIVE across retries
+  (stable in practice — it comes verbatim from a settled agent run in the instance context).
+- 2026-08-13 — **B3 security note: `ensureTaskInputSchema` deliberately carries NO `tenantId`/
+  `organizationId`.** `executeUpdateEntity` passes the definition's `input` through verbatim and supplies
+  scope separately from the instance via `ctx.auth`. Accepting scope in the input would let an authored —
+  and AI-draftable — definition name another tenant's ids. B3 MUST read scope from `ctx.auth`. This
+  deliberately differs from `customers.deals.update`, whose schema extends `scopedSchema`.
+- 2026-08-13 — **B3 owns a mapping the plan did not mention:** `CustomerInteraction.priority` is
+  `z.number().int().min(0).max(100)`, NOT an enum. The agent contract uses `low|medium|high|urgent` because
+  that is what a model answers reliably and what gets spoken aloud, so B3 converts.
+- 2026-08-13 — **B5 correction: `entityId` for a task is `customer_entities.id`, NOT
+  `customer_companies.id`** — that is the timeline parent `requireTimelineParentEntity` resolves. The
+  workflow context must carry the right one; this plan's `contextSchema` only named `companyId`.
+- 2026-08-13 — B5 interpolation roots available: `{{workflow.instanceId}}`, `{{workflow.currentStepId}}`,
+  `{{workflow.tenantId}}`, `{{workflow.organizationId}}`, `{{workflow.workflowId}}`, `{{workflow.version}}`,
+  plus `{{context.*}}`, `{{env.*}}`, `{{now}}`. The first two are exactly the idempotency-key halves.
+- 2026-08-13 — B1: 25 i18n keys seeded across all five locales up front, so B2–B6 need not each touch five
+  files. `sales_call_planner.workflows.commands.ensureTask` is the `labelKey` B3 passes to
+  `registerWorkflowSafeCommands`.
+- 2026-08-13 — B1 added `requires: ['agent_orchestrator','agent_elevenlabs','customers','workflows']` (which
+  `agent_examples` omits). Consequence: disabling `customers` or `workflows` now fails `yarn generate` for
+  this module with an actionable message rather than a module-not-found at import time.
+- 2026-08-13 — **`yarn mercato auth sync-role-acls` has NOT been run.** Existing tenants do not hold
+  `sales_call_planner.brief.run`, so the button is invisible on this dev tenant until it is — matters for
+  B6/B7.
 - 2026-08-13 — Hazards inherited from the external-agent work, all recorded in the sibling tracker:
   `yarn build:packages` is required before a new route is served (the dev server resolves
   `@open-mercato/enterprise` from `dist`); `yarn generate` has been observed deleting committed
