@@ -164,7 +164,7 @@ describe('data_sync run route', () => {
     }))
   })
 
-  it('resumes from the last incomplete run when the adapter opted out of the shared cursor row', async () => {
+  it('resumes from the most recent unfinished run when the adapter opted out of the shared cursor row', async () => {
     mockGetDataSyncAdapter.mockReturnValueOnce({
       providerKey: 'excel',
       runMode: 'generic',

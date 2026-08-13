@@ -1,6 +1,4 @@
-import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { DataSyncAdapter } from './adapter'
-import { getDataSyncAdapter } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 
 type SyncScope = {
@@ -8,10 +6,7 @@ type SyncScope = {
   tenantId: string
 }
 
-export function resolveAdapterForIntegration(integrationId: string): DataSyncAdapter | null {
-  const providerKey = getIntegration(integrationId)?.providerKey ?? integrationId
-  return getDataSyncAdapter(providerKey) ?? null
-}
+export { resolveAdapterForIntegration } from './adapter-registry'
 
 export function persistsSharedCursor(adapter: DataSyncAdapter | null | undefined, entityType: string): boolean {
   return adapter?.persistsSharedCursor?.(entityType) ?? true
