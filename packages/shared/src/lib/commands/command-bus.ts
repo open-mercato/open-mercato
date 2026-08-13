@@ -267,6 +267,30 @@ export class CommandBus {
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
     const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
     let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
+    // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
+    // than the generic `context` one, so the metadata an interceptor already passes to its
+    // own afterExecute hook is never silently promoted into audit storage.
+    // Map iteration order is interceptor priority order (see collectMatching), so a
+    // later-priority interceptor overrides an earlier one on key collisions.
+    let interceptorContextMerged: Record<string, unknown> = {}
+    for (const meta of interceptorMetadata.values()) {
+      const logContextRecord = asRecord(asRecord(meta)?.logContext)
+      if (!logContextRecord) continue
+      interceptorContextMerged = {
+        ...interceptorContextMerged,
+        ...logContextRecord,
+      }
+    }
+    const baseContext = asRecord(effectiveOptions.metadata?.context) ?? {}
+    const logMetaContext = asRecord(logMeta?.context) ?? {}
+    if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
+      mergedMeta = mergedMeta ?? {}
+      mergedMeta.context = {
+        ...baseContext,
+        ...interceptorContextMerged,
+        ...logMetaContext,
+      }
+    }
     const undoable = this.isUndoable(handler)
     if (undoable) {
       mergedMeta = mergedMeta ?? {}

@@ -11,6 +11,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ConsentItem } from '@open-mercato/core/modules/auth/lib/consentTypes'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export const metadata = {
   path: '/auth/users/consents',
@@ -50,6 +51,12 @@ export async function GET(req: Request) {
         tenantId,
         organizationId,
         targetUserId: parsed.data.userId,
+        organizationScope: await resolveOrganizationScopeForRequest({
+          container,
+          auth,
+          request: req,
+          tenantId,
+        }),
       })
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })

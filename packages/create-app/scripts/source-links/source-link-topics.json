@@ -1,0 +1,894 @@
+{
+  "$comment": "Checked topic registry for the CANON-C source-link contract. source-required topics are one per (emitted owner, rendered exact-file link) pair; their topicId is derived as <ownerSlug>:<targetKey> and re-derived by the validator. retained-normative-snippet topics name a rule that survives in prose; evidence is a literal substring the owner must still contain. The derived source-link inventory must assert that its topic set equals this registry exactly; this file is a contract, not a second authority.",
+  "topics": [
+    {
+      "topicId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "owner": ".ai/guides/backend-ui.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx"
+    },
+    {
+      "topicId": "guides/backend-ui:references/surface-map.md",
+      "owner": ".ai/guides/backend-ui.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "guides/backend-ui:components/TodosTable.tsx",
+      "owner": ".ai/guides/backend-ui.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/components/TodosTable.tsx",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx"
+    },
+    {
+      "topicId": "guides/backend-ui:components/TodoForm.tsx",
+      "owner": ".ai/guides/backend-ui.md",
+      "requirement": "source-required",
+      "href": "../../src/modules/example/components/TodoForm.tsx",
+      "resolvedPath": "src/modules/example/components/TodoForm.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design:references/surface-map.md",
+      "owner": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/components/TodosTable.tsx",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/create/page.tsx",
+      "resolvedPath": "src/modules/example/backend/todos/create/page.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/components/TodoForm.tsx",
+      "resolvedPath": "src/modules/example/components/TodoForm.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:README.md",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/README.md",
+      "resolvedPath": "src/modules/example/README.md"
+    },
+    {
+      "topicId": "om-backend-ui-design/crud-surfaces:widgets/components.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/components.ts",
+      "resolvedPath": "src/modules/example/widgets/components.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "referenceRole": "design-system-gallery"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "referenceRole": "design-system-implementation"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "referenceRole": "figma-code-connect"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:src/app/globals.css",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../src/app/globals.css",
+      "resolvedPath": "src/app/globals.css",
+      "referenceRole": "design-foundation-token"
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/page.tsx",
+      "resolvedPath": "src/modules/example/backend/todos/page.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
+      "resolvedPath": "src/modules/example/backend/todos/page.meta.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/page.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/page.tsx",
+      "resolvedPath": "src/modules/example/backend/page.tsx"
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:backend/page.meta.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/page.meta.ts",
+      "resolvedPath": "src/modules/example/backend/page.meta.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/page-and-navigation:frontend/example.tsx",
+      "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/frontend/example.tsx",
+      "resolvedPath": "src/modules/example/frontend/example.tsx"
+    },
+    {
+      "topicId": "om-data-model-design:references/surface-map.md",
+      "owner": ".ai/skills/om-data-model-design/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "om-data-model-design/integrity-and-concurrency:commands/todos.ts",
+      "owner": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "resolvedPath": "src/modules/example/commands/todos.ts"
+    },
+    {
+      "topicId": "om-data-model-design/integrity-and-concurrency:commands/interceptors.ts",
+      "owner": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/commands/interceptors.ts",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts"
+    },
+    {
+      "topicId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
+      "owner": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx"
+    },
+    {
+      "topicId": "om-data-model-design/migration-workflow:migrations/Migration20251030150038.ts",
+      "owner": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/migrations/Migration20251030150038.ts",
+      "resolvedPath": "src/modules/example/migrations/Migration20251030150038.ts"
+    },
+    {
+      "topicId": "om-data-model-design/migration-workflow:migrations/Migration20260226161000_example.ts",
+      "owner": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
+      "resolvedPath": "src/modules/example/migrations/Migration20260226161000_example.ts"
+    },
+    {
+      "topicId": "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json",
+      "owner": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json"
+    },
+    {
+      "topicId": "om-data-model-design/schema-design:data/entities.ts",
+      "owner": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "resolvedPath": "src/modules/example/data/entities.ts"
+    },
+    {
+      "topicId": "om-data-model-design/schema-design:data/validators.ts",
+      "owner": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "resolvedPath": "src/modules/example/data/validators.ts"
+    },
+    {
+      "topicId": "om-data-model-design/schema-design:ce.ts",
+      "owner": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/ce.ts",
+      "resolvedPath": "src/modules/example/ce.ts"
+    },
+    {
+      "topicId": "om-eject-and-customize:references/surface-map.md",
+      "owner": ".ai/skills/om-eject-and-customize/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:index.ts",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/index.ts",
+      "resolvedPath": "src/modules/example/index.ts"
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:acl.ts",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/acl.ts",
+      "resolvedPath": "src/modules/example/acl.ts"
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:setup.ts",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/setup.ts",
+      "resolvedPath": "src/modules/example/setup.ts"
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "resolvedPath": "src/modules/example/data/entities.ts"
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json"
+    },
+    {
+      "topicId": "om-eject-and-customize/decision-and-procedure:src/modules.ts",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules.ts",
+      "resolvedPath": "src/modules.ts"
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/lib/mock-gateway-adapter.ts",
+      "resolvedPath": "src/modules/example/lib/mock-gateway-adapter.ts"
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/lib/mock-shipping-adapter.ts",
+      "resolvedPath": "src/modules/example/lib/mock-shipping-adapter.ts"
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
+      "resolvedPath": "src/modules/example/lib/mock-webhook-endpoint-adapter.ts"
+    },
+    {
+      "topicId": "om-integration-builder/provider-families:di.ts",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/di.ts",
+      "resolvedPath": "src/modules/example/di.ts"
+    },
+    {
+      "topicId": "om-module-scaffold:README.md",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/README.md",
+      "resolvedPath": "src/modules/example/README.md"
+    },
+    {
+      "topicId": "om-module-scaffold:references/surface-inventory.json",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-inventory.json",
+      "resolvedPath": "src/modules/example/references/surface-inventory.json"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
+      "resolvedPath": "src/modules/example/api/customer-priorities/route.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/todos/route.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "resolvedPath": "src/modules/example/api/todos/route.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/openapi.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/openapi.ts",
+      "resolvedPath": "src/modules/example/api/openapi.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/organizations/route.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/organizations/route.ts",
+      "resolvedPath": "src/modules/example/api/organizations/route.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/tags/route.ts",
+      "resolvedPath": "src/modules/example/api/tags/route.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/assignees/route.ts",
+      "resolvedPath": "src/modules/example/api/assignees/route.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:commands/todos.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "resolvedPath": "src/modules/example/commands/todos.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:README.md",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/README.md",
+      "resolvedPath": "src/modules/example/README.md"
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:data/entities.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "resolvedPath": "src/modules/example/data/entities.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:data/validators.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "resolvedPath": "src/modules/example/data/validators.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:ce.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/ce.ts",
+      "resolvedPath": "src/modules/example/ce.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:migrations/Migration20260226161000_example.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
+      "resolvedPath": "src/modules/example/migrations/Migration20260226161000_example.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/data-and-migrations:migrations/.snapshot-open-mercato.json",
+      "owner": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:references/surface-map.md",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:index.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/index.ts",
+      "resolvedPath": "src/modules/example/index.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:di.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/di.ts",
+      "resolvedPath": "src/modules/example/di.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:acl.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/acl.ts",
+      "resolvedPath": "src/modules/example/acl.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:setup.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/setup.ts",
+      "resolvedPath": "src/modules/example/setup.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:events.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/events.ts",
+      "resolvedPath": "src/modules/example/events.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:notifications.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/notifications.ts",
+      "resolvedPath": "src/modules/example/notifications.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:notifications.handlers.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/notifications.handlers.ts",
+      "resolvedPath": "src/modules/example/notifications.handlers.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:notifications.client.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/notifications.client.ts",
+      "resolvedPath": "src/modules/example/notifications.client.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:cli.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/cli.ts",
+      "resolvedPath": "src/modules/example/cli.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:ce.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/ce.ts",
+      "resolvedPath": "src/modules/example/ce.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:i18n/en.json",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/i18n/en.json",
+      "resolvedPath": "src/modules/example/i18n/en.json"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:translations.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/translations.ts",
+      "resolvedPath": "src/modules/example/translations.ts"
+    },
+    {
+      "topicId": "om-module-scaffold/module-surfaces:extension-points.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/extension-points.ts",
+      "resolvedPath": "src/modules/example/extension-points.ts"
+    },
+    {
+      "topicId": "om-system-extension:references/surface-map.md",
+      "owner": ".ai/skills/om-system-extension/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:data/guards.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/guards.ts",
+      "resolvedPath": "src/modules/example/data/guards.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:data/enrichers.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/enrichers.ts",
+      "resolvedPath": "src/modules/example/data/enrichers.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:api/interceptors.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/interceptors.ts",
+      "resolvedPath": "src/modules/example/api/interceptors.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:commands/interceptors.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/commands/interceptors.ts",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:extension-points.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/extension-points.ts",
+      "resolvedPath": "src/modules/example/extension-points.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection-table.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection-table.ts",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-field/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-column/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-filter/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-row-action/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/example-menus/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/example-menus/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/example-profile-menu/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/example-profile-menu/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/example-profile-menu/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-detail/widget.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/auto-default-priority.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/subscribers/auto-default-priority.ts",
+      "resolvedPath": "src/modules/example/subscribers/auto-default-priority.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/subscribers/prevent-uncomplete.ts",
+      "resolvedPath": "src/modules/example/subscribers/prevent-uncomplete.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/audit-delete.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/subscribers/audit-delete.ts",
+      "resolvedPath": "src/modules/example/subscribers/audit-delete.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:subscribers/example-event.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/subscribers/example-event.ts",
+      "resolvedPath": "src/modules/example/subscribers/example-event.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:notifications.handlers.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/notifications.handlers.ts",
+      "resolvedPath": "src/modules/example/notifications.handlers.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:notifications.client.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/notifications.client.ts",
+      "resolvedPath": "src/modules/example/notifications.client.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:widgets/components.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/components.ts",
+      "resolvedPath": "src/modules/example/widgets/components.ts"
+    },
+    {
+      "topicId": "om-system-extension/unified-overrides:src/modules.ts",
+      "owner": ".ai/skills/om-system-extension/references/unified-overrides.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules.ts",
+      "resolvedPath": "src/modules.ts"
+    },
+    {
+      "topicId": "om-troubleshooter:references/surface-map.md",
+      "owner": ".ai/skills/om-troubleshooter/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
+      "resolvedPath": "src/modules/example/api/customer-priorities/route.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:commands/todos.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "resolvedPath": "src/modules/example/commands/todos.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:data/validators.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "resolvedPath": "src/modules/example/data/validators.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:backend/todos/[id]/edit/page.tsx",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:index.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/index.ts",
+      "resolvedPath": "src/modules/example/index.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:src/modules.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules.ts",
+      "resolvedPath": "src/modules.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:widgets/injection-table.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/widgets/injection-table.ts",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
+      "resolvedPath": "src/modules/example/backend/todos/page.meta.ts"
+    },
+    {
+      "topicId": "om-troubleshooter/diagnosis-map:components/TodosTable.tsx",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/components/TodosTable.tsx",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx"
+    },
+    {
+      "topicId": "rule:root#generation-after-discovery-change",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run `yarn generate` after discovery files"
+    },
+    {
+      "topicId": "rule:root#migration-probe-and-approval",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it."
+    },
+    {
+      "topicId": "rule:guides/testing-debugging#validation-gate",
+      "owner": ".ai/guides/testing-debugging.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "`yarn typecheck`, `yarn lint`, `yarn test`, `yarn build` for broad/contract changes."
+    },
+    {
+      "topicId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
+      "owner": ".ai/guides/testing-debugging.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Never edit generated output to prove a theory."
+    },
+    {
+      "topicId": "rule:om-eject-and-customize/decision-and-procedure#installed-module-identification",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "State the required behavior and exact installed module/version."
+    },
+    {
+      "topicId": "rule:om-eject-and-customize/decision-and-procedure#eject-command",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run supported `yarn mercato eject <module>` from app root."
+    },
+    {
+      "topicId": "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification",
+      "owner": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "run `yarn generate`, focused/integration/build tests, and record upstream version for future merges."
+    },
+    {
+      "topicId": "rule:om-data-model-design/migration-workflow#migration-procedure",
+      "owner": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run `yarn db:generate` as a probe; inspect all SQL and snapshot changes."
+    },
+    {
+      "topicId": "rule:om-data-model-design/sensitive-data#encryption-map-declaration",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "In module `encryption.ts`, import `ModuleEncryptionMap` from `@open-mercato/shared/modules/encryption`"
+    },
+    {
+      "topicId": "rule:om-data-model-design/sensitive-data#decrypted-reads",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Import `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption` from `@open-mercato/shared/lib/encryption/find`"
+    },
+    {
+      "topicId": "rule:om-data-model-design/sensitive-data#encryption-seeding",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Seed/update encryption configuration through the supported command; never hand-roll KMS/AES."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/module-surfaces#search-configuration",
+      "owner": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "`search.ts` imports `SearchModuleConfig`"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/verification#post-scaffold-gate",
+      "owner": ".ai/skills/om-module-scaffold/references/verification.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run `yarn generate`; inspect warnings and the affected module/API/page/entity/event/search/agent registrations."
+    },
+    {
+      "topicId": "rule:om-system-extension/verification#extension-gate",
+      "owner": ".ai/skills/om-system-extension/references/verification.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run `yarn generate`, focused tests, typecheck, and affected integration flow."
+    },
+    {
+      "topicId": "rule:om-troubleshooter/diagnosis-map#symptom-routing",
+      "owner": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Trace from the public call site to the first broken invariant."
+    },
+    {
+      "topicId": "rule:om-troubleshooter/regression-oracles#pre-fix-failure",
+      "owner": ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "The oracle must fail on the pre-fix code for the intended reason"
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#reusable-package-branch",
+      "owner": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "create a separate publishable package/repository with compatible peer/runtime dependencies, public exports, build/prepack, and compiled discovery output"
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#integration-descriptor-exports",
+      "owner": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "An app-owned `integration.ts` may export singular `integration`/`bundle` definitions or plural `integrations`/`bundles` arrays."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
+      "owner": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Persist credentials/state/logs/mappings through generic integration/data-sync services; do not duplicate host tables."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#generation-proof",
+      "owner": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Run `yarn generate` and `yarn typecheck` so the generated registry proves that exact export shape."
+    },
+    {
+      "topicId": "rule:om-integration-builder/package-and-activation#degraded-provider-tests",
+      "owner": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Test missing provider configuration as `unconfigured`/degraded, not a crash or secret leak."
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#data-sync-branch",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "**Data sync:** `DataSyncAdapter`; entity mappings/presets; external IDs; streaming batches/cursors; overlap, progress, cancellation, reconciliation."
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#payment-branch",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "**Payment:** installed `GatewayAdapter` plus `registerGatewayAdapter`"
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#webhooks-branch",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "**Webhooks:** inbound verification/replay; outbound Standard Webhooks signing; queued deliveries, retries, logs, status."
+    },
+    {
+      "topicId": "rule:om-integration-builder/security-and-reliability#health-check-redaction",
+      "owner": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Health checks and OAuth refresh retries redact credentials and provider details"
+    }
+  ]
+}

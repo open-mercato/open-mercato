@@ -26,6 +26,9 @@ env:
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
 
+# `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
+# `develop`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `develop`.
 on:
   push:
     branches:
@@ -696,7 +699,7 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
-      JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       # The mock inbound webhook adapter now requires a real HMAC-SHA256
