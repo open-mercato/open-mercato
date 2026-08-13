@@ -64,17 +64,35 @@ Issue: #4976
 
 ### Phase 1: Teach the hub that recipients have shapes
 
-- [x] 1.1 Add optional `ChannelCapabilities.recipientFormat`, defaulting to email when absent
-- [x] 1.2 Add `lib/outbound-recipient.ts` with `validateOutboundRecipient`
-- [x] 1.3 Widen the `test-send` body schema and validate against the resolved adapter
-- [x] 1.4 Declare `recipientFormat: 'email'` on `baseEmailCapabilities`
+- [x] 1.1 Add optional `ChannelCapabilities.recipientFormat`, defaulting to email when absent — 7ac18fb674
+- [x] 1.2 Add `lib/outbound-recipient.ts` with `validateOutboundRecipient` — 7ac18fb674
+- [x] 1.3 Widen the `test-send` body schema and validate against the resolved adapter — 7ac18fb674
+- [x] 1.4 Declare `recipientFormat: 'email'` on `baseEmailCapabilities` — 7ac18fb674
 
 ### Phase 2: Prove it and record it
 
-- [x] 2.1 Unit tests covering both formats, CR/LF + path-traversal rejection, and shape guards
-- [x] 2.2 Document the recipient shape in the communication-channels provider guide
-- [x] 2.3 Record status + changelog in the Discord spec, including why `send-as-user` is excluded
+- [x] 2.1 Unit tests covering both formats, CR/LF + path-traversal rejection, and shape guards — 7ac18fb674
+- [x] 2.2 Document the recipient shape in the communication-channels provider guide — 7ac18fb674
+- [x] 2.3 Record status + changelog in the Discord spec, including why `send-as-user` is excluded — 7ac18fb674
 
 ### Validation gate result
 
-Filled in on the PR after the gate run.
+All eight configured `validation.commands` pass on `7ac18fb674`, run in **local mode** (no compose
+`app` container was running): `build:packages` ✅, `generate` ✅ (no generated-file drift),
+`build:packages` ✅, `i18n:check-sync` ✅ (5 locales in sync), `i18n:check-usage` ✅ (advisory-only
+unused-key report, unchanged by this PR), `typecheck` ✅, `test` ✅, `build:app` ✅.
+
+`yarn test` needed a second look and is reported honestly rather than as a clean pass:
+
+- The turbo run aborted at `@open-mercato/cli#test` with a process exit code of 1 while jest itself
+  reported `Tests: 1664 passed, 1664 total / Ran all test suites`. Re-run alone, the package is
+  **87/87 suites, 1679/1679 tests, exit 0**.
+- Because turbo aborts on first failure, `@open-mercato/core#test` never ran in that pass. Run
+  directly it reports **9630/9630 tests passed** with 2 suites *failed to run* — a jest worker killed
+  with `SIGSEGV`, one of them `payment_gateways/data/__tests__/encryption.test.ts`, which this PR does
+  not touch. Zero assertions failed.
+- Re-running those suites together with the whole `communication_channels` module: **69/69 suites,
+  625/625 tests, green.**
+
+Both failures are the known local worker/memory ceiling under load, not regressions. CI runs the
+gate on a quiet machine and is the authoritative signal.
