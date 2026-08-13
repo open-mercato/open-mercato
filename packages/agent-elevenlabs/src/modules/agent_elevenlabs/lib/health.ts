@@ -80,9 +80,14 @@ export function createElevenLabsVoiceHealthCheck(deps?: {
         }
         return {
           status: 'healthy',
-          message: 'ElevenLabs accepted the configured API key.',
+          message:
+            `ElevenLabs accepted the configured API key. The probe asks for a conversation id that ` +
+            `cannot exist, so HTTP ${status} is the expected answer — a rejected key would return 401.`,
           details: {
-            httpStatus: status,
+            // Labelled, not bare: a raw `404` beside a green badge reads as a
+            // fault and has been mistaken for one. The probe is a deliberate
+            // miss, so the status is evidence the credential worked.
+            probeResult: `HTTP ${status} (expected — the probe requests a non-existent conversation)`,
             // Echoing the non-secret configuration back makes a
             // "healthy but nothing works" report diagnosable at a glance.
             agentId: typeof credentials?.agentId === 'string' ? credentials.agentId : null,
