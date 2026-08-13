@@ -138,6 +138,29 @@ async function serializeIconMarkup(icon: React.ReactNode | undefined): Promise<s
   }
 }
 
+const NAV_ITEM_FALLBACK_WEIGHT = 10_000
+
+/**
+ * The weight a nav entry sorts by, using the same `priority ?? order` precedence as `buildAdminNav`.
+ *
+ * `serializeNavItem` emits this resolved number rather than the raw declaration, including the
+ * fallback, so a consumer that re-sorts by the field it receives lands on the order it was served in.
+ * Emitting the raw `priority ?? order` would leave `order` undefined on any page declaring neither —
+ * and the `(a.order ?? 0) - (b.order ?? 0)` idiom this codebase uses elsewhere would then hoist those
+ * pages to the top instead of leaving them last (#4845).
+ */
+function resolveNavItemWeight(item: AdminNavItem): number {
+  return item.priority ?? item.order ?? NAV_ITEM_FALLBACK_WEIGHT
+}
+
+function sortNavItemsByWeight(items: AdminNavItem[]): AdminNavItem[] {
+  return [...items].sort((a, b) => {
+    const weightDifference = resolveNavItemWeight(a) - resolveNavItemWeight(b)
+    if (weightDifference !== 0) return weightDifference
+    return a.title.localeCompare(b.title)
+  })
+}
+
 async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
   return {
     id: item.href,
@@ -149,7 +172,10 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     pageContext: item.pageContext,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
-    children: item.children ? await Promise.all(item.children.map((child) => serializeNavItem(child))) : undefined,
+    order: resolveNavItemWeight(item),
+    children: item.children
+      ? await Promise.all(sortNavItemsByWeight(item.children).map((child) => serializeNavItem(child)))
+      : undefined,
   }
 }
 
@@ -196,7 +222,7 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
   const defaultGroupCount = groupOrder.length
   groups.forEach((group, index) => {
     const rank = groupOrderIndex.get(group.id)
-    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : NAV_ITEM_FALLBACK_WEIGHT
     group.weight =
       (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
       Math.min(Math.max(fallbackWeight, 0), 999_999)
@@ -205,13 +231,12 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
 }
 
 async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight[]> {
-  const groupMap = new Map<string, NavGroupWithWeight>()
+  const groupMap = new Map<string, Omit<NavGroupWithWeight, 'items'> & { entries: AdminNavItem[] }>()
   for (const entry of entries) {
-    const weight = entry.priority ?? entry.order ?? 10_000
-    const serializedItem = await serializeNavItem(entry)
+    const weight = resolveNavItemWeight(entry)
     const existing = groupMap.get(entry.groupId)
     if (existing) {
-      existing.items.push(serializedItem)
+      existing.entries.push(entry)
       if (weight < existing.weight) existing.weight = weight
       continue
     }
@@ -219,11 +244,18 @@ async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight
       id: entry.groupId,
       name: entry.group,
       defaultName: entry.groupDefaultName,
-      items: [serializedItem],
+      entries: [entry],
       weight,
     })
   }
-  return normalizeGroupWeights(Array.from(groupMap.values()))
+  const groups: NavGroupWithWeight[] = []
+  for (const { entries: groupItems, ...group } of groupMap.values()) {
+    groups.push({
+      ...group,
+      items: await Promise.all(sortNavItemsByWeight(groupItems).map((entry) => serializeNavItem(entry))),
+    })
+  }
+  return normalizeGroupWeights(groups)
 }
 
 function adoptSidebarDefaults(groups: NavGroupWithWeight[]): NavGroupWithWeight[] {

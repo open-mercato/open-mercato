@@ -10,6 +10,7 @@ When working on search functionality, use this guide. It covers indexing, queryi
 4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
 5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
 6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search and the AI tools fail closed, so an entity without it silently vanishes from results for every non-superadmin.
 
 ## Ask First
 
@@ -304,6 +305,9 @@ formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | n
     { href: `/backend/module/${ctx.record.id}/edit`, label: 'Edit', kind: 'secondary' },
   ],
 
+  /** Per-entity view feature(s) required to read this entity through search */
+  aclFeatures: ['module.entity.view'],
+
   /** FOR FULLTEXT: Control field indexing */
   fieldPolicy: {
     searchable: ['name', 'description'],
@@ -521,6 +525,7 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 
 | Endpoint | Method | Permission | When to use |
 |----------|--------|------------|-------------|
+| `/api/search/search/global` | GET | `search.global` | When you need the Cmd+K palette's results (filtered by the caller's per-entity view features) |
 | `/api/search/settings/global-search` | GET | `search.view` | When you need to read which strategies are enabled for Cmd+K |
 | `/api/search/settings/global-search` | POST | `search.manage` | When you need to update enabled strategies for a tenant |
 | `/api/search/reindex` | POST | `search.manage` | When you need to trigger a fulltext reindex (after bulk data changes) |
@@ -712,6 +717,7 @@ buildSource: async (ctx) => {
 
 - [ ] Create `search.ts` in the module directory
 - [ ] Export `searchConfig` with correct `entityId` matching the entity registry
+- [ ] Declare `aclFeatures` with the owning module's view feature(s) — omitting it hides the entity from global search for every non-superadmin
 - [ ] Define `fieldPolicy` for fulltext (mark sensitive fields as `excluded` or `hashOnly`)
 - [ ] Define `buildSource` for vector search (include `checksumSource`)
 - [ ] Define `formatResult` for tokens strategy
