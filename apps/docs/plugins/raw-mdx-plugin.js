@@ -19,7 +19,9 @@ function getPublishedSourcePaths(generatedFilesDir) {
 
   return readdirSync(metadataDir)
     .filter((fileName) => fileName.startsWith('site-docs-') && fileName.endsWith('.json'))
-    .map((fileName) => JSON.parse(readFileSync(path.join(metadataDir, fileName), 'utf8')).source)
+    .map((fileName) => JSON.parse(readFileSync(path.join(metadataDir, fileName), 'utf8')))
+    .filter((metadata) => !metadata.draft && !metadata.unlisted)
+    .map((metadata) => metadata.source)
     .filter((sourcePath) => sourcePath?.startsWith(DOCS_SOURCE_PREFIX))
     .map((sourcePath) => sourcePath.slice(DOCS_SOURCE_PREFIX.length));
 }

@@ -50,6 +50,7 @@ test('every Copy page source URL resolves to its published raw MDX', async () =>
   const missingRawFiles = await Promise.all(
     metadataFiles.map(async (metadataFile) => {
       const metadata = JSON.parse(await readFile(new URL(metadataFile, docsMetadataDir), 'utf8'));
+      if (metadata.draft || metadata.unlisted) return null;
       if (!metadata.source?.startsWith(docsSourcePrefix)) return metadataFile;
       const sourcePath = metadata.source.slice(docsSourcePrefix.length);
 
