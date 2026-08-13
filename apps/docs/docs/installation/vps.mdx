@@ -114,17 +114,17 @@ sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
 docker compose -f docker-compose.fullapp.yml up -d
 ```
 
-Two variables bound how long tokens signed with the *previous* scheme keep working, so a rolling deployment does not log everyone out mid-request:
+Two variables bound how long tokens signed with the *previous* scheme keep working. Set both before a rolling deployment that must preserve those sessions; without a valid absolute cutover, legacy fallback stays disabled because a token signer controls its own `iat`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `JWT_LEGACY_GRACE_MINUTES` | `480` (8 hours — one token lifetime) | How long after a token was issued the pre-migration raw-secret verification still accepts it. `0`, `false` or `off` disables it outright (hard cutover) |
-| `JWT_LEGACY_CUTOVER_AT` | unset | An ISO-8601 instant after which pre-migration tokens are refused regardless of the grace window — set it to schedule the end of a migration in advance |
+| `JWT_LEGACY_CUTOVER_AT` | unset (fallback disabled) | Required to enable fallback. Set a near-term ISO-8601 instant after which every pre-migration token is refused regardless of its claimed issue time |
 
 Once the window closes, every token must carry a session id (`sid`) bound to a live session row, which is what makes logout and password reset revoke access immediately. Set `JWT_LEGACY_GRACE_MINUTES=0` on a fresh install: it has no pre-migration tokens to protect.
 
 :::warning
-Never leave the grace window open indefinitely "just in case". While it is open, a token signed with the raw `JWT_SECRET` is accepted without a session row, so it cannot be revoked before it expires.
+Never leave the grace window open indefinitely "just in case". The absolute cutover is mandatory because anyone holding the former raw secret can choose a fresh `iat`; while fallback is open, a legacy token is accepted without a session row and cannot be revoked before it expires.
 :::
 
 ---

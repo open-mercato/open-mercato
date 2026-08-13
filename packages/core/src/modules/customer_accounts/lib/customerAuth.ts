@@ -18,7 +18,12 @@ export interface CustomerAuthContext {
   isPortalAdmin?: boolean
 }
 
-async function assertSessionStillActive(sessionId: string): Promise<boolean> {
+async function assertSessionStillActive(input: {
+  sessionId: string
+  userId: string
+  tenantId: string
+  organizationId: string
+}): Promise<boolean> {
   try {
     const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
       import('@open-mercato/shared/lib/di/container'),
@@ -26,7 +31,7 @@ async function assertSessionStillActive(sessionId: string): Promise<boolean> {
     ])
     const container = await createRequestContainer()
     const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
-    const session = await service.findActiveSessionById(sessionId)
+    const session = await service.findActiveSessionForClaims(input)
     return session !== null
   } catch {
     // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
@@ -121,23 +126,33 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     if (payload.type !== 'customer') return null
     const sid = typeof payload.sid === 'string' ? payload.sid : ''
     if (!sid && payload._legacyToken !== true) return null
-    const stillActive = sid ? await assertSessionStillActive(sid) : true
+    const userId = String(payload.sub)
+    const tenantId = String(payload.tenantId)
+    const organizationId = String(payload.orgId)
+    const stillActive = sid
+      ? await assertSessionStillActive({
+          sessionId: sid,
+          userId,
+          tenantId,
+          organizationId,
+        })
+      : true
     if (!stillActive) return null
 
     const userState = await validateUserState(
-      String(payload.sub),
-      String(payload.tenantId),
-      String(payload.orgId),
+      userId,
+      tenantId,
+      organizationId,
       payload.iat,
     )
     if (!userState.valid) return null
 
     return {
-      sub: String(payload.sub),
+      sub: userId,
       sid,
       type: 'customer',
-      tenantId: String(payload.tenantId),
-      orgId: String(payload.orgId),
+      tenantId,
+      orgId: organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,

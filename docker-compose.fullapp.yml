@@ -78,6 +78,8 @@ services:
       # No default: a published fallback secret lets anyone forge tokens for this deployment.
       # Set JWT_SECRET in the .env file next to this compose file (`openssl rand -hex 32`).
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
+      JWT_LEGACY_GRACE_MINUTES: "${JWT_LEGACY_GRACE_MINUTES:-480}"
+      JWT_LEGACY_CUTOVER_AT: "${JWT_LEGACY_CUTOVER_AT:-}"
       # Code Mode api.request() must call back into the app over service DNS.
       # NEXT_PUBLIC_* are pinned so a stray .env cannot hijack the base URL.
       APP_URL: http://app:${CONTAINER_PORT:-3000}
@@ -179,6 +181,8 @@ services:
       # No default: a published fallback secret lets anyone forge tokens for this deployment.
       # Set JWT_SECRET in the .env file next to this compose file (`openssl rand -hex 32`).
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
+      JWT_LEGACY_GRACE_MINUTES: "${JWT_LEGACY_GRACE_MINUTES:-480}"
+      JWT_LEGACY_CUTOVER_AT: "${JWT_LEGACY_CUTOVER_AT:-}"
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
       CONSENT_INTEGRITY_SECRET: ${CONSENT_INTEGRITY_SECRET:-}
       APP_URL: ${APP_URL:-http://localhost:3000}

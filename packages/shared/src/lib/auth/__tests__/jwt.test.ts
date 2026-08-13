@@ -239,7 +239,7 @@ describe('jwt helpers', () => {
     beforeEach(() => {
       process.env.JWT_SECRET = baseSecret
       delete process.env.JWT_LEGACY_GRACE_MINUTES
-      delete process.env.JWT_LEGACY_CUTOVER_AT
+      process.env.JWT_LEGACY_CUTOVER_AT = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString()
     })
 
     afterEach(() => {
@@ -311,6 +311,32 @@ describe('jwt helpers', () => {
       expect(verifyJwt(token)).toBeNull()
     })
 
+    it('rejects legacy fallback unless an explicit absolute cutover is configured', () => {
+      delete process.env.JWT_LEGACY_CUTOVER_AT
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('rejects a legacy token issued beyond the allowed clock skew', () => {
+      const futureIssuedAt = Math.floor(now.getTime() / 1000) + 61
+      const legacyToken = signJwt(
+        { sub: 'legacy-user', iat: futureIssuedAt },
+        baseSecret,
+        30 * 24 * 3600,
+      )
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('accepts one minute of issuer clock skew during an explicitly bounded migration', () => {
+      const futureIssuedAt = Math.floor(now.getTime() / 1000) + 60
+      const legacyToken = signJwt(
+        { sub: 'legacy-user', iat: futureIssuedAt },
+        baseSecret,
+        30 * 24 * 3600,
+      )
+      expect(verifyJwt(legacyToken)).not.toBeNull()
+    })
+
     it('rejects legacy tokens once the configured cutover instant has passed', () => {
       process.env.JWT_LEGACY_GRACE_MINUTES = '480'
       const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
@@ -356,11 +382,11 @@ describe('jwt helpers', () => {
       expect(verifyJwt(legacyToken)).toBeNull()
     })
 
-    it('ignores an unparseable cutover instead of treating the window as already closed', () => {
+    it('disables legacy fallback when the configured cutover is unparseable', () => {
       process.env.JWT_LEGACY_GRACE_MINUTES = '60'
       process.env.JWT_LEGACY_CUTOVER_AT = 'not-a-date'
       const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 30 * 24 * 3600)
-      expect(verifyJwt(legacyToken)).not.toBeNull()
+      expect(verifyJwt(legacyToken)).toBeNull()
     })
 
     it('ignores a _legacyToken claim smuggled into a modern token payload', () => {
@@ -388,6 +414,12 @@ describe('jwt helpers', () => {
       // Assert the reason, not merely that it threw: `JWT` is also under the length floor, so a
       // policy that had stopped recognizing placeholders would still throw here for the wrong
       // reason and the test would pass while the placeholder set had quietly become dead code.
+      expect(() => signJwt({ sub: 'user-1' })).toThrow(/placeholder value published/i)
+    })
+
+    it('refuses the 32-character placeholder shipped in the previous production guide', () => {
+      process.env.NODE_ENV = 'production'
+      process.env.JWT_SECRET = 'your-secure-jwt-secret-change-me'
       expect(() => signJwt({ sub: 'user-1' })).toThrow(/placeholder value published/i)
     })
 

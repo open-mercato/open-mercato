@@ -390,6 +390,7 @@ describe('staff legacy tokens across the migration window', () => {
   const em = {} as import('@mikro-orm/postgresql').EntityManager
   const originalJwtSecret = process.env.JWT_SECRET
   const originalGrace = process.env.JWT_LEGACY_GRACE_MINUTES
+  const originalCutover = process.env.JWT_LEGACY_CUTOVER_AT
   const rawSecret = 'staff-legacy-window-test-secret'
 
   beforeEach(() => {
@@ -398,6 +399,7 @@ describe('staff legacy tokens across the migration window', () => {
     findOneWithDecryption.mockResolvedValue(null)
     process.env.JWT_SECRET = rawSecret
     process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    process.env.JWT_LEGACY_CUTOVER_AT = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
   })
 
   afterEach(() => {
@@ -405,6 +407,8 @@ describe('staff legacy tokens across the migration window', () => {
     process.env.JWT_SECRET = originalJwtSecret
     if (originalGrace === undefined) delete process.env.JWT_LEGACY_GRACE_MINUTES
     else process.env.JWT_LEGACY_GRACE_MINUTES = originalGrace
+    if (originalCutover === undefined) delete process.env.JWT_LEGACY_CUTOVER_AT
+    else process.env.JWT_LEGACY_CUTOVER_AT = originalCutover
   })
 
   function signSessionlessLegacyToken(): string {

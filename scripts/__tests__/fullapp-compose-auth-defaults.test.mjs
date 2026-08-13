@@ -49,4 +49,19 @@ for (const relPath of PRODUCTION_COMPOSE_FILES) {
       )
     }
   })
+
+  test(`${relPath} passes the bounded legacy-token controls into every JWT consumer`, () => {
+    const content = read(relPath)
+    const jwtAssignments = content.match(/^\s*JWT_SECRET:.*$/gm) ?? []
+    const graceAssignments = content.match(/^\s*JWT_LEGACY_GRACE_MINUTES:.*$/gm) ?? []
+    const cutoverAssignments = content.match(/^\s*JWT_LEGACY_CUTOVER_AT:.*$/gm) ?? []
+    assert.equal(graceAssignments.length, jwtAssignments.length)
+    assert.equal(cutoverAssignments.length, jwtAssignments.length)
+    for (const line of graceAssignments) {
+      assert.match(line, /\$\{JWT_LEGACY_GRACE_MINUTES:-480\}/)
+    }
+    for (const line of cutoverAssignments) {
+      assert.match(line, /\$\{JWT_LEGACY_CUTOVER_AT:-\}/)
+    }
+  })
 }

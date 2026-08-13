@@ -34,6 +34,7 @@ const DEFAULT_STAFF_AUDIENCE: JwtAudience = 'staff'
 const AUDIENCE_SECRET_LABEL = 'open-mercato:jwt:v1'
 
 const LEGACY_GRACE_DEFAULT_MINUTES = 480
+const LEGACY_TOKEN_CLOCK_SKEW_SECONDS = 60
 
 /**
  * How long after a token was issued (`iat`) the raw-`JWT_SECRET` fallback in `verifyJwt` keeps
@@ -52,10 +53,10 @@ function getLegacyGraceMinutes(): number {
 }
 
 /**
- * Absolute deadline for the legacy fallback, as an ISO-8601 instant in `JWT_LEGACY_CUTOVER_AT`.
- * Once it passes, raw-secret tokens are rejected no matter what the grace window says — this is
- * what lets an operator schedule the migration end date up front instead of remembering to flip
- * `JWT_LEGACY_GRACE_MINUTES` by hand.
+ * Required absolute deadline for the legacy fallback, as an ISO-8601 instant in
+ * `JWT_LEGACY_CUTOVER_AT`. Without a valid deadline the fallback stays disabled: token `iat` is
+ * attacker-controlled by anyone who knows the former raw secret, so a relative age check alone
+ * cannot make the migration window finite.
  */
 function getLegacyCutoverEpochSeconds(): number | null {
   const raw = process.env.JWT_LEGACY_CUTOVER_AT
@@ -64,7 +65,7 @@ function getLegacyCutoverEpochSeconds(): number | null {
   if (Number.isNaN(parsed)) {
     warnOnce(
       'jwt-legacy-cutover-unparseable',
-      'JWT_LEGACY_CUTOVER_AT is not a valid ISO-8601 instant — ignoring it and relying on JWT_LEGACY_GRACE_MINUTES alone.',
+      'JWT_LEGACY_CUTOVER_AT is not a valid ISO-8601 instant — legacy JWT fallback remains disabled.',
     )
     return null
   }
@@ -89,6 +90,7 @@ const PLACEHOLDER_SECRETS = new Set([
   'change-me-dev-secret',
   'change-me-dev-auth-secret',
   'your-strong-jwt-secret',
+  'your-secure-jwt-secret-change-me',
   'dev',
   'development',
   'test',
@@ -317,9 +319,10 @@ function verifyWithOptions(token: string, options: { secret: string; audience?: 
 function isWithinLegacyWindow(payload: JwtPayload, graceMinutes: number): boolean {
   const cutoverAt = getLegacyCutoverEpochSeconds()
   const now = Math.floor(Date.now() / 1000)
-  if (cutoverAt !== null && now >= cutoverAt) return false
+  if (cutoverAt === null || now >= cutoverAt) return false
   const issuedAt = payload.iat
   if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) return false
+  if (issuedAt > now + LEGACY_TOKEN_CLOCK_SKEW_SECONDS) return false
   return now - issuedAt <= graceMinutes * 60
 }
 
