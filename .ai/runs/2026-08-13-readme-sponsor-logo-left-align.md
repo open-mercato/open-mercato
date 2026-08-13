@@ -49,4 +49,4 @@ PR: #5258
 
 ### Phase 3: Backport to main
 
-- [ ] 3.1 Cherry-pick the README fix onto a branch off `origin/main` and open a PR targeting `main`
+- [x] 3.1 Cherry-pick the README fix onto a branch off `origin/main` and open a PR targeting `main` — fec30d14d (PR #5259)
