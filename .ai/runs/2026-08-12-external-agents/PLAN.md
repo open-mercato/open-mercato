@@ -44,7 +44,7 @@ top of that seam.
 | 4.1 | Second connector: generic HTTP/webhook connector proving the interface | DONE | `5e545ff8d` |
 | 4.2 | Authoring guard: Studio warns when an external agent sits in a parallel branch | DONE | `897782f18` |
 | 4.3 | Docs: framework docs page + spec/AGENTS.md updates + dispatch-spec feedback | TODO | |
-| 4.4 | **Server-side out-of-band flag** (added 2026-08-12 — the AI draft agent can still author T4.2's mistake) | TODO | |
+| 4.4 | **Server-side out-of-band flag** (added 2026-08-12 — the AI draft agent can still author T4.2's mistake) | DONE | `8b6c83ba6` |
 
 ---
 
@@ -784,6 +784,31 @@ Append one entry per task as it lands — decisions made, surprises found, devia
 - 2026-08-13 — T4.1 residual asymmetry: `cancel(externalRunId, scope)` still receives no container. The
   sweep is its only caller and neither shipped connector implements `cancel`; close it the same way if one
   ever needs credentials to cancel.
+- 2026-08-13 — **T4.4 done. `suspends`, not `runtime` — and the real reason is the MODULE BOUNDARY**, not
+  (only) that it names the property that matters. A `runtime: string` flag would force CORE to hold a list of
+  enterprise's runtime names and relearn it whenever the peer adds one — exactly the coupling the duck-typed
+  optional-peer bridge exists to prevent. With `suspends` the peer classifies its own runtimes and core asks
+  one question it can answer for itself.
+- 2026-08-13 — T4.4: `evaluateWorkflowDefinition` has FIVE call sites, all now covered — the prompt-to-draft
+  route, `validate_definition`, `validate_workflow_definition` (the in-Studio draft agent's own
+  self-correction loop), `create_definition` and `update_definition`. Note the plan's "definitions API" was
+  imprecise: `api/definitions/route.ts` and `[id]/route.ts` never call it (they use
+  `normalizeDefinitionValidationIssues` directly), so nothing there changed.
+- 2026-08-13 — T4.4 structural constraint that decided the design: `lib/definition-evaluation.ts` is imported
+  by a CLIENT component, so it must not import `server-output-contract.ts` (which pulls the activity-registry
+  bootstrap and endpoint catalog into the browser bundle). Hence an explicit `outOfBandAgentIds` option
+  threaded by server callers rather than an implicit module read — and hence the two extra core files.
+- 2026-08-13 — T4.4 cache honesty: `ensureWorkflowAgentOutcomeContracts` memoises per-process and is never
+  invalidated. That is CORRECT here because the agent registry is CODE, not tenant state, so it cannot change
+  while a process runs. A long-lived process predating a deploy that adds an external agent stays SILENT,
+  never wrong — a false positive is impossible, since an id in the set was `runtime: 'external'` at boot.
+- 2026-08-13 — **T4.4 open follow-up (T4.3 docs / a later task): ONE fact, TWO sources.** The browser derives
+  out-of-band-ness from `runtime === 'external'` on the agents REST endpoint; the server now uses `suspends`.
+  Harmless today (`external` is the only suspending runtime) and the anti-drift test pins the shared detection
+  path, but a FUTURE suspending runtime would make the server warn while the browser stays silent. Collapse
+  them by serving `suspends` from `api/agents/route.ts` and reading it in `useOutOfBandAgents.ts`.
+- 2026-08-13 — **BC lines for T4.3:** `AgentOutcomeContractSnapshot.suspends` (T4.4) and the `normalize`
+  context/async widening (T4.1) are both ADDITIVE optional changes to public types.
 - 2026-08-12 — **CORRECTION to this plan: the repo has FIVE locales, not four.** `i18n/ko.json` exists and
   `yarn i18n:check-sync` fails without it (it holds English placeholders throughout, so an English string is
   the correct fill). Every "4 locales" instruction in this file is wrong; T4.3 should fix the wording.
