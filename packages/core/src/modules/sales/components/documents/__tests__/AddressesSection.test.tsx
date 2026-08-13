@@ -84,7 +84,20 @@ jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({
-  AddressEditor: () => null,
+  AddressEditor: ({ value, onChange }: any) => (
+    <button
+      type="button"
+      onClick={() =>
+        onChange(
+          Object.fromEntries(
+            Object.keys(value ?? {}).map((key) => [key, typeof value[key] === 'boolean' ? false : '']),
+          ),
+        )
+      }
+    >
+      Clear address fields
+    </button>
+  ),
 }))
 
 jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
@@ -264,5 +277,34 @@ describe('SalesDocumentAddressesSection', () => {
       taxId: 'PL1234567890',
       phone: '+48 600 100 200',
     })
+  })
+
+  it('clears the whole snapshot when every editable field is emptied, keeping no unowned keys', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+          taxId: 'PL1234567890',
+          phone: '+48 600 100 200',
+        }}
+      />,
+    )
+
+    await screen.findByRole('button', { name: 'Update addresses' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear address fields' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, request] = mockApiCallOrThrow.mock.calls[0]
+    const payload = JSON.parse(request.body)
+    expect(payload.shippingAddressSnapshot).toBeNull()
   })
 })

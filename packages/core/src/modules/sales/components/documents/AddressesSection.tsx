@@ -96,9 +96,13 @@ function normalizeAddressDraft(
 ): Record<string, unknown> | null {
   if (!draft) return null
   const normalized: Record<string, unknown> = {}
+  let hasEditableContent = false
   const assign = (key: keyof AddressEditorDraft, target: string) => {
     const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
+    if (typeof value === 'string' && value.trim().length) {
+      normalized[target] = value.trim()
+      hasEditableContent = true
+    }
     if (typeof value === 'boolean') normalized[target] = value
   }
   assign('name', 'name')
@@ -113,7 +117,7 @@ function normalizeAddressDraft(
   assign('postalCode', 'postalCode')
   assign('country', 'country')
   assign('isPrimary', 'isPrimary')
-  if (!Object.keys(normalized).length) return null
+  if (!hasEditableContent) return null
   if (previous) {
     for (const [key, value] of Object.entries(previous)) {
       if (EDITABLE_SNAPSHOT_KEYS.has(key)) continue
