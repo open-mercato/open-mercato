@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
+import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
 
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
@@ -106,6 +107,15 @@ export const composeMessageSchema = z.object({
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
   externalName: z.string().min(1).max(255).optional(),
+  /**
+   * Channel type the message originates from, when the caller knows it (#4975).
+   * Non-email channels (Discord, Slack, SMS…) have senders with no address, so
+   * `externalEmail` is not required for them. Resolved server-side — the HTTP
+   * route strips any client-sent value and derives it from the referenced
+   * conversation or parent message, so a caller cannot waive the requirement by
+   * asserting its own channel type.
+   */
+  sourceChannelType: z.string().min(1).max(64).optional(),
   recipients: z.array(messageRecipientSchema).max(100).optional().default([]),
   subject: z.string().max(500).optional().default(''),
   body: z.string().max(50000).optional().default(''),
@@ -128,7 +138,10 @@ export const composeMessageSchema = z.object({
 
   if (!isDraft) {
     if (visibility === 'public') {
-      if (!hasExternalEmail) {
+      // #4975: an external correspondent is only guaranteed to have an address
+      // on an email-typed channel. `channelTypeRequiresExternalEmail` fails
+      // closed, so an unknown or absent channel type keeps the original rule.
+      if (!hasExternalEmail && channelTypeRequiresExternalEmail(value.sourceChannelType)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['externalEmail'],
