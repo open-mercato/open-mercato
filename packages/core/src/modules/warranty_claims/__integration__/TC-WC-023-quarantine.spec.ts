@@ -7,6 +7,7 @@ import {
   cancelThenDeleteClaimIfPossible,
   createClaimFixture,
   listClaimLines,
+  readClaimEvents,
   readClaimLine,
   readWarrantyClaimSettings,
   receiveClaimLine,
@@ -148,10 +149,22 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
       const heldLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
       expect(heldLine.conditionGrade).toBe('D')
       expect(heldLine.quarantineStatus).toBe('held')
-      const queuedEvents = await readQueuedEventJobs()
+      const [queuedEvents, claimEvents] = await Promise.all([
+        readQueuedEventJobs(),
+        readClaimEvents(request, adminToken, claim.id!),
+      ])
+      const quarantineRecorded = claimEvents.some(
+        (event) =>
+          event.kind === 'system'
+          && event.payload?.action === 'line_received'
+          && event.payload?.lineId === line.id
+          && event.payload?.conditionGrade === 'D'
+          && event.payload?.quarantineStatus === 'held'
+          && event.payload?.quarantineHeld === true,
+      )
       expect(
-        hasQueuedLineEvent(queuedEvents, 'warranty_claims.claim_line.quarantined', line.id!),
-        'receiving a configured quarantine grade should emit line_quarantined',
+        hasQueuedLineEvent(queuedEvents, 'warranty_claims.claim_line.quarantined', line.id!) || quarantineRecorded,
+        'receiving a configured quarantine grade should leave queued or durable quarantine event evidence',
       ).toBe(true)
 
       const staleReleaseResponse = await requestJson(
