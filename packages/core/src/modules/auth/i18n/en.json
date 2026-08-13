@@ -149,6 +149,7 @@
   "auth.session.refresh.errors.invalidToken": "Invalid or expired refresh token",
   "auth.signIn": "Sign in",
   "auth.users.consents.empty": "No consent records found.",
+  "auth.users.consents.errors.tenantContextRequired": "Tenant context is required",
   "auth.users.consents.field.createdAt": "Created",
   "auth.users.consents.field.grantedAt": "Granted at",
   "auth.users.consents.field.integrity": "Integrity",

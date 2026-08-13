@@ -1,8 +1,28 @@
 # Lessons
 
-This catalog indexes 132 focused lessons. Route by module, standalone-harness area, and topic; open only records, never the full directory.
+This catalog indexes 133 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
-For changes, keep one reusable record with exact `title`/`modules`/`areas`/`topics` front matter and one matching row; put hard rules in the closest `AGENTS.md`; run `yarn lessons:check`.
+## How to use this catalog
+
+1. Start with the exact module ID when one is named by the task.
+2. Add every matching area from the standalone harness router: `architecture`, `module-data`, `umes`, `backend-ui`, `integration`, `ai-workflow`, `debugging`, `testing`, `framework-context`, or `spec-pr`.
+3. Use topics to narrow cross-cutting concerns such as `data-scoping`, `optimistic-locking`, `query-index`, or `generated-files`.
+4. Open only the linked lesson records that match; do not bulk-read `.ai/lessons/`.
+
+Useful searches:
+
+```bash
+rg -n '\b<module-or-topic>\b' .ai/lessons.md
+rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
+```
+
+## Adding or updating a lesson
+
+- Keep one reusable lesson per `.ai/lessons/<kebab-case-slug>.md`; update an existing record instead of duplicating it.
+- Preserve the front matter keys `title`, `modules`, `areas`, and `topics`. Use `platform` only when no module or package owns the lesson, and put the primary area first.
+- Add or update exactly one catalog row below. Keep the title stable when existing code/specs cite it.
+- Put hard boundaries in the closest `AGENTS.md`; lessons explain recurring evidence and the durable rule.
+- Run `yarn lessons:check` before committing.
 
 ## Catalog
 
@@ -122,7 +142,8 @@ For changes, keep one reusable record with exact `title`/`modules`/`areas`/`topi
 - [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
 - [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app; topic:access-control,data-scoping,events
-- [Fix flaky integration tests at the cause, not with higher timeouts](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks,warranty_claims; topic:events,testing,workers,hydration,component-overrides,timers
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks,warranty_claims; topic:events,testing,workers,hydration,component-overrides,timers
+- [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
 - [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
 - [Validate persisted-definition consumers before retiring legacy workflow rows](lessons/validate-persisted-definition-consumers-before-retiring.md) — area:integration,architecture,debugging; module:checkout,webhooks; topic:generated-files,database-migrations,webhooks

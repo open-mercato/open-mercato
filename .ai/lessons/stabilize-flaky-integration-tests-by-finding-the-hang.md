@@ -1,11 +1,11 @@
 ---
-title: "Fix flaky integration tests at the cause, not with higher timeouts"
+title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
 
-# Fix flaky integration tests at the cause, not with higher timeouts
+# Stabilize flaky integration tests by finding the hang, not by raising the timeout
 
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 

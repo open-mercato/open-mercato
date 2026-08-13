@@ -20,9 +20,34 @@ import { pathToFileURL } from 'node:url'
 export type ModuleActivationEntry = {
   id: string
   from: string
+  additionalPropertiesSource?: string
 }
 
 export const EXAMPLE_ACTIVATION_ENTRY: ModuleActivationEntry = { id: 'example', from: '@app' }
+export const EXAMPLE_INTEGRATION_ACTIVATION_ENTRY: ModuleActivationEntry = {
+  id: 'example',
+  from: '@app',
+  additionalPropertiesSource: `overrides: {
+      acl: {
+        features: { 'example.manage': null },
+      },
+      nav: {
+        groupOrder: ['example.nav.group'],
+      },
+      routes: {
+        api: {
+          'GET /api/example/override-probe': {
+            handler: async () => Response.json({
+              ok: true,
+              source: 'modules.ts override',
+              route: 'example.override-probe',
+            }),
+            metadata: { requireAuth: false },
+          },
+        },
+      },
+    },`,
+}
 export const DESIGN_SYSTEM_ACTIVATION_ENTRY: ModuleActivationEntry = {
   id: 'design_system',
   from: '@open-mercato/core',
@@ -89,7 +114,11 @@ export function enableModuleEntry(modulesTsPath: string, entry: ModuleActivation
   )
 
   const insertAt = anchorIndex + ENABLED_MODULES_ANCHOR.length
-  const activated = `${source.slice(0, insertAt)}\n  { id: '${entry.id}', from: '${entry.from}' },${source.slice(insertAt)}`
+  const additionalProperties = entry.additionalPropertiesSource
+    ? `\n${entry.additionalPropertiesSource.split('\n').map((line) => `    ${line}`).join('\n')}`
+    : ''
+  const entrySource = `\n  {\n    id: '${entry.id}',\n    from: '${entry.from}',${additionalProperties}\n  },`
+  const activated = `${source.slice(0, insertAt)}${entrySource}${source.slice(insertAt)}`
   fs.writeFileSync(modulesTsPath, activated)
 }
 

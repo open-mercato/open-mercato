@@ -75,6 +75,19 @@ test('lesson catalog checker accepts a focused tagged record', () => {
   }
 })
 
+test('lesson catalog budget scales with the record count instead of a fixed cap', () => {
+  const rootDir = createCatalogFixture()
+  try {
+    const indexPath = path.join(rootDir, '.ai', 'lessons.md')
+    const filler = `\n${'The routing preamble grew far beyond what one record justifies. '.repeat(300)}\n`
+    fs.appendFileSync(indexPath, filler)
+    const errors = checkLessonsCatalog(rootDir)
+    assert.ok(errors.some((error) => error.includes('progressive-loading budget')))
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true })
+  }
+})
+
 test('lesson catalog checker rejects invalid areas and index drift', () => {
   const rootDir = createCatalogFixture()
   try {
