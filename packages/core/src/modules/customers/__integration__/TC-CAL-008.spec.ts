@@ -165,20 +165,25 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
     await waitForCalendarLoaded(page);
 
     const coords = await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>('.overflow-auto');
       const layers = Array.from(document.querySelectorAll<HTMLElement>('.cursor-cell'));
+      const scroller = layers[0]?.closest<HTMLElement>('.overflow-auto');
       if (!scroller || layers.length === 0) return null;
       // Scroll into a late-day region where seeded/demo events are unlikely.
       scroller.scrollTop = Math.floor(scroller.scrollHeight * 0.6);
       const viewport = scroller.getBoundingClientRect();
       for (const layer of layers) {
         const rect = layer.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
+        const visibleLeft = Math.max(rect.left, viewport.left);
+        const visibleRight = Math.min(rect.right, viewport.right);
+        const visibleTop = Math.max(rect.top, viewport.top);
+        const visibleBottom = Math.min(rect.bottom, viewport.bottom);
+        if (visibleRight <= visibleLeft || visibleBottom - visibleTop < 64) continue;
+        const x = visibleLeft + (visibleRight - visibleLeft) / 2;
         for (let fraction = 0.3; fraction < 0.75; fraction += 0.05) {
-          const y = viewport.top + viewport.height * fraction;
+          const y = visibleTop + (visibleBottom - visibleTop) * fraction;
           const hit = document.elementFromPoint(x, y);
           if (hit && hit.classList.contains('cursor-cell')) {
-            return { x, y0: y, y1: Math.min(y + 130, viewport.bottom - 16) };
+            return { x, y0: y, y1: Math.min(y + 130, visibleBottom - 16) };
           }
         }
       }
