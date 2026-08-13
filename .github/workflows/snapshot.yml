@@ -233,7 +233,7 @@ jobs:
           # Without this every portal invite 502s (TC-AUTH-032/033, TC-CACC-INVITE-PERSON-001).
           PLATFORM_PORTAL_BASE_URL=http://localhost:3001
           AUTH_SECRET=ci-standalone-test-auth-secret
-          JWT_SECRET=ci-standalone-test-jwt-secret
+          JWT_SECRET=ci-standalone-test-jwt-secret-32-chars-min
           OM_SECURITY_MFA_SETUP_SECRET=ci-standalone-test-mfa-setup-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test
@@ -349,7 +349,7 @@ jobs:
           # writes captured emails here and TC-AUTH-033 reads them back.
           OM_TEST_EMAIL_CAPTURE_PATH: ${{ github.workspace }}/.ai/qa/email-capture.jsonl
           AUTH_SECRET: ci-standalone-test-auth-secret
-          JWT_SECRET: ci-standalone-test-jwt-secret
+          JWT_SECRET: ci-standalone-test-jwt-secret-32-chars-min
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ci-standalone-test-fallback-key
           OM_SECURITY_MFA_SETUP_SECRET: ci-standalone-test-mfa-setup-secret
           MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
