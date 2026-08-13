@@ -3,7 +3,7 @@
  */
 import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '../DataTable'

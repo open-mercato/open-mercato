@@ -1457,7 +1457,10 @@ function pageRoutePath(moduleId, surface, pageFile) {
 }
 
 function installedFactRoutes(root) {
-  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  const factsV2File = path.join(root, '.ai', 'guides', 'module-facts.v2.json')
+  const factsFile = safeTargetEntry(root, factsV2File)
+    ? factsV2File
+    : path.join(root, '.ai', 'guides', 'module-facts.json')
   const factsStat = safeTargetEntry(root, factsFile)
   if (!factsStat) return []
   if (!factsStat.isFile()) throw new Error('installed module facts must be a regular file')
@@ -1471,7 +1474,7 @@ function installedFactRoutes(root) {
     if (!moduleFacts || typeof moduleFacts !== 'object' || Array.isArray(moduleFacts)) continue
     const sourceRoot = typeof moduleFacts.sourceRoot === 'string'
       ? moduleFacts.sourceRoot
-      : `.ai/guides/module-facts.json#${moduleId}`
+      : `.ai/guides/${path.basename(factsFile)}#${moduleId}`
     for (const apiRoute of Array.isArray(moduleFacts.apiRoutes) ? moduleFacts.apiRoutes : []) {
       if (!apiRoute || typeof apiRoute !== 'object' || typeof apiRoute.path !== 'string') continue
       const methods = new Set(

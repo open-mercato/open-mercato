@@ -229,7 +229,7 @@ Generation diagnostics must distinguish `optional-target-missing` from `unresolv
 
 ## API Contracts
 
-No HTTP API is added or changed. The only published output changes are optional fields on each module's existing `ModuleFactsJsonEntry.extensionSurfaces`; the top-level `module-facts.json` record and every existing extension-surface field retain their current shape and meaning.
+No HTTP API is added or changed. The only published output changes are optional fields on each module's existing `ModuleFactsJsonEntry.extensionSurfaces`; the top-level `module-facts.json` v1 compatibility record and additive `module-facts.v2.json` corrected record retain the same `Record<moduleId, ModuleFactsJsonEntry>` shape.
 
 ## Backward Compatibility
 

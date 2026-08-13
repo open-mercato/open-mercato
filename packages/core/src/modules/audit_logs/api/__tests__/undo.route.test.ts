@@ -102,6 +102,64 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     }))
   })
 
+  // A command can refuse an undo for a reason the operator can act on — reverting a
+  // role grant that would drop a tenant below a protected role's active-holder floor.
+  // Flattening that to a generic "Undo failed" leaves them with no idea why.
+  it('surfaces a command CrudHttpError body and status instead of a generic failure', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const target = {
+      id: 'log-1',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    const { CrudHttpError } = await import('@open-mercato/shared/lib/crud/errors')
+    mockCommandBus.undo.mockRejectedValue(
+      new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' }),
+    )
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Cannot remove the last active holder of role "admin"',
+    })
+  })
+
+  it('keeps unexpected failures generic so internals are not leaked', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const target = {
+      id: 'log-1',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockCommandBus.undo.mockRejectedValue(new Error('connection terminated: relation "users" does not exist'))
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
+  })
+
   // Regression for issue #2398 — org create/update/delete/reparent log rows are
   // tenant-level (organization_id = NULL). A super-admin resolves to a concrete
   // home org, so the old code re-looked-up the latest undoable action with that
