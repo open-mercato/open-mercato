@@ -424,6 +424,22 @@ We welcome contributions of all sizes—from fixes and docs updates to new modul
 
 Refer to [AGENTS.md](AGENTS.md) for deeper guidance on architecture and conventions when extending modules.
 
+## Sponsors
+
+### Blacksmith
+
+<a href="https://www.blacksmith.sh/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-White-Large.png" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" />
+    <img src="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" alt="Blacksmith logo" width="240" />
+  </picture>
+</a>
+
+Open Mercato's continuous integration is powered by [Blacksmith](https://www.blacksmith.sh/), providing fast and reliable GitHub Actions runners for the project.
+
+### Catch The Tornado
+
 Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
 
 <div align="center">
