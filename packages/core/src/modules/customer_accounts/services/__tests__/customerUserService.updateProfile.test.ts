@@ -61,7 +61,12 @@ describe('CustomerUserService.updateProfile', () => {
     expect(findOneWithDecryptionMock).toHaveBeenCalledTimes(1)
     const [, entity, where, , scope] = findOneWithDecryptionMock.mock.calls[0]
     expect(entity).toBe(CustomerUser)
-    expect(where).toMatchObject({ id: user.id, tenantId: user.tenantId, deletedAt: null })
+    expect(where).toMatchObject({
+      id: user.id,
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
+      deletedAt: null,
+    })
     expect(scope).toEqual({ tenantId: user.tenantId, organizationId: user.organizationId })
   })
 

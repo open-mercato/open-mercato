@@ -119,7 +119,7 @@ export class CustomerUserService {
     const managed = await findOneWithDecryption(
       this.em,
       CustomerUser,
-      { id: user.id, tenantId: user.tenantId, deletedAt: null } as any,
+      { id: user.id, tenantId: user.tenantId, organizationId: user.organizationId, deletedAt: null } as any,
       undefined,
       { tenantId: user.tenantId, organizationId: user.organizationId },
     )

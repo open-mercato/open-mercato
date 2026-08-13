@@ -86,7 +86,10 @@ function splitTopLevelArguments(args: string): string[] {
 
 // The update payload is often built in a local variable rather than passed inline, so
 // resolve identifiers back to the object literal they were declared with plus every
-// `payload.field = …` assignment made on them before the write.
+// `payload.field = …` assignment made on them before the write. Resolution is file-scoped
+// and therefore deliberately over-inclusive: when two functions in one file both build a
+// `updates` payload, assignments from both are considered. That direction produces a false
+// alarm at worst, never a missed plaintext write.
 function resolvePayloadText(payload: string, source: string): string {
   if (!/^[A-Za-z_$][\w$]*$/.test(payload)) return payload
   const declaration = new RegExp(`\\b(?:const|let|var)\\s+${payload}\\b[^=]*=\\s*`).exec(source)
