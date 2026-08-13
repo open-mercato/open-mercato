@@ -5,40 +5,24 @@ import * as React from 'react'
 import { cleanup } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { AgendaList } from '../AgendaList'
-import type { CalendarItem } from '../types'
+import { buildCalendarItem } from './fixtures'
 
-function buildItem(): CalendarItem {
-  const start = new Date('2026-08-10T12:00:00.000Z')
-  const end = new Date('2026-08-10T13:00:00.000Z')
-  return {
-    id: 'item-1',
-    title: 'Quarterly review',
-    interactionType: 'meeting',
-    category: 'meeting',
-    status: 'planned',
-    start,
-    end,
-    allDay: false,
-    location: null,
-    platform: null,
-    locationKind: null,
-    participants: [],
-    ownerUserId: null,
-    entityId: null,
-    dealId: null,
-    color: null,
-    isRecurringOccurrence: false,
-    updatedAt: null,
-    raw: { id: 'item-1', interactionType: 'meeting', status: 'planned' },
-  }
-}
+const AGENDA_ANCHOR = new Date(2026, 7, 10, 0, 0, 0)
 
 function renderAgenda(locale: string) {
-  const anchor = new Date('2026-08-10T00:00:00.000Z')
   return renderWithProviders(
-    <AgendaList anchor={anchor} horizonDays={0} items={[buildItem()]} onItemClick={jest.fn()} />,
+    <AgendaList anchor={AGENDA_ANCHOR} horizonDays={0} items={[buildCalendarItem()]} onItemClick={jest.fn()} />,
     { locale },
   )
+}
+
+function dayGroupHeadingText(container: HTMLElement): string {
+  const heading = container.querySelector('button')?.previousElementSibling
+  return heading?.querySelector('span')?.textContent ?? ''
+}
+
+function eventRowLabel(container: HTMLElement): string {
+  return container.querySelector('button[aria-label]')?.getAttribute('aria-label') ?? ''
 }
 
 describe('AgendaList — locale-aware date/time formatting (#5116)', () => {
@@ -48,13 +32,11 @@ describe('AgendaList — locale-aware date/time formatting (#5116)', () => {
 
   it('formats the day-group heading using the application locale, not the browser/OS locale', () => {
     const en = renderAgenda('en')
-    const enHeading = en.container.querySelector('.font-semibold.text-foreground')
-    const enText = enHeading?.textContent ?? ''
+    const enText = dayGroupHeadingText(en.container)
     en.unmount()
 
     const pl = renderAgenda('pl')
-    const plHeading = pl.container.querySelector('.font-semibold.text-foreground')
-    const plText = plHeading?.textContent ?? ''
+    const plText = dayGroupHeadingText(pl.container)
     pl.unmount()
 
     expect(enText).not.toBe('')
@@ -64,15 +46,13 @@ describe('AgendaList — locale-aware date/time formatting (#5116)', () => {
     expect(plText.toLowerCase()).toContain('pon')
   })
 
-  it('formats the event start time using the application locale, not the browser/OS locale', () => {
+  it('formats the event start and end times using the application locale, not the browser/OS locale', () => {
     const en = renderAgenda('en')
-    const enTime = en.container.querySelector('.leading-4')
-    const enText = enTime?.textContent ?? ''
+    const enText = eventRowLabel(en.container)
     en.unmount()
 
     const pl = renderAgenda('pl')
-    const plTime = pl.container.querySelector('.leading-4')
-    const plText = plTime?.textContent ?? ''
+    const plText = eventRowLabel(pl.container)
     pl.unmount()
 
     expect(enText).not.toBe('')
