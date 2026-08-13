@@ -174,15 +174,20 @@ describe('templateRegistry.load', () => {
     expect(result.render.source).toEqual({ type: 'markdown', render })
   })
 
-  it('rejects metadata that disagrees with the loaded source format', async () => {
+  it('forwards extensible formats without interpreting the source type', async () => {
+    const source = { type: 'docx', document: { title: 'Document' } }
     templateRegistry.registerInternal([makeEntry({
-      id: 'invalid-markdown',
-      format: 'pdf',
-      load: async () => ({ type: 'markdown', render: () => '# Document' }),
+      id: 'custom-document',
+      format: 'docx',
+      filename: () => 'document.docx',
+      load: async () => source,
     })])
 
-    await expect(templateRegistry.load({ id: 'invalid-markdown', data: {} }, ctx))
-      .rejects.toThrow('declares pdf but loads md')
+    const result = await templateRegistry.load({ id: 'custom-document', data: {} }, ctx)
+
+    expect(result.render.format).toBe('docx')
+    expect(result.render.source).toBe(source)
+    expect(result.filename).toBe('document.docx')
   })
 
   it('throws "Unknown template" for an unregistered id', async () => {
