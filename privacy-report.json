@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "automatedScan": "pass",
+  "semanticReview": "required",
+  "guarantee": "Automated scanning cannot prove that contextual personal or confidential data is absent.",
+  "redactions": {
+    "secrets": 130,
+    "pii": 24,
+    "paths": 909,
+    "dangerous": 0,
+    "identifiers": 699,
+    "custom": 36
+  },
+  "rejectedInputClasses": [
+    "dangerous paths",
+    "symlinks",
+    "binary or invalid UTF-8 files",
+    "out-of-root files",
+    "oversized inputs"
+  ]
+}

@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "shareName": "opencode-library-task-glm52",
+  "createdAt": "2026-08-13T13:20:49.216Z",
+  "session": {
+    "collection": "messages",
+    "entries": 116,
+    "recognizedTurns": 116,
+    "userTurns": 1,
+    "assistantTurns": 115,
+    "firstRecognizedRole": "user",
+    "lastRecognizedRole": "assistant",
+    "bytes": 1748081,
+    "sha256": "9a28ecab81de94bd89a82e5609f169bdf85dea7c4a68ad3645c53f3e18f79f87"
+  },
+  "generatedFiles": [
+    {
+      "path": ".ai/specs/2026-08-13-library-books-lending.md",
+      "mode": "644",
+      "originalBytes": 35362,
+      "sanitizedBytes": 35341,
+      "sha256": "f7cadddc7213bc017f3f7a4645cc5373088ea65254e1895da94ff11b3b71df94"
+    },
+    {
+      "path": "src/modules.ts",
+      "mode": "644",
+      "originalBytes": 7198,
+      "sanitizedBytes": 7163,
+      "sha256": "bbe4e5bbbd26e3f3868f75346928c8d851ac7c780163fbf40af04b5e3e5d1d99"
+    },
+    {
+      "path": "src/modules/library/acl.ts",
+      "mode": "644",
+      "originalBytes": 482,
+      "sanitizedBytes": 482,
+      "sha256": "d8c59421602ef6a3328125dab3d247f9c490b555ad0973c82e3c540dc8e1a5f5"
+    },
+    {
+      "path": "src/modules/library/api/books/options/route.ts",
+      "mode": "644",
+      "originalBytes": 3065,
+      "sanitizedBytes": 3065,
+      "sha256": "9d779d8f31e2ca8404719a85b451a34982ef609683b49b681574851722eb85f4"
+    },
+    {
+      "path": "src/modules/library/api/books/route.ts",
+      "mode": "644",
+      "originalBytes": 6930,
+      "sanitizedBytes": 6930,
+      "sha256": "5c312281a60fb26c5f15c1e869a5910f669e8a174ddf6d93b425feeadf6cdeae"
+    },
+    {
+      "path": "src/modules/library/api/loans/[id]/return/route.ts",
+      "mode": "644",
+      "originalBytes": 3161,
+      "sanitizedBytes": 3161,
+      "sha256": "a559aa52f5101fa244904f4477142c4eb27baa268fee5f73f564f60cf40299db"
+    },
+    {
+      "path": "src/modules/library/api/loans/route.ts",
+      "mode": "644",
+      "originalBytes": 7167,
+      "sanitizedBytes": 7167,
+      "sha256": "88f99620032ba499db4b2a798ef8dcef0e77d5c15a7310e56f73beb06da44d45"
+    },
+    {
+      "path": "src/modules/library/api/openapi.ts",
+      "mode": "644",
+      "originalBytes": 1904,
+      "sanitizedBytes": 1904,
+      "sha256": "d2986299e310262faafaa35c8f164d8fd656dbd4c2963de0ffecc27afe052901"
+    },
+    {
+      "path": "src/modules/library/backend/library/books/[id]/edit/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 401,
+      "sanitizedBytes": 401,
+      "sha256": "8e91c8ad67c4f5041a4f8a203997bdfa22a677bf1e9a4af8585d3e771ffb23be"
+    },
+    {
+      "path": "src/modules/library/backend/library/books/[id]/edit/page.tsx",
+      "mode": "644",
+      "originalBytes": 370,
+      "sanitizedBytes": 370,
+      "sha256": "8f77e14f908cfb719ef0f4070aa75494f8945e79fccb48f548a5e46b2a69a3c7"
+    },
+    {
+      "path": "src/modules/library/backend/library/books/create/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 442,
+      "sanitizedBytes": 442,
+      "sha256": "dfb6e04550bfaaf0e7b8c625ae5ea63d6545944217fee2aa128fc2e64b4f0030"
+    },
+    {
+      "path": "src/modules/library/backend/library/books/create/page.tsx",
+      "mode": "644",
+      "originalBytes": 280,
+      "sanitizedBytes": 280,
+      "sha256": "24680f31fe5bbacc37194a0e8bf52d978aa0fb2274e9f844f998ee42808ac34c"
+    },
+    {
+      "path": "src/modules/library/backend/library/books/page.meta.ts",
+      "mode": "644",
+      "originalBytes": 335,
+      "sanitizedBytes": 335,
+      "sha256": "5aa2a106c77b226f9023a2d2967f0dc1172b8b930e64fe5f2bdee008444db78a"
+    },
+    {
+      "path": "src/modules/library/backend/library/books/page.tsx",
+      "mode": "644",
+      "originalBytes": 272,
+      "sanitizedBytes": 272,
+      "sha256": "476d0862a36d308d35c1dc418a52792c5419bccc41a98e3e1fdc7bd923f71b98"
+    },
+    {
+      "path": "src/modules/library/commands/books.ts",
+      "mode": "644",
+      "originalBytes": 10019,
+      "sanitizedBytes": 10019,
+      "sha256": "a3494e44b3fe69dec07c788da9a3bb03edcdf5297b7ca70a433c809d3e4f52dd"
+    },
+    {
+      "path": "src/modules/library/commands/loans.ts",
+      "mode": "644",
+      "originalBytes": 7466,
+      "sanitizedBytes": 7466,
+      "sha256": "153daf823a6d6bf49c81d3b57717e6e6976f5c437b371f29f14f44759b0d5114"
+    },
+    {
+      "path": "src/modules/library/components/BookForm.tsx",
+      "mode": "644",
+      "originalBytes": 6633,
+      "sanitizedBytes": 6622,
+      "sha256": "c1690b42ad2878c0035eca1ad9cce055c1f6b1694ea76ab76d3eec532083763d"
+    },
+    {
+      "path": "src/modules/library/components/BooksTable.tsx",
+      "mode": "644",
+      "originalBytes": 6777,
+      "sanitizedBytes": 6766,
+      "sha256": "1147af4c83bcf4396f043fcdd6a55449f77e0e0f9afaa1b3587cb923100e6876"
+    },
+    {
+      "path": "src/modules/library/data/entities.ts",
+      "mode": "644",
+      "originalBytes": 4183,
+      "sanitizedBytes": 4183,
+      "sha256": "ea08ae33673acce9e57c0b1b92df7939adb8abeb9a43a5cfa6806d6026cfff28"
+    },
+    {
+      "path": "src/modules/library/data/validators.ts",
+      "mode": "644",
+      "originalBytes": 4006,
+      "sanitizedBytes": 4006,
+      "sha256": "5862b9b61d7ca0057a778a98e47d8f03a3751fe566c1abab955db8a8d65b63f8"
+    },
+    {
+      "path": "src/modules/library/events.ts",
+      "mode": "644",
+      "originalBytes": 1257,
+      "sanitizedBytes": 1257,
+      "sha256": "7fd13f8f4bb85f3e235595779c16e23174f8d1f17862282ffb018b676ba71252"
+    },
+    {
+      "path": "src/modules/library/extension-points.ts",
+      "mode": "644",
+      "originalBytes": 823,
+      "sanitizedBytes": 823,
+      "sha256": "34df172432c60133126b47d1a810db96fc5a98e3974ec231dd81b0d1ab528b8e"
+    },
+    {
+      "path": "src/modules/library/i18n/de.json",
+      "mode": "644",
+      "originalBytes": 2853,
+      "sanitizedBytes": 2854,
+      "sha256": "48882cba5f39877c74b2414ec76d08b41450836e68cbad636e0f0e908a2dd870"
+    },
+    {
+      "path": "src/modules/library/i18n/en.json",
+      "mode": "644",
+      "originalBytes": 2649,
+      "sanitizedBytes": 2650,
+      "sha256": "25c4404f5ce6ba40c3313da293203870114f3b4fe5b02ca423e94651280d0f40"
+    },
+    {
+      "path": "src/modules/library/i18n/es.json",
+      "mode": "644",
+      "originalBytes": 2773,
+      "sanitizedBytes": 2774,
+      "sha256": "a27a7042f4f9584cc1a445082e98d255cde67fc30d91d24173c5f22b74ff81b6"
+    },
+    {
+      "path": "src/modules/library/i18n/ko.json",
+      "mode": "644",
+      "originalBytes": 2952,
+      "sanitizedBytes": 2953,
+      "sha256": "1a4b046138dd642534e982a43fb0711e8cbb5decdf8bac29a4f18a570c886830"
+    },
+    {
+      "path": "src/modules/library/i18n/pl.json",
+      "mode": "644",
+      "originalBytes": 2836,
+      "sanitizedBytes": 2837,
+      "sha256": "594e496d7e1d0a192baa5230ac0e552e3908e2fc49db3a4fba7091e0745f6930"
+    },
+    {
+      "path": "src/modules/library/index.ts",
+      "mode": "644",
+      "originalBytes": 284,
+      "sanitizedBytes": 284,
+      "sha256": "096e854290135dd75ed16e563594ddd72494a71651105fbc01b0805ed2f7d344"
+    },
+    {
+      "path": "src/modules/library/migrations/Migration20260813121918_library.ts",
+      "mode": "644",
+      "originalBytes": 780,
+      "sanitizedBytes": 780,
+      "sha256": "98391f424641ec255fc8cf74757cb7bfaa60d009da3154b96b0abf19368619fc"
+    },
+    {
+      "path": "src/modules/library/setup.ts",
+      "mode": "644",
+      "originalBytes": 606,
+      "sanitizedBytes": 606,
+      "sha256": "9957580a1dfc51421d9562fb122e45f61b456ea154b9c09c853ffff118d741d0"
+    },
+    {
+      "path": "src/modules/library/types.ts",
+      "mode": "644",
+      "originalBytes": 1281,
+      "sanitizedBytes": 1281,
+      "sha256": "57b5b164439006bbc587d72003f9f2e79a2ddecb3e0c44fee9ce7baf4a2707f3"
+    }
+  ],
+  "artifacts": {
+    "generated-files.zip": {
+      "bytes": 49096,
+      "sha256": "9e649a028e99cec269a3b4df779ba8e69fbc3e065ea5928a4ecdfe28af15bf57"
+    },
+    "privacy-report.json": {
+      "bytes": 479,
+      "sha256": "2f16719b4a14abb1e65b5375ef1115beb6403294d5a1d05712f28754d8de9989"
+    }
+  }
+}
