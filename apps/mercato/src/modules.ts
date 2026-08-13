@@ -204,6 +204,14 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // the default-off `agent_orchestrator.external_agents.invoke` grant and a
   // configured, enabled integration — enabling the module never dials.
   enabledModules.push({ id: 'agent_elevenlabs', from: '@open-mercato/agent-elevenlabs' })
+  // Deal briefing call: a company-page button starts a workflow that briefs the
+  // chief of sales by phone and turns their reply into CRM tasks. It composes the
+  // orchestrator's agents with the ElevenLabs voice connector, so it is only
+  // enabled alongside both. Starting a briefing needs `sales_call_planner.brief.run`;
+  // the outbound call still needs the default-off
+  // `agent_orchestrator.external_agents.invoke` grant, so enabling the module
+  // never dials.
+  enabledModules.push({ id: 'sales_call_planner', from: '@app' })
   // Test-only external-agent connector + agents. Every shipped connector reaches a
   // third party (a phone call, a tenant-configured URL), so without this the
   // suspend/callback/resume seam has no executable HTTP-boundary proof. It performs
