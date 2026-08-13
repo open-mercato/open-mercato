@@ -1,42 +1,23 @@
 {
-  "_comment": "POST body for https://api.elevenlabs.io/v1/convai/tools. The response returns { id }. Put that id into the agent's conversation_config.agent.prompt.tool_ids. Replace APP_URL and the omk_ key before sending — never commit a real key.",
+  "_comment": "POST body for https://api.elevenlabs.io/v1/convai/tools. Response returns { id }; put it into the agent's conversation_config.agent.prompt.tool_ids. Replace APP_URL and OMK_KEY_HERE before sending, and never commit a real key — the tool config stores the header in clear text and the ElevenLabs workspace is shared.",
+  "_comment_why_not_tools_execute": "This deliberately calls the CRM's own REST route rather than POST /api/ai_assistant/tools/execute. Verified against demo.openmercato.com on 2026-08-13: customers.get_company and customers.get_deal both fail under API-key auth with `invalid input syntax for type uuid: \"api_key:<uuid>\"` — the key's synthetic user id reaches a query that expects a real uuid. list_companies and list_deals are unaffected. The direct route works, returns 2KB, and needs no request body.",
+  "_comment_auth_header": "OM reads x-api-key, or Authorization: ApiKey <key>. Bearer is NOT supported (packages/shared/src/lib/auth/server.ts:261).",
   "tool_config": {
     "type": "webhook",
     "name": "get_deal_notes",
-    "description": "Fetches the notes, past activity and deal history recorded on this account in the CRM.\n\nCall this ONLY when the chief of sales asks about notes, history, background, prior conversations, or what was agreed with this customer before. Never call it on your own initiative and never call it to enrich the briefing you already have.\n\nThe response contains a notes array. Each note is something a colleague wrote on the account; authorUserId says who and createdAt says when. Report only what is actually there.\n\nIf this call fails or returns nothing, say in one sentence that you could not reach the CRM right now. Do not guess what a note might have said.",
+    "description": "Fetches the notes colleagues have written on this account in the CRM.\n\nCall this ONLY when the chief of sales asks about notes, history, background, prior conversations, or what was agreed with this customer before. Never call it on your own initiative and never call it to enrich the briefing you already have.\n\nThe response has a comments array. Each entry is one note: authorName is who wrote it, body is what it says, createdAt is when. Report only what is actually there, and name the author when it matters.\n\nIf this call fails or returns nothing, say in one sentence that you could not reach the CRM right now. Do not guess what a note might have said.",
     "api_schema": {
-      "url": "APP_URL/api/ai_assistant/tools/execute",
-      "method": "POST",
-      "content_type": "application/json",
+      "url": "APP_URL/api/customers/companies/{{company_id}}?include=comments",
+      "method": "GET",
       "request_headers": {
-        "Authorization": "Bearer OMK_KEY_HERE",
-        "Content-Type": "application/json"
+        "x-api-key": "OMK_KEY_HERE"
       },
-      "request_body_schema": {
-        "type": "object",
-        "required": ["toolName", "args"],
-        "properties": {
-          "toolName": {
-            "type": "string",
-            "description": "Always the literal string customers.get_company",
-            "constant_value": "customers.get_company"
-          },
-          "args": {
-            "type": "object",
-            "required": ["companyId", "includeRelated"],
-            "properties": {
-              "companyId": {
-                "type": "string",
-                "description": "Always the literal value of the company_id dynamic variable",
-                "constant_value": "{{company_id}}"
-              },
-              "includeRelated": {
-                "type": "boolean",
-                "description": "Always true",
-                "constant_value": true
-              }
-            }
-          }
+      "path_params_schema": {
+        "company_id": {
+          "type": "string",
+          "description": "CRM id of the company this call is about",
+          "value_type": "dynamic_variable",
+          "dynamic_variable": "company_id"
         }
       }
     }
