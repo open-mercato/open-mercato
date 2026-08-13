@@ -17,6 +17,10 @@ import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
+import {
+  composeSourceHintSchema,
+  resolveComposeSourceChannelType,
+} from '../lib/composeSourceChannelType'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -445,7 +449,27 @@ export async function POST(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
-  const input = composeMessageSchema.parse(body)
+
+  // #4975: whether `externalEmail` is required depends on the channel this
+  // message originates from, so the channel type has to be established BEFORE
+  // validation. It is resolved server-side from the referenced conversation or
+  // parent message and any client-sent `sourceChannelType` is dropped —
+  // otherwise a caller could waive the requirement by asserting its own type.
+  // An unresolvable source stays `undefined`, which the validator fails closed on.
+  const sourceHint = composeSourceHintSchema.safeParse(body)
+  const sourceChannelType = sourceHint.success
+    ? await resolveComposeSourceChannelType(
+        ctx.container,
+        { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+        sourceHint.data,
+      )
+    : undefined
+  const { sourceChannelType: _clientSuppliedChannelType, ...clientBody } =
+    (body ?? {}) as Record<string, unknown>
+  const input = composeMessageSchema.parse({
+    ...clientBody,
+    ...(sourceChannelType ? { sourceChannelType } : {}),
+  })
 
   const isPublicVisibility = input.visibility === 'public'
   const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
