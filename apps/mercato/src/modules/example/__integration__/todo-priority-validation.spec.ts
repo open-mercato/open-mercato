@@ -115,6 +115,7 @@ test.describe('Todo priority validation', () => {
       const severitySelect = severityField.getByRole('combobox').first()
       await expect(severitySelect).toBeVisible()
       await expect(titleInput).toBeVisible()
+      await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       await titleInput.fill(title)
       await expect(priorityInput).toBeVisible()
       await priorityInput.scrollIntoViewIfNeeded()
@@ -126,7 +127,9 @@ test.describe('Todo priority validation', () => {
 
       await priorityInput.fill('5')
       await severitySelect.click()
-      await page.getByRole('option', { name: 'Medium' }).click()
+      const severityOption = page.getByRole('option', { name: 'Medium' })
+      await expect(severityOption).toBeInViewport({ timeout: 10_000 })
+      await severityOption.click()
       await form.locator('button[type="submit"]').first().click()
 
       await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
