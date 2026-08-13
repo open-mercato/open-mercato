@@ -8,7 +8,7 @@
 
 ## TLDR
 
-Generated module fact-sheets routinely exceed a single agent read-tool call (13 sheets over 50 KB in a current build; `customers.md` is 218 KB), and truncation is silent: the #5251 shared session worked from a 50 k-character preview of a fact-sheet without noticing. PR #5267 mitigated this with one routed sentence ("Big fact-sheets: read in sections."), which relies entirely on model discipline. This spec makes truncation detectable and sectioned reading mechanical **without changing the one-file-per-module layout**: a generated `## Contents` index with per-section line anchors and sizes, a terminal end-of-facts marker, and source-link label compression. A full split into a per-module directory of section files plus an index is specified as a conditional Phase 2, because it invalidates a very large pinned contract surface (363 literal `.ai/guides/modules/<id>.md` references in the harness `cases.json` alone) for a benefit Phase 1 already delivers in-place.
+Generated module fact-sheets routinely exceed a single agent read-tool call (13 sheets over 50 KB in a current build; `customers.md` is 218 KB), and truncation is silent: the #5251 shared session worked from a 50 k-character preview of a fact-sheet without noticing. PR #5267 mitigated this with one routed sentence ("Big fact-sheets: read in sections."), which relies entirely on model discipline. This spec makes truncation detectable and sectioned reading mechanical **without changing the one-file-per-module layout**: a generated `## Contents` index with per-section line anchors and sizes, a terminal end-of-facts marker, source-link label compression, and `###` sub-anchors inside oversized sections. A full split into a per-module directory of section files plus an index is specified as a conditional Phase 2, because it invalidates a very large pinned contract surface (363 literal `.ai/guides/modules/<id>.md` references in the harness `cases.json` alone) for a benefit Phase 1 already delivers in-place.
 
 ## Problem Statement
 
@@ -43,8 +43,9 @@ All changes live in `renderModuleFactsMarkdown` and are additive to the existing
 
 1. **`## Contents` index.** Emitted directly after the `Source root:` line: one bullet per emitted section, in order, with the section's start line in the final rendered file and its approximate size — e.g. `- Exact override targets — L1480, ~62 KB`. Rendering is two-pass (render body, compute line starts, prepend index with a fixed self-size so numbering is stable and deterministic, satisfying the determinism assertion in `module-facts.bc-guard.test.ts`). A one-line instruction follows the index: `Read caps: a read that does not reach the end-of-facts marker was truncated — re-read the missing sections by their line anchors.`
 2. **End-of-facts marker.** Final line of every sheet: `<!-- end module facts: <module> — <n> sections -->`. Together with the Contents index this converts silent truncation into a checkable condition at both ends of the file.
-3. **Source-link label compression.** Table-cell links become `[data/entities.ts](../../../node_modules/@open-mercato/core/src/modules/customers/data/entities.ts)` — label relative to the declared source root, href unchanged and still validated. Measured effect on `customers.md`: ~52 KB saved (~24 %); the 62 KB override-target section drops under ~36 KB, bringing **every individual section on every sheet under a 50 k-character read** — sectioned reads become sufficient, not just helpful.
-4. **Guide reinforcement.** `agentic/guides/architecture.md` (already routed for module work) documents the Contents index, the end marker, and the sectioned-read procedure in two sentences. The root AGENTS.md sentence from PR #5267 stays as-is (byte budget, Q4).
+3. **Source-link label compression.** Table-cell links become `[data/entities.ts](../../../node_modules/@open-mercato/core/src/modules/customers/data/entities.ts)` — label relative to the declared source root, href unchanged and still validated. Measured effect on `customers.md`: 218 KB → 180 KB (−17 %); `## Exact override targets` 62 KB → 51 KB, `## UMES hosts` 41 KB → 37.5 KB. Compression alone does **not** bound the largest sections under a 50 k-character read — that is what item 4 is for.
+4. **Sub-anchors for oversized sections.** Any section whose rendered size exceeds ~32 KB is emitted with `###` subheadings along its natural grouping (for `## Exact override targets`, the existing Domain column; for `## UMES hosts`, the family column), and the Contents index lists those subsections with their own line anchors. This bounds every anchored read unit well under any known read cap, making sectioned reads sufficient rather than merely helpful.
+5. **Guide reinforcement.** `agentic/guides/architecture.md` (already routed for module work) documents the Contents index, the end marker, and the sectioned-read procedure in two sentences. The root AGENTS.md sentence from PR #5267 stays as-is (byte budget, Q4).
 
 Consequences: `module-facts.bc-guard.test.ts` link-exactness and byte-cap expectations updated (sizes shrink); `module-facts-build.test.ts` heading regexes unaffected (additive `## Contents` heading added to the fixed-order list); harness knowledge-change sha256 stamps refresh on rebuild as designed. Nothing in `cases.json`, `selectModuleFactSheets`, the injection block, ownership manifests, or the evaluator changes.
 
@@ -73,8 +74,9 @@ The split is the more robust end state — plain file reads instead of offset re
 
 - 1.1 Two-pass Contents index + end marker in `renderModuleFactsMarkdown` (+ reference projection variant), determinism-safe
 - 1.2 Source-link label compression relative to `Source root` across all table renderers
-- 1.3 Update `module-facts.bc-guard.test.ts` (links, byte caps) and `module-facts-build.test.ts` (Contents heading, marker)
-- 1.4 `architecture.md` sectioned-read guidance; rebuild; harness evaluation run green
+- 1.3 `###` sub-anchors (with Contents entries) for sections rendering above ~32 KB
+- 1.4 Update `module-facts.bc-guard.test.ts` (links, byte caps) and `module-facts-build.test.ts` (Contents heading, marker, sub-anchors)
+- 1.5 `architecture.md` sectioned-read guidance; rebuild; harness evaluation run green
 
 ### Phase 2 (conditional): directory split
 
