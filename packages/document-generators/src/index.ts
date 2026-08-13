@@ -30,6 +30,6 @@ export {
 } from './modules/document_generators/services'
 export { TemplatesList } from './modules/document_generators/components/TemplatesList'
 export { formatDate } from './modules/document_generators/utils/formatDate'
-// Shared PDF UI — import in external templates to get Inter font + brand components
+// Shared PDF authoring tokens and brand components for external templates
 export { colors as sharedColors, borders, spacing } from './modules/document_generators/templates/shared/theme'
 export { OpenMercatoLogo } from './modules/document_generators/templates/shared/components/Logo'

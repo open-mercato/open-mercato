@@ -6,7 +6,7 @@ import type { PdfDocumentData } from '../types'
 
 export function SalesOfferDocument({ data }: { data: PdfDocumentData }) {
   return (
-    <Document style={{ fontFamily: 'Inter' }}>
+    <Document style={{ fontFamily: 'Helvetica' }}>
       <CoverPage data={data} />
       <QuotePage data={data} />
     </Document>

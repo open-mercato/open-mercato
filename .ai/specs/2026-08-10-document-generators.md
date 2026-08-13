@@ -19,7 +19,7 @@
 - Generator plugin (`generators.ts`) enabling other modules to register external templates via `mercato generate registry`
 
 **Concerns:**
-- `@react-pdf/renderer` operates server-side only (`renderToBuffer`) — fonts must be accessible on the server; solved via base64-encoded `*.generated.ts` font files
+- `@react-pdf/renderer` operates server-side only (`renderToBuffer`) — built-in Helvetica avoids filesystem access, font registration, and bundled font assets
 - Large documents may render slowly on the server — async queue may be needed in a later phase
 - The render pipeline supports discriminated React-PDF and Markdown sources. Format-specific renderers return neutral `RenderedDocument` values, while history stores `format` + `mime_type` without a schema change.
 
@@ -76,7 +76,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | Singleton registry with separate internal/external arrays | The engine owns registry mechanics; module-provided templates are injected at bootstrap from generated code |
 | `GET /api/document-generators/templates` endpoint | Client needs the list at runtime to filter and display available templates without bundling the registry |
 | `generators.ts` plugin for code-gen | Owning modules declare templates in `document-generators.ts`; `mercato generate registry` produces the bootstrap glue |
-| PDF and Markdown authoring/runtime remain in the plugin | `@react-pdf/renderer`, PDF primitives, fonts, theme, format dispatch, MIME handling, preview and byte rendering do not move into Sales or shared |
+| PDF and Markdown authoring/runtime remain in the plugin | `@react-pdf/renderer`, PDF primitives, theme, format dispatch, MIME handling, preview and byte rendering do not move into Sales or shared |
 | `resourceKind` identifies compatible source data | Widgets and templates use a canonical resource kind such as `sales.quote`; `module` remains grouping metadata and `documentType` describes the output's business purpose. |
 | Resource identity is server-derived | `resourceId()` is required and runs against normalized data returned by scoped `fetchData`; clients never supply history ownership metadata. |
 | `fromRecord` in registry entry calls `toTemplateData` (server-side) | Template owns its normalization logic — widget is fully decoupled from data shape. Adding a new template for `quotes` requires zero changes to the widget. |
@@ -84,7 +84,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | Service filename plus optional per-template override | Existing PDF templates keep service-level filenames; additional formats can provide the correct extension without duplicating normalization |
 | Tab widget per entity, not action button | PDF is a contextual view of the record, not a one-shot action |
 | Preview via iframe + blob URL, not PDFViewer | Server renders the PDF once (`renderToBuffer`), iframe displays the result — no client-side re-render on every change |
-| Fonts as base64 `*.generated.ts` per font | Works on the server (no filesystem path issues); tree-shakeable per font |
+| React-PDF built-in Helvetica | Requires no local assets, font registration, license file, filesystem access, or base64 bundle |
 | `renderToBuffer` on the server | Deterministic output, no dependency on client environment |
 | Format-specific renderers own output metadata | PDF and Markdown renderers set format and MIME type; routes only dispatch and return `RenderedDocument`. |
 | `DocumentRenderer` routes format-specific inputs to renderers | The second implemented renderer provides the concrete shared boundary that was intentionally deferred in the PDF-only phase. |
@@ -147,7 +147,7 @@ packages/core/src/modules/sales/
 
 packages/document-generators/
 ├── modules/document_generators/providers/react-pdf/index.ts # React-PDF dependency adapter
-├── modules/document_generators/templates/shared/ # Theme, components and fonts toolkit
+├── modules/document_generators/templates/shared/ # Theme and components toolkit
 └── src/modules/document_generators/
     ├── lib/
     │   ├── interfaces.ts            # renderer, loaded-template, UI filter and registry runtime types
@@ -181,11 +181,7 @@ packages/document-generators/
     │   ├── shared/
     │   │   ├── components/
     │   │   │   └── Logo.tsx         # OpenMercatoLogo — exported publicly for external templates
-    │   │   ├── theme.ts             # colors, borders, spacing + Inter font registration (side-effect import)
-    │   │   └── fonts/
-    │   │       ├── Inter-Regular.ttf
-    │   │       ├── Inter-Regular.generated.ts   # base64 data URI (build-generated)
-    │   │       └── ...
+    │   │   └── theme.ts             # colors, borders and spacing tokens; no runtime side effects
     ├── utils/
     │   ├── downloadBlob.ts
     │   └── formatDate.ts
@@ -450,15 +446,15 @@ Returns paginated generation history filtered by the authenticated tenant and or
 
 ## Fonts
 
-Fonts live in `templates/shared/fonts/`. Each `.ttf` file has a corresponding `*.generated.ts` file (excluded from git, generated by `build.mjs`) containing a base64 `data:font/truetype` URI.
-
-Templates import individual font files for tree-shaking:
+Built-in templates use React-PDF's standard `Helvetica` family. It is available without `Font.register`, local `.ttf` files, generated base64 modules, or build-time processing:
 
 ```ts
-import InterRegular from '../shared/fonts/Inter-Regular.generated'
+const styles = StyleSheet.create({
+  page: { fontFamily: 'Helvetica' },
+})
 ```
 
-`build.mjs` generates `*.generated.ts` files before esbuild compilation. No Next.js configuration required — `.ttf` files are never imported directly by the app.
+External templates may register their own fonts within the owning module when their requirements and licensing justify the additional assets.
 
 ---
 
@@ -535,7 +531,7 @@ No changes to existing services or templates required.
 
 ### Font Loading
 
-- `*.generated.ts` files are gitignored and must be regenerated after `build.mjs`. Dev mode requires either running the build or having the files pre-generated. Mitigation: `build.mjs` always regenerates them before esbuild.
+- Built-in templates use React-PDF's standard Helvetica family, so they do not depend on filesystem paths, generated files, runtime registration, or bundled font assets.
 
 ### Operational
 
@@ -564,9 +560,8 @@ No changes to existing services or templates required.
 2. `BaseDocumentService` in `@open-mercato/shared/modules/document-generators`
 3. Sales-owned `QuotesDocumentService`, local validation, and `sales-offer` registration through `sales/document-generators.ts`
 4. Generated bootstrap registration with an empty engine-owned internal registry
-5. `templates/shared/fonts/` + font build pipeline in `build.mjs`
-6. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
-7. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation
+5. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
+6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation using React-PDF's built-in Helvetica family
 
 ### Phase 3 — API ✅
 
@@ -758,7 +753,7 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 
 The unreleased implementation was decentralized before merge. Sales now owns `OrdersDocumentService`, `QuotesDocumentService`, their validators and snapshots, the order/quote templates, the two detail widgets, and the corresponding `sales.documents.templates.*` translations. It contributes the unchanged template IDs and resource kinds through `sales/document-generators.ts`. The engine package no longer contains a domain directory, resolves no Sales entity, and starts with an empty internal registry.
 
-Neutral template contracts and `BaseDocumentService` moved to `@open-mercato/shared/modules/document-generators`; owning modules import them directly from shared. The previous root exports from `@open-mercato/document-generators` remain as deprecated compatibility re-exports for at least one minor version, while the old internal service/type paths are no longer used by first-party code. Format mechanics stay in `@open-mercato/document-generators`: `@react-pdf/renderer`, PDF primitives, fonts/theme/logo, Markdown/PDF renderers, preview/generate routes, MIME/filename output, and history. Domain templates consume the plugin-owned React-PDF dependency through `modules/document_generators/providers/react-pdf`, while theme, components and fonts remain under `modules/document_generators/templates/shared` and are imported directly.
+Neutral template contracts and `BaseDocumentService` moved to `@open-mercato/shared/modules/document-generators`; owning modules import them directly from shared. The previous root exports from `@open-mercato/document-generators` remain as deprecated compatibility re-exports for at least one minor version, while the old internal service/type paths are no longer used by first-party code. Format mechanics stay in `@open-mercato/document-generators`: `@react-pdf/renderer`, PDF primitives, theme/logo, Markdown/PDF renderers, preview/generate routes, MIME/filename output, and history. Domain templates consume the plugin-owned React-PDF dependency through `modules/document_generators/providers/react-pdf`, while reusable theme and components remain under `modules/document_generators/templates/shared` and are imported directly. Built-in templates use React-PDF's standard Helvetica family and ship no local font assets.
 
 No database migration is required. Template IDs (`order-invoice`, `order-invoice-markdown`, `sales-offer`), resource kinds (`sales.order`, `sales.quote`), API routes, history rows, ACL features, and injection spot IDs remain unchanged. The widget implementation IDs are unreleased and move from the engine namespace to the owning Sales namespace.
 
@@ -849,3 +844,4 @@ No released template ID, route, or public contract is removed or renamed. Domain
 | 2026-08-11 | Codex | Localized built-in Order Invoice and Sales Offer documents through the standard module dictionaries. Render routes now pass the request translator through `TemplateRegistry.load` and `BaseDocumentService`; services build typed `data.labels`, with PDF and Markdown invoice variants sharing the exact same label object. Added optional translator context fields for external-call compatibility and en/pl regression coverage. |
 | 2026-08-11 | Codex | Removed client-supplied resource identity from the unreleased generate contract. `resourceId()` and loaded resource IDs are now required; every successful production render attempts history persistence using canonical server-derived kind/id/label. Documented the intentionally global `frame-src blob:` required by extensible `TemplatesList` placements. |
 | 2026-08-11 | Codex | Added planned Phase 6 for source-scoped generation history inside the existing order/quote PDF-tab widgets. The phase reuses the scoped history endpoint and DataTable, refreshes after successful generation, adds no schema or route, and moves Attachment Storage, Email & Sharing, and Advanced Templates to Phases 7–9. |
+| 2026-08-13 | Codex | Replaced the bundled Inter family with React-PDF's built-in Helvetica. Removed local TTF and generated base64 assets, build-time font generation, runtime registration side effects, and the now-unused `glob` dependency; synchronized built-in templates, examples, and authoring documentation. |

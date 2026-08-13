@@ -15,7 +15,7 @@ The Sales module contributes three template variants through its `document-gener
 | Order Invoice (Markdown) | `order-invoice-markdown` | `sales.order` | invoice |
 | Sales Offer | `sales-offer` | `sales.quote` | offer |
 
-Both templates use the Inter font and authoring tokens exported by the rendering package. Their services, translations, templates and detail widgets are owned by Sales; the plugin provides the registry, rendering infrastructure and authoring toolkit.
+Both templates use React-PDF's built-in Helvetica font and authoring tokens exported by the rendering package. Their services, translations, templates and detail widgets are owned by Sales; the plugin provides the registry, rendering infrastructure and authoring toolkit.
 
 To contribute templates from another module, extend `BaseDocumentService` imported from `@open-mercato/shared/modules/document-generators` and export its entries through that module's `document-generators.ts` convention file. Sales-provided templates remain owned by Sales and are registered only when Sales is enabled.
 
@@ -115,7 +115,7 @@ import { OpenMercatoLogo } from '@open-mercato/document-generators/modules/docum
 import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
 
 const s = StyleSheet.create({
-  page:  { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Inter', color: colors.text },
+  page:  { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Helvetica', color: colors.text },
   title: { fontSize: 28, fontWeight: 600 },
 })
 
@@ -136,7 +136,7 @@ export function MyModuleInvoiceDocument({ data }: { data: Record<string, unknown
 }
 ```
 
-> The document-generators template toolkit registers the Inter font and keeps the React-PDF dependency inside the rendering plugin.
+> Helvetica is built into React-PDF, so templates do not need to register or bundle local font files. The React-PDF dependency remains inside the rendering plugin.
 
 ---
 

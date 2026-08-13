@@ -10,7 +10,7 @@ import { colors } from '@open-mercato/document-generators/modules/document_gener
 import type { OrderInvoiceData } from '../types'
 
 const s = StyleSheet.create({
-  page: { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Inter', color: colors.text },
+  page: { paddingHorizontal: 52, paddingVertical: 48, fontSize: 10, fontFamily: 'Helvetica', color: colors.text },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 },
   title: { fontSize: 28, fontWeight: 600 },
