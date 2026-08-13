@@ -15,9 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import { Preview } from './Preview'
 import { Loader } from './Loader'
-import { downloadBlob } from '../utils/downloadBlob'
-import { getFilenameFromResponse } from '../utils/getFilenameFromResponse'
-import { resolveErrorMessage } from '../utils/resolveErrorMessage'
+import { downloadBlob, getFilenameFromResponse, resolveErrorMessage } from '../utils'
 
 interface PreviewPanelProps {
   open: boolean

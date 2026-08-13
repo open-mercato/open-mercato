@@ -7,7 +7,7 @@ import {
 } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf'
 import { OpenMercatoLogo } from '@open-mercato/document-generators/modules/document_generators/templates/shared/components/Logo'
 import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
-import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/formatMoney'
+import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils'
 import type { OrderInvoiceData } from '../types'
 
 const s = StyleSheet.create({

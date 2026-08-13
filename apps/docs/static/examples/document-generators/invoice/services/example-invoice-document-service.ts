@@ -1,8 +1,7 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BaseDocumentService, type TemplateDataContext } from '@open-mercato/shared/modules/document-generators'
-import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
-import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
+import { buildDocumentFilename, formatDate } from '@open-mercato/document-generators/modules/document_generators/utils'
 import { z } from 'zod'
 
 const logger = createLogger('example').child({ component: 'example-invoice-document-service' })

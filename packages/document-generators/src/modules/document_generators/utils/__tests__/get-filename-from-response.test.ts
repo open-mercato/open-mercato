@@ -1,4 +1,4 @@
-import { getFilenameFromResponse } from '../getFilenameFromResponse'
+import { getFilenameFromResponse } from '..'
 
 function responseWith(disposition?: string): Response {
   const headers = new Headers()

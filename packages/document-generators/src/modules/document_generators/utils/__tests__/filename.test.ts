@@ -1,4 +1,4 @@
-import { buildDocumentFilename } from '../filename'
+import { buildDocumentFilename } from '..'
 
 describe('buildDocumentFilename', () => {
   it('includes the normalized document number', () => {

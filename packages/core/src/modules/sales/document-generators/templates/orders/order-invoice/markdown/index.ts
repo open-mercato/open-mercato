@@ -1,5 +1,4 @@
-import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/formatMoney'
-import { escapeInline, escapeTableCell } from '@open-mercato/document-generators/modules/document_generators/utils/escape'
+import { escapeInline, escapeTableCell, formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils'
 import type { OrderInvoiceData } from '../types'
 
 export function renderOrderInvoiceMarkdown(data: Record<string, unknown>): string {

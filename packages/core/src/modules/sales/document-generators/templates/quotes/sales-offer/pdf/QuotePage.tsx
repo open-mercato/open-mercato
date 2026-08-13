@@ -1,7 +1,7 @@
 import React from 'react'
 import { Page, StyleSheet, Text, View } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf'
 import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
-import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/formatMoney'
+import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils'
 import type { PdfDocumentData } from '../types'
 
 const styles = StyleSheet.create({

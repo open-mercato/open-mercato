@@ -1,4 +1,4 @@
-import { formatMoney } from '../formatMoney'
+import { formatMoney } from '..'
 
 describe('formatMoney', () => {
   it.each([

@@ -17,6 +17,10 @@
       "types": "./src/modules/document_generators/providers/react-pdf/index.ts",
       "default": "./dist/modules/document_generators/providers/react-pdf/index.js"
     },
+    "./modules/document_generators/utils": {
+      "types": "./src/modules/document_generators/utils/index.ts",
+      "default": "./dist/modules/document_generators/utils/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"

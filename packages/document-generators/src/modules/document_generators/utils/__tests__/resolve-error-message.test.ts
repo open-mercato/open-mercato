@@ -1,5 +1,5 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { resolveErrorMessage } from '../resolveErrorMessage'
+import { resolveErrorMessage } from '..'
 
 // Stand-in translator: returns the English fallback so assertions read literally.
 const t = ((_key: string, fallback?: string) => fallback ?? _key) as unknown as TranslateFn
