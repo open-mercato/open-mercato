@@ -169,8 +169,13 @@ test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
         },
       },
     )
-    expect(sudoVerify.status).toBe(200)
-    expect(sudoVerify.body.sudoToken).toBeTruthy()
+    expect(sudoVerify.status).not.toBe(200)
+    expect(sudoVerify.body.sudoToken).toBeFalsy()
+
+    test.skip(
+      true,
+      'Passkey sudo step-up now requires a genuine WebAuthn assertion (issue #3852), which an API-level test cannot produce, so the sudo-token-gated reset coverage below cannot run here.',
+    )
 
     const resetWithSudo = await fetchJson<{ ok?: boolean }>(
       request,

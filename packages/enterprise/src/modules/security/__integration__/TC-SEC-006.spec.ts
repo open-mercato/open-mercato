@@ -127,9 +127,13 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
         },
       },
     )
-    expect(manageVerify.status).toBe(200)
-    expect(manageVerify.body.sudoToken).toBeTruthy()
-    expect(manageVerify.body.expiresAt).toBeTruthy()
+    expect(manageVerify.status).not.toBe(200)
+    expect(manageVerify.body.sudoToken).toBeFalsy()
+
+    test.skip(
+      true,
+      'Passkey sudo step-up now requires a genuine WebAuthn assertion (issue #3852), which an API-level test cannot produce, so the sudo-token-gated override coverage below cannot run here.',
+    )
 
     const disableReset = await fetchJson<{ ok?: boolean }>(
       request,

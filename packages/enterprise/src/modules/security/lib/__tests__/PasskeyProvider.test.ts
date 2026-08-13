@@ -209,7 +209,7 @@ describe('PasskeyProvider', () => {
     expect(method.providerMetadata.counter).toBe(1)
   })
 
-  test('supports legacy verification payload for backward compatibility', async () => {
+  test('rejects the non-cryptographic credentialId/challenge verification payload', async () => {
     const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const method = {
       id: 'method-legacy',
@@ -229,12 +229,99 @@ describe('PasskeyProvider', () => {
       userVerification: 'preferred',
     } as never)
 
-    await provider.prepareChallenge('user-1', method)
+    const prepared = await provider.prepareChallenge('user-1', method)
+
     const valid = await provider.verify('user-1', method, {
       credentialId: 'cred-legacy',
       challenge: 'legacy-challenge',
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a credentialId-only payload when no verification context exists', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-legacy',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-legacy',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const valid = await provider.verify('user-1', method, {
+      credentialId: 'cred-legacy',
     })
 
-    expect(valid).toBe(true)
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a WebAuthn assertion when the challenge was never prepared', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+        counter: 0,
+        transports: ['internal'],
+      },
+    }
+
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'signature',
+        },
+      },
+    })
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a WebAuthn assertion the authenticator did not sign', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+        counter: 0,
+        transports: ['internal'],
+      },
+    }
+
+    verifyAuthenticationResponseMock.mockResolvedValueOnce({ verified: false } as never)
+
+    const prepared = await provider.prepareChallenge('user-1', method)
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'forged-signature',
+        },
+      },
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).toHaveBeenCalled()
   })
 })

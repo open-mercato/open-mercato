@@ -303,7 +303,14 @@ export async function verifyTotpChallenge(
   })
 }
 
-export async function verifyPasskeyChallenge(
+/**
+ * Posts the non-cryptographic `{ credentialId, challenge }` verification payload that the
+ * passkey provider used to accept (see issue #3852). Both values are public — the server
+ * hands them to the client — so this must be rejected. Kept as regression coverage; there is
+ * no API-level way to produce a genuine WebAuthn assertion, so passkey verification has no
+ * integration happy path.
+ */
+export async function attemptNonCryptographicPasskeyVerify(
   request: APIRequestContext,
   pendingToken: string,
   challengeId: string,
