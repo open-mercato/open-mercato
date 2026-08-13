@@ -680,6 +680,12 @@ export default function MyTimesheetsPage() {
         delete next[project.id]
         return next
       })
+      setCellErrors((prev) => {
+        if (!prev[project.id]) return prev
+        const next = { ...prev }
+        delete next[project.id]
+        return next
+      })
     } catch (error) {
       logger.error('staff.timesheets.my.removeRow', { err: error })
       flash(t('staff.timesheets.my.removeRow.error', 'Could not remove the project. Please try again.'), 'error')

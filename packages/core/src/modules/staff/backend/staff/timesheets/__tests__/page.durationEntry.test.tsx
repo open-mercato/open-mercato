@@ -84,6 +84,46 @@ function stubApiRoutes(): void {
   })
 }
 
+function stubTwoProjectApiRoutes(): void {
+  readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+    if (url.includes('/api/staff/team-members/self')) {
+      return { member: { id: 'member-1', displayName: 'Tester' } }
+    }
+    if (url.includes('/api/staff/timesheets/my-projects')) {
+      return {
+        items: [
+          { time_project_id: 'project-1', show_in_grid: true },
+          { time_project_id: 'project-2', show_in_grid: true },
+        ],
+      }
+    }
+    if (url.includes('/api/staff/timesheets/time-projects')) {
+      return {
+        items: [
+          { id: 'project-1', name: 'Build', code: 'BLD', color: null },
+          { id: 'project-2', name: 'Design', code: 'DSN', color: null },
+        ],
+      }
+    }
+    if (url.includes('/api/staff/timesheets/time-entries')) {
+      return { items: [] }
+    }
+    return { items: [] }
+  })
+}
+
+function cellsFor(projectName: string): HTMLInputElement[] {
+  return screen.queryAllByRole('textbox', {
+    name: new RegExp(`^Duration for ${projectName} on `),
+  }) as HTMLInputElement[]
+}
+
+function bulkSaveCall(): [string, { body: string }] | undefined {
+  return apiCallOrThrowMock.mock.calls.find(
+    ([url]) => url === '/api/staff/timesheets/time-entries/bulk',
+  ) as [string, { body: string }] | undefined
+}
+
 async function renderGrid(): Promise<HTMLInputElement[]> {
   render(<MyTimesheetsPage />)
   await waitFor(() => {
@@ -208,6 +248,31 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
     expect(byAccessibleName).toBe(inputs[0])
     expect(byAccessibleName).toHaveAttribute('aria-invalid', 'true')
     expect(byAccessibleName).toHaveValue('abc')
+  })
+
+  it('drops a removed row’s validation error so the remaining valid edits can still be saved', async () => {
+    stubTwoProjectApiRoutes()
+    render(<MyTimesheetsPage />)
+    await waitFor(() => expect(cellsFor('Design').length).toBeGreaterThan(0))
+
+    typeAndBlur(cellsFor('Build')[0], 'abc')
+    await waitFor(() => expect(saveButton()).toBeDisabled())
+
+    typeAndBlur(cellsFor('Design')[0], '1:30')
+    expect(saveButton()).toBeDisabled()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove from grid' })[0])
+    await waitFor(() => expect(cellsFor('Build')).toHaveLength(0))
+
+    await waitFor(() => expect(saveButton()).not.toBeDisabled())
+    expect(screen.queryByText('Fix the highlighted durations to save')).not.toBeInTheDocument()
+
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(bulkSaveCall()).toBeDefined())
+    const payload = JSON.parse((bulkSaveCall() as [string, { body: string }])[1].body)
+    expect(payload.entries).toHaveLength(1)
+    expect(payload.entries[0].timeProjectId).toBe('project-2')
+    expect(payload.entries[0].durationMinutes).toBe(90)
   })
 
   it('renders the duration format hint so the accepted forms are discoverable', async () => {
