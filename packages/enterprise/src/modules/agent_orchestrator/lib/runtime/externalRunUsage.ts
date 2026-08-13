@@ -167,7 +167,8 @@ export function readExternalRunUsageReport(
     // phone number lands in the log.
     logger.warn('external run usage report did not match the reportable shape; it was dropped', {
       ...context,
-      rejectedFields: [...new Set(parsed.error.issues.map((issue) => String(issue.path[0] ?? 'usage')))].sort(),
+      rejectedFields: [...new Set(parsed.error.issues.map((issue) => String(issue.path[0] ?? 'usage')))]
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     })
     return {}
   }

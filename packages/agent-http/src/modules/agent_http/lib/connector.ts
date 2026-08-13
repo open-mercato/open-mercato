@@ -215,7 +215,8 @@ export function createGenericHttpConnector(deps: GenericHttpConnectorDeps): Exte
         wouldPost: {
           to: "this tenant's configured HTTP agent start URL",
           method: 'POST',
-          inputKeys: Object.keys((args.input ?? {}) as Record<string, unknown>).sort(),
+          inputKeys: Object.keys((args.input ?? {}) as Record<string, unknown>)
+            .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
           callbackUrl: args.callbackUrl,
         },
       }

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
 import {
@@ -664,14 +664,19 @@ export class ExternalAgentRunner {
    * That matters here more than anywhere else in the module — the failure mode of
    * a fail-open gate is an unauthorized phone call to a real person.
    *
-   * Wildcard-aware through the shared `hasAllFeatures`, so `agent_orchestrator.*`
-   * and `*` grants satisfy it exactly as they do everywhere else; `isSuperAdmin`
-   * short-circuits for the same reason every other feature gate honours it.
+   * The decision itself belongs to the shared `authorizeFeatures` policy rather
+   * than to a locally assembled admin-then-grants check: it owns the one ordering
+   * every server gate must share — removed feature and disabled module deny first,
+   * then an unrestricted principal passes, then wildcard-aware grant matching, so
+   * `agent_orchestrator.*` and `*` satisfy it exactly as they do everywhere else.
    */
   private async assertOutboundContactPermitted(agentId: string, ctx: AgentRunCtx): Promise<void> {
     const acl = await resolveCallerAcl(this.container, ctx)
-    if (acl.isSuperAdmin) return
-    if (hasAllFeatures([EXTERNAL_AGENT_INVOKE_FEATURE], acl.features)) return
+    const permitted = authorizeFeatures([EXTERNAL_AGENT_INVOKE_FEATURE], {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isSuperAdmin,
+    })
+    if (permitted) return
 
     // The refusal leaves no run row (nothing was attempted), so the log line is the
     // only record a tenant has of an attempted outbound contact. It therefore names

@@ -360,7 +360,7 @@ export function resolveCallProfile(
   const profile = credentials.profiles[name]
   if (profile) return profile
 
-  const configured = Object.keys(credentials.profiles).sort()
+  const configured = Object.keys(credentials.profiles).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   const available = configured.length ? configured.join(', ') : '(none)'
   if (requested && requested.length) {
     throw new ElevenLabsProfileNotConfiguredError(
@@ -386,7 +386,7 @@ export function listConfiguredProfileNames(raw: Record<string, unknown> | null):
   }
   const names = new Set(Object.keys(profiles))
   if (readLegacyDefaultProfile(raw)) names.add(DEFAULT_PROFILE_NAME)
-  return [...names].sort()
+  return [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 /**
