@@ -1,3 +1,4 @@
+import { headers } from 'next/headers'
 import ApiDocsExplorer from './Explorer'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
@@ -51,7 +52,11 @@ function buildTagOrder(doc: any, operations: ExplorerOperation[]): string[] {
 
 export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
-  const response = await fetch(`${baseUrl}/docs/openapi`, { cache: 'no-store' })
+  const cookieHeader = (await headers()).get('cookie')
+  const response = await fetch(`${baseUrl}/docs/openapi`, {
+    cache: 'no-store',
+    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+  })
   const doc = response.ok
     ? await response.json() as OpenApiDocument
     : {
