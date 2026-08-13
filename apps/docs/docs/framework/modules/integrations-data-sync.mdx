@@ -169,6 +169,27 @@ Omitting the hook keeps today's behaviour. When it returns `false` for an entity
 - an incremental run resolves its start position from the most recent run instead of from the shared row it never writes, and starts over from `null` when that run completed
 - `fullSync` still starts from `null`
 
+### Resetting an opted-out entity type
+
+Reset flows that wipe imported data usually clear where the next run starts by deleting the shared
+`sync_cursors` row. **An opted-out entity type has no such row**, and deleting nothing leaves the
+resume position on the last interrupted run — so a reset followed by an incremental run would
+re-import only the tail of the walk it just reset against, which is the same silent partial import
+the opt-out exists to prevent.
+
+Reset flows MUST therefore clear the run-scoped position too:
+
+```ts
+await syncRunService.resetResumePosition(integrationId, entityType, 'import', scope)
+
+await em.nativeDelete(SyncCursor, { integrationId, entityType, direction: 'import', ...scope })
+```
+
+`resetResumePosition` clears the cursor on every run for that entity type that never reached
+`completed` — the only runs the resume path reads — and returns how many it cleared. It is a no-op
+when nothing was interrupted, so it is safe to call unconditionally, including for entity types that
+do keep the shared row.
+
 ## Provider-owned environment preconfiguration
 
 New integration providers should not require manual admin setup after every fresh install when deployment already knows the credentials and defaults. The provider package should own that bootstrap path itself.

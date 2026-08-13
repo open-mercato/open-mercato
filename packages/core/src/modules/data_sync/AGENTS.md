@@ -127,6 +127,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 
 - **Cursor persistence**: After each batch, the cursor is saved on the run row and mirrored into the shared `SyncCursor` row
 - **Shared cursor opt-out**: An adapter returning `persistsSharedCursor(entityType) === false` keeps that entity type's cursor on the run row only — use it for whole-table backfills whose cursor is one run's scan state, not a durable log position. Those entity types resolve an incremental start position from the most recent run (`resolveResumeCursor`) instead of the shared row, and from `null` when that run completed
+- **Resetting an opt-out**: A reset flow that deletes the shared `SyncCursor` row MUST also call `syncRunService.resetResumePosition(integrationId, entityType, direction, scope)`. An opted-out entity type has no shared row to delete, so deleting only that leaves the resume position on the last interrupted run and the next incremental run re-imports just the tail of the walk it was reset against. The call is a no-op when nothing is interrupted, so make it unconditionally
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: Via `progressService.isCancellationRequested()`

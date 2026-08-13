@@ -2,7 +2,7 @@
 
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncCursor, SyncRun } from '../../data/entities'
-import { createSyncRunService } from '../sync-run-service'
+import { createSyncRunService, SyncRunOwnershipConflictError } from '../sync-run-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -12,12 +12,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 const SCOPE = { organizationId: 'org-1', tenantId: 'tenant-1' }
 
-function buildFakeEm() {
+function buildFakeEm(nativeUpdateResult = 1) {
   return {
     begin: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
     flush: jest.fn().mockResolvedValue(undefined),
+    nativeUpdate: jest.fn().mockResolvedValue(nativeUpdateResult),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
   }
 }
@@ -75,7 +76,6 @@ describe('SyncRunService cursor commits honour persistSharedCursor', () => {
       { createdCount: 2, batchesCompleted: 1 },
       'batch-2',
       SCOPE,
-      undefined,
       { persistSharedCursor: false },
     )
 
@@ -97,7 +97,6 @@ describe('SyncRunService cursor commits honour persistSharedCursor', () => {
       { updatedCount: 1, batchesCompleted: 1 },
       'batch-3',
       SCOPE,
-      undefined,
       { persistSharedCursor: false },
     )
 
@@ -110,10 +109,49 @@ describe('SyncRunService cursor commits honour persistSharedCursor', () => {
     mockLookups(buildRun(), { cursor: 'inherited-cursor' })
 
     const service = createSyncRunService(em as any)
-    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'batch-4', SCOPE, undefined, { persistSharedCursor: false })
+    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'batch-4', SCOPE, { persistSharedCursor: false })
 
     const cursorLookups = (findOneWithDecryption as jest.Mock).mock.calls.filter(([, entity]) => entity === SyncCursor)
     expect(cursorLookups).toHaveLength(0)
+  })
+
+  it('composes the ownership fence with the opt-out on a single commit', async () => {
+    const em = buildFakeEm()
+    const run = buildRun({ batchesCompleted: 3 })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    await service.commitBatchProgress(
+      'run-1',
+      { createdCount: 1, batchesCompleted: 1 },
+      'fenced-batch',
+      SCOPE,
+      { expectedBatchesCompleted: 3, persistSharedCursor: false },
+    )
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({ id: 'run-1', status: 'running', batchesCompleted: 3 }),
+      expect.any(Object),
+    )
+    expect(run.cursor).toBe('fenced-batch')
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('still throws on a stale fence when the entity type opted out', async () => {
+    const em = buildFakeEm(0)
+    mockLookups(buildRun({ batchesCompleted: 5 }), null)
+
+    const service = createSyncRunService(em as any)
+    await expect(service.commitBatchProgress(
+      'run-1',
+      { createdCount: 1, batchesCompleted: 1 },
+      'stale-batch',
+      SCOPE,
+      { expectedBatchesCompleted: 2, persistSharedCursor: false },
+    )).rejects.toBeInstanceOf(SyncRunOwnershipConflictError)
+
+    expect(em.create).not.toHaveBeenCalled()
   })
 
   it('applies the same opt-out to updateCursor', async () => {
@@ -184,5 +222,54 @@ describe('SyncRunService.resolveResumeCursor', () => {
 
     const service = createSyncRunService(em as any)
     await expect(service.resolveResumeCursor('sync_backfill', 'catalog.product', 'import', SCOPE)).resolves.toBeNull()
+  })
+})
+
+describe('SyncRunService.resetResumePosition', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockReset()
+    ;(findWithDecryption as jest.Mock).mockReset().mockResolvedValue([])
+  })
+
+  it('clears the cursor of every interrupted run for the entity type', async () => {
+    const em = buildFakeEm(2)
+
+    const service = createSyncRunService(em as any)
+    const cleared = await service.resetResumePosition('sync_backfill', 'catalog.product', 'import', SCOPE)
+
+    expect(cleared).toBe(2)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      {
+        integrationId: 'sync_backfill',
+        entityType: 'catalog.product',
+        direction: 'import',
+        status: { $ne: 'completed' },
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        deletedAt: null,
+      },
+      expect.objectContaining({ cursor: null }),
+    )
+  })
+
+  it('leaves a reset entity type resuming from the beginning', async () => {
+    const em = buildFakeEm(1)
+    const service = createSyncRunService(em as any)
+
+    await service.resetResumePosition('sync_backfill', 'catalog.product', 'import', SCOPE)
+
+    // After the reset the interrupted run carries no cursor, so the next
+    // non-fullSync run starts from null instead of the middle of the walk it
+    // was reset against.
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ status: 'failed', cursor: null }])
+    await expect(service.resolveResumeCursor('sync_backfill', 'catalog.product', 'import', SCOPE)).resolves.toBeNull()
+  })
+
+  it('is a no-op when nothing is interrupted', async () => {
+    const em = buildFakeEm(0)
+    const service = createSyncRunService(em as any)
+
+    await expect(service.resetResumePosition('sync_backfill', 'catalog.product', 'import', SCOPE)).resolves.toBe(0)
   })
 })
