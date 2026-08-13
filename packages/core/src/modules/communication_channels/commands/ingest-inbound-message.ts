@@ -353,6 +353,11 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       sourceEntityId: conversation.id,
       externalEmail: contactHint?.email ?? undefined,
       externalName: contactHint?.displayName ?? m.senderDisplayName,
+      // #4975: tells the hub which identity contract applies to this sender.
+      // Email-typed channels keep the mandatory `externalEmail`; providers whose
+      // senders have no address (Discord, Slack, SMS…) are validated without it.
+      // The messages validator fails closed on any type it does not recognize.
+      sourceChannelType: input.channelType,
       recipients: mapping?.assignedUserId
         ? [{ userId: mapping.assignedUserId, type: 'to' as const }]
         : [],

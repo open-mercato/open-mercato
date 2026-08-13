@@ -25,6 +25,7 @@ import ingestInboundMessageCommand, {
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { composeMessageSchema } from '../../../messages/data/validators'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
@@ -350,5 +351,142 @@ describe('ingestInboundMessageCommand — concurrent-insert race (M3)', () => {
 
     const result = await ingestInboundMessageCommand.execute(input as never, ctx)
     expect(result.status).toBe('duplicate')
+  })
+})
+
+describe('ingestInboundMessageCommand — non-email sender identity (#4975)', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({
+        id: '550e8400-e29b-41d4-a716-446655440050',
+        ...data,
+      })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const adapter = { providerKey: 'discord' }
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => adapter }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function discordInput(): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'discord',
+      channelType: 'discord',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'discord-message-1',
+        externalConversationId: '1534331920463433771',
+        // A Discord snowflake, exactly as the gateway produces it — no address.
+        senderIdentifier: '1499156851487539260',
+        senderDisplayName: 'Karol Kapsa',
+        body: 'Kolejna wiadomość testowa!@',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'text/plain',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // existingExternal — first delivery
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'discord',
+        channelType: 'discord',
+        userId: 'u-1',
+      } as never) // channel
+      .mockResolvedValueOnce(null as never) // conversation → create
+      .mockResolvedValueOnce(null as never) // mapping → create
+      .mockResolvedValue(null as never)
+  }
+
+  it('passes the channel type to the compose command so the hub can waive externalEmail', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
+    expect(composeInput.sourceChannelType).toBe('discord')
+    expect(composeInput.externalEmail).toBeUndefined()
+  })
+
+  it('produces a compose payload the messages validator accepts with no address', async () => {
+    // The regression this pins: before #4975 this exact payload failed
+    // `externalEmail is required when visibility is public`, the ingest job
+    // retried three times and died, and no inbound Discord message ever landed.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
+    const parsed = composeMessageSchema.safeParse(composeInput)
+
+    expect(parsed.success).toBe(true)
+  })
+
+  it('still demands an address on an email-typed channel', async () => {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'gmail',
+        channelType: 'email',
+        userId: 'u-1',
+      } as never)
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValue(null as never)
+    const { ctx, commandBus } = makeCtx()
+
+    const input = { ...discordInput(), providerKey: 'gmail', channelType: 'email' }
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
+    expect(composeInput.sourceChannelType).toBe('email')
+    const parsed = composeMessageSchema.safeParse(composeInput)
+    expect(parsed.success).toBe(false)
+    expect(
+      parsed.error?.issues.some((issue) => issue.path[0] === 'externalEmail'),
+    ).toBe(true)
   })
 })
