@@ -2,7 +2,11 @@
 
 Leverage the module system and follow strict naming and coding conventions to keep the system consistent and safe to extend.
 
-> **Instruction budget:** keep this file below **31,232 bytes** so nested `AGENTS.md` rules remain visible. Put long procedures in `.ai/docs/*`; see [the guide](.ai/docs/agent-instructions.md) and run `yarn agents:check-budget`.
+> **Instruction budget:** this file must stay under **32,768 bytes** (Codex's default
+> `project_doc_max_bytes`, shared with the nested `AGENTS.md` files below it) — anything past
+> that byte offset never reaches the agent. Keep hard rules and routing here, put long-form
+> procedure in `.ai/docs/*`, and run `yarn agents:check-budget`. See
+> [`.ai/docs/agent-instructions.md`](.ai/docs/agent-instructions.md).
 
 ## Always
 
@@ -93,7 +97,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
-| Document generation registry, renderers, templates, provider boundary, preview/history UI | `document-generators` + `.ai/specs/2026-08-10-document-generators.md` |
+| Document generation | `document-generators` |
 | Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |
 | Forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX | `ui` + `om-backend-ui-design` skill (+ `om-ds-guardian` for DS-token compliance) |
 | Reusing backend component families (charts/KPIs, filters, detail sections, schedule, messages, notifications, page scaffolding, banners) — check BEFORE building any from scratch | [`.ai/ui-backend-components.md`](.ai/ui-backend-components.md) + `ui` |
