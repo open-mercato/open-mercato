@@ -71,9 +71,14 @@ interceptor rejection carrying an **integer status in 400–599**. The bound is 
 |---|---|---|
 | `makeCrudRoute` handlers (`POST`/`PUT`/`PATCH`/`DELETE`) | ✅ via `handleError` | The `beforeExecute` path. |
 | `POST /api/audit_logs/audit-logs/actions/undo` | ✅ | The only route in the repository that undoes a command — the `beforeUndo` path. |
-| Routes calling `commandBus.execute` with their own `catch` | ✅ (#5097) | 51 core routes map the rejection inline, ahead of their generic fallback; the 5 checkout routes and 7 enterprise-security routes inherit it from their module-level error mappers (`handleCheckoutRouteError`, `mapSudoError`, `mapMfaError`, `mapEnforcementError`, `mapSecurityUsersError`). |
+| Routes calling `commandBus.execute` with their own `catch` | ✅ (#5097) | 53 core routes map the rejection inline, ahead of their generic fallback; the 5 checkout routes and 7 enterprise-security routes inherit it from their module-level error mappers (`handleCheckoutRouteError`, `mapSudoError`, `mapMfaError`, `mapEnforcementError`, `mapSecurityUsersError`). |
 | Routes calling `commandBus.execute` **without** their own `catch` (12) | ❌ | The rejection propagates out of the handler, so there is no `catch` to map it in — they answer with the framework's unhandled-error response. Listed in `ROUTES_WITHOUT_OWN_ERROR_HANDLING` in `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`; giving them error handling is a behavior change of its own. |
 | App catch-all (`apps/mercato/src/app/api/[...slug]/route.ts`) | ❌ | Keeps its narrow tenant-guard mapping; it is not a general error handler. |
+
+Two of those routes — `eudr/api/plots/import` and `eudr/api/product-mappings/suggestions/apply` — import a batch and catch
+each item's failure inside the loop, reporting it as a `failed[]` entry rather than as an HTTP status. They map the rejection
+in their route-level `catch` like every other route, so a rejection raised outside the loop is honoured, while an individual
+item blocked by an interceptor stays an item failure; their batch semantics are deliberately unchanged.
 
 Adoption is pinned by `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`: every core route that calls
 the command bus and catches its own failures must consult the mapper, the exemption list must stay free of stale entries, and
