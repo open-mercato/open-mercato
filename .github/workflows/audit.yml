@@ -48,7 +48,7 @@ concurrency:
 jobs:
   audit:
     name: Audit ${{ matrix.branch }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       issues: write
