@@ -146,6 +146,23 @@ describe('Event bus single-delivery (OM_EVENTS_SINGLE_DELIVERY)', () => {
     expect(calls).toEqual(['persistent-sub'])
   })
 
+  test('an opt-in non-persistent probe skips persistent subscribers inline', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const calls: string[] = []
+    const bus = createEventBus({ resolve: ((name: string) => name) as never })
+    bus.registerModuleSubscribers([
+      makeSub('persistent-sub', 'demo', true, calls),
+      makeSub('ephemeral-sub', 'demo', false, calls),
+    ])
+
+    await bus.emit('demo', { a: 1 }, {
+      persistent: false,
+      skipPersistentSubscribersInline: true,
+    })
+
+    expect(calls).toEqual(['ephemeral-sub'])
+  })
+
   test('flag ON: persistent emit is still enqueued for the worker', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
     const calls: string[] = []

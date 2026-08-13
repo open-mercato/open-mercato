@@ -79,6 +79,16 @@ const pluralizeBaseName = (name: string): string => {
   return `${name}s`
 }
 
+/**
+ * Accepts a module-declared `EntityExtension.table` only when it is a bare SQL
+ * identifier. The value is interpolated into a join clause, so anything else is
+ * ignored in favour of the derived table name.
+ */
+const PLAIN_TABLE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+const isPlainTableIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && PLAIN_TABLE_IDENTIFIER_PATTERN.test(value)
+
 const toPascalCase = (value: string): string => {
   return value
     .split(/[_\s]+/)
@@ -323,6 +333,10 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
+    // Custom-field leaves carrying an orGroup belong to an OR disjunct; applying them
+    // one `.where()` at a time would AND them onto every disjunct (#5039).
+    const regularCfFilters = cfFilters.filter((filter) => !filter.orGroup)
+    const orGroupCfFilters = cfFilters.filter((filter) => filter.orGroup)
     const searchConfig = resolveSearchConfig()
     const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => isSearchFilterOp(filter.op))
     // Callers that opt out of automatic tenant/org scoping own the full
@@ -587,50 +601,40 @@ export class BasicQueryEngine implements QueryEngine {
       }
 
       // OR-grouped filters: AND within each group (one $or disjunct), OR between groups.
-      if (orGroupFilters.length > 0) {
-        const groups = new Map<string, typeof orGroupFilters>()
-        for (const f of orGroupFilters) {
+      // Resolution happens here (it needs async column lookups); the WHERE itself is
+      // applied further down, once the cf:* value expressions exist — an OR group may
+      // contain custom-field leaves whose SQL is only available then (#5039).
+      type ResolvedOrClause =
+        | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'cf'; key: string; op: NormalizedFilter['op']; value: unknown }
+      const resolvedGroupFilters: ResolvedOrClause[][] = []
+      if (orGroupFilters.length > 0 || orGroupCfFilters.length > 0) {
+        const groups = new Map<string, NormalizedFilter[]>()
+        for (const f of [...orGroupFilters, ...orGroupCfFilters]) {
           const group = groups.get(f.orGroup!) ?? []
-          group.push(f)
+          group.push(f as NormalizedFilter)
           groups.set(f.orGroup!, group)
         }
-        type ResolvedOrClause =
-          | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
-          | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
-        const resolvedGroupFilters: ResolvedOrClause[][] = []
         for (const [, groupFilters] of groups) {
           const resolved: ResolvedOrClause[] = []
           for (const filter of groupFilters) {
-            const column = await this.resolveBaseColumn(table, String(filter.field))
+            const field = String(filter.field)
+            if (field.startsWith('cf:')) {
+              resolved.push({ kind: 'cf', key: field.slice(3), op: filter.op, value: filter.value })
+              continue
+            }
+            const column = await this.resolveBaseColumn(table, field)
             if (column) {
               resolved.push({ kind: 'column', qualified: qualify(column), op: filter.op, value: filter.value })
             } else {
               // Field is not a base column — for custom-entity records it lives in
               // entity_indexes.doc. Build an EXISTS sub-filter so `$or` searches
               // across doc fields resolve instead of being silently dropped (#3229).
-              resolved.push({ kind: 'doc', field: String(filter.field), op: filter.op, value: filter.value })
+              resolved.push({ kind: 'doc', field, op: filter.op, value: filter.value })
             }
           }
           if (resolved.length > 0) resolvedGroupFilters.push(resolved)
-        }
-        if (resolvedGroupFilters.length > 0) {
-          q = q.where((eb: any) => eb.or(
-            resolvedGroupFilters.map((group) => {
-              const parts = group.map((rf) => rf.kind === 'column'
-                ? this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
-                : this.buildIndexDocOpExpression(eb, {
-                    entity: String(entity),
-                    field: rf.field,
-                    op: rf.op,
-                    value: rf.value,
-                    recordIdColumn,
-                    tenantId: opts.tenantId ?? null,
-                    organizationScope: orgScope,
-                    withDeleted: opts.withDeleted === true,
-                  }))
-              return parts.length === 1 ? parts[0] : eb.and(parts)
-            })
-          ))
         }
       }
 
@@ -886,8 +890,10 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Apply cf:* filters (on raw expressions; as EXISTS semi-joins for the count shape)
-      for (const f of cfFilters) {
+      // Apply cf:* filters (on raw expressions; as EXISTS semi-joins for the count
+      // shape). OR-grouped ones are excluded here and combined with their
+      // disjunct's other leaves right below.
+      for (const f of regularCfFilters) {
         if (!f.field.startsWith('cf:')) continue
         const key = f.field.slice(3)
         const filterSource = keySource.get(key)
@@ -942,6 +948,63 @@ export class BasicQueryEngine implements QueryEngine {
         q = this.applyColumnOp(q, expr, f.op, f.value)
       }
 
+      // OR groups are applied here, after the cf:* value expressions exist, so a
+      // disjunct mixing base/doc and custom-field leaves is united rather than
+      // intersected. A cf leaf whose key resolved no value expression yields no
+      // predicate and is dropped; a disjunct left empty by that is dropped too,
+      // because an empty AND would read as TRUE and widen the result.
+      //
+      // Known limitation, shared with the `doc` clause kind above: a leaf inside an OR
+      // group compares against the stored value directly and does not route `like` /
+      // `ilike` through the search-token index the way the ungrouped path does. On a
+      // field covered by an encryption map such a leaf therefore compares against
+      // ciphertext and will not match.
+      //
+      // The count shape never populates cfValueExprByKey (it joins no cf tables), so
+      // its applicability test is key resolution itself — the same condition that
+      // gates the full shape's expression map — and a cf leaf compiles to a
+      // correlated EXISTS instead of a value-expression comparison. Dropping it
+      // instead would narrow the OR and undercount relative to the display query.
+      const cfLeafApplicable = (key: string): boolean =>
+        isCountProjection ? keySource.has(key) : Boolean(cfValueExprByKey[key])
+      const applicableGroupFilters = resolvedGroupFilters
+        .map((group) => group.filter((rf) => rf.kind !== 'cf' || cfLeafApplicable(rf.key)))
+        .filter((group) => group.length > 0)
+      if (applicableGroupFilters.length > 0) {
+        q = q.where((eb: any) => {
+          const disjuncts = applicableGroupFilters.map((group) => {
+            const parts = group.map((rf) => {
+              if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
+              if (rf.kind === 'cf') {
+                if (isCountProjection) {
+                  return this.buildCfValueExistsExpression(eb, {
+                    source: keySource.get(rf.key)!,
+                    qualify,
+                    tenantId: tenantId ?? null,
+                    key: rf.key,
+                    op: rf.op,
+                    value: rf.value,
+                  })
+                }
+                return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+              }
+              return this.buildIndexDocOpExpression(eb, {
+                entity: String(entity),
+                field: rf.field,
+                op: rf.op,
+                value: rf.value,
+                recordIdColumn,
+                tenantId: opts.tenantId ?? null,
+                organizationScope: orgScope,
+                withDeleted: opts.withDeleted === true,
+              })
+            })
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          })
+          return disjuncts.length === 1 ? disjuncts[0] : eb.or(disjuncts)
+        })
+      }
+
       // Entity extensions joins (no selection yet; enables future filters/projections).
       // Projection-only, so the count shape omits them.
       if (opts.includeExtensions && !isCountProjection) {
@@ -954,7 +1017,15 @@ export class BasicQueryEngine implements QueryEngine {
           : exts
         for (const e of chosen) {
           const [, extName] = (e.extension as string).split(':')
-          const extTable = extName.endsWith('s') ? extName : `${extName}s`
+          // Uses the SAME derivation as every other table-name fallback in this file
+          // (`pluralizeBaseName`, also called at the resolveEntityTableName sites above)
+          // rather than a separate inline one. The inline version handled only `+s`, so
+          // `example_customer_priority` derived `example_customer_prioritys` against the
+          // real `example_customer_priorities`. Behaviour is unchanged for every name that
+          // does not end in `y`; `table` below remains the escape hatch for irregular
+          // plurals no guesser can win (`person` → `people`).
+          const derivedTable = pluralizeBaseName(extName)
+          const extTable = isPlainTableIdentifier(e.table) ? e.table : derivedTable
           const alias = `ext_${sanitize(extName)}`
           q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
             jb.onRef(`${alias}.${e.join.extensionKey}`, '=', `${table}.${e.join.baseKey}`)
@@ -1231,6 +1302,25 @@ export class BasicQueryEngine implements QueryEngine {
       value: unknown
     },
   ): AnyBuilder {
+    return q.where((eb: any) => this.buildCfValueExistsExpression(eb, opts))
+  }
+
+  /**
+   * Expression-returning core of `applyCfValueExistsFilter`, so a cf leaf
+   * inside an OR group can compile to an EXISTS predicate on the count shape
+   * instead of being dropped for lacking a `cfValueExprByKey` entry.
+   */
+  private buildCfValueExistsExpression(
+    eb: any,
+    opts: {
+      source: ResolvedCustomFieldSource
+      qualify: (column: string) => string
+      tenantId: string | null
+      key: string
+      op: NormalizedFilter['op']
+      value: unknown
+    },
+  ): any {
     const { source, qualify, tenantId, key, op, value } = opts
     const seq = this.searchAliasSeq++
     const valAlias = `cfev_${seq}`
@@ -1275,10 +1365,10 @@ export class BasicQueryEngine implements QueryEngine {
 
     const absenceSatisfiable = (op === 'eq' && value === null) || (op === 'exists' && !value)
     if (absenceSatisfiable) {
-      return q.where((eb: any) => eb.or([
+      return eb.or([
         eb.not(eb.exists(buildSub(eb))),
         eb.exists(buildSub(eb).where(sql<boolean>`${caseExpr} is null`)),
-      ]))
+      ])
     }
 
     let predicate: RawBuilder<boolean> | null = null
@@ -1319,13 +1409,15 @@ export class BasicQueryEngine implements QueryEngine {
         predicate = sql<boolean>`${caseExpr} is not null`
         break
       default:
-        return q
+        // Mirrors buildColumnOpExpression's unknown-op fallback: a neutral
+        // predicate, so full and count shapes drop the same leaves.
+        return eb.val(true)
     }
     const captured = predicate
-    return q.where((eb: any) => eb.exists(buildSub(eb).where(captured)))
+    return eb.exists(buildSub(eb).where(captured))
   }
 
-  private buildColumnOpExpression(eb: any, column: string, op: string, value: unknown): any {
+  private buildColumnOpExpression(eb: any, column: string | RawBuilder<unknown>, op: string, value: unknown): any {
     switch (op) {
       case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
       case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)

@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-harness-knowledge-change.schema.json",
+  "title": "Open Mercato standalone harness knowledge-change run manifest",
+  "description": "Validation artifact for a harness knowledge-contract or asset-sync change. Authored input declares the intended contract surface; the controller resolves SHAs and focused base/head execution evidence. Authored input MUST omit resolvedBaseSha, headSha, and focusedExecutions.",
+  "$ref": "#/$defs/authoredManifest",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "gitRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "exactPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^*?\\\\<>|\"]+(?<!/)$",
+      "description": "Repository-relative POSIX path to one exact regular file. Absolute paths, parent traversal, wildcards, and directory targets are rejected."
+    },
+    "caseId": {
+      "type": "string",
+      "pattern": "^OMH-[0-9]{3}$"
+    },
+    "rangeId": {
+      "type": "string",
+      "pattern": "^OMH-[0-9]{3}\\.\\.OMH-[0-9]{3}$",
+      "description": "Inclusive contiguous case-ID range, low bound first."
+    },
+    "laneId": {
+      "enum": [
+        "deterministic",
+        "routing",
+        "writable",
+        "generatedCodeReview",
+        "generativeJudge",
+        "generatedTests"
+      ]
+    },
+    "changedContract": {
+      "enum": [
+        "routing",
+        "skill-link",
+        "source-link",
+        "example-source",
+        "installed-source",
+        "discovery",
+        "context-read",
+        "evaluator",
+        "oracle"
+      ]
+    },
+    "authoritativeFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/exactPath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "generatedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "sourcePath"],
+      "properties": {
+        "path": { "$ref": "#/$defs/exactPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sourcePath": { "$ref": "#/$defs/exactPath" }
+      }
+    },
+    "sourceLinkInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "baselineRef",
+        "expectedOwnerCount",
+        "expectedTopicCount",
+        "resolvedLinkCount",
+        "baselineAssetCount",
+        "baselineDispositionCount",
+        "baselinePath",
+        "baselineSchemaPath"
+      ],
+      "properties": {
+        "path": { "$ref": "#/$defs/exactPath" },
+        "baselineRef": { "$ref": "#/$defs/gitSha" },
+        "expectedOwnerCount": { "type": "integer", "minimum": 0 },
+        "expectedTopicCount": { "type": "integer", "minimum": 0 },
+        "resolvedLinkCount": { "type": "integer", "minimum": 0 },
+        "baselineAssetCount": { "type": "integer", "minimum": 0 },
+        "baselineDispositionCount": { "type": "integer", "minimum": 0 },
+        "baselinePath": { "$ref": "#/$defs/exactPath" },
+        "baselineSchemaPath": { "$ref": "#/$defs/exactPath" }
+      }
+    },
+    "executionOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "stdoutSha256", "stderrSha256"],
+      "properties": {
+        "exitCode": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "stdoutSha256": { "$ref": "#/$defs/sha256" },
+        "stderrSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "focusedExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testFile", "command", "baseWithTestPatch", "head"],
+      "properties": {
+        "testFile": { "$ref": "#/$defs/exactPath" },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^`$;&|<>\\n]*$",
+            "description": "One argv token. Shell metacharacters are rejected; the controller never interpolates a shell."
+          }
+        },
+        "baseWithTestPatch": { "$ref": "#/$defs/executionOutcome" },
+        "head": { "$ref": "#/$defs/executionOutcome" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changeClass",
+        "baseRef",
+        "affectedCaseIds",
+        "affectedRanges",
+        "changedContracts",
+        "focusedTestFiles",
+        "authoritativeFiles",
+        "generatedFiles",
+        "expectedCatalogCount",
+        "requiredReleaseLanes",
+        "documentationFiles",
+        "sourceLinkInventory"
+      ],
+      "properties": {
+        "changeClass": { "enum": ["knowledge-contract", "asset-sync"] },
+        "baseRef": { "$ref": "#/$defs/gitRef" },
+        "resolvedBaseSha": { "$ref": "#/$defs/gitSha" },
+        "headSha": { "$ref": "#/$defs/gitSha" },
+        "affectedCaseIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/caseId" }
+        },
+        "affectedRanges": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/rangeId" }
+        },
+        "changedContracts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/changedContract" }
+        },
+        "focusedTestFiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/exactPath" }
+        },
+        "authoritativeFiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/authoritativeFile" }
+        },
+        "generatedFiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/generatedFile" }
+        },
+        "expectedCatalogCount": { "type": "integer", "minimum": 0 },
+        "requiredReleaseLanes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/laneId" }
+        },
+        "documentationFiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/exactPath" }
+        },
+        "sourceLinkInventory": { "$ref": "#/$defs/sourceLinkInventory" },
+        "focusedExecutions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/focusedExecution" }
+        }
+      }
+    },
+    "authoredManifest": {
+      "allOf": [
+        { "$ref": "#/$defs/manifest" },
+        {
+          "not": {
+            "anyOf": [
+              { "required": ["resolvedBaseSha"] },
+              { "required": ["headSha"] },
+              { "required": ["focusedExecutions"] }
+            ]
+          },
+          "description": "resolvedBaseSha, headSha, and focusedExecutions are controller-owned output fields; author-supplied evidence fails validation."
+        }
+      ]
+    },
+    "completedManifest": {
+      "allOf": [
+        { "$ref": "#/$defs/manifest" },
+        { "required": ["resolvedBaseSha", "headSha", "focusedExecutions"] }
+      ]
+    }
+  }
+}

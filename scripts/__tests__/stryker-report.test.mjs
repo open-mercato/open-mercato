@@ -30,6 +30,11 @@ function createReport(mutants) {
   }
 }
 
+function inlineCode(value) {
+  const encoded = Array.from(value, (character) => `&#${character.codePointAt(0)};`).join('')
+  return `<code>${encoded}</code>`
+}
+
 const KILLED_MUTANT = {
   id: '1',
   mutatorName: 'EqualityOperator',
@@ -50,16 +55,16 @@ test('lists surviving mutants and omits killed ones', () => {
   const markdown = renderMarkdown(createReport([KILLED_MUTANT, SURVIVED_MUTANT]))
 
   assert.match(markdown, /1 surviving mutant/)
-  assert.match(markdown, /src\/lib\/numbers\.ts:2:25/)
-  assert.match(markdown, /BooleanLiteral/)
+  assert.ok(markdown.includes(inlineCode('src/lib/numbers.ts:2:25')))
+  assert.ok(markdown.includes(inlineCode('BooleanLiteral')))
   assert.ok(!markdown.includes('EqualityOperator'), 'killed mutants must not be listed')
 })
 
 test('renders the original and the replacement as a -/+ pair', () => {
   const markdown = renderMarkdown(createReport([SURVIVED_MUTANT]))
 
-  assert.match(markdown, /`- true`/)
-  assert.match(markdown, /`\+ false`/)
+  assert.ok(markdown.includes(`- ${inlineCode('true')}`))
+  assert.ok(markdown.includes(`+ ${inlineCode('false')}`))
 })
 
 test('counts NoCoverage mutants as survivors — untested code is the whole point', () => {
@@ -129,7 +134,7 @@ test('handles an empty report without producing a synthetic score', () => {
 })
 
 test('names the package it is reporting on', () => {
-  assert.match(renderMarkdown(createReport([]), { packageName: 'shared' }), /Mutation testing — `shared`/)
+  assert.ok(renderMarkdown(createReport([]), { packageName: 'shared' }).includes(inlineCode('shared')))
 })
 
 test('surfaces capped files so a truncated run never reads as full coverage', () => {
@@ -139,10 +144,10 @@ test('surfaces capped files so a truncated run never reads as full coverage', ()
 
   assert.match(markdown, /Not measured/)
   assert.match(markdown, /2 changed file\(s\) were not mutated/)
-  assert.match(markdown, /`src\/lib\/a\.ts`/)
+  assert.ok(markdown.includes(inlineCode('src/lib/a.ts')))
 })
 
-test('escapes pipes so a mutated string can never break the table', () => {
+test('encodes pipes so a mutated string can never break the table', () => {
   const pipeMutant = {
     ...SURVIVED_MUTANT,
     replacement: 'a || b',
@@ -150,10 +155,40 @@ test('escapes pipes so a mutated string can never break the table', () => {
   }
 
   const markdown = renderMarkdown(createReport([pipeMutant]))
-  const tableRows = markdown.split('\n').filter((line) => line.startsWith('| `src/'))
+  const tableRows = markdown.split('\n').filter((line) => line.startsWith('| <code>'))
 
   assert.equal(tableRows.length, 1)
-  assert.match(tableRows[0], /a \\\|\\\| b/)
+  assert.ok(tableRows[0].includes(inlineCode('a || b')))
+  assert.equal(tableRows[0].split('|').length - 1, 5, `table columns not intact: ${tableRows[0]}`)
+})
+
+test('encodes backslashes so an escaped pipe in the source cannot break the table', () => {
+  const backslashMutant = {
+    ...SURVIVED_MUTANT,
+    replacement: String.raw`'a\|b'`,
+    location: { start: { line: 3, column: 3 }, end: { line: 3, column: 15 } },
+  }
+
+  const markdown = renderMarkdown(createReport([backslashMutant]))
+  const row = markdown.split('\n').find((line) => line.startsWith('| <code>'))
+
+  assert.ok(row.includes(inlineCode(String.raw`'a\|b'`)))
+  assert.equal(row.split('|').length - 1, 5, `table columns not intact: ${row}`)
+})
+
+test('encodes every source code point so a survivor cell cannot smuggle a live code span', () => {
+  const trailingBackslashMutant = {
+    ...SURVIVED_MUTANT,
+    replacement: '\\`@maintainer',
+    location: { start: { line: 3, column: 3 }, end: { line: 3, column: 15 } },
+  }
+
+  const markdown = renderMarkdown(createReport([trailingBackslashMutant]))
+  const row = markdown.split('\n').find((line) => line.startsWith('| <code>'))
+
+  assert.ok(row.includes(inlineCode('\\`@maintainer')))
+  assert.ok(!row.includes('@maintainer'))
+  assert.ok(!row.includes('`'))
 })
 
 test('parses the report path, package name and enforcement flag', () => {
@@ -173,7 +208,7 @@ test('the missing-report fallback explains itself and names the package', () => 
   const markdown = renderMissingReportMarkdown('shared')
 
   assert.match(markdown, /## Mutation testing/)
-  assert.match(markdown, /No mutation report was produced for `shared`/)
+  assert.ok(markdown.includes(`No mutation report was produced for ${inlineCode('shared')}`))
   assert.match(markdown, /did not get far enough to write/)
 })
 
@@ -189,15 +224,15 @@ test('the missing-report path reaches the job summary, not only stdout', () => {
   })
 
   assert.equal(result.status, 0)
-  assert.match(result.stdout, /No mutation report was produced for `shared`/)
+  assert.ok(result.stdout.includes(`No mutation report was produced for ${inlineCode('shared')}`))
   assert.match(
     fs.readFileSync(summaryPath, 'utf8'),
-    /No mutation report was produced for `shared`/,
+    new RegExp(`No mutation report was produced for ${inlineCode('shared')}`),
     'a crashed mutation run must still explain itself in the job summary',
   )
 })
 
-test('escapes backticks so a survivor cell cannot break out of its code span', () => {
+test('encodes backticks so a survivor cell cannot break out of its code span', () => {
   const report = {
     files: {
       'src/lib/thing.ts': {
@@ -215,14 +250,9 @@ test('escapes backticks so a survivor cell cannot break out of its code span', (
   }
 
   const markdown = renderMarkdown(report)
-  const row = markdown.split('\n').find((line) => line.includes('src/lib/thing.ts'))
+  const row = markdown.split('\n').find((line) => line.includes(inlineCode('src/lib/thing.ts:1:15')))
 
-  // Every backtick that came from the source is escaped, so the only unescaped ones
-  // left are the six delimiters of the row's three code spans (location, original,
-  // replacement). A survivor whose text ended a span early would push this above six
-  // and let the following `@maintainer` render as a live mention.
-  const unescapedBackticks = row.replace(/\\`/g, '').match(/`/g) ?? []
-
-  assert.equal(unescapedBackticks.length, 6, `code spans not intact: ${row}`)
-  assert.match(row, /\\`@maintainer/)
+  assert.ok(row.includes(inlineCode('`@maintainer see `ls`')))
+  assert.ok(!row.includes('@maintainer'))
+  assert.ok(!row.includes('`'))
 })

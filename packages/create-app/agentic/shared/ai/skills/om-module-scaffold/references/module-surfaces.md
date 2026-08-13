@@ -19,3 +19,22 @@ Load only the rows the brief requires.
 | AI/workflows | Invoke their dedicated skills; keep discovered root filenames. |
 
 Every added surface needs a real caller or acceptance path. Do not add speculative empty files.
+
+## Canonical example source
+
+One compiling implementation per row, from the source-present, runtime-disabled `example` module. Open only the row you are building; the full index is [`surface-map.md`](../../../../src/modules/example/references/surface-map.md).
+
+| Surface | Exact file |
+|---|---|
+| Registration | [`index.ts`](../../../../src/modules/example/index.ts) |
+| DI | [`di.ts`](../../../../src/modules/example/di.ts) |
+| ACL/setup | [`acl.ts`](../../../../src/modules/example/acl.ts), [`setup.ts`](../../../../src/modules/example/setup.ts) |
+| Events | [`events.ts`](../../../../src/modules/example/events.ts) |
+| Notifications | [`notifications.ts`](../../../../src/modules/example/notifications.ts), [`notifications.handlers.ts`](../../../../src/modules/example/notifications.handlers.ts), [`notifications.client.ts`](../../../../src/modules/example/notifications.client.ts) |
+| CLI | [`cli.ts`](../../../../src/modules/example/cli.ts) |
+| Custom fields/entities | [`ce.ts`](../../../../src/modules/example/ce.ts) |
+| UI locale messages | [`i18n/en.json`](../../../../src/modules/example/i18n/en.json) |
+| Translatable fields | [`translations.ts`](../../../../src/modules/example/translations.ts) |
+| Extension hosts this module exposes | [`extension-points.ts`](../../../../src/modules/example/extension-points.ts) |
+
+Search, cache, worker/progress, and AI/workflow rows have **no** canonical example file yet. Follow the rule text above and the owning skill; never infer one of those patterns from an adjacent `example` file.

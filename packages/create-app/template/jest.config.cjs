@@ -17,9 +17,13 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^#generated/(.*)$': '<rootDir>/.mercato/generated/$1',
   },
+  // `@open-mercato/shared/lib/commands` pulls in ESM-only MikroORM, whose
+  // `import.meta.resolve` cannot be parsed as CommonJS. The local transformer
+  // strips those usages before delegating to ts-jest; without it every command,
+  // entity, or data-engine test fails to load.
   transform: {
     '^.+\\.(t|j)sx?$': [
-      'ts-jest',
+      '<rootDir>/scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
           jsx: 'react-jsx',

@@ -16,6 +16,21 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
 
+/**
+ * `raiseCrudError` prefers the server's `error` body over the fallback message and stamps
+ * `status` on anything it builds from an HTTP response, so a numeric `status` is what
+ * distinguishes a route's refusal from a client-side failure. Without that check an
+ * offline or aborted request would put a raw "Failed to fetch" into the operator's
+ * banner; those keep the generic fallback instead.
+ */
+function resolveServerReason(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined
+  const status = (err as Error & { status?: unknown }).status
+  if (typeof status !== 'number') return undefined
+  const message = err.message?.trim()
+  return message ? message : undefined
+}
+
 export type ActionLogItem = {
   id: string
   commandId: string
@@ -51,8 +66,9 @@ export function AuditLogsActions({
   onRefresh: () => Promise<void>
   isLoading?: boolean
   headerExtras?: React.ReactNode
-  onUndoError?: () => void
-  onRedoError?: () => void
+  /** Receives the server's reason when it sent one, so the page can show why the undo was refused. */
+  onUndoError?: (reason?: string) => void
+  onRedoError?: (reason?: string) => void
   pagination?: PaginationProps
 }) {
   const t = useT()
@@ -109,7 +125,7 @@ export function AuditLogsActions({
       await onRefresh()
     } catch (err) {
       logger.error('Undo action failed', { err })
-      onUndoError?.()
+      onUndoError?.(resolveServerReason(err))
     } finally {
       setUndoingToken(null)
     }
@@ -128,7 +144,7 @@ export function AuditLogsActions({
       await onRefresh()
     } catch (err) {
       logger.error('Redo action failed', { err })
-      onRedoError?.()
+      onRedoError?.(resolveServerReason(err))
     } finally {
       setRedoingId(null)
     }

@@ -93,7 +93,7 @@ export async function resolveCanonicalStaffAuthContext(
     if (session.expiresAt.getTime() < Date.now()) return null
   }
 
-  if (!user) return null
+  if (!user || user.isConfirmed === false) return null
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
