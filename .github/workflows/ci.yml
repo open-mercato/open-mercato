@@ -396,7 +396,7 @@ jobs:
   # native compiler has no JS API, so the parser's `typescript` import must be
   # redirected to `typescript-js`.
   ds-lint:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
