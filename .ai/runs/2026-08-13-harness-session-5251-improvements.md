@@ -55,6 +55,8 @@ Add two compact lines to both AGENTS.md variants:
 
 ## Progress
 
+PR: #5267
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Standalone root routing guidance
