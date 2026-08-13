@@ -55,8 +55,15 @@ Every CRUD list count is now bounded: the database stops counting after
 `OM_LIST_COUNT_CAP` (default `10000`) matching rows. Below the cap, `total` stays
 exact and responses are byte-identical to before. At the cap, the response
 reports `total: <cap>` together with a new optional `totalIsCapped: true` field
-(and `meta.listCountCapWarning` from the query engine), and `totalPages` becomes
-a bounded page count. This is a **value-level behavior change on a STABLE
+(and `meta.listCountCapWarning` from the query engine). **When `totalIsCapped`
+is true, both `total` and `totalPages` are floors, not values** — rows past the
+cap exist and remain servable (data queries are offset-based and independent of
+the count), but any pager that derives its page count from `total` will stop
+offering them. The platform's `Pagination`/`DataTable` handle this: a capped
+pager never clamps the current page down to the floor, suppresses the last-page
+jump, and keeps Next available through short-page detection while pages come
+back full. A custom pager built on `total` must do the same or its users cannot
+reach rows past the cap. This is a **value-level behavior change on a STABLE
 response surface**, shipped enabled, because an exact `COUNT` over arbitrary
 filters is `O(matching rows)` and dominates list latency on large tables.
 
