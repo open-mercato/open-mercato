@@ -19,7 +19,7 @@ The CLI `mercato agentic:init` bundles the same `packages/create-app/agentic/` t
 
 - No sanitizer tuning or Kimi `wire.jsonl` adapter for `om-share-this-session` — redaction changes weaken a privacy guard and need their own carefully-tested PR (follow-up, tracked on #5251).
 - No stub `SKILL.md` placeholders or doctor check for failed external-skill installs — code change with test surface; follow-up.
-- No changes to the generated module fact-sheet pipeline or fact-sheet splitting.
+- No changes to the generated module fact-sheet pipeline or fact-sheet splitting. *(Amended by the Phase 5 resume: the split-vs-hint question is now analyzed and designed in `.ai/specs/2026-08-13-module-fact-sheet-sectioned-reading.md`; pipeline code changes remain out of scope for this PR.)*
 - No monorepo-side (`.ai/specs/`, root `AGENTS.md`) changes; this run improves the standalone harness only.
 
 ## Implementation Plan
@@ -44,6 +44,10 @@ Add two compact lines to both AGENTS.md variants:
 
 - Run the create-app package test suite (instruction-budget, context-guidance-contracts, agent-surface-coverage, source-link checks).
 - Run the configured full validation gate.
+
+### Phase 5 — Fact-sheet split analysis and spec (resume, 2026-08-13)
+
+Requested by the PR author on resume: analyze whether splitting fact-sheets into separate files + index beats the Phase 1 "read in sections" hint, and make the outcome less error-prone. Measured the built sheets (13 over 50 KB, `customers.md` 218 KB, section skew, 48 % link boilerplate), inventoried the contract surface pinning the single-file layout (363 `cases.json` refs, ~30 test assertions, two build scripts, two setup mirrors), and landed the design as a Proposed spec: in-file Contents index + end-of-facts marker + link-label compression first (Phase 1, additive), directory split as a conditional Phase 2 with full migration inventory.
 
 ## Risks
 
@@ -77,3 +81,8 @@ PR: #5267
 
 - [x] 4.1 create-app package tests green (851 pass; only the 4 known host-limit inotify dev-wrapper tests fail — environmental, sysctl preflight, not branch-caused) — 2330b5443
 - [x] 4.2 Full validation gate green (build:packages, generate no-drift, i18n:check-sync/usage, typecheck, build:app all ✓; yarn test fails only on the same 4 environmental tests) — 2330b5443
+
+### Phase 5: Fact-sheet split analysis and spec (resume)
+
+- [ ] 5.1 Measure built sheets + inventory the single-file contract surface
+- [ ] 5.2 Land `.ai/specs/2026-08-13-module-fact-sheet-sectioned-reading.md` (Proposed) with the phased design
