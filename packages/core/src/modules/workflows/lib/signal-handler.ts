@@ -352,6 +352,12 @@ export async function sendSignal(
   // service is the module, and reaching for a named export on it couples this
   // path to every test double that stubs only the two methods it needed.
   const { dispatchAgentOutcomeForCurrentStep } = await import('./workflow-executor')
+  // An instance being resumed is PAUSED as a matter of course — that IS the wait
+  // this signal ends. So "did the outcome route park the run" can only be
+  // answered against the status as it stood BEFORE the route ran; reading
+  // `instance.status` afterwards answers "was it waiting when we arrived",
+  // which is always yes.
+  const pausedBeforeOutcomeDispatch = instance.status === 'PAUSED'
   const outcomeDispatch = await dispatchAgentOutcomeForCurrentStep(
     em,
     container,
@@ -367,7 +373,16 @@ export async function sendSignal(
       return
     }
     if (outcomeDispatch.kind === 'parked') return
-    if (outcomeDispatch.paused || instance.status === 'PAUSED') return
+    // `paused` from the ROUTED arm means the traversed transition parked for its
+    // own async activities, which is a genuine new wait and must not be
+    // advanced past. The second test catches a route that parked the instance
+    // itself (the `inherit` arm's failure-queue directive), and is written
+    // against the status delta rather than the status: before this, a still-set
+    // PAUSED from the wait being resumed made it unconditionally true, so an
+    // outcome-routed agent step advanced exactly ONE step and then stalled
+    // forever — the same defect the non-outcome path below already documents
+    // and flips to RUNNING to avoid.
+    if (outcomeDispatch.paused || (!pausedBeforeOutcomeDispatch && instance.status === 'PAUSED')) return
     instance.status = 'RUNNING'
     await em.flush()
     await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })

@@ -568,6 +568,89 @@ describe('Workflow Signals - Phase 9.1', () => {
       expect(mockExecuteWorkflow).not.toHaveBeenCalled()
     })
 
+    /**
+     * An instance being resumed is PAUSED — that IS the wait the signal ends.
+     * Reading `instance.status` AFTER the outcome route ran therefore answers
+     * "was it waiting when we got here", not "did the route park it", and
+     * treating the two as the same made an outcome-routed agent step advance
+     * exactly ONE step and then stall forever. Observed end to end: a settled
+     * voice call routed `researcher` into the next step and the run never moved
+     * again.
+     */
+    it('keeps advancing after an outcome route, even though the resumed instance was PAUSED', async () => {
+      const agentInstance = { ...mockInstance, status: 'PAUSED', currentStepId: 'agent' }
+      const agentDefinition = {
+        ...mockDefinition,
+        definition: {
+          steps: [
+            { stepId: 'agent', stepType: 'AUTOMATED', activities: [{ activityType: 'INVOKE_AGENT' }] },
+            { stepId: 'next', stepType: 'AUTOMATED' },
+          ],
+          transitions: [
+            { transitionId: 'r1', fromStepId: 'agent', toStepId: 'next', trigger: 'auto', kind: 'outcome', outcomeKind: 'researcher' },
+          ],
+        },
+      }
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(agentInstance as any)
+        .mockResolvedValueOnce(agentDefinition as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, stepId: 'agent' } as any)
+      ;(dispatchAgentOutcomeForCurrentStep as jest.Mock).mockResolvedValueOnce({
+        kind: 'routed',
+        toStepId: 'next',
+        transitionId: 'r1',
+        paused: false,
+      })
+
+      await sendSignal(mockEm, mockContainer, {
+        instanceId,
+        signalName: 'agent_orchestrator.proposal.ready',
+        agentOutcome: 'researcher',
+        tenantId,
+        organizationId,
+      })
+
+      expect(agentInstance.status).toBe('RUNNING')
+      expect(mockExecuteWorkflow).toHaveBeenCalledWith(mockEm, mockContainer, instanceId, { userId: undefined })
+    })
+
+    it('stops when the outcome route itself parked the run', async () => {
+      const agentInstance = { ...mockInstance, status: 'PAUSED', currentStepId: 'agent' }
+      const agentDefinition = {
+        ...mockDefinition,
+        definition: {
+          steps: [
+            { stepId: 'agent', stepType: 'AUTOMATED', activities: [{ activityType: 'INVOKE_AGENT' }] },
+            { stepId: 'next', stepType: 'AUTOMATED' },
+          ],
+          transitions: [
+            { transitionId: 'r1', fromStepId: 'agent', toStepId: 'next', trigger: 'auto', kind: 'outcome', outcomeKind: 'researcher' },
+          ],
+        },
+      }
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(agentInstance as any)
+        .mockResolvedValueOnce(agentDefinition as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, stepId: 'agent' } as any)
+      ;(dispatchAgentOutcomeForCurrentStep as jest.Mock).mockResolvedValueOnce({
+        kind: 'routed',
+        toStepId: 'next',
+        transitionId: 'r1',
+        paused: true,
+      })
+
+      await sendSignal(mockEm, mockContainer, {
+        instanceId,
+        signalName: 'agent_orchestrator.proposal.ready',
+        agentOutcome: 'researcher',
+        tenantId,
+        organizationId,
+      })
+
+      expect(agentInstance.status).toBe('PAUSED')
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+    })
+
     it('should find and execute valid transitions after signal', async () => {
       mockFindOneWithDecryption
         .mockResolvedValueOnce({ ...mockInstance } as any)
