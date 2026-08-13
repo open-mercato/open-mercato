@@ -67,6 +67,21 @@ Both fire even when the resolution result is unchanged (no override targets this
 - [x] 1.3 Wrapper-override composition memoized per (wrapper, base) pair, with its own regression test
 - [x] 3.1 Validation gate — `build:packages`, `generate`, both i18n checks, `typecheck`, `lint`, `build:app` green; tests green per package for everything this change reaches (13 598 across `ui`/`core`/`enterprise`/`checkout`/`shared`). The whole-repo `turbo run test` sweep failed a different unrelated package on each of three attempts (`telemetry`, `scheduler`, `create-mercato-app`), each passing on its own straight afterwards — local contention, left to CI.
 - [x] 3.2 UI QA + screenshots — before/after ephemeral builds with the enterprise security override live: https://github.com/open-mercato/open-mercato/pull/5187#issuecomment-5251429011
+- [x] 4.1 Merged current `develop` (2026-08-13), resolved the conflict down to the two changes `develop` lacks, added a sixth test documenting the inline-fallback limit — see "Rebase on `develop`" below
+- [x] 4.2 Post-merge gate — `build:packages` ✅, `generate` ✅ (no drift), `i18n:check-sync` ✅, `i18n:check-usage` ✅ (advisory only), `typecheck` ✅ 22/22, `lint` ✅ 0 errors, `ui` tests ✅ 1867/1867 across 230 suites
+
+## Rebase on `develop` — 2026-08-13
+
+Merging the current `develop` into this branch produced a conflict in the one file this PR changes, and the reason matters more than the conflict: **`develop` now carries the core of this fix already.** `1be52595d` ("fix(ui): refresh mounted component overrides"), landed via #5217, extracted `resolveComponent(...)` and moved resolution inside a stable `Registered` component keyed on `[componentId, fallback]` — the same shape as Phase 1 here, reached independently while this PR waited.
+
+Rather than carry a large diff that mostly restates `develop`, the conflict was resolved by taking `develop`'s file and re-applying only what it does not have:
+
+1. **Wrapper-override composition memoized per (wrapper, base) pair** (`applyWrapper`). `develop` still calls `wrapper(acc)` on every plan recomputation, and a wrapper override returns a fresh component each time — so a wrapped subtree, which is exactly what the enterprise `security` module puts on `section:auth.login.form`, still remounts on every registry bump. The wrapper test is red against `develop` and green here; that was re-verified on this branch by reverting the single call.
+2. **Identity held in a ref keyed on `componentId`** instead of `React.useMemo(..., [componentId, fallback])`. `useMemo` is a cache React is permitted to discard, and identity here is a correctness requirement, not an optimisation; keying on `componentId` alone also stops a host that rebuilds its `fallback` inline from swapping the component the hook hands back.
+
+The renames this PR had introduced (`resolvePlan`, `ResolutionPlan`, `emptyPlan`, `createRegisteredComponent`, import reordering) were dropped — they were cosmetic, and dropping them shrinks the diff against `develop` to the two behavioural changes above.
+
+**Honest limit, now covered by a test.** A host that creates its `fallback` inside its own render body *and* resolves an id with no registered component still remounts: the fallback itself is the rendered element type, and only the host can stabilise it. A sixth test asserts that remount and explains why, so the boundary is documented rather than assumed.
 
 ## Outcome
 
