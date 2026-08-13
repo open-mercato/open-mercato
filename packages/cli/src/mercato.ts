@@ -7,7 +7,7 @@ import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
-import { getRedisUrl, getRedisUrlOrThrow, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
@@ -994,13 +994,13 @@ export async function run(argv = process.argv) {
         const redisUrl = getRedisUrl()
         if (redisUrl) {
           const Redis = (await import('ioredis')).default
-          const redis = new Redis(redisUrl, {
+          const redis = new Redis({
+            ...parseRedisUrl(redisUrl),
             lazyConnect: true,
             connectTimeout: 3000,
             maxRetriesPerRequest: 1,
             retryStrategy: () => null,
             enableOfflineQueue: false,
-            protocol: REDIS_WIRE_PROTOCOL,
           })
           redis.on('error', () => {})
           try {

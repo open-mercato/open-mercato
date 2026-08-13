@@ -22,6 +22,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -89,6 +90,18 @@ const listSchema = z
     id: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
+    channelIds: z
+      .string()
+      .optional()
+      .describe(
+        'Comma-separated sales channel uuids; matches documents on any of them. Capped at 200 ids, malformed entries are dropped. Ignored when channelId is supplied; combines with channelIdsEmpty.',
+      ),
+    channelIdsEmpty: z
+      .string()
+      .optional()
+      .describe(
+        'Boolean token; matches documents with no sales channel. Ignored when channelId is supplied; combines with channelIds.',
+      ),
     lineItemCountMin: z.coerce.number().min(0).optional(),
     lineItemCountMax: z.coerce.number().min(0).optional(),
     totalNetMin: z.coerce.number().optional(),
@@ -117,8 +130,24 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
   }
+  // Singular wins over plural, mirroring how `api/channels/route.ts` resolves `id` before `ids`.
+  // An all-malformed `channelIds` narrows to no channel filter rather than an empty-set filter, so
+  // a typo returns the unfiltered page instead of silently returning zero rows.
   if (query.channelId) {
     filters.channel_id = { $eq: query.channelId }
+  } else {
+    const channelIds = parseIdsParam(query.channelIds)
+    const wantsUnassigned = parseBooleanToken(query.channelIdsEmpty) === true
+    if (channelIds.length && wantsUnassigned) {
+      // A channel multi-select with an "(No channel)" entry produces both at once, so they combine
+      // rather than one silently dropping the other. `filters.$or` is a single key — a future filter
+      // that also needs `$or` would clobber this one; nothing else in this factory writes it today.
+      filters.$or = [{ channel_id: { $in: channelIds } }, { channel_id: { $exists: false } }]
+    } else if (wantsUnassigned) {
+      filters.channel_id = { $exists: false }
+    } else if (channelIds.length) {
+      filters.channel_id = { $in: channelIds }
+    }
   }
   const lineRange: Record<string, number> = {}
   if (typeof query.lineItemCountMin === 'number') lineRange.$gte = query.lineItemCountMin

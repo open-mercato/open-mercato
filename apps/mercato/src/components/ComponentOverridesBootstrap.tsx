@@ -29,7 +29,12 @@ function loadOverrides(): Promise<LoadedOverrides> {
   return overridePromise
 }
 
-export function ComponentOverridesBootstrap({
+function InitialOverrides({ children }: { children: React.ReactNode }) {
+  const loaded = React.use(loadOverrides())
+  return <ComponentOverrideProvider overrides={loaded.overrides}>{children}</ComponentOverrideProvider>
+}
+
+function DeferredOverrides({
   profile,
   children,
 }: {
@@ -60,6 +65,19 @@ export function ComponentOverridesBootstrap({
 
   const overrides = enabled ? loaded?.overrides ?? EMPTY_OVERRIDES : EMPTY_OVERRIDES
   return <ComponentOverrideProvider overrides={overrides}>{children}</ComponentOverrideProvider>
+}
+
+export function ComponentOverridesBootstrap({
+  profile,
+  children,
+}: {
+  profile: ClientBootstrapProfile
+  children: React.ReactNode
+}) {
+  if (profile === 'login') {
+    return <InitialOverrides>{children}</InitialOverrides>
+  }
+  return <DeferredOverrides profile={profile}>{children}</DeferredOverrides>
 }
 
 export default ComponentOverridesBootstrap

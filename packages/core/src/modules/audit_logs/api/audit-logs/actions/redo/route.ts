@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { CommandRuntimeContext, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
@@ -161,6 +162,12 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
+    // Same contract as undo: a domain refusal carries an already-localized body the
+    // operator can act on, so surface it instead of a generic message.
+    if (isCrudHttpError(err)) {
+      logger.warn('Redo rejected', { err })
+      return NextResponse.json(err.body, { status: err.status })
+    }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })

@@ -1,6 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { z } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { toolInputJsonSchema } from './tool-input-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
@@ -137,7 +137,7 @@ export class InProcessMcpClient implements McpClientInterface {
     return accessibleTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>,
+      inputSchema: toolInputJsonSchema(tool.inputSchema),
     }))
   }
 
