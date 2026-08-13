@@ -8,6 +8,7 @@ const labels = buildOrderInvoiceLabels(createTranslator(en))
 describe('renderOrderInvoiceMarkdown', () => {
   it('renders order invoice metadata, line items and totals', () => {
     const markdown = renderOrderInvoiceMarkdown({
+      locale: 'en',
       labels,
       document: { number: 'ORD-7', date: '08/11/2026', dueDate: '08/18/2026' },
       client: { name: 'Beta GmbH', email: 'buyer@beta.test' },
@@ -25,13 +26,14 @@ describe('renderOrderInvoiceMarkdown', () => {
     })
 
     expect(markdown).toContain('# Invoice ORD-7')
-    expect(markdown).toContain('Gadget | Premium \\| edition | 2 | 50.00 EUR | 100.00 EUR')
-    expect(markdown).toContain('**Amount due:** 123.00 EUR')
+    expect(markdown).toContain('Gadget | Premium \\| edition | 2 | €50.00 | €100.00')
+    expect(markdown).toContain('**Amount due:** €123.00')
     expect(markdown).toContain('## Notes')
   })
 
   it('uses the labels supplied in template data without hardcoded replacements', () => {
     const markdown = renderOrderInvoiceMarkdown({
+      locale: 'en',
       labels: {
         ...labels,
         invoice: 'CUSTOM INVOICE',
@@ -47,7 +49,7 @@ describe('renderOrderInvoiceMarkdown', () => {
     })
 
     expect(markdown).toContain('# CUSTOM INVOICE ORD-8')
-    expect(markdown).toContain('**CUSTOM TOTAL:** 100.00 EUR')
+    expect(markdown).toContain('**CUSTOM TOTAL:** €100.00')
     expect(markdown).toContain('## CUSTOM NOTES')
   })
 })

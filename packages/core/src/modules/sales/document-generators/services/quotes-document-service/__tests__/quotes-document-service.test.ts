@@ -125,7 +125,7 @@ describe('QuotesDocumentService.toTemplateData', () => {
     const out = service.toTemplateData({ data: makeQuoteRecord(), ...templateContext.pl })
 
     expect(out.document).toMatchObject({ id: 'q-1', number: 'Q-2026-0007' })
-    expect((out.document as Record<string, string>).date).toMatch(/^\d{2}\.\d{2}\.\d{4}$/)
+    expect((out.document as Record<string, string>).date).toBe('9.05.2026')
     expect(out.client).toMatchObject({ name: 'Acme Sp. z o.o.', email: 'buyer@acme.test' })
     expect(out.totals).toEqual({ subtotal: 100, tax: 23, total: 123, currency: 'PLN' })
     expect((out.lines as unknown[])).toHaveLength(1)
@@ -137,7 +137,8 @@ describe('QuotesDocumentService.toTemplateData', () => {
 
     const out = service.toTemplateData({ data: makeQuoteRecord(), ...templateContext.en })
 
-    expect(out.document).toMatchObject({ date: '05/09/2026', validUntil: '06/09/2026' })
+    expect(out.document).toMatchObject({ date: '5/9/2026', validUntil: '6/9/2026' })
+    expect(out.locale).toBe('en')
   })
 
   it('builds sales-offer labels using the active translator', () => {

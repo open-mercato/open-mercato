@@ -33,8 +33,8 @@ export class OrdersDocumentService extends BaseDocumentService {
 
     this.registerTemplate({
       id: 'order-invoice',
-      label: 'Order Invoice',
-      description: 'Standard invoice for a sales order.',
+      label: 'sales.documents.templates.metadata.orderInvoice.label',
+      description: 'sales.documents.templates.metadata.orderInvoice.description',
       documentType: 'invoice',
       format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
@@ -50,8 +50,8 @@ export class OrdersDocumentService extends BaseDocumentService {
 
     this.registerTemplate({
       id: 'order-invoice-markdown',
-      label: 'Order Invoice — Markdown',
-      description: 'Markdown invoice for a sales order.',
+      label: 'sales.documents.templates.metadata.orderInvoiceMarkdown.label',
+      description: 'sales.documents.templates.metadata.orderInvoiceMarkdown.description',
       documentType: 'invoice',
       format: 'md',
       tags: ['invoice', 'order', 'sales', 'markdown'],
@@ -177,6 +177,7 @@ export class OrdersDocumentService extends BaseDocumentService {
     }))
 
     return {
+      locale,
       labels: buildOrderInvoiceLabels(translate),
       document: {
         id: r.id,

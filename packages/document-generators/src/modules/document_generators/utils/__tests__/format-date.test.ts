@@ -2,16 +2,17 @@ import { formatDate } from '../formatDate'
 
 describe('formatDate', () => {
   it.each([
-    ['en', '05/09/2026'],
-    ['pl', '09.05.2026'],
-    ['de', '09.05.2026'],
-    ['es', '09/05/2026'],
+    ['en', '5/9/2026'],
+    ['pl', '9.05.2026'],
+    ['de', '9.5.2026'],
+    ['es', '9/5/2026'],
+    ['ko', '2026. 5. 9.'],
   ])('formats an ISO date for the %s locale', (locale, expected) => {
     expect(formatDate('2026-05-09T10:30:00.000Z', locale)).toBe(expected)
   })
 
-  it('pads single-digit day and month to two digits', () => {
-    expect(formatDate('2026-01-03T00:00:00.000Z', 'pl')).toBe('03.01.2026')
+  it('uses UTC so a timestamp near midnight does not shift with the server time zone', () => {
+    expect(formatDate('2026-01-03T00:30:00.000+14:00', 'en')).toBe('1/2/2026')
   })
 
   it('returns "Invalid Date" for an unparseable input', () => {

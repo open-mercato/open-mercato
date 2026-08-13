@@ -1,3 +1,6 @@
-export function formatMoney(amount: number, currency: string): string {
-  return `${amount.toFixed(2)} ${currency}`
+export function formatMoney(amount: number, currency: string, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+  }).format(amount)
 }

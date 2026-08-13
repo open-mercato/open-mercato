@@ -123,7 +123,7 @@ describe('OrdersDocumentService.toTemplateData', () => {
     const out = service.toTemplateData({ data: makeOrderRecord(), ...templateContext.pl })
 
     expect(out.document).toMatchObject({ id: 'ord-1', number: 'ORD-2026-0007' })
-    expect((out.document as Record<string, string>).date).toMatch(/^\d{2}\.\d{2}\.\d{4}$/)
+    expect((out.document as Record<string, string>).date).toBe('9.05.2026')
     expect(out.client).toMatchObject({ name: 'Beta GmbH', email: 'buyer@beta.test' })
     expect(out.totals).toEqual({ subtotal: 200, tax: 46, total: 246, currency: 'EUR' })
     expect((out.lines as unknown[])).toHaveLength(1)
@@ -135,7 +135,8 @@ describe('OrdersDocumentService.toTemplateData', () => {
 
     const out = service.toTemplateData({ data: makeOrderRecord(), ...templateContext.en })
 
-    expect(out.document).toMatchObject({ date: '05/09/2026', dueDate: '05/16/2026' })
+    expect(out.document).toMatchObject({ date: '5/9/2026', dueDate: '5/16/2026' })
+    expect(out.locale).toBe('en')
   })
 
   it('builds invoice labels using the active translator', () => {

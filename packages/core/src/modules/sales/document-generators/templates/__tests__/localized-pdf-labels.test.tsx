@@ -45,6 +45,7 @@ describe('localized PDF templates', () => {
   it('renders order-invoice labels from template data', () => {
     const document = OrderInvoiceDocument({
       data: {
+        locale: 'en',
         labels: buildOrderInvoiceLabels(translate),
         document: { number: 'ORD-7', date: '08/11/2026', dueDate: '08/18/2026' },
         client: { name: 'Beta GmbH' },
@@ -67,6 +68,7 @@ describe('localized PDF templates', () => {
 
   it('renders sales-offer labels from template data on both pages', () => {
     const data = {
+      locale: 'en',
       labels: buildSalesOfferLabels(translate),
       document: { number: 'Q-7', date: '08/11/2026', validUntil: '08/18/2026' },
       client: { name: 'Beta GmbH', email: 'buyer@example.test' },

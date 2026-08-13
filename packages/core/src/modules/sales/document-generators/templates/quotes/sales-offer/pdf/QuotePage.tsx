@@ -192,10 +192,10 @@ export function QuotePage({ data }: { data: PdfDocumentData }) {
           </View>
           <Text style={[styles.rowCell, styles.colQty]}>{line.quantity}</Text>
           <Text style={[styles.rowCell, styles.colUnit]}>
-            {formatMoney(line.unitPrice, line.currency)}
+            {formatMoney(line.unitPrice, line.currency, data.locale)}
           </Text>
           <Text style={[styles.rowCell, styles.colTotal]}>
-            {formatMoney(line.total, line.currency)}
+            {formatMoney(line.total, line.currency, data.locale)}
           </Text>
         </View>
       ))}
@@ -204,20 +204,20 @@ export function QuotePage({ data }: { data: PdfDocumentData }) {
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabel}>{data.labels.net}</Text>
           <Text style={styles.totalsValue}>
-            {formatMoney(data.totals.subtotal, data.totals.currency)}
+            {formatMoney(data.totals.subtotal, data.totals.currency, data.locale)}
           </Text>
         </View>
         <View style={styles.totalsRow}>
           <Text style={styles.totalsLabel}>{data.labels.tax}</Text>
           <Text style={styles.totalsValue}>
-            {formatMoney(data.totals.tax, data.totals.currency)}
+            {formatMoney(data.totals.tax, data.totals.currency, data.locale)}
           </Text>
         </View>
         <View style={styles.totalsDivider} />
         <View style={styles.totalsRow}>
           <Text style={styles.totalLabel}>{data.labels.amountDue}</Text>
           <Text style={styles.totalValue}>
-            {formatMoney(data.totals.total, data.totals.currency)}
+            {formatMoney(data.totals.total, data.totals.currency, data.locale)}
           </Text>
         </View>
       </View>

@@ -3,9 +3,8 @@
  *
  * @param iso - ISO 8601 date string
  * @param locale - Required BCP 47 locale tag
- * @returns Formatted date string, e.g. "09.05.2026"
+ * @returns Date formatted according to the locale's natural convention
  */
 export function formatDate(iso: string, locale: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return new Date(iso).toLocaleDateString(locale, { timeZone: 'UTC' })
 }

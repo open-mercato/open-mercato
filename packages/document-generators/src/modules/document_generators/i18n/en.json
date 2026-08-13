@@ -1,9 +1,12 @@
 {
+  "document_generators.errors.invalid_json": "The request body must contain valid JSON.",
+  "document_generators.errors.invalid_request": "Select a template and provide valid document data.",
   "document_generators.errors.organization_required": "Select an organization to generate this document.",
+  "document_generators.errors.render_failed": "Failed to render the document.",
+  "document_generators.errors.unknown_template": "The selected document template is not available.",
   "document_generators.generate.button": "Download PDF",
   "document_generators.generate.buttonMarkdown": "Download Markdown",
   "document_generators.generate.generating": "Generating...",
-  "document_generators.generate.open": "Generate PDF",
   "document_generators.history.description": "Browse the document generation history for the current organization.",
   "document_generators.history.empty": "No documents have been generated yet.",
   "document_generators.history.error": "Failed to load generation history.",
@@ -24,7 +27,6 @@
   "document_generators.overview.templates.description": "Browse built-in and external document templates.",
   "document_generators.overview.templates.title": "Available templates",
   "document_generators.overview.title": "Document generator",
-  "document_generators.page.cardTitle": "Module is wired correctly",
   "document_generators.page.columns.description": "Description",
   "document_generators.page.columns.documentType": "Document type",
   "document_generators.page.columns.format": "Format",
@@ -43,7 +45,6 @@
   "document_generators.preview.frameTitle": "PDF document preview",
   "document_generators.preview.markdownTitle": "Markdown document preview",
   "document_generators.preview.title": "Document preview",
-  "document_generators.template.select": "Select template",
   "document_generators.templates.loading": "Loading data...",
   "document_generators.templates.title": "Available document templates"
 }

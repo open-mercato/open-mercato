@@ -107,7 +107,7 @@ export default function DocumentGeneratorTemplatesPage() {
         title={t('document_generators.page.title', 'Available templates')}
         description={t(
           'document_generators.page.description',
-          'Registered PDF templates available in this application.',
+          'Registered document templates available in this application.',
         )}
       />
       <PageBody>

@@ -33,8 +33,8 @@ export class QuotesDocumentService extends BaseDocumentService {
 
     this.registerTemplate({
       id: 'sales-offer',
-      label: 'Sales Offer',
-      description: 'Professional sales offer.',
+      label: 'sales.documents.templates.metadata.salesOffer.label',
+      description: 'sales.documents.templates.metadata.salesOffer.description',
       documentType: 'offer',
       format: 'pdf',
       tags: ['offer', 'sales'],
@@ -156,6 +156,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     }))
 
     return {
+      locale,
       labels: buildSalesOfferLabels(translate),
       document: {
         id: r.id,

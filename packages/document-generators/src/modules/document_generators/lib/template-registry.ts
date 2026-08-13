@@ -110,7 +110,10 @@ class TemplateRegistry implements TemplateRegistryInterface {
     const resourceLabel = entry.resourceLabel?.({ data })
     const loadedBase = {
       filename,
-      template: { id: entry.id, label: entry.label },
+      template: {
+        id: entry.id,
+        label: translate ? translate(entry.label, entry.label) : entry.label,
+      },
       resource: { kind: entry.resourceKind, id: resourceId, label: resourceLabel },
     }
 

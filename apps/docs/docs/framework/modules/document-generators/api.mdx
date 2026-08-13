@@ -153,7 +153,11 @@ const document = await new DocumentRenderer().render(template.render)
 
 ### `formatDate(isoString, locale)` (`@open-mercato/document-generators/modules/document_generators/utils/formatDate`)
 
-Formats an ISO 8601 string using the required BCP 47 locale. There is no default locale; pass the locale received by `toTemplateData`.
+Formats an ISO 8601 string using the locale's natural date convention and a fixed UTC time zone. There is no default locale; pass the locale received by `toTemplateData`.
+
+### `formatMoney(amount, currency, locale)` (`@open-mercato/document-generators/modules/document_generators/utils/formatMoney`)
+
+Formats a numeric amount with `Intl.NumberFormat`, including locale-correct separators, currency symbol and symbol placement.
 
 ### `TemplatesList`
 

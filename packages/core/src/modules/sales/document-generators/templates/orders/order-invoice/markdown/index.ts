@@ -10,8 +10,8 @@ export function renderOrderInvoiceMarkdown(data: Record<string, unknown>): strin
     escapeTableCell(line.title),
     escapeTableCell(line.description ?? ''),
     String(line.quantity),
-    formatMoney(line.unitPrice, currency),
-    formatMoney(line.total, currency),
+    formatMoney(line.unitPrice, currency, invoice.locale),
+    formatMoney(line.total, currency, invoice.locale),
   ].join(' | '))
 
   return [
@@ -37,9 +37,9 @@ export function renderOrderInvoiceMarkdown(data: Record<string, unknown>): strin
     '--- | --- | ---: | ---: | ---:',
     ...lines,
     '',
-    `- **${escapeInline(invoice.labels.subtotal)}:** ${formatMoney(invoice.totals.subtotal, currency)}`,
-    ...(invoice.totals.tax > 0 ? [`- **${escapeInline(invoice.labels.tax)}:** ${formatMoney(invoice.totals.tax, currency)}`] : []),
-    `- **${escapeInline(invoice.labels.amountDue)}:** ${formatMoney(invoice.totals.total, currency)}`,
+    `- **${escapeInline(invoice.labels.subtotal)}:** ${formatMoney(invoice.totals.subtotal, currency, invoice.locale)}`,
+    ...(invoice.totals.tax > 0 ? [`- **${escapeInline(invoice.labels.tax)}:** ${formatMoney(invoice.totals.tax, currency, invoice.locale)}`] : []),
+    `- **${escapeInline(invoice.labels.amountDue)}:** ${formatMoney(invoice.totals.total, currency, invoice.locale)}`,
     ...(invoice.notes ? ['', `## ${escapeInline(invoice.labels.notes)}`, '', escapeInline(invoice.notes)] : []),
     '',
   ].join('\n')

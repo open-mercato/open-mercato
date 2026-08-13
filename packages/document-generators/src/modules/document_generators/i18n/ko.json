@@ -1,9 +1,12 @@
 {
+  "document_generators.errors.invalid_json": "요청 본문에 유효한 JSON이 포함되어야 합니다.",
+  "document_generators.errors.invalid_request": "템플릿을 선택하고 유효한 문서 데이터를 입력하세요.",
   "document_generators.errors.organization_required": "이 문서를 생성하려면 조직을 선택하세요.",
+  "document_generators.errors.render_failed": "문서를 렌더링하지 못했습니다.",
+  "document_generators.errors.unknown_template": "선택한 문서 템플릿을 사용할 수 없습니다.",
   "document_generators.generate.button": "PDF 다운로드",
   "document_generators.generate.buttonMarkdown": "Markdown 다운로드",
   "document_generators.generate.generating": "생성 중...",
-  "document_generators.generate.open": "PDF 생성",
   "document_generators.history.description": "현재 조직의 문서 생성 기록을 확인합니다.",
   "document_generators.history.empty": "아직 생성된 문서가 없습니다.",
   "document_generators.history.error": "생성 기록을 불러오지 못했습니다.",
@@ -24,7 +27,6 @@
   "document_generators.overview.templates.description": "내부 및 외부 문서 템플릿을 확인합니다.",
   "document_generators.overview.templates.title": "사용 가능한 템플릿",
   "document_generators.overview.title": "문서 생성기",
-  "document_generators.page.cardTitle": "모듈이 올바르게 연결되었습니다",
   "document_generators.page.columns.description": "설명",
   "document_generators.page.columns.documentType": "문서 유형",
   "document_generators.page.columns.format": "형식",
@@ -43,7 +45,6 @@
   "document_generators.preview.frameTitle": "PDF 문서 미리보기",
   "document_generators.preview.markdownTitle": "Markdown 문서 미리보기",
   "document_generators.preview.title": "문서 미리보기",
-  "document_generators.template.select": "템플릿 선택",
   "document_generators.templates.loading": "데이터를 불러오는 중...",
   "document_generators.templates.title": "사용 가능한 문서 템플릿"
 }

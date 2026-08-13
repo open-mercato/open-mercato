@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf'
 import { OpenMercatoLogo } from '@open-mercato/document-generators/modules/document_generators/templates/shared/components/Logo'
 import { colors } from '@open-mercato/document-generators/modules/document_generators/templates/shared/theme'
+import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/formatMoney'
 import type { OrderInvoiceData } from '../types'
 
 const s = StyleSheet.create({
@@ -59,7 +60,7 @@ const s = StyleSheet.create({
 
 export function OrderInvoiceDocument({ data }: { data: OrderInvoiceData }) {
   const cur = data.totals.currency
-  const fmt = (n: number) => `${n.toFixed(2)} ${cur}`
+  const fmt = (amount: number) => formatMoney(amount, cur, data.locale)
 
   return (
     <Document>

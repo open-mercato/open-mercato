@@ -1,9 +1,12 @@
 {
+  "document_generators.errors.invalid_json": "Der Anfragetext muss gültiges JSON enthalten.",
+  "document_generators.errors.invalid_request": "Wählen Sie eine Vorlage aus und geben Sie gültige Dokumentdaten an.",
   "document_generators.errors.organization_required": "Wählen Sie eine Organisation aus, um dieses Dokument zu erstellen.",
+  "document_generators.errors.render_failed": "Das Dokument konnte nicht gerendert werden.",
+  "document_generators.errors.unknown_template": "Die ausgewählte Dokumentvorlage ist nicht verfügbar.",
   "document_generators.generate.button": "PDF herunterladen",
   "document_generators.generate.buttonMarkdown": "Markdown herunterladen",
   "document_generators.generate.generating": "Wird generiert...",
-  "document_generators.generate.open": "PDF generieren",
   "document_generators.history.description": "Zeigen Sie den Verlauf der Dokumenterstellung für die aktuelle Organisation an.",
   "document_generators.history.empty": "Es wurden noch keine Dokumente generiert.",
   "document_generators.history.error": "Generierungsverlauf konnte nicht geladen werden.",
@@ -24,7 +27,6 @@
   "document_generators.overview.templates.description": "Zeigen Sie integrierte und externe Dokumentvorlagen an.",
   "document_generators.overview.templates.title": "Verfügbare Vorlagen",
   "document_generators.overview.title": "Dokumentgenerator",
-  "document_generators.page.cardTitle": "Modul ist korrekt eingebunden",
   "document_generators.page.columns.description": "Beschreibung",
   "document_generators.page.columns.documentType": "Dokumenttyp",
   "document_generators.page.columns.format": "Format",
@@ -43,7 +45,6 @@
   "document_generators.preview.frameTitle": "PDF-Dokumentvorschau",
   "document_generators.preview.markdownTitle": "Markdown-Dokumentvorschau",
   "document_generators.preview.title": "Dokumentvorschau",
-  "document_generators.template.select": "Vorlage auswählen",
   "document_generators.templates.loading": "Daten werden geladen...",
   "document_generators.templates.title": "Verfügbare Dokumentvorlagen"
 }

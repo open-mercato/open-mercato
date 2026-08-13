@@ -16,6 +16,7 @@ export type SalesOfferLabels = {
 }
 
 export interface PdfDocumentData {
+  locale: string
   labels: SalesOfferLabels
   document: {
     number: string

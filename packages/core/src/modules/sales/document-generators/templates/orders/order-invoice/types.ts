@@ -28,6 +28,7 @@ export type OrderInvoiceLabels = {
 }
 
 export interface OrderInvoiceData {
+  locale: string
   labels: OrderInvoiceLabels
   document: {
     number: string

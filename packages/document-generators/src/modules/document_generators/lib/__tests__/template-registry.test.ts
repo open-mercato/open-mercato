@@ -28,7 +28,9 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
 }
 
 // The registry is a singleton — reset both lists before each test so cases don't leak.
-const translate = ((key: string) => `translated:${key}`) as TranslateFn
+const translate = ((key: string, fallback?: string | Record<string, string | number>) => (
+  key === 'document.label' ? 'translated:document.label' : (typeof fallback === 'string' ? fallback : key)
+)) as TranslateFn
 const ctx = { container: {} as AppContainer, auth: null as AuthContext | null, locale: 'en', translate }
 
 beforeEach(() => {
@@ -113,6 +115,20 @@ describe('templateRegistry.load', () => {
     expect(result.filename).toBe('report-42.pdf')
     expect(result.template).toEqual({ id: 'sample-report', label: 'Sample Report' })
     expect(result.resource).toEqual({ kind: 'example.record', id: 'record-42', label: 'RECORD-42' })
+  })
+
+  it('uses the request translator for the template label persisted by generate', async () => {
+    const requestTranslate = ((key: string, fallback?: string | Record<string, string | number>) => (
+      key === 'example.templates.sample.label' ? 'Localized report' : (typeof fallback === 'string' ? fallback : key)
+    )) as TranslateFn
+    templateRegistry.registerInternal([makeEntry({ label: 'example.templates.sample.label' })])
+
+    const result = await templateRegistry.load(
+      { id: 'sample-report', data: {} },
+      { ...ctx, translate: requestTranslate },
+    )
+
+    expect(result.template.label).toBe('Localized report')
   })
 
   it('passes the request-scoped container and auth context to fetchData', async () => {
