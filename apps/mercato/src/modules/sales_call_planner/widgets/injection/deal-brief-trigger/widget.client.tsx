@@ -209,7 +209,7 @@ export default function DealBriefTriggerWidget({ context, data }: DealBriefTrigg
       setFormError(
         t(
           'sales_call_planner.brief.error.missingPhone',
-          'No phone number is configured for the chief of sales.',
+          'That is not a number we can dial. Use the international format, for example +48123456789.',
         ),
       )
       return

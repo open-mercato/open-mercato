@@ -195,6 +195,117 @@ So a node can declare `outputMapping: { call: 'data.collected.owner_decision' }`
 the next step reads `` `{{context.call}}` `` with the Studio's variable picker typing
 it correctly.
 
+## Recipe — the Deal Briefing Call
+
+The `sales_call_planner` module ships a worked example on top of this connector: a
+**Brief chief of sales** button in the company detail header
+(`/backend/customers/companies-v2/<id>`) starts a workflow that reads the company's
+open deals, telephones the chief of sales, and turns their reply into CRM tasks.
+
+Everything the module can decide for itself is seeded. **Four steps cannot be, and
+until all four are done the button either does not appear or the run stops at a
+visible failure step.** None of them fails silently; each one is listed here with
+what you will see if you skip it.
+
+### 1. Enable the modules
+
+`sales_call_planner` loads inside the same block as the orchestrator and this
+connector, so it needs both flags:
+
+```bash
+OM_ENABLE_ENTERPRISE_MODULES=true
+OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true
+```
+
+*If you skip it:* nothing about the feature exists — no button, no workflow.
+
+### 2. Sync the ACL grants
+
+The module declares one feature, `sales_call_planner.brief.run`, and grants it to
+`superadmin`, `admin` and `employee`. Role grants are seeded at tenant creation, so
+an **existing** tenant picks it up only after:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Placing the call additionally needs `agent_orchestrator.external_agents.invoke`,
+which is default-off by design and belongs to no persona. Grant it deliberately, to
+the roles that may telephone customers.
+
+*If you skip the sync:* the button is invisible, because widget visibility is gated
+on `sales_call_planner.brief.run`. Note that the button's feature is an **intent**
+gate only — the start route itself is guarded by `workflows.instances.create`, so a
+role holding one without the other sees a button that can only ever return 403. The
+role editor surfaces that as a dependency warning.
+
+*If you skip the invoke grant:* the run starts, prepares the brief, and then fails
+down the voice step's `error` route before anything dials. That is the intended
+fail-closed default.
+
+### 3. Enable the ensure-task command for the tenant
+
+**Settings → Workflows → Commands** (`/backend/config/workflows`) → tick
+**`sales_call_planner.ensure_task`**.
+
+The command is deliberately shipped switched off: the tenant, not the module,
+decides whether a workflow may write CRM rows unattended.
+
+*If you skip it:* the call happens, the conversation is captured, and the run then
+ends at the **Briefing did not complete** step having written nothing. The initiator
+gets a "Deal briefing call failed" notification, and the instance event log names the
+cause verbatim — `UPDATE_ENTITY command is not enabled for this tenant`.
+
+:::caution A command-enablement change can take up to a minute to take effect
+The setting is served through a tenant-keyed cache with a 60-second TTL. The save
+invalidates the copy held by the process serving the admin UI, but a background
+worker process holds its own. A run started in the same minute as the change can
+still see the old value. Wait a minute before concluding the toggle did not work.
+:::
+
+### 4. Create the `sales_chief_call` call profile
+
+Under **Call Profiles (JSON)** in this integration's credentials, add a profile named
+**exactly** `sales_chief_call`:
+
+```json
+[
+  { "name": "sales_chief_call", "agentId": "agent_...", "phoneNumberId": "phnum_..." }
+]
+```
+
+The agent names this profile rather than `default` on purpose: `default` is whichever
+ElevenLabs agent the tenant configured first, so sharing it would read a deal briefing
+through somebody else's script to a real person.
+
+*If you skip it:* profile resolution fails **before** any HTTP request reaches
+ElevenLabs — no call is placed — and the run row in the agents cockpit is `error`
+with a message naming what is missing.
+
+### What the ElevenLabs prompt may reference
+
+The briefing workflow's voice node passes:
+
+- `brief` — the researcher's `spokenSummary`, read by the prompt as `` `{{brief}}` ``;
+- `variables.company_name` — read as `` `{{company_name}}` ``.
+
+Those two, and nothing else. The prompt **must never reference
+`` `{{om_callback_url}}` ``** — see the warning in Step 5 above; it carries a bearer
+credential and an agent that reads it could speak it aloud.
+
+### Known limitation — multi-organization tenants
+
+The workflow definition is seeded per tenant, and `workflow_definitions` is unique on
+`(workflow_id, version, tenant_id)` with **no organization column**. The seeder
+therefore probes by tenant only, and the row it writes carries the organization that
+seeded it. `findWorkflowDefinition` filters on `organizationId`, so on a tenant with
+several organizations **only the seeding organization can start the briefing**; in
+the others the button returns 404 ("not available on this tenant yet").
+
+A per-organization copy is impossible under the current constraint, so this is a
+platform tension rather than something the module can resolve. Workaround: publish
+the definition for the other organizations from the Workflow Studio.
+
 ## Operating notes
 
 - **`cancel` is not implemented, deliberately.** ElevenLabs has no hang-up endpoint

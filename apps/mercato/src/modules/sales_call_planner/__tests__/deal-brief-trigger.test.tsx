@@ -154,7 +154,9 @@ describe('DealBriefTriggerWidget', () => {
     await openAndSubmit('555 0134')
     await waitFor(() => {
       expect(
-        screen.getByText('No phone number is configured for the chief of sales.'),
+        screen.getByText(
+          'That is not a number we can dial. Use the international format, for example +48123456789.',
+        ),
       ).toBeInTheDocument()
     })
     expect(apiCallMock).not.toHaveBeenCalled()

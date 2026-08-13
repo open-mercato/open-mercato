@@ -7,7 +7,7 @@
   "sales_call_planner.brief.confirm.title": "¿Iniciar una llamada informativa?",
   "sales_call_planner.brief.error.forbidden": "Necesitas permiso para iniciar instancias de flujo de trabajo para informar al director de ventas.",
   "sales_call_planner.brief.error.generic": "No se pudo iniciar la llamada informativa.",
-  "sales_call_planner.brief.error.missingPhone": "No hay ningún número de teléfono configurado para el director de ventas.",
+  "sales_call_planner.brief.error.missingPhone": "Ese no es un número al que podamos llamar. Usa el formato internacional, por ejemplo +48123456789.",
   "sales_call_planner.brief.error.notFound": "El flujo de trabajo de informe de oportunidades aún no está disponible en este inquilino.",
   "sales_call_planner.brief.error.selectOrg": "Selecciona una sola organización antes de iniciar una llamada informativa.",
   "sales_call_planner.brief.started": "Informe iniciado. Se llamará al director de ventas en breve.",
@@ -22,7 +22,7 @@
   "sales_call_planner.brief.trigger.label": "Informar al director de ventas",
   "sales_call_planner.notifications.briefCompleted.body": "La llamada sobre {company} generó {count} tareas de seguimiento.",
   "sales_call_planner.notifications.briefCompleted.title": "Llamada informativa completada",
-  "sales_call_planner.notifications.briefFailed.body": "La llamada informativa sobre {company} no se completó. Abre la ejecución del flujo de trabajo para ver los detalles.",
+  "sales_call_planner.notifications.briefFailed.body": "La llamada informativa sobre {company} no se completó. Abre la empresa para revisarla.",
   "sales_call_planner.notifications.briefFailed.title": "La llamada informativa falló",
   "sales_call_planner.notifications.linkLabel": "Abrir la empresa",
   "sales_call_planner.workflows.commands.ensureTask": "Crear tareas de seguimiento a partir de una llamada informativa"

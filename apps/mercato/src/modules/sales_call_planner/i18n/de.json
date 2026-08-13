@@ -7,7 +7,7 @@
   "sales_call_planner.brief.confirm.title": "Briefing-Anruf starten?",
   "sales_call_planner.brief.error.forbidden": "Zum Briefen der Vertriebsleitung wird die Berechtigung zum Starten von Workflow-Instanzen benötigt.",
   "sales_call_planner.brief.error.generic": "Der Briefing-Anruf konnte nicht gestartet werden.",
-  "sales_call_planner.brief.error.missingPhone": "Für die Vertriebsleitung ist keine Telefonnummer hinterlegt.",
+  "sales_call_planner.brief.error.missingPhone": "Diese Nummer können wir nicht anrufen. Internationales Format verwenden, zum Beispiel +48123456789.",
   "sales_call_planner.brief.error.notFound": "Der Deal-Briefing-Workflow ist für diesen Mandanten noch nicht verfügbar.",
   "sales_call_planner.brief.error.selectOrg": "Wähle eine einzelne Organisation, bevor du einen Briefing-Anruf startest.",
   "sales_call_planner.brief.started": "Briefing gestartet. Die Vertriebsleitung wird in Kürze angerufen.",
@@ -22,7 +22,7 @@
   "sales_call_planner.brief.trigger.label": "Vertriebsleitung briefen",
   "sales_call_planner.notifications.briefCompleted.body": "Aus dem Anruf zu {company} sind {count} Folgeaufgaben entstanden.",
   "sales_call_planner.notifications.briefCompleted.title": "Deal-Briefing-Anruf abgeschlossen",
-  "sales_call_planner.notifications.briefFailed.body": "Der Briefing-Anruf zu {company} wurde nicht abgeschlossen. Details stehen in der Workflow-Ausführung.",
+  "sales_call_planner.notifications.briefFailed.body": "Der Briefing-Anruf zu {company} wurde nicht abgeschlossen. Öffnen Sie das Unternehmen, um es zu prüfen.",
   "sales_call_planner.notifications.briefFailed.title": "Deal-Briefing-Anruf fehlgeschlagen",
   "sales_call_planner.notifications.linkLabel": "Unternehmen öffnen",
   "sales_call_planner.workflows.commands.ensureTask": "Folgeaufgaben aus einem Briefing-Anruf anlegen"

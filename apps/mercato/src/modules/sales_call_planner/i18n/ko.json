@@ -7,7 +7,7 @@
   "sales_call_planner.brief.confirm.title": "Start a briefing call?",
   "sales_call_planner.brief.error.forbidden": "You need permission to start workflow instances to brief the chief of sales.",
   "sales_call_planner.brief.error.generic": "Failed to start the briefing call.",
-  "sales_call_planner.brief.error.missingPhone": "No phone number is configured for the chief of sales.",
+  "sales_call_planner.brief.error.missingPhone": "That is not a number we can dial. Use the international format, for example +48123456789.",
   "sales_call_planner.brief.error.notFound": "The deal briefing workflow is not available on this tenant yet.",
   "sales_call_planner.brief.error.selectOrg": "Select a single organization before starting a briefing call.",
   "sales_call_planner.brief.started": "Briefing started. The chief of sales will be called shortly.",
@@ -22,7 +22,7 @@
   "sales_call_planner.brief.trigger.label": "Brief chief of sales",
   "sales_call_planner.notifications.briefCompleted.body": "The call about {company} produced {count} follow-up tasks.",
   "sales_call_planner.notifications.briefCompleted.title": "Deal briefing call completed",
-  "sales_call_planner.notifications.briefFailed.body": "The briefing call about {company} did not complete. Open the workflow run for details.",
+  "sales_call_planner.notifications.briefFailed.body": "The briefing call about {company} did not complete. Open the company to review it.",
   "sales_call_planner.notifications.briefFailed.title": "Deal briefing call failed",
   "sales_call_planner.notifications.linkLabel": "Open the company",
   "sales_call_planner.workflows.commands.ensureTask": "Create follow-up tasks from a briefing call"
