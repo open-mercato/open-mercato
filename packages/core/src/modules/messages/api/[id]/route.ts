@@ -257,6 +257,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         senderUserId: threadMessage.senderUserId,
         senderName: threadSenderName,
         senderEmail: sender?.email ?? null,
+        externalName: threadMessage.externalName ?? null,
+        externalEmail: threadMessage.externalEmail ?? null,
         body: threadMessage.body,
         bodyFormat: threadMessage.bodyFormat,
         sentAt: threadMessage.sentAt,

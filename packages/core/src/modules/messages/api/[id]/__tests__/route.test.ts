@@ -401,6 +401,126 @@ describe('messages /api/messages/[id] GET', () => {
     expect(payload.conversationArchived).toBe(false)
     expect(payload.conversationAllUnread).toBe(false)
   })
+
+  it('carries the external identity on thread entries so collapsed rows can label ingested email', async () => {
+    // Inbound channel messages are authored by the communication_channels
+    // system user, so a thread entry without externalName/externalEmail leaves
+    // the collapsed conversation row nothing to print but the sentinel uuid.
+    const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const systemUserId = '00000000-0000-0000-0000-000000000000'
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const threadId = '11111111-1111-4111-8111-111111111111'
+    const anchorId = '22222222-2222-4222-8222-222222222222'
+
+    const anchorMessage = {
+      id: anchorId,
+      threadId,
+      senderUserId: systemUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'channel.email',
+      visibility: 'public',
+      sourceEntityType: 'communication_channels.external_conversation',
+      sourceEntityId: null,
+      externalEmail: 'jan@example.com',
+      externalName: 'Jan Kowalski',
+      parentMessageId: null,
+      subject: 'Re: order 1234',
+      body: 'newest reply',
+      bodyFormat: 'text',
+      priority: 'normal',
+      sentAt: new Date('2026-08-13T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+
+    const threadMessages = [
+      {
+        id: anchorId,
+        senderUserId: systemUserId,
+        externalName: 'Jan Kowalski',
+        externalEmail: 'jan@example.com',
+        body: 'newest reply',
+        bodyFormat: 'text',
+        sentAt: new Date('2026-08-13T10:00:00.000Z'),
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        senderUserId: systemUserId,
+        externalName: 'Jan Kowalski',
+        externalEmail: 'jan@example.com',
+        body: 'first message',
+        bodyFormat: 'text',
+        sentAt: new Date('2026-08-13T09:00:00.000Z'),
+      },
+    ]
+
+    const actorRecipientRow = {
+      messageId: anchorId,
+      recipientUserId: actorUserId,
+      recipientType: 'to',
+      status: 'read',
+      readAt: new Date('2026-08-13T10:05:00.000Z'),
+      deletedAt: null,
+    }
+
+    const em = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => (
+        entity === MessageRecipient && where.messageId === anchorId ? actorRecipientRow : null
+      )),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === MessageObject) return []
+        if (entity === Message && where.threadId === threadId) return threadMessages
+        if (entity === MessageRecipient && where.messageId === anchorId) return [actorRecipientRow]
+        if (entity === MessageRecipient && typeof where.recipientUserId === 'string') {
+          return threadMessages.map((item) => ({ messageId: item.id }))
+        }
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return threadMessages
+      // The sentinel user has no directory row, which is exactly why
+      // senderName / senderEmail come back null for ingested mail.
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => (
+      entity === Message ? anchorMessage : null
+    ))
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container: { resolve: (name: string) => (name === 'em' ? em : null) } },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${anchorId}?skipMarkRead=1`),
+      { params: { id: anchorId } },
+    )
+
+    expect(response.status).toBe(200)
+    const payload = await response.json() as {
+      thread?: Array<{
+        id?: string
+        senderName?: string | null
+        externalName?: string | null
+        externalEmail?: string | null
+      }>
+    }
+
+    expect(payload.thread ?? []).toHaveLength(2)
+    for (const item of payload.thread ?? []) {
+      expect(item.senderName).toBeNull()
+      expect(item.externalName).toBe('Jan Kowalski')
+      expect(item.externalEmail).toBe('jan@example.com')
+    }
+  })
 })
 
 describe('messages /api/messages/[id] PATCH', () => {

@@ -18,7 +18,7 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
-import { getMessageListParticipantLabel } from './messageListLabels'
+import { getMessageListParticipantLabel, getMessageParticipantLabel } from './messageListLabels'
 import { toErrorMessage } from './message-detail/utils'
 import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
 import {
@@ -38,6 +38,8 @@ type MessageListItem = {
   senderUserId: string
   senderName?: string | null
   senderEmail?: string | null
+  externalName?: string | null
+  externalEmail?: string | null
   priority: string
   status: string
   hasObjects: boolean
@@ -244,7 +246,7 @@ export function MessagesInboxPageClient() {
       const email = typeof item.senderEmail === 'string' && item.senderEmail.trim().length > 0
         ? item.senderEmail.trim()
         : null
-      const label = name ?? email ?? item.senderUserId
+      const label = getMessageParticipantLabel(item)
       return [{
         value: item.senderUserId,
         label,

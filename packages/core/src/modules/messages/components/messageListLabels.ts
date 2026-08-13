@@ -6,11 +6,13 @@ type MessageParticipantSource = {
   senderName?: string | null
   senderEmail?: string | null
   /**
-   * External participant identity, set when the message originates outside the
-   * platform (inbound email/chat ingested by `communication_channels`). Such
-   * messages are authored by the module's system user, so `senderName` /
-   * `senderEmail` are empty and the external identity is the only human-readable
-   * label available.
+   * The external counterparty on a message that crosses the platform boundary —
+   * the sender for an inbound email/chat ingested by `communication_channels`,
+   * the recipient for an outbound reply sent through `inbox_ops`. It is used as
+   * the author label only on the inbound side, where the message is composed by
+   * the ingesting module's system user and `senderName` / `senderEmail` are
+   * therefore empty; an outbound message always carries a real platform sender,
+   * which wins in the chain below before the external identity is consulted.
    */
   externalName?: string | null
   externalEmail?: string | null
@@ -25,12 +27,13 @@ function normalizeLabel(value: string | null | undefined): string | null {
 
 /**
  * Human-readable label for a message's author, in descending order of
- * specificity: platform user identity, then external (ingested) identity, then
- * the raw user id as a last resort.
+ * specificity: platform user identity, then the external counterparty identity,
+ * then the raw user id as a last resort.
  *
- * Shared by the inbox list and the message detail header so both render an
- * inbound email as "Jane Doe" / "jane@example.com" rather than the
- * `communication_channels` system user id.
+ * The single source of truth for every place the messages module prints a
+ * participant — the inbox list, its sender filter, the detail header and the
+ * conversation rows — so an ingested email renders as "Jane Doe" /
+ * "jane@example.com" rather than the `communication_channels` system user id.
  */
 export function getMessageParticipantLabel(item: MessageParticipantSource): string {
   return normalizeLabel(item.senderName)
