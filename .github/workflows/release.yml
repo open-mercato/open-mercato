@@ -25,7 +25,7 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   release:
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # Only allow releases from main branch
     if: github.ref == 'refs/heads/main'
     # Requires approval from the 'production' environment — prevents a single
