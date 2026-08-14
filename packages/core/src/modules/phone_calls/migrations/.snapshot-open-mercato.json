@@ -248,7 +248,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "phone_call_participants_phone_call_id_foreign": {
+          "columnNames": [
+            "phone_call_id"
+          ],
+          "constraintName": "phone_call_participants_phone_call_id_foreign",
+          "localTableName": "public.phone_call_participants",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.phone_calls",
+          "deleteRule": "cascade"
+        }
+      },
       "comment": null
     },
     {

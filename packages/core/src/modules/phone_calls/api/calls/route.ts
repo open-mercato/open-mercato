@@ -28,6 +28,8 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
+// No `recording_url`: provider recording links carry their own access token, and this route
+// is gated on `phone_calls.view`. The key still ships as null so the response shape holds.
 const listFields = [
   'id',
   'organization_id',
@@ -42,7 +44,6 @@ const listFields = [
   'answered_at',
   'ended_at',
   'duration_seconds',
-  'recording_url',
   'ingest_status',
   'last_ingested_at',
   'created_at',
@@ -63,6 +64,7 @@ const crud = makeCrudRoute({
     schema: listSchema,
     entityId: E.phone_calls.phone_call,
     fields: listFields,
+    transformItem: (item: Record<string, unknown>) => ({ ...item, recording_url: null }),
     sortFieldMap: {
       externalCallId: 'external_call_id',
       startedAt: 'started_at',

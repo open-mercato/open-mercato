@@ -64,11 +64,12 @@ function createFakeEm() {
   return { em, calls, participants }
 }
 
-function createCtx(em: Record<string, unknown>) {
+function createCtx(em: Record<string, unknown>, dataEngine: Record<string, unknown> = { markOrmEntityChange() {} }) {
   return {
     container: {
       resolve: (name: string) => {
         if (name === 'em') return em
+        if (name === 'dataEngine') return dataEngine
         throw new Error(`[internal] unexpected dependency: ${name}`)
       },
     } as never,
@@ -174,6 +175,42 @@ describe('phone_calls.call.ingest', () => {
 
     expect(participants).toHaveLength(1)
     expect(participants[0]).toMatchObject({ role: 'agent', displayName: 'Bob' })
+  })
+
+  it('queues the crud side effects, so the query index and the read caches see the write', async () => {
+    const { em } = createFakeEm()
+    const markOrmEntityChange = jest.fn()
+    const ctx = createCtx(em, { markOrmEntityChange })
+
+    const first = await ingestPhoneCallCommand.execute(ingestInput(), ctx)
+    expect(markOrmEntityChange).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      action: 'created',
+      identifiers: { id: first.phoneCallId, organizationId, tenantId },
+      indexer: expect.objectContaining({ entityType: 'phone_calls:phone_call' }),
+    }))
+
+    await ingestPhoneCallCommand.execute(ingestInput({ status: 'missed' }), ctx)
+    expect(markOrmEntityChange).toHaveBeenNthCalledWith(2, expect.objectContaining({ action: 'updated' }))
+  })
+
+  it('logs the ingest for audit with a cache alias and without call PII', async () => {
+    const { em } = createFakeEm()
+    const ctx = createCtx(em)
+
+    const result = await ingestPhoneCallCommand.execute(ingestInput(), ctx)
+    const log = await ingestPhoneCallCommand.buildLog!({ input: ingestInput(), result, ctx, snapshots: {} })
+
+    expect(log).toMatchObject({
+      resourceKind: 'phone_calls.phone_call',
+      resourceId: result.phoneCallId,
+      tenantId,
+      organizationId,
+      context: { cacheAliases: ['PhoneCall'] },
+    })
+    // The list route builds its cache tag from the entity class name; a mismatch here means
+    // an ingest leaves stale list pages cached.
+    expect(JSON.stringify(log)).not.toContain('+48111')
+    expect(log).not.toHaveProperty('snapshotAfter')
   })
 })
 

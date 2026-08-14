@@ -1,6 +1,8 @@
 {
   "phone_calls.acl.manage": "Gestionar llamadas",
   "phone_calls.acl.view": "Ver llamadas",
+  "phone_calls.audit.calls.ingested": "Importar llamada",
+  "phone_calls.audit.calls.updated": "Actualizar llamada importada",
   "phone_calls.calls.columns.callId": "ID de llamada",
   "phone_calls.calls.columns.direction": "Dirección",
   "phone_calls.calls.columns.duration": "Duración",

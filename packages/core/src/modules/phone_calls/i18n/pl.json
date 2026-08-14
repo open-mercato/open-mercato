@@ -1,6 +1,8 @@
 {
   "phone_calls.acl.manage": "Zarządzanie połączeniami",
   "phone_calls.acl.view": "Podgląd połączeń",
+  "phone_calls.audit.calls.ingested": "Zaciągnięcie połączenia",
+  "phone_calls.audit.calls.updated": "Aktualizacja zaciągniętego połączenia",
   "phone_calls.calls.columns.callId": "ID połączenia",
   "phone_calls.calls.columns.direction": "Kierunek",
   "phone_calls.calls.columns.duration": "Czas trwania",

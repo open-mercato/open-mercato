@@ -1,6 +1,8 @@
 {
   "phone_calls.acl.manage": "통화 관리",
   "phone_calls.acl.view": "통화 보기",
+  "phone_calls.audit.calls.ingested": "통화 수집",
+  "phone_calls.audit.calls.updated": "수집된 통화 업데이트",
   "phone_calls.calls.columns.callId": "통화 ID",
   "phone_calls.calls.columns.direction": "방향",
   "phone_calls.calls.columns.duration": "통화 시간",

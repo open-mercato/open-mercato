@@ -53,6 +53,8 @@ test.describe('TC-PHONE-HUB-001: phone calls list projection', () => {
       expect(row!.ingest_status, 'ingest_status should round-trip').toBe('ingested')
       expect(row!.started_at, 'started_at should be projected').toBeTruthy()
       expect(row!.id, 'id should be projected').toBeTruthy()
+      expect(row, 'recording_url should stay in the response shape').toHaveProperty('recording_url')
+      expect(row!.recording_url, 'recording_url should not be projected into the list').toBeNull()
     } finally {
       await deletePhoneCallsIfExist(seeded)
     }

@@ -15,9 +15,8 @@ import { Client } from 'pg'
  * path, which a direct INSERT bypasses; all three are nullable, so leaving them
  * NULL keeps the row readable through QueryEngine's decrypting list path.
  *
- * Query seeded rows through a run-unique filter: an INSERT does not invalidate the CRUD
- * list cache the way the ingest command does, so a repeating query key is served an
- * earlier run's payload.
+ * Query seeded rows through a run-unique filter: an INSERT bypasses the cache invalidation
+ * the ingest command triggers, so a repeating query key is served an earlier run's payload.
  */
 
 type EphemeralState = { databaseUrl?: string; baseUrl?: string }

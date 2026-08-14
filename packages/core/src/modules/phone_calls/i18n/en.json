@@ -1,6 +1,8 @@
 {
   "phone_calls.acl.manage": "Manage phone calls",
   "phone_calls.acl.view": "View phone calls",
+  "phone_calls.audit.calls.ingested": "Ingest phone call",
+  "phone_calls.audit.calls.updated": "Update ingested phone call",
   "phone_calls.calls.columns.callId": "Call ID",
   "phone_calls.calls.columns.direction": "Direction",
   "phone_calls.calls.columns.duration": "Duration",

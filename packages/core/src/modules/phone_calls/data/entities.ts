@@ -1,5 +1,5 @@
 import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type {
   PhoneCallDirection,
   PhoneCallStatus,
@@ -115,7 +115,7 @@ export class PhoneCallParticipant {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'phone_call_id', type: 'uuid' })
+  @ManyToOne(() => PhoneCall, { fieldName: 'phone_call_id', deleteRule: 'cascade', mapToPk: true })
   phoneCallId!: string
 
   @Property({ name: 'provider_participant_id', type: 'text', nullable: true })
