@@ -1,7 +1,10 @@
 # SPEC-055: Promotions Module
 
 **Date**: 2026-02-23
-**Status**: Approved
+**Status**: Approved (amended 2026-08-14 — see §Amendment)
+**Suite**: [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 6, Phase 2
+
+> **Amendment notice (2026-08-14).** This spec was written against a hypothetical external cart addressed over HTTP by SKU. The platform now has a first-class [`cart` module](./2026-08-14-cart-module.md). The **Amendment** section near the end of this document is normative and takes precedence over the *Cart-Facing Endpoints* section where they conflict: the primary integration becomes a DI service call, the `/api/cart/*` namespace moves to `/api/promotions/*`, item addressing gains product and variant ids, and effects map onto `SalesAdjustmentDraft`. Everything else in this spec — the rule tree, the three-pass engine, codes, usage ledger, extensibility — is unchanged.
 
 ---
 
@@ -1401,6 +1404,146 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 
 ---
 
+## Amendment — 2026-08-14: Alignment with the `cart` Module
+
+This section is normative. Where it conflicts with *API Contracts → Cart-Facing Endpoints*, this section wins.
+
+### A.1 What changed underneath this spec
+
+Version 1.0 assumed the cart lived outside the platform: endpoints authenticated by `X-Module-Key`, items addressed by `sku`, prices passed in as decimal strings, and the caller responsible for applying returned effects. That was the right design for an unknown external caller.
+
+The platform now has [`cart`](./2026-08-14-cart-module.md), an in-process module that owns baskets for the storefront, POS, pay links and AI agents. It calls promotions on every mutation and hands the resolved effects to `salesCalculationService`. Three consequences follow.
+
+### A.2 The primary integration is a DI service, not HTTP
+
+`promotions/di.ts` registers `promotionsService`:
+
+```typescript
+export type PromotionEvaluationInput = {
+  cart: CartContext              // §Extensible Cart Context, extended per A.4
+  codes: Array<{ id: string; type: 'static' | 'dynamic' }>
+  buyer: {
+    customerId: string | null
+    customerGroupIds: string[]   // priority-ordered; see spec 1 §3.2
+    customerUserId: string | null
+    channelId: string | null
+  }
+}
+
+export interface PromotionsService {
+  evaluate(input: PromotionEvaluationInput): Promise<ResolvedPromotions>
+  evaluateForProduct(input: ProductPagePromotionInput): Promise<ProductPagePromotions>
+  reserveCode(input: { codeString: string; cartId: string; customerId: string | null }): Promise<CodeReservationResult>
+  releaseCode(input: { reservationId: string; reason: string }): Promise<void>
+  registerUsage(input: RegisterUsageInput): Promise<RegisterUsageResult>
+  revertUsage(input: RevertUsageInput): Promise<void>
+}
+```
+
+The HTTP endpoints remain, unchanged in behaviour, for genuinely external carts — a third-party storefront or a legacy shop integrating against Open Mercato. They become a thin adapter over the same service rather than the only door.
+
+**In-process callers MUST use the service.** Routing an in-process call through HTTP would lose the request-scoped container, the transaction and the tenant scope, and would re-serialize a cart the callee could read directly.
+
+### A.3 Namespace move — breaking, and necessary
+
+The cart-facing endpoints move:
+
+| Was | Becomes |
+|---|---|
+| `POST /api/cart/apply-promotion` | `POST /api/promotions/evaluate` |
+| `POST /api/cart/add-code` | `POST /api/promotions/codes/reserve` |
+| `POST /api/cart/remove-code` | `POST /api/promotions/codes/release` |
+| `POST /api/cart/register-usage` | `POST /api/promotions/usage/register` |
+| `POST /api/cart/revert-usage` | `POST /api/promotions/usage/revert` |
+
+`/api/cart/*` belongs to the `cart` module (roadmap §9). Two modules serving one namespace would make route ownership ambiguous and would collide outright — `cart` defines `POST /api/cart/carts/:token/promotions`.
+
+Nothing is deployed under the old paths, so this is a specification change and no deprecation protocol is triggered. Had they shipped, the old paths would need a redirect for one minor version.
+
+### A.4 Cart context: ids alongside SKUs
+
+`CartContext.items[]` gains three fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `productId` | `string` | `catalog.CatalogProduct.id` |
+| `variantId` | `string \| null` | |
+| `cartLineId` | `string` | Identifies the line for effect targeting |
+
+`sku` is retained and still populated — external callers may have nothing else, and SKU-based rules (`producerCode`, category slug matching) keep working.
+
+**Effect targeting changes from `targetSku` to `targetCartLineId`,** with `targetSku` retained for external callers. A cart may legitimately hold two lines with the same SKU and different `configuration` (engraving, B2B configurator output); `targetSku` cannot distinguish them, so a line discount would land on the wrong line or be applied twice.
+
+`CartContext` also gains:
+
+| Field | Type | Notes |
+|---|---|---|
+| `customerGroupIds` | `string[]` | Enables group-scoped promotions — the B2B case v1.0 could not express |
+| `taxMode` | `'gross' \| 'net'` | Disambiguates the basis of returned amounts (A.5) |
+| `storeId` | `string \| null` | Per-store campaigns |
+
+A new built-in rule type `customer_group` matches against `customerGroupIds` using set membership. Without it, a wholesale-only promotion has to be expressed as a list of customer ids.
+
+### A.5 Effects map onto `SalesAdjustmentDraft`
+
+`cart` does not apply discounts itself; it forwards them to `salesCalculationService` as `SalesAdjustmentDraft[]`. The existing effect shape maps cleanly, with one gap closed.
+
+| Effect field | `SalesAdjustmentDraft` field |
+|---|---|
+| `promotionId` | `promotionId` |
+| `label` (resolved for the locale) | `label` |
+| `type: 'LINE_DISCOUNT'` | `scope: 'line'` |
+| `type: 'CART_DISCOUNT' \| 'DELIVERY_DISCOUNT'` | `scope: 'order'` |
+| `amount` | `amountNet` **or** `amountGross` — see below |
+| code | `code` |
+
+**The gap.** v1.0 returns `amount` as a negative decimal string without stating whether it is net or gross, while the request supplies both `unitPrice` (ex-tax) and `unitPriceIncTax`. `salesCalculationService` needs to know which basis it received or it will apply tax to an already-taxed discount.
+
+Resolution: every effect gains a required `basis: 'net' | 'gross'` field. The engine computes against the basis matching `CartContext.taxMode` and states it. Amounts remain negative decimal strings on the wire and are parsed to numbers at the `SalesAdjustmentDraft` boundary.
+
+`ADD_FREE_ITEM` does not map to an adjustment — it instructs `cart` to insert a line at zero price with `added_by: 'merge'` semantics and a `promotionId` marker. Such a line is **excluded from the next evaluation's eligibility computation**, or a buy-2-get-1 promotion re-triggers on its own free item and loops. This exclusion is an explicit invariant, tested.
+
+### A.6 Code reservations follow the cart's lifecycle
+
+`CodeReservation` gains `cart_id`. Reservations are released when:
+
+- the code is removed from the cart
+- the cart is abandoned (ahead of full expiry — a 30-day cart holding a limited code for 30 days exhausts a campaign against baskets nobody bought)
+- the cart expires
+- the cart is merged and the target cart already holds the code
+
+Reservation TTL is independent of and shorter than cart TTL. `cart`'s expiry sweeper calls `releaseCode`; `promotions` also sweeps independently, because a reservation must not depend on another module's job succeeding.
+
+### A.7 Evaluation cost
+
+`cart` evaluates on every line mutation. Two obligations follow:
+
+1. **Batch mutations evaluate once.** `POST /api/cart/carts/:token/lines/bulk` results in a single `evaluate` call. A 50-line B2B quick order must not run 50 passes.
+2. **Latency budget:** P95 under 150 ms for a 50-line cart against 200 active promotions. Measured at the Phase 2 gate of the suite. If the three-pass engine cannot meet it, the mitigation is a narrowed candidate set from the cache build — not caching the evaluation result, which depends on the whole cart and would key on the cart itself.
+
+### A.8 Risks added
+
+| # | Risk | Severity | Failure scenario | Mitigation | Residual |
+|---|---|---|---|---|---|
+| A-R1 | Discount basis confusion | **High** | An effect computed on gross is applied by `salesCalculationService` as net; tax is charged on a discount that already included it. Every promoted order is mispriced. | Required `basis` field (A.5); a property test asserts cart totals with promotions equal order totals with the same promotions | Low |
+| A-R2 | Free-item feedback loop | **High** | A buy-2-get-1 free item counts toward its own trigger; each evaluation adds another free item until a cap or a timeout. | Promotion-inserted lines excluded from eligibility (A.5), tested explicitly; a per-evaluation cap on inserted items as a backstop | Low |
+| A-R3 | Line targeting collision | Medium | Two lines share a SKU with different configurations; a `targetSku` discount lands on the wrong line or twice. | `targetCartLineId` for in-process callers (A.4) | Low |
+| A-R4 | Reservation leak across cart lifetime | Medium | Abandoned carts hold single-use codes; a limited campaign exhausts against baskets nobody bought. | Independent shorter reservation TTL; release on abandonment; both modules sweep (A.6) | Low |
+| A-R5 | Evaluation latency on bulk B2B carts | Medium | 50-line quick order × 200 promotions blocks the mutation response. | Single evaluation per batch; latency budget gated (A.7) | Medium — depends on engine performance, measured before Phase 2 exit |
+
+### A.9 Additional test cases
+
+- `TC-PROM-050` — In-process `promotionsService.evaluate` and `POST /api/promotions/evaluate` return identical effects for the same context
+- `TC-PROM-051` — `customer_group` rule matches on set membership, including a buyer in several groups
+- `TC-PROM-052` — Effect `basis` matches `CartContext.taxMode`; cart totals with promotions equal order totals with the same promotions (A-R1)
+- `TC-PROM-053` — A promotion-inserted free line does not count toward its own trigger across three consecutive evaluations (A-R2)
+- `TC-PROM-054` — Two lines with the same SKU and different `configuration` receive independent line discounts (A-R3)
+- `TC-PROM-055` — Reservation released on cart abandonment, expiry, code removal, and merge into a cart already holding the code (A-R4)
+- `TC-PROM-056` — A 100-line bulk add triggers exactly one evaluation (A.7)
+- `TC-PROM-057` — 50-line cart against 200 active promotions evaluates within the P95 budget
+
+---
+
 ## Changelog
 
 | Date | Version | Summary |
@@ -1409,4 +1552,5 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | 2026-02-24 | 1.1.0 | Replace 15 concrete rule tables + 6 concrete benefit tables with JSONB approach: `promotion_rules.rule_type + config jsonb` and `promotion_benefits.benefit_type + config jsonb`. Aligns with `condition_expression` pattern in `business_rules` and `workflows`. Normalization step now maps rows directly to `{ type, config }` shape. Config per type validated by Zod discriminated union. |
 | 2026-02-24 | 1.2.0 | Add extensibility architecture: server-side `PromotionExtensionRegistry` (custom rule types, custom benefit types, evaluation middleware `beforeEvaluate`/`afterResolve`, code middleware `beforeCodeUse`/`afterCodeUse`); client-side `promotionExtensionConfiguratorRegistry` for custom tree-builder UI components; `GET /api/promotions/extension-types` endpoint; `context.extensions` field on `CartContext`; 5 declared widget injection slots; Phase 5 implementation plan and TC-PROM-040–045 test cases; new events `evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`. |
 | 2026-02-24 | 1.3.0 | Add `max_discount` optional field to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` benefit configs. Effect resolvers in `lib/effect-resolvers.ts` cap the computed amount at `max_discount` after the raw calculation. New invariant: cap is per-benefit, expressed in operating currency. Added `TC-PROM-014` test case. |
+| 2026-08-14 | 2.0.0 | **Amendment for the `cart` module** (see §Amendment, normative over *Cart-Facing Endpoints*). Primary integration becomes DI `promotionsService`; HTTP endpoints retained as an adapter for external carts. Cart-facing routes move from `/api/cart/*` to `/api/promotions/*` to resolve a namespace collision with the `cart` module. `CartContext.items[]` gains `productId`, `variantId`, `cartLineId`; effect targeting gains `targetCartLineId` alongside `targetSku`. `CartContext` gains `customerGroupIds`, `taxMode`, `storeId`; new built-in `customer_group` rule type enables B2B group-scoped promotions. Effects gain a required `basis: 'net' \| 'gross'` so `salesCalculationService` does not tax an already-taxed discount. `ADD_FREE_ITEM` lines are excluded from subsequent eligibility to prevent a buy-X-get-Y feedback loop. `CodeReservation` gains `cart_id` with a lifecycle tied to cart abandonment and expiry. Single evaluation per batch mutation, with a P95 latency budget. Risks A-R1…A-R5 and cases TC-PROM-050…057 added. |
 | 2026-02-26 | 1.4.0 | Add `PromotionUsage` entity (`promotion_usages` table) serving as per-order compliance audit ledger and global spend tracker. Add `PromotionUsageService` (`lib/promotion-usage-service.ts`) with `registerUsage` (serializable budget cap enforcement, idempotent upsert, 207 Multi-Status on budget block), `revertUsage` (soft-revert on order cancellation), and `getBudgetConsumed`. Add `POST /api/cart/register-usage` and `POST /api/cart/revert-usage` cart-facing endpoints. Add `eligible_currencies` (text[]) + `max_budget` (numeric nullable) + `budget_currency` (text nullable) to `Promotion`. Add `currency` (required) to `CartContext`. Add currency eligibility check and optimistic budget pre-check to evaluation engine. Update `NormalizedPromotion` shape with `eligibleCurrencies`, `maxBudget`, `budgetCurrency`, `totalDiscountGranted`. Update cache build to aggregate `totalDiscountGranted` from usage table. Add `promotions.usage.registered`, `promotions.usage.reverted`, `promotions.promotion.budget-exhausted` events. Add `TC-PROM-023`–`TC-PROM-026` test cases. Add Budget Cap Race Window risk entry. |

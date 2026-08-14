@@ -1,603 +1,612 @@
-# Checkout Module — Simple Checkout (Phase B)
+# Checkout Module — Unified Checkout Funnel
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (Phase B — not yet scheduled) |
-| **Author** | Piotr Karwatka |
+| **Status** | Specification (v2 — rescoped 2026-08-14) |
+| **Author** | Piotr Karwatka (v1), rescoped for the ecommerce suite (v2) |
 | **Created** | 2026-03-19 |
-| **Related** | [Phase A — Pay Links](./2026-03-19-checkout-pay-links.md), [SPEC-041 (UMES)](./SPEC-041-2026-02-24-universal-module-extension-system.md), [SPEC-044 (Payment Gateways)](./SPEC-044-2026-02-24-payment-gateway-integrations.md), Sales module |
+| **Rescoped** | 2026-08-14 |
+| **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 7, Phase 3 |
+| **Package** | `@open-mercato/checkout` |
+| **Related** | [Phase A — Pay Links](./implemented/2026-03-19-checkout-pay-links.md) *(implemented)*, [Cart Module](./2026-08-14-cart-module.md), [Availability Contract](./2026-08-14-availability-contract.md), [Customer Groups & B2B Terms](./2026-08-14-customer-groups-and-b2b-terms.md), [SPEC-041 UMES](./implemented/SPEC-041-2026-02-24-universal-module-extension-system.md), [SPEC-044 Payment Gateways](./implemented/SPEC-044-2026-02-24-payment-gateway-integrations.md) |
+
+> **v2 rescope notice.** v1 specified `CheckoutCartItem`, a merchant-defined item list on a link. Per [ADR-3](./2026-08-14-ecommerce-suite-roadmap.md#adr-3--checkout-is-one-funnel-owned-by-open-mercatocheckout), `@open-mercato/checkout` is now the **single checkout funnel for every channel** and consumes a [`cart`](./2026-08-14-cart-module.md) rather than owning line items. `CheckoutCartItem` is withdrawn (§14). SPEC-029 §19's competing workflow-driven session is withdrawn in its own document. Phase A pay links are unchanged and remain in production.
+
+---
 
 ## TLDR
 
 **Key Points:**
-- Extends the existing `@open-mercato/checkout` package (Phase A) with cart-based checkout — merchants define products/services on a link, and customers see a one-page checkout with items, totals, and payment.
-- Checkout completion creates a sales quote → converts to order, connecting the standalone checkout flow to the full sales document pipeline.
+- One funnel, two entry modes. A **merchant-initiated** checkout (pay link, simple checkout) creates a cart from link-defined lines; a **buyer-initiated** checkout (storefront, POS, agent) arrives with an existing cart token. From the moment a `CheckoutSession` exists, both are the same code path.
+- `CheckoutSession` holds `cart_id`, addresses, delivery selection, payment intent and the resulting quote or order. It never holds lines — the cart does.
+- **The funnel core is a fixed state machine, not a workflow.** `workflows` is used where it is strong — the B2B approval sub-flow and post-submit orchestration — and kept out of the sub-second, payment-adjacent conversion path. §5 justifies the split.
+- Submit is the only authoritative moment: re-price the cart, reserve stock, reserve credit, create the document, take payment, commit the reservation. It is idempotent under retry and safe under concurrent double-submit, or it produces duplicate orders and double charges.
+- B2B branches at submit: an approved buyer on account creates an **order** against a reserved credit line; a buyer requesting terms creates a **quote** for the merchant to convert.
 
 **Scope:**
-- New `CheckoutCartItem` entity for pre-defined items on a link
-- Product/service selection from catalog (by FK ID) or custom items (name + price)
-- One-page checkout UX: items review, customer info, totals, payment
-- Quote creation on checkout submit → Order creation on payment completion
-- Integration with sales module via UMES + DI-resolved `salesCalculationService`
+- `CheckoutSession`, `CheckoutSessionEvent`; `CheckoutTransaction` extended with `session_id`
+- Cart lock/unlock protocol; the submit transaction and its compensation
+- Address capture, delivery rate selection via `shipping_carriers`, payment via `payment_gateways`
+- B2B: purchase on account, credit reservation, PO number capture, approval gating, quote-vs-order branch
+- Retirement of `CheckoutCartItem` in favour of cart-backed links
 
 **Concerns:**
-- Sales module dependency for quote/order creation — carefully scoped to existing sales command contracts, no direct entity imports
-- Pricing must flow through `salesCalculationService` for consistency with tax rules, adjustments, and currency handling
+- The submit path spans five modules with external side effects; partial failure after payment is the highest-consequence scenario in the suite and needs explicit compensation, not optimism
+- Cart lock and session lifetime can diverge, stranding a cart nobody can edit or buy
+- Reserving stock and credit before payment means a failed payment must release both, reliably, including after a process crash
 
 ---
 
-## Overview
+## 1) Overview
 
-Simple Checkout transforms pay links from single-amount payment pages into mini storefronts. A merchant pre-defines items (products from the catalog or custom line items) on a checkout link. Customers visit the link, see the items with quantities and prices, review totals, fill in their details, and pay — all on a single page. Behind the scenes, totals are previewed without persistence on page load; a sales quote is created only when the customer actually submits checkout, then converted to an order upon successful payment.
+Checkout converts intent into a commitment. It is the shortest part of the buyer's journey and carries almost all of the platform's transactional risk: it touches money, stock, credit and legally binding documents, and it does so while a person waits.
 
-### Market Reference
-
-**Stripe Checkout Sessions** with line items is the market leader. Adopted: pre-defined items with quantities, automatic total calculation, single-page checkout. Rejected: Stripe's tight coupling to their product catalog (our approach allows both catalog product references and freeform custom items). Also studied: **Shopify Buy Button** (embedded product checkout), **Gumroad** (digital product links).
-
-### Relationship to Phase A
-
-Phase B is an **additive extension** of Phase A. All Phase A code remains unchanged:
-
-| Aspect | Phase A (unchanged) | Phase B (added) |
-|--------|---------------------|-----------------|
-| Entity discriminator | `checkoutType = 'pay_link'` | `checkoutType = 'simple_checkout'` |
-| Pricing | Fixed / Custom Amount / Price List | Cart items with totals |
-| Data model | `CheckoutLink`, `CheckoutTransaction` | + `CheckoutCartItem`, + quote/order FK columns |
-| CrudForm | 10 groups (2-column) | + "Products" group |
-| Pay page | Amount-based + legal-consent flow | Items review + totals + inherited legal-consent flow |
-| Payment flow | Direct amount → adapter | Order total → adapter |
-| Financial record | Transaction amount | Transaction + Quote + Order |
+The design principle throughout is that **exactly one moment is authoritative**. Everything before submit is advisory, re-tryable and cheap to get wrong. Submit is transactional, idempotent and compensated. Spreading authority across several steps is what produces orders without stock, payments without orders, and credit consumed by baskets nobody bought.
 
 ---
 
-## Problem Statement
+## 2) Problem Statement
 
-Phase A Pay Links handle single-amount payments well, but merchants need a way to:
+### 2.1 Two competing checkout models
 
-1. **Sell specific items** — Bundle products or services with defined quantities and prices in a shareable checkout link.
-2. **Create sales records** — Connect payments to proper sales orders for accounting, fulfillment, and reporting.
-3. **Apply tax and pricing rules** — Use the platform's `salesCalculationService` for consistent tax handling, currency conversion, and adjustments.
-4. **Track orders from checkout** — Correlate checkout transactions with sales orders, quotes, shipments, and invoices.
+SPEC-029 §19 specified a workflow-driven `EcommerceCheckoutSession` creating orders. v1 of this document specified `CheckoutCartItem` plus quote→order conversion, also creating orders. Both were unimplemented past Phase A. Two order-creation paths with different idempotency guarantees is how a platform ships duplicate orders.
+
+ADR-3 resolves it: this package owns the funnel. SPEC-029 §19 is withdrawn.
+
+### 2.2 A cart-shaped hole
+
+v1's `CheckoutCartItem` is a merchant-authored, immutable item list. It cannot represent a shopper-mutable basket: no promotion evaluation, no re-pricing, no availability, no quantity tiers, no merge on login. Building the storefront on it would mean re-implementing all of that inside checkout.
+
+With the `cart` module those behaviours exist once. A merchant-defined link becomes *a cart created from a template*, which is strictly more capable than a static item list — a buyer can adjust quantities on a simple checkout link if the merchant allows it.
+
+### 2.3 Nothing coordinates the commitment
+
+Order creation, stock reservation, credit reservation and payment authorization each exist in isolation. Nothing sequences them, and nothing undoes the earlier ones when a later one fails. A payment captured against an order that could not be created is a manual refund and a support incident.
+
+### 2.4 B2B cannot be bolted on afterwards
+
+Purchase on account is not a payment method that skips payment — it consumes a credit line, needs a PO number on the document, may require approval before it can proceed at all, and may produce a quote rather than an order. These decisions happen at submit, in the same transaction as everything else.
 
 ---
 
-## Proposed Solution
+## 3) Architecture
 
-Extend the `checkout` module with a `simple_checkout` link type that:
-- Adds a `CheckoutCartItem` entity for pre-defined items on a link
-- On checkout submit, creates a `SalesQuote` via existing sales command contracts
-- On payment completion, converts the quote to a `SalesOrder`
-- Stores `quoteId` and `orderId` on `CheckoutTransaction` for traceability
-
-The pricing section on the pay page is replaced with an items table showing product names, quantities, unit prices, and totals — calculated by `salesCalculationService`.
-
----
-
-## Architecture
+### 3.1 Position
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  @open-mercato/checkout (Phase B additions)                            │
-│                                                                        │
-│  CheckoutCartItem ──────── defines items on a link                     │
-│       │                                                                │
-│       │ linked to                                                      │
-│       ▼                                                                │
-│  CheckoutLink (checkoutType = 'simple_checkout')                       │
-│       │                                                                │
-│       │ on checkout                                                    │
-│       ▼                                                                │
-│  ┌──────────────────────────────────────────────┐                      │
-│  │ Checkout Flow:                                │                      │
-│  │ 1. Create SalesQuote via command bus          │                      │
-│  │ 2. Add line items from CheckoutCartItem       │                      │
-│  │ 3. Calculate totals via salesCalculationSvc   │                      │
-│  │ 4. Show one-page checkout (items + totals)    │                      │
-│  │ 5. Customer pays (same adapter flow as A)     │                      │
-│  │ 6. Convert quote → order on success           │                      │
-│  └──────────────────────────────────────────────┘                      │
-│                                                                        │
-│  CheckoutTransaction                                                   │
-│    + quoteId (FK → sales_quotes by ID)                                 │
-│    + orderId (FK → sales_orders by ID)                                 │
-└────────────────────────────────────────────────────────────────────────┘
-          │                           │
-          │ DI resolution             │ command bus
-          ▼                           ▼
-   salesCalculationService    `sales.quotes.create`
-   (from sales module)        `sales.quotes.convert_to_order`
+  merchant-initiated                    buyer-initiated
+  (pay link, simple checkout)           (storefront, POS, agent)
+        │                                        │
+        │ CheckoutLink → cart from template      │ existing cart token
+        ▼                                        ▼
+        └────────────► CheckoutSession ◄─────────┘
+                             │
+        ┌────────────┬───────┼────────────┬──────────────┬───────────────┐
+        ▼            ▼       ▼            ▼              ▼               ▼
+      cart      availability  customer_groups   shipping_carriers  payment_gateways   sales
+   lock/read     reserve/       credit,           rate quote,        intent,        quote/order
+   /reprice      commit         approval          method select      capture        via commandBus
 ```
 
-### Cross-Module Integration
+`checkout` depends on all of these. None depends on `checkout`.
 
-| Direction | Mechanism | Detail |
-|-----------|-----------|--------|
-| Checkout → Sales (quote/order creation) | Existing command contracts | Execute `sales.quotes.create` and `sales.quotes.convert_to_order` through `commandBus` |
-| Checkout → Sales (calculations) | DI-resolved service | `salesCalculationService` for totals, tax, adjustments |
-| Checkout → Catalog (product refs) | FK IDs + API | Store `productId`/`variantId` as FK IDs; fetch product data via API or DI service |
-| Checkout → Payment Gateways | Phase A generic descriptor surface | Reuse provider settings, supported-currency validation, and presentation capabilities |
-| Sales → Checkout (traceability) | UMES widget injection | Inject "Created from Checkout" badge on order/quote detail if `metadata.sourceModule = 'checkout'` |
+### 3.2 Entry modes
 
----
+| Mode | Cart origin | Mutable by buyer |
+|---|---|---|
+| Pay link (Phase A) | None — a single amount, no cart | n/a, unchanged |
+| Simple checkout | Created from `CheckoutLinkCartTemplate` at first visit | Per link setting, default no |
+| Storefront / POS / agent | Existing cart, token supplied | Yes, until lock |
 
-## Data Models
+Phase A pay links keep their existing path end to end. They create a `CheckoutTransaction` with no `session_id` and no cart, exactly as today. This spec adds nothing to them and removes nothing from them.
 
-### Entity: CheckoutCartItem (NEW)
+### 3.3 Cross-module integration
 
-Table: `checkout_cart_items`
+| Direction | Mechanism |
+|---|---|
+| → `cart` | DI `cartService`: read, lock, reprice, unlock, mark converted |
+| → `availability` | DI `availabilityService`: `reserve`, `release`, `commit` |
+| → `customer_groups` | DI `customerGroupsService`: `resolveTerms`, `checkCredit`, `reserveCredit`, `releaseCredit` |
+| → `shipping_carriers` | DI rate quoting; selected method snapshotted onto the session |
+| → `payment_gateways` | Phase A provider descriptor surface, unchanged |
+| → `sales` | `commandBus`: `sales.quotes.create`, `sales.quotes.convert_to_order`, order creation |
+| ← `sales` | UMES widget: "Created from checkout" badge when `metadata.sourceModule = 'checkout'` |
 
-Pre-defined items on a simple checkout link. These define what the customer will purchase.
-
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| `id` | uuid | PK | |
-| `organization_id` | uuid | NOT NULL | Tenant scope |
-| `tenant_id` | uuid | NOT NULL | Tenant scope |
-| `link_id` | uuid | NOT NULL | FK → `checkout_links` (by ID) |
-| `product_id` | uuid | NULL | FK → `catalog_products` (by ID, no ORM relation) |
-| `variant_id` | uuid | NULL | FK → `catalog_product_variants` (by ID) |
-| `name` | varchar(255) | NOT NULL | Product/service name (snapshot or freeform) |
-| `description` | text | NULL | Item description |
-| `sku` | varchar(100) | NULL | SKU reference |
-| `quantity` | integer | NOT NULL, DEFAULT `1` | |
-| `unit_price` | decimal(12,2) | NOT NULL | |
-| `currency_code` | varchar(3) | NOT NULL | ISO 4217 |
-| `tax_rate` | decimal(5,2) | NULL | Tax rate percentage |
-| `image_url` | varchar(500) | NULL | Product image URL |
-| `sort_order` | integer | DEFAULT `0` | Display order |
-| `created_at` | timestamptz | NOT NULL | |
-| `updated_at` | timestamptz | NOT NULL | |
-| `deleted_at` | timestamptz | NULL | Soft delete to support undoable admin delete |
-
-**Indexes:**
-- Index: `(link_id, sort_order)`
-
-**Currency rules**
-
-- A simple checkout link MUST use a single checkout currency for all cart items.
-- `CheckoutCartItem.currencyCode` is stored per row for snapshot clarity, but all active items on the same link must match.
-- Admin create/update/reorder flows MUST reject mixed-currency carts.
-- If a gateway provider is selected on the link, the cart currency MUST also be supported by that provider's published descriptor from `payment_gateways`.
-
-### Entity Modifications: CheckoutTransaction (ADDITIVE)
-
-New nullable columns on `checkout_transactions`:
-
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| `quote_id` | uuid | NULL | FK → `sales_quotes` (by ID, no ORM relation) |
-| `order_id` | uuid | NULL | FK → `sales_orders` (by ID, no ORM relation) |
-
-These columns are `NULL` for `pay_link` type transactions and populated for `simple_checkout` type.
-
-### Entity Modifications: CheckoutLink (NO CHANGES)
-
-The `checkout_type` column already exists from Phase A with values `'pay_link'` | `'simple_checkout'`.
+Retained from v1 unchanged. The quote→order path through the command bus was the right call and is reused for both entry modes.
 
 ---
 
-## Commands (Phase B Additions)
+## 4) Data Models
 
-All **admin/backend mutations** introduced in Phase B remain undoable. Financial lifecycle commands inherited from Phase A remain intentionally non-undoable.
+### 4.1 `CheckoutSession` (`checkout_sessions`)
 
-| Command | Undo | Notes |
-|---------|------|-------|
-| `checkout.cartItem.create` | Delete the created item | Add item to a simple checkout link |
-| `checkout.cartItem.update` | Restore before snapshot | Update item details |
-| `checkout.cartItem.delete` | Restore the item | Remove item from link |
-| `checkout.cartItem.reorder` | Restore previous order | Change sort order of items |
+Standard scoped columns.
 
-The existing `checkout.transaction.create` command is extended (not replaced) to handle `simple_checkout` type:
-- Creates a `SalesQuote` with line items from `CheckoutCartItem`
-- Calculates totals via `salesCalculationService`
-- Stores `quoteId` on the transaction
+| Column | Type | Notes |
+|---|---|---|
+| `token` | text | Opaque, unguessable, CSPRNG; the public identifier |
+| `cart_id` | uuid | `cart.Cart.id`. **The session never holds lines** |
+| `store_id` | uuid, nullable | `ecommerce.EcommerceStore.id` |
+| `link_id` | uuid, nullable | `checkout.CheckoutLink.id` for merchant-initiated |
+| `channel` | text | `storefront \| pos \| pay_link \| agent \| api` |
+| `status` | text | `open \| awaiting_approval \| submitting \| awaiting_payment \| completed \| failed \| canceled \| expired` |
+| `step` | text | `contact \| addresses \| delivery \| payment \| review` |
+| `version` | integer | Optimistic locking |
+| `currency_code` | text | From the cart, immutable once the session exists |
+| `locale` | text | |
+| `email` | text, nullable | Encrypted at rest |
+| `phone` | text, nullable | Encrypted at rest |
+| `customer_id` / `customer_user_id` | uuid, nullable | |
+| `shipping_address` | jsonb, nullable | Encrypted at rest |
+| `billing_address` | jsonb, nullable | Encrypted at rest |
+| `billing_same_as_shipping` | boolean | |
+| `shipping_method` | jsonb, nullable | Snapshot: carrier, service, price, ETA, quoted-at |
+| `delivery_window_id` | uuid, nullable | `sales.SalesDeliveryWindow.id` |
+| `payment_method_code` | text, nullable | Includes `on_account` |
+| `payment_intent_ref` | text, nullable | Gateway reference |
+| `purchase_order_number` | text, nullable | B2B |
+| `approval_id` | uuid, nullable | `customer_groups.CustomerPurchaseApproval.id` |
+| `credit_reservation_key` | text, nullable | Idempotency key used with `reserveCredit` |
+| `stock_reservation_key` | text, nullable | Idempotency key used with `availabilityService.reserve` |
+| `submit_idempotency_key` | text, nullable | Unique per session; the duplicate-submit guard |
+| `outcome_kind` | text, nullable | `order \| quote` |
+| `sales_order_id` / `sales_quote_id` | uuid, nullable | |
+| `terms_accepted_at` | timestamptz, nullable | |
+| `consent_flags` | jsonb, nullable | Marketing consent, passed to promotions |
+| `failure_code` / `failure_detail` | text, nullable | |
+| `expires_at` | timestamptz | |
+| `completed_at` | timestamptz, nullable | |
 
-The existing `checkout.transaction.updateStatus` command is extended:
-- On `completed` status for `simple_checkout` type: executes `sales.quotes.convert_to_order`, stores `orderId`
-- On `failed` / `cancelled` / `expired`: triggers quote cleanup via existing sales command path and marks checkout-owned quotes as cancelled/abandoned
+Indexes: unique `token`; unique `(tenant_id, submit_idempotency_key)` where non-null; `(tenant_id, status, expires_at)`.
+
+### 4.2 `CheckoutSessionEvent` (`checkout_session_events`)
+
+Append-only audit of every step transition, external call and outcome. No update, no delete.
+
+| Column | Type | Notes |
+|---|---|---|
+| `session_id` | uuid | |
+| `kind` | text | `step_entered \| field_updated \| rate_quoted \| stock_reserved \| credit_reserved \| payment_initiated \| payment_result \| document_created \| compensation \| failure` |
+| `payload` | jsonb | Redacted — never card data, never full addresses |
+| `actor` | text | `buyer \| system \| merchant \| agent` |
+| `created_at` | timestamptz | |
+
+This exists because a failed checkout is a support conversation, and "what happened" must be answerable without reading application logs. It is the audit trail SPEC-029 §19.2 wanted from workflows, obtained without putting the engine in the hot path.
+
+### 4.3 `CheckoutLinkCartTemplate` (`checkout_link_cart_templates`)
+
+Replaces v1's `CheckoutCartItem`. Merchant-defined lines that seed a cart on first visit.
+
+| Column | Type | Notes |
+|---|---|---|
+| `link_id` | uuid | FK → `checkout_links` |
+| `product_id` / `variant_id` | uuid, nullable | Catalog reference |
+| `name` | text | Snapshot or freeform for non-catalog items |
+| `description` | text, nullable | |
+| `sku` | text, nullable | |
+| `quantity` | integer | Default 1 |
+| `unit_price_override` | numeric(12,2), nullable | Null → resolve from catalog for the buyer |
+| `currency_code` | text | |
+| `image_url` | text, nullable | |
+| `is_quantity_editable` | boolean | Default `false` |
+| `sort_order` | integer | |
+
+Currency rules from v1 are retained: one currency per link; mixed-currency templates rejected at admin write; the currency must be supported by the link's gateway descriptor.
+
+`unit_price_override` is new and matters — with a real cart behind it, a template line without an override resolves the buyer's own price, so a simple checkout link sent to a wholesale customer prices at their contract rate. v1 could not do that.
+
+### 4.4 `CheckoutTransaction` (extended, additive)
+
+| Column | Type | Notes |
+|---|---|---|
+| `session_id` | uuid, nullable | Null for Phase A pay links |
+| `quote_id` | uuid, nullable | From v1, retained |
+| `order_id` | uuid, nullable | From v1, retained |
+
+Additive nullable columns only. Phase A behaviour is untouched.
 
 ---
 
-## Events (Phase B Additions)
+## 5) Why the Funnel Is Not a Workflow
+
+SPEC-029 §19.2 argued for `workflows` on four grounds: audit trail, per-store configurability, async activities, and saga compensation. Each is real. None requires the engine in the conversion path.
+
+| Argument | Resolution |
+|---|---|
+| Audit trail | `CheckoutSessionEvent` (§4.2) is append-only and purpose-shaped, with redaction rules a generic event log would not enforce |
+| Configurability | Step visibility and order are per-store configuration on the link or store, not a graph. The realistic variation is which of five known steps appear, not arbitrary topology |
+| Async activities | Post-submit orchestration **is** a workflow (§5.1). Nothing before submit is async |
+| Compensation | The submit transaction has explicit, ordered compensation (§7.3). A saga across five modules with external side effects needs hand-written compensation regardless; a generic engine does not supply it |
+
+Against, and decisive:
+
+- **Latency.** Checkout is the conversion-critical path. Every step transition through a durable engine adds writes and reads to an interaction a person is waiting on.
+- **Durability risk.** [Durable Workflow User-Task Continuation](./2026-07-15-durable-workflow-user-task-continuation.md) documents that `completeUserTask()` currently flushes `COMPLETED` before executing the transition, so a failure can leave a completed task on a paused instance. That is an acceptable characteristic for a back-office approval and an unacceptable one for a payment step. It is being fixed; the funnel should not be the first thing to depend on the fix.
+- **Testability.** A five-state machine with an explicit transition table is exhaustively testable. A configurable graph is not.
+
+### 5.1 Where `workflows` is used
+
+1. **B2B approval sub-flow** — long-running, human-in-the-loop, spanning hours or days, with notifications and escalation. Exactly what the engine is for. The session parks in `awaiting_approval` and resumes on the workflow's decision.
+2. **Post-submit orchestration** — confirmation email, invoice generation, fulfilment handoff, ERP sync. After the buyer is gone, where retries and durability matter more than latency.
+
+The boundary: **synchronous and buyer-facing is a state machine; asynchronous or human-scheduled is a workflow.**
+
+### 5.2 Step machine
+
+```
+contact ──► addresses ──► delivery ──► payment ──► review ──► [submit]
+   ▲            ▲             ▲            ▲          │
+   └────────────┴─────────────┴────────────┴──────────┘   (free backward navigation)
+```
+
+Steps are skippable by configuration: a digital-only cart skips `delivery`; a known logged-in buyer with one address skips `contact` and `addresses`; purchase on account skips gateway selection in `payment` but not the step (PO number is captured there).
+
+Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs.
+
+---
+
+## 6) Cart Lock Protocol
+
+| Phase | Cart state | Buyer may edit |
+|---|---|---|
+| Session created | `active` | Yes |
+| Entering `review` | `active` | Yes |
+| Submit begins | `locked` (with a forced re-price) | No |
+| Submit succeeds | `converted` | No |
+| Submit fails | `active` (unlocked) | Yes |
+| Session expires or is canceled | `active` (unlocked) | Yes |
+
+The cart is locked **only for the duration of submit**, not for the whole funnel. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
+
+`cart.lock()` forces a whole-cart re-price (cart spec §5.2 trigger 5). If that changes any total, **submit aborts before any side effect** and returns `409 price_changed` with the `priceChanges` payload. The buyer re-confirms an amount they have seen. This is the mechanism that prevents charging a price the buyer never agreed to.
+
+A locked cart rejects mutation with `423 Locked` and the session id, so a second tab sends the buyer back to checkout rather than showing a broken basket.
+
+---
+
+## 7) Submit
+
+The only authoritative moment in the funnel.
+
+### 7.1 Preconditions
+
+Checked before any side effect; all failures are cheap and leave nothing to undo.
+
+1. Session `open`, not expired, version matches
+2. `submit_idempotency_key` present and not already completed (§7.4)
+3. Cart non-empty and belongs to this session
+4. Required steps complete for the effective configuration
+5. Terms accepted where required
+6. B2B: cart value under `approval_required_above`, or an `approved` approval is attached
+7. B2B: cart value at or above `min_order_value`
+
+### 7.2 Sequence
+
+```
+ 1. cart.lock()                          → forced re-price
+    ├─ totals changed → ABORT 409 price_changed (nothing to undo)
+    └─ unchanged → continue
+ 2. availabilityService.reserve(items, key = stock_reservation_key, ttl 900s)
+    └─ shortfall → unlock cart, ABORT 409 stock_shortfall (line detail)
+ 3. IF payment_method = on_account:
+       customerGroupsService.reserveCredit(amount, key = credit_reservation_key)
+       └─ refused → release stock, unlock cart, ABORT 402 credit_refused
+ 4. Create the sales document via commandBus, in one DB transaction:
+       outcome_kind = 'quote' → sales.quotes.create           (status awaiting_approval)
+       outcome_kind = 'order' → sales.quotes.create
+                              + sales.quotes.convert_to_order
+    └─ failure → release credit, release stock, unlock cart, ABORT 500
+ 5. IF outcome is a quote → status = completed. DONE. (no payment)
+ 6. IF payment via gateway:
+       status = awaiting_payment; create payment intent; hand off to the provider
+       └─ intent creation fails → compensate 4,3,2; ABORT 502
+ 7. Payment result (callback or polling — Phase A path):
+       success → availabilityService.commit(key, orderId)
+                 promotionsService.registerUsage(...)
+                 cart.markConverted()
+                 status = completed
+                 emit checkout.session.completed → post-submit workflow
+       failure → compensate: cancel order, release credit, release stock,
+                 unlock cart, status = failed with failure_code
+ 8. IF on_account (no gateway):
+       availabilityService.commit(key, orderId); credit reservation stands
+       until settled by invoicing; status = completed
+```
+
+### 7.3 Compensation
+
+Ordered, reverse of acquisition, each step idempotent and safe to re-run:
+
+| Failure at | Compensation |
+|---|---|
+| 2 (stock) | Unlock cart |
+| 3 (credit) | Release stock; unlock cart |
+| 4 (document) | Release credit; release stock; unlock cart |
+| 6 (intent) | Cancel document; release credit; release stock; unlock cart |
+| 7 (payment) | Cancel order; release credit; release stock; unlock cart |
+
+Every compensation is keyed on the same idempotency keys as acquisition, so re-running is a no-op rather than a double release. Each writes a `CheckoutSessionEvent` of kind `compensation`.
+
+**A compensation that itself fails** is written as a `failure` event, raises an operational notification, and enqueues a retry job. It is never swallowed: a leaked stock or credit reservation is invisible inventory or invisible exposure, and both need a human.
+
+### 7.4 Idempotency and concurrency
+
+`submit_idempotency_key` is client-generated, unique per session, sent on every submit attempt.
+
+- First call proceeds
+- A repeat while the first is in flight returns `409 submit_in_progress` — it does not queue behind it
+- A repeat after success returns the original result, including `sales_order_id`, with `200`
+- A repeat after failure is permitted and starts a fresh attempt with fresh reservation keys
+
+Concurrency is enforced by a conditional update `status = 'open' → 'submitting'`. Exactly one caller wins. This is the guard against the double-tap and the retried-request duplicate order.
+
+---
+
+## 8) B2B at Submit
+
+### 8.1 Order or quote
+
+| Buyer situation | Outcome |
+|---|---|
+| Prepayment via gateway | Order, after payment |
+| Purchase on account, credit available | Order, credit reserved |
+| Purchase on account, over limit | Blocked at precondition; offered prepayment or a quote |
+| Requesting terms / negotiated pricing | Quote for the merchant to convert |
+| Over approval threshold, not yet approved | Blocked; `request-approval` offered |
+
+### 8.2 Approval gate
+
+An over-threshold session transitions to `awaiting_approval`, creates a `CustomerPurchaseApproval` (spec 1 §5.6), and starts the approval workflow. The cart is **not** locked while waiting — approval can take days and a locked cart holds nothing useful. On approval the session returns to `open` with a forced re-price; prices may legitimately have moved in the interim, and the approved amount is re-checked against the new total. If the total rose above the approved amount, approval is re-requested rather than silently honoured.
+
+### 8.3 Credit
+
+Reserved at submit via `reserveCredit` in a serializable transaction (spec 1 §6). It is **not** released on order completion — it stands as exposure until invoicing settles it via `settleCredit`. Releasing at completion would mean the limit only constrained in-flight checkouts, which is not what a credit limit is.
+
+### 8.4 PO number
+
+Captured at the `payment` step when the group's terms require it, validated for format if the tenant configures one, and written to the sales document — a B2B invoice without the buyer's PO number will not be paid.
+
+---
+
+## 9) API Contracts
+
+Base `/api/checkout`. Public, token-bound, optional buyer session. Mutating routes take `version`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/sessions` | Create from a cart token or a link |
+| GET | `/sessions/:token` | Current state, step, available transitions |
+| PATCH | `/sessions/:token` | Contact, addresses, PO number, consent |
+| POST | `/sessions/:token/step` | Navigate; validates the step being left |
+| GET | `/sessions/:token/delivery-options` | Live rate quote for the current address and cart |
+| POST | `/sessions/:token/delivery` | Select a method; snapshots the rate |
+| GET | `/sessions/:token/payment-methods` | Available methods incl. `on_account` eligibility |
+| POST | `/sessions/:token/payment` | Select method; create the intent when applicable |
+| POST | `/sessions/:token/request-approval` | B2B approval |
+| POST | `/sessions/:token/submit` | §7. Requires `Idempotency-Key` |
+| POST | `/sessions/:token/cancel` | Unlock the cart, release reservations |
+| GET | `/sessions/:token/result` | Post-submit outcome for the confirmation page |
+
+Admin: `GET /api/checkout/sessions` and `/sessions/:id` under `checkout.sessions.view`, including the event trail. Read-only.
+
+### 9.1 ACL
 
 ```typescript
-const additionalEvents = [
-  { id: 'checkout.cartItem.created', label: 'Cart Item Created', entity: 'cartItem', category: 'crud' },
-  { id: 'checkout.cartItem.updated', label: 'Cart Item Updated', entity: 'cartItem', category: 'crud' },
-  { id: 'checkout.cartItem.deleted', label: 'Cart Item Deleted', entity: 'cartItem', category: 'crud' },
-  { id: 'checkout.order.created', label: 'Checkout Order Created', entity: 'order', category: 'lifecycle', clientBroadcast: true },
-] as const
+export const features = [
+  { id: 'checkout.sessions.view',   title: 'View checkout sessions' },
+  { id: 'checkout.sessions.manage', title: 'Manage checkout sessions' },
+  { id: 'checkout.links.view',      title: 'View checkout links' },       // Phase A
+  { id: 'checkout.links.manage',    title: 'Manage checkout links' },     // Phase A
+]
 ```
 
 ---
 
-## API Contracts (Phase B Additions)
+## 10) Events
 
-### Admin API
-
-`GET /api/checkout/links/:id/items` — List cart items for a link
-- Features: `checkout.view`
-- Response: Array of `CheckoutCartItem`
-
-`POST /api/checkout/links/:id/items` — Add item to link
-- Features: `checkout.edit`
-- Body: `{ productId?, variantId?, name, description?, quantity, unitPrice, currencyCode, taxRate?, imageUrl? }`
-- Validates: link `checkoutType = 'simple_checkout'`, link not locked, item currency matches the link's existing cart currency, and selected gateway provider supports that currency when configured
-
-`PUT /api/checkout/links/:id/items/:itemId` — Update item
-- Features: `checkout.edit`
-
-`DELETE /api/checkout/links/:id/items/:itemId` — Remove item
-- Features: `checkout.edit`
-
-`PUT /api/checkout/links/:id/items/reorder` — Reorder items
-- Features: `checkout.edit`
-- Body: `{ itemIds: string[] }` — ordered array of item IDs
-
-### Public API (Extensions)
-
-`GET /api/checkout/pay/:slug` — Extended response for `simple_checkout` type:
-```json
-{
-  "checkoutType": "simple_checkout",
-  "items": [
-    {
-      "id": "uuid",
-      "name": "Premium Widget",
-      "description": "High-quality widget",
-      "quantity": 2,
-      "unitPrice": 49.99,
-      "currencyCode": "USD",
-      "imageUrl": "https://...",
-      "lineTotal": 99.98
-    }
-  ],
-  "subtotal": 99.98,
-  "taxTotal": 20.00,
-  "total": 119.98,
-  "currencyCode": "USD"
-}
+```typescript
+'checkout.session.created' | '.step_changed' | '.submitted' | '.completed'
+                           | '.failed' | '.canceled' | '.expired'
+'checkout.session.approval_requested' | '.approved' | '.rejected'
+'checkout.payment.initiated' | '.succeeded' | '.failed'
+'checkout.compensation.executed' | '.failed'
+'checkout.cartTemplate.created' | '.updated' | '.deleted' | '.reordered'
 ```
 
-`POST /api/checkout/pay/:slug/submit` — Extended for `simple_checkout`:
-- Body: same customer data (no cart manipulation — items are pre-defined by admin)
-- Server calculates totals from `CheckoutCartItem` via `salesCalculationService`
-- Server re-validates that all cart items share one currency and that the selected gateway provider supports that currency
-- Creates `SalesQuote` → payment session with order total
-- On webhook completion: converts quote → order
+`checkout.session.completed` starts the post-submit workflow (§5.1). `checkout.compensation.failed` raises an operational notification — it is the event that must never be ignored.
+
+Phase A's existing transaction events are unchanged.
 
 ---
 
-## UI/UX (Phase B Additions)
+## 11) Commands
 
-### CrudForm: "Products" Group
+Retained from v1, renamed for the template:
 
-Uses the same `CrudForm` instance as Phase A with an additional group. The `checkoutType` field value controls group visibility — when `'simple_checkout'`, the Products group is shown and the Pricing group is hidden.
+| Command | Undo |
+|---|---|
+| `checkout.cartTemplate.create` | Delete the created row |
+| `checkout.cartTemplate.update` | Restore the before-snapshot |
+| `checkout.cartTemplate.delete` | Restore the row |
+| `checkout.cartTemplate.reorder` | Restore the previous order |
 
-The Products group uses `column: 1` (full-width main content area) since it contains a wide items table that benefits from spanning the full form width.
-
-Visible only when `checkoutType = 'simple_checkout'`. Contains:
-- **Product Selector**: Search catalog products by name/SKU or add custom freeform item
-- **Items Table**: Sortable list with columns: Image, Name, SKU, Quantity, Unit Price, Tax Rate, Line Total
-- **Add Item Button**: Opens product search dialog or freeform item form
-- **Totals Summary**: Subtotal, Tax, Grand Total (calculated by `salesCalculationService`)
-- **Pricing group hidden**: When `checkoutType = 'simple_checkout'`, the Pricing group is hidden since pricing comes from items
-
-**Wireframe:** See [Products Group wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#products-group)
-
-**Wireframe:** See [Add Product Dialog wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#add-product-dialog)
-
-### Public Pay Page: Cart View
-
-For `simple_checkout` links, the pricing section is replaced with:
-
-1. **Items Table** — Product image, name, quantity, unit price, line total per item
-2. **Totals Section** — Subtotal, tax breakdown, grand total
-3. **Customer Form** — Same as Phase A (shared component)
-4. **Payment Section** — Same as Phase A (shared component, uses order total)
-
-**Wireframe:** See [Public Pay Page: Cart View wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#public-pay-page-cart-view)
-
-### UMES Extension Points (Phase B Additions)
-
-| Spot ID | Location | Context |
-|---------|----------|---------|
-| `checkout.pay-page:items:before` | Before items table on checkout page | `{ link, items }` |
-| `checkout.pay-page:items:after` | After items table | `{ link, items, totals }` |
-| `checkout.pay-page:totals:before` | Before totals section | `{ link, totals }` |
-| `checkout.pay-page:totals:after` | After totals section | `{ link, totals }` |
-
-**Component replacement handles (Phase B additions)**
-
-| Handle | Component | Purpose |
-|--------|-----------|---------|
-| `section:checkout.pay-page.items` | `PayPageItemsTable` | Replace/wrap items table |
-| `section:checkout.pay-page.totals` | `PayPageTotals` | Replace/wrap totals block |
-| `section:checkout.pay-page.cart-summary` | `PayPageCartSummary` | Replace/wrap combined cart summary shell |
-
-Phase B inherits all Phase A pay-page spots and replacement handles, including exported default components for wrapper/replace/eject-style customization.
-
-### Sales Module Widgets (via UMES)
-
-Checkout injects into sales module:
-- **Order detail page**: Badge showing "Created from Checkout Link: {linkName}" with link to checkout transaction
-- **Quote detail page**: Same badge
-- **Orders DataTable**: Optional column "Source" showing "Checkout" for checkout-originated orders
-
-**Wireframe:** See [Order Detail Page — Checkout Source Badge wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#order-detail-page----checkout-source-badge)
-
-**Wireframe:** See [Orders DataTable — Source Column wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#orders-datatable----source-column)
+Admin mutations remain undoable. Financial lifecycle transitions remain non-undoable, as in Phase A. Session transitions are **not** commands — they are state-machine moves with their own audit trail, and exposing them as undoable admin operations would let a merchant "undo" a payment.
 
 ---
 
-## Payment Flow (Simple Checkout)
+## 12) Background Jobs
 
-```
-Customer visits /pay/[slug] (simple_checkout type)
-         │
-         ▼
-  Load pay page with items, calculate totals preview
-  (salesCalculationService via API, no quote persisted)
-         │
-         ▼
-  Customer reviews items + fills customer form
-         │
-         ▼
-  Submit (POST /api/checkout/pay/:slug/submit)
-         │
-         ▼
-  ┌─────────────────────────────────────────────┐
-  │  Server-side:                                │
-  │  1. Validate customer fields                 │
-  │  2. Create SalesQuote via commandBus         │
-  │     (`sales.quotes.create`)                  │
-  │  3. Calculate totals via salesCalcService    │
-  │  4. Create CheckoutTransaction               │
-  │     (status: processing, quoteId: quote.id)  │
-  │  5. Create payment session (total = order    │
-  │     total from calculation)                  │
-  └───────────────────┬─────────────────────────┘
-                      │
-                      ▼
-  Customer pays (same flow as Phase A)
-         │
-         ▼
-  Webhook: payment completed
-         │
-         ▼
-  ┌─────────────────────────────────────────────┐
-  │  Server-side:                                │
-  │  1. Update transaction status → completed    │
-  │  2. Convert SalesQuote → SalesOrder          │
-  │     via `sales.quotes.convert_to_order`      │
-  │  3. Store orderId on transaction             │
-  │  4. Emit checkout.order.created event        │
-  └─────────────────────────────────────────────┘
-```
+| Job | Cadence | Purpose |
+|---|---|---|
+| `expire-checkout-sessions` | every 5 min | Expire past TTL; unlock carts; release reservations |
+| `recover-stuck-submits` | every minute | Sessions in `submitting` beyond 120 s: determine the true outcome from the gateway and either complete or compensate |
+| `retry-failed-compensations` | every 5 min | Re-run failed compensations with backoff; escalate after 5 attempts |
+| `expire-awaiting-payment` | every 5 min | Past the intent TTL: compensate and fail |
+
+`recover-stuck-submits` handles the crash-between-steps case. Without it, a process dying at step 6 leaves stock and credit reserved against a session nobody will ever complete.
 
 ---
 
-## Security & Access (Phase B Additions)
+## 13) Security
 
-Phase B inherits all Phase A public-flow protections and adds these rules:
-
-1. **No quote creation on GET**: public page loads and totals previews must not persist `SalesQuote` rows.
-2. **Server-authoritative totals**: product snapshots, taxes, discounts, shipping, and payment totals used for the payment session are recalculated on submit; preview totals are informational only.
-3. **No public cart mutation**: public APIs cannot add/remove/reprice line items; only admin APIs manage `CheckoutCartItem`.
-4. **Submit idempotency remains mandatory**: repeated submits with the same key must reuse the existing quote/transaction/session instead of creating duplicates.
-5. **Quote/order tenant isolation**: checkout may only create, read, or convert sales documents inside the same `organizationId` / `tenantId`.
-6. **Password/session inheritance**: password-protected simple checkout links require the same slug-bound access session for page load, submit, status, success, and cancel flows.
-7. **Legal-consent inheritance**: Terms & Conditions / Privacy Policy markdown documents and required acceptance rules defined in Phase A continue to apply to simple checkout links, and acceptance proof remains stored on the checkout transaction.
-8. **Sales-side data minimization**: checkout-specific customer data copied into quote/order metadata must avoid storing unnecessary PII outside the encrypted checkout transaction unless required by sales document rules.
-9. **Search hygiene**: any checkout-derived fields added to sales metadata or search presenters must exclude or hash PII; Phase B must not make customer-entered checkout data searchable by default.
-
-### Admin Access Control
-
-- Admin cart-item APIs reuse existing checkout admin features: `checkout.view`, `checkout.edit`
-- Sales widgets injected by checkout only render when the viewer also has the relevant `sales.*.view` permission for the host page
+- Session token is CSPRNG, never in a URL path, rotated never (the session is short-lived), rate-limited per token
+- A session may only be created against a cart the caller can prove access to — the cart token, or an authenticated session owning the cart
+- Addresses, email and phone encrypted at rest; read through the decryption helpers
+- Card data never touches the platform; the Phase A provider delegation is unchanged
+- `CheckoutSessionEvent.payload` is redacted at write time — never card data, never full addresses, never gateway secrets
+- Rate limits: submit 10/min per session and 60/min per IP; rate quoting 30/min per session (each call may hit a carrier API)
+- `on_account` eligibility is resolved server-side from group terms; a client asking for it without entitlement is refused, never trusted
+- Cross-tenant: session, cart, link and store must resolve to the same tenant and organization, checked on every request
 
 ---
 
-## Seeding (Phase B Additions)
+## 14) Withdrawn from v1
 
-**Example templates:**
-- "Product Bundle" — Simple checkout, 3 items (Widget A $29, Widget B $49, Service Fee $15), unlimited completions
+| v1 element | Disposition |
+|---|---|
+| `CheckoutCartItem` entity | **Withdrawn.** Replaced by `CheckoutLinkCartTemplate` seeding a real `Cart`. Never implemented — Phase B was unscheduled — so this is a specification change with no migration and no deprecation protocol. |
+| `checkout.cartItem.*` commands | Renamed to `checkout.cartTemplate.*`. Never shipped. |
+| Cart totals computed in checkout | Withdrawn. The cart owns totals via `salesCalculationService` (ADR-2); checkout reads them. |
+| One-page checkout as the only shape | Generalized to the configurable step machine (§5.2). A one-page layout remains achievable by enabling all steps on one screen — that is a presentation decision for spec 10. |
 
-**Example links:**
-- "Spring Sale Bundle" — From template, slug: `spring-bundle`, 3 items with catalog product references (if catalog has seeded products) or freeform items
-
----
-
-## Documentation Requirements
-
-When Phase B is implemented, docs MUST be extended alongside the code.
-
-Required deliverables:
-- update `packages/checkout/README.md` with Simple Checkout scope and Phase A vs Phase B differences
-- product/admin docs for:
-  - creating simple checkout links
-  - managing products/cart items
-  - single-currency cart rules
-  - quote/order lifecycle from checkout
-  - failure/expiry cleanup behavior
-- developer docs for:
-  - inherited and new UMES spots/handles for cart pages
-  - exported cart components and supported wrapper/replace/eject-style customization path
-  - interaction with sales commands and payment-gateway descriptors
-- integration docs describing:
-  - how Phase B reuses the Phase A generic payment-gateway descriptor surface
-  - how currency validation works for carts
-  - what sales metadata / traceability fields are written
-- API/OpenAPI docs for cart-item endpoints and Phase B response additions
-
-Preferred doc locations:
-- extend `packages/checkout/README.md`
-- extend checkout framework docs under `apps/docs/docs/framework/modules/checkout*.mdx` or equivalent
-- extend any relevant sales/checkout integration handbook pages where cross-module behavior is important
-
-## Implementation Plan
-
-### Phase B.1: Cart Item Entity & Admin CRUD
-1. Create `CheckoutCartItem` MikroORM entity
-2. Add `quoteId`, `orderId` nullable columns to `CheckoutTransaction` migration
-3. Create cart item commands (create/update/delete/reorder) with undo
-4. Create cart item API routes with OpenAPI
-5. Enforce single-currency cart validation and gateway-supported-currency validation on admin item mutations
-6. Add "Products" group to `LinkTemplateForm` (conditional on `checkoutType`, `column: 1`)
-7. Add product search/selector component
-8. Hide Pricing group for `simple_checkout` type
-
-### Phase B.2: Quote/Order Integration
-1. Wire `salesCalculationService` resolution via DI
-2. Reuse the Phase A payment-gateway descriptor surface to validate cart currency and presentation mode before session creation
-3. Implement quote creation from cart items on checkout submit via `commandBus.execute('sales.quotes.create', ...)`
-4. Implement quote → order conversion on payment completion via `commandBus.execute('sales.quotes.convert_to_order', ...)`
-5. Store `quoteId`/`orderId` on transaction
-6. Implement quote cleanup for failed / cancelled / expired checkout transactions
-7. Add UMES widgets to sales order/quote detail pages
-
-### Phase B.3: Public Checkout Page
-1. Create cart view components (items table, totals section)
-2. Export default cart view components and stable props contracts for wrapper/replace/eject-style customization
-3. Extend public pay page to show cart view for `simple_checkout`
-4. Extend public API to return items and calculated totals
-5. Extend submit endpoint for `simple_checkout` flow
-
-### Phase B.4: Testing & Polish
-1. Integration tests for cart item CRUD
-2. Integration tests for checkout → quote → order flow
-3. Integration tests for totals calculation
-4. Integration tests proving GET preview does not create quotes
-5. Integration tests for duplicate submit idempotency and password/session inheritance
-6. Integration tests for mixed-currency rejection and gateway-supported-currency enforcement
-7. Integration tests for key cart-section replacement/extension paths
-8. Integration tests for inherited required terms/privacy consent flow on simple checkout
-9. Seed examples for simple checkout
-10. i18n translations for new strings
-11. Extend package README and framework/developer docs for Simple Checkout
+Phase A is untouched: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransaction` keep their behaviour, and the pay-link flow does not pass through `CheckoutSession`.
 
 ---
 
-## Integration Test Coverage (Phase B)
+## 15) Risks & Impact Review
 
-| Test ID | Scenario | API/UI Path |
-|---------|----------|-------------|
-| TC-CHKT-B01 | Create simple checkout link with items | `POST /api/checkout/links` + `POST items` |
-| TC-CHKT-B02 | Add/update/delete cart items | Cart item CRUD endpoints |
-| TC-CHKT-B03 | Reorder cart items | `PUT /api/checkout/links/:id/items/reorder` |
-| TC-CHKT-B04 | Public page shows items and totals | `GET /api/checkout/pay/:slug` |
-| TC-CHKT-B05 | Submit creates quote | `POST /submit` → verify quote created |
-| TC-CHKT-B06 | Payment completion creates order | Webhook → verify order created |
-| TC-CHKT-B07 | Transaction detail shows quote/order links | `GET /api/checkout/transactions/:id` |
-| TC-CHKT-B08 | Order detail shows checkout source badge | Navigate to order, verify badge |
-| TC-CHKT-B09 | Products group hidden for pay_link type | Create pay_link, verify no Products group |
-| TC-CHKT-B10 | Pricing group hidden for simple_checkout type | Create simple_checkout, verify no Pricing group |
-| TC-CHKT-B11 | GET preview does not create a quote | `GET /api/checkout/pay/:slug` then assert no new sales quote |
-| TC-CHKT-B12 | Duplicate submit with same idempotency key reuses quote/session | Repeat `POST /submit` |
-| TC-CHKT-B13 | Expired or failed checkout cancels cleanup quote | Expire transaction → verify quote cleanup |
-| TC-CHKT-B14 | Password-protected checkout requires verified session on submit/status/success | Public guarded flow |
-| TC-CHKT-B15 | Mixed-currency cart is rejected in admin APIs | `POST/PUT /api/checkout/links/:id/items` |
-| TC-CHKT-B16 | Submit rejects cart currency unsupported by selected gateway provider | `POST /api/checkout/pay/:slug/submit` |
-| TC-CHKT-B17 | Items/totals section wrapper or replacement can customize presentation without changing totals integrity | UMES component replacement test |
-| TC-CHKT-B18 | Simple checkout inherits required terms/privacy consent gating and stores acceptance proof | Public submit flow + transaction detail |
+| # | Risk | Severity | Failure scenario | Mitigation | Residual |
+|---|---|---|---|---|---|
+| R1 | Payment captured without an order | **Critical** | Payment succeeds at step 7; order creation already succeeded at 4 but the completion write fails; the buyer is charged and sees a failure. | Document is created **before** payment (step 4 precedes 6), so a successful payment always has a document to attach to; `recover-stuck-submits` reconciles against the gateway; compensation cancels the order on payment failure | Low |
+| R2 | Duplicate order from double submit | **Critical** | Double-tap or a retried request creates two orders and two charges. | Conditional `open → submitting` transition admits exactly one caller; `submit_idempotency_key` unique per session; a repeat returns the original result (§7.4); a concurrent-submit test is a merge gate | Low |
+| R3 | Leaked stock or credit reservation | **High** | The process dies between steps 2 and 4; stock and credit stay reserved against a session that will never complete. Invisible inventory and invisible credit exposure. | `recover-stuck-submits` every minute; reservation TTLs are independent backstops; `retry-failed-compensations` with escalation; `checkout.compensation.failed` raises an operational notification | Low |
+| R4 | Price changed between review and charge | **High** | A promotion expires during checkout; the buyer is charged more than the reviewed total. | `cart.lock()` forces a re-price and submit **aborts** on any change with `409 price_changed` before any side effect; the buyer re-confirms (§6) | Low |
+| R5 | Stale shipping rate | Medium | The buyer changes the address after selecting delivery; the quoted rate no longer applies and the merchant absorbs the difference. | An address change invalidates the quote and returns the buyer to `delivery` with the reason stated (§5.2); the rate snapshot carries `quotedAt` and is re-validated at submit | Low |
+| R6 | Cart stranded in `locked` | Medium | Submit crashes after locking; the buyer cannot edit their basket and sees a permanently broken cart. | Lock only spans submit; `cart`'s `release-stale-locks` job runs every 5 minutes; every compensation path unlocks; session expiry unlocks | Low |
+| R7 | Credit overshoot via concurrent checkouts | **High** | Two on-account checkouts for one customer each pass the precondition and jointly exceed the limit. | `reserveCredit` re-checks inside a serializable transaction (spec 1 R1); the precondition check is advisory and the reservation is authoritative | Low |
+| R8 | Approval bypassed by a price change | Medium | A cart approved at 150 000 re-prices to 180 000 after approval and is submitted against the stale approval. | On resume, the re-priced total is re-checked against the approved amount; a higher total re-requests approval (§8.2) | Low |
+| R9 | Compensation failure swallowed | **High** | A release call fails and is logged but not surfaced; the leak persists silently. | Never swallowed: a `failure` event, an operational notification, a retry job, escalation after 5 attempts (§7.3) | Low |
+| R10 | Rate-quote API abuse | Medium | Each `delivery-options` call hits a carrier API; scripted calls incur cost and may trip carrier rate limits. | 30/min per session; quotes cached 5 min per address+cart hash; carrier failures degrade to configured flat rates rather than blocking checkout | Low |
 
 ---
 
-## Risks & Impact Review
+## 16) Integration Coverage
 
-#### Sales Module Coupling
+**Submit correctness (Phase 3 gate):**
+- Happy-path B2C: order created, stock committed, payment captured, cart converted
+- Happy-path B2B on account: order created, credit reserved and standing, no gateway call
+- Quote outcome: quote created, no payment, no stock commitment
+- Concurrent double submit creates exactly one order (R2)
+- Repeated `Idempotency-Key` after success returns the original `sales_order_id`
+- Repeat while in flight returns `409 submit_in_progress`
+- Retry after failure starts a fresh attempt with fresh reservation keys
 
-- **Scenario**: Sales module changes its quote/order creation API or calculation service signature, breaking the checkout integration.
-- **Severity**: Medium
-- **Affected area**: Simple checkout quote/order creation
-- **Mitigation**: Checkout uses existing sales command contracts plus `salesCalculationService`, which is already registered in DI. Integration tests verify the end-to-end flow.
-- **Residual risk**: Low — DI indirection + integration tests catch regressions.
+**Compensation:**
+- Injected failure at each of steps 2, 3, 4, 6 and 7 leaves no reservation, no document and an unlocked cart
+- A failing compensation raises the notification and is retried (R9)
+- A process killed mid-submit is reconciled by `recover-stuck-submits` (R3)
 
-#### Product Price Drift
+**Price and rate integrity:**
+- A promotion expiring mid-checkout aborts submit with `409 price_changed` and no side effect (R4)
+- An address change after delivery selection invalidates the quote and returns to `delivery` (R5)
+- A rate older than its validity is re-quoted at submit
 
-- **Scenario**: A catalog product's price changes after it was added to a checkout link. Customer pays the old price.
-- **Severity**: Medium
-- **Affected area**: Pricing accuracy
-- **Mitigation**: `CheckoutCartItem` stores a **snapshot** of the price at link creation time (`unitPrice` column). The price used for checkout is always from the cart item, not re-fetched from the catalog. This is intentional — the merchant explicitly set the checkout price.
-- **Residual risk**: Merchants must manually update cart item prices if catalog prices change. This is the expected behavior (same as Stripe Checkout).
+**B2B:**
+- Over-threshold session blocks submit and offers approval
+- Approval, re-price upward, re-approval required (R8)
+- Credit refused blocks submit and offers prepayment or a quote
+- N parallel on-account submits respect the limit exactly (R7)
+- PO number required by group terms blocks submit when absent, and reaches the document
+- Below `min_order_value` blocked at precondition
 
-#### Quote/Order Orphaning
+**Cart interaction:**
+- Cart locked only during submit; mutation while locked returns `423` with the session id
+- Every failure path unlocks; the stale-lock job unlocks a crashed one (R6)
+- Cart marked `converted` only on success
 
-- **Scenario**: Checkout creates a quote but the customer abandons payment. The quote remains in the system without an associated order.
-- **Severity**: Low
-- **Affected area**: Data cleanliness in sales module
-- **Mitigation**: The `transaction-expiry` worker (Phase A) handles expiration. On transaction expiry for `simple_checkout` type, the associated quote is cancelled (via sales command). Orphaned quotes are identifiable by `metadata.sourceModule = 'checkout'` and `status = 'cancelled'`.
-- **Residual risk**: Brief window where a pending quote exists. Acceptable — same behavior as abandoned shopping carts in e-commerce.
+**Entry modes:**
+- Phase A pay link is unaffected: no session, no cart, existing path end to end
+- A simple checkout link seeds a cart from the template; a template line without `unit_price_override` prices at the buyer's own rate
+- `is_quantity_editable = false` rejects a quantity change
+- A storefront session over an existing cart token
 
-#### Quote Spam / GET Side Effects
-
-- **Scenario**: Refreshing or bot-crawling a public checkout URL creates many quotes if quote creation happens during page load.
-- **Severity**: High
-- **Affected area**: Sales data quality, abuse resistance
-- **Mitigation**: Phase B explicitly forbids quote creation on GET. Quotes are created only during authenticated submit flow with idempotency protection.
-- **Residual risk**: Low — abuse now requires repeated POSTs and is constrained by rate limiting + idempotency.
-
-#### Totals Calculation Consistency
-
-- **Scenario**: The totals shown on the public checkout page differ from the totals calculated at payment time due to race conditions or stale data.
-- **Severity**: High
-- **Affected area**: Customer trust, financial accuracy
-- **Mitigation**: Totals are always recalculated server-side at submit time using `salesCalculationService`. The displayed totals are for preview only. If the recalculated total differs (e.g., tax rule changed), the customer sees the updated total before payment is initiated.
-- **Residual risk**: None — server is authoritative for payment amounts.
-
----
-
-## Migration & Backward Compatibility
-
-Phase B remains additive to Phase A:
-
-- adds a new checkout-owned table: `checkout_cart_items`
-- adds nullable `quote_id` / `order_id` columns to `checkout_transactions`
-- extends existing checkout APIs with additive fields for `simple_checkout`
-- consumes existing sales command contracts plus `salesCalculationService` without changing their signatures
-- reuses the Phase A generic payment-gateway descriptor surface; introduces no further `payment_gateways` contract changes
-
-No existing checkout, sales, or payment gateway route is renamed or removed.
+**Security:** cross-tenant session/cart/link combinations rejected; addresses encrypted at rest; event payloads redacted; `on_account` refused without entitlement; rate limits enforced.
 
 ---
 
-## Final Compliance Report — 2026-03-19
+## 17) Implementation Plan
 
-### Compliance Matrix
+### Phase B.1 — Session and step machine
+`CheckoutSession`, `CheckoutSessionEvent`, token handling, step machine with configurable visibility, contact and address capture, optimistic locking, session expiry.
 
-| Rule Source | Rule | Status | Notes |
-|-------------|------|--------|-------|
-| root AGENTS.md | No direct ORM relationships between modules | Compliant | `quoteId`/`orderId` are FK IDs, no ORM relations |
-| root AGENTS.md | Filter by organization_id | Compliant | All queries tenant-scoped |
-| root AGENTS.md | Write operations via Command pattern | Compliant | Cart item commands with undo |
-| root AGENTS.md | Event IDs: module.entity.action | Compliant | checkout.cartItem.created, checkout.order.created |
-| core AGENTS.md | No direct ORM relationships between modules | Compliant | Catalog product refs via FK IDs |
-| sales AGENTS.md | Use salesCalculationService for math | Compliant | Resolved via DI |
-| BC contract | Database schema ADDITIVE-ONLY | Compliant | New table + new nullable columns only |
-| BC contract | Event IDs FROZEN | Compliant | New events only |
+**Gate:** the step machine's transition table is exhaustively tested; sessions expire and unlock cleanly.
 
-### Internal Consistency Check
+### Phase B.2 — Cart-backed links
+`CheckoutLinkCartTemplate`, template→cart seeding, `checkout.cartTemplate.*` commands, admin CrudForm group, currency and gateway-descriptor validation.
 
-| Check | Status | Notes |
-|-------|--------|-------|
-| Data models match API contracts | Pass | Cart items, extended transaction, extended public response |
-| Phase A entities unchanged | Pass | Only additive nullable columns on CheckoutTransaction |
-| Commands defined for all admin mutations | Pass | 4 undoable cart-item commands + extended non-undoable transaction lifecycle commands |
-| Risks cover sales integration points | Pass | Coupling, price drift, orphaning, totals consistency |
+**Gate:** a template line without an override prices per buyer; mixed-currency templates rejected.
 
-### Verdict
+### Phase B.3 — Delivery and payment
+Rate quoting via `shipping_carriers` with caching and degradation, method selection and snapshotting, payment-method resolution including `on_account` eligibility, intent creation over the Phase A surface.
 
-**Fully compliant** — Approved for implementation (after Phase A).
+**Gate:** stale-rate invalidation verified; carrier failure degrades rather than blocking.
+
+### Phase B.4 — Submit
+The full sequence, compensation, idempotency, concurrency guard, recovery and retry jobs, quote-vs-order branch.
+
+**Gate:** every submit-correctness and compensation test passes, including the killed-process case.
+
+### Phase B.5 — B2B
+Credit reservation, approval gating and resume, PO capture, `min_order_value`, on-account documents.
+
+**Gate:** the parallel on-account limit test passes; re-approval on price increase verified.
+
+### Phase B.6 — Hardening
+Rate limits, encryption, redaction, admin session viewer with the event trail, post-submit workflow, integration coverage.
 
 ---
 
-## Changelog
+## 18) Open Questions
 
-### 2026-03-19
-- Initial specification created as companion to Phase A (Pay Links)
-- Defined cart item entity and transaction extensions (additive-only)
-- Defined quote → order flow via existing sales commands + `salesCalculationService`
-- Defined UI extensions (Products group, cart view on pay page)
-- Defined implementation plan (4 sub-phases)
-- Expanded security and abuse-prevention coverage, including no-quote-on-GET and submit idempotency
-- Completed compliance review
+1. **Guest checkout for on-account** — assumed impossible: purchase on account requires an authenticated `CustomerUser` linked to a company. Confirm no tenant needs a magic-link variant.
+2. **Partial fulfilment at submit** — when only part of a cart is reservable, the current design fails the whole submit. Allowing a split (ship what is available, backorder the rest) is a real B2B expectation and needs its own design.
+3. **Saved payment methods** — repeat B2B buyers will want stored instruments. Belongs to `payment_gateways` plus spec 9, not here.
+4. **Multi-currency on account** — a credit account is per currency (spec 1 §15.3). A buyer checking out in a currency with no account is refused; whether that should fall back to prepayment automatically is a merchandising decision.
+
+---
+
+## 19) Final Compliance Report
+
+| Requirement | Status |
+|---|---|
+| No cross-module ORM relations | All references are FK ids; cart, availability, groups, shipping, payments and sales reached via DI or `commandBus` |
+| No reimplemented arithmetic | Totals come from the cart, which delegates to `salesCalculationService` (ADR-2) |
+| Tenant/organization scoping | Session, cart, link and store must agree; asserted per request and per test |
+| Optimistic locking | `version` on `CheckoutSession`; conditional `open → submitting` transition |
+| Encryption | Email, phone and both addresses encrypted; read via `findWithDecryption`; event payloads redacted |
+| Zod validation | All routes; `z.infer` types |
+| No `any` | State machine, session and payload contracts fully typed |
+| Mutation guards / commands | Admin template mutations undoable via the command bus; session transitions deliberately excluded |
+| i18n | Step labels, failure codes and validation messages translated |
+| Queue usage | All four jobs via the `queue` worker contract |
+| Backward compatibility | Phase A unchanged; `CheckoutTransaction` extended with nullable columns only; withdrawn v1 elements were never implemented, so no deprecation protocol applies |
+| Integration coverage | §16, shipping in the same change |
+
+---
+
+## 20) Changelog
+
+### 2026-08-14 — v2 (rescope)
+
+- Rescoped from "simple checkout for pay links" to **the unified checkout funnel for every channel**, per ADR-3. SPEC-029 §19's competing workflow-driven session is withdrawn in that document.
+- Withdrew `CheckoutCartItem` in favour of `CheckoutLinkCartTemplate` seeding a real `Cart` (§14). Never implemented, so no migration. Added `unit_price_override`, so a link sent to a wholesale buyer prices at their contract rate — impossible under v1's static item list.
+- Introduced `CheckoutSession` holding `cart_id` rather than lines, and `CheckoutSessionEvent` as a purpose-shaped, redacted audit trail.
+- **Decided the roadmap's open question on the step machine:** fixed state machine for the synchronous funnel, `workflows` for the B2B approval sub-flow and post-submit orchestration (§5). Grounded partly in [Durable Workflow User-Task Continuation](./2026-07-15-durable-workflow-user-task-continuation.md), which documents that `completeUserTask()` currently flushes `COMPLETED` before executing its transition — acceptable for a back-office approval, not for a payment step.
+- Specified the submit sequence with ordered, idempotent compensation, a conditional-transition concurrency guard and a crash-recovery job (§7, §12).
+- Added the cart lock protocol with a mandatory re-price and abort-on-change (§6), closing the undisclosed-price-increase risk.
+- Added B2B at submit: order-vs-quote branch, credit reservation held until settlement rather than released on completion, approval gating with re-approval on price increase, PO capture (§8).
+- Retained from v1 unchanged: the quote→order path via `commandBus`, currency rules for links, undoable admin mutations, UMES traceability widget, and the entire Phase A pay-link flow.
+
+### 2026-03-19 — v1
+
+- Initial Phase B specification: `CheckoutCartItem`, product/service selection from catalog or freeform, one-page checkout, quote creation on submit and order creation on payment, `salesCalculationService` integration, UMES extension points, four-phase plan. *(Cart ownership and the funnel shape superseded by v2; the sales integration approach carried forward.)*
