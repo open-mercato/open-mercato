@@ -136,6 +136,7 @@ const FIXED_ORACLE_RUNNER = 'writable-ast-oracles.mjs'
 const FIXED_ORACLE_RUNNER_OVERRIDES = new Map([
   ['oracle.planning.spec-first', 'writable-spec-oracles.mjs'],
   ['oracle.planning.spec-reuse', 'writable-spec-oracles.mjs'],
+  ['oracle.planning.spec-resume', 'writable-spec-oracles.mjs'],
 ])
 const TOOL_SERVER_PATH = fileURLToPath(new URL('./agent-harness-tool-server.mjs', import.meta.url))
 // The only built-in Claude Code tool the harness exposes. It carries no filesystem, shell,
@@ -1643,6 +1644,9 @@ function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewRefer
     '## Design-System Review', '## Harness-Owner Findings', '## Missing or Unverifiable Evidence',
     '## Recommended Next Actions',
   ]) if (!report.includes(heading)) errors.push(`judge report is missing ${heading}`)
+  if (!/^- Termination: (?:completed|provider-limit|provider-error|user-abort|unknown)\b/m.test(report)) {
+    errors.push('judge report is missing a valid - Termination: line')
+  }
   const expectedReviewer = reviewReferences.length ? 'om-backend-ui-design' : 'not-applicable'
   if (response?.designSystemReview?.reviewer !== expectedReviewer) errors.push(`designSystemReview reviewer must be ${expectedReviewer}`)
   for (const finding of response?.harnessOwnerFindings ?? []) {

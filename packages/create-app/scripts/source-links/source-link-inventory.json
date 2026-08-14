@@ -494,7 +494,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
@@ -526,7 +528,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
@@ -558,7 +562,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/commands/types.ts",
@@ -590,7 +596,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
@@ -622,7 +630,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
@@ -654,7 +664,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/data/engine.ts",
@@ -686,7 +698,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
@@ -718,7 +732,9 @@
       "moduleId": null,
       "capabilityIds": [],
       "integrationTestPaths": [],
-      "affectedCaseIds": [],
+      "affectedCaseIds": [
+        "OMH-232"
+      ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../node_modules/@open-mercato/shared/src/modules/events/factory.ts",
@@ -5828,7 +5844,8 @@
         "OMH-176",
         "OMH-184",
         "OMH-192",
-        "OMH-215"
+        "OMH-215",
+        "OMH-231"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -5896,7 +5913,8 @@
         "OMH-176",
         "OMH-184",
         "OMH-192",
-        "OMH-215"
+        "OMH-215",
+        "OMH-231"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -6636,7 +6654,10 @@
         "OMH-226",
         "OMH-227",
         "OMH-228",
-        "OMH-229"
+        "OMH-229",
+        "OMH-230",
+        "OMH-231",
+        "OMH-232"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -6887,7 +6908,10 @@
         "OMH-226",
         "OMH-227",
         "OMH-228",
-        "OMH-229"
+        "OMH-229",
+        "OMH-230",
+        "OMH-231",
+        "OMH-232"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

@@ -30,7 +30,7 @@ Route first; never probe unmatched context.
 
 ## Validation
 
-Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration/spec exit: `yarn test:integration:ephemeral`. Report failures; never migrate to validate.
+Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; spec-exit integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
 ## Three-Axis Context Assembler
 
@@ -86,7 +86,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `framework-context` | Exact installed contract still unknown | `.ai/guides/framework-contracts.md`, then bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-`framework-context`: resolve one named module/framework fact first. Use bounded source only for an unresolved exact contract, current behavior, authorization, dependents, or safest customization seam; never for “installed contracts” alone.
+`framework-context`: resolve one named fact first. Use bounded source only if the guide leaves an exact current contract, authorization, dependent, or customization seam unresolved; never for “installed contracts” alone.
 
 ### Axis 3 — SDLC and Delivery
 

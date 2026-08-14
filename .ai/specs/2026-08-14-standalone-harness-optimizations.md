@@ -189,7 +189,7 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 
 ### Phase 5 — Framework contract digest
 
-1. Author `agentic/shared/ai/guides/framework-contracts.md` (~6–8 KiB) covering the contracts listed in Architecture, each with its exact installed source path (`node_modules/@open-mercato/shared/src/...`) as the verification hop. _Test: create-app test asserting every named source path exists in the workspace packages (anti-rot)._
+1. Author `packages/create-app/agentic/guides/framework-contracts.md` (~6–8 KiB) covering the contracts listed in Architecture, each with its exact installed source path (`node_modules/@open-mercato/shared/src/...`) as the verification hop. _Test: create-app test asserting every named source path exists in the workspace packages (anti-rot)._
 2. Emitted `AGENTS.md`: point the Axis-2 `framework-context` row at the guide before the bounded resolver; stay within `STANDALONE_ROOT_TARGET_BYTES`. _Test: byte-budget test + harness routing cases for shared-lib contract questions (e.g. "does makeCrudRoute double-emit with command actions?") resolving to the guide, not `node_modules` reads._
 3. Knowledge-governance run (new knowledge owner + source-link inventory rows + case updates). _Test: `harness:validate-knowledge-change` + `yarn harness:validate --all`._
 
@@ -206,7 +206,7 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 | `packages/create-app/agentic/shared/ai/skills/om-auto-implement-spec/SKILL.md` | Modify | Inherit resume/ledger contract in override notes |
 | `packages/create-app/agentic/shared/ai/skills/om-share-this-session/**` | Modify | Stop-cause extraction + templates |
 | `packages/create-app/agentic/shared/ai/skills/om-judge-agent-session/references/report-template.md` | Modify | Termination classification |
-| `packages/create-app/agentic/shared/ai/guides/framework-contracts.md` | Create | Shared-lib contract digest |
+| `packages/create-app/agentic/guides/framework-contracts.md` | Create | Shared-lib contract digest (authoring source emitted to `.ai/guides/`) |
 | `packages/create-app/agentic/shared/ai/skills/om-prepare-test-env/SKILL.md` | Modify | Cross-reference: consumed by the `om-implement-spec` exit gate |
 | `packages/create-app/src/lib/ds-check-rule-parity.test.ts` | Create | Assert `ds-check.mjs` rule table matches the oracle's `uiPolicyFailures` patterns |
 | `packages/create-app/template/AGENTS.md` | Modify | Validation line, digest routing row (byte-budget-gated) |
@@ -260,6 +260,7 @@ Verdict: `Ready for implementation` (autonomous defaults surfaced for review on 
 |---|---|
 | 2026-08-14 | Initial draft from #5266 session post-mortem; overlap audit vs implemented harness specs; autonomous defaults A1–A6 applied |
 | 2026-08-14 | Adversarial fresh-context review applied: SPLIT recommendation recorded in A1 (kept as one per explicit user instruction; phases remain split-ready); removed the Phase 2↔5 `AGENTS.md` byte-budget dependency (Phase 5 is now sole owner); `ds:check` no longer modifies `writable-ast-oracles.mjs` (rule-parity test instead); enforcement two-tier strategy stated honestly; integration-gate claim softened to explicit-and-reviewable; File Manifest completed |
+| 2026-08-14 | Implementation #5295: corrected the framework-guide authoring path to the generator-owned `agentic/guides/` surface; added a justified stale-checked DS baseline for the existing template; completed the resilience, stop-cause, ephemeral-integration, contract-digest, and 232-case/49-writable harness changes. |
 
 ### Review — 2026-08-14
 - **Reviewer**: Agent (fresh-context adversarial subagent, spec file only)

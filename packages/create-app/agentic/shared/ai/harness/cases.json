@@ -390,10 +390,10 @@
         "AGENTS.md",
         ".ai/skills/om-implement-spec/SKILL.md",
         ".ai/skills/om-implement-spec/references/spec-resolution.md",
-      ".ai/skills/om-implement-spec/references/phases-and-gates.md",
-      ".ai/skills/om-implement-spec/references/planning-and-progress.md",
-      ".ai/skills/om-implement-spec/references/resume.md",
-      ".ai/skills/om-implement-spec/references/report-templates.md"
+        ".ai/skills/om-implement-spec/references/phases-and-gates.md",
+        ".ai/skills/om-implement-spec/references/planning-and-progress.md",
+        ".ai/skills/om-implement-spec/references/resume.md",
+        ".ai/skills/om-implement-spec/references/report-templates.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md"
@@ -409,11 +409,11 @@
       "interactive-confirmation",
       "working-phases",
       "smallest-validation",
-    "implementation-progress",
-    "slice-ledger-write",
-    "in-flight-ledger",
-    "atomic-edit-sequence",
-    "stable-implementation-report",
+      "implementation-progress",
+      "slice-ledger-write",
+      "in-flight-ledger",
+      "atomic-edit-sequence",
+      "stable-implementation-report",
       "spec-reference-marker"
     ],
     "forbiddenPatterns": [
@@ -14878,10 +14878,10 @@
         "AGENTS.md",
         ".ai/skills/om-implement-spec/SKILL.md",
         ".ai/skills/om-implement-spec/references/spec-resolution.md",
-      ".ai/skills/om-implement-spec/references/phases-and-gates.md",
-      ".ai/skills/om-implement-spec/references/planning-and-progress.md",
-      ".ai/skills/om-implement-spec/references/resume.md",
-      ".ai/skills/om-implement-spec/references/report-templates.md"
+        ".ai/skills/om-implement-spec/references/phases-and-gates.md",
+        ".ai/skills/om-implement-spec/references/planning-and-progress.md",
+        ".ai/skills/om-implement-spec/references/resume.md",
+        ".ai/skills/om-implement-spec/references/report-templates.md"
       ],
       "forbidden": [
         ".env*",
@@ -14896,11 +14896,11 @@
       "smallest-validation",
       "selected-phase-boundary",
       "preserve-spec-contracts",
-    "implementation-progress",
-    "slice-ledger-write",
-    "in-flight-ledger",
-    "atomic-edit-sequence",
-    "stable-implementation-report",
+      "implementation-progress",
+      "slice-ledger-write",
+      "in-flight-ledger",
+      "atomic-edit-sequence",
+      "stable-implementation-report",
       "spec-reference-marker"
     ],
     "forbiddenPatterns": [
@@ -20853,5 +20853,102 @@
       "OMH-194",
       "OMH-202"
     ]
+  },
+  {
+    "id": "OMH-230",
+    "title": "Resume the first unticked slice of an interrupted specification",
+    "family": "architecture",
+    "mode": "spec",
+    "evaluationKind": "implementation",
+    "risk": "medium",
+    "prompt": "Resume the interrupted implementation described by .ai/specs/2026-08-10-interrupted-export-format.md. Begin with the focused TypeScript check named by the spec, reconcile the implementation tree against the canonical ledger, and preserve the already verified first slice without re-executing it. Resume from the first unticked slice: repair the paired export contract and formatter atomically so no intermediate invalid state is left behind, then update the same ledger with exact verification evidence. Use an IN FLIGHT marker while the slice is incomplete and clear it only after the slice gate passes. Do not create a second plan or spec and do not rewrite the preserved artifact.",
+    "tags": ["spec", "resume", "planning-proof", "writable"],
+    "owner": { "kind": "skill", "path": ".ai/skills/om-implement-spec/references/resume.md", "ruleIds": ["BC-01", "BC-03"] },
+    "expectedRouter": { "required": ["spec-pr"], "allowedExtra": ["module-data", "debugging", "testing"] },
+    "requiredSkills": ["om-implement-spec"],
+    "context": {
+      "required": ["AGENTS.md", ".ai/guides/spec-delivery.md", ".ai/skills/om-implement-spec/SKILL.md", ".ai/skills/om-implement-spec/references/resume.md", ".ai/skills/om-implement-spec/references/planning-and-progress.md"],
+      "allowedExtra": [".ai/skills/om-implement-spec/references/phases-and-gates.md"],
+      "forbidden": [".env*", ".git/**", ".mercato/generated/**"]
+    },
+    "decisionVocabulary": ["focused-typecheck-first", "ledger-tree-reconciliation", "resume-first-unticked-slice", "never-reexecute-ticked", "never-trust-unticked", "in-flight-ledger", "atomic-edit-sequence", "restart-from-first-slice", "trust-unticked-ledger"],
+    "requiredDecisions": ["focused-typecheck-first", "ledger-tree-reconciliation", "resume-first-unticked-slice", "never-reexecute-ticked", "never-trust-unticked", "in-flight-ledger", "atomic-edit-sequence"],
+    "forbiddenPatterns": ["(?:tenant|organization).{0,30}(?:unscoped|scope optional)", "node_modules.{0,40}(?:write|edit|patch)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden", "writable.allowed-paths", "oracle.artifacts", "oracle.planning.spec-resume"],
+    "fixture": { "scaffold": "fresh-standalone", "setup": ["fixture:spec-resume-half-done"] },
+    "allowedWrites": [".ai/specs/2026-08-10-interrupted-export-format.md", "src/modules/resume_demo/lib/export-contract.ts", "src/modules/resume_demo/lib/format-export.ts"],
+    "oracle": {
+      "validatorIds": ["writable.allowed-paths", "oracle.artifacts", "oracle.planning.spec-resume"],
+      "expectedArtifacts": [".ai/specs/2026-08-10-interrupted-export-format.md", "src/modules/resume_demo/lib/export-contract.ts", "src/modules/resume_demo/lib/format-export.ts"]
+    },
+    "timeoutMs": 600000,
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 131072,
+    "relatedCases": ["OMH-006", "OMH-168", "OMH-223"],
+    "source": { "paths": [".ai/specs/2026-08-14-standalone-harness-optimizations.md"] }
+  },
+  {
+    "id": "OMH-231",
+    "title": "Hold a final specification phase on the ephemeral integration exit gate",
+    "family": "architecture",
+    "mode": "spec",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "The final implementation phase of a resolved feature spec includes required API integration coverage. Unit tests pass, but no disposable integration database is currently available. Decide the only valid phase-exit handling: when the integration tests must be written, which integration command may run them, what database posture is forbidden, what exact blocker evidence must be recorded when the command cannot run, and whether the phase may be marked complete. Do not start a plain or developer-database integration run.",
+    "tags": ["spec", "integration", "ephemeral", "exit-gate"],
+    "owner": { "kind": "skill", "path": ".ai/skills/om-implement-spec/references/phases-and-gates.md", "ruleIds": ["BC-01"] },
+    "expectedRouter": { "required": ["spec-pr", "testing"], "allowedExtra": ["debugging"] },
+    "requiredSkills": ["om-implement-spec", "om-prepare-test-env"],
+    "context": {
+      "required": ["AGENTS.md", ".ai/guides/spec-delivery.md", ".ai/guides/testing-debugging.md", ".ai/skills/om-implement-spec/SKILL.md", ".ai/skills/om-implement-spec/references/phases-and-gates.md", ".ai/skills/om-prepare-test-env/SKILL.md"],
+      "forbidden": [".env*", ".git/**"]
+    },
+    "decisionVocabulary": ["integration-tests-written-in-phase", "ephemeral-integration-only", "integration-blocked-reason", "phase-remains-in-progress", "plain-integration-command", "developer-database-fallback"],
+    "requiredDecisions": ["integration-tests-written-in-phase", "ephemeral-integration-only", "integration-blocked-reason", "phase-remains-in-progress"],
+    "forbiddenPatterns": ["yarn test:integration(?!:ephemeral)", "(?:dev|developer).{0,20}database.{0,20}(?:run|fallback|use)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 131072,
+    "relatedCases": ["OMH-006", "OMH-168", "OMH-230"],
+    "source": { "paths": [".ai/specs/2026-08-14-standalone-harness-optimizations.md"] }
+  },
+  {
+    "id": "OMH-232",
+    "title": "Resolve shared CRUD and command contracts through the installed digest",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Before changing an app-owned command-backed CRUD route, explain the installed contracts for CommandHandler execution and undo/redo hooks, command registration, command-owned CRUD persistence and side effects, makeCrudRoute ownership, typed event timing, command optimistic locking, defensive JSON parsing, and DataEngine scope/flush behavior. Select the emitted guide and its exact installed source links first. Use the bounded resolver only for one named fact that remains unresolved, and do not browse a package directory or modify node_modules.",
+    "tags": ["framework-context", "commands", "crud", "source-links"],
+    "owner": { "kind": "guide", "path": ".ai/guides/framework-contracts.md", "ruleIds": ["BC-01", "BC-03", "BC-05", "BC-07"] },
+    "expectedRouter": { "required": ["framework-context"], "allowedExtra": ["module-data", "architecture"] },
+    "requiredSkills": [],
+    "context": {
+      "required": ["AGENTS.md", ".ai/guides/framework-contracts.md"],
+      "allowedExtra": [".ai/skills/om-framework-context/SKILL.md"],
+      "forbidden": [".env*", ".git/**"],
+      "sourceReferenceIds": [
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+        "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/data/engine.ts"
+      ]
+    },
+    "decisionVocabulary": ["framework-contract-digest-first", "exact-installed-source-links", "bounded-resolver-only-if-unresolved", "installed-packages-read-only", "whole-package-discovery", "node-modules-edit"],
+    "requiredDecisions": ["framework-contract-digest-first", "exact-installed-source-links", "bounded-resolver-only-if-unresolved", "installed-packages-read-only"],
+    "forbiddenPatterns": ["node_modules.{0,40}(?:write|edit|patch)", "node_modules/@open-mercato/shared/(?:\\*\\*|src/?$)"],
+    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": ["OMH-003", "OMH-222", "OMH-231"],
+    "source": { "paths": [".ai/specs/2026-08-14-standalone-harness-optimizations.md"] }
   }
 ]

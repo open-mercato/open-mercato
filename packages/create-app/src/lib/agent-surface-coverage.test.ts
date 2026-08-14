@@ -200,7 +200,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 229-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 232-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -212,7 +212,7 @@ test('the 229-case catalog routes audited installed-module, runtime, and AI/prov
     frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 229)
+  assert.equal(cases.length, 232)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -365,6 +365,18 @@ test('the 229-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/eudr.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
+    'OMH-230': {
+      contexts: ['.ai/skills/om-implement-spec/references/resume.md', '.ai/skills/om-implement-spec/references/planning-and-progress.md'],
+      decisions: ['focused-typecheck-first', 'ledger-tree-reconciliation', 'resume-first-unticked-slice', 'in-flight-ledger', 'atomic-edit-sequence'],
+    },
+    'OMH-231': {
+      contexts: ['.ai/skills/om-implement-spec/references/phases-and-gates.md', '.ai/skills/om-prepare-test-env/SKILL.md'],
+      decisions: ['integration-tests-written-in-phase', 'ephemeral-integration-only', 'integration-blocked-reason', 'phase-remains-in-progress'],
+    },
+    'OMH-232': {
+      contexts: ['.ai/guides/framework-contracts.md'],
+      decisions: ['framework-contract-digest-first', 'exact-installed-source-links', 'bounded-resolver-only-if-unresolved', 'installed-packages-read-only'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -516,7 +528,7 @@ test('every published case count states the shipped catalog or the portability s
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
   const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
-  // "48 writable implementation/regression cases" and "229 live-routing cases" are checked too; a
+  // "49 writable implementation/regression cases" and "232 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
   const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([

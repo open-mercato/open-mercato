@@ -134,6 +134,16 @@ function stageApp(): string {
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
     ],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+    shared: [
+      'src/lib/commands/types.ts',
+      'src/lib/commands/registry.ts',
+      'src/lib/commands/runCrudCommandWrite.ts',
+      'src/lib/crud/factory.ts',
+      'src/modules/events/factory.ts',
+      'src/lib/crud/optimistic-lock-command.ts',
+      'src/lib/http/readJsonSafe.ts',
+      'src/lib/data/engine.ts',
+    ],
   })) {
     const sourcePackage = fileURLToPath(new URL(`../../../${packageName}/`, import.meta.url))
     const installedPackage = path.join(root, 'node_modules', '@open-mercato', packageName)
@@ -331,7 +341,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 48)
+  assert.equal(validators.catalog.writableCaseIds.length, 49)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -342,6 +352,7 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-193', 600_000],
     ['OMH-223', 600_000],
     ['OMH-224', 600_000],
+    ['OMH-230', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -645,12 +656,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-229', () => {
+test('deterministic evaluation enforces the case schema through OMH-232', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-229')
+    assert.equal(cases.at(-1)?.id, 'OMH-232')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -2163,16 +2174,18 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
     '.agents/skills/om-implement-spec/references/spec-resolution.md',
     '.agents/skills/om-implement-spec/references/phases-and-gates.md',
     '.agents/skills/om-implement-spec/references/planning-and-progress.md',
+    '.agents/skills/om-implement-spec/references/resume.md',
     '.agents/skills/om-implement-spec/references/report-templates.md'
   ],
   decisions: [
     'spec-resolution', 'phase-execution-plan', 'interactive-confirmation',
     'working-phases', 'smallest-validation', 'implementation-progress',
+    'slice-ledger-write', 'in-flight-ledger', 'atomic-edit-sequence',
     'stable-implementation-report', 'spec-reference-marker'
   ], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/report-templates.md'
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/resume.md .agents/skills/om-implement-spec/references/report-templates.md'
 } }))
 `)
   try {
@@ -2187,6 +2200,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
       '.ai/skills/om-implement-spec/references/spec-resolution.md',
       '.ai/skills/om-implement-spec/references/phases-and-gates.md',
       '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+      '.ai/skills/om-implement-spec/references/resume.md',
       '.ai/skills/om-implement-spec/references/report-templates.md',
     ])
   } finally {
@@ -2887,6 +2901,7 @@ const judgeReport = [
   '## Verdict',
   'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
   '## Evidence',
+  '- Termination: provider-limit — HTTP 429 interrupted later acceptance criteria; no found artifact defect is excused.',
   'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
   '## Artifact Findings',
   'No artifact findings.',
@@ -2916,6 +2931,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
     assert.equal(stored.judgeVerdict, 'pass')
+    assert.match(stored.judgeReport, /- Termination: provider-limit .*no found artifact defect is excused/)
     assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
     assert.deepEqual(stored.artifactFindings, [])
     assert.deepEqual(stored.harnessOwnerFindings, [])
@@ -3825,7 +3841,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 229)
+  assert.equal(cases.length, 232)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
@@ -4164,13 +4180,14 @@ test('live routing rejects a structurally invalid spec routing payload before sc
 })
 
 // ---------------------------------------------------------------------------------------
-// SPEC-P2 writable planning proofs (OMH-223, OMH-224) and their fixed Markdown oracle.
+// SPEC-P2 writable planning/resume proofs (OMH-223, OMH-224, OMH-230) and their fixed oracle.
 // ---------------------------------------------------------------------------------------
 
 const specOracle = path.join(sourceHarness, 'writable-spec-oracles.mjs')
 const emittedSpecRoot = path.join(sharedRoot, 'ai', 'specs')
 const newFeatureSpecPath = '.ai/specs/2026-08-04-warehouse-stock-transfers.md'
 const coveringSpecPath = '.ai/specs/2026-08-04-service-appointment-reminders.md'
+const resumeSpecPath = '.ai/specs/2026-08-10-interrupted-export-format.md'
 
 type SpecOracleReport = {
   status: number | null
@@ -4752,6 +4769,40 @@ for (const [label, breakIt, expectedCheck] of existingSpecNegatives) {
   })
 }
 
+test('the resume proof fails on the interrupted pair and passes after ledger-bound reconciliation', () => {
+  const root = stageSpecTarget('spec-resume-half-done')
+  try {
+    const before = runSpecOracle(root, 'OMH-230', 'before')
+    assert.equal(before.passed, false)
+    assert.ok(failedSpecCheckIds(before).includes('resume.contract.complete'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.formatter.complete'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.ledger.progress'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.ledger.completed-slice'))
+
+    fs.writeFileSync(
+      path.join(root, 'src/modules/resume_demo/lib/export-contract.ts'),
+      'export type ExportContract = { label: string }\n',
+    )
+    fs.writeFileSync(
+      path.join(root, 'src/modules/resume_demo/lib/format-export.ts'),
+      "import type { ExportContract } from './export-contract'\n\nexport function formatExport(label: string): ExportContract {\n  return { label: label.trim() }\n}\n",
+    )
+    const ledger = fs.readFileSync(path.join(root, resumeSpecPath), 'utf8')
+      .replace('Progress: 1/2', 'Progress: 2/2')
+      .replace('- [ ] Slice 2 — add `export-contract.ts` and repair `format-export.ts` as one atomic pair. verify:', '- [x] Slice 2 — add `export-contract.ts` and repair `format-export.ts` as one atomic pair. verified:')
+    fs.writeFileSync(path.join(root, resumeSpecPath), ledger)
+
+    const after = runSpecOracle(root, 'OMH-230', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+
+    fs.writeFileSync(path.join(root, 'src/modules/resume_demo/lib/preserved.ts'), "export const immutableResumeBaseline = 'rewritten'\n")
+    assert.ok(failedSpecCheckIds(runSpecOracle(root, 'OMH-230', 'after')).includes('resume.preserved.unchanged'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the spec oracle refuses an unknown case, an unknown phase, and a relative root', () => {
   const root = stageSpecTarget('planning-new-feature')
   try {
@@ -4771,7 +4822,7 @@ test('the spec oracle refuses an unknown case, an unknown phase, and a relative 
   }
 })
 
-test('the two planning proofs are the only writable cases graded by the spec oracle', () => {
+test('the planning and resume proofs are the only writable cases graded by the spec oracle', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as Array<{
     id: string
     evaluationKind: string
@@ -4784,24 +4835,31 @@ test('the two planning proofs are the only writable cases graded by the spec ora
   const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
     validators: Record<string, { runners?: string[] }>
   }
-  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse']
+  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse', 'oracle.planning.spec-resume']
   for (const validatorId of planningOracles) {
     assert.deepEqual(registry.validators[validatorId]?.runners, ['writable-spec-oracles.mjs'])
   }
   const declaring = cases.filter((record) => record.validators.some((entry) => planningOracles.includes(entry)))
-  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224'])
+  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224', 'OMH-230'])
   for (const record of declaring) {
     assert.equal(record.evaluationKind, 'implementation', `${record.id} must be a writable case`)
     // The planning gate itself is scored by the read-only routing contract; a writable proof
     // must never also declare it.
     assert.equal(record.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
     assert.ok(record.tags.includes('writable'))
-    for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
-      assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+    if (record.id !== 'OMH-230') {
+      for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
+        assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+      }
     }
   }
   assert.deepEqual(declaring[0].allowedWrites, ['.ai/specs/**'])
   assert.deepEqual(declaring[1].allowedWrites, [coveringSpecPath])
+  assert.deepEqual(declaring[2].allowedWrites, [
+    resumeSpecPath,
+    'src/modules/resume_demo/lib/export-contract.ts',
+    'src/modules/resume_demo/lib/format-export.ts',
+  ])
 })
 
 test('catalog validation binds each semantic oracle to its own fixed runner', () => {
