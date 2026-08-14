@@ -120,9 +120,9 @@ function readEnabledModuleIds(modulesPath: string): { parsed: boolean; ids: stri
 // (R5 — degraded, never empty).
 function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
   const available = existsSync(modulesSubdir)
-    ? readdirSync(modulesSubdir)
-        .filter((file) => file.endsWith('.md'))
-        .map((file) => file.replace(/\.md$/, ''))
+    ? readdirSync(modulesSubdir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(modulesSubdir, entry.name, 'index.md')))
+        .map((entry) => entry.name)
     : []
   if (available.length === 0) return []
   const parsed = readEnabledModuleIds(join(targetDir, 'src', 'modules.ts'))
@@ -157,7 +157,7 @@ export function renderModuleGuidesBlock(
   return [
     index,
     '',
-    'Load `.ai/guides/modules/<id>.md` only for a named or targeted installed module/host; never preload all module facts.',
+    'Load `.ai/guides/modules/<id>/index.md` only for a targeted installed module/host; never preload all module facts.',
   ].join('\n')
 }
 
@@ -439,14 +439,26 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
     ...targetPathsForTree(join(srcDir, 'scripts'), join(targetDir, 'scripts')),
   ])
   for (const file of readdirSync(GUIDES_DIR)) {
-    if (file.endsWith('.md') || file === 'module-facts.json' || file === 'module-facts.v2.json') {
+    if (
+      file.endsWith('.md')
+      || file === 'module-facts.json'
+      || file === 'module-facts.v2.json'
+      || file === 'reference-module-facts.json'
+    ) {
       paths.add(join(targetDir, '.ai', 'guides', file))
     }
   }
   for (const file of listFiles(join(GUIDES_DIR, 'upstream'))) {
     paths.add(join(targetDir, '.ai', 'guides', 'upstream', relative(join(GUIDES_DIR, 'upstream'), file)))
   }
-  for (const moduleId of selectedModules) paths.add(join(targetDir, '.ai', 'guides', 'modules', `${moduleId}.md`))
+  for (const moduleId of selectedModules) {
+    const sourceRoot = join(GUIDES_DIR, 'modules', moduleId)
+    const destinationRoot = join(targetDir, '.ai', 'guides', 'modules', moduleId)
+    for (const file of targetPathsForTree(sourceRoot, destinationRoot)) paths.add(file)
+  }
+  for (const file of listFiles(join(GUIDES_DIR, 'reference-modules'))) {
+    paths.add(join(targetDir, '.ai', 'guides', 'reference-modules', relative(join(GUIDES_DIR, 'reference-modules'), file)))
+  }
   if (selectedTools.includes('claude-code')) {
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
@@ -577,6 +589,12 @@ export function applyHarnessUpdate(
     const destinationPath = resolveManifestPath(targetRoot, previousEntry.path)
     if (!destinationPath || !existsSync(destinationPath)) continue
     assertManagedPath(targetRoot, destinationPath, { leaf: 'file' })
+    const isRetiredFlatModuleFact = !previousEntry.userEditable
+      && /^\.ai\/guides\/(?:modules|reference-modules)\/[^/]+\.md$/.test(previousEntry.path)
+    if (isRetiredFlatModuleFact) {
+      rmSync(destinationPath, { force: true })
+      continue
+    }
     let unchanged = false
     try {
       unchanged = hashFile(destinationPath) === previousEntry.sha256
@@ -620,7 +638,7 @@ function generateShared(config: AgenticConfig): void {
   copyTree(join(srcDir, 'scripts'), join(targetDir, 'scripts'), config)
 
   // Routed conceptual guides are copied wholesale (framework-wide). Per-module
-  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
+  // fact-sheets (.ai/guides/modules/<module>/) are filtered to the app's enabled
   // module set; the combined v1 and corrected v2 module-facts sidecars are copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
@@ -646,13 +664,19 @@ function generateShared(config: AgenticConfig): void {
       copyFileSync(moduleFactsV2Path, destPath)
     }
 
+    const referenceFactsPath = join(GUIDES_DIR, 'reference-module-facts.json')
+    if (existsSync(referenceFactsPath)) {
+      const destPath = join(guidesDestDir, 'reference-module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(referenceFactsPath, destPath)
+    }
+
     copyTree(join(GUIDES_DIR, 'upstream'), join(guidesDestDir, 'upstream'), config)
+    copyTree(join(GUIDES_DIR, 'reference-modules'), join(guidesDestDir, 'reference-modules'), config)
 
     const modulesSubdir = join(GUIDES_DIR, 'modules')
     for (const moduleId of selectedModules) {
-      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
-      ensureDir(destPath)
-      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
+      copyTree(join(modulesSubdir, moduleId), join(guidesDestDir, 'modules', moduleId), config)
     }
   }
 
