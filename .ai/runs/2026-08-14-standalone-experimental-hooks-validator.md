@@ -61,5 +61,5 @@ Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 
 ### Phase 3: Verification and delivery
 
-- [ ] 3.1 Run targeted package tests and the configured validation gate
+- [x] 3.1 Run targeted package tests and the configured validation gate — 24cc3e0d9
 - [ ] 3.2 Complete automated PR review/autofix and final PR handoff
