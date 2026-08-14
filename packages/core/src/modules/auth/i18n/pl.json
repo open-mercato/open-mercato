@@ -149,6 +149,7 @@
   "auth.session.refresh.errors.invalidToken": "Token odświeżania jest nieprawidłowy lub wygasł",
   "auth.signIn": "Zaloguj się",
   "auth.users.consents.empty": "Nie znaleziono zapisów zgód.",
+  "auth.users.consents.errors.tenantContextRequired": "Wymagany jest kontekst najemcy",
   "auth.users.consents.field.createdAt": "Utworzono",
   "auth.users.consents.field.grantedAt": "Udzielono",
   "auth.users.consents.field.integrity": "Integralność",

@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 127 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 130 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -142,6 +142,7 @@ rg -l '"<area>"|"<module>"|"<topic>"' .ai/lessons/*.md
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
 - [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app; topic:access-control,data-scoping,events
 - [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks; topic:events,testing,workers,hydration,component-overrides,timers
+- [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
 - [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
 - [Validate persisted-definition consumers before retiring legacy workflow rows](lessons/validate-persisted-definition-consumers-before-retiring.md) — area:integration,architecture,debugging; module:checkout,webhooks; topic:generated-files,database-migrations,webhooks
