@@ -56,8 +56,8 @@ Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 
 ### Phase 2: Documentation and regression coverage
 
-- [ ] 2.1 Document the environment opt-in and update the standalone harness spec
-- [ ] 2.2 Add focused default-disabled and opt-in regression tests across create-app and CLI setup
+- [x] 2.1 Document the environment opt-in and update the standalone harness spec — 24cc3e0d9
+- [x] 2.2 Add focused default-disabled and opt-in regression tests across create-app and CLI setup — 24cc3e0d9
 
 ### Phase 3: Verification and delivery
 
