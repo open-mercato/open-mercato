@@ -375,7 +375,7 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
 const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
   id: AUTH_ROLE_ACL_UPDATE_COMMAND_ID,
   resourceKind: 'auth.role_acl',
-  labelKey: 'auth.audit.acl.role_update',
+  labelKey: 'auth.audit.roleAcl.update',
   labelFallback: 'Change role permissions',
   resourceId: (input) => input.roleId,
   loadAcl: (em, input) =>
@@ -424,7 +424,7 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
 const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
   id: AUTH_USER_ACL_UPDATE_COMMAND_ID,
   resourceKind: 'auth.user_acl',
-  labelKey: 'auth.audit.acl.user_update',
+  labelKey: 'auth.audit.userAcl.update',
   labelFallback: 'Change user permissions',
   resourceId: (input) => input.userId,
   loadAcl: (em, input) =>

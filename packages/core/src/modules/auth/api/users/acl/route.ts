@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -24,12 +24,16 @@ import {
   type UserAclUpdateInput,
 } from '@open-mercato/core/modules/auth/commands/acl'
 
-const getSchema = z.object({ userId: z.string().uuid() })
+const getSchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid().optional(),
+})
 const putSchema = z.object({
   userId: z.string().uuid(),
   isSuperAdmin: z.boolean().optional(),
   features: z.array(z.string()).optional(),
   organizations: z.array(z.string()).nullable().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 export const metadata = {
@@ -52,11 +56,57 @@ const userAclUpdateResponseSchema = z.object({
 
 const userAclErrorSchema = z.object({ error: z.string() })
 
+type TenantResolution = { tenantId: string | null } | { error: NextResponse }
+
+/**
+ * The single tenant scope both handlers work in. GET and PUT MUST resolve it the
+ * same way: the admin user form PUTs the ACL panel's state on every save, so a
+ * GET that reads a narrower scope than the PUT writes hands the operator an
+ * empty form and turns the next name-only edit into a silent revocation, with no
+ * `updatedAt` to arm the optimistic lock against it.
+ *
+ * `user_acls.tenant_id` is NOT NULL while `users.tenant_id` is nullable, so a
+ * global account legitimately signs in with `auth.tenantId === null` and the
+ * scope has to come from the target user instead. That read is skipped whenever
+ * a tenant is already known: it decrypts, and running it under the actor's scope
+ * for a user in another tenant is the cross-tenant read `loadTarget` in
+ * `commands/acl.ts` deliberately avoids.
+ *
+ * An explicit `tenantId` (the ACL editor sends the one selected in the form)
+ * wins, mirroring the role ACL route — but only for a super admin or for the
+ * actor's own tenant, so it cannot widen anyone's reach.
+ */
+async function resolveAclTenantId(args: {
+  em: EntityManager
+  auth: NonNullable<AuthContext>
+  actorIsSuperAdmin: boolean
+  userId: string
+  requestedTenantId?: string
+}): Promise<TenantResolution> {
+  const authTenantId = args.auth.tenantId ?? null
+  if (args.requestedTenantId && args.requestedTenantId !== authTenantId && !args.actorIsSuperAdmin) {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  }
+  const known = args.requestedTenantId ?? authTenantId
+  if (known) return { tenantId: known }
+  const targetUser = await findOneWithDecryption(
+    args.em,
+    User,
+    { id: args.userId } as FilterQuery<User>,
+    {},
+    { tenantId: null, organizationId: args.auth.orgId ?? null },
+  )
+  return { tenantId: targetUser?.tenantId ? String(targetUser.tenantId) : null }
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
-  const parsed = getSchema.safeParse({ userId: url.searchParams.get('userId') })
+  const parsed = getSchema.safeParse({
+    userId: url.searchParams.get('userId'),
+    tenantId: url.searchParams.get('tenantId') || undefined,
+  })
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
@@ -64,13 +114,27 @@ export async function GET(req: Request) {
   const actorAcl = auth.sub
     ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
     : null
-  if (!actorAcl?.isSuperAdmin && auth.sub) {
+  const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
+
+  const resolution = await resolveAclTenantId({
+    em: em as EntityManager,
+    auth,
+    actorIsSuperAdmin,
+    userId: parsed.data.userId,
+    requestedTenantId: parsed.data.tenantId,
+  })
+  if ('error' in resolution) return resolution.error
+  // An unresolvable scope reads as "no override", which is what PUT then refuses
+  // to write (`Tenant required`) — so the pair still cannot destroy a row.
+  const tenantId = resolution.tenantId
+
+  if (!actorIsSuperAdmin && auth.sub) {
     try {
       await assertActorCanModifySuperAdminUserTarget({
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId: auth.tenantId ?? null,
+        tenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -79,7 +143,7 @@ export async function GET(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId: auth.tenantId ?? null,
+        tenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -87,7 +151,7 @@ export async function GET(req: Request) {
           container,
           auth,
           request: req,
-          tenantId: auth.tenantId ?? null,
+          tenantId,
         }),
       })
     } catch (err) {
@@ -95,7 +159,9 @@ export async function GET(req: Request) {
       throw err
     }
   }
-  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
+  const acl = tenantId
+    ? await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+    : null
   const response = acl
     ? {
         hasCustomAcl: true,
@@ -114,8 +180,8 @@ export async function GET(req: Request) {
     idField: 'id',
     resourceKind: 'auth.user_acl',
     organizationId: auth.orgId ?? null,
-    tenantId: auth.tenantId ?? null,
-    query: { userId: parsed.data.userId },
+    tenantId,
+    query: { userId: parsed.data.userId, tenantId },
     accessType: 'read:item',
   })
 
@@ -132,39 +198,31 @@ export async function PUT(req: Request) {
   const em = container.resolve('em') as any
   const rbacService = container.resolve('rbacService') as any
 
-  // A user ACL row is tenant-scoped (`user_acls.tenant_id` is NOT NULL), but the
-  // actor's tenant can legitimately be null — `users.tenant_id` is nullable, so a
-  // global account logs in without one. Resolve the actor's tenant first and fall
-  // back to the target user's, mirroring how the role ACL route derives its scope
-  // (`parsed.tenantId ?? roleTenantId ?? authTenantId`) before refusing.
-  //
-  // Without this the lookup ran with an undefined tenant predicate, which
-  // MikroORM drops: the update and clear paths then matched whichever row
-  // happened to exist, in any tenant, and the create path hit a NOT NULL
-  // violation.
-  // Only the tenant-less actor needs this read, so it is gated on that case:
-  // otherwise every PUT paid for a decrypting lookup whose result the `??`
-  // below discards, and an id from another tenant was decrypted under the
-  // actor's scope — the same cross-tenant read `loadTarget` in `commands/acl.ts`
-  // avoids. `auth:user` carries encrypted columns, so it still goes through the
-  // decryption helper even though only the plaintext tenant is needed here.
-  const targetUser = auth.tenantId
-    ? null
-    : await findOneWithDecryption(
-        em as EntityManager,
-        User,
-        { id: parsed.data.userId } as FilterQuery<User>,
-        {},
-        { tenantId: null, organizationId: auth.orgId ?? null },
-      )
-  const tenantId: string | null =
-    auth.tenantId ?? (targetUser?.tenantId ? String(targetUser.tenantId) : null)
-  if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
-
+  // The actor's own grants are evaluated in the actor's own scope — resolving
+  // them in the target tenant would ask whether a foreign tenant's ACL makes
+  // this caller a super admin.
   const actorAcl = auth.sub
     ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
     : null
   const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
+
+  // Resolved before the guards so authorization is decided in the same tenant
+  // the write lands in. `auth.tenantId` is `string | null` — never `undefined`,
+  // since every producer normalizes with `?? null` — so the pre-fix lookup ran
+  // `tenant_id IS NULL` against a NOT NULL column: it matched no row, leaving
+  // create/update to fail the NOT NULL constraint and clear to no-op silently.
+  // Nothing cross-tenant was ever matched; the fix turns a 500 into a working,
+  // correctly scoped write.
+  const resolution = await resolveAclTenantId({
+    em: em as EntityManager,
+    auth,
+    actorIsSuperAdmin,
+    userId: parsed.data.userId,
+    requestedTenantId: parsed.data.tenantId,
+  })
+  if ('error' in resolution) return resolution.error
+  const tenantId = resolution.tenantId
+  if (!tenantId) return NextResponse.json({ error: 'Tenant required' }, { status: 400 })
 
   if (!actorIsSuperAdmin && auth.sub) {
     try {
@@ -172,7 +230,7 @@ export async function PUT(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId: auth.tenantId ?? null,
+        tenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -181,7 +239,7 @@ export async function PUT(req: Request) {
         em: em as EntityManager,
         rbacService: rbacService as RbacService,
         actorUserId: auth.sub,
-        tenantId: auth.tenantId ?? null,
+        tenantId,
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.userId,
         actorIsSuperAdmin: false,
@@ -189,7 +247,7 @@ export async function PUT(req: Request) {
           container,
           auth,
           request: req,
-          tenantId: auth.tenantId ?? null,
+          tenantId,
         }),
       })
     } catch (err) {
@@ -228,7 +286,7 @@ export async function PUT(req: Request) {
       em: em as EntityManager,
       rbacService: rbacService as RbacService,
       actorUserId: auth.sub,
-      tenantId: auth.tenantId ?? null,
+      tenantId,
       organizationId: auth.orgId ?? null,
       isSuperAdmin: requestedIsSuperAdmin,
       features: requestedFeatures,
@@ -355,12 +413,13 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Fetch user ACL',
-      description: 'Returns custom ACL overrides for a user within the current tenant, if any.',
+      description: 'Returns custom ACL overrides for a user, scoped to the requested tenant when supplied and to the actor or target user tenant otherwise.',
       query: getSchema,
       responses: [
         { status: 200, description: 'User ACL entry', schema: userAclResponseSchema },
         { status: 400, description: 'Invalid user id', schema: userAclErrorSchema },
         { status: 401, description: 'Unauthorized', schema: userAclErrorSchema },
+        { status: 403, description: 'Insufficient privileges for the requested tenant scope', schema: userAclErrorSchema },
       ],
     },
     PUT: {

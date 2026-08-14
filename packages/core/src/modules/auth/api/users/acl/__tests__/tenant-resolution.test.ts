@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
-import { PUT } from '../route'
+import { GET, PUT } from '../route'
 
 const ACTOR_TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const TARGET_TENANT_ID = '123e4567-e89b-12d3-a456-426614174077'
@@ -58,31 +58,61 @@ jest.mock('@open-mercato/core/modules/auth/lib/grantChecks', () => ({
     Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [],
 }))
 
-function putRequest() {
+function putRequest(body: Record<string, unknown> = {}) {
   return new Request('http://localhost/api/auth/users/acl', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ userId: TARGET_USER_ID, features: ['catalog.view'] }),
+    body: JSON.stringify({ userId: TARGET_USER_ID, features: ['catalog.view'], ...body }),
   })
 }
 
-function wireEm(options: { targetUserTenantId: string | null; existingAcl?: unknown }) {
-  mockEm.findOne.mockImplementation(async (ctor: unknown) => {
+function getRequest(params: Record<string, string> = {}) {
+  const query = new URLSearchParams({ userId: TARGET_USER_ID, ...params })
+  return new Request(`http://localhost/api/auth/users/acl?${query.toString()}`)
+}
+
+type AclRow = { id: string; tenantId: string; isSuperAdmin: boolean; featuresJson: string[]; updatedAt: Date }
+
+function aclRow(tenantId: string): AclRow {
+  return {
+    id: 'acl-1',
+    tenantId,
+    isSuperAdmin: false,
+    featuresJson: ['catalog.view'],
+    updatedAt: new Date('2026-08-07T10:00:00.000Z'),
+  }
+}
+
+/**
+ * Honours the tenant predicate the way the column does. `user_acls.tenant_id` is
+ * NOT NULL, so a `null` predicate is `tenant_id IS NULL` and matches nothing —
+ * the distinction the earlier constructor-only stub could not express, which is
+ * why a suite this size never observed the GET/PUT scope split below.
+ */
+function wireEm(options: { targetUserTenantId: string | null; acls?: AclRow[] }) {
+  mockEm.findOne.mockImplementation(async (ctor: unknown, where: { tenantId?: string | null } | undefined) => {
     if (ctor === User) return { id: TARGET_USER_ID, tenantId: options.targetUserTenantId }
-    if (ctor === UserAcl) return options.existingAcl ?? null
+    if (ctor === UserAcl) {
+      const tenantId = where?.tenantId ?? null
+      if (!tenantId) return null
+      return (options.acls ?? []).find((acl) => acl.tenantId === tenantId) ?? null
+    }
     return null
   })
 }
 
 /**
  * `user_acls.tenant_id` is NOT NULL, but `users.tenant_id` is nullable, so a
- * global account logs in with `auth.tenantId === null`. The route previously ran
- * the ACL lookup with an undefined tenant predicate — MikroORM drops it, so the
- * update and clear paths matched whichever row existed in any tenant, and the
- * create path hit a NOT NULL violation.
+ * global account logs in with `auth.tenantId === null`. `AuthContext.tenantId` is
+ * `string | null` and never `undefined`, so the route previously ran the lookup
+ * as `tenant_id IS NULL` against that NOT NULL column: it matched no row, so the
+ * create/update path failed the constraint with a 500 and clear was a silent
+ * no-op. Nothing cross-tenant was ever matched.
  *
- * Scope now resolves actor-tenant first, then the target user's, mirroring the
- * role ACL route, and only refuses when neither exists.
+ * Scope now resolves an explicit tenant first, then the actor's, then the target
+ * user's, mirroring the role ACL route, and only refuses when none exists — and
+ * GET resolves it identically, because the admin form PUTs the ACL panel on
+ * every save and a narrower read would clear the override it never showed.
  */
 describe('user ACL tenant resolution', () => {
   beforeEach(() => {
@@ -164,6 +194,54 @@ describe('user ACL tenant resolution', () => {
     ]
     expect(options.ctx.selectedOrganizationId).toBe('org-actor')
     expect(options.ctx.organizationIds).toEqual(['org-actor'])
+  })
+
+  it('reads the override in the same tenant PUT writes it to, for a tenant-less actor', async () => {
+    // The regression this pins: GET resolving a narrower scope than PUT hands the
+    // admin form an empty ACL panel, and `edit/page.tsx` PUTs that panel on every
+    // save — including a name-only edit — which the route then applies as
+    // `clear: true`. `updatedAt: null` also leaves the optimistic lock unarmed,
+    // so the 409 guard cannot catch it either.
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: null, orgId: null })
+    wireEm({ targetUserTenantId: TARGET_TENANT_ID, acls: [aclRow(TARGET_TENANT_ID)] })
+
+    const res = await GET(getRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    // A real override must not read as absent...
+    expect(body.hasCustomAcl).toBe(true)
+    expect(body.features).toEqual(['catalog.view'])
+    // ...and the version has to reach the client, or the lock stays unarmed.
+    expect(body.updatedAt).toBe('2026-08-07T10:00:00.000Z')
+
+    const aclLookup = mockEm.findOne.mock.calls.find(([ctor]) => ctor === UserAcl)
+    expect(aclLookup?.[1]).toMatchObject({ tenantId: TARGET_TENANT_ID })
+  })
+
+  it('honours an explicit tenant for a super admin on both verbs', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: null, orgId: null })
+    wireEm({ targetUserTenantId: null, acls: [aclRow(TARGET_TENANT_ID)] })
+
+    const readRes = await GET(getRequest({ tenantId: TARGET_TENANT_ID }))
+    expect((await readRes.json()).hasCustomAcl).toBe(true)
+
+    const writeRes = await PUT(putRequest({ tenantId: TARGET_TENANT_ID }))
+    expect(writeRes.status).toBe(200)
+    const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [string, { input: { tenantId: string } }]
+    expect(options.input.tenantId).toBe(TARGET_TENANT_ID)
+  })
+
+  it('refuses an explicit foreign tenant for a non-super-admin', async () => {
+    // The parameter resolves scope; it must not widen reach.
+    mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false })
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'admin-1', tenantId: ACTOR_TENANT_ID, orgId: 'org-1' })
+    wireEm({ targetUserTenantId: TARGET_TENANT_ID, acls: [aclRow(TARGET_TENANT_ID)] })
+
+    const res = await PUT(putRequest({ tenantId: TARGET_TENANT_ID }))
+
+    expect(res.status).toBe(403)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('refuses only when neither the actor nor the target has a tenant', async () => {

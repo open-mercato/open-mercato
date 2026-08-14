@@ -91,7 +91,10 @@ test.describe('TC-AUTH-058: ACL changes are audited', () => {
 
       const entry = entries[0];
       expect(entry.commandId, 'entry should come from the role ACL command').toBe('auth.role-acl.update');
-      expect(entry.actionLabel, 'entry should carry a human-readable label').toBe('Change role permissions');
+      // The label is resolved through `resolveTranslations()`, so its text follows
+      // the server locale — asserting the English string would fail a QA box that
+      // defaults to any other language, for reasons unrelated to auditing.
+      expect(entry.actionLabel, 'entry should carry a human-readable label').toBeTruthy();
       expect(entry.resourceId).toBe(roleId);
       expect(entry.snapshotBefore?.features ?? [], 'a fresh role starts with no grants').not.toContain(GRANTED_FEATURE);
       expect(entry.snapshotAfter?.features ?? [], 'after-snapshot should hold the granted feature').toContain(
@@ -137,7 +140,7 @@ test.describe('TC-AUTH-058: ACL changes are audited', () => {
       });
       expect(afterGrant.length, 'user ACL grant should produce an action-log entry').toBeGreaterThan(0);
       expect(afterGrant[0].commandId).toBe('auth.user-acl.update');
-      expect(afterGrant[0].actionLabel).toBe('Change user permissions');
+      expect(afterGrant[0].actionLabel, 'locale-dependent, so only its presence is pinned').toBeTruthy();
       expect(afterGrant[0].snapshotAfter?.features ?? [], 'grant should appear in the after-snapshot').toContain(
         GRANTED_FEATURE,
       );
