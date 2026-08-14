@@ -137,6 +137,8 @@ here. Raising the limits needs `sudo sysctl`, which this run does not do unpromp
 
 ## Progress
 
+PR: #5292
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: npm provenance publishing
@@ -153,6 +155,7 @@ here. Raising the limits needs `sudo sysctl`, which this run does not do unpromp
 
 - [x] 3.1 Drive checkout-demo progression off the instance's server-side step — 09591b1ab
 
-### Phase 4: Validation
+### Phase 4: Validation and review
 
 - [x] 4.1 Run the full validation gate and record results — see the Validation results section
+- [x] 4.2 Authoritative review pass (`om-auto-review-pr --autofix`) — a9967bb41
