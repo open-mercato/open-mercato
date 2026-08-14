@@ -6,7 +6,7 @@
 - Adds an **SMTP (nodemailer) transport** to the system transactional email pipeline in `packages/shared/src/lib/email/`, alongside the existing hardcoded Resend path.
 - `sendEmail()` stays the single façade with its **signature unchanged** — all ~14 existing call sites (auth reset/invite, notifications, messages, checkout, sales quotes, customer_accounts, onboarding, enterprise security) keep working with zero edits.
 - Transport resolution, in priority order: (1) new optional per-call `transport?: 'resend' | 'smtp'` field on `SendEmailOptions`, (2) `EMAIL_STRATEGY` env (`resend` | `smtp`), (3) auto-detection — `RESEND_API_KEY` set → resend, else `SMTP_HOST` set → smtp, (4) neither configured → current behavior (throw `RESEND_API_KEY is not set`).
-- The SMTP path renders the React Email element to HTML + plaintext via `@react-email/render` and maps the existing base64 attachment shape to nodemailer's format. nodemailer is imported lazily so Resend-only deployments never load it.
+- The SMTP path renders the React Email element to HTML + plaintext via `@react-email/render` and maps the existing base64 attachment shape to nodemailer's format. Both provider SDKs are imported lazily inside their transports — Resend-only deployments never load nodemailer, and SMTP-only deployments never load the Resend SDK.
 - Motivation: downstream apps built on `@open-mercato/*` npm packages cannot use SMTP today (self-hosted mail, MailDev/Mailpit in dev, EU-hosted SMTP relays). An app-level shim cannot fix this because core packages import `@open-mercato/shared/lib/email/send` directly — the transport must live upstream.
 
 **Scope (v1):**
@@ -57,9 +57,13 @@ explicit `transport` option on the call
 
 Backward compatibility invariant: a deployment with only `RESEND_API_KEY` set behaves byte-identically to today; a deployment with nothing set fails with the same error as today. `EMAIL_STRATEGY` follows the repo's unprefixed `*_STRATEGY` convention (`CACHE_STRATEGY`, `QUEUE_STRATEGY`, `RATE_LIMIT_STRATEGY`).
 
+### Lazy provider SDK loading
+
+Each transport lazily imports its provider SDK inside the send path (`await import('nodemailer')` in the smtp transport, `await import('resend')` in the resend transport), so a deployment only ever loads the SDK of the transport it actually uses — and neither loads under disabled-delivery configurations. This only shifts *when* the module is loaded (first send instead of process start); the constructed client, request payloads, and error behavior are unchanged.
+
 ### SMTP transport behavior
 
-- Lazily `await import('nodemailer')` inside the send path so the module never loads under Resend-only or disabled-delivery configurations.
+- Lazy nodemailer import as described above.
 - Render the React element once per send: `render(react)` for HTML and `render(react, { plainText: true })` for the text alternative (deliverability win, free with `@react-email/render`).
 - Map attachments `{ filename, content (base64), contentType }` → nodemailer `{ filename, content, encoding: 'base64', contentType }`.
 - Create the transporter per call and `close()` it in `finally` — the same lifecycle as `channel-imap`'s `NodemailerClient`, with no shared mutable state and hot-reload safety.
@@ -74,7 +78,7 @@ packages/shared/src/lib/email/
 ├── config.ts               # existing from-address chain + NEW resolveEmailTransportName(), resolveSmtpConfig()
 └── transports/
     ├── types.ts            # ResolvedEmailMessage, EmailTransport, EMAIL_STRATEGIES / EmailStrategyName
-    ├── resend.ts           # current send.ts Resend body moved verbatim (per-call `new Resend`, reply_to, RESEND_SEND_FAILED)
+    ├── resend.ts           # current send.ts Resend body (per-call `new Resend`, reply_to, RESEND_SEND_FAILED), SDK imported lazily
     └── smtp.ts             # lazy nodemailer, @react-email/render html+text, attachment mapping, SMTP_SEND_FAILED
 ```
 
@@ -82,13 +86,13 @@ packages/shared/src/lib/email/
 |------|--------|
 | `packages/shared/src/lib/email/send.ts` | `SendEmailOptions` gains optional `transport?: 'resend' \| 'smtp'` (additive). Body keeps the disable-check and from-address throw, then dispatches on `resolveEmailTransportName(options.transport)`. |
 | `packages/shared/src/lib/email/config.ts` | Add `resolveEmailTransportName(explicit?)` (resolution chain above; one-time `createLogger('email')` warning on unknown `EMAIL_STRATEGY`) and zod-validated `resolveSmtpConfig()`. |
-| `packages/shared/src/lib/email/transports/resend.ts` | Extraction of the existing Resend code path, behavior-identical. |
+| `packages/shared/src/lib/email/transports/resend.ts` | Extraction of the existing Resend code path. The one deliberate delta: the static `import { Resend } from 'resend'` becomes a lazy `await import('resend')` so SMTP-only deployments never load the Resend SDK (review feedback on the fork PR); send behavior is otherwise identical. |
 | `packages/shared/src/lib/email/transports/smtp.ts` | New transport as described above. |
 | `packages/shared/package.json` | Add `nodemailer`, `@types/nodemailer`, `@react-email/render`. Version aligned with the monorepo's existing nodemailer pin (root `9.0.1` vs `channel-imap` `^9.0.3` — reconcile to one during implementation). If `@react-email/render` types do not resolve under shared's tsconfig, extend `packages/shared/src/types/react-email.d.ts` with a minimal typed `render` declaration (no `any`). |
 | `apps/mercato/.env.example` + `packages/create-app/template/.env.example` | Document `EMAIL_STRATEGY` + `SMTP_*` in the email provider block, identical comments in both (create-app Template Sync Checklist). |
 | `packages/shared/AGENTS.md` | Add an `email/` row to the Library Directory table (`sendEmail`, transport resolution, env vars). |
 
-The build for `@open-mercato/shared` must keep `nodemailer` external (it already externalizes node_modules deps such as `resend`); the lazy dynamic import additionally protects module-load time.
+The build for `@open-mercato/shared` must keep `nodemailer` and `resend` external (it already externalizes node_modules deps); the lazy dynamic imports additionally protect module-load time.
 
 ## Data Models
 
@@ -160,9 +164,10 @@ Error contract (thrown `Error.message` prefixes, log-consumable):
 | 2 | Unintended transport flip: an operator sets `SMTP_HOST` for an unrelated reason while relying on Resend | Medium | Deployments with partial env | Resend wins auto-detection whenever `RESEND_API_KEY` is present; explicit `EMAIL_STRATEGY` always available; `.env.example` documents the resolution order. | Low. |
 | 3 | React → HTML rendering differences vs Resend's server-side rendering (layout/entity edge cases) | Medium | SMTP deployments only | Both use the React Email ecosystem (`@react-email/render` is what Resend runs under the hood for react payloads); plaintext alternative generated alongside; manual MailDev verification step. | Low-medium — cosmetic only, scoped to smtp users. |
 | 4 | Credential leakage via logs | Medium | Operators | No SMTP config values are ever logged (AGENTS.md logger rule: never log credentials); errors carry only nodemailer's message. | Low. |
-| 5 | New dependency surface in `@open-mercato/shared` (`nodemailer`, `@react-email/render`) | Low | All consumers of shared | Lazy dynamic import keeps nodemailer out of Resend-only runtimes; both libraries already exist in the monorepo dependency graph (channel-imap, react-email tooling); versions reconciled with the existing root pin. | Low. |
+| 5 | New dependency surface in `@open-mercato/shared` (`nodemailer`, `@react-email/render`) | Low | All consumers of shared | Lazy dynamic imports keep each provider SDK out of runtimes that use the other transport; both libraries already exist in the monorepo dependency graph (channel-imap, react-email tooling); versions reconciled with the existing root pin. | Low. |
 | 6 | Per-call transporter creation is slow under bulk sends | Low | High-volume smtp deployments | Accepted for v1 (transactional volume is low; matches channel-imap lifecycle); pooling documented as an explicit follow-up (`SMTP_POOL`). | Low. |
 | 7 | SSRF via `SMTP_HOST` pointing at internal services | Low | Self-hosted operators | Out of scope by design: the value is operator-set env, equivalent in trust to `DATABASE_URL`/`REDIS_URL`. Revisit if per-tenant SMTP config is ever introduced (then reuse `channel-imap`'s `resolveSafeHostAddress`/`assertTransportAllowed`, hoisted into shared). | Accepted. |
+| 8 | Lazy `import('resend')` shifts a broken/missing-package failure from process start to first send | Low | Resend deployments | The package remains a regular declared dependency (install-time guarantee unchanged); the unit suite exercises the resend transport, so a broken module fails in CI, not in production. | Low. |
 
 Impact summary: no DB schema, no HTTP API, no ACL, no events, no generated files, no UI. One additive optional field on an exported type; two new error-string prefixes; three new deps in one package; documentation touches with the mandatory create-app template mirror.
 
@@ -176,4 +181,5 @@ Impact summary: no DB schema, no HTTP API, no ACL, no events, no generated files
 
 ## Changelog
 
+- **2026-08-14** — Review feedback (fork PR #88): both provider SDKs are lazily imported inside their transports — `resend` too, not just `nodemailer` — so each deployment loads only the SDK of the transport it uses.
 - **2026-08-14** — Spec created. Status: pending implementation.
