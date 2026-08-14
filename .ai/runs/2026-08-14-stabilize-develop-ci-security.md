@@ -101,6 +101,40 @@ are unchanged and stay strict.
   removes the specific overshoot race; it cannot prove the absence of every future timing issue, so the
   polling helper is given explicit, bounded timeouts that stay inside the spec's 20 s budget.
 
+## Validation results
+
+Local mode (no compose `app` container was running, so `yarn X` directly rather than
+`node scripts/docker-exec.mjs X`). Full `validation.commands` gate, in order:
+
+| Command | Result |
+|---------|--------|
+| `yarn build:packages` | ✅ pass |
+| `yarn generate` | ✅ pass (no generated-file drift — working tree stayed clean) |
+| `yarn build:packages` | ✅ pass |
+| `yarn i18n:check-sync` | ✅ pass |
+| `yarn i18n:check-usage` | ✅ pass |
+| `yarn typecheck` | ✅ pass |
+| `yarn test` | ⚠️ 22 packages green (`@open-mercato/core` alone: 1236 suites, 0 failures); red **only** on `packages/create-app/src/lib/template-dev-log-files.test.ts` |
+| `yarn test:scripts` | ⚠️ green except 3 monorepo dev-wrapper cases, same cause as above; **all 4 new guard tests pass** |
+| `yarn test:repo-wide-guards` | ✅ pass (also run because CI runs it) |
+| `yarn build:app` | ✅ pass |
+
+The 7 failing cases across `yarn test` and `yarn test:scripts` are all dev-server wrapper
+tests, and every one fails with the same self-describing assertion:
+
+```
+❌ Linux file-watch limits are too low for Turbopack.
+  fs.inotify.max_user_watches: 253174 < 4194304
+  fs.inotify.max_user_instances: 128 < 4096
+  fs.inotify.max_queued_events: 16384 < 65536
+```
+
+This host reports `fs.inotify.max_user_instances = 128` against a required 4096, so the
+assertion is describing the machine, not the branch. The diff touches no file in
+`packages/create-app` and no dev-wrapper script, and CI's `test` job is green on the same
+tree — these fail identically on unmodified `develop` and are not treated as a gate failure
+here. Raising the limits needs `sudo sysctl`, which this run does not do unprompted.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -121,4 +155,4 @@ are unchanged and stay strict.
 
 ### Phase 4: Validation
 
-- [ ] 4.1 Run the full validation gate and record results
+- [x] 4.1 Run the full validation gate and record results — see the Validation results section
