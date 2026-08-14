@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import type { HookInput } from '../../agentic/claude-code/hooks/gate-evidence'
 import {
   isAttributableGateCommand,
   matchGates,
@@ -38,6 +39,12 @@ test('matchGates: matches a heap-flagged typecheck', () => {
 
 test('matchGates: returns nothing for an unrelated command', () => {
   assert.deepEqual(matchGates('git status --short'), [])
+})
+
+test('matchGates: does not count a gate merely named inside a quoted string', () => {
+  // Naming a gate is not running one — the distinction this hook exists to enforce.
+  assert.deepEqual(matchGates('git commit -m "run tsc --noEmit before pushing"'), [])
+  assert.deepEqual(matchGates("echo 'yarn typecheck'"), [])
 })
 
 const SESSION_START = 1_000
@@ -113,7 +120,7 @@ test('resolveExitCode: reports an unknown status as unknown, never as a pass', (
   // hook is meant to make impossible.
   assert.equal(resolveExitCode({}), null)
   assert.equal(resolveExitCode({ tool_response: {} }), null)
-  assert.equal(resolveExitCode({ tool_response: { exit_code: '0' } } as never), null)
+  assert.equal(resolveExitCode({ tool_response: { exit_code: '0' } } as unknown as HookInput), null)
 })
 
 test('nextSessionState: starts a fresh record when the session id changes', () => {

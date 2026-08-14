@@ -43,8 +43,12 @@ export type GateState = {
  * and a run reported through a compound command must not be invisible to the recorder.
  * Direct invocations that bypass the package script (`npx tsc --noEmit`) count too — the
  * point is whether the check happened, not which alias was typed.
+ *
+ * Quoted spans are removed before matching, so a gate merely *named* in a message —
+ * `git commit -m "run tsc --noEmit"` — is not mistaken for a gate that ran.
  */
 export function matchGates(command: string): GateName[] {
+  const executable = command.replace(/'[^']*'|"[^"]*"/g, ' ')
   const found = new Set<GateName>()
   const named: Array<[GateName, RegExp]> = [
     ['typecheck', /\b(?:yarn|npm run|pnpm)\s+typecheck\b|\btsc\b[^&|;]*--noEmit/],
@@ -54,7 +58,7 @@ export function matchGates(command: string): GateName[] {
     ['generate', /\b(?:yarn|npm run|pnpm)\s+generate\b|\bmercato\s+generate\b/],
   ]
   for (const [gate, pattern] of named) {
-    if (pattern.test(command)) found.add(gate)
+    if (pattern.test(executable)) found.add(gate)
   }
   return [...found]
 }
