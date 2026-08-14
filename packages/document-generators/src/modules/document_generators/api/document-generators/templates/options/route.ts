@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { NextResponse } from 'next/server'
 import { templateRegistry } from '../../../../lib/template-registry'
-import { filterTemplatesByAccess } from '../../../_shared/template-access'
+import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../../lib/template-access-policy'
 
 export const metadata = {
   path: '/document-generators/templates/options',
@@ -13,8 +13,15 @@ export const metadata = {
 export async function GET(request: Request) {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(request)
-  const templates = await filterTemplatesByAccess(templateRegistry.listTemplates(), { container, auth })
-  return NextResponse.json(templateRegistry.listTemplateFilterOptions(templates))
+  const templateAccessPolicy = new TemplateAccessPolicy({
+    featureAuthorizer: container.resolve<TemplateFeatureAuthorizer>('rbacService'),
+    auth,
+  })
+  const authorizedTemplates = await templateAccessPolicy.filterAuthorizedTemplates({
+    templates: templateRegistry.listTemplates(),
+  })
+
+  return NextResponse.json(templateRegistry.listTemplateFilterOptions(authorizedTemplates))
 }
 
 export const openApi: OpenApiRouteDoc = {

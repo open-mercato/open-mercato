@@ -6,13 +6,17 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse } from 'next/server'
 import { templateRegistry, UnknownTemplateError } from '../../../lib/template-registry'
+import {
+  TemplateAccessDeniedError,
+  TemplateAccessPolicy,
+  type TemplateFeatureAuthorizer,
+} from '../../../lib/template-access-policy'
 import type { RenderedDocument } from '../../../lib/interfaces'
 import { GenerationHistoryService } from '../../../services/generation-history-service'
 import { DocumentRenderer } from '../../../services/document-renderer'
 import { generateSchema } from '../../../data/validators'
 import { parseJsonBody, requireOrganization } from '../../_shared/http'
 import { documentResponse } from '../../_shared/document-response'
-import { requireTemplateAccess, TemplateAccessDeniedError } from '../../_shared/template-access'
 
 const logger = createLogger('document_generators').child({ component: 'generate-route' })
 const documentRenderer = new DocumentRenderer()
@@ -51,7 +55,16 @@ export async function POST(request: Request) {
 
   let rendered: RenderedDocument
   try {
-    await requireTemplateAccess(template_id, { container, auth })
+    const templateAccessPolicy = new TemplateAccessPolicy({
+      featureAuthorizer: container.resolve<TemplateFeatureAuthorizer>('rbacService'),
+      auth,
+    })
+    const templateMetadata = templateRegistry.getTemplateMetadata(template_id)
+    
+    await templateAccessPolicy.requireAccess({
+      requiredFeatures: templateMetadata.requiredFeatures,
+    })
+
     const template = await templateRegistry.load({ id: template_id, data }, { container, auth, locale, translate: t })
     const output = await documentRenderer.render(template.render)
     rendered = {
@@ -67,6 +80,7 @@ export async function POST(request: Request) {
         message: t('document_generators.errors.unknown_template', 'The selected document template is not available.'),
       }, { status: 400 })
     }
+
     if (err instanceof TemplateAccessDeniedError) {
       return NextResponse.json({
         error: 'forbidden',
@@ -74,7 +88,9 @@ export async function POST(request: Request) {
         requiredFeatures: err.requiredFeatures,
       }, { status: 403 })
     }
+
     logger.error('Document render failed', { err })
+    
     return NextResponse.json({
       error: 'render_failed',
       message: t('document_generators.errors.render_failed', 'Failed to render the document.'),
