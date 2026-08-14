@@ -34,6 +34,20 @@ Use this endpoint to build custom template pickers or to verify that your regist
 
 ---
 
+### `GET /api/document-generators/templates/options`
+
+Returns only the sorted, unique values available to template catalogue filters. Use this endpoint to populate filter controls without downloading the full template catalogue.
+
+```jsonc
+// Response
+{
+  "resourceKinds": ["sales.order", "sales.quote"],
+  "formats": ["md", "pdf"]
+}
+```
+
+---
+
 ### `POST /api/document-generators/preview`
 
 Renders the selected template for preview. PDF output is displayed in an iframe; Markdown output is displayed as text.

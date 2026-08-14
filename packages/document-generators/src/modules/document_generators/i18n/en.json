@@ -1,5 +1,6 @@
 {
   "document_generators.errors.invalid_json": "The request body must contain valid JSON.",
+  "document_generators.errors.invalid_query": "The template filters are invalid.",
   "document_generators.errors.invalid_request": "Select a template and provide valid document data.",
   "document_generators.errors.organization_required": "Select an organization to generate this document.",
   "document_generators.errors.render_failed": "Failed to render the document.",
@@ -36,6 +37,8 @@
   "document_generators.page.columns.resource": "Resource",
   "document_generators.page.description": "Registered document templates available in this application.",
   "document_generators.page.error": "Failed to load templates.",
+  "document_generators.page.filters.format": "Format",
+  "document_generators.page.filters.resourceKind": "Resource type",
   "document_generators.page.group": "Document generators",
   "document_generators.page.title": "Available templates",
   "document_generators.preview.error": "Failed to generate document.",

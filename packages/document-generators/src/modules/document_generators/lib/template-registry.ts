@@ -1,11 +1,14 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type {
   TemplateEntry,
   TemplateMeta,
 } from '@open-mercato/shared/modules/document-generators'
 import type {
   LoadedTemplate,
+  TemplateFilter,
+  TemplateFilterOptions,
   TemplateLoadContext,
   TemplateRegistry as TemplateRegistryInterface,
 } from './interfaces'
@@ -45,10 +48,37 @@ export class TemplateRegistry implements TemplateRegistryInterface {
   /**
    * Returns template metadata for use in the templates listing endpoint.
    */
-  listTemplates(): TemplateMeta[] {
+  listTemplates(filter?: TemplateFilter, translate?: TranslateFn): TemplateMeta[] {
     const toMeta = ({ id, label, description, module, resourceKind, documentType, format, tags, note }: TemplateEntry): TemplateMeta =>
-      ({ id, label, description, module, resourceKind, documentType, format, tags, note })
-    return Array.from(this.templates.values(), toMeta)
+      ({
+        id,
+        label: translate ? translate(label, label) : label,
+        description: translate ? translate(description, description) : description,
+        module,
+        resourceKind,
+        documentType,
+        format,
+        tags,
+        note,
+      })
+    return Array.from(this.templates.values())
+      .filter((template) => {
+        if (filter?.resourceKind && template.resourceKind !== filter.resourceKind) return false
+        if (filter?.documentType && template.documentType !== filter.documentType) return false
+        if (filter?.format && template.format !== filter.format) return false
+        if (filter?.tags?.length && !filter.tags.some((tag) => template.tags.includes(tag))) return false
+        return true
+      })
+      .map(toMeta)
+  }
+
+  listTemplateFilterOptions(): TemplateFilterOptions {
+    const templates = Array.from(this.templates.values())
+    const resourceKinds = Array.from(new Set(templates.map((template) => template.resourceKind)))
+      .sort((left, right) => left.localeCompare(right))
+    const formats = Array.from(new Set(templates.map((template) => template.format)))
+      .sort((left, right) => left.localeCompare(right))
+    return { resourceKinds, formats }
   }
 
   /**

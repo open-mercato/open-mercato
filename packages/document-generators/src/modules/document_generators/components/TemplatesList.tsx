@@ -1,10 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import type { TemplateFilter } from '../lib/interfaces'
+import { useDocumentTemplates } from '../hooks/templates/useDocumentTemplates'
 import { PreviewPanel } from './PreviewPanel'
 import { TemplatesListView } from './TemplatesListView'
 import { TemplatesListLoader } from './TemplatesListLoader'
@@ -14,33 +14,12 @@ interface TemplatesListProps {
   filter?: TemplateFilter
 }
 
-function applyFilter(templates: TemplateMeta[], filter?: TemplateFilter): TemplateMeta[] {
-  if (!filter) return templates
-  return templates.filter((t) => {
-    if (filter.resourceKind && t.resourceKind !== filter.resourceKind) return false
-    if (filter.documentType && t.documentType !== filter.documentType) return false
-    if (filter.format && t.format !== filter.format) return false
-    if (filter.tags && filter.tags.length > 0 && !filter.tags.some((tag) => t.tags.includes(tag))) return false
-    return true
-  })
-}
-
 export function TemplatesList({ record, filter }: TemplatesListProps) {
   const t = useT()
-  const [templates, setTemplates] = React.useState<TemplateMeta[]>([])
-  const [loading, setLoading] = React.useState(true)
   const [selected, setSelected] = React.useState<TemplateMeta | null>(null)
+  const { data: templates = [], isLoading } = useDocumentTemplates(filter)
 
-  React.useEffect(() => {
-    apiCall<TemplateMeta[]>('/api/document-generators/templates')
-      .then(({ result }) => {
-        setTemplates(applyFilter(Array.isArray(result) ? result : [], filter))
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading) return <TemplatesListLoader />
+  if (isLoading) return <TemplatesListLoader />
 
   return (
     <>

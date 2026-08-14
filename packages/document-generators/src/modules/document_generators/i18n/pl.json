@@ -1,5 +1,6 @@
 {
   "document_generators.errors.invalid_json": "Treść żądania musi zawierać prawidłowy JSON.",
+  "document_generators.errors.invalid_query": "Filtry szablonów są nieprawidłowe.",
   "document_generators.errors.invalid_request": "Wybierz szablon i podaj prawidłowe dane dokumentu.",
   "document_generators.errors.organization_required": "Wybierz organizację, aby wygenerować ten dokument.",
   "document_generators.errors.render_failed": "Nie udało się wyrenderować dokumentu.",
@@ -36,6 +37,8 @@
   "document_generators.page.columns.resource": "Zasób",
   "document_generators.page.description": "Zarejestrowane szablony dokumentów dostępne w tej aplikacji.",
   "document_generators.page.error": "Nie udało się załadować szablonów.",
+  "document_generators.page.filters.format": "Format",
+  "document_generators.page.filters.resourceKind": "Typ zasobu",
   "document_generators.page.group": "Generator dokumentów",
   "document_generators.page.title": "Dostępne szablony",
   "document_generators.preview.error": "Nie udało się wygenerować dokumentu.",

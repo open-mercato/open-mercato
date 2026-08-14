@@ -7,6 +7,7 @@ Use `@open-mercato/document-generators` as a domain-independent rendering engine
 - Keep domain services, templates, translations, widgets, and integration tests in their owning module.
 - Keep `BaseDocumentService` and neutral declaration contracts in `@open-mercato/shared/modules/document-generators`.
 - Keep renderers, registry, API/history, backend UI, generators, and `templates/shared/**` here.
+- Keep backend-page-only components under that page's route directory; promote them to module-level `components/` only when multiple features reuse them.
 - Colocate format-specific source/input types with their renderer; keep `TemplateRegistry` format-neutral.
 - Require explicit `format` and renderer-owned `mimeType`; adding a format means adding its renderer and dispatch-map entry.
 - Run `yarn generate` after changing discovery conventions or module `document-generators.ts` files.

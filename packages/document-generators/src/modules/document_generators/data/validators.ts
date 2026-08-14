@@ -27,6 +27,16 @@ export const previewSchema = z.object({
 
 export type PreviewInput = z.infer<typeof previewSchema>
 
+/** Query params for GET /api/document-generators/templates. */
+export const listTemplatesSchema = z.object({
+  resource_kind: z.string().trim().min(1).optional(),
+  document_type: z.string().trim().min(1).optional(),
+  format: z.string().trim().min(1).optional(),
+  tags: z.array(z.string().trim().min(1)).optional(),
+})
+
+export type ListTemplatesInput = z.infer<typeof listTemplatesSchema>
+
 /** Query params for GET /api/document-generators/documents (generation history). */
 export const listDocumentsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

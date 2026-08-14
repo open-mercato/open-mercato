@@ -1,9 +1,8 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import { NextResponse } from 'next/server'
 import { templateRegistry } from '../../../lib/template-registry'
+import { listTemplatesSchema } from '../../../data/validators'
 
 export const metadata = {
   path: '/document-generators/templates',
@@ -11,23 +10,40 @@ export const metadata = {
 }
 
 /**
- * Returns all available document templates.
+ * Returns all available document templates, optionally filtered by template metadata.
  *
  * @returns JSON array of TemplateMeta
  */
-export async function GET() {
+export async function GET(request: Request) {
   const { t } = await resolveTranslations()
-  return NextResponse.json(
-    templateRegistry.listTemplates().map((template) => localizeTemplateMeta(template, t)),
-  )
-}
+  const searchParams = new URL(request.url).searchParams
+  const resourceKind = searchParams.get('resource_kind') ?? undefined
+  const documentType = searchParams.get('document_type') ?? undefined
+  const format = searchParams.get('format') ?? undefined
+  const tags = searchParams.getAll('tags')
 
-function localizeTemplateMeta(template: TemplateMeta, translate: TranslateFn): TemplateMeta {
-  return {
-    ...template,
-    label: translate(template.label, template.label),
-    description: translate(template.description, template.description),
+  const queryResult = listTemplatesSchema.safeParse({
+    resource_kind: resourceKind,
+    document_type: documentType,
+    format,
+    tags,
+  })
+
+  if (!queryResult.success) {
+    return NextResponse.json({
+      error: 'invalid_query',
+      message: t('document_generators.errors.invalid_query', 'The template filters are invalid.'),
+    }, { status: 400 })
   }
+
+  const filter = {
+    resourceKind: queryResult.data.resource_kind,
+    documentType: queryResult.data.document_type,
+    format: queryResult.data.format,
+    tags: queryResult.data.tags,
+  }
+
+  return NextResponse.json(templateRegistry.listTemplates(filter, t))
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -36,6 +52,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'List available document templates',
       responses: [
         { status: 200, description: 'TemplateMeta[]' },
+        { status: 400, description: 'Invalid template metadata filter' },
         { status: 401, description: 'Unauthorized' },
       ],
     },

@@ -1,5 +1,6 @@
 {
   "document_generators.errors.invalid_json": "요청 본문에 유효한 JSON이 포함되어야 합니다.",
+  "document_generators.errors.invalid_query": "템플릿 필터가 올바르지 않습니다.",
   "document_generators.errors.invalid_request": "템플릿을 선택하고 유효한 문서 데이터를 입력하세요.",
   "document_generators.errors.organization_required": "이 문서를 생성하려면 조직을 선택하세요.",
   "document_generators.errors.render_failed": "문서를 렌더링하지 못했습니다.",
@@ -36,6 +37,8 @@
   "document_generators.page.columns.resource": "리소스",
   "document_generators.page.description": "이 애플리케이션에서 사용할 수 있는 등록된 문서 템플릿입니다.",
   "document_generators.page.error": "템플릿을 불러오지 못했습니다.",
+  "document_generators.page.filters.format": "형식",
+  "document_generators.page.filters.resourceKind": "리소스 유형",
   "document_generators.page.group": "문서 생성기",
   "document_generators.page.title": "사용 가능한 템플릿",
   "document_generators.preview.error": "문서를 생성하지 못했습니다.",

@@ -66,6 +66,52 @@ describe('templateRegistry.listTemplates', () => {
     expect(templateRegistry.listTemplates()).toEqual([])
   })
 
+  it('localizes listing metadata with the provided translator', () => {
+    templateRegistry.register([makeEntry({
+      label: 'document.label',
+      description: 'document.description',
+    })])
+
+    const templates = templateRegistry.listTemplates(undefined, translate)
+
+    expect(templates[0]).toMatchObject({
+      label: 'translated:document.label',
+      description: 'document.description',
+    })
+  })
+
+  it('filters templates by metadata without changing the unfiltered catalogue', () => {
+    templateRegistry.register([
+      makeEntry({ id: 'record-pdf', resourceKind: 'example.record', documentType: 'report', format: 'pdf', tags: ['record', 'detailed'] }),
+      makeEntry({ id: 'record-markdown', resourceKind: 'example.record', documentType: 'summary', format: 'md', tags: ['record'] }),
+      makeEntry({ id: 'report-pdf', resourceKind: 'example.report', documentType: 'report', format: 'pdf', tags: ['report'] }),
+    ])
+
+    expect(templateRegistry.listTemplates({ resourceKind: 'example.record' }).map((template) => template.id))
+      .toEqual(['record-pdf', 'record-markdown'])
+    expect(templateRegistry.listTemplates({ resourceKind: 'example.record', format: 'pdf' }).map((template) => template.id))
+      .toEqual(['record-pdf'])
+    expect(templateRegistry.listTemplates({ documentType: 'summary' }).map((template) => template.id))
+      .toEqual(['record-markdown'])
+    expect(templateRegistry.listTemplates({ tags: ['report', 'detailed'] }).map((template) => template.id))
+      .toEqual(['record-pdf', 'report-pdf'])
+    expect(templateRegistry.listTemplates().map((template) => template.id))
+      .toEqual(['record-pdf', 'record-markdown', 'report-pdf'])
+  })
+
+  it('returns sorted unique options without exposing template metadata', () => {
+    templateRegistry.register([
+      makeEntry({ id: 'report-pdf', resourceKind: 'example.report', format: 'pdf' }),
+      makeEntry({ id: 'record-markdown', resourceKind: 'example.record', format: 'md' }),
+      makeEntry({ id: 'record-pdf', resourceKind: 'example.record', format: 'pdf' }),
+    ])
+
+    expect(templateRegistry.listTemplateFilterOptions()).toEqual({
+      resourceKinds: ['example.record', 'example.report'],
+      formats: ['md', 'pdf'],
+    })
+  })
+
   it('rejects a duplicate ID without partially registering the batch', () => {
     templateRegistry.register([makeEntry({ id: 'existing' })])
 

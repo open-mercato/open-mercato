@@ -372,7 +372,13 @@ export class QuotesDocumentService extends BaseDocumentService {
 
 ### GET /api/document-generators/templates
 
-Returns all available templates.
+Returns all available templates. The global catalogue remains the default; callers may ask the backend to narrow the in-memory registry by template metadata.
+
+**Optional query parameters:**
+- `resource_kind` — exact resource kind, for example `sales.order`
+- `document_type` — exact document type, for example `invoice`
+- `format` — exact renderer format, for example `pdf` or `md`
+- `tags` — repeatable tag value; multiple values use any-match semantics
 
 **Response:**
 ```json
@@ -380,6 +386,24 @@ Returns all available templates.
   { "id": "sales-offer", "label": "Sales Offer", "description": "..." },
   { "id": "custom-invoice", "label": "Custom Invoice", "description": "..." }
 ]
+```
+
+**Errors:**
+- `400` — invalid empty filter value
+- `401` — unauthorized
+
+---
+
+### GET /api/document-generators/templates/options
+
+Returns the sorted, unique values used to construct the template catalogue filters without returning template metadata.
+
+**Response:**
+```json
+{
+  "resourceKinds": ["sales.order", "sales.quote"],
+  "formats": ["md", "pdf"]
+}
 ```
 
 **Errors:**

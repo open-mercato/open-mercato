@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from './helpers/api'
-import { listTemplates } from './helpers/fixtures'
+import { listTemplateFilterOptions, listTemplates } from './helpers/fixtures'
 
 /**
  * TC-PDF-001: PDF templates endpoint lists the Sales-provided templates
@@ -48,9 +48,28 @@ test.describe('TC-PDF-001: PDF templates listing', () => {
     })
   })
 
-  test('should reject an unauthenticated request', async ({ request }) => {
-    const response = await request.get('/api/document-generators/templates')
-    expect(response.ok()).toBe(false)
-    expect([401, 403]).toContain(response.status())
+  test('should reject unauthenticated catalogue requests', async ({ request }) => {
+    for (const path of [
+      '/api/document-generators/templates',
+      '/api/document-generators/templates/options',
+    ]) {
+      const response = await request.get(path)
+      expect(response.ok()).toBe(false)
+      expect([401, 403]).toContain(response.status())
+    }
+  })
+
+  test('should return template filter options without template metadata', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const options = await listTemplateFilterOptions(request, token)
+
+    expect(options.resourceKinds).toContain('sales.order')
+    expect(options.resourceKinds).toContain('sales.quote')
+    expect(options.formats).toContain('pdf')
+    expect(options.formats).toContain('md')
+    expect(options.resourceKinds).toEqual([...new Set(options.resourceKinds)].sort())
+    expect(options.formats).toEqual([...new Set(options.formats)].sort())
+    expect(options).not.toHaveProperty('items')
+    expect(options).not.toHaveProperty('templates')
   })
 })

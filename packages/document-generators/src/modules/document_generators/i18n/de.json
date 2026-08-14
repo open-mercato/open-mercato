@@ -1,5 +1,6 @@
 {
   "document_generators.errors.invalid_json": "Der Anfragetext muss gültiges JSON enthalten.",
+  "document_generators.errors.invalid_query": "Die Vorlagenfilter sind ungültig.",
   "document_generators.errors.invalid_request": "Wählen Sie eine Vorlage aus und geben Sie gültige Dokumentdaten an.",
   "document_generators.errors.organization_required": "Wählen Sie eine Organisation aus, um dieses Dokument zu erstellen.",
   "document_generators.errors.render_failed": "Das Dokument konnte nicht gerendert werden.",
@@ -36,6 +37,8 @@
   "document_generators.page.columns.resource": "Ressource",
   "document_generators.page.description": "Registrierte Dokumentvorlagen, die in dieser Anwendung verfügbar sind.",
   "document_generators.page.error": "Vorlagen konnten nicht geladen werden.",
+  "document_generators.page.filters.format": "Format",
+  "document_generators.page.filters.resourceKind": "Ressourcentyp",
   "document_generators.page.group": "Dokumentgenerator",
   "document_generators.page.title": "Verfügbare Vorlagen",
   "document_generators.preview.error": "Dokument konnte nicht generiert werden.",

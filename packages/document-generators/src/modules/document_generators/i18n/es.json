@@ -1,5 +1,6 @@
 {
   "document_generators.errors.invalid_json": "El cuerpo de la solicitud debe contener JSON válido.",
+  "document_generators.errors.invalid_query": "Los filtros de plantillas no son válidos.",
   "document_generators.errors.invalid_request": "Selecciona una plantilla y proporciona datos de documento válidos.",
   "document_generators.errors.organization_required": "Selecciona una organización para generar este documento.",
   "document_generators.errors.render_failed": "No se pudo renderizar el documento.",
@@ -36,6 +37,8 @@
   "document_generators.page.columns.resource": "Recurso",
   "document_generators.page.description": "Plantillas de documentos registradas disponibles en esta aplicación.",
   "document_generators.page.error": "No se pudieron cargar las plantillas.",
+  "document_generators.page.filters.format": "Formato",
+  "document_generators.page.filters.resourceKind": "Tipo de recurso",
   "document_generators.page.group": "Generador de documentos",
   "document_generators.page.title": "Plantillas disponibles",
   "document_generators.preview.error": "No se pudo generar el documento.",

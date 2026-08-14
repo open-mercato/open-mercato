@@ -1,4 +1,4 @@
-import { generateSchema, listDocumentsSchema } from '../validators'
+import { generateSchema, listDocumentsSchema, listTemplatesSchema } from '../validators'
 
 describe('generateSchema', () => {
   it('accepts template_id and data', () => {
@@ -55,5 +55,34 @@ describe('listDocumentsSchema', () => {
 
   it('rejects a non-positive page', () => {
     expect(listDocumentsSchema.safeParse({ page: '0' }).success).toBe(false)
+  })
+})
+
+describe('listTemplatesSchema', () => {
+  it('keeps optional template metadata filters', () => {
+    expect(listTemplatesSchema.parse({
+      resource_kind: 'example.record',
+      document_type: 'invoice',
+      format: 'pdf',
+      tags: ['customer', 'accounting'],
+    })).toEqual({
+      resource_kind: 'example.record',
+      document_type: 'invoice',
+      format: 'pdf',
+      tags: ['customer', 'accounting'],
+    })
+  })
+
+  it('allows an unfiltered catalogue request', () => {
+    expect(listTemplatesSchema.parse({})).toEqual({})
+  })
+
+  it('rejects empty filter values', () => {
+    expect(listTemplatesSchema.safeParse({
+      resource_kind: '',
+      document_type: '',
+      format: '',
+      tags: [''],
+    }).success).toBe(false)
   })
 })

@@ -15,6 +15,11 @@ export interface TemplateMeta {
   note?: string
 }
 
+export interface TemplateFilterOptions {
+  resourceKinds: string[]
+  formats: string[]
+}
+
 export async function listTemplates(
   request: APIRequestContext,
   token: string,
@@ -23,6 +28,18 @@ export async function listTemplates(
   if (!response.ok()) {
     const body = await response.text()
     throw new Error(`Failed to list templates: ${response.status()} ${body}`)
+  }
+  return response.json()
+}
+
+export async function listTemplateFilterOptions(
+  request: APIRequestContext,
+  token: string,
+): Promise<TemplateFilterOptions> {
+  const response = await apiRequest(request, 'GET', '/api/document-generators/templates/options', { token })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`Failed to list template filter options: ${response.status()} ${body}`)
   }
   return response.json()
 }

@@ -21,6 +21,11 @@ export interface TemplateFilter {
   tags?: string[]
 }
 
+export interface TemplateFilterOptions {
+  resourceKinds: string[]
+  formats: string[]
+}
+
 export interface DocumentRenderInput {
   format: string
   source: DocumentTemplateSource
@@ -54,6 +59,7 @@ export interface RenderedDocument {
 
 export interface TemplateRegistry {
   register(entries: TemplateEntry[]): void
-  listTemplates(): TemplateMeta[]
+  listTemplates(filter?: TemplateFilter, translate?: TranslateFn): TemplateMeta[]
+  listTemplateFilterOptions(): TemplateFilterOptions
   load(input: { id: string; data: unknown }, context: TemplateLoadContext): Promise<LoadedTemplate>
 }
