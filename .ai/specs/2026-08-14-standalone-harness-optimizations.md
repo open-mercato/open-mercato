@@ -8,7 +8,7 @@
 
 **Key Points:**
 - Harden the standalone-app AI harness (`packages/create-app/agentic/**` + `packages/create-app/template/**`) against the failure modes proven by the #5266 session: a quota-killed run left a non-compiling file, a progress ledger that misrepresented eight written files as "not started", a missing migration, one design-token violation, and a session-share report that could not name its own stop cause.
-- Two thrusts. **(a) Session resilience:** `om-implement-spec` gains a per-slice ledger-write invariant, a resume/reconciliation contract, and an atomic edit-sequence rule; `om-share-this-session`/`om-judge-agent-session` gain stop-cause extraction and classification. **(b) Deterministic template gates:** the emitted app's `typecheck` gets the same heap headroom its `build` already has, and the template ships `ds:check` and `i18n:check-hardcoded` scripts wired into the validation gate; the spec exit gate gains an ephemeral-database integration lane so skipping integration tests requires an explicit, reviewable `integration: blocked` ledger entry instead of passing silently.
+- Two thrusts. **(a) Session resilience:** `om-implement-spec` gains a per-slice ledger-write invariant, a resume/reconciliation contract, and an atomic edit-sequence rule; `om-share-this-session`/`om-judge-agent-session` gain stop-cause extraction and classification. **(b) Deterministic template gates:** the emitted app's `typecheck` gets the same heap headroom its `build` already has, and the template ships `ds:check` and `i18n:check-hardcoded` scripts wired into the validation gate.
 
 **Scope:**
 - Per-slice progress ledger invariant + resume reconciliation in `om-implement-spec` (repo-local emitted skill) and the `om-auto-implement-spec` override notes
@@ -16,7 +16,6 @@
 - `NODE_OPTIONS=--max-old-space-size=8192` on the template `typecheck` script, with guard-test parity
 - `ds:check` deterministic design-token checker shipped in `template/scripts/`, added to the standalone validation gate
 - `i18n:check-hardcoded` checker shipped in `template/scripts/` (advisory first)
-- Ephemeral integration lane (`test:integration:ephemeral` via `om-prepare-test-env`) wired into the final-phase exit gate of `om-implement-spec`
 - Stop-cause field in `om-share-this-session` bundles/issue template + termination classification in `om-judge-agent-session`
 - Framework-lib contract digest (`.ai/guides/framework-contracts.md`) closing the one context gap the implemented read-policy/facts specs do not own
 
@@ -28,7 +27,7 @@
 
 | # | Assumption | Default applied | Why |
 |---|---|---|---|
-| A1 | One spec vs split | One spec, five independently shippable phases — **explicit user instruction**; the adversarial scope review recommended SPLIT (boundaries = the five phases) and that recommendation is preserved here for the maintainer | The requester asked for a single spec covering the #5266 optimizations. Phases share no code-level dependencies (verified after the 2026-08-14 review fix: Phase 2 no longer touches `AGENTS.md`), so implementation can still ship one phase — or one split-out spec — per PR without renegotiation. |
+| A1 | One spec vs split | One spec, four independently shippable phases — **explicit user instruction**; the adversarial scope review recommended SPLIT (boundaries = the four phases) and that recommendation is preserved here for the maintainer | The requester asked for a single spec covering the #5266 optimizations. Phases share no code-level dependencies (verified after the 2026-08-14 review fix: Phase 2 no longer touches `AGENTS.md`), so implementation can still ship one phase — or one split-out spec — per PR without renegotiation. |
 | A2 | Where skill changes land | This repo (`packages/create-app/agentic/shared/ai/skills/**`) | `om-implement-spec`, `om-share-this-session`, `om-judge-agent-session`, `om-framework-context` are repo-local core-tier skills per `tiers.json`; only override notes touch the external `om-auto-implement-spec`. No `open-mercato/skills` PR is required. |
 | A3 | 429/provider-exhaustion scope | Harness-side mitigations only | The OpenCode runner's retry behavior is out of our control; the harness can only make interruption cheap (continuous ledger, atomic edit sequences, resume contract). |
 | A4 | `ds:check` / `i18n:check-hardcoded` severity | `ds:check` hard-fails; `i18n:check-hardcoded` advisory in this spec, promoted later | The DS rules checked are the same ones `writable-ast-oracles.mjs` already hard-fails in harness evals, so app code should meet the same bar; the i18n checker needs an allowlist workflow before it can gate (mirrors the monorepo's Phase-1-advisory precedent in `2026-05-26-missing-translations-audit-and-remediation.md`). |
@@ -37,7 +36,7 @@
 
 ## Overview
 
-The standalone harness is the AI context and skill set emitted into every `create-mercato-app` scaffold. Issue #5266 shared a complete, sanitized OpenCode + GLM-5.2 session implementing a two-phase library spec in such a scaffold. The session is the best full-length field evidence the harness has: one user turn, 115 assistant turns, Phase 1 delivered fully green, and then a hard stop on a provider quota error. The post-mortem (analysis comment on #5266) found the harness — not the model — left recoverable value on the table: the run's death was undetectable from its own report, its progress ledger was stale the moment it mattered, and three of the four residual code defects (DS token violation, hardcoded English server errors, missing integration tests) are mechanically detectable but nothing in the emitted app detects them.
+The standalone harness is the AI context and skill set emitted into every `create-mercato-app` scaffold. Issue #5266 shared a complete, sanitized OpenCode + GLM-5.2 session implementing a two-phase library spec in such a scaffold. The session is the best full-length field evidence the harness has: one user turn, 115 assistant turns, Phase 1 delivered fully green, and then a hard stop on a provider quota error. The post-mortem (analysis comment on #5266) found the harness — not the model — left recoverable value on the table: the run's death was undetectable from its own report, its progress ledger was stale the moment it mattered, and mechanically detectable DS-token and hardcoded-English defects passed the emitted app's gate.
 
 > **Market reference**: the `om-auto-create-pr-loop` skill in this repo's own automation collection (run folders with a per-step Tasks table, one lean commit per step, checkpoint batching, resume via `om-auto-continue-pr-loop`) is the direct, in-house model for the per-slice ledger and resume contract — adopted. The digest-over-source-reading rule is adopted from the already-implemented read-policy and harness specs rather than re-specified. We reject building a runner-side retry/backoff wrapper: it belongs to OpenCode/Claude-Code upstream, not to an emitted repo harness.
 
@@ -50,13 +49,12 @@ Concrete failures from #5266, each mapped to the harness surface that should hav
 3. **Typecheck OOM is a solved problem the template forgot.** The emitted `build` script carries `NODE_OPTIONS=--max-old-space-size=8192` (guarded by `template-build-memory.test.ts`); `typecheck` is bare `tsc --noEmit`. The session burned a turn and ~13k reasoning tokens rediscovering the flag — pure waste even for a model that diagnoses it correctly, and a misdiagnosis risk besides.
 4. **DS rules are enforced in evals but not in apps.** `writable-ast-oracles.mjs#uiPolicyFailures()` deterministically rejects hardcoded palette classes, arbitrary Tailwind values, and manual `dark:` overrides — for harness eval cases only. The scaffolded app has no `ds:check`; the one starter DS test is stripped by `SKIP_DIRS`. The session shipped `text-amber-600 dark:text-amber-500` and passed the full gate.
 5. **Hardcoded user-facing strings pass the gate.** The monorepo has `i18n:check-hardcoded`; the template ships nothing in that direction. The session shipped English-only server-side errors despite the spec requiring localized ones, and the gate stayed green. (The implemented locale-catalog oracle checks the *other* direction: referenced keys → catalogs.)
-6. **The exit gate cannot run integration tests.** Migrations may not be applied to the dev DB without user confirmation (correct rule), and `om-implement-spec` never mentions the ephemeral runner `om-prepare-test-env` wraps — so "TEST-001/002 pending migration application" became a legitimate-looking way to declare a phase built with zero of the spec's mandated integration tests written. (The fix makes the skip explicit and reviewable rather than impossible: the gate is still agent-reported, but a `blocked` entry is a visible finding for review skills where today's silence is not.)
-7. **The share report couldn't name the stop cause.** The #5266 issue says the session "stopped … with an empty final assistant entry"; `session.json` entry 115 plainly records `APIError 429 "Usage limit reached for 5 hour", isRetryable: true`. `om-share-this-session` has no stop-cause field and `om-judge-agent-session` no termination classification, so the single most diagnostic fact of the run was lost to the human reader.
-8. **Shared-lib contracts have no digest.** The session read `crud/factory.ts`, `data/engine.ts`, `commands/*`, `events/factory.ts` under `node_modules/@open-mercato/shared` to answer questions ("does the factory double-emit when actions use commands?", "what is the `CommandHandler` shape?", "is there an `afterList` hook?") that are stable, documentable contracts. Module fact sheets exist per enabled module; nothing covers the shared libraries.
+6. **The share report couldn't name the stop cause.** The #5266 issue says the session "stopped … with an empty final assistant entry"; `session.json` entry 115 plainly records `APIError 429 "Usage limit reached for 5 hour", isRetryable: true`. `om-share-this-session` has no stop-cause field and `om-judge-agent-session` no termination classification, so the single most diagnostic fact of the run was lost to the human reader.
+7. **Shared-lib contracts have no digest.** The session read `crud/factory.ts`, `data/engine.ts`, `commands/*`, `events/factory.ts` under `node_modules/@open-mercato/shared` to answer questions ("does the factory double-emit when actions use commands?", "what is the `CommandHandler` shape?", "is there an `afterList` hook?") that are stable, documentable contracts. Module fact sheets exist per enabled module; nothing covers the shared libraries.
 
 ## Proposed Solution
 
-Fix each failure at the smallest owning surface, and keep every emitted-knowledge change inside the knowledge-governance contract (failure-first harness case, then the knowledge change, then `harness:validate-knowledge-change`). Enforcement strategy is two-tier and stated honestly: where a script can own the check (heap flag, DS tokens, hardcoded strings, stop-cause extraction) the check is deterministic; where the contract is agent behavior (ledger discipline, resume, atomic edits, the ephemeral gate) it is necessarily prose — so each such rule is written to be *checkable in text* (a completed slice has a ledger line; a resumed run's plan names reconciliation) and gets a harness eval case that fails when the behavior is absent. Prose backed by an eval is weaker than a script but strictly stronger than today's prose backed by nothing.
+Fix each failure at the smallest owning surface, and keep every emitted-knowledge change inside the knowledge-governance contract (failure-first harness case, then the knowledge change, then `harness:validate-knowledge-change`). Enforcement strategy is two-tier and stated honestly: where a script can own the check (heap flag, DS tokens, hardcoded strings, stop-cause extraction) the check is deterministic; where the contract is agent behavior (ledger discipline, resume, atomic edits) it is necessarily prose — so each such rule is written to be *checkable in text* (a completed slice has a ledger line; a resumed run's plan names reconciliation) and gets a harness eval case that fails when the behavior is absent. Prose backed by an eval is weaker than a script but strictly stronger than today's prose backed by nothing.
 
 ### Design Decisions
 
@@ -66,7 +64,6 @@ Fix each failure at the smallest owning surface, and keep every emitted-knowledg
 | Resume = reconcile, never trust | On re-entry the ledger is a hypothesis; `git status` + focused typecheck are the evidence. Cheapest ordering: typecheck first (finds the broken file from failure mode 2 immediately), then diff tree vs ledger. |
 | `ds:check` reuses the oracle's rule family, not the oracle — and never modifies the oracle | The eval oracle is controller-owned, 115 KB, and coupled to case plumbing; refactoring it to import external data would risk regressing existing eval cases. Instead `ds-check.mjs` exports its rule table, and a create-app unit test asserts that table stays aligned with the oracle's `uiPolicyFailures` patterns. `writable-ast-oracles.mjs` is not touched. |
 | Gate scripts live in `template/scripts/`, not `__tests__` | `SKIP_DIRS` strips `__tests__`/`__integration__` at scaffold time; scripts survive. |
-| Ephemeral lane is an exit-gate step, not a validation command | `validation.commands` runs on every gate invocation; booting testcontainers Postgres each time is too slow. The final-phase exit gate is the right frequency, and `om-prepare-test-env` already owns provisioning, locking, and the never-touch-the-dev-DB rule. |
 | Stop cause is extracted mechanically in `prepare-share-bundle.mjs` | The last session entry's `info.error` (name, status, message) is data the script already touches during sanitization; classification (`completed` / `provider-limit` / `provider-error` / `user-abort` / `unknown`) is a small closed enum the skill prose maps from it. |
 | Framework digest is a static authored guide, not generated | Shared-lib contracts change with platform versions, not with the app's module set; the guide ships versioned with the harness and is refreshed through the normal `om-refresh-standalone-harness` flow when platform PRs change those contracts. |
 
@@ -94,7 +91,7 @@ packages/create-app/
 │   ├── agentic.config.json            # validation.commands += "yarn ds:check"
 │   ├── guides/framework-contracts.md  # NEW — shared-lib contract digest
 │   └── skills/
-│       ├── om-implement-spec/         # ledger invariant, resume contract, atomic edits, ephemeral exit-gate step
+│       ├── om-implement-spec/         # ledger invariant, resume contract, atomic edits
 │       ├── om-auto-implement-spec/    # override note: inherit the same resume/ledger contract
 │       ├── om-share-this-session/     # stop-cause bundle field + issue-template section; script extraction
 │       └── om-judge-agent-session/    # termination classification in report template
@@ -106,8 +103,7 @@ Contract relationships:
 
 - **Ledger invariant (om-implement-spec).** Slice definition gains: _"A slice is not complete until its `- [x]` ledger line (files, evidence, exact command) is written to the spec's Implementation Status. Write the ledger line before starting the next slice; on any stop mid-slice, append a `- [ ] IN FLIGHT:` line naming files touched so far."_ This makes the ledger's staleness bound one slice, not one phase.
 - **Resume contract (om-implement-spec, new reference section).** On invocation where the resolved spec already has an Implementation Status: (1) run the focused typecheck for the in-progress phase **first**; (2) reconcile — `git status`/tree vs ledger; tick slices that verifiably exist and compile, mark broken/partial files in an `IN FLIGHT` line; (3) resume from the first unticked slice. Never re-execute a ticked slice; never trust an unticked one.
-- **Atomic edit-sequence rule (om-implement-spec only — deliberately not in the emitted `AGENTS.md`).** _"Paired edits (remove import + remove usage; rename + update call sites within a file) happen in one edit operation. Never end a tool batch with the tree in a known non-compiling state."_ Keeping this out of `AGENTS.md` removes any byte-budget contention between phases: Phase 5 is the only phase that edits `AGENTS.md`.
-- **Ephemeral exit-gate step (om-implement-spec, phases-and-gates).** When the spec's Integration Coverage table lists integration tests, the final-phase exit gate MUST: write the test files in-phase, then run them through the `om-prepare-test-env` descriptor path (`yarn test:integration:ephemeral`), which applies migrations to the throwaway DB — the ask-before-`db:migrate` rule stays intact because the dev DB is never touched. If the ephemeral runner is unavailable (no Docker), the gate records `integration: blocked (<reason>)` in the ledger — an explicit blocker, not a silent pass.
+- **Atomic edit-sequence rule (om-implement-spec only — deliberately not in the emitted `AGENTS.md`).** _"Paired edits (remove import + remove usage; rename + update call sites within a file) happen in one edit operation. Never end a tool batch with the tree in a known non-compiling state."_ Keeping this out of `AGENTS.md` removes any byte-budget contention between phases: Phase 4 is the only phase that edits `AGENTS.md`.
 - **Stop cause (om-share-this-session / om-judge-agent-session).** `prepare-share-bundle.mjs` emits `stopCause: { classification, lastEntryError: { name, statusCode, message } | null }` into `manifest.json`; the issue template gains `## ⏹ Stop cause`; the judge's report template requires a termination line and treats a `provider-limit` stop as context for — never an excuse from — artifact findings.
 - **Framework contract digest.** `.ai/guides/framework-contracts.md` (~6–8 KiB) documents: `CommandHandler` (`prepare`/`execute`/`buildLog`) and `registerCommand`; `makeCrudRoute` surface (metadata gates, `list.transformItem`, `hooks.afterList`/`beforeList`, `actions.{create,update,delete}` command wiring, **commands own event emission — the factory does not double-emit**); `runCrudCommandWrite`; `createModuleEvents`/`eventsConfig.emit` post-commit semantics; optimistic-lock helpers (`assertOptimisticLock`, `expected_updated_at`); `readJsonSafe`; DataEngine `create/update/deleteOrmEntity`. Routing: the emitted `AGENTS.md` Axis-2 `framework-context` row points here **before** the bounded `om-framework-context` resolver; the guide links each contract to its exact installed source path so the escape hatch stays one hop away.
 
@@ -128,9 +124,8 @@ None — no HTTP surface changes. CLI surface: two new package scripts in scaffo
 - **Kill between edit and ledger write:** the slice's `IN FLIGHT` line or the reconciliation typecheck catches it; worst case is re-doing one slice, never a phase.
 - **Ledger says done, file deleted/reverted:** reconciliation is tree-authoritative; the tick is removed and the slice re-queued.
 - **`ds:check` false positives** (e.g. a legitimate arbitrary value in vendored code): per-file allowlist `.ds-check-ignore` (same shape as the i18n allowlist), each entry requiring a one-line reason; the script fails on allowlist entries that no longer match anything (stale-allowlist rot guard).
-- **Ephemeral runner unavailable (no Docker/testcontainers):** exit gate records an explicit blocker; `om-implement-spec` reports it in its final report instead of claiming the gate green — mirroring the existing "pre-existing failure is a reported blocker" rule.
 - **Heap flag on constrained machines:** `--max-old-space-size=8192` is an upper bound, not a reservation — Node allocates lazily, so small machines are unaffected; the value stays in lockstep with the `build` script via the shared guard test.
-- **`AGENTS.md` byte budget overflow:** Phase 5 is the only phase that edits `AGENTS.md` (plus Phase 1's Validation-line word swap), and its routing delta rewrites the existing `framework-context` row rather than adding a new one, so the net byte delta is near zero; the `STANDALONE_ROOT_TARGET_BYTES` test decides, and on overflow the row is shortened until it fits — no other phase's content competes for the budget.
+- **`AGENTS.md` byte budget overflow:** Phase 4 is the only phase that edits `AGENTS.md` (plus Phase 1's Validation-line word swap), and its routing delta rewrites the existing `framework-context` row rather than adding a new one, so the net byte delta is near zero; the `STANDALONE_ROOT_TARGET_BYTES` test decides, and on overflow the row is shortened until it fits — no other phase's content competes for the budget.
 - **Stop-cause extraction on malformed session JSON:** classification falls back to `unknown`; the share flow never blocks on it (the field is additive evidence, not a gate).
 
 ## Risks & Impact Review
@@ -143,7 +138,6 @@ None — no HTTP surface changes. CLI surface: two new package scripts in scaffo
 | New gate command breaks existing user workflows | Migration | Low | Existing apps' gates unchanged (user-owned config); only new scaffolds affected | UPGRADE_NOTES entry + `om-apply-upgrade-notes` adoption path | Low |
 | Knowledge-governance validator burden makes small prose fixes expensive | Operational | Medium | Slower iteration on skill text | The governance contract already exempts byte-identical asset-sync; batch the skill-text changes per phase so one validated knowledge-change covers each | Accepted |
 | Ledger discipline inflates token usage per slice | Operational | Low | A ledger line is ~1–2 lines of output per slice — noise vs the 133k/turn replay measured in #5266 | — | Negligible |
-| Ephemeral gate lengthens final-phase wall time | Operational | Medium | Minutes per spec completion | Runs once per spec (final phase), reuses the runner's 600 s build cache TTL | Accepted |
 | `i18n:check-hardcoded` noise on framework chrome | Operational | Medium | Alert fatigue → checker ignored | Advisory mode + allowlist with reasons; promotion to hard gate is a separate future decision | Accepted |
 | Interrupted mid-migration of harness case counts | Data integrity | Low | `harness:validate --all` fails closed until counts, schemas, and cases re-align | Governance validator is the backstop; changes land atomically per phase PR | Low |
 
@@ -155,9 +149,8 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 
 - **Phase 1 — Template gate hardening** (typecheck heap parity, `ds:check`, `i18n:check-hardcoded`): pure template + emitted-config additions; ships without any skill change.
 - **Phase 2 — Session resilience contract** (`om-implement-spec` ledger invariant, resume contract, atomic edits; `om-auto-implement-spec` override note): pure skill-text + harness-case change.
-- **Phase 3 — Ephemeral integration exit gate**: `om-implement-spec` phases-and-gates + `om-prepare-test-env` cross-reference.
-- **Phase 4 — Stop-cause reporting**: `om-share-this-session` script + templates, `om-judge-agent-session` report template.
-- **Phase 5 — Framework contract digest**: new guide + `AGENTS.md` routing delta (byte-budget-gated).
+- **Phase 3 — Stop-cause reporting**: `om-share-this-session` script + templates, `om-judge-agent-session` report template.
+- **Phase 4 — Framework contract digest**: new guide + `AGENTS.md` routing delta (byte-budget-gated).
 
 ## Implementation Plan
 
@@ -174,20 +167,15 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 
 1. `om-implement-spec/references/planning-and-progress.md`: add the ledger-write invariant (ledger line before next slice; `IN FLIGHT` line on mid-slice stop) and the ledger-line format including the exact focused command. _Test: harness routing/decision case asserting the invariant text is loaded for spec-implementation prompts._
 2. New `om-implement-spec/references/resume.md` + SKILL.md step: the reconciliation procedure (typecheck-first → tree-vs-ledger reconcile → resume from first unticked slice), including the "never re-execute ticked / never trust unticked" rule; cross-link from `om-auto-implement-spec`'s override notes so the PR-delivery engine inherits it. _Test: writable harness case — fixture scaffold with a seeded half-done Implementation Status + one broken file; oracle asserts the agent's plan names reconciliation before new slices._
-3. Atomic edit-sequence rule in `om-implement-spec` SKILL.md rules block (deliberately not in `AGENTS.md` — see Architecture; Phase 5 is the sole `AGENTS.md` owner). _Test: knowledge-governance validator run._
+3. Atomic edit-sequence rule in `om-implement-spec` SKILL.md rules block (deliberately not in `AGENTS.md` — see Architecture; Phase 4 is the sole `AGENTS.md` owner). _Test: knowledge-governance validator run._
 
-### Phase 3 — Ephemeral integration exit gate
-
-1. `om-implement-spec/references/phases-and-gates.md`: final-phase exit gate requires — when the spec lists integration coverage — test files written in-phase and executed via `yarn test:integration:ephemeral` (through the `om-prepare-test-env` descriptor; never plain `test:integration`); unavailable runner → explicit `integration: blocked (<reason>)` ledger entry. _Test: harness decision case — a spec-completion prompt must route the ephemeral lane and must not claim done with an unstated integration gap._
-2. Cross-reference from `om-prepare-test-env`'s repo-local SKILL.md ("consumed by the `om-implement-spec` exit gate") and from the emitted `AGENTS.md` integration line (already present: `yarn test:integration:ephemeral` — verify wording covers exit-gate use). _Test: knowledge-governance validator._
-
-### Phase 4 — Stop-cause reporting
+### Phase 3 — Stop-cause reporting
 
 1. `om-share-this-session/scripts/prepare-share-bundle.mjs`: extract the final session entries' `info.error` (name, statusCode, sanitized message) and derive `stopCause.classification ∈ {completed, provider-limit, provider-error, user-abort, unknown}`; write into `manifest.json`; route `message` through the existing redaction pass. _Test: script unit fixtures — a 429 session (expects `provider-limit`), a clean-completion session, a malformed tail (expects `unknown`)._
 2. `om-share-this-session` issue template: add `## ⏹ Stop cause` section rendering the classification + sanitized error line; update `references/report-templates.md`. _Test: bundle-preparation fixture snapshot._
 3. `om-judge-agent-session/references/report-template.md`: mandatory termination line sourced from `manifest.stopCause` (fallback `unknown` for old bundles); rule text: an interrupted run scopes which acceptance criteria are judgeable, but never converts a found defect into a pass. _Test: judge fixture with the #5266-shaped bundle asserting the report names `provider-limit`._
 
-### Phase 5 — Framework contract digest
+### Phase 4 — Framework contract digest
 
 1. Author `packages/create-app/agentic/guides/framework-contracts.md` (~6–8 KiB) covering the contracts listed in Architecture, each with its exact installed source path (`node_modules/@open-mercato/shared/src/...`) as the verification hop. _Test: create-app test asserting every named source path exists in the workspace packages (anti-rot)._
 2. Emitted `AGENTS.md`: point the Axis-2 `framework-context` row at the guide before the bounded resolver; stay within `STANDALONE_ROOT_TARGET_BYTES`. _Test: byte-budget test + harness routing cases for shared-lib contract questions (e.g. "does makeCrudRoute double-emit with command actions?") resolving to the guide, not `node_modules` reads._
@@ -202,12 +190,11 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 | `packages/create-app/template/scripts/ds-check.mjs` | Create | Deterministic DS-token checker |
 | `packages/create-app/template/scripts/i18n-check-hardcoded.mjs` | Create | Advisory hardcoded-string checker |
 | `packages/create-app/agentic/shared/ai/agentic.config.json` | Modify | `validation.commands` += `yarn ds:check` |
-| `packages/create-app/agentic/shared/ai/skills/om-implement-spec/**` | Modify | Ledger invariant, resume contract, atomic edits, ephemeral exit gate |
+| `packages/create-app/agentic/shared/ai/skills/om-implement-spec/**` | Modify | Ledger invariant, resume contract, atomic edits |
 | `packages/create-app/agentic/shared/ai/skills/om-auto-implement-spec/SKILL.md` | Modify | Inherit resume/ledger contract in override notes |
 | `packages/create-app/agentic/shared/ai/skills/om-share-this-session/**` | Modify | Stop-cause extraction + templates |
 | `packages/create-app/agentic/shared/ai/skills/om-judge-agent-session/references/report-template.md` | Modify | Termination classification |
 | `packages/create-app/agentic/guides/framework-contracts.md` | Create | Shared-lib contract digest (authoring source emitted to `.ai/guides/`) |
-| `packages/create-app/agentic/shared/ai/skills/om-prepare-test-env/SKILL.md` | Modify | Cross-reference: consumed by the `om-implement-spec` exit gate |
 | `packages/create-app/src/lib/ds-check-rule-parity.test.ts` | Create | Assert `ds-check.mjs` rule table matches the oracle's `uiPolicyFailures` patterns |
 | `packages/create-app/template/AGENTS.md` | Modify | Validation line, digest routing row (byte-budget-gated) |
 | `packages/create-app/agentic/shared/ai/harness/{cases.json,validators.json,…}` | Modify | Governance-mandated cases/counts/oracle hooks |
@@ -247,10 +234,10 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 | root AGENTS.md | No cross-module ORM / tenant scoping / encryption maps | N/A | No runtime entities, queries, or PII columns in scope |
 | root AGENTS.md (DS rules) | No hardcoded status colors / arbitrary values | Compliant | The spec's deliverable enforces exactly this; no UI code shipped |
 | BACKWARD_COMPATIBILITY.md | Contract surfaces frozen | Compliant | None touched (see Migration & Compatibility) |
-| `.ai/qa/AGENTS.md` | Integration coverage listed and shipped in-change | Compliant | Testing Strategy is unit + harness; no API/UI paths exist to cover — and Phase 3's deliverable is precisely the enforcement of this rule in scaffolds |
+| `.ai/qa/AGENTS.md` | Integration coverage listed and shipped in-change | Compliant | Testing Strategy is unit + harness; no API/UI paths exist to cover |
 
 ### Internal Consistency Check
-Every problem statement (1–8) is owned by exactly one phase, and every phase owns at least one problem (Phase 1 ← problems 3/4/5, Phase 2 ← 1/2, Phase 3 ← 6, Phase 4 ← 7, Phase 5 ← 8); every phase names its tests; the File Manifest covers every Implementation Plan step; assumptions A1–A6 are each referenced by the section they resolve. `AGENTS.md` has a single owning phase (5), so no cross-phase byte-budget negotiation exists.
+Every problem statement (1–7) is owned by exactly one phase, and every phase owns at least one problem (Phase 1 ← problems 3/4/5, Phase 2 ← 1/2, Phase 3 ← 6, Phase 4 ← 7); every phase names its tests; the File Manifest covers every Implementation Plan step; assumptions A1–A6 are each referenced by the section they resolve. `AGENTS.md` has a single owning phase (4), so no cross-phase byte-budget negotiation exists.
 
 Verdict: `Ready for implementation` (autonomous defaults surfaced for review on the spec PR).
 
@@ -259,13 +246,13 @@ Verdict: `Ready for implementation` (autonomous defaults surfaced for review on 
 | Date | Change |
 |---|---|
 | 2026-08-14 | Initial draft from #5266 session post-mortem; overlap audit vs implemented harness specs; autonomous defaults A1–A6 applied |
-| 2026-08-14 | Adversarial fresh-context review applied: SPLIT recommendation recorded in A1 (kept as one per explicit user instruction; phases remain split-ready); removed the Phase 2↔5 `AGENTS.md` byte-budget dependency (Phase 5 is now sole owner); `ds:check` no longer modifies `writable-ast-oracles.mjs` (rule-parity test instead); enforcement two-tier strategy stated honestly; integration-gate claim softened to explicit-and-reviewable; File Manifest completed |
-| 2026-08-14 | Implementation #5295: corrected the framework-guide authoring path to the generator-owned `agentic/guides/` surface; added a justified stale-checked DS baseline for the existing template; completed the resilience, stop-cause, ephemeral-integration, contract-digest, and 232-case/49-writable harness changes. |
+| 2026-08-14 | Adversarial fresh-context review applied: SPLIT recommendation recorded in A1 (kept as one per explicit user instruction; phases remain split-ready); removed the cross-phase `AGENTS.md` byte-budget dependency (the framework-digest phase is now sole owner); `ds:check` no longer modifies `writable-ast-oracles.mjs` (rule-parity test instead); enforcement two-tier strategy stated honestly; File Manifest completed |
+| 2026-08-14 | Implementation #5295: corrected the framework-guide authoring path to the generator-owned `agentic/guides/` surface; added a justified stale-checked DS baseline for the existing template; completed the resilience, stop-cause, contract-digest, and 231-case/49-writable harness changes. The proposed ephemeral integration exit gate was removed at requester direction while retaining the standalone runner's existing general-purpose integration guidance. |
 
 ### Review — 2026-08-14
 - **Reviewer**: Agent (fresh-context adversarial subagent, spec file only)
 - **Security**: Passed (no runtime surface; stop-cause text routed through existing bundle sanitization)
-- **Performance**: Passed (gate additions bounded; ephemeral lane once per spec completion)
+- **Performance**: Passed (gate additions bounded)
 - **Cache**: N/A (no cache usage)
 - **Commands**: N/A (no commands/mutations; skill-text contracts only)
 - **Risks**: Passed after fixes (oracle-regression risk eliminated by design change; byte-budget contention eliminated)

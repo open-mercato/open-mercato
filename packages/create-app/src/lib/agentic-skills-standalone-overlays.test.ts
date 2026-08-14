@@ -111,6 +111,25 @@ test('the template wires the ephemeral runner scripts and the override keeps the
   )
 })
 
+test('spec delivery does not promote the optional ephemeral runner into a mandatory exit gate', () => {
+  const phasesAndGates = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+  const override = readOverrideSkill('om-prepare-test-env')
+  const rootInstructions = [
+    fs.readFileSync(new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), 'utf8'),
+    fs.readFileSync(new URL('../../template/AGENTS.md', import.meta.url), 'utf8'),
+  ]
+
+  assert.doesNotMatch(phasesAndGates, /test:integration:ephemeral|integration: blocked/)
+  assert.doesNotMatch(override, /Consumed by the spec exit gate|final phase remains open/)
+  for (const instructions of rootInstructions) {
+    assert.match(instructions, /integration: `yarn test:integration:ephemeral`/)
+    assert.doesNotMatch(instructions, /spec-exit integration/)
+  }
+})
+
 test('override folders do not also ship a stale STANDALONE.md', () => {
   const stale = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter((skill) => {
     const url = new URL(`${skill}/STANDALONE.md`, skillsDir)

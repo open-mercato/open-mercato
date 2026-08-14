@@ -20890,32 +20890,6 @@
   },
   {
     "id": "OMH-231",
-    "title": "Hold a final specification phase on the ephemeral integration exit gate",
-    "family": "architecture",
-    "mode": "spec",
-    "evaluationKind": "routing",
-    "risk": "medium",
-    "prompt": "The final implementation phase of a resolved feature spec includes required API integration coverage. Unit tests pass, but no disposable integration database is currently available. Decide the only valid phase-exit handling: when the integration tests must be written, which integration command may run them, what database posture is forbidden, what exact blocker evidence must be recorded when the command cannot run, and whether the phase may be marked complete. Do not start a plain or developer-database integration run.",
-    "tags": ["spec", "integration", "ephemeral", "exit-gate"],
-    "owner": { "kind": "skill", "path": ".ai/skills/om-implement-spec/references/phases-and-gates.md", "ruleIds": ["BC-01"] },
-    "expectedRouter": { "required": ["spec-pr", "testing"], "allowedExtra": ["debugging"] },
-    "requiredSkills": ["om-implement-spec", "om-prepare-test-env"],
-    "context": {
-      "required": ["AGENTS.md", ".ai/guides/spec-delivery.md", ".ai/guides/testing-debugging.md", ".ai/skills/om-implement-spec/SKILL.md", ".ai/skills/om-implement-spec/references/phases-and-gates.md", ".ai/skills/om-prepare-test-env/SKILL.md"],
-      "forbidden": [".env*", ".git/**"]
-    },
-    "decisionVocabulary": ["integration-tests-written-in-phase", "ephemeral-integration-only", "integration-blocked-reason", "phase-remains-in-progress", "plain-integration-command", "developer-database-fallback"],
-    "requiredDecisions": ["integration-tests-written-in-phase", "ephemeral-integration-only", "integration-blocked-reason", "phase-remains-in-progress"],
-    "forbiddenPatterns": ["yarn test:integration(?!:ephemeral)", "(?:dev|developer).{0,20}database.{0,20}(?:run|fallback|use)"],
-    "validators": ["catalog.schema", "owner.reference", "skills.reference", "router.contract", "context.budget", "context.forbidden", "patterns.forbidden"],
-    "maxContextFiles": 10,
-    "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 131072,
-    "relatedCases": ["OMH-006", "OMH-168", "OMH-230"],
-    "source": { "paths": [".ai/specs/2026-08-14-standalone-harness-optimizations.md"] }
-  },
-  {
-    "id": "OMH-232",
     "title": "Resolve shared CRUD and command contracts through the installed digest",
     "family": "architecture",
     "mode": "analysis",
@@ -20948,7 +20922,7 @@
     "maxContextFiles": 12,
     "maxInitialContextBytes": 73728,
     "maxTotalContextBytes": 196608,
-    "relatedCases": ["OMH-003", "OMH-222", "OMH-231"],
+    "relatedCases": ["OMH-003", "OMH-222"],
     "source": { "paths": [".ai/specs/2026-08-14-standalone-harness-optimizations.md"] }
   }
 ]

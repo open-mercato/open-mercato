@@ -2,7 +2,7 @@
 
 Source doc: .ai/specs/2026-08-14-standalone-harness-optimizations.md
 Spec PR: #5294
-Run status: in progress — Phase 5.3 remains blocked on a supported contained Linux release runner.
+Run status: in progress — Phase 4.3 remains blocked on a supported contained Linux release runner.
 
 ## Goal
 
@@ -11,7 +11,7 @@ Make standalone-app harness runs resilient to interruption, enforce deterministi
 ## Scope
 
 - Harden scaffold template scripts and validation configuration for typecheck memory, design-system rules, and advisory hardcoded-string detection.
-- Strengthen emitted spec-implementation skills with slice-level progress, reconciliation, atomic edits, and an ephemeral integration exit lane.
+- Strengthen emitted spec-implementation skills with slice-level progress, reconciliation, and atomic edits.
 - Add sanitized stop-cause extraction and reporting to session-share and judge flows.
 - Add the bounded framework-contract guide and route emitted agent guidance to it.
 - Add failure-first harness coverage, synchronized catalog/governance assets, upgrade notes, and focused create-app tests for every changed contract.
@@ -40,18 +40,13 @@ Make standalone-app harness runs resilient to interruption, enforce deterministi
 2. Add typecheck-first resume reconciliation and link the contract from the standalone `om-auto-implement-spec` override.
 3. Add the atomic paired-edit rule and failure-first harness knowledge coverage.
 
-### Phase 3: Ephemeral integration exit gate
-
-1. Require the final spec phase to write and run declared integration coverage through `test:integration:ephemeral`, or record an explicit blocked ledger entry.
-2. Cross-reference the exit-gate contract from `om-prepare-test-env` and emitted integration guidance, with synchronized knowledge validation.
-
-### Phase 4: Stop-cause reporting
+### Phase 3: Stop-cause reporting
 
 1. Extract and sanitize additive `manifest.stopCause` evidence with deterministic classifications and unit fixtures.
 2. Render stop-cause evidence in the session-share issue/report templates and update bundle snapshots.
 3. Require termination classification in judge reports, retaining `unknown` compatibility for older bundles and covering provider-limit fixtures.
 
-### Phase 5: Framework contract digest
+### Phase 4: Framework contract digest
 
 1. Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path.
 2. Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget.
@@ -86,29 +81,24 @@ PR: #5295
 - [x] 2.2 Add typecheck-first resume reconciliation and link the contract from the standalone `om-auto-implement-spec` override. — 5f47824e8
 - [x] 2.3 Add the atomic paired-edit rule and failure-first harness knowledge coverage. — 256542f20
 
-### Phase 3: Ephemeral integration exit gate
+### Phase 3: Stop-cause reporting
 
-- [x] 3.1 Require the final spec phase to write and run declared integration coverage through `test:integration:ephemeral`, or record an explicit blocked ledger entry. — fd4975231
-- [x] 3.2 Cross-reference the exit-gate contract from `om-prepare-test-env` and emitted integration guidance, with synchronized knowledge validation. — eeaca0f28
+- [x] 3.1 Extract and sanitize additive `manifest.stopCause` evidence with deterministic classifications and unit fixtures. — acf64c42a
+- [x] 3.2 Render stop-cause evidence in the session-share issue/report templates and update bundle snapshots. — cb227ad20
+- [x] 3.3 Require termination classification in judge reports, retaining `unknown` compatibility for older bundles and covering provider-limit fixtures. — 51537c236
 
-### Phase 4: Stop-cause reporting
+### Phase 4: Framework contract digest
 
-- [x] 4.1 Extract and sanitize additive `manifest.stopCause` evidence with deterministic classifications and unit fixtures. — acf64c42a
-- [x] 4.2 Render stop-cause evidence in the session-share issue/report templates and update bundle snapshots. — cb227ad20
-- [x] 4.3 Require termination classification in judge reports, retaining `unknown` compatibility for older bundles and covering provider-limit fixtures. — 51537c236
-
-### Phase 5: Framework contract digest
-
-- [x] 5.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path. — f2aa7c0ba
-- [x] 5.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget. — 5831d55a7
-- [ ] 5.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; release gate blocked as recorded below
+- [x] 4.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path. — f2aa7c0ba
+- [x] 4.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget. — 5831d55a7
+- [ ] 4.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; release gate blocked as recorded below
 
 ## Harness Gate Evidence
 
 - The full ordered repository gate passed: `build:packages`, `generate`, post-generate `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `test`, and `build:app`.
 - Final focused autofix tests passed 164/164; the full create-app suite passed 795 tests with 5 skips and no failures (800 total); create-app typecheck, root lint, and `template:sync` passed.
 - `harness:validate-knowledge-change`: passed the controller-owned base-fails/head-passes proof against `origin/develop` at `089df848f`.
-- Fresh emitted controller: deterministic `harness:validate --all` passed 232/232 cases with installed sources resolved inside the dependency root.
+- Fresh emitted controller: deterministic `harness:validate --all` passed 231/231 cases with installed sources resolved inside the dependency root after removing the user-declined integration exit-gate case.
 - Packed-artifact integration exercised Verdaccio publish/install, fresh generation, production builds, and ephemeral startup; the repository-wide Playwright tail reported 15 unrelated pre-existing module failures alongside 1,883 passes, 96 skips, and 3 flaky tests, with no changed-path regression.
 - The final independent review approved `089df848f` with no actionable code findings after three autofix rounds.
 - `release: blocked (native macOS sandbox-exec cannot provide the host-isolated loopback required by the complete release lane; preflight stopped before target preparation, provider invocation, or writes and requires Linux Bubblewrap)`.
@@ -116,9 +106,14 @@ PR: #5295
 ## Continuation Evidence
 
 - Merged `origin/develop` at `bd029a2bb` without rewriting history in `a4ff8254a`; the only textual conflict was `UPGRADE_NOTES.md`, resolved by retaining both this run's standalone-gate notes and #5293's sectioned fact-sheet migration notes.
-- Semantic reconciliation preserved #5293's directory/index fact-sheet model, OMH-230–232, framework-contract routing, stop-cause judge evidence, and #5298's Node-only instrumentation behavior.
+- Semantic reconciliation preserved #5293's directory/index fact-sheet model, the resume/framework routing cases, framework-contract routing, stop-cause judge evidence, and #5298's Node-only instrumentation behavior.
 - Post-merge review found one fresh-template regression: IPv6 `[::1]` literals were misclassified as arbitrary Tailwind. `c0fd435dc` fixed the shared matcher semantics and added a whole-template clean-baseline regression.
 - Focused DS/oracle tests passed 38/38; the shipped template scan passed across 209 files with no findings, stale ignores, or errors; the full create-app suite passed 799 tests with 5 skips and no failures.
 - The continuation knowledge-change manifest passed its controller-owned base-fails/head-passes proof against `a4ff8254a` for the evaluator/oracle contract affecting OMH-185 and OMH-193.
 - Ordered local validation passed both `build:packages` runs, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, and `build:app`. Repeated exact `yarn test` attempts had no assertion failures but were interrupted by varying external macOS Jest-worker `SIGSEGV`s; every affected workspace/test passed in isolation, including core 1,236/1,236 suites, enterprise 59/59 suites, CLI 87/87 suites, and the final affected CLI test 20/20.
-- Phase 5.3 remains unchecked: the contained complete release lane still requires a Linux host whose nonce-bound Bubblewrap preflight succeeds.
+- Phase 4.3 remains unchecked: the contained complete release lane still requires a Linux host whose nonce-bound Bubblewrap preflight succeeds.
+- Requester-directed scope reconciliation removed the proposed mandatory ephemeral integration exit gate from the spec, emitted spec-delivery owner, test-environment cross-reference, root instructions, catalog, source-link inventory, count snapshots, and execution plan while preserving the pre-existing general-purpose `test:integration:ephemeral` guidance and #5293's per-module fact-sheet layout.
+- Repository ID-contiguity governance required the surviving framework-contract routing case to move from OMH-232 to OMH-231; the catalog now validates at 231 cases with 49 writable cases and no Phase-3-only links or active contract wording.
+- Focused overlay/coverage/source-link/evaluator tests passed 204/204; root-instruction budget regression tests passed 25/25; the full create-app suite passed 800 tests with 5 skips and no failures (805 total).
+- The scope-removal knowledge-change manifest passed its controller-owned base-with-test-fails/head-passes proof against `f0ad64582`; its source-link facts validated at 30 owners, 138 topics, 115 rendered links, 8 pinned assets, and 136 dispositions.
+- Current ordered local validation passed both `build:packages` runs, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, and `build:app`. Two exact `yarn test` attempts and a package-serialized full graph encountered varying macOS Jest-worker `SIGSEGV`s in three untouched suites with no assertion failure; each crashed suite passed immediately in isolation (`AiChatSessions` 7/7, `storage-s3-routes` 5/5, `integration-discovery` 7/7), while the changed create-app suite remained fully green.
