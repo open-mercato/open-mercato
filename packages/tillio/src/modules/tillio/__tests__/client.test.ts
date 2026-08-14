@@ -126,6 +126,31 @@ describe('createTillioClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
+    it('refuses a redirect pointing at a private address before it is followed', async () => {
+      const lookupHost = jest.fn(publicLookupHost)
+      fetchMock.mockResolvedValueOnce(redirectResponse(302, 'http://169.254.169.254/latest/meta-data'))
+
+      await expect(client({ lookupHost }).getPlugins('test_connection')).rejects.toMatchObject({ detail: 'redirect' })
+
+      // The target is never requested, and never even resolved.
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(lookupHost).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses a same-host redirect once that host resolves to a private address', async () => {
+      fetchMock
+        .mockResolvedValueOnce(redirectResponse(302, 'https://x.example.com/api/plugins/v2'))
+        .mockResolvedValueOnce(jsonResponse({ plugins: [] }))
+      const lookupHost = jest.fn()
+        .mockResolvedValueOnce([{ address: '93.184.216.34', family: 4 }])
+        .mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }])
+
+      await expect(client({ lookupHost }).getPlugins('test_connection')).rejects.toMatchObject({
+        detail: 'private_ip_resolved',
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
     it('refuses a redirect that downgrades https to http', async () => {
       fetchMock.mockResolvedValueOnce(redirectResponse(301, 'http://x.example.com/api/plugins'))
       await expect(client().getPlugins('test_connection')).rejects.toMatchObject({ detail: 'redirect' })

@@ -6,9 +6,11 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { TillioCredentialsService } from '../../../lib/operators-store'
-import { detachOperator, TillioRevocationFailedError } from '../../../lib/operators'
-
-const TILLIO_OPERATOR_RESOURCE_KIND = 'tillio.operator'
+import {
+  detachOperator,
+  TILLIO_OPERATOR_RESOURCE_KIND,
+  TillioRevocationFailedError,
+} from '../../../lib/operators'
 
 const idParamsSchema = z.object({ id: z.string().trim().min(1) })
 

@@ -23,6 +23,8 @@ export type TillioResolvedEnvironment = {
   tenantSystemId: string
 }
 
+export const TILLIO_OPERATOR_RESOURCE_KIND = 'tillio.operator'
+
 export type OperatorErrorSection = 'environment' | 'operator'
 
 export class TillioEnvironmentNotReadyError extends Error {

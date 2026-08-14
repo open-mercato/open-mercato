@@ -9,6 +9,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { NormalizedPhoneCall } from '@open-mercato/shared/modules/phone_calls/types'
 import {
+  PHONE_CALL_RESOURCE_KIND,
   PHONE_CALLS_CALL_INGEST_COMMAND_ID,
   type IngestPhoneCallResult,
 } from '@open-mercato/core/modules/phone_calls/commands/calls'
@@ -30,7 +31,6 @@ import {
 } from '../../lib/pull-readiness'
 import { zonedDayEnd, zonedDayStart } from '../../lib/tz'
 
-const PHONE_CALL_RESOURCE_KIND = 'phone_calls.phone_call'
 const TILLIO_PROVIDER_KEY = 'tillio'
 
 const daySchema = z.iso.date()

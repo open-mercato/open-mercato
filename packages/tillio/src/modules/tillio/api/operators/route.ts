@@ -19,12 +19,12 @@ import {
   classifyTillioError,
   isTillioEnvironmentHealthy,
   resolveEnvironment,
+  TILLIO_OPERATOR_RESOURCE_KIND,
   TillioEnvironmentNotReadyError,
   TillioOperatorLimitError,
 } from '../../lib/operators'
 
 const SUPPORTED_PLUGINS = ['Ringostat'] as const
-const TILLIO_OPERATOR_RESOURCE_KIND = 'tillio.operator'
 
 const attachBodySchema = z.object({
   plugin: z.literal('Ringostat'),

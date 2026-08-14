@@ -65,6 +65,12 @@ export type SeedPhoneCallInput = {
   startedAt?: Date | null
   durationSeconds?: number | null
   ingestStatus?: string
+  /**
+   * Written as plain text, unlike the ORM path which encrypts it. Only for asserting that a
+   * surface does NOT return the column: anything that projects it would have to decrypt, and
+   * this value is not ciphertext. Leave unset for every other fixture.
+   */
+  recordingUrl?: string | null
 }
 
 export async function seedPhoneCalls(inputs: SeedPhoneCallInput[]): Promise<string[]> {
@@ -75,8 +81,9 @@ export async function seedPhoneCalls(inputs: SeedPhoneCallInput[]): Promise<stri
       const result = await client.query<{ id: string }>(
         `INSERT INTO phone_calls (
            organization_id, tenant_id, provider_key, external_call_id, external_conversation_id,
-           direction, status, started_at, duration_seconds, ingest_status, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now())
+           direction, status, started_at, duration_seconds, ingest_status, recording_url,
+           created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
          RETURNING id`,
         [
           input.organizationId,
@@ -89,6 +96,7 @@ export async function seedPhoneCalls(inputs: SeedPhoneCallInput[]): Promise<stri
           input.startedAt ?? null,
           input.durationSeconds ?? null,
           input.ingestStatus ?? 'ingested',
+          input.recordingUrl ?? null,
         ],
       )
       ids.push(result.rows[0].id)

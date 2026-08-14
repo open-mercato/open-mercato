@@ -7,7 +7,11 @@ import {
   deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deletePhoneCallsIfExist, seedPhoneCalls } from './helpers/phoneCallsFixtures'
+
+type CallRow = Record<string, unknown>
+type ListBody = { items?: CallRow[] }
 
 /**
  * TC-PHONE-HUB-002 — `phone_calls.view` gates the call list.
@@ -60,6 +64,70 @@ test.describe('TC-PHONE-HUB-002: phone calls list ACL', () => {
       const allowed = await apiRequest(request, 'GET', '/api/phone_calls/calls', { token: adminToken })
       expect(allowed.status(), 'an admin holding phone_calls.* reads the same route').toBe(200)
     } finally {
+      await deleteUserIfExists(request, superToken, userId)
+      await deleteRoleIfExists(request, superToken, roleId)
+    }
+  })
+
+  test('a view-only role is served the list without recording links', async ({ request }) => {
+    const stamp = Date.now()
+    const password = 'Phone002!Pass2'
+    const email = `qa-phone-hub-002-viewonly-${stamp}@acme.com`
+    const roleName = `qa_phone_hub_002_viewonly_${stamp}`
+    const externalCallId = `qa-phone-hub-002-${stamp}`
+
+    let superToken: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
+    let seeded: string[] = []
+
+    try {
+      superToken = await getAuthToken(request, 'superadmin')
+      const scope = getTokenScope(superToken)
+
+      seeded = await seedPhoneCalls([
+        {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          externalCallId,
+          direction: 'inbound',
+          status: 'completed',
+          recordingUrl: 'https://recordings.example.com/qa.wav?token=must-not-leak',
+        },
+      ])
+
+      roleId = await createRoleFixture(request, superToken, { name: roleName, tenantId: scope.tenantId })
+      await setRoleAclFeatures(request, superToken, {
+        roleId,
+        features: ['phone_calls.view'],
+        organizations: null,
+      })
+      userId = await createUserFixture(request, superToken, {
+        email,
+        password,
+        organizationId: scope.organizationId,
+        roles: [roleId],
+      })
+
+      const viewOnlyToken = await getAuthToken(request, email, password)
+      const response = await apiRequest(
+        request,
+        'GET',
+        `/api/phone_calls/calls?q=${encodeURIComponent(externalCallId)}`,
+        { token: viewOnlyToken },
+      )
+      expect(response.status(), 'phone_calls.view alone reads the list').toBe(200)
+
+      const body = await readJsonSafe<ListBody>(response)
+      const row = body?.items?.find((item) => item.external_call_id === externalCallId)
+      expect(row, 'the seeded call should be listed').toBeTruthy()
+      // Recording links are bearer URLs, so a view-only principal must never receive one,
+      // while the key itself stays in the response shape.
+      expect(row).toHaveProperty('recording_url')
+      expect(row!.recording_url).toBeNull()
+      expect(JSON.stringify(body)).not.toContain('must-not-leak')
+    } finally {
+      await deletePhoneCallsIfExist(seeded)
       await deleteUserIfExists(request, superToken, userId)
       await deleteRoleIfExists(request, superToken, roleId)
     }
