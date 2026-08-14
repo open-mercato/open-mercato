@@ -95,29 +95,48 @@ changed after session start and is newer than the last exit-0 typecheck.
 
 ### Phase 1: Gate honesty
 
-- [ ] 1.1 Add gate-evidence rules to the template AGENTS.md validation section
+- [x] 1.1 Add gate-evidence rules to the template AGENTS.md validation section — 578888fcc
 
 ### Phase 2: Route to authoritative contracts
 
-- [ ] 2.1 Route om-module-scaffold to installed @open-mercato/ui AGENTS.md
-- [ ] 2.2 Route om-module-scaffold to installed @open-mercato/shared AGENTS.md
-- [ ] 2.3 Document the backend page route convention with a worked example
+- [x] 2.1 Route om-module-scaffold to installed @open-mercato/ui AGENTS.md — 578888fcc
+- [x] 2.2 Route om-module-scaffold to installed @open-mercato/shared AGENTS.md — 578888fcc
+- [x] 2.3 Document the backend page route convention with a worked example — 578888fcc
 
 ### Phase 3: Lint sees imports
 
-- [ ] 3.1 Investigate resolver support for subpath exports maps
-- [ ] 3.2 Enable import/no-unresolved, or abandon with recorded reason
+- [x] 3.1 Investigate resolver support for subpath exports maps — investigated, not landable
+- [x] 3.2 Enable import/no-unresolved, or abandon with recorded reason — **abandoned, reason below**
+
+**Phase 3 abandoned.** Measured in a real generated app on 2026-08-14, both directions:
+
+| import | expected | actual |
+|---|---|---|
+| `@open-mercato/ui/backend/CrudForm` (valid) | pass | **`Unable to resolve path to module`** |
+| `@open-mercato/ui/crud/form` (invented) | fail | fail |
+
+Tried with the inherited `eslint-config-next` resolver, and again with an explicit
+`import/resolver: { typescript: { alwaysTryTypes: true, project: './tsconfig.json' } }`.
+The valid import fails in both. `@open-mercato/ui` ships a subpath `exports` map and the
+template uses `moduleResolution: bundler`; the resolver honors neither, so it reports every
+`@open-mercato/*` subpath as unresolved.
+
+Enabling the rule in that state would fail on correct code, which is worse than leaving it
+off — a gate that cries wolf gets disabled, and then it protects nothing. The underlying
+defect is already covered: with the typecheck heap fix (#5295) `tsc` reports the same thing
+as `TS2307`. Landing this needs a resolver that understands `exports` maps, which is its own
+piece of work rather than a config tweak.
 
 ### Phase 4: Generator warnings
 
-- [ ] 4.1 Warn when page.meta.ts exports no metadata
-- [ ] 4.2 Warn when registerCommand is unreachable at import time
-- [ ] 4.3 Warn when di.ts exports no register
-- [ ] 4.4 Surface the OpenAPI regex fallback as a counted warning
-- [ ] 4.5 Fixture tests for each warning, firing and silent cases
+- [x] 4.1 Warn when page.meta.ts exports no metadata — bbe6988e7
+- [x] 4.2 Warn when registerCommand is unreachable at import time — bbe6988e7
+- [x] 4.3 Warn when di.ts exports no register — bbe6988e7
+- [x] 4.4 Surface the OpenAPI regex fallback as a counted warning — bbe6988e7
+- [x] 4.5 Fixture tests for each warning, firing and silent cases — bbe6988e7
 
 ### Phase 5: Gate-evidence hook
 
-- [ ] 5.1 Add the gate-evidence hook to the agentic hooks template
-- [ ] 5.2 Register it in the generated hook settings
-- [ ] 5.3 Unit tests for the comparison and gate-command matching
+- [x] 5.1 Add the gate-evidence hook to the agentic hooks template — bbe6988e7
+- [x] 5.2 Register it in the generated hook settings — bbe6988e7
+- [x] 5.3 Unit tests for the comparison and gate-command matching — bbe6988e7
