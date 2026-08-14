@@ -58,9 +58,9 @@ Editing a sales order line that already has shipped quantities must present the 
 
 ### Phase 2: Resolve the blocking review findings
 
-- [ ] 2.1 Replace the price `LookupSelect` with a genuinely read-only price display on shipped lines, removing the injected single-entry `options` array entirely (fixes Medium 2 and Medium 1 together)
-- [ ] 2.2 Give the read-only price display net/gross context so the shown amount is self-describing (fixes Low 2)
-- [ ] 2.3 Add a dedicated `sales.documents.items.shippedLineLocked` informational key across en/de/es/ko/pl and use it for the banner instead of the 409 error string (fixes Low 3)
+- [x] 2.1 Replace the price `LookupSelect` with a genuinely read-only price display on shipped lines, removing the injected single-entry `options` array entirely (fixes Medium 2 and Medium 1 together) — b08add8
+- [x] 2.2 Give the read-only price display net/gross context so the shown amount is self-describing (fixes Low 2) — b08add8
+- [x] 2.3 Add a dedicated `sales.documents.items.shippedLineLocked` informational key across en/de/es/ko/pl and use it for the banner instead of the 409 error string (fixes Low 3) — b08add8
 
 ### Phase 3: Regression coverage
 
