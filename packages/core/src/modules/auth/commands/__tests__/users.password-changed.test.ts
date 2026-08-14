@@ -81,11 +81,12 @@ function buildHarness() {
   return { container }
 }
 
-function buildContext(actorId: string): CommandRuntimeContext {
+function buildContext(actorId: string | null, options: { systemActor?: boolean } = {}): CommandRuntimeContext {
   const { container } = buildHarness()
   return {
     container: container as never,
-    auth: { sub: actorId, tenantId: 'tenant-1', orgId: null } as never,
+    auth: actorId ? ({ sub: actorId, tenantId: 'tenant-1', orgId: null } as never) : (null as never),
+    systemActor: options.systemActor,
     organizationScope: null,
     selectedOrganizationId: null,
     organizationIds: null,
@@ -124,6 +125,26 @@ describe('auth.users.update — auth.password.changed event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.password.changed',
       expect.objectContaining({ id: USER_ID, changedBy: 'admin', changedById: ADMIN_ID }),
+      { persistent: true },
+    )
+  })
+
+  it('reports changedBy system when the command runs without an auth context', async () => {
+    await getUpdateHandler().execute({ id: USER_ID, password: 'New-Passw0rd!' }, buildContext(null))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.password.changed',
+      expect.objectContaining({ id: USER_ID, changedBy: 'system', changedById: null }),
+      { persistent: true },
+    )
+  })
+
+  it('reports changedBy system for internal automation even when an actor is present', async () => {
+    await getUpdateHandler().execute({ id: USER_ID, password: 'New-Passw0rd!' }, buildContext(ADMIN_ID, { systemActor: true }))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.password.changed',
+      expect.objectContaining({ id: USER_ID, changedBy: 'system', changedById: ADMIN_ID }),
       { persistent: true },
     )
   })

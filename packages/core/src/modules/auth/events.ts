@@ -20,6 +20,10 @@ const events = [
   { id: 'auth.login.success', label: 'Login Successful', category: 'lifecycle' },
   { id: 'auth.login.failed', label: 'Login Failed', category: 'lifecycle' },
   { id: 'auth.logout', label: 'User Logged Out', category: 'lifecycle' },
+  // `changedBy` discriminates who performed the write: `self` (the account owner),
+  // `admin` (another authenticated user) or `system` (internal automation running
+  // without an auth context — CLI, workers, provisioning). `changedById` is null for
+  // `system` unless the automation carries an actor.
   { id: 'auth.password.changed', label: 'Password Changed', category: 'lifecycle' },
   { id: 'auth.password.reset.requested', label: 'Password Reset Requested', category: 'lifecycle' },
   // Also emitted when an invited user sets their initial password: invitation

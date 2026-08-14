@@ -727,12 +727,19 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     if (hashed) {
       const actorId = ctx.auth?.sub ? String(ctx.auth.sub) : null
+      // `system` covers internal automation — CLI, workers, tenant provisioning — which
+      // runs without an auth context. Without it those writes would be indistinguishable
+      // from an administrator setting someone else's password, which is exactly the case
+      // security alerting escalates on.
+      const changedBy = ctx.systemActor === true || !actorId
+        ? 'system'
+        : actorId === identifiers.id ? 'self' : 'admin'
       void emitAuthEvent('auth.password.changed', {
         id: identifiers.id,
         email: String(user.email),
         tenantId: identifiers.tenantId,
         organizationId: identifiers.organizationId,
-        changedBy: actorId && actorId === identifiers.id ? 'self' : 'admin',
+        changedBy,
         changedById: actorId,
         at: new Date().toISOString(),
       }, { persistent: true }).catch(() => undefined)
