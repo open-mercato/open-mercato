@@ -62,6 +62,7 @@
     "@open-mercato/search": "{{PACKAGE_VERSION}}",
     "@open-mercato/shared": "{{PACKAGE_VERSION}}",
     "@open-mercato/telemetry": "{{PACKAGE_VERSION}}",
+    "@open-mercato/tillio": "{{PACKAGE_VERSION}}",
     "@open-mercato/ui": "{{PACKAGE_VERSION}}",
     "@open-mercato/webhooks": "{{PACKAGE_VERSION}}",
     "@radix-ui/react-popover": "^1.1.17",

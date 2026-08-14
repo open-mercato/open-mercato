@@ -1,8 +1,7 @@
 {
   "name": "@open-mercato/tillio",
-  "version": "0.1.0",
+  "version": "0.6.7",
   "license": "MIT",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -75,6 +74,9 @@
     "react-dom": "19.2.7",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "repository": {
     "type": "git",
