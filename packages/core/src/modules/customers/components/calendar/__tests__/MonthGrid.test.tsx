@@ -30,6 +30,10 @@ function eventPillLabel(container: HTMLElement): string {
   return container.querySelector('button[aria-label*="–"]')?.getAttribute('aria-label') ?? ''
 }
 
+function eventPillLabelByTitle(container: HTMLElement, title: string): string {
+  return container.querySelector(`button[aria-label^="${title}"]`)?.getAttribute('aria-label') ?? ''
+}
+
 describe('MonthGrid — locale-aware date formatting (#5116)', () => {
   afterEach(() => {
     cleanup()
@@ -93,7 +97,7 @@ describe('MonthGrid — shared time-range formatting (#5275)', () => {
       const item = buildCalendarItem()
 
       const view = renderGrid(locale, [item])
-      const pillLabel = eventPillLabel(view.container)
+      const pillLabel = eventPillLabelByTitle(view.container, item.title)
       view.unmount()
 
       expect(pillLabel).toBe(`${item.title} · ${formatTimeRange(locale, item.start, item.end)}`)
