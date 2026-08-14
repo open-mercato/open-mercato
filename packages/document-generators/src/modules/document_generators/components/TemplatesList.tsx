@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { TemplateFilter } from '../lib/interfaces'
 import { useDocumentTemplates } from '../hooks/templates/useDocumentTemplates'
 import { PreviewPanel } from './PreviewPanel'
@@ -17,9 +18,10 @@ interface TemplatesListProps {
 export function TemplatesList({ record, filter }: TemplatesListProps) {
   const t = useT()
   const [selected, setSelected] = React.useState<TemplateMeta | null>(null)
-  const { data: templates = [], isLoading } = useDocumentTemplates(filter)
+  const { data: templates = [], error, isLoading } = useDocumentTemplates(filter)
 
   if (isLoading) return <TemplatesListLoader />
+  if (error) return <ErrorMessage label={t('document_generators.page.error', 'Failed to load templates.')} />
 
   return (
     <>
