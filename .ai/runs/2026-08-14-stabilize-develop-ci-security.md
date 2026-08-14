@@ -107,8 +107,8 @@ are unchanged and stay strict.
 
 ### Phase 1: npm provenance publishing
 
-- [ ] 1.1 Move the three provenance-publishing jobs to GitHub-hosted runners
-- [ ] 1.2 Add a guard test asserting provenance publishes never run on self-hosted runners
+- [x] 1.1 Move the three provenance-publishing jobs to GitHub-hosted runners — 685013f51
+- [x] 1.2 Add a guard test asserting provenance publishes never run on self-hosted runners — 685013f51
 
 ### Phase 2: CodeQL cache-poisoning alert
 
