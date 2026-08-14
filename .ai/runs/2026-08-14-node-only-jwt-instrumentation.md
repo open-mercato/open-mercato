@@ -43,8 +43,8 @@ Source doc: `.ai/specs/2026-04-29-telemetry-and-otel.md`
 
 ### Phase 1: Runtime isolation and regression coverage
 
-- [ ] 1.1 Isolate the JWT startup check to the Node runtime without weakening fail-fast termination
-- [ ] 1.2 Add app/template parity and Edge-safety regression coverage
+- [x] 1.1 Isolate the JWT startup check to the Node runtime without weakening fail-fast termination — eca5e8e80
+- [x] 1.2 Add app/template parity and Edge-safety regression coverage — eca5e8e80
 
 ### Phase 2: Verification and delivery
 
