@@ -83,7 +83,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
 | `testing` | REQUEST says test/coverage/prove, or verify by exercising API/browser/screen sizes/keyboard/screen-reader—not a fix's implicit regression duty or review/audit/config check | MUST read `.ai/guides/testing-debugging.md` + external `om-integration-tests` for integration/E2E/app tests |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` + testing/debugging |
-| `framework-context` | Exact installed contract still unknown | bounded `om-framework-context`, last |
+| `framework-context` | Exact installed contract still unknown | `.ai/guides/framework-contracts.md`, then bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
 `framework-context`: resolve one named module/framework fact first. Use bounded source only for an unresolved exact contract, current behavior, authorization, dependents, or safest customization seam; never for “installed contracts” alone.
