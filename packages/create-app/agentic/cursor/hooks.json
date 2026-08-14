@@ -5,6 +5,16 @@
       "command": "node",
       "args": [".cursor/hooks/entity-migration-check.mjs"],
       "description": "Check if entity edit requires a database migration"
+    },
+    "afterShellExecution": {
+      "command": "node",
+      "args": [".cursor/hooks/gate-evidence.mjs", "record"],
+      "description": "Record validation-gate outcomes so a gate cannot be claimed without running"
+    },
+    "stop": {
+      "command": "node",
+      "args": [".cursor/hooks/gate-evidence.mjs", "check"],
+      "description": "Block finishing when src/ changed without a passing typecheck since"
     }
   }
 }

@@ -49,12 +49,14 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
     const importName = `D_${toVar(modId)}_${i++}`
 
     if (useApp) {
+      warnIfDiMissingRegisterExport(findModuleConventionFilePath(roots.appBase, 'di'), quiet)
       // For @app modules, use relative path to work in both Next.js and Node.js CLI context
       // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
       const importPath = isAppModule ? `../../src/modules/${modId}/di` : `${imp.appBase}/di`
       imports.push({ name: importName, moduleSpecifier: importPath })
       registrars.push(`${importName}.register`)
     } else if (usePkg) {
+      warnIfDiMissingRegisterExport(findModuleConventionFilePath(roots.pkgBase, 'di'), quiet)
       imports.push({ name: importName, moduleSpecifier: `${imp.pkgBase}/di` })
       registrars.push(`${importName}.register`)
     }
@@ -106,4 +108,37 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
 
 function resolveModuleConventionFile(baseDir: string, basename: string): boolean {
   return MODULE_CODE_EXTENSIONS.some((extension) => fs.existsSync(path.join(baseDir, `${basename}${extension}`)))
+}
+
+function findModuleConventionFilePath(baseDir: string, basename: string): string | null {
+  for (const extension of MODULE_CODE_EXTENSIONS) {
+    const candidate = path.join(baseDir, `${basename}${extension}`)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * Warns when a discovered `di.ts` exports no `register`.
+ *
+ * The generated registrar list is built from `<import>.register` for every module that has a
+ * `di` file. A differently named export makes that entry `undefined`, so the module's DI
+ * registrations silently never run and its services surface as missing at request time
+ * instead of at generation time.
+ */
+export function warnIfDiMissingRegisterExport(diPath: string | null, quiet = false): void {
+  if (!diPath || quiet) return
+  let source = ''
+  try {
+    source = fs.readFileSync(diPath, 'utf8')
+  } catch {
+    return
+  }
+  const exportsRegister = /export\s+(async\s+)?function\s+register\b/.test(source)
+    || /export\s+(const|let|var)\s+register\b/.test(source)
+    || /export\s*\{[^}]*\bregister\b[^}]*\}/.test(source)
+  if (exportsRegister) return
+  console.warn(
+    `[generate] ⚠ di.ts exports no 'register' — this module's DI registrations will never run: ${diPath}`,
+  )
 }

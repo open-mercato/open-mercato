@@ -44,6 +44,9 @@ export function generateCursor(config: AgenticConfig): void {
   // .cursor/hooks/entity-migration-check.mjs
   copyFile('hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
 
+  // .cursor/hooks/gate-evidence.mjs
+  copyFile('hooks/gate-evidence.mjs', join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
+
   // .cursor/mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
 

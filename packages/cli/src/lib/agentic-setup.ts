@@ -218,6 +218,19 @@ function listFiles(root: string): string[] {
   return files
 }
 
+/**
+ * The Claude Code hook files a scaffold installs, read from the agentic source tree.
+ *
+ * Enumerating them by hand let `settings.json` register `gate-evidence.ts` while this
+ * generator kept copying only `entity-migration-check.ts`, so `mercato agentic:init` wrote a
+ * hook registration pointing at a file that was never created. Deriving the list from disk
+ * keeps this path and the create-app wizard in step whenever a hook is added.
+ */
+function claudeHookFiles(): string[] {
+  const hooksDir = join(AGENTIC_DIR, 'claude-code', 'hooks')
+  return listFiles(hooksDir).map((file) => relative(hooksDir, file).replaceAll('\\', '/'))
+}
+
 function copyTree(sourceRoot: string, destinationRoot: string, config: AgenticConfig): void {
   for (const sourcePath of listFiles(sourceRoot)) {
     const destinationPath = join(destinationRoot, relative(sourceRoot, sourcePath))
@@ -462,7 +475,7 @@ function finalizeHarnessManifest(config: AgenticConfig, selectedTools: string[])
   if (selectedTools.includes('claude-code')) {
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
-    paths.add(join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+    for (const hook of claudeHookFiles()) paths.add(join(targetDir, '.claude', 'hooks', hook))
     paths.add(join(targetDir, '.mcp.json.example'))
   }
   if (selectedTools.includes('codex')) paths.add(join(targetDir, '.codex', 'mcp.json.example'))
@@ -689,7 +702,9 @@ function generateClaudeCode(config: AgenticConfig): void {
 
   writeTemplate(srcDir, 'CLAUDE.md.template', join(targetDir, 'CLAUDE.md'), config)
   copyFile(srcDir, 'settings.json', join(targetDir, '.claude', 'settings.json'))
-  copyFile(srcDir, 'hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+  for (const hook of claudeHookFiles()) {
+    copyFile(srcDir, `hooks/${hook}`, join(targetDir, '.claude', 'hooks', hook))
+  }
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.mcp.json.example'))
 
   // The installer exclusively owns Claude's per-skill compatibility links.
