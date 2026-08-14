@@ -55,9 +55,9 @@ rendering exactly.
 
 ### Phase 1: Prop and footer gate
 
-- [ ] 1.1 Add the prop to DataTableProps and destructure with a true default
-- [ ] 1.2 Gate the footer duration label and update the memo dependencies
+- [x] 1.1 Add the prop to DataTableProps and destructure with a true default — 027fbdd0a
+- [x] 1.2 Gate the footer duration label and update the memo dependencies — 027fbdd0a
 
 ### Phase 2: Test coverage
 
-- [ ] 2.1 Add a test pinning both the on and off footer branches
+- [x] 2.1 Add a test pinning both the on and off footer branches — 027fbdd0a
