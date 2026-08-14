@@ -112,8 +112,8 @@ are unchanged and stay strict.
 
 ### Phase 2: CodeQL cache-poisoning alert
 
-- [ ] 2.1 Make the `audit.yml` Yarn cache restore-only
-- [ ] 2.2 Add a guard test asserting no non-default-ref checkout writes an Actions cache
+- [x] 2.1 Make the `audit.yml` Yarn cache restore-only — f773f68fe
+- [x] 2.2 Add a guard test asserting no non-default-ref checkout writes an Actions cache — f773f68fe
 
 ### Phase 3: TC-WF-030 integration flake
 
