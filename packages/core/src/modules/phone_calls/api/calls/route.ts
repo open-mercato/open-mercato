@@ -6,6 +6,12 @@ import { E } from '#generated/entities.ids.generated'
 import { PhoneCall } from '../../data/entities'
 import { createPhoneCallsCrudOpenApi, createPagedListResponseSchema } from '../openapi'
 
+const filterDateSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value) => !Number.isNaN(new Date(value).getTime()), { message: 'Expected a parsable date' })
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
@@ -14,8 +20,10 @@ const listSchema = z
     providerKey: z.string().optional(),
     status: z.string().optional(),
     direction: z.string().optional(),
-    startedFrom: z.string().optional(),
-    startedTo: z.string().optional(),
+    // Validated rather than parsed later: an unparsable value used to be dropped, so a typo in a
+    // filter silently returned the unfiltered page.
+    startedFrom: filterDateSchema.optional(),
+    startedTo: filterDateSchema.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     id: z.string().uuid().optional(),
@@ -92,14 +100,8 @@ const crud = makeCrudRoute({
         ]
       }
       const startedRange: Record<string, Date> = {}
-      if (query.startedFrom) {
-        const from = new Date(query.startedFrom)
-        if (!Number.isNaN(from.getTime())) startedRange.$gte = from
-      }
-      if (query.startedTo) {
-        const to = new Date(query.startedTo)
-        if (!Number.isNaN(to.getTime())) startedRange.$lte = to
-      }
+      if (query.startedFrom) startedRange.$gte = new Date(query.startedFrom)
+      if (query.startedTo) startedRange.$lte = new Date(query.startedTo)
       if (Object.keys(startedRange).length) filters.started_at = startedRange
       return filters
     },

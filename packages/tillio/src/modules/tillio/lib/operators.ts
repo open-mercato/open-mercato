@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
@@ -17,6 +18,8 @@ import {
   type TillioOperatorPlugin,
   type TillioOperatorRecord,
 } from './operators-store'
+
+const logger = createLogger('tillio').child({ component: 'operators' })
 
 export type TillioResolvedEnvironment = {
   apiUrl: string
@@ -175,7 +178,9 @@ export async function attachOperator(
   } catch (err) {
     // `addConfig` already registered this operator on Tillio's side. If we cannot persist it
     // locally we would lose the only reference to that remote config, so undo it before failing.
-    await client.deleteConfig(plugin, token, tenantDomain).catch(() => undefined)
+    await client.deleteConfig(plugin, token, tenantDomain).catch((revokeErr: unknown) => {
+      logger.error('could not roll back the remote operator config', { operatorId, err: revokeErr })
+    })
     throw err
   }
 
