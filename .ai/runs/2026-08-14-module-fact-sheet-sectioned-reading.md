@@ -53,12 +53,12 @@ Make generated module fact-sheets mechanically readable under agent read caps, t
 
 ### Phase 1: In-file sectioned reading affordances
 
-- [ ] 1.1 Add the deterministic section model and Contents index
-- [ ] 1.2 Add the terminal marker and source-label compression
-- [ ] 1.3 Add natural sub-anchors for oversized sections
-- [ ] 1.4 Update renderer and build regression coverage
-- [ ] 1.5 Update sectioned-reading guidance
-- [ ] 1.6 Run focused Phase 1 validation
+- [x] 1.1 Add the deterministic section model and Contents index — 506f7a69d
+- [x] 1.2 Add the terminal marker and source-label compression — 506f7a69d
+- [x] 1.3 Add natural sub-anchors for oversized sections — 506f7a69d
+- [x] 1.4 Update renderer and build regression coverage — 506f7a69d
+- [x] 1.5 Update sectioned-reading guidance — 506f7a69d
+- [x] 1.6 Run focused Phase 1 validation — 506f7a69d
 
 ### Phase 2: Directory-based module fact sheets
 
