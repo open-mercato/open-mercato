@@ -28,7 +28,14 @@ jobs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
       packages_json: ${{ steps.release.outputs.packages_json }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # GitHub-hosted on purpose — do NOT move this job to a Blacksmith runner.
+    # `scripts/publish-packages.sh` publishes with `npm publish --provenance`, and
+    # npm's sigstore verification rejects every other runner class:
+    #   422 Unprocessable Entity — Error verifying sigstore provenance bundle:
+    #   Unsupported GitHub Actions runner environment: "self-hosted".
+    # Blacksmith runners register as `self-hosted`, so this job published nothing
+    # between #5244 and #5292. Guarded by scripts/__tests__/npm-provenance-runners.test.mjs.
+    runs-on: ubuntu-latest
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
