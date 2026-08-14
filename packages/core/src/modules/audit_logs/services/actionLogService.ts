@@ -38,7 +38,7 @@ const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][
 // Mirrors what `uuid` (`data/validators.ts`) accepts — versions 1-8 plus the nil and
 // max UUIDs — and is used only when the zod runtime is unavailable, so the actor
 // sanitizer can never reject a value `actionLogCreateSchema` would have accepted.
-const SCHEMA_UUID_REGEX = /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
+export const SCHEMA_UUID_REGEX = /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
 const API_KEY_ACTOR_PREFIX = 'api_key:'
 const SYSTEM_ACTOR_PREFIX = 'system:'
 // `context.systemActor` names the automated principal behind an entry; `context.source`
@@ -53,9 +53,12 @@ function toNullableUuid(value: unknown): string | null {
 }
 
 function isSchemaUuid(value: string): boolean {
+  if (runtimeValidationAvailable === false) return SCHEMA_UUID_REGEX.test(value)
+
   try {
     return uuid.safeParse(value).success
-  } catch {
+  } catch (err) {
+    if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
     return SCHEMA_UUID_REGEX.test(value)
   }
 }

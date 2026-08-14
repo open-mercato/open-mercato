@@ -1,4 +1,5 @@
-import { ActionLogService } from '../actionLogService'
+import { ActionLogService, SCHEMA_UUID_REGEX } from '../actionLogService'
+import { uuid } from '@open-mercato/core/modules/audit_logs/data/validators'
 
 type OrGroup = { __group: 'or'; children: unknown[] }
 type ExpressionBuilderMock = ((...args: unknown[]) => unknown) & {
@@ -403,6 +404,30 @@ describe('ActionLogService normalizeInput', () => {
 
     expect(parsed.actorUserId).toBeNull()
     expect((parsed.context as Record<string, unknown>).systemActor).toBe(`system:${'a'.repeat(248)}`)
+  })
+
+  it('keeps the zod-runtime-missing fallback regex in parity with the create schema', () => {
+    const candidates = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-1222-8222-222222222222',
+      '33333333-3333-5333-9333-333333333333',
+      '44444444-4444-6444-a444-444444444444',
+      '01900000-0000-7000-8000-000000000000',
+      '55555555-5555-8555-b555-555555555555',
+      '00000000-0000-0000-0000-000000000000',
+      'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      '66666666-6666-9666-8666-666666666666',
+      '77777777-7777-4777-7777-777777777777',
+      '11111111-1111-4111-8111-11111111111',
+      'system:example_customers_sync:outbound',
+      'not-a-uuid',
+      '',
+    ]
+
+    for (const candidate of candidates) {
+      expect([candidate, SCHEMA_UUID_REGEX.test(candidate)])
+        .toEqual([candidate, uuid.safeParse(candidate).success])
+    }
   })
 
   it('populates projection columns when creating a log entity', () => {
