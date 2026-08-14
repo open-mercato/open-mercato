@@ -35,6 +35,16 @@ describe('auth ACL dependency declarations', () => {
     }
   })
 
+  test('user create and edit also depend on the roles list feeding their Roles field', () => {
+    for (const id of ['auth.users.create', 'auth.users.edit']) {
+      expect([...(catalog.find((f) => f.id === id)?.dependsOn ?? [])].sort()).toEqual([
+        'auth.roles.list',
+        'auth.users.list',
+      ])
+    }
+    expect(catalog.find((f) => f.id === 'auth.users.delete')?.dependsOn).toEqual(['auth.users.list'])
+  })
+
   test('auth.roles.manage depends on the roles list feature', () => {
     expect(catalog.find((f) => f.id === 'auth.roles.manage')?.dependsOn).toContain('auth.roles.list')
   })
@@ -55,6 +65,28 @@ describe('auth ACL dependency declarations', () => {
     const entry = diagnostics.missingDependencies.find((item) => item.feature === 'auth.acl.manage')
     expect(entry).toBeDefined()
     expect([...(entry?.missing ?? [])]).toEqual(['auth.roles.list', 'auth.users.list'])
+  })
+
+  test('granting auth.users.create alone surfaces both missing read dependencies', () => {
+    const diagnostics = resolveAclDependencyDiagnostics(['auth.users.create'], catalog)
+    const entry = diagnostics.missingDependencies.find((item) => item.feature === 'auth.users.create')
+    expect(entry).toBeDefined()
+    expect([...(entry?.missing ?? [])]).toEqual(['auth.roles.list', 'auth.users.list'])
+  })
+
+  test('deselecting auth.roles.list reports the dependents left behind', () => {
+    const granted = authFeatureIds.filter((id) => id !== 'auth.roles.list')
+    const diagnostics = resolveAclDependencyDiagnostics(granted, catalog)
+    const orphaned = diagnostics.orphanedDependents.find(
+      (entry) => entry.dependency === 'auth.roles.list',
+    )
+    expect(orphaned).toBeDefined()
+    expect([...(orphaned?.dependents ?? [])]).toEqual([
+      'auth.acl.manage',
+      'auth.roles.manage',
+      'auth.users.create',
+      'auth.users.edit',
+    ])
   })
 
   test('deselecting auth.users.list reports the dependents left behind', () => {

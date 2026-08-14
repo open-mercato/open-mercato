@@ -1,7 +1,11 @@
 # ACL Dependency Bundles
 
 **Date:** 2026-05-27
-**Status:** in-implementation (customers module — this PR)
+**Status:** in-implementation — phase 0 (infra) and phase 1 (`customers`) landed; the
+per-module rollout in §7 is proceeding in parallel, one PR per §6.x section. Latest slice:
+phase 3 `auth` (issue #2144). A module is done when its `acl.ts` declares `dependsOn` and it
+ships `__tests__/acl-dependencies.test.ts` per §9 — `grep -rl dependsOn --include=acl.ts` is
+the live progress check, kept here instead of a hand-maintained table that would drift.
 **Source incident:** PR #2073 review comment by @alinadivante
 **Owner:** auth / shared / ui platform; per-module rollout owned by each module maintainer
 
@@ -287,13 +291,13 @@ Introducing the new view features is BC-safe (additive) and requires updating `s
 | Feature | dependsOn |
 |---------|-----------|
 | `auth.users.list` | — |
-| `auth.users.create` | `auth.users.list` |
-| `auth.users.edit` | `auth.users.list` |
+| `auth.users.create` | `auth.users.list`, `auth.roles.list` (**refined**; proposal listed only `auth.users.list`) |
+| `auth.users.edit` | `auth.users.list`, `auth.roles.list` (**refined**; proposal listed only `auth.users.list`) |
 | `auth.users.delete` | `auth.users.list` |
 | `auth.roles.list` | — |
 | `auth.roles.manage` | `auth.roles.list` |
 | `auth.acl.manage` | `auth.users.list`, `auth.roles.list` |
-| `auth.sidebar.manage` | — (refined; was `auth.roles.list`) |
+| `auth.sidebar.manage` | — (**refined**; proposal said `auth.roles.list`) |
 
 Notes (enacted — see issue #2144):
 - `auth.sidebar.manage` was proposed as depending on `auth.roles.list`, but the module
@@ -302,10 +306,28 @@ Notes (enacted — see issue #2144):
   `auth.sidebar.manage` alone (`canApplyToRoles`), and the surface never calls
   `/api/auth/roles`. Declaring the dependency would warn operators about a gap that
   does not exist, so the row stays a root.
+- `auth.users.create` / `auth.users.edit` gained `auth.roles.list` on top of the
+  proposed row. Both forms render a **Roles** field whose options come from
+  `GET /api/auth/roles` via `fetchRoleOptions`, which swallows a 403 and returns `[]`
+  with no toast and no error state (`backend/users/roleOptions.ts`). The edit page
+  additionally resolves the user's current role names through the same endpoint and
+  falls back to raw role ids as labels. Without `auth.roles.list` the operator can
+  therefore open and save the form while the role picker is silently empty and existing
+  assignments read as UUIDs — the exact §1 failure mode, on a **write** field, so it is
+  a hard dependency rather than a soft one.
 - `auth.users.list` stays a root even though the users grid fetches `/api/auth/roles`
   to populate its role **filter** options. That call degrades to an empty option list
   on 403 and blocks nothing, so it is a soft dependency and not worth a standing
-  warning on the module's most commonly granted feature.
+  warning on the module's most commonly granted feature. This is the deliberate
+  counterpart to the create/edit rows above: read-side filtering degrades, write-side
+  assignment does not.
+- The cross-module read on the same two forms was considered and left **soft**. Both
+  load `GET /api/dashboards/widgets/catalog`, gated on
+  `dashboards.admin.assign-widgets`, to offer optional dashboard-widget assignment.
+  It fails loudly but gracefully (inline "Unable to load dashboard widgets. You can
+  configure them later from the user page."), the user record saves without it, and
+  dashboard-widget assignment is a separate administrative concern that many operators
+  legitimately lack — so declaring the edge would warn on an intended configuration.
 - No new view-grained features were required: all eight ids already existed, so
   `setup.ts` `defaultRoleFeatures` (`admin: ['auth.*']`) is unchanged and no
   `sync-role-acls` run is needed for this module.
