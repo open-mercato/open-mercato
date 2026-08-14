@@ -65,7 +65,7 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
       // Advance at most twice: START -> Cart Validation -> Customer Information.
       const advanceButton = page.getByRole('button', { name: 'Advance to Next Step →', exact: true })
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const customerStep = page.getByRole('heading', { name: 'Customer Information', exact: true })
+        const customerStep = page.getByRole('heading', { name: 'Customer Information Required', exact: true })
         if (await customerStep.isVisible()) break
         await expect(advanceButton).toBeVisible()
         await Promise.all([
@@ -76,7 +76,7 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
         ])
       }
 
-      await expect(page.getByRole('heading', { name: 'Customer Information', exact: true })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Customer Information Required', exact: true })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Order Failed' })).toHaveCount(0)
       await expect(page.getByText(/CALL_WEBHOOK rejected unsafe URL|reason=invalid_url/)).toHaveCount(0)
     } finally {
