@@ -32,13 +32,6 @@ Route first; never probe unmatched context.
 
 Use the smallest relevant set. Broad: `yarn generate && yarn typecheck && yarn lint && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Report failures; never migrate to validate.
 
-A gate counts as passed ONLY when its command ran to completion and you report its exit status. Specifically:
-
-- A gate that CRASHES has not passed. An out-of-memory abort (`FATAL ERROR: … heap out of memory`) is a failure to report, never a step to skip.
-- `No tests found` is NOT a pass. Report it as `test: no tests found (not a pass)`.
-- `lint` passing says nothing about whether imports resolve — `eslint` does not check module resolution unless `import/no-unresolved` is enabled. Only `typecheck` proves that.
-- Never write a completion claim (`gate green`, `PRODUCTION READY`, a status table, a summary document) that asserts a gate result you did not actually observe. Writing a document is not running a gate.
-
 ## Three-Axis Context Assembler
 
 Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
