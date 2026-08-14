@@ -1078,7 +1078,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 <>
                   <nav className="flex flex-col gap-2" data-testid="sidebar">
                     {shouldRenderSidebarInjectionSpots ? (
-                      <div className={sidebarContentPadding}>
+                      <div className={sidebarContentPadding + ' empty:hidden'}>
                         <InjectionSpot
                           spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
                           context={injectionContext}
@@ -1098,7 +1098,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       if (visibleItems.length === 0) return null
                       return (
                         <div
-                          className={`box ${sidebarContentPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
+                          className={`${sidebarContentPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
                           key={groupId}
                         >
                           {!compact && (
@@ -1592,7 +1592,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
                   : undefined
               }
-              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-0"
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pt-3"
             >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true, mobileDrawerView === 'main')}
