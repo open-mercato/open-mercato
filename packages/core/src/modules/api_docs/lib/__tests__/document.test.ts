@@ -90,6 +90,15 @@ describe('resolveForwardableCookieHeader', () => {
     expect(forwarded).toBeNull()
   })
 
+  it('withholds the session cookie when the docs base URL downgrades the serving protocol', () => {
+    const forwarded = resolveForwardableCookieHeader(
+      'http://shop.example.com/api',
+      requestHeaders({ cookie: 'auth_token=abc', host: 'shop.example.com', 'x-forwarded-proto': 'https' }),
+    )
+
+    expect(forwarded).toBeNull()
+  })
+
   it('returns null when the visitor sends no cookies', () => {
     expect(
       resolveForwardableCookieHeader('https://shop.example.com/api', requestHeaders({ host: 'shop.example.com' })),

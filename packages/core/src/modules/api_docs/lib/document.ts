@@ -37,7 +37,7 @@ export function resolveForwardableCookieHeader(
   try {
     const target = new URL(targetUrl)
     const origin = new URL(`${protocol}://${host}`)
-    return target.host === origin.host ? cookieHeader : null
+    return target.origin === origin.origin ? cookieHeader : null
   } catch {
     return null
   }
