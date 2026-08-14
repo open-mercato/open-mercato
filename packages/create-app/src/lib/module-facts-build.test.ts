@@ -28,7 +28,8 @@ const LEGACY_PACKAGE_GUIDES = ['cache', 'core', 'events', 'queue', 'search', 'sh
 requirePackageBuild(pkgRoot)
 
 test('build emits customers facts and the framework extension catalog (T5)', () => {
-  assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), 'customers.md fact-sheet should exist')
+  assert.ok(fs.existsSync(join(guidesDir, 'modules', 'customers', 'index.md')), 'customers index should exist')
+  assert.equal(fs.existsSync(join(guidesDir, 'modules', 'customers.md')), false, 'legacy flat customers sheet must be absent')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.json')), 'module-facts.json sidecar should exist')
   assert.ok(fs.existsSync(join(guidesDir, 'module-facts.v2.json')), 'module-facts.v2.json sidecar should exist')
   assert.ok(
@@ -63,13 +64,16 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
     true,
   )
 
-  const markdown = fs.readFileSync(join(guidesDir, 'modules', 'customers.md'), 'utf8')
+  const customersGuidesDir = join(guidesDir, 'modules', 'customers')
+  const markdown = fs.readdirSync(customersGuidesDir)
+    .filter((file) => file.endsWith('.md'))
+    .map((file) => fs.readFileSync(join(customersGuidesDir, file), 'utf8'))
+    .join('\n')
   assert.match(markdown, /## Backend pages/)
-  assert.match(markdown, /## Frontend pages/)
   assert.match(markdown, /## CLI commands/)
   assert.match(markdown, /## AI tools \/ MCP capabilities/)
   assert.match(markdown, /## AI agents/)
-  assert.match(markdown, /\.\.\/\.\.\/\.\.\/node_modules\/@open-mercato\/core\/src\/modules\/customers/)
+  assert.match(markdown, /\.\.\/\.\.\/\.\.\/\.\.\/node_modules\/@open-mercato\/core\/src\/modules\/customers/)
 
   const frameworkMarkdown = fs.readFileSync(join(guidesDir, 'framework-extension-points.md'), 'utf8')
   assert.match(frameworkMarkdown, /^# Framework extension points/m)
@@ -116,7 +120,8 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
       '.ai/guides/module-facts.json',
       '.ai/guides/module-facts.v2.json',
       '.ai/guides/reference-module-facts.json',
-      '.ai/guides/reference-modules/example.md',
+      '.ai/guides/reference-modules/example/index.md',
+      '.ai/guides/reference-modules/example/entities.md',
     ]) {
       assert.equal(fs.existsSync(join(target, relativePath)), true, `${relativePath} must reach a fresh scaffold`)
     }
@@ -127,7 +132,8 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
     assert.equal(ownedPaths.has('.ai/guides/module-facts.json'), true)
     assert.equal(ownedPaths.has('.ai/guides/module-facts.v2.json'), true)
     assert.equal(ownedPaths.has('.ai/guides/reference-module-facts.json'), true)
-    assert.equal(ownedPaths.has('.ai/guides/reference-modules/example.md'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-modules/example/index.md'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-modules/example/entities.md'), true)
   } finally {
     fs.rmSync(parent, { recursive: true, force: true })
   }
@@ -136,8 +142,8 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
 test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
   for (const moduleId of D5_MODULES) {
     assert.ok(
-      fs.existsSync(join(guidesDir, 'modules', `${moduleId}.md`)),
-      `${moduleId}.md fact-sheet should exist`,
+      fs.existsSync(join(guidesDir, 'modules', moduleId, 'index.md')),
+      `${moduleId}/index.md fact-sheet should exist`,
     )
   }
 })
@@ -158,7 +164,7 @@ test('every default-controller module fact is exercised by the evaluation catalo
     ...(caseRecord.context.allowedExtra ?? []),
   ]))
   const uncovered = selectedModuleIds
-    .map((moduleId) => `.ai/guides/modules/${moduleId}.md`)
+    .map((moduleId) => `.ai/guides/modules/${moduleId}/index.md`)
     .filter((guide) => !catalogReferences.has(guide))
     .sort()
 
@@ -219,7 +225,7 @@ test('every module fact-sheet a scaffold ships is required by at least one catal
   ) as Array<{ context: { required: string[]; allowedExtra?: string[] } }>
   const required = new Set(cases.flatMap((entry) => entry.context.required))
   const routed = new Set(cases.flatMap((entry) => [...entry.context.required, ...(entry.context.allowedExtra ?? [])]))
-  const guide = (moduleId: string) => `.ai/guides/modules/${moduleId}.md`
+  const guide = (moduleId: string) => `.ai/guides/modules/${moduleId}/index.md`
 
   const unasserted = shipped
     .filter((moduleId) => !FACT_SHEETS_EXEMPT_FROM_REQUIRED_CASE.includes(moduleId))
@@ -228,7 +234,7 @@ test('every module fact-sheet a scaffold ships is required by at least one catal
     unasserted,
     [],
     `these shipped module fact-sheets are in no case's context.required: ${unasserted.join(', ')}. `
-    + 'Add a case whose prompt forces the read and lists .ai/guides/modules/<id>.md in context.required '
+    + 'Add a case whose prompt forces the read and lists .ai/guides/modules/<id>/index.md in context.required '
     + '(widening another case\'s allowedExtra does not assert it), or stop enabling the module in the template.',
   )
 

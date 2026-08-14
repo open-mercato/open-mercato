@@ -260,7 +260,10 @@ function expectedGuideOutputNames(): string[] {
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
   collected.add('upstream/manifest.json')
   for (const moduleId of FIXTURE_ENABLED_MODULES) {
-    collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
+    const moduleFactsRoot = path.join(cliDir, 'dist', 'agentic', 'guides', 'modules', moduleId)
+    for (const file of fs.readdirSync(moduleFactsRoot)) {
+      if (file.endsWith('.md')) collected.add(normalizePath(path.join('modules', moduleId, file)))
+    }
   }
 
   return Array.from(collected).sort()
@@ -312,7 +315,7 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       for (const moduleId of FIXTURE_ENABLED_MODULES) {
         expect(agentsSource).toContain(`\`${moduleId}\``)
       }
-      expect(agentsSource).toContain('`.ai/guides/modules/<id>.md`')
+      expect(agentsSource).toContain('`.ai/guides/modules/<id>/index.md`')
       expect(agentsSource.match(/\.ai\/guides\/modules\//g)).toHaveLength(1)
       expect(agentsSource).not.toContain('`auth`')
       expect(agentsSource).not.toContain('Core CRM capabilities')

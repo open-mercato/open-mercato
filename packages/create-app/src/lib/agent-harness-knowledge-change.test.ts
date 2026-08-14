@@ -308,7 +308,7 @@ test('the classifier maps each governed path to its contract in monorepo and sta
     ['AGENTS.md', 'routing', 'knowledge-contract', 'agent-instruction-owner'],
     ['packages/create-app/agentic/shared/AGENTS.md.template', 'routing', 'knowledge-contract', 'agent-instruction-owner'],
     ['.ai/guides/architecture.md', 'routing', 'knowledge-contract', 'routing-guide-owner'],
-    ['.ai/guides/modules/customers.md', null, 'asset-sync', 'generated-fact-copy'],
+    ['.ai/guides/modules/customers/index.md', null, 'asset-sync', 'generated-fact-copy'],
     ['.ai/guides/upstream/BACKWARD_COMPATIBILITY.md', null, 'asset-sync', 'generated-fact-copy'],
     ['packages/create-app/agentic/shared/ai/skills/om-evolve-harness/SKILL.md', 'skill-link', 'knowledge-contract', 'skill-authority'],
     ['.ai/skills/om-evolve-harness/references/knowledge-change.md', 'skill-link', 'knowledge-contract', 'skill-authority'],
@@ -342,7 +342,7 @@ test('an unclassified path fails closed to knowledge-contract', () => {
 
 test('a diff of generated copies alone derives asset-sync', () => {
   const derived = validator.deriveChangeClassification([
-    '.ai/guides/modules/customers.md',
+    '.ai/guides/modules/customers/index.md',
     'packages/create-app/dist/agentic/guides/modules/example.md',
     'packages/create-app/agentic/shared/ai/harness/README.md',
   ])
@@ -405,7 +405,7 @@ test('stale hashes, unknown cases, wrong counts, bad ranges, and absent lanes ar
   const root = makeFixtureRoot()
   writeFixtureFile(root, 'packages/create-app/src/lib/demo.test.ts', 'export {}\n')
   writeFixtureFile(root, 'AGENTS.md', '# routing\n')
-  writeFixtureFile(root, '.ai/guides/modules/customers.md', 'generated\n')
+  writeFixtureFile(root, '.ai/guides/modules/customers/index.md', 'generated\n')
 
   const result = runValidation(
     root,
@@ -416,19 +416,19 @@ test('stale hashes, unknown cases, wrong counts, bad ranges, and absent lanes ar
       requiredReleaseLanes: [],
       authoritativeFiles: [{ path: 'AGENTS.md', sha256: '0'.repeat(64) }],
       generatedFiles: [{
-        path: '.ai/guides/modules/customers.md',
+        path: '.ai/guides/modules/customers/index.md',
         sha256: '0'.repeat(64),
         sourcePath: 'packages/create-app/src/lib/missing-source.ts',
       }],
       documentationFiles: ['docs/does-not-exist.md'],
     }),
-    ['AGENTS.md', 'packages/create-app/src/lib/demo.test.ts', '.ai/guides/modules/customers.md'],
+    ['AGENTS.md', 'packages/create-app/src/lib/demo.test.ts', '.ai/guides/modules/customers/index.md'],
   )
 
   assert.equal(result.ok, false)
   const joined = result.errors.join('\n')
   assert.match(joined, /authoritativeFiles AGENTS\.md sha256 is stale/)
-  assert.match(joined, /generatedFiles \.ai\/guides\/modules\/customers\.md sha256 is stale/)
+  assert.match(joined, /generatedFiles \.ai\/guides\/modules\/customers\/index\.md sha256 is stale/)
   assert.match(joined, /names sourcePath packages\/create-app\/src\/lib\/missing-source\.ts, which is not an exact regular file/)
   assert.match(joined, /documentationFiles docs\/does-not-exist\.md is not an exact regular file/)
   assert.match(joined, /affectedCaseIds OMH-404 does not exist/)
@@ -458,7 +458,7 @@ test('an asset-sync run whose authoritative source moved is rejected', () => {
   spawnSync('git', ['-C', root, 'config', 'user.email', 'harness@example.test'])
   spawnSync('git', ['-C', root, 'config', 'user.name', 'Harness'])
   writeFixtureFile(root, 'packages/create-app/src/lib/starter-presets.ts', 'export const version = 1\n')
-  const generatedSha = writeFixtureFile(root, '.ai/guides/modules/customers.md', 'generated v1\n')
+  const generatedSha = writeFixtureFile(root, '.ai/guides/modules/customers/index.md', 'generated v1\n')
   spawnSync('git', ['-C', root, 'add', '-A'])
   spawnSync('git', ['-C', root, 'commit', '--quiet', '-m', 'base'])
   const baseSha = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
@@ -473,12 +473,12 @@ test('an asset-sync run whose authoritative source moved is rejected', () => {
       affectedCaseIds: [],
       affectedRanges: [],
       generatedFiles: [{
-        path: '.ai/guides/modules/customers.md',
+        path: '.ai/guides/modules/customers/index.md',
         sha256: generatedSha,
         sourcePath: 'packages/create-app/src/lib/starter-presets.ts',
       }],
     }),
-    ['.ai/guides/modules/customers.md'],
+    ['.ai/guides/modules/customers/index.md'],
     { baseSha },
   )
   assert.deepEqual(clean.errors, [])
@@ -495,12 +495,12 @@ test('an asset-sync run whose authoritative source moved is rejected', () => {
       affectedCaseIds: [],
       affectedRanges: [],
       generatedFiles: [{
-        path: '.ai/guides/modules/customers.md',
+        path: '.ai/guides/modules/customers/index.md',
         sha256: generatedSha,
         sourcePath: 'packages/create-app/src/lib/starter-presets.ts',
       }],
     }),
-    ['.ai/guides/modules/customers.md'],
+    ['.ai/guides/modules/customers/index.md'],
     { baseSha },
   )
   assert.ok(drifted.errors.some((error) => /asset-sync run changed authoritative source/.test(error)))
