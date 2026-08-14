@@ -352,6 +352,29 @@ describe('ActionLogService normalizeInput', () => {
     }
   })
 
+  it('unwraps an api key actor to any uuid the create schema accepts, not only v4', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const wrappedActors = [
+      '00000000-0000-0000-0000-000000000000',
+      '01900000-0000-7000-8000-000000000000',
+      '22222222-2222-4222-8222-222222222222',
+    ]
+
+    for (const actorUserId of wrappedActors) {
+      const parsed = serviceWithPrivateAccess.parseCreateInput({
+        commandId: 'api.something',
+        actorUserId: `api_key:${actorUserId}`,
+      })
+
+      expect(parsed.actorUserId).toBe(actorUserId)
+      expect(parsed.context).toBeUndefined()
+    }
+  })
+
   it('trims a padded actor id into the actor column rather than treating it as a system actor', () => {
     const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
     const serviceWithPrivateAccess = service as unknown as {
