@@ -65,4 +65,5 @@ Clear the four items @pkarw raised in the `CHANGES_REQUESTED` review of PR #5272
 ### Phase 3: Verify and hand back for re-review
 
 - [x] 3.1 Run the full `validation.commands` gate and record the runner — local runner (no compose `app` container); `build:packages` / `generate` / `build:packages` / `i18n:check-sync` / `i18n:check-usage` / `typecheck` / `build:app` green, plus `template:sync` zero drift; `test` red only on the pre-existing `packages/shared` `likeFilterWarning` case, which fails identically in isolation on untouched code
-- [ ] 3.2 Run the authoritative code-review pass over the resume delta and post the summary comment
+- [x] 3.2 Run the authoritative code-review pass over the resume delta and post the summary comment
+- [x] Post-review fix: document why parity is byte-compared and why the scope case widens `SYNC_FOLDERS` — b5128b3a3
