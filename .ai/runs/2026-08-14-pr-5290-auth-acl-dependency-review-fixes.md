@@ -83,7 +83,7 @@ PR: #5290
 
 ### Phase 2: Validate and finalize
 
-- [ ] 2.1 Full validation gate, PR body/table refresh, review-response comment, resume summary
+- [x] 2.1 Full validation gate, PR body/table refresh, review-response comment, resume summary — gate green (`yarn test` red only on the documented Windows baseline: 5 core / 2 cli / 1 shared / 1 ui / 1 queue / create-app symlink suites, identical set to a clean tree, zero auth failures)
 
 ## External References
 
