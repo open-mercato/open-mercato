@@ -14,7 +14,11 @@ import { SYNC_FOLDERS } from '../../../../scripts/template-sync.ts'
 // the only thing standing between the two trees and silent drift.
 //
 // The mirror itself is produced by `yarn template:sync:fix`; failures here name the
-// offending locale and are fixed by re-running it.
+// offending locale and are fixed by re-running it. Parity is compared on raw bytes, so
+// a formatting-only divergence cannot parse equal and slip through; the key/value diff
+// exists only to make the failure readable. The scope case widens SYNC_FOLDERS to
+// `readonly string[]` on purpose — narrowing the real tuple should fail here with that
+// assertion message, not as a type error in this file.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..')
