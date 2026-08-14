@@ -49,7 +49,12 @@ function collectSourceFiles(root) {
       if (entry.name === 'node_modules' || entry.name === '.mercato') continue
       const absolutePath = path.join(directory, entry.name)
       if (entry.isDirectory()) visit(absolutePath)
-      else if (entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name)) files.push(absolutePath)
+      else if (
+        entry.isFile()
+        && /\.(?:ts|tsx)$/.test(entry.name)
+        && !/\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)
+        && !absolutePath.split(path.sep).some((segment) => segment === '__tests__' || segment === '__integration__')
+      ) files.push(absolutePath)
     }
   }
   visit(sourceRoot)
@@ -57,9 +62,51 @@ function collectSourceFiles(root) {
 }
 
 function lineAndColumn(source, offset) {
-  const prefix = source.slice(0, offset)
-  const lines = prefix.split('\n')
+  const lines = source.slice(0, offset).split('\n')
   return { line: lines.length, column: lines.at(-1).length + 1 }
+}
+
+function collectStringCandidates(source) {
+  const candidates = []
+  let index = 0
+  while (index < source.length) {
+    if (source[index] === '/' && source[index + 1] === '/') {
+      index = source.indexOf('\n', index + 2)
+      if (index < 0) break
+      continue
+    }
+    if (source[index] === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2)
+      index = end < 0 ? source.length : end + 2
+      continue
+    }
+    const quote = source[index]
+    if (quote !== '"' && quote !== "'" && quote !== '`') {
+      index += 1
+      continue
+    }
+    const start = index + 1
+    index = start
+    while (index < source.length) {
+      if (source[index] === '\\') {
+        index += 2
+        continue
+      }
+      if (source[index] === quote) break
+      index += 1
+    }
+    candidates.push({ value: source.slice(start, index), offset: start })
+    index += 1
+  }
+  return candidates
+}
+
+function isClassCandidate(source, candidate) {
+  const prefix = source.slice(Math.max(0, candidate.offset - 120), candidate.offset - 1)
+  if (/(?:className|class)\s*=\s*(?:\{\s*)?$/.test(prefix)) return true
+  if (/(?:cn|clsx|cva|twMerge)\s*\([^)]*$/.test(prefix)) return true
+  return /\s/.test(candidate.value)
+    && /(?:^|\s)(?:flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|items-|justify-|gap-|space-|p[trblxy]?-|m[trblxy]?-|w-|h-|min-|max-|text-|bg-|border-|ring-|rounded-|shadow-)/.test(candidate.value)
 }
 
 function readIgnoreFile(root) {
@@ -96,27 +143,42 @@ export function scanDesignSystem(root = process.cwd()) {
   const normalizedRoot = path.resolve(root)
   const ignore = readIgnoreFile(normalizedRoot)
   const findings = []
+  const sourceFiles = collectSourceFiles(normalizedRoot)
 
-  for (const absolutePath of collectSourceFiles(normalizedRoot)) {
+  const recordFinding = (source, relativePath, rule, match, position) => {
+    const location = lineAndColumn(source, position)
+    const finding = {
+      file: relativePath,
+      rule: rule.id,
+      message: rule.description,
+      match: match.trim(),
+      ...location,
+    }
+    const ignoredBy = ignore.entries.find((entry) => matchesIgnore(entry, finding))
+    if (ignoredBy) ignoredBy.matched = true
+    else findings.push(finding)
+  }
+
+  for (const absolutePath of sourceFiles) {
     const source = fs.readFileSync(absolutePath, 'utf8')
-    const stringPolicySource = source.replace(/["'`]/g, ' ')
     const relativePath = path.relative(normalizedRoot, absolutePath).split(path.sep).join('/')
-    for (const rule of DS_RULES) {
-      if (rule.backendOnly && !/(?:^|\/)backend(?:\/|$)/.test(relativePath)) continue
-      const pattern = new RegExp(rule.pattern, 'g')
-      const scanSource = rule.stringPolicy ? stringPolicySource : source
-      for (const match of scanSource.matchAll(pattern)) {
-        const location = lineAndColumn(source, match.index)
-        const finding = {
-          file: relativePath,
-          rule: rule.id,
-          message: rule.description,
-          match: match[0].trim(),
-          ...location,
+    for (const candidate of collectStringCandidates(source)) {
+      if (!isClassCandidate(source, candidate)) continue
+      for (const rule of DS_RULES.filter((item) => item.stringPolicy)) {
+        const pattern = new RegExp(rule.pattern, 'g')
+        for (const match of candidate.value.matchAll(pattern)) {
+          recordFinding(source, relativePath, rule, match[0], candidate.offset + match.index)
         }
-        const ignoredBy = ignore.entries.find((entry) => matchesIgnore(entry, finding))
-        if (ignoredBy) ignoredBy.matched = true
-        else findings.push(finding)
+      }
+    }
+    const inlineStyleRule = DS_RULES.find((candidate) => candidate.id === 'inline-style')
+    for (const match of source.matchAll(/\bstyle\s*=/g)) {
+      recordFinding(source, relativePath, inlineStyleRule, match[0], match.index)
+    }
+    if (/(?:^|\/)backend(?:\/|$)/.test(relativePath)) {
+      const rawTableRule = DS_RULES.find((candidate) => candidate.id === 'raw-backend-table')
+      for (const match of source.matchAll(/<(?:table|thead|tbody|tfoot|tr|th|td)\b/g)) {
+        recordFinding(source, relativePath, rawTableRule, match[0], match.index)
       }
     }
   }
@@ -126,7 +188,7 @@ export function scanDesignSystem(root = process.cwd()) {
     .map((entry) => ({ file: entry.file, rule: entry.rule, match: entry.match ?? null }))
   return {
     ok: findings.length === 0 && staleIgnores.length === 0 && ignore.errors.length === 0,
-    filesScanned: collectSourceFiles(normalizedRoot).length,
+    filesScanned: sourceFiles.length,
     findings,
     staleIgnores,
     errors: ignore.errors,

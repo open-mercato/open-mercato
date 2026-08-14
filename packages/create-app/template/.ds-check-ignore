@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "src/app/start/page.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/BackendHeaderChrome.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/DemoFeedbackWidget.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/DemoFeedbackWidget.tsx",
+      "rule": "inline-style",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/GlobalNoticeBars.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/OrganizationSwitcher.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/OrganizationSwitcher.tsx",
+      "rule": "inline-style",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/ui/card.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/ui/input.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/ui/input.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/components/ui/label.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/frontend/blog/[id]/page.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/dashboard/notes/widget.client.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/dashboard/notes/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/dashboard/todos/widget.client.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/dashboard/welcome/widget.client.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/crud-validation/widget.ts",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "arbitrary-tailwind",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+    }
+  ]
+}
