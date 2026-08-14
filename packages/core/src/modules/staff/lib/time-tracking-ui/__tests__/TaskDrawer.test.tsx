@@ -8,6 +8,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { TaskDrawer } from '../TaskDrawer'
+import { todayIsoDate } from '../taskDrawerData'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
 const BACKLOG_ID = '22222222-2222-4222-8222-222222222222'
@@ -295,7 +296,10 @@ describe('TaskDrawer', () => {
     expect(body.staffMemberId).toBe(SELF_ID)
     expect(body.isBillable).toBe(true)
     expect(body.taskId).toBe(TASK_ID)
-    expect(body.date).toBe(new Date().toISOString().slice(0, 10))
+    // `todayIsoDate` reads local calendar fields, so asserting against
+    // `toISOString()` (UTC) fails between midnight and the UTC offset — 00:00–02:00
+    // in CEST. Compare against the same helper the component uses.
+    expect(body.date).toBe(todayIsoDate())
   })
 
   it('keeps unparseable duration text in place and refuses to log it', async () => {
