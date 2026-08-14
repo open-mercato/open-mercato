@@ -62,13 +62,6 @@ export interface ProviderValidationResult {
   details?: Record<string, unknown>
 }
 
-export interface FetchPhoneCallInput {
-  externalCallId: string
-  credentials: PhoneCallProviderCredentials
-  scope: PhoneCallProviderScope
-  integrationId?: string | null
-}
-
 export interface FetchPhoneCallsInput {
   credentials: PhoneCallProviderCredentials
   scope: PhoneCallProviderScope

@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { PhoneCallProviderAdapter } from '@open-mercato/shared/modules/phone_calls/provider'
 import type {
-  FetchPhoneCallInput,
   FetchPhoneCallsInput,
   NormalizedPhoneCall,
   NormalizedPhoneCallBatch,
@@ -62,10 +61,6 @@ export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProvi
         const message = err instanceof TillioApiError || err instanceof Error ? err.message : 'Validation failed'
         return { ok: false, message }
       }
-    },
-
-    async fetchCall(_input: FetchPhoneCallInput): Promise<NormalizedPhoneCall | null> {
-      throw new Error('[internal] tillio.fetchCall is not part of the pull slice.')
     },
 
     async fetchCalls(input: FetchPhoneCallsInput): Promise<NormalizedPhoneCallBatch> {

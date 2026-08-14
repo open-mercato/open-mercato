@@ -1,7 +1,5 @@
 import type {
-  FetchPhoneCallInput,
   FetchPhoneCallsInput,
-  NormalizedPhoneCall,
   NormalizedPhoneCallBatch,
   ProviderValidationResult,
   ValidatePhoneCallProviderInput,
@@ -12,7 +10,6 @@ export interface PhoneCallProviderAdapter {
   readonly displayName: string
 
   validateConnection(input: ValidatePhoneCallProviderInput): Promise<ProviderValidationResult>
-  fetchCall(input: FetchPhoneCallInput): Promise<NormalizedPhoneCall | null>
   fetchCalls(input: FetchPhoneCallsInput): Promise<NormalizedPhoneCallBatch>
 }
 
