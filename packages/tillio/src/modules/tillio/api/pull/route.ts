@@ -33,9 +33,9 @@ import { zonedDayEnd, zonedDayStart } from '../../lib/tz'
 const PHONE_CALL_RESOURCE_KIND = 'phone_calls.phone_call'
 const TILLIO_PROVIDER_KEY = 'tillio'
 
-const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const daySchema = z.iso.date()
 
-const pullBodySchema = z
+export const pullBodySchema = z
   .object({
     from: daySchema,
     to: daySchema,

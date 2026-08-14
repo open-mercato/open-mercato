@@ -5,7 +5,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Tag, type TagVariant } from '@open-mercato/ui/primitives/tag'
+import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -31,6 +31,12 @@ type PhoneCallListResponse = {
 const DIRECTION_VALUES = ['inbound', 'outbound', 'internal', 'unknown'] as const
 const STATUS_VALUES = ['new', 'ringing', 'answered', 'missed', 'failed', 'completed', 'unknown'] as const
 
+type PhoneCallStatusValue = typeof STATUS_VALUES[number]
+
+function isPhoneCallStatus(value: string): value is PhoneCallStatusValue {
+  return (STATUS_VALUES as readonly string[]).includes(value)
+}
+
 // Column id (snake_case accessorKey) -> API sortField key (camelCase, matches
 // the route's sortFieldMap). Columns absent from this map are not sortable.
 const SORT_FIELDS: Record<string, string> = {
@@ -43,7 +49,7 @@ const SORT_FIELDS: Record<string, string> = {
   ingest_status: 'ingestStatus',
 }
 
-const STATUS_TONE: Record<string, TagVariant> = {
+const STATUS_TONE: StatusMap<PhoneCallStatusValue> = {
   completed: 'success',
   answered: 'success',
   ringing: 'warning',
@@ -165,8 +171,9 @@ export default function PhoneCallsPage() {
     {
       accessorKey: 'external_call_id',
       header: t('phone_calls.calls.columns.callId', 'Call ID'),
+      meta: { truncate: true, maxWidth: '240px' },
       cell: ({ row }) => (
-        <span className="text-sm font-medium truncate max-w-[240px] block">{row.original.external_call_id || '—'}</span>
+        <span className="text-sm font-medium">{row.original.external_call_id || '—'}</span>
       ),
     },
     {
@@ -184,9 +191,9 @@ export default function PhoneCallsPage() {
         const value = row.original.status
         if (!value) return <span className="text-sm text-muted-foreground">—</span>
         return (
-          <Tag variant={STATUS_TONE[value] ?? 'neutral'}>
+          <StatusBadge variant={STATUS_TONE[isPhoneCallStatus(value) ? value : 'unknown']} dot>
             {t(`phone_calls.calls.status.${value}`, value)}
-          </Tag>
+          </StatusBadge>
         )
       },
     },

@@ -26,7 +26,12 @@ const tillioCallSchema = z.object({
 export type TillioRawCall = z.infer<typeof tillioCallSchema>
 
 const ANSWERED_STATUSES = new Set(['ANSWERED', 'PROPER', 'REPEATED', 'CONNECTED'])
-const MISSED_STATUSES = new Set(['NO ANSWER', 'NO FORWARD', 'VOICEMAIL', 'NO EXTENSION'])
+// The call reached the callee side but no conversation happened: nobody picked up,
+// voicemail took it, there was nowhere to forward it, or the callee was on another
+// call.
+const MISSED_STATUSES = new Set(['NO ANSWER', 'NO FORWARD', 'VOICEMAIL', 'NO EXTENSION', 'BUSY'])
+// The call could not be set up at all (SIP 603).
+const FAILED_STATUSES = new Set(['FAILED'])
 
 const HTML_ENTITIES: Record<string, string> = {
   '&quot;': '"',
@@ -88,13 +93,15 @@ function mapDirection(type: string | undefined): PhoneCallDirection {
   }
 }
 
-// A billed call connected, whatever the textual status claims.
+// A billed call connected, whatever the textual status claims. A status Tillio has
+// not documented yet stays 'unknown' rather than being reported as a failure.
 export function mapStatus(status: string | undefined, durationSeconds: number | null): PhoneCallStatus {
   if (durationSeconds !== null && durationSeconds > 0) return 'answered'
   const normalized = (status ?? '').trim().toUpperCase()
   if (ANSWERED_STATUSES.has(normalized)) return 'answered'
   if (MISSED_STATUSES.has(normalized)) return 'missed'
-  return 'failed'
+  if (FAILED_STATUSES.has(normalized)) return 'failed'
+  return 'unknown'
 }
 
 export const ringostatExtractor: TillioCallExtractor = (extraFields) => {
@@ -114,14 +121,12 @@ export const ringostatExtractor: TillioCallExtractor = (extraFields) => {
   }
 }
 
-const passthroughExtractor: TillioCallExtractor = () => ({})
-
 const EXTRACTORS: Record<TillioOperatorPlugin, TillioCallExtractor> = {
   Ringostat: ringostatExtractor,
 }
 
 export function getExtractorForPlugin(plugin: TillioOperatorPlugin): TillioCallExtractor {
-  return EXTRACTORS[plugin] ?? passthroughExtractor
+  return EXTRACTORS[plugin]
 }
 
 export function normalizeTillioCall(

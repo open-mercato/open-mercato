@@ -43,15 +43,19 @@ describe('mapStatus', () => {
   })
 
   it('maps the missed family', () => {
-    for (const status of ['NO ANSWER', 'NO FORWARD', 'VOICEMAIL', 'NO EXTENSION']) {
+    for (const status of ['NO ANSWER', 'NO FORWARD', 'VOICEMAIL', 'NO EXTENSION', 'BUSY']) {
       expect(mapStatus(status, 0)).toBe('missed')
     }
   })
 
-  it('falls back to failed for busy and unknown statuses', () => {
-    expect(mapStatus('BUSY', 0)).toBe('failed')
-    expect(mapStatus('SOMETHING NEW', 0)).toBe('failed')
-    expect(mapStatus(undefined, null)).toBe('failed')
+  it('maps a call that never got set up to failed', () => {
+    expect(mapStatus('FAILED', 0)).toBe('failed')
+  })
+
+  it('falls back to unknown for statuses Tillio has not documented', () => {
+    expect(mapStatus('SOMETHING NEW', 0)).toBe('unknown')
+    expect(mapStatus(undefined, null)).toBe('unknown')
+    expect(mapStatus('', 0)).toBe('unknown')
   })
 })
 

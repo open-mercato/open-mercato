@@ -5,7 +5,7 @@ export const tillioDetailWidgetSpotId = buildIntegrationDetailWidgetSpotId('till
 export const integration: IntegrationDefinition = {
   id: 'tillio',
   title: 'Tillio',
-  description: 'VoIP bridge for the phone_calls hub. Configure the Tillio environment, then attach one operator (Ringostat or Play).',
+  description: 'VoIP bridge for the phone_calls hub. Configure the Tillio environment, then attach one Ringostat operator.',
   category: 'communication',
   hub: 'phone_calls',
   providerKey: 'tillio',
@@ -14,7 +14,7 @@ export const integration: IntegrationDefinition = {
   version: '0.1.0',
   author: 'Open Mercato Team',
   license: 'MIT',
-  tags: ['tillio', 'voip', 'phone-calls', 'telephony', 'ringostat', 'play'],
+  tags: ['tillio', 'voip', 'phone-calls', 'telephony', 'ringostat'],
   detailPage: {
     widgetSpotId: tillioDetailWidgetSpotId,
   },

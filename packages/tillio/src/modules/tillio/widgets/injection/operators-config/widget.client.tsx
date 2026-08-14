@@ -10,6 +10,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -221,10 +222,10 @@ export default function OperatorsConfigWidget(
         </div>
       ) : state.environmentReady ? (
         <div className="grid gap-3 rounded-md border border-border p-4">
-          <div className="grid gap-1.5">
-            <Label asChild>
-              <span>{t('tillio.operators.ringostatKey', 'Ringostat key')}</span>
-            </Label>
+          <FormField
+            label={t('tillio.operators.ringostatKey', 'Ringostat key')}
+            description={t('tillio.operators.ringostatKeyHint', 'One operator at a time. Detach the current one before attaching another.')}
+          >
             <Input
               type="password"
               autoComplete="off"
@@ -232,10 +233,7 @@ export default function OperatorsConfigWidget(
               onChange={(event) => setKeyInput(event.target.value)}
               placeholder={t('tillio.operators.ringostatKeyPlaceholder', 'Paste the Ringostat integration key')}
             />
-            <span className="text-xs text-muted-foreground">
-              {t('tillio.operators.ringostatKeyHint', 'One operator at a time. Detach the current one before attaching another.')}
-            </span>
-          </div>
+          </FormField>
           <div>
             <Button type="button" onClick={() => void attach()} disabled={pending}>
               {pending
