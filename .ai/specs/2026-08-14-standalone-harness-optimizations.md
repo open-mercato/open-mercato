@@ -134,7 +134,7 @@ None — no HTTP surface changes. CLI surface: two new package scripts in scaffo
 
 | Risk | Category | Likelihood | Impact | Mitigation | Residual |
 |---|---|---|---|---|---|
-| `ds:check` rules drift from the eval oracle's rules | Operational | Medium | Split-brain enforcement (app passes, eval fails) | Create-app rule-parity test asserting the script's exported table matches the oracle's patterns; the oracle itself is never modified, so no eval-regression risk is introduced | Low |
+| `ds:check` rules drift from the eval oracle's rules | Operational | Medium | Split-brain enforcement (app passes, eval fails) | Create-app semantic-parity fixtures exercise both matchers; any narrow oracle matcher edit ships with focused oracle regression coverage | Low |
 | New gate command breaks existing user workflows | Migration | Low | Existing apps' gates unchanged (user-owned config); only new scaffolds affected | UPGRADE_NOTES entry + `om-apply-upgrade-notes` adoption path | Low |
 | Knowledge-governance validator burden makes small prose fixes expensive | Operational | Medium | Slower iteration on skill text | The governance contract already exempts byte-identical asset-sync; batch the skill-text changes per phase so one validated knowledge-change covers each | Accepted |
 | Ledger discipline inflates token usage per slice | Operational | Low | A ledger line is ~1–2 lines of output per slice — noise vs the 133k/turn replay measured in #5266 | — | Negligible |
