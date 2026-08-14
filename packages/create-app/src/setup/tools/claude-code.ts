@@ -37,13 +37,17 @@ export function generateClaudeCode(config: AgenticConfig): void {
   writeTemplate('CLAUDE.md.template', join(targetDir, 'CLAUDE.md'), config)
 
   // .claude/settings.json
-  copyFile('settings.json', join(targetDir, '.claude', 'settings.json'))
+  copyFile(
+    config.experimentalHooksValidator ? 'settings.experimental-hooks-validator.json' : 'settings.json',
+    join(targetDir, '.claude', 'settings.json'),
+  )
 
   // .claude/hooks/entity-migration-check.ts
   copyFile('hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
 
-  // .claude/hooks/gate-evidence.ts
-  copyFile('hooks/gate-evidence.ts', join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+  if (config.experimentalHooksValidator) {
+    copyFile('hooks/gate-evidence.ts', join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+  }
 
   // .mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.mcp.json.example'))

@@ -72,6 +72,9 @@ npx create-mercato-app my-store --preset classic --agents all
 # Set up only Claude Code and Codex
 npx create-mercato-app my-store --agents claude-code,codex
 
+# Opt in to the experimental validation/typecheck hook layer
+npx create-mercato-app my-store --agents claude-code,codex --experimental-hooks-validator
+
 # Create a new app and initialize a local Git repository
 npx create-mercato-app my-store --init-git
 ```
@@ -90,6 +93,8 @@ npx create-mercato-app my-store --init-git
 ## Standalone AI Harness
 
 A bare scaffold can install a standalone-specific AI development harness for Claude Code, Codex, Cursor, or any selected subset. It combines a compact task router, module/task guides, local skills, an integrity-pinned subset of `open-mercato/skills`, exact installed-framework context, and a reproducible evaluation catalog.
+
+The gate-evidence hooks that record validation outcomes and require a newer passing typecheck after source edits are experimental and disabled by default. Opt in with `--experimental-hooks-validator` during creation or `yarn mercato agentic:init`, or set `OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR=1` before setup. The explicit flag takes precedence over the environment default.
 
 ### Install or refresh skills
 
