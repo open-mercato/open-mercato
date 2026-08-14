@@ -96,7 +96,18 @@ export interface HistoryItem {
 export async function listDocuments(
   request: APIRequestContext,
   token: string,
-  query: { resource_kind?: string; resource_id?: string; page?: number; pageSize?: number } = {},
+  query: {
+    resource_kind?: string
+    resource_id?: string
+    template_id?: string
+    generated_by?: string
+    generated_from?: string
+    generated_to?: string
+    sort?: 'resource_label' | 'template_label' | 'format' | 'generated_by' | 'generated_at'
+    sort_direction?: 'asc' | 'desc'
+    page?: number
+    pageSize?: number
+  } = {},
 ): Promise<{ items: HistoryItem[]; total: number; page: number; pageSize: number }> {
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(query)) if (v !== undefined) qs.set(k, String(v))

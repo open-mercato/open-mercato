@@ -24,6 +24,12 @@ export interface ListGeneratedDocumentsQuery {
   pageSize: number
   resourceKind?: string
   resourceId?: string
+  templateId?: string
+  generatedBy?: string
+  generatedFrom?: Date
+  generatedTo?: Date
+  sortBy?: 'resourceLabel' | 'templateLabel' | 'format' | 'generatedBy' | 'generatedAt'
+  sortDirection?: 'asc' | 'desc'
 }
 
 /** Serialized history row returned to API callers (dates as ISO strings). */

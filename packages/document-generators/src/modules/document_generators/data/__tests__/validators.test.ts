@@ -36,7 +36,7 @@ describe('generateSchema', () => {
 describe('listDocumentsSchema', () => {
   it('applies defaults for page and pageSize', () => {
     const r = listDocumentsSchema.parse({})
-    expect(r).toMatchObject({ page: 1, pageSize: 20 })
+    expect(r).toMatchObject({ page: 1, pageSize: 20, sort: 'generated_at', sort_direction: 'desc' })
   })
 
   it('coerces numeric query strings', () => {
@@ -47,6 +47,38 @@ describe('listDocumentsSchema', () => {
   it('keeps optional resource filters', () => {
     const r = listDocumentsSchema.parse({ resource_kind: 'example.record', resource_id: 'record-1' })
     expect(r).toMatchObject({ resource_kind: 'example.record', resource_id: 'record-1' })
+  })
+
+  it('coerces history filters and keeps supported sorting', () => {
+    const r = listDocumentsSchema.parse({
+      template_id: 'sample-report',
+      generated_by: '5b59688c-7101-4fe7-b4b7-23c8ab83bb01',
+      generated_from: '2026-08-01T00:00:00.000Z',
+      generated_to: '2026-08-14T23:59:59.999Z',
+      sort: 'template_label',
+      sort_direction: 'asc',
+    })
+
+    expect(r).toMatchObject({
+      template_id: 'sample-report',
+      generated_by: '5b59688c-7101-4fe7-b4b7-23c8ab83bb01',
+      generated_from: new Date('2026-08-01T00:00:00.000Z'),
+      generated_to: new Date('2026-08-14T23:59:59.999Z'),
+      sort: 'template_label',
+      sort_direction: 'asc',
+    })
+  })
+
+  it('rejects an inverted generation date range', () => {
+    expect(listDocumentsSchema.safeParse({
+      generated_from: '2026-08-15T00:00:00.000Z',
+      generated_to: '2026-08-14T23:59:59.999Z',
+    }).success).toBe(false)
+  })
+
+  it('rejects unsupported sort fields and invalid generator ids', () => {
+    expect(listDocumentsSchema.safeParse({ sort: 'id' }).success).toBe(false)
+    expect(listDocumentsSchema.safeParse({ generated_by: 'not-a-uuid' }).success).toBe(false)
   })
 
   it('rejects pageSize above the cap', () => {

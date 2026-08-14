@@ -127,4 +127,35 @@ describe('GenerationHistoryService.listAndCount', () => {
       expect.objectContaining({ limit: 10, offset: 0 }),
     )
   })
+
+  it('applies history filters and the requested sort order', async () => {
+    const findAndCount = jest.fn().mockResolvedValue([[], 0])
+    const em = { findAndCount } as unknown as EntityManager
+    const generatedFrom = new Date('2026-08-01T00:00:00.000Z')
+    const generatedTo = new Date('2026-08-14T23:59:59.999Z')
+
+    await new GenerationHistoryService(em).listAndCount({
+      scope,
+      page: 1,
+      pageSize: 20,
+      templateId: 'sample-report',
+      generatedBy: '5b59688c-7101-4fe7-b4b7-23c8ab83bb01',
+      generatedFrom,
+      generatedTo,
+      sortBy: 'templateLabel',
+      sortDirection: 'asc',
+    })
+
+    expect(findAndCount).toHaveBeenCalledWith(
+      GeneratedDocument,
+      {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        templateId: 'sample-report',
+        generatedBy: '5b59688c-7101-4fe7-b4b7-23c8ab83bb01',
+        generatedAt: { $gte: generatedFrom, $lte: generatedTo },
+      },
+      { orderBy: { templateLabel: 'ASC' }, limit: 20, offset: 0 },
+    )
+  })
 })

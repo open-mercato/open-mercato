@@ -42,15 +42,32 @@ export class GenerationHistoryService {
    * by `/generate`, so they never reach the query index a CRUD route would read.
    */
   async listAndCount(query: ListGeneratedDocumentsQuery): Promise<{ items: GeneratedDocumentDto[]; total: number }> {
+    const generatedAt = {
+      ...(query.generatedFrom ? { $gte: query.generatedFrom } : {}),
+      ...(query.generatedTo ? { $lte: query.generatedTo } : {}),
+    }
     const where: FilterQuery<GeneratedDocument> = {
       organizationId: query.scope.organizationId,
       tenantId: query.scope.tenantId,
       ...(query.resourceKind ? { resourceKind: query.resourceKind } : {}),
       ...(query.resourceId ? { resourceId: query.resourceId } : {}),
+      ...(query.templateId ? { templateId: query.templateId } : {}),
+      ...(query.generatedBy ? { generatedBy: query.generatedBy } : {}),
+      ...(query.generatedFrom || query.generatedTo ? { generatedAt } : {}),
     }
+    const direction = query.sortDirection === 'asc' ? 'ASC' as const : 'DESC' as const
+    const orderBy = (() => {
+      switch (query.sortBy) {
+        case 'resourceLabel': return { resourceLabel: direction }
+        case 'templateLabel': return { templateLabel: direction }
+        case 'format': return { format: direction }
+        case 'generatedBy': return { generatedBy: direction }
+        default: return { generatedAt: direction }
+      }
+    })()
 
     const [rows, total] = await this.em.findAndCount(GeneratedDocument, where, {
-      orderBy: { generatedAt: 'DESC' },
+      orderBy,
       limit: query.pageSize,
       offset: (query.page - 1) * query.pageSize,
     })

@@ -43,6 +43,15 @@ export const listDocumentsSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   resource_kind: z.string().min(1).optional(),
   resource_id: z.string().min(1).optional(),
-})
+  template_id: z.string().trim().min(1).optional(),
+  generated_by: z.string().uuid().optional(),
+  generated_from: z.coerce.date().optional(),
+  generated_to: z.coerce.date().optional(),
+  sort: z.enum(['resource_label', 'template_label', 'format', 'generated_by', 'generated_at']).default('generated_at'),
+  sort_direction: z.enum(['asc', 'desc']).default('desc'),
+}).refine(
+  ({ generated_from, generated_to }) => !generated_from || !generated_to || generated_from <= generated_to,
+  { message: 'generated_from must not be after generated_to', path: ['generated_to'] },
+)
 
 export type ListDocumentsInput = z.infer<typeof listDocumentsSchema>

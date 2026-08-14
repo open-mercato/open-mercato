@@ -46,6 +46,16 @@ test.describe('TC-PDF-004: generation history', () => {
       expect(typeof row?.templateLabel).toBe('string')
       expect(row?.templateLabel.length).toBeGreaterThan(0)
       expect(row?.generatedAt).toBeTruthy()
+
+      const filteredHistory = await listDocuments(request, token, {
+        template_id: 'order-invoice',
+        generated_by: row!.generatedBy,
+        generated_from: new Date(Date.now() - 60_000).toISOString(),
+        generated_to: new Date(Date.now() + 60_000).toISOString(),
+        sort: 'template_label',
+        sort_direction: 'asc',
+      })
+      expect(filteredHistory.items.some((item) => item.resourceId === orderId)).toBe(true)
     } finally {
       await deleteGeneratedDocumentsForResource(orderId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
