@@ -64,8 +64,8 @@ Editing a sales order line that already has shipped quantities must present the 
 
 ### Phase 3: Regression coverage
 
-- [ ] 3.1 Add a UI-level regression test asserting that a shipped line renders its pricing controls disabled, shows the effective price, and submits only `orderId`, `quantity`, `currencyCode`, `name` on a name-only edit (fixes Low 1)
-- [ ] 3.2 Add a regression assertion that an unshipped line keeps its full price list across a parent re-render (pins Medium 1 shut)
+- [x] 3.1 Add a UI-level regression test asserting that a shipped line renders its pricing controls disabled, shows the effective price, and submits only `orderId`, `quantity`, `currencyCode`, `name` on a name-only edit (fixes Low 1) — 7788873
+- [x] 3.2 Add a regression assertion that an unshipped line keeps its full price list across a parent re-render (pins Medium 1 shut) — 7788873
 
 ### Phase 4: Validation and hand-back
 
