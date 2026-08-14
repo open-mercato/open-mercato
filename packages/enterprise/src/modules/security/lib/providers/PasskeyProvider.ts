@@ -44,15 +44,9 @@ const setupConfirmationPayloadSchema = z.union([
   }),
 ])
 
-const verifyPayloadSchema = z.union([
-  z.object({
-    response: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    credentialId: z.string().min(1),
-    challenge: z.string().min(1),
-  }),
-])
+const verifyPayloadSchema = z.object({
+  response: z.record(z.string(), z.unknown()),
+})
 
 const setupTokenSchema = z.object({
   version: z.string().min(1),
@@ -275,73 +269,57 @@ export class PasskeyProvider implements MfaProviderInterface {
     context?: MfaVerifyContext,
     runtimeContext?: MfaProviderRuntimeContext,
   ): Promise<boolean> {
-    const parsed = verifyPayloadSchema.parse(payload)
+    const parsed = verifyPayloadSchema.safeParse(payload)
+    if (!parsed.success) return false
     if (method.userId !== userId) return false
 
     const parsedContext = verifyContextSchema.safeParse(context)
+    if (!parsedContext.success) return false
+
     const securityConfig = this.resolveSecurityConfig(runtimeContext)
-    if (!parsedContext.success) {
-      if ('credentialId' in parsed) {
-        const metadataCredentialId = method.providerMetadata?.credentialId
-        return typeof metadataCredentialId === 'string' && metadataCredentialId === parsed.credentialId
-      }
-      return false
-    }
     const pending = parsedContext.data.challenge
     if (Date.now() - pending.createdAt > securityConfig.webauthn.challengeTtlMs) {
       return false
     }
 
-    if ('response' in parsed) {
-      const metadata = method.providerMetadata ?? {}
-      const credentialId = typeof metadata.credentialId === 'string' ? metadata.credentialId : null
-      const credentialPublicKey = typeof metadata.credentialPublicKey === 'string'
-        ? metadata.credentialPublicKey
-        : typeof metadata.publicKey === 'string'
-          ? metadata.publicKey
-          : null
-      const counter = typeof metadata.counter === 'number' && Number.isFinite(metadata.counter)
-        ? metadata.counter
-        : 0
+    const metadata = method.providerMetadata ?? {}
+    const credentialId = typeof metadata.credentialId === 'string' ? metadata.credentialId : null
+    const credentialPublicKey = typeof metadata.credentialPublicKey === 'string'
+      ? metadata.credentialPublicKey
+      : typeof metadata.publicKey === 'string'
+        ? metadata.publicKey
+        : null
+    const counter = typeof metadata.counter === 'number' && Number.isFinite(metadata.counter)
+      ? metadata.counter
+      : 0
 
-      if (!credentialId || !credentialPublicKey) {
-        return false
-      }
-
-      const verification = await verifyAuthenticationResponse({
-        response: parsed.response as never,
-        expectedChallenge: pending.challenge,
-        expectedOrigin: this.getExpectedOrigins(securityConfig),
-        expectedRPID: this.getRpId(securityConfig),
-        requireUserVerification: false,
-        credential: {
-          id: credentialId,
-          publicKey: this.base64UrlToBytes(credentialPublicKey),
-          counter,
-          transports: this.normalizeTransports(metadata.transports),
-        },
-      })
-
-      if (!verification.verified) {
-        return false
-      }
-
-      const nextCounter = verification.authenticationInfo?.newCounter
-      if (typeof nextCounter === 'number' && Number.isFinite(nextCounter)) {
-        const providerMetadata = method.providerMetadata ?? {}
-        providerMetadata.counter = nextCounter
-        method.providerMetadata = providerMetadata
-      }
-
-      return true
-    }
-
-    const metadataCredentialId = method.providerMetadata?.credentialId
-    if (typeof metadataCredentialId !== 'string' || metadataCredentialId !== parsed.credentialId) {
+    if (!credentialId || !credentialPublicKey) {
       return false
     }
-    if (pending.challenge !== parsed.challenge) {
+
+    const verification = await verifyAuthenticationResponse({
+      response: parsed.data.response as never,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: this.getExpectedOrigins(securityConfig),
+      expectedRPID: this.getRpId(securityConfig),
+      requireUserVerification: false,
+      credential: {
+        id: credentialId,
+        publicKey: this.base64UrlToBytes(credentialPublicKey),
+        counter,
+        transports: this.normalizeTransports(metadata.transports),
+      },
+    }).catch(() => null)
+
+    if (!verification?.verified) {
       return false
+    }
+
+    const nextCounter = verification.authenticationInfo?.newCounter
+    if (typeof nextCounter === 'number' && Number.isFinite(nextCounter)) {
+      const providerMetadata = method.providerMetadata ?? {}
+      providerMetadata.counter = nextCounter
+      method.providerMetadata = providerMetadata
     }
 
     return true
