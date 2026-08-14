@@ -1,7 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { extractModuleFacts, isExactSourceFilePath, renderModuleFactsMarkdown } from '../module-facts'
+import {
+  extractModuleFacts,
+  isExactSourceFilePath,
+  renderModuleFactsDirectory,
+  renderModuleFactsMarkdown,
+} from '../module-facts'
 
 const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
 
@@ -119,7 +124,78 @@ describe('module-facts source-linked extension surfaces', () => {
     expect(markdown).toContain('## AI tools / MCP capabilities')
     expect(markdown).toContain('## AI agents')
     expect(markdown).toContain(
-      '(../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
+      '[api/records/route.ts](../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
+    )
+  })
+
+  it('emits deterministic contents anchors and a terminal completeness marker', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+    })
+    const markdown = renderModuleFactsMarkdown(facts)
+    const lines = markdown.split('\n')
+    const anchors = [...markdown.matchAll(/^(  )?- (.+) — L(\d+), ~\d+ KB$/gm)]
+
+    expect(anchors.length).toBeGreaterThan(10)
+    for (const anchor of anchors) {
+      const heading = lines[Number(anchor[3]) - 1]
+      if (anchor[1]) {
+        expect(heading).toBe(`### ${anchor[2].slice(anchor[2].lastIndexOf(' / ') + 3)}`)
+      } else {
+        expect(heading).toMatch(new RegExp(`^## ${anchor[2]}(?:\\s+\\(\\d+\\))?$`))
+      }
+    }
+    expect(markdown.trimEnd()).toMatch(/<!-- end module facts: facts — \d+ sections -->$/)
+    expect(renderModuleFactsMarkdown(facts)).toBe(markdown)
+  })
+
+  it('renders a directory index and section files with deeper exact source links', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+      registrySource: `export const modules = [{
+        id: 'facts',
+        apis: [{
+          path: '/facts/records-custom',
+          handlers: { GET: async () => undefined },
+          metadata: { GET: { requireFeatures: ['facts.view'] } },
+        }],
+      }]`,
+    })
+    const directory = renderModuleFactsDirectory(facts)
+
+    expect(directory.index).toContain('[API routes](api-routes.md)')
+    expect(directory.index.trimEnd()).toMatch(/<!-- end module facts: facts — \d+ sections -->$/)
+    const apiRoutes = directory.sections.find((section) => section.slug === 'api-routes')
+    expect(apiRoutes?.markdown).toContain(
+      '[api/records/route.ts](../../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
+    )
+    expect(apiRoutes?.markdown.trimEnd()).toMatch(/<!-- end module facts section: facts\/api-routes -->$/)
+  })
+
+  it('omits sections with no facts and says so in the index', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+    })
+    const flatHeadings = [...renderModuleFactsMarkdown(facts).matchAll(/^## (.+)$/gm)].map((match) => match[1])
+    const emptyHeadings = [...renderModuleFactsMarkdown(facts).matchAll(/^## (.+)\n\n_none_$/gm)]
+      .map((match) => match[1].replace(/\s+\(\d+\)\s*$/, ''))
+    const directory = renderModuleFactsDirectory(facts)
+
+    expect(emptyHeadings.length).toBeGreaterThan(0)
+    expect(flatHeadings.length).toBeGreaterThan(directory.sections.length)
+    for (const section of directory.sections) expect(section.markdown).not.toContain('_none_')
+    for (const heading of emptyHeadings) expect(directory.index).not.toContain(`[${heading}](`)
+    expect(directory.index).toContain(
+      'A section absent from this list has no facts for facts; this index is complete only when the read reaches the marker below.',
     )
   })
 

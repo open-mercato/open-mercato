@@ -2263,7 +2263,7 @@ function prepareCaseFrameworkContext(caseRecord, controllerRoot, runRoot) {
 
 export function caseReadAllowlist(caseRecord, writable, appRoot) {
   const skillIds = supportingSkillIds(caseRecord)
-  return [...new Set([
+  const declared = [
     'AGENTS.md',
     ...exampleReadAllowlist(caseRecord, appRoot),
     ...(caseRecord.context?.required ?? []),
@@ -2277,7 +2277,12 @@ export function caseReadAllowlist(caseRecord, writable, appRoot) {
     ]),
     ...(caseRecord.materializedFrameworkContextPatterns ?? []),
     ...(writable ? caseRecord.allowedWrites ?? [] : []),
-  ])].sort()
+  ]
+  const moduleFactSections = declared.flatMap((entry) => {
+    const match = /^(\.ai\/guides\/(?:modules|reference-modules)\/[a-z0-9_]+)\/index\.md$/.exec(entry)
+    return match ? [`${match[1]}/*.md`] : []
+  })
+  return [...new Set([...declared, ...moduleFactSections])].sort()
 }
 
 function permittedContextPath(relative, caseRecord) {
@@ -2288,7 +2293,11 @@ function permittedContextPath(relative, caseRecord) {
     ...permittedCaseRoutes(caseRecord).flatMap((route) => ROUTE_STANDARD_CONTEXT[route]?.guides ?? []),
     ...(caseRecord.materializedFrameworkContextPatterns ?? []),
   ]
-  if (contextPaths.some((pattern) => globToRegExp(pattern).test(relative))) return true
+  const expandedContextPaths = contextPaths.flatMap((entry) => {
+    const match = /^(\.ai\/guides\/(?:modules|reference-modules)\/[a-z0-9_]+)\/index\.md$/.exec(entry)
+    return match ? [entry, `${match[1]}/*.md`] : [entry]
+  })
+  if (expandedContextPaths.some((pattern) => globToRegExp(pattern).test(relative))) return true
   const skillPaths = supportingSkillPaths(caseRecord)
   const skillRoots = [...contextPaths, ...skillPaths]
     .filter((entry) => entry.endsWith('/SKILL.md'))
