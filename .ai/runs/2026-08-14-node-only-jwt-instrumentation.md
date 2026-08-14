@@ -39,6 +39,8 @@ Source doc: `.ai/specs/2026-04-29-telemetry-and-otel.md`
 
 ## Progress
 
+PR: #5298
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Runtime isolation and regression coverage
@@ -49,4 +51,4 @@ Source doc: `.ai/specs/2026-04-29-telemetry-and-otel.md`
 ### Phase 2: Verification and delivery
 
 - [x] 2.1 Run targeted validation and the configured full validation gate — eca5e8e80
-- [ ] 2.2 Complete the authoritative review pass and finalize the PR
+- [x] 2.2 Complete the authoritative review pass and finalize the PR — 7288a11e9
