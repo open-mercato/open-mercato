@@ -28,7 +28,23 @@ The roadmap describes the complete manufacturing capability landscape Open Merca
 
 Each capability that becomes a product candidate requires its own implementation spec, readiness review, package/licensing decision, and self-contained integration coverage. This roadmap governs those later specs but does not pre-approve their scope, package placement, or implementation.
 
-The analysis in `.ai/specs/analysis/ANALYSIS-2026-08-13-production-module-architecture-roadmap-revision-2.md` is the architectural review input for this revision. This file is the product roadmap and source of truth for product boundaries.
+This roadmap is the source of truth for product boundaries and records its binding architectural decisions directly. Historical review notes that were not committed to the repository are not normative dependencies.
+
+### Document set and decision provenance
+
+The roadmap is intentionally self-contained. Supporting documents refine delivery or implementation detail but do not redefine the ownership and dependency rules stated here.
+
+| Document | Role | Status in this roadmap |
+|---|---|---|
+| This roadmap | Product boundaries, architecture laws, capability landscape, and Wave 0 gates | Normative source of truth |
+| [`2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md`](2026-08-13-manufacturing-phase-1-wave-0-execution-plan.md) | Delivery-oriented grouping and dependency order for Wave 0 work | Execution companion |
+| [`2026-08-13-wms-production-sites.md`](2026-08-13-wms-production-sites.md) | P1.2 WMS-owned site identity and warehouse-role assignments | Capability specification |
+| [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) | P1.3a Catalog quantity normalization | Capability specification |
+| [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) | P1.3b WMS precision and profile alignment | Capability specification |
+| [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) | P1.3c immutable quantity evidence and correlated reversal | Capability specification |
+| Dedicated production number-range specification | Numbering authority, storage, concurrency, reset, and offline behavior | Required Wave 0 document; not yet authored |
+
+Decisions C1-C3, H1-H4, M1-M4, and S1-S3 below consolidate the architectural review outcome into this source-of-truth document. Their rationale is preserved by the surrounding architecture laws, kernel boundaries, ownership matrix, risks, and validation gates; no unavailable review file is required to interpret or approve a downstream specification.
 
 ## Product Thesis
 
@@ -80,9 +96,9 @@ For production inventory transactions, Manufacturing owns the business command a
 - Manufacturing facts are domain events persisted in the module's own append-only store; the platform event bus is their transport and the fact store is the system of record.
 - Client-specific data, terminology, rules, metrics, and integrations remain outside this OSS product roadmap until validated as generic product capabilities.
 
-## Wave 0 Contract Decisions (Revision 3)
+## Wave 0 Contract Decisions
 
-Revision 3 resolves eleven contract-shaping questions and three governance notes from `.ai/specs/analysis/ANALYSIS-2026-08-13-production-module-architecture-roadmap-revision-3.md`. These decisions are binding on Wave 0 and all later capability specs.
+The following decisions resolve eleven contract-shaping questions and three governance notes. They are binding on Wave 0 and all later capability specs.
 
 | # | Decision | Binding rule |
 |---|---|---|
@@ -163,7 +179,7 @@ Before this contract is frozen, the existing `wms` hard requirement on `sales` m
 
 ### 5. UoM precision and immutable conversions
 
-Catalog remains the UoM master. P1.3 is delivered through three specifications: `2026-08-13-catalog-quantity-normalization.md` freezes variant policy and exact normalization; the WMS-owned `2026-08-13-wms-quantity-precision-alignment.md` aligns WMS storage, arithmetic, and profile identity; and the WMS-owned `2026-08-13-wms-quantity-evidence-reversal.md` adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. Process loss, yield, and domain tolerance policies remain with their later manufacturing capabilities.
+Catalog remains the UoM master. P1.3 is delivered through three specifications: [`2026-08-13-catalog-quantity-normalization.md`](2026-08-13-catalog-quantity-normalization.md) freezes variant policy and exact normalization; the WMS-owned [`2026-08-13-wms-quantity-precision-alignment.md`](2026-08-13-wms-quantity-precision-alignment.md) aligns WMS storage, arithmetic, and profile identity; and the WMS-owned [`2026-08-13-wms-quantity-evidence-reversal.md`](2026-08-13-wms-quantity-evidence-reversal.md) adds provider-neutral immutable evidence and correlated exact reversal. The latter two record an existing WMS inconsistency and are non-critical backlog for current Catalog/Sales/WMS operation: they do not block Site, draft BOM/routing, kernel, or non-stock order work. They remain mandatory before P1.8 freezes stock-posting payloads or P1.11 enables stock-affecting production. The detailed core spec consumes the accepted contracts rather than redefining them. Process loss, yield, and domain tolerance policies remain with their later manufacturing capabilities.
 
 The current Catalog precision and WMS `numeric(16,4)` storage already differ. P1.3a must freeze canonical normalization before a BOM or order quantity schema freezes. P1.3b–c track the existing WMS inconsistency as non-critical WMS backlog for current and non-stock work, but they must align storage/evidence before production posts inventory so the new module does not amplify that debt.
 
@@ -383,6 +399,27 @@ All blocking clauses below must pass before the detailed `production` core spec 
 12. A separate number-range specification freezes order/batch/lot/serial numbering authority, storage, concurrency, reset/offline behavior, and the production-assigns/WMS-records direction before any production number is allocated; backflush is a defined posting mode with symmetric reversal and precision cases.
 13. The bitemporal time model, the facts-as-module-event-store rule, the WMS-owned availability projection, single-source-of-truth reservations, the as-of valuation reference on facts, and the idempotency/dedup retention windows are all specified.
 14. The minimal provider-neutral demand-signal contract and the reserved parent/child order-network seam are specified.
+
+#### Wave 0 evidence register
+
+This register is the canonical index for gate ownership and evidence. A row marked "not authored" is an explicit readiness gap, not a reference to an expected file.
+
+| Gate | Primary owner | Required evidence | Current document status |
+|---|---|---|---|
+| 1 | WMS | Site identity, warehouse-role assignments, scoping, snapshots, migration, and setup UI | [`2026-08-13-wms-production-sites.md`](2026-08-13-wms-production-sites.md) proposed; gate not yet passed |
+| 2 | `resources`, `planner`, Manufacturing | Audited ownership and extension contract for resources, work centers, assets, staff, and calendars | Not authored |
+| 3 | Manufacturing kernel and sibling production models | Released-definition lifecycle and immutable execution snapshot contract | Not authored |
+| 4 | WMS with Manufacturing as command consumer | Production posting contract covering reservation, issue, return, output, scrap, reversal, atomicity/idempotency, and reconciliation | Not authored; required before P1.8/P1.11 |
+| 5 | WMS and Sales | Removal or explicit approval of the WMS-to-Sales hard dependency | Not authored |
+| 6 | Catalog and WMS | Exact normalization, non-narrowing precision, immutable evidence, and exact correlated reversal | P1.3a–c draft specifications exist; gate not yet passed |
+| 7 | Manufacturing kernel and MES/edge boundary | Minimum fact store and confirmation lifecycle contract | Not authored |
+| 8 | WMS with an optional quality disposition provider | Quality-aware availability contract and reference scenarios | Not authored |
+| 9 | All capability owners | Runtime/prerequisite/provider classification plus disabled-module tests | Rules frozen here; downstream evidence pending |
+| 10 | All capability owners | Backward compatibility, risk, security, queue/progress, and integration-test acceptance | Rules frozen here; downstream evidence pending |
+| 11 | Manufacturing kernel | Standalone package specification implementing the kernel boundary defined here | Not authored |
+| 12 | Manufacturing and WMS | Number-range contract plus first-class backflush and symmetric reversal | Not authored |
+| 13 | Manufacturing, WMS, Quality, and Costing boundaries | Time, fact-store, availability, reservation, valuation-reference, and dedup-retention contracts | Not authored |
+| 14 | Planning and Manufacturing kernel | Provider-neutral demand signal and parent/child order-network seam | Not authored |
 
 One explicitly non-shippable validation spike (single site, single discrete order, explicit issue, backflush, and output receipt through one WMS posting command, minimum facts) MAY be built to empirically validate the atomicity, precision, backflush, and lot-numbering contracts before they freeze; it is marked throwaway and never becomes a de-facto contract. All other Wave 0 contracts freeze analytically.
 
@@ -647,15 +684,16 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - 2026-08-13: Added Wave 0 foundation contracts for sites, shared resources/calendars, released definitions, WMS postings, UoM precision, minimum facts, quality-aware availability, and ERP-MES confirmations.
 - 2026-08-13: Established that production issues, returns, and receipts belong to Manufacturing while WMS executes and owns physical inventory postings.
 - 2026-08-13: Replaced ambiguous dependencies with hard/runtime, soft/provider, fallback, and placement semantics; corrected traceability, quality, asset, connectivity, substitution, ATP/CTP, and process-model directions.
-- 2026-08-13: Added ownership, backward-compatibility, risk, validation, readiness, and compliance sections based on the revision-2 architecture review.
+- 2026-08-13: Added ownership, backward-compatibility, risk, validation, readiness, and compliance sections.
 - 2026-08-13: Added a business-facing module catalogue explaining responsibility and user capabilities for each roadmap area.
-- 2026-08-13 (Revision 3): Added the "Wave 0 Contract Decisions" section resolving C1–C3, H1–H4, M1–M4, and S1–S3 from the revision-3 analysis; froze the kernel as a standalone `manufacturing` package with defined contents.
+- 2026-08-13 (Revision 3): Added the "Wave 0 Contract Decisions" section resolving C1–C3, H1–H4, M1–M4, and S1–S3; froze the kernel as a standalone `manufacturing` package with defined contents.
 - 2026-08-13 (Revision 3): Made WMS the owner of the quality-aware availability projection and the single source of truth for committed stock; planning pegs are proposals.
 - 2026-08-13 (Revision 3): Fixed lot/serial numbering direction (production assigns from a sites/WMS-owned range; WMS records/validates), added backflush as a first-class posting mode, a bitemporal time model, an as-of valuation reference, idempotency/dedup retention, the facts-as-module-event-store rule, a minimal demand-signal contract, and the parent/child order-network seam.
 - 2026-08-13 (Revision 3): Expanded Wave 0 gates (11–14), risks, validation scenarios, ownership matrix, and the dependency diagram (now shows costing and the peg→reservation flow) to match the above.
 - 2026-08-13 (Revision 4): Aligned the roadmap with the accepted P1.2 WMS `Site` design: current warehouse-role assignments with one default replace effective-dated mappings in the MVP; consumers preserve history through immutable snapshots; site timezone/effective dating are future capabilities; production number ranges move to a separate mandatory Wave 0 specification.
 - 2026-08-13 (Revision 5): Clarified that `Site` uses the full canonical custom-field/CrudForm/undo extension pipeline while warehouse-role assignments remain closed; the setup-once UI keeps stable DataTable injection hosts but deliberately omits CRM-scale search, filters, column chooser, saved views, exports, selection, and bulk actions.
 - 2026-08-13 (Revision 6): Split the audited P1.3 quantity work into Catalog/Sales normalization plus two WMS-owned specifications for precision/profile alignment and evidence/reversal; corrected the backflush precision cross-reference. P1.3a blocks quantity-schema freeze, while the existing WMS mismatch is tracked as non-critical backlog until it becomes mandatory for stock-affecting production.
+- 2026-08-14: Made the roadmap self-contained by consolidating decision provenance, linking the committed Wave 0 document set, identifying the number-range specification as not yet authored, and removing unverifiable references to uncommitted review files.
 
 ### Review - 2026-08-13
 
@@ -667,9 +705,9 @@ No closer `AGENTS.md` exists under `packages/core/src/modules/wms`, `resources`,
 - **Risks**: Passed; concrete severity, detection, mitigation, and residual risk are documented.
 - **Verdict**: Approved as product roadmap; detailed `production` spec remains blocked by Wave 0.
 
-### Review - 2026-08-13 (Revision 3)
+### Document Integrity Check - 2026-08-14
 
-- **Reviewer**: Agent
-- **Input**: `.ai/specs/analysis/ANALYSIS-2026-08-13-production-module-architecture-roadmap-revision-3.md`
-- **Decisions applied**: C1 kernel as standalone package (+ defined contents); C2 WMS owns availability projection; C3 production-assigns/WMS-records lot numbering from a shared range; H1 backflush posting mode; H2 order-network seam; H3 minimal demand-signal contract; H4 facts-as-module-event-store; M1 bitemporal model; M2 WMS single source of committed stock; M3 as-of valuation reference; M4 dedup/idempotency retention; S1 optional throwaway spike; S2 early bounded-context test; S3 diagram shows costing + pegging.
-- **Verdict**: Roadmap architecture ready for Wave 0 contract authoring. All revision-3 findings are resolved at roadmap level. The detailed `production` core spec remains blocked until the Wave 0 gates (now 14 + spike allowance) are individually specified and passed.
+- **Local references**: All explicitly named Markdown files resolve in the repository.
+- **Pending document**: The dedicated production number-range specification is intentionally identified as not yet authored and remains a Wave 0 gate, not a dangling link.
+- **Decision provenance**: C1–C3, H1–H4, M1–M4, and S1–S3 are recorded directly in this roadmap and require no external review artifact for interpretation.
+- **Verdict**: The roadmap is self-contained and suitable for Wave 0 contract authoring. The detailed `production` core spec remains blocked until the fourteen Wave 0 gates pass.
