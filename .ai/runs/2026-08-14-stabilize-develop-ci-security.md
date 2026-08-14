@@ -117,7 +117,7 @@ are unchanged and stay strict.
 
 ### Phase 3: TC-WF-030 integration flake
 
-- [ ] 3.1 Drive checkout-demo progression off the instance's server-side step
+- [x] 3.1 Drive checkout-demo progression off the instance's server-side step — 09591b1ab
 
 ### Phase 4: Validation
 
