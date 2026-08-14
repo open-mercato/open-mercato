@@ -1,0 +1,67 @@
+/** @jest-environment jsdom */
+import * as React from 'react'
+import { DataTable } from '../DataTable'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { render, screen } from '@testing-library/react'
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
+}))
+
+jest.mock('../injection/useInjectionDataWidgets', () => ({
+  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false }),
+}))
+
+type Row = { id: string; created_at: string }
+
+const ORIGINAL_ENV = { ...process.env }
+
+afterEach(() => {
+  process.env = { ...ORIGINAL_ENV }
+})
+
+function renderTable(data: Row[]) {
+  const columns: ColumnDef<Row>[] = [{ accessorKey: 'created_at', header: 'Created' }]
+  const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+  return render(
+    React.createElement(
+      QueryClientProvider as any,
+      { client: queryClient },
+      React.createElement(
+        I18nProvider as any,
+        { locale: 'en', dict: {} },
+        React.createElement(DataTable as any, { columns, data, title: 'Test' }),
+      ),
+    ),
+  )
+}
+
+describe('DataTable date cells', () => {
+  // `new Date('2026-07-01')` reads a bare date as UTC midnight. Asserting the time too, not just
+  // the day, catches that in either direction: a UTC parse reads `02:00` in Europe/Warsaw and
+  // `2026-06-30 17:00` in America/Los_Angeles, while local midnight is `00:00` everywhere.
+  it('renders a date-only value as local midnight of the stored day', () => {
+    renderTable([{ id: '1', created_at: '2026-07-01' }])
+
+    expect(screen.getByText('2026-07-01 00:00')).toBeInTheDocument()
+  })
+
+  // One env chain with the detail-page helpers: a table cell and a detail field must not disagree.
+  it('honours the date-time env format', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT = 'dd.MM.yyyy HH:mm'
+    renderTable([{ id: '1', created_at: '2026-07-01T09:30:00Z' }])
+
+    expect(screen.getByText(/^01\.07\.2026 \d{2}:\d{2}$/)).toBeInTheDocument()
+  })
+
+  // The date vars stay in the chain and stay bare: appending a time to a caller's date-only
+  // pattern would change how every existing table renders.
+  it('uses a date-only env format bare, without inventing a time', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
+    renderTable([{ id: '1', created_at: '2026-07-01' }])
+
+    expect(screen.getByText('01.07.2026')).toBeInTheDocument()
+  })
+})

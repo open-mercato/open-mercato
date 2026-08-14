@@ -65,8 +65,11 @@ export function formatWithPublicDateFormat(date: Date, format: string, locale?: 
  *
  * Deliberately NOT `resolvePublicDateFormat`: that one falls back to a locale-derived, month-name
  * pattern (`d MMM yyyy`) suited to a date picker's own display. Static values are dense and get
- * scanned in bulk, and they sit alongside `DataTable` cells, which already default to ISO. The two
- * must agree, so this chain ends at ISO. Both honour the same env overrides.
+ * scanned in bulk, and they sit alongside `DataTable` cells, which resolve through
+ * `resolveDisplayDateTimeFormat` — so both default to ISO and both honour the same env overrides.
+ *
+ * A date-only value reads only the date vars: there is no time to render, so a `…DATE_TIME_FORMAT`
+ * pattern cannot apply. An app that sets only that var therefore still gets ISO here.
  */
 export function resolveDisplayDateFormat(): string {
   return (
@@ -76,11 +79,20 @@ export function resolveDisplayDateFormat(): string {
   )
 }
 
-/** As `resolveDisplayDateFormat`, for a value that carries a real time of day. */
+/**
+ * As `resolveDisplayDateFormat`, for a value that carries a real time of day. `DataTable` resolves
+ * its cells through this, so a timestamp reads the same in a table and in a detail field.
+ *
+ * The date vars are in the chain, and used bare, because a caller that sets only a date pattern has
+ * said how a date should look and said nothing about time — appending `HH:mm` would invent a
+ * requirement. This is the precedence `resolvePublicDateTimeFormat` already uses.
+ */
 export function resolveDisplayDateTimeFormat(): string {
   return (
     normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
     ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_TIME_FORMAT)
+    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
+    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
     ?? `${resolveDisplayDateFormat()} HH:mm`
   )
 }
@@ -92,8 +104,11 @@ export function resolveDisplayDateTimeFormat(): string {
  * carrying a time or an offset keeps its instant either way.
  */
 function parseDisplayValue(value: string | Date | null | undefined): Date | null {
-  if (value == null || value === '') return null
-  const parsed = value instanceof Date ? value : parseISO(value)
+  if (value == null) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const parsed = parseISO(trimmed)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -107,4 +122,16 @@ export function formatDisplayDate(value: string | Date | null | undefined, local
 export function formatDisplayDateTime(value: string | Date | null | undefined, locale?: Locale): string | null {
   const parsed = parseDisplayValue(value)
   return parsed ? formatWithPublicDateFormat(parsed, resolveDisplayDateTimeFormat(), locale) : null
+}
+
+/**
+ * The local calendar day of a value, as the `yyyy-MM-dd` an `<input type="date">` requires.
+ *
+ * Not `new Date(value).toISOString().slice(0, 10)`: `toISOString` converts to UTC first, so east of
+ * UTC an evening timestamp yields the previous day. Rendering that through `formatDisplayDate` is
+ * faithful to a day that was already wrong.
+ */
+export function toDateInputValue(value: string | Date | null | undefined): string | null {
+  const parsed = parseDisplayValue(value)
+  return parsed ? formatWithPublicDateFormat(parsed, 'yyyy-MM-dd') : null
 }

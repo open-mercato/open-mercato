@@ -1,11 +1,14 @@
+import { pl } from 'date-fns/locale/pl'
 import {
   deriveDateDisplayFormat,
   formatDisplayDate,
   formatDisplayDateTime,
   formatWithPublicDateFormat,
   normalizeDateFormatPattern,
+  resolveDisplayDateTimeFormat,
   resolvePublicDateFormat,
   resolvePublicDateTimeFormat,
+  toDateInputValue,
 } from '../date-format'
 
 const ORIGINAL_ENV = { ...process.env }
@@ -45,34 +48,35 @@ describe('date display format helpers', () => {
 })
 
 describe('display value helpers', () => {
-  // Bug caught: `new Date('2026-07-01')` reads a bare date as UTC *midnight*, so once `format`
-  // renders it in the viewer's zone the stored calendar day slips — one day back west of UTC, and
-  // an invented time everywhere else. Asserting the whole timestamp pins the parse without needing
-  // the runner in a particular zone: local midnight is `00:00` in every zone, whereas the UTC-parse
-  // shows `02:00` in Europe/Warsaw and `2026-06-30 17:00` in America/Los_Angeles.
-  // (In a UTC runner the two agree, so this case only bites off-UTC — which is every dev machine.)
+  // Local midnight is `00:00` in every zone, so asserting the time pins the parse without the
+  // runner being in a particular zone. A UTC parse reads `02:00` in Europe/Warsaw.
   it('parses a date-only value as local midnight, so the stored day survives the viewer timezone', () => {
     expect(formatDisplayDateTime('2026-07-01')).toBe('2026-07-01 00:00')
     expect(formatDisplayDate('2026-07-01')).toBe('2026-07-01')
   })
 
-  // Bug caught: routing these through `resolvePublicDateFormat` would emit `1 Jul 2026` on a Polish
-  // page, disagreeing with the DataTable cells on the same screen, which default to ISO.
-  it('defaults to ISO rather than the locale-derived picker pattern', () => {
-    expect(formatDisplayDate('2026-07-01')).toBe('2026-07-01')
-    expect(deriveDateDisplayFormat('pl')).toBe('d MMM yyyy') // the pattern deliberately NOT used here
+  it('defaults to ISO even under a locale whose picker pattern differs', () => {
+    expect(deriveDateDisplayFormat('pl')).toBe('d MMM yyyy')
+    expect(formatDisplayDate('2026-07-01', pl)).toBe('2026-07-01')
   })
 
-  // Bug caught: parsing an offset-carrying timestamp as bare local parts would shift it by the
-  // local UTC offset, silently moving a real instant.
   it('keeps the instant for an offset-carrying value', () => {
     expect(formatDisplayDateTime('2026-07-01T09:30:00Z')).toBe(
       formatWithPublicDateFormat(new Date('2026-07-01T09:30:00Z'), 'yyyy-MM-dd HH:mm'),
     )
   })
 
-  // Bug caught: hardcoding the pattern instead of running the env chain silently ignores an app's
-  // configured date format — the original complaint these helpers exist to fix.
+  it('accepts a Date as well as a string', () => {
+    expect(formatDisplayDate(new Date(2026, 6, 1))).toBe('2026-07-01')
+    expect(formatDisplayDateTime(new Date(2026, 6, 1, 9, 30))).toBe('2026-07-01 09:30')
+    expect(formatDisplayDate(new Date('not-a-date'))).toBeNull()
+  })
+
+  it('tolerates surrounding whitespace, as DataTable does', () => {
+    expect(formatDisplayDate(' 2026-07-01 ')).toBe('2026-07-01')
+    expect(formatDisplayDate('   ')).toBeNull()
+  })
+
   it('honours the configured env formats', () => {
     process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
     process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT = 'dd.MM.yyyy HH:mm'
@@ -80,13 +84,54 @@ describe('display value helpers', () => {
     expect(formatDisplayDateTime('2026-07-01T09:30:00Z')).toMatch(/^01\.07\.2026 \d{2}:\d{2}$/)
   })
 
-  // Bug caught: returning the string `Invalid Date` puts that literal into the UI where the
-  // caller's empty-state label belongs.
   it('returns null on empty or unparsable input', () => {
     expect(formatDisplayDate(null)).toBeNull()
     expect(formatDisplayDate('')).toBeNull()
     expect(formatDisplayDate('not-a-date')).toBeNull()
     expect(formatDisplayDateTime(undefined)).toBeNull()
     expect(formatDisplayDateTime('not-a-date')).toBeNull()
+  })
+})
+
+describe('resolveDisplayDateTimeFormat', () => {
+  // DataTable resolves its cells through this, so the date vars must stay in the chain and stay
+  // bare — appending `HH:mm` to a caller's date-only pattern would change every existing table.
+  it('falls back through the date vars, used bare', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
+    expect(resolveDisplayDateTimeFormat()).toBe('dd.MM.yyyy')
+  })
+
+  it('prefers the date-time vars', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
+    process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT = 'dd.MM.yyyy HH:mm'
+    expect(resolveDisplayDateTimeFormat()).toBe('dd.MM.yyyy HH:mm')
+  })
+
+  it('ends at ISO with a time', () => {
+    expect(resolveDisplayDateTimeFormat()).toBe('yyyy-MM-dd HH:mm')
+  })
+})
+
+describe('toDateInputValue', () => {
+  // `new Date(x).toISOString().slice(0, 10)` yields the UTC day, so a just-past-midnight timestamp
+  // east of UTC names the previous day. Asserted against the Date's own local getters rather than a
+  // literal, so the contract holds in every runner zone — including UTC, where the two coincide.
+  it('yields the local calendar day, not the UTC one', () => {
+    const justAfterLocalMidnight = new Date(2026, 6, 2, 0, 30)
+    const localDay = `${justAfterLocalMidnight.getFullYear()}-07-0${justAfterLocalMidnight.getDate()}`
+
+    expect(toDateInputValue(justAfterLocalMidnight)).toBe(localDay)
+    expect(toDateInputValue(justAfterLocalMidnight)).toBe('2026-07-02')
+    expect(toDateInputValue('2026-07-01')).toBe('2026-07-01')
+  })
+
+  it('ignores the configured display format, since the input requires yyyy-MM-dd', () => {
+    process.env.NEXT_PUBLIC_OM_DATE_FORMAT = 'dd.MM.yyyy'
+    expect(toDateInputValue('2026-07-01')).toBe('2026-07-01')
+  })
+
+  it('returns null when there is nothing to show', () => {
+    expect(toDateInputValue(null)).toBeNull()
+    expect(toDateInputValue('not-a-date')).toBeNull()
   })
 })

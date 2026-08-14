@@ -11,6 +11,7 @@ import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -287,19 +288,14 @@ export function SalesDocumentPaymentsSection({
       {
         accessorKey: 'receivedAt',
         header: t('sales.documents.payments.receivedAt', 'Received'),
-        cell: ({ row }) =>
-          row.original.receivedAt
-            ? new Date(row.original.receivedAt).toLocaleDateString()
-            : '—',
+        cell: ({ row }) => formatDisplayDate(row.original.receivedAt) ?? '—',
       },
       {
         accessorKey: 'createdAt',
         header: t('sales.documents.payments.createdAt', 'Created'),
-        cell: ({ row }) =>
-          row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—',
+        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt) ?? '—',
         meta: {
-          tooltipContent: (row: PaymentRow) =>
-            row.createdAt ? new Date(row.createdAt).toLocaleString() : undefined,
+          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt) ?? undefined,
         },
       },
       {
