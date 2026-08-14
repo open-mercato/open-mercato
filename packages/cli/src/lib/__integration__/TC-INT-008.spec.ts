@@ -247,14 +247,15 @@ function expectedGuideOutputNames(): string[] {
   }
 
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
-  // the v1 module-facts.json and corrected module-facts.v2.json sidecars are copied
-  // as-is and fact-sheets are filtered to the fixture's enabled modules. The legacy
+  // the v1/v2 sidecars and disabled local-reference projection are copied as-is,
+  // while installed fact-sheets are filtered to the fixture's enabled modules. The legacy
   // core.<module>.md redirect stubs are no longer
   // emitted (#3754). framework-extension-points.md is likewise generated into
   // dist/agentic/guides by both build.mjs pipelines (#4810) rather than checked in
   // alongside the static conceptual guides, so it needs an explicit entry here.
   collected.add('module-facts.json')
   collected.add('module-facts.v2.json')
+  collected.add('reference-module-facts.json')
   collected.add('framework-extension-points.md')
   collected.add('upstream/AGENTS.md')
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
@@ -264,6 +265,10 @@ function expectedGuideOutputNames(): string[] {
     for (const file of fs.readdirSync(moduleFactsRoot)) {
       if (file.endsWith('.md')) collected.add(normalizePath(path.join('modules', moduleId, file)))
     }
+  }
+  const referenceFactsRoot = path.join(cliDir, 'dist', 'agentic', 'guides', 'reference-modules')
+  for (const file of listRelativeFiles(referenceFactsRoot)) {
+    collected.add(normalizePath(path.join('reference-modules', file)))
   }
 
   return Array.from(collected).sort()

@@ -2426,6 +2426,53 @@ interface ModuleFactsRenderContext {
   sourceLinkPrefix: string
 }
 
+interface ModuleFactsAnchor {
+  title: string
+  offset: number
+  size: string
+  depth: number
+}
+
+interface GroupedTableRows {
+  title: string
+  rows: string[]
+}
+
+function renderGroupedTableSection(
+  sectionHeading: string,
+  header: string,
+  divider: string,
+  groups: readonly GroupedTableRows[],
+): string {
+  const renderedGroups: string[] = []
+  for (const group of groups) {
+    const chunks: string[][] = []
+    let currentRows: string[] = []
+    const renderChunk = (rows: readonly string[], chunkIndex: number): string => {
+      const continuation = chunkIndex === 0 ? '' : ` (continued ${chunkIndex + 1})`
+      return [`### ${group.title}${continuation}`, '', header, divider, ...rows, ''].join('\n')
+    }
+    for (const row of group.rows) {
+      const candidateRows = [...currentRows, row]
+      if (Buffer.byteLength(renderChunk(candidateRows, chunks.length)) <= MAX_ANCHORED_SECTION_BYTES) {
+        currentRows = candidateRows
+        continue
+      }
+      if (currentRows.length === 0) {
+        throw new Error(`[module-facts] ${sectionHeading} group "${group.title}" contains a row larger than the anchored read cap`)
+      }
+      chunks.push(currentRows)
+      currentRows = [row]
+      if (Buffer.byteLength(renderChunk(currentRows, chunks.length)) > MAX_ANCHORED_SECTION_BYTES) {
+        throw new Error(`[module-facts] ${sectionHeading} group "${group.title}" contains a row larger than the anchored read cap`)
+      }
+    }
+    if (currentRows.length > 0) chunks.push(currentRows)
+    renderedGroups.push(...chunks.map((rows, chunkIndex) => renderChunk(rows, chunkIndex)))
+  }
+  return [sectionHeading, '', ...renderedGroups].join('\n').trimEnd()
+}
+
 function renderVersionStamp(
   coreVersion: string | null,
   sourcePackage: string | null,
@@ -2648,18 +2695,15 @@ function renderExtensionHostsSection(
   const compact = [...header, ...renderRows(boundHosts)].join('\n')
   if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
   const families = [...new Set(boundHosts.map((host) => host.family))]
-  return [
+  return renderGroupedTableSection(
     '## UMES hosts',
-    '',
-    ...families.flatMap((family) => [
-      `### ${family}`,
-      '',
-      '| ID / pattern | Family | Supports | Context | Stability | Source |',
-      '|---|---|---|---|---|---|',
-      ...renderRows(boundHosts.filter((host) => host.family === family)),
-      '',
-    ]),
-  ].join('\n').trimEnd()
+    '| ID / pattern | Family | Supports | Context | Stability | Source |',
+    '|---|---|---|---|---|---|',
+    families.map((family) => ({
+      title: family,
+      rows: renderRows(boundHosts.filter((host) => host.family === family)),
+    })),
+  )
 }
 
 function compactContributionDetails(contribution: ModuleExtensionContributionFact): string {
@@ -2804,18 +2848,15 @@ function renderOverrideTargetsSection(
   const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
   if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
   const domains = [...new Set(targets.map((target) => target.domain))]
-  return [
+  return renderGroupedTableSection(
     '## Exact override targets',
-    '',
-    ...domains.flatMap((domain) => [
-      `### ${domain}`,
-      '',
-      header,
-      divider,
-      ...renderRows(targets.filter((target) => target.domain === domain)),
-      '',
-    ]),
-  ].join('\n').trimEnd()
+    header,
+    divider,
+    domains.map((domain) => ({
+      title: domain,
+      rows: renderRows(targets.filter((target) => target.domain === domain)),
+    })),
+  )
 }
 
 export interface ReferenceProjectionFingerprints {
@@ -2939,8 +2980,8 @@ function approximateSize(markdown: string): string {
   return `~${Math.max(1, Math.ceil(Buffer.byteLength(markdown) / 1024))} KB`
 }
 
-function collectSectionAnchors(sections: readonly string[]): Array<{ title: string; offset: number; size: string; depth: number }> {
-  const anchors: Array<{ title: string; offset: number; size: string; depth: number }> = []
+function collectSectionAnchors(sections: readonly string[]): ModuleFactsAnchor[] {
+  const anchors: ModuleFactsAnchor[] = []
   let sectionOffset = 0
   for (const section of sections) {
     const lines = section.split('\n')
@@ -3019,27 +3060,39 @@ export function renderModuleFactsDirectory(
   const context = { sourceRoot: facts.sourceRoot, sourceLinkPrefix: '../../../../' }
   const renderedSections = buildModuleFactsSections(facts, context)
     .filter((section) => !section.endsWith(`\n\n${EMPTY_SECTION_MARKER}`))
-  const sections = renderedSections.map((section) => {
+  const sectionEntries = renderedSections.map((section) => {
     const title = sectionTitle(section)
+    const slug = sectionSlug(title)
+    const markdown = [
+      `# ${facts.module} — ${title}`,
+      '',
+      '[Back to module index](index.md)',
+      '',
+      section,
+      '',
+      `<!-- end module facts section: ${facts.module}/${slug} -->`,
+      '',
+    ].join('\n')
+    const subsections = collectSectionAnchors([section])
+      .filter((anchor) => anchor.depth === 1)
+      .map((anchor) => ({ ...anchor, line: anchor.offset + 5 }))
     return {
-      slug: sectionSlug(title),
-      title,
-      description: `Generated ${title.toLowerCase()} facts for ${facts.module}.`,
-      markdown: [
-        `# ${facts.module} — ${title}`,
-        '',
-        '[Back to module index](index.md)',
-        '',
-        section,
-        '',
-        `<!-- end module facts section: ${facts.module}/${sectionSlug(title)} -->`,
-        '',
-      ].join('\n'),
+      section: {
+        slug,
+        title,
+        description: `Generated ${title.toLowerCase()} facts for ${facts.module}.`,
+        markdown,
+      },
+      subsections,
     }
   })
-  const sectionLinks = sections.map((section) =>
+  const sections = sectionEntries.map((entry) => entry.section)
+  const sectionLinks = sectionEntries.flatMap(({ section, subsections }) => [
     `- [${section.title}](${section.slug}.md) — ${approximateSize(section.markdown)} — ${section.description}`,
-  )
+    ...subsections.map((anchor) =>
+      `  - ${anchor.title} — ${section.slug}.md:L${anchor.line}, ${anchor.size}`,
+    ),
+  ])
   const index = [
     ...header,
     '',

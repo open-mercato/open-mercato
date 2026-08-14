@@ -314,7 +314,7 @@ test('the classifier maps each governed path to its contract in monorepo and sta
     ['.ai/skills/om-evolve-harness/references/knowledge-change.md', 'skill-link', 'knowledge-contract', 'skill-authority'],
     ['packages/cli/src/lib/generators/module-override-targets.ts', 'discovery', 'knowledge-contract', 'discovery-generator-contract'],
     ['packages/create-app/src/setup/tools/shared.ts', 'discovery', 'knowledge-contract', 'discovery-generator-contract'],
-    ['packages/create-app/dist/agentic/guides/modules/example.md', null, 'asset-sync', 'materialized-copy'],
+    ['packages/create-app/dist/agentic/guides/modules/example/index.md', null, 'asset-sync', 'materialized-copy'],
     ['.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md', null, 'asset-sync', 'materialized-copy'],
     ['packages/create-app/agentic/shared/ai/harness/README.md', null, 'asset-sync', 'docs-count-snapshot'],
     ['packages/create-app/src/lib/agent-harness-evaluator.test.ts', 'evaluator', 'knowledge-contract', 'focused-test'],
@@ -343,7 +343,7 @@ test('an unclassified path fails closed to knowledge-contract', () => {
 test('a diff of generated copies alone derives asset-sync', () => {
   const derived = validator.deriveChangeClassification([
     '.ai/guides/modules/customers/index.md',
-    'packages/create-app/dist/agentic/guides/modules/example.md',
+    'packages/create-app/dist/agentic/guides/modules/example/index.md',
     'packages/create-app/agentic/shared/ai/harness/README.md',
   ])
   assert.equal(derived.changeClass, 'asset-sync')

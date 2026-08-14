@@ -137,11 +137,16 @@ describe('module-facts source-linked extension surfaces', () => {
     })
     const markdown = renderModuleFactsMarkdown(facts)
     const lines = markdown.split('\n')
-    const anchors = [...markdown.matchAll(/^- (.+) — L(\d+), ~\d+ KB$/gm)]
+    const anchors = [...markdown.matchAll(/^(  )?- (.+) — L(\d+), ~\d+ KB$/gm)]
 
     expect(anchors.length).toBeGreaterThan(10)
     for (const anchor of anchors) {
-      expect(lines[Number(anchor[2]) - 1]).toMatch(new RegExp(`^## ${anchor[1]}(?:\\s+\\(\\d+\\))?$`))
+      const heading = lines[Number(anchor[3]) - 1]
+      if (anchor[1]) {
+        expect(heading).toBe(`### ${anchor[2].slice(anchor[2].lastIndexOf(' / ') + 3)}`)
+      } else {
+        expect(heading).toMatch(new RegExp(`^## ${anchor[2]}(?:\\s+\\(\\d+\\))?$`))
+      }
     }
     expect(markdown.trimEnd()).toMatch(/<!-- end module facts: facts — \d+ sections -->$/)
     expect(renderModuleFactsMarkdown(facts)).toBe(markdown)
