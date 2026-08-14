@@ -21,7 +21,7 @@ Make standalone-app harness runs resilient to interruption, enforce deterministi
 - No runner-side provider retry or backoff implementation.
 - No changes to application runtime APIs, database entities or migrations, module contracts, or rendered UI.
 - No forced updates of user-owned standalone `.ai/agentic.config.json` files; existing apps adopt the template gate changes through upgrade notes.
-- No changes to the controller-owned `writable-ast-oracles.mjs` design-system policy implementation.
+- No expansion of the controller-owned `writable-ast-oracles.mjs` design-system policy beyond semantic parity with the emitted scaffold checker.
 
 ## Implementation Plan
 
@@ -112,3 +112,13 @@ PR: #5295
 - Packed-artifact integration exercised Verdaccio publish/install, fresh generation, production builds, and ephemeral startup; the repository-wide Playwright tail reported 15 unrelated pre-existing module failures alongside 1,883 passes, 96 skips, and 3 flaky tests, with no changed-path regression.
 - The final independent review approved `089df848f` with no actionable code findings after three autofix rounds.
 - `release: blocked (native macOS sandbox-exec cannot provide the host-isolated loopback required by the complete release lane; preflight stopped before target preparation, provider invocation, or writes and requires Linux Bubblewrap)`.
+
+## Continuation Evidence
+
+- Merged `origin/develop` at `bd029a2bb` without rewriting history in `a4ff8254a`; the only textual conflict was `UPGRADE_NOTES.md`, resolved by retaining both this run's standalone-gate notes and #5293's sectioned fact-sheet migration notes.
+- Semantic reconciliation preserved #5293's directory/index fact-sheet model, OMH-230–232, framework-contract routing, stop-cause judge evidence, and #5298's Node-only instrumentation behavior.
+- Post-merge review found one fresh-template regression: IPv6 `[::1]` literals were misclassified as arbitrary Tailwind. `c0fd435dc` fixed the shared matcher semantics and added a whole-template clean-baseline regression.
+- Focused DS/oracle tests passed 38/38; the shipped template scan passed across 209 files with no findings, stale ignores, or errors; the full create-app suite passed 799 tests with 5 skips and no failures.
+- The continuation knowledge-change manifest passed its controller-owned base-fails/head-passes proof against `a4ff8254a` for the evaluator/oracle contract affecting OMH-185 and OMH-193.
+- Ordered local validation passed both `build:packages` runs, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, and `build:app`. Repeated exact `yarn test` attempts had no assertion failures but were interrupted by varying external macOS Jest-worker `SIGSEGV`s; every affected workspace/test passed in isolation, including core 1,236/1,236 suites, enterprise 59/59 suites, CLI 87/87 suites, and the final affected CLI test 20/20.
+- Phase 5.3 remains unchecked: the contained complete release lane still requires a Linux host whose nonce-bound Bubblewrap preflight succeeds.
