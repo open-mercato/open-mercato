@@ -82,13 +82,13 @@ The Playwright specs used the bypass as their shortcut, so they assert a behavio
 
 ### Phase 3: Realign the integration suite
 
-- [ ] 3.1 Rework the shared fixture and TC-SEC-004 into a negative assertion
-- [ ] 3.2 Rework TC-SEC-006 and TC-SEC-007 sudo verification
+- [x] 3.1 Rework the shared fixture and TC-SEC-004 into a negative assertion — 5560dcaec
+- [x] 3.2 Rework TC-SEC-006 and TC-SEC-007 sudo verification — 5560dcaec
 
 ### Phase 4: Contract documentation
 
-- [ ] 4.1 Document the deliberate break in BACKWARD_COMPATIBILITY.md and UPGRADE_NOTES.md
-- [ ] 4.2 File the setup-shortcut and integration-coverage follow-up issues
+- [x] 4.1 Document the deliberate break in BACKWARD_COMPATIBILITY.md and UPGRADE_NOTES.md — b508f95e2
+- [x] 4.2 File the setup-shortcut and integration-coverage follow-up issues — #5296 already existed for the setup shortcut; filed #5307 for integration coverage
 
 ### Phase 5: Validation and delivery
 
