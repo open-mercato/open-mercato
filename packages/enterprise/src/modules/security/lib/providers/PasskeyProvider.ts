@@ -7,6 +7,7 @@ import {
 } from '@simplewebauthn/server'
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/types'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type {
   MfaMethodRecord,
   MfaProviderConfirmResult,
@@ -21,6 +22,8 @@ import {
   readSecuritySetupTokenSecret,
   resolveSecurityModuleConfigForRequest,
 } from '../security-config'
+
+const logger = createLogger('security').child({ component: 'passkey' })
 
 const SETUP_TOKEN_VERSION = 'v1'
 
@@ -298,19 +301,25 @@ export class PasskeyProvider implements MfaProviderInterface {
       return false
     }
 
-    const verification = await verifyAuthenticationResponse({
-      response: parsed.data.response as never,
-      expectedChallenge: pending.challenge,
-      expectedOrigin: this.getExpectedOrigins(securityConfig),
-      expectedRPID: this.getRpId(securityConfig),
-      requireUserVerification: false,
-      credential: {
-        id: credentialId,
-        publicKey: this.base64UrlToBytes(credentialPublicKey),
-        counter,
-        transports: this.normalizeTransports(metadata.transports),
-      },
-    })
+    let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: parsed.data.response as never,
+        expectedChallenge: pending.challenge,
+        expectedOrigin: this.getExpectedOrigins(securityConfig),
+        expectedRPID: this.getRpId(securityConfig),
+        requireUserVerification: false,
+        credential: {
+          id: credentialId,
+          publicKey: this.base64UrlToBytes(credentialPublicKey),
+          counter,
+          transports: this.normalizeTransports(metadata.transports),
+        },
+      })
+    } catch (error) {
+      logger.debug('Passkey assertion rejected by verifyAuthenticationResponse', { err: error })
+      return false
+    }
 
     if (!verification.verified) {
       return false

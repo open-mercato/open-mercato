@@ -324,4 +324,41 @@ describe('PasskeyProvider', () => {
     expect(valid).toBe(false)
     expect(verifyAuthenticationResponseMock).toHaveBeenCalled()
   })
+
+  test('resolves false instead of throwing when verifyAuthenticationResponse rejects', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+        counter: 0,
+        transports: ['internal'],
+      },
+    }
+
+    verifyAuthenticationResponseMock.mockRejectedValueOnce(
+      new Error('Unexpected authentication response challenge "other", expected "auth-challenge"'),
+    )
+
+    const prepared = await provider.prepareChallenge('user-1', method)
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'signature',
+        },
+      },
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).toHaveBeenCalled()
+    expect(method.providerMetadata.counter).toBe(0)
+  })
 })
