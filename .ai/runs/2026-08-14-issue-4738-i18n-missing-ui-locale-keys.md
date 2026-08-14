@@ -57,8 +57,8 @@ Clear the four items @pkarw raised in the `CHANGES_REQUESTED` review of PR #5272
 
 ### Phase 2: Address the CHANGES_REQUESTED review
 
-- [ ] 2.1 Finding 1 — assert real byte-identity in `template-i18n-parity.test.ts` and import `SYNC_FOLDERS` from `scripts/template-sync.ts` instead of regex-matching its source
-- [ ] 2.2 Finding 4 (Nit) — refresh the stale `scripts/template-sync.ts` docstring so it names the `i18n` folder
+- [x] 2.1 Finding 1 — assert real byte-identity in `template-i18n-parity.test.ts` and import `SYNC_FOLDERS` from `scripts/template-sync.ts` instead of regex-matching its source — 94bf3db4c
+- [x] 2.2 Finding 4 (Nit) — refresh the stale `scripts/template-sync.ts` docstring so it names the `i18n` folder — 94bf3db4c
 - [ ] 2.3 Finding 2 — record `src/i18n/**` as a mirrored surface in the root `AGENTS.md` Task Router row and in `packages/create-app/AGENTS.md` (rule 5 + Template Sync Checklist), then re-check the instruction budget
 - [ ] 2.4 Finding 3 — file the `showQueryTime` follow-up issue for the one #4738 request left unimplemented and reference it from the PR body
 
