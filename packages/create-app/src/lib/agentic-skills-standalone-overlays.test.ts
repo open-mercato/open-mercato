@@ -307,6 +307,7 @@ test('local spec implementation shares stable planning and report contracts with
   for (const reference of [
     'references/spec-resolution.md',
     'references/planning-and-progress.md',
+    'references/resume.md',
     'references/report-templates.md',
   ]) {
     assert.ok(implementation.includes(reference), `om-implement-spec must load ${reference}`)
@@ -315,6 +316,14 @@ test('local spec implementation shares stable planning and report contracts with
   assert.match(specResolution, /Closest candidates:/)
   assert.match(planning, /Goal.*Scope.*Non-goals.*Source doc:.*Risks/is)
   assert.match(planning, /Only one phase may be `in_progress`/)
+  assert.match(planning, /ledger write is part of the slice/)
+  const resume = fs.readFileSync(
+    new URL('om-implement-spec/references/resume.md', skillsDir),
+    'utf8',
+  )
+  assert.match(resume, /focused typecheck.*first/is)
+  assert.match(resume, /Never re-execute a verified ticked slice/)
+  assert.match(implementation, /paired edits atomically in one edit operation/)
   assert.match(planning, /present.*plan.*user.*before coding/is)
   assert.match(reportTemplate, /### 📋 Plan & progress/)
   assert.match(reportTemplate, /### 🧪 Validation & 🔍 review/)
@@ -331,6 +340,7 @@ test('local spec implementation shares stable planning and report contracts with
     '.ai/skills/om-implement-spec/references/spec-resolution.md',
     '.ai/skills/om-implement-spec/references/phases-and-gates.md',
     '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+    '.ai/skills/om-implement-spec/references/resume.md',
     '.ai/skills/om-implement-spec/references/report-templates.md',
   ]
   for (const caseId of ['OMH-006', 'OMH-168']) {

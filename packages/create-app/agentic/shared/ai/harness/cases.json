@@ -390,9 +390,10 @@
         "AGENTS.md",
         ".ai/skills/om-implement-spec/SKILL.md",
         ".ai/skills/om-implement-spec/references/spec-resolution.md",
-        ".ai/skills/om-implement-spec/references/phases-and-gates.md",
-        ".ai/skills/om-implement-spec/references/planning-and-progress.md",
-        ".ai/skills/om-implement-spec/references/report-templates.md"
+      ".ai/skills/om-implement-spec/references/phases-and-gates.md",
+      ".ai/skills/om-implement-spec/references/planning-and-progress.md",
+      ".ai/skills/om-implement-spec/references/resume.md",
+      ".ai/skills/om-implement-spec/references/report-templates.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/notifications.md"
@@ -408,8 +409,11 @@
       "interactive-confirmation",
       "working-phases",
       "smallest-validation",
-      "implementation-progress",
-      "stable-implementation-report",
+    "implementation-progress",
+    "slice-ledger-write",
+    "in-flight-ledger",
+    "atomic-edit-sequence",
+    "stable-implementation-report",
       "spec-reference-marker"
     ],
     "forbiddenPatterns": [
@@ -14874,9 +14878,10 @@
         "AGENTS.md",
         ".ai/skills/om-implement-spec/SKILL.md",
         ".ai/skills/om-implement-spec/references/spec-resolution.md",
-        ".ai/skills/om-implement-spec/references/phases-and-gates.md",
-        ".ai/skills/om-implement-spec/references/planning-and-progress.md",
-        ".ai/skills/om-implement-spec/references/report-templates.md"
+      ".ai/skills/om-implement-spec/references/phases-and-gates.md",
+      ".ai/skills/om-implement-spec/references/planning-and-progress.md",
+      ".ai/skills/om-implement-spec/references/resume.md",
+      ".ai/skills/om-implement-spec/references/report-templates.md"
       ],
       "forbidden": [
         ".env*",
@@ -14891,8 +14896,11 @@
       "smallest-validation",
       "selected-phase-boundary",
       "preserve-spec-contracts",
-      "implementation-progress",
-      "stable-implementation-report",
+    "implementation-progress",
+    "slice-ledger-write",
+    "in-flight-ledger",
+    "atomic-edit-sequence",
+    "stable-implementation-report",
       "spec-reference-marker"
     ],
     "forbiddenPatterns": [
