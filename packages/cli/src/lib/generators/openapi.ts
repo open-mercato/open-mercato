@@ -709,6 +709,15 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   // Fallback to static regex approach (extracts operationId/summary/tags but no schemas)
   if (!doc) {
     if (!quiet) {
+      // Warn rather than log: the usual cause is a route importing a module specifier that
+      // does not resolve, and the visible symptom is silent — generation still "succeeds",
+      // but every request/response schema is dropped from the emitted document. That reads
+      // as an OpenAPI quality regression when it is really an unresolved import.
+      console.warn(
+        '[generate] ⚠ OpenAPI bundling failed; fell back to static regex extraction — '
+        + 'request/response schemas are OMITTED from the generated document. '
+        + 'The usual cause is a route file importing a module specifier that does not resolve.',
+      )
       console.log('[OpenAPI] Falling back to static regex approach')
     }
     const paths = buildOpenApiPaths(routes)

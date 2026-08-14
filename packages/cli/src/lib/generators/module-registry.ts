@@ -1369,11 +1369,15 @@ function collectCommandLoaderEntries(
     const logicalKey = stripModuleCodeExtension(file.relPath)
     const basename = path.basename(logicalKey)
     if (basename === 'shared' || basename === 'factory') continue
+    const ids = extractCommandIdsFromSource(resolved.absolutePath)
+    // Only meaningful when this file actually contributes ids: a helper module under
+    // `commands/` with no registrations is not expected to call `registerCommand`.
+    if (ids.length > 0) warnIfRegisterCommandNotAtImportTime(resolved.absolutePath)
     entries.push({
       moduleId: modId,
       key: `${modId}:commands:${logicalKey}`,
       importPath: resolved.importPath,
-      ids: extractCommandIdsFromSource(resolved.absolutePath),
+      ids,
     })
   }
   return entries
@@ -1462,6 +1466,54 @@ function findExistingModuleFileByBaseNames(baseDir: string, relativeBaseNames: s
     if (resolved) return resolved
   }
   return null
+}
+
+/**
+ * Warns when a discovered page metadata file exports no `metadata` binding.
+ *
+ * Both page-route emitters read `<module>.metadata` off the imported file. When the author
+ * named the export something else — `meta` is the common near-miss — that read yields
+ * `undefined`, the route still generates, and every declaration in the file is dropped.
+ * `requireAuth` and `requireFeatures` are among them, so the page ships with no
+ * authorization gate and nothing in the build says so. The warning names that consequence
+ * because the rule alone ("export `metadata`") does not convey why it matters.
+ */
+export function warnIfPageMetaMissingMetadataExport(metaPath: string | null): void {
+  if (!metaPath) return
+  if (hasNamedExport(metaPath, 'metadata')) return
+  console.warn(
+    `[generate] ⚠ Page metadata file exports no 'metadata' — page metadata is dropped, `
+    + `including requireAuth/requireFeatures, so the page renders with NO authorization gate: ${metaPath}`,
+  )
+}
+
+/**
+ * Warns when a `commands/*.ts` file registers commands only from inside a function.
+ *
+ * Command discovery extracts ids statically and emits a lazy loader per file; the loader
+ * resolves a command by importing that file and relying on `registerCommand(...)` running as
+ * an import-time side effect. When every call sits inside a function body that nothing
+ * invokes, the ids still appear in the generated manifest but the handlers never register,
+ * so the command bus reports the command as unknown at runtime.
+ *
+ * Heuristic and deliberately conservative: it only fires when the file contains at least one
+ * `registerCommand(` call and none of them is at top level (column 0), which is how every
+ * correct module writes them.
+ */
+export function warnIfRegisterCommandNotAtImportTime(sourcePath: string): void {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourcePath, 'utf8')
+  } catch {
+    return
+  }
+  if (!/\bregisterCommand\s*\(/.test(source)) return
+  const hasTopLevelCall = /^registerCommand\s*\(/m.test(source)
+  if (hasTopLevelCall) return
+  console.warn(
+    `[generate] ⚠ registerCommand(...) is never called at import time — these command ids will `
+    + `appear in the manifest but the handlers will not register at runtime: ${sourcePath}`,
+  )
 }
 
 function toModuleImportSubpath(filePath: string, baseDir: string): string {
@@ -1918,6 +1970,7 @@ async function processPageFiles(options: {
     const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
+    warnIfPageMetaMissingMetadataExport(metaPath)
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
@@ -2811,6 +2864,7 @@ async function processPageFilesAst(options: {
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
 
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
+    warnIfPageMetaMissingMetadataExport(metaPath)
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = sanitizeGeneratedModuleSpecifier(

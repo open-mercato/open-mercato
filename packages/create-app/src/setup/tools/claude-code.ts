@@ -42,6 +42,9 @@ export function generateClaudeCode(config: AgenticConfig): void {
   // .claude/hooks/entity-migration-check.ts
   copyFile('hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
 
+  // .claude/hooks/gate-evidence.ts
+  copyFile('hooks/gate-evidence.ts', join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+
   // .mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.mcp.json.example'))
 }
