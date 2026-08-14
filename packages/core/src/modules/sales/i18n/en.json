@@ -1021,6 +1021,7 @@
   "sales.documents.items.save": "Save changes",
   "sales.documents.items.selectedProduct": "Selected {{id}}",
   "sales.documents.items.selectedVariant": "Selected {{id}}",
+  "sales.documents.items.shippedLineLocked": "Pricing is locked on this line because it already has shipped items. You can still edit the name and quantity.",
   "sales.documents.items.status": "Status",
   "sales.documents.items.statusEmpty": "No status",
   "sales.documents.items.statusLoading": "Loading statuses…",

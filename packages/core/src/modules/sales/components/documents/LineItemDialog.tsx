@@ -2011,42 +2011,45 @@ export function LineItemDialog({
                       (entry) => entry.id === selectedPriceId,
                     ) ?? null)
                   : null;
-                const lockedSelectionId =
-                  selectedPriceId ??
-                  (isShippedOrderLine
-                    ? `shipped-line-${editingId ?? "current"}`
-                    : null);
-                const lockedSelectionAmount = normalizeNumber(
-                  values?.unitPrice,
-                  Number.NaN,
-                );
-                const lockedSelectionCurrency =
-                  typeof values?.currencyCode === "string"
-                    ? values.currencyCode
-                    : currencyCode;
-                const selectedLookupOption = selectedPrice
-                  ? {
-                      id: selectedPrice.id,
-                      title: selectedPrice.label,
-                      subtitle:
-                        selectedPrice.priceKindTitle ??
-                        selectedPrice.priceKindCode ??
-                        undefined,
-                      description: selectedPrice.scopeReason ?? undefined,
-                      rightLabel: selectedPrice.currencyCode ?? undefined,
-                    }
-                  : isShippedOrderLine &&
-                      lockedSelectionId &&
-                      Number.isFinite(lockedSelectionAmount)
-                    ? {
-                        id: lockedSelectionId,
-                        title: formatMoney(
-                          lockedSelectionAmount,
-                          lockedSelectionCurrency ?? undefined,
-                        ),
-                        rightLabel: lockedSelectionCurrency ?? undefined,
-                      }
-                    : null;
+                if (isShippedOrderLine) {
+                  const lockedAmount = normalizeNumber(
+                    values?.unitPrice,
+                    Number.NaN,
+                  );
+                  const lockedCurrency =
+                    selectedPrice?.currencyCode ??
+                    (typeof values?.currencyCode === "string"
+                      ? values.currencyCode
+                      : currencyCode) ??
+                    undefined;
+                  const lockedModeLabel =
+                    values?.priceMode === "net"
+                      ? t("sales.documents.items.priceNet", "Net")
+                      : t("sales.documents.items.priceGross", "Gross");
+                  const lockedAmountLabel = Number.isFinite(lockedAmount)
+                    ? `${formatMoney(lockedAmount, lockedCurrency)} · ${lockedModeLabel}`
+                    : lockedModeLabel;
+                  const lockedPriceDetail =
+                    selectedPrice?.label ??
+                    selectedPrice?.priceKindTitle ??
+                    selectedPrice?.priceKindCode ??
+                    null;
+                  return (
+                    <div className="space-y-2">
+                      <Input
+                        readOnly
+                        disabled
+                        value={lockedAmountLabel}
+                        aria-label={t("sales.documents.items.price", "Price")}
+                      />
+                      {lockedPriceDetail ? (
+                        <p className="text-xs text-muted-foreground">
+                          {lockedPriceDetail}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                }
                 return (
                   <LookupSelect
                     key={
@@ -2054,7 +2057,7 @@ export function LineItemDialog({
                         ? `${productId}-${variantId ?? "no-variant"}`
                         : "price"
                     }
-                    value={lockedSelectionId}
+                    value={selectedPriceId}
                     onChange={(next) => {
                       setValue(next ?? null);
                       const selected = next
@@ -2115,9 +2118,6 @@ export function LineItemDialog({
                         }));
                     }}
                     minQuery={0}
-                    options={
-                      selectedLookupOption ? [selectedLookupOption] : undefined
-                    }
                     loading={priceLoading}
                     searchPlaceholder={t(
                       "sales.documents.items.priceSearch",
@@ -2135,7 +2135,7 @@ export function LineItemDialog({
                       "ui.lookupSelect.startTyping",
                       "Start typing to search.",
                     )}
-                    disabled={isShippedOrderLine || !productId}
+                    disabled={!productId}
                   />
                 );
               },
@@ -2619,7 +2619,6 @@ export function LineItemDialog({
     selectPriceAfterRefresh,
     hasTaxMetadata,
     isShippedOrderLine,
-    editingId,
   ]);
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
@@ -2989,8 +2988,8 @@ export function LineItemDialog({
           <Alert status="information" style="lighter">
             <AlertDescription>
               {t(
-                "sales.documents.items.errorPriceShipped",
-                "You cannot change the price or unit of a line that has shipped items.",
+                "sales.documents.items.shippedLineLocked",
+                "Pricing is locked on this line because it already has shipped items. You can still edit the name and quantity.",
               )}
             </AlertDescription>
           </Alert>
