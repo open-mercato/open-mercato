@@ -68,6 +68,8 @@ The Playwright specs used the bypass as their shortcut, so they assert a behavio
 
 ## Progress
 
+PR: #5306
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Close the bypass in PasskeyProvider
@@ -92,4 +94,4 @@ The Playwright specs used the bypass as their shortcut, so they assert a behavio
 
 ### Phase 5: Validation and delivery
 
-- [ ] 5.1 Run the full validation gate and finalize the PR
+- [x] 5.1 Run the full validation gate and finalize the PR — fb98bf0d9 (review pass raised one major finding, fixed in that commit)
