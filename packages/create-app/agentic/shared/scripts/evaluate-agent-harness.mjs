@@ -63,6 +63,7 @@ const SAFE_TEXT_EXTENSIONS = new Set([
 ])
 const WALK_IGNORES = new Set(['.git', '.next', 'dist', 'node_modules'])
 const RESULT_VIOLATION_LIMIT = 300
+const STOP_CAUSE_CLASSIFICATIONS = new Set(['completed', 'provider-limit', 'provider-error', 'user-abort', 'unknown'])
 const JUDGE_SKILL = 'om-judge-agent-session'
 const JUDGE_SKILL_FILES = [
   'SKILL.md',
@@ -1629,7 +1630,20 @@ function validateReviewResponse(response, reviewedPaths, evidenceIds) {
   return errors
 }
 
-function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences) {
+export function normalizeManifestStopCause(manifest) {
+  const classification = manifest?.stopCause?.classification
+  return STOP_CAUSE_CLASSIFICATIONS.has(classification) ? classification : 'unknown'
+}
+
+export function terminationReportErrors(report, expectedTermination) {
+  const match = /^- Termination: (completed|provider-limit|provider-error|user-abort|unknown)\b/m.exec(String(report ?? ''))
+  if (!match) return ['judge report is missing a valid - Termination: line']
+  return match[1] === expectedTermination
+    ? []
+    : [`judge report termination ${match[1]} does not match normalized manifest stop cause ${expectedTermination}`]
+}
+
+function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences, expectedTermination) {
   const errors = validateReviewResponse(response, reviewedPaths, evidenceIds)
   if (!['pass', 'fail', 'inconclusive'].includes(response?.judgeVerdict)) errors.push('judgeVerdict is invalid')
   if (JSON.stringify(response?.artifactFindings) !== JSON.stringify(response?.findings)) errors.push('artifactFindings must match the code-review findings projection')
@@ -1644,9 +1658,7 @@ function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewRefer
     '## Design-System Review', '## Harness-Owner Findings', '## Missing or Unverifiable Evidence',
     '## Recommended Next Actions',
   ]) if (!report.includes(heading)) errors.push(`judge report is missing ${heading}`)
-  if (!/^- Termination: (?:completed|provider-limit|provider-error|user-abort|unknown)\b/m.test(report)) {
-    errors.push('judge report is missing a valid - Termination: line')
-  }
+  errors.push(...terminationReportErrors(report, expectedTermination))
   const expectedReviewer = reviewReferences.length ? 'om-backend-ui-design' : 'not-applicable'
   if (response?.designSystemReview?.reviewer !== expectedReviewer) errors.push(`designSystemReview reviewer must be ${expectedReviewer}`)
   for (const finding of response?.harnessOwnerFindings ?? []) {
@@ -3366,7 +3378,7 @@ function copyInertReviewSource(sourceRoot, relative, destinationRoot) {
   fs.writeFileSync(destination, inert, { mode: 0o400 })
 }
 
-function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPaths, sourceResultHash, targetFingerprint, skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences }) {
+function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPaths, sourceResultHash, targetFingerprint, skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences, terminationClassification }) {
   const bundleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-review-'))
   for (const relative of reviewedPaths) copyInertReviewSource(targetRoot, relative, bundleRoot)
   for (const relative of skill.files) copyReviewFile(skill.root, relative, path.join(bundleRoot, '.agents', 'skills', REVIEW_SKILL))
@@ -3387,6 +3399,7 @@ function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPat
     reviewedSources: reviewedPaths.map((relative) => ({ path: relative, bundlePath: reviewSourceBundlePath(relative) })),
     sourceResultHash,
     targetFingerprint,
+    manifest: { stopCause: { classification: terminationClassification, lastEntryError: null } },
     validationEvidence,
     ...(validationResult ? { validationResult } : {}),
     reviewReferences,
@@ -3395,13 +3408,13 @@ function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPat
   return bundleRoot
 }
 
-function buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences, canonicalJudge) {
+function buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences, canonicalJudge, expectedTermination) {
   const reviewedSources = reviewedPaths.map((relative) => `${relative} => ${reviewSourceBundlePath(relative)}`)
   return `Apply ${canonicalJudge ? `the local ${JUDGE_SKILL} skill and ` : ''}the installed ${REVIEW_SKILL} skill under the specialized generated-code profile in REVIEW_POLICY.md. The only MCP server is harness. Its exact-path tool is named read and takes JSON arguments {"path":"<exact review-workspace-relative path>"}. Call harness.read; never call read_mcp_resource or any resource API. Your first actions must read AGENTS.md, REVIEW_POLICY.md, REVIEW_EVIDENCE.json, ${REVIEW_MODULE_CHECKLIST}, ${canonicalJudge ? `.ai/skills/${JUDGE_SKILL}/SKILL.md, every bundled judge reference named there, ` : ''}.agents/skills/${REVIEW_SKILL}/SKILL.md, every bundled review reference named there, every routed UI/design-system reference listed in REVIEW_EVIDENCE.json, and every inert source bundle path. Do not execute reviewed code or scripts, inspect environment values, access paths outside this isolated workspace, discover files, or edit files.
 
 The only controller validation evidence IDs are: ${evidenceIds.join(', ')}. Include each exactly once with status pass and include each ID in the validation table. Routed UI/design-system references: ${reviewReferences.length ? reviewReferences.join(', ') : 'none'}. Review only these original-path to inert-bundle mappings: ${reviewedSources.join(', ')}. Findings must use the original path before =>.
 
-Return the strict structured object required by the supplied schema. The report field must use the code-review skill's exact headings and verdict marker.${canonicalJudge ? ' The judgeReport field must use the judge skill report headings. Separate artifact findings from the smallest harness-owner findings, and report design-system review as om-backend-ui-design only when routed references were supplied; otherwise use not-applicable.' : ''} Findings must reference only reviewed source paths. Do not include any prose outside the structured object.`
+Return the strict structured object required by the supplied schema. The report field must use the code-review skill's exact headings and verdict marker.${canonicalJudge ? ` The judgeReport field must use the judge skill report headings and its termination line must exactly report the controller-normalized REVIEW_EVIDENCE.json manifest classification: ${expectedTermination}. Separate artifact findings from the smallest harness-owner findings, and report design-system review as om-backend-ui-design only when routed references were supplied; otherwise use not-applicable.` : ''} Findings must reference only reviewed source paths. Do not include any prose outside the structured object.`
 }
 
 function writeReviewResult(root, targetRoot, result, resultSchema) {
@@ -3470,13 +3483,16 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
   ]
   const evidenceIds = validationEvidence.map((entry) => entry.id)
   const reviewReferences = routedReviewReferences(caseRecord)
+  const terminationClassification = normalizeManifestStopCause({
+    stopCause: { classification: source.status === 'pass' ? 'completed' : 'unknown' },
+  })
   const validationResult = targetValidationRecord
     ? { path: targetValidationRecord.relative, sha256: targetValidationRecord.sha256 }
     : undefined
   const bundleRoot = buildReviewBundle({
     controllerRoot: root, targetRoot, caseRecord, reviewedPaths,
     sourceResultHash: sourceRecord.sha256, targetFingerprint: currentFingerprint,
-    skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences,
+    skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences, terminationClassification,
   })
   try {
     const expectedReads = [
@@ -3508,7 +3524,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       runner: options.runner,
       root: bundleRoot,
       schemaPath,
-      prompt: buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences, options.judgeCanonical),
+      prompt: buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences, options.judgeCanonical, terminationClassification),
       timeout: options.timeout,
       model,
       reasoningEffort: options.reasoningEffort,
@@ -3516,7 +3532,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       allowedReads: expectedReads,
       allowedWrites: [],
       validateResponse: (response) => options.judgeCanonical
-        ? validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences)
+        ? validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences, terminationClassification)
         : validateReviewResponse(response, reviewedPaths, evidenceIds),
     })
     const reviewContext = { allowedWrites: expectedReads, context: { forbidden: [] } }

@@ -20,10 +20,24 @@ function createFixture(files: Record<string, string>, ignore?: object) {
 
 test('standalone ds checker accepts semantic-token source', () => {
   const root = createFixture({
-    'src/modules/example/backend/page.tsx': `export const Page = () => <div className="text-status-danger-fg border-border" />`,
+    'src/modules/example/backend/page.tsx': `// style= and <table> are explanatory text, not JSX.
+      const note = 'Use <table> only through DataTable'
+      const selected = 'items[0]'
+      export const Page = ({ items }: { items: string[] }) => <div className={\`text-status-danger-fg border-border \${items[0]}\`} />`,
   })
   try {
     assert.deepEqual(scanDesignSystem(root).findings, [])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('standalone ds checker finds policy literals stored outside a className expression', () => {
+  const root = createFixture({
+    'src/modules/example/frontend/page.tsx': `const legacyClass = 'text-red-500'\nexport const Page = () => <div className={legacyClass} />`,
+  })
+  try {
+    assert.deepEqual(scanDesignSystem(root).findings.map((finding) => finding.rule), ['hardcoded-palette'])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -70,6 +84,29 @@ test('standalone ds checker honors justified ignores and rejects stale entries',
     const stale = scanDesignSystem(root)
     assert.equal(stale.ok, false)
     assert.equal(stale.staleIgnores.length, 1)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('standalone ds checker consumes each ignore once and reports an added violation', () => {
+  const root = createFixture(
+    { 'src/modules/example/backend/page.tsx': `export const Page = () => <div className="text-amber-600 text-red-500" />` },
+    {
+      version: 1,
+      entries: [{
+        file: 'src/modules/example/backend/page.tsx',
+        rule: 'hardcoded-palette',
+        match: 'text-amber-600',
+        reason: 'Known legacy status token.',
+      }],
+    },
+  )
+  try {
+    const result = scanDesignSystem(root)
+    assert.equal(result.ok, false)
+    assert.deepEqual(result.findings.map((finding) => finding.match), ['text-red-500'])
+    assert.deepEqual(result.staleIgnores, [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

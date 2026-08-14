@@ -1,25 +1,82 @@
 # Installed Framework Contracts
 
-Use this guide after app call sites and generated module facts have identified a named framework contract. These links point at the exact installed package source, so they are read-only version evidence: never edit `node_modules`, widen into directory discovery, or assume a contract from another installed version.
+Use this digest after app call sites and generated facts identify a named framework contract. Links are read-only version evidence: never edit or enumerate `node_modules`. If a question is unanswered, invoke `om-framework-context` for only that contract.
 
-## Commands
+## Command handler and registry
 
-- [`CommandHandler` and runtime context](../../node_modules/@open-mercato/shared/src/lib/commands/types.ts) define the typed lifecycle. `execute` returns `TResult`; `prepare`, `captureAfter`, `buildLog`, `undo`, and `redo` are separate optional hooks. Preserve authenticated scope and reuse `transactionalEm` when the caller supplies it.
-- [The command registry](../../node_modules/@open-mercato/shared/src/lib/commands/registry.ts) owns stable command IDs and lazy loading. Register through discovery, never reach into registry internals or silently replace an existing production ID.
-- [`runCrudCommandWrite`](../../node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts) is the command-owned persistence seam for CRUD-backed handlers. It writes, applies custom fields, then emits CRUD/index side effects. A command-backed `makeCrudRoute` still owns factory authentication, scope, interceptors, guards, and synchronous lifecycle; do not persist or emit the same change a second time in the route.
+[`CommandHandler`](../../node_modules/@open-mercato/shared/src/lib/commands/types.ts) has a stable `id` and one required operation, `execute(input, ctx)`. Its optional lifecycle is deliberately split:
 
-## CRUD and Events
+- `prepare(input, ctx)` captures the before snapshot before execution.
+- `execute(input, ctx)` performs the durable operation and returns the public result.
+- `captureAfter(input, result, ctx)` can capture the after snapshot.
+- `buildLog({ input, result, ctx, snapshots })` returns action-log metadata; returning `null` or `skipLog` suppresses a normal log entry.
+- `undo({ input, ctx, logEntry })` and `redo(...)` are only valid when the handler owns a reversible contract. Undo payload is stored under `commandPayload`, not `logEntry.payload`; use the shared undo extractor.
 
-- [`makeCrudRoute`](../../node_modules/@open-mercato/shared/src/lib/crud/factory.ts) is the installed route factory contract. Keep per-method metadata, explicit tenant/organization fields, stable entity/command IDs, schemas, transformations, guards, and optional indexer/enricher configuration aligned with `.ai/guides/contracts.md`.
-- [`createModuleEvents`](../../node_modules/@open-mercato/shared/src/modules/events/factory.ts) declares and validates typed event IDs. Its `emit` delegates immediately to the bootstrapped event bus; it is not transaction-aware. Emit only after commit by call order, or use the post-write side-effect flow already provided by `runCrudCommandWrite`/the data engine.
+`CommandRuntimeContext` carries authentication, selected organization scope, the DI container, optional request and sync origin, bulk-import suppression, and an optional `transactionalEm`. A handler must preserve this scope and reuse `transactionalEm` when supplied instead of opening an independent transaction.
 
-## Concurrency and HTTP
+[The command registry and `registerCommand`](../../node_modules/@open-mercato/shared/src/lib/commands/registry.ts) own handler discovery. Register through the normal `commands.ts` discovery surface. IDs are global and stable: duplicates throw outside development; development permits HMR replacement. Never silently replace a production ID or call registry internals from a module.
 
-- [Command optimistic locking](../../node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts) accepts either an explicit expected version or the request header. `assertOptimisticLock` is additive: it does nothing when the token is missing or locking is disabled, and throws the shared structured 409 on mismatch. A typed `expected_updated_at` field is an app convention that must be validated and passed as `expected`; it is not inferred automatically.
-- [`readJsonSafe`](../../node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts) reads `Request`, `Response`, or string bodies and returns the supplied fallback for empty or invalid JSON. Prefer it over an unguarded `.json()` call when a response may be empty or non-JSON.
+## Atomic CRUD command writes
 
-## Data Engine
+[`runCrudCommandWrite`](../../node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts) is the command-owned persistence seam for CRUD-backed handlers. It:
 
-- [The data engine](../../node_modules/@open-mercato/shared/src/lib/data/engine.ts) owns custom-entity storage and generic ORM CRUD side effects. Its mutation helpers flush their own writes unless an explicit surrounding contract says otherwise, and they do not derive tenant/organization scope for the caller. Pass trusted scope, use the caller's transaction seam where supported, and drain queued ORM side effects only after the durable write succeeds.
+It resolves or reuses an entity manager; passes all phases through transactional-by-default `withAtomicFlush`; applies custom fields after durable phases; and emits configured CRUD/index side effects from `sideEffect()`.
 
-If these exact files do not answer the named question, invoke `om-framework-context` for that single contract. Report the installed version and any source/type limitation instead of guessing.
+Every phase must use the callback's entity manager. Set `transaction: false` only when an enclosing transaction already provides the atomic boundary. `sideEffect()` must return the final entity and stable identifiers after phases have completed. Commands using this helper own generic event/reindex emission; their route must not repeat it.
+
+## `makeCrudRoute`
+
+[`makeCrudRoute`](../../node_modules/@open-mercato/shared/src/lib/crud/factory.ts) is the installed HTTP factory. Its `metadata.GET/POST/PUT/DELETE` gates authentication, immutable feature requirements, and rate limits per method. The factory also retains tenant/organization selection checks, interceptors, mutation guards, synchronous before/after lifecycle subscribers, response shaping, command operation headers, and errors. Command-backed actions extend that envelope; they do not replace it.
+
+ORM defaults are `id`, `organizationId`, `tenantId`, and `deletedAt`; `null` disables an automatic field. Do not disable scope merely because a handler checks it too. With the specialized read-only `omitAutomaticTenantOrgScope`, `buildFilters` must encode all visibility and fail closed; update/delete scoping remains automatic.
+
+### List sequence
+
+- The list zod schema parses query parameters; before interceptors may rewrite it, followed by another parse.
+- `hooks.beforeList(validatedQuery, ctx)` runs after rewriting and before the query. Resolve request-specific state through `ctx`, never module-global mutable state.
+- `list.transformItem(item)` is a synchronous per-row projection. On the Query Engine path it runs before custom-field decoration, translation overlay, and response enrichment. It must not perform async I/O.
+- `hooks.afterList(payload, { ...ctx, query })` receives the mutable response payload on cache, query-engine, ORM-fallback, export, and empty-result branches. Response enrichers configured by `enrichers.entityId` run after `afterList`; after interceptors also remain part of the factory response pipeline.
+
+Keep entity/enricher IDs and list fields, filters, sorting, joins, and export settings stable. `buildFilters` may be async; `transformItem` may not. Query Engine options do not apply when the route omits `entityId` or `fields`.
+
+### Command-backed mutations
+
+`actions.create`, `actions.update`, and `actions.delete` select the command path by stable `commandId`. An action may map validated input, add log metadata, choose response/status, and provide resource identity. The command performs persistence and asynchronous generic CRUD side effects. The factory still performs:
+
+- route authentication and selected-scope rejection;
+- request interceptors and schema validation;
+- synchronous lifecycle events and mutation guards;
+- command-bus execution and action-log operation headers;
+- response interceptors, guard success callbacks, and cache invalidation.
+
+Thus commands own the asynchronous configured CRUD event/index work, not the factory's synchronous lifecycle. The factory deliberately does not double-emit the command's generic event.
+
+## Typed module events
+
+[`createModuleEvents`](../../node_modules/@open-mercato/shared/src/modules/events/factory.ts) adds `module` to definitions, registers IDs for runtime validation, and returns typed `eventsConfig.emit`. The emitted ID must be declared by that configuration.
+
+`eventsConfig.emit(eventId, payload, options)` delegates immediately to the bootstrapped event bus. It does not begin, join, or wait for a database transaction. Calling it before commit can publish an event for a write that later rolls back. Emit by call order only after the durable write succeeds, or use the post-write flow supplied by `runCrudCommandWrite`/the Data Engine. `clientBroadcast` and `portalBroadcast` are declaration flags, not transaction controls.
+
+## Optimistic locking
+
+[Command optimistic-lock helpers](../../node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts) normalize an explicit expected version or request header and compare it with actual `updated_at`. `assertOptimisticLock` does nothing when the token is absent or locking is disabled, and throws the shared 409 conflict on mismatch.
+
+`expected_updated_at` is an app convention, not inferred. Validate and pass it as `expected`; load and assert inside the mutation transaction. Return `updated_at`/`updatedAt` so the UI can send the version.
+
+## Defensive JSON reads
+
+[`readJsonSafe`](../../node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts) accepts a `Request`, `Response`, or string and returns the supplied fallback for empty/invalid JSON. It is not schema validation: narrow or zod-parse its result.
+
+## Data Engine ORM operations
+
+[The Data Engine](../../node_modules/@open-mercato/shared/src/lib/data/engine.ts) provides `createOrmEntity`, `updateOrmEntity`, and `deleteOrmEntity` for generic ORM-backed mutation seams:
+
+- `createOrmEntity({ entity, data })` creates, persists, and flushes, then returns the entity.
+- `updateOrmEntity({ entity, where, apply })` loads one matching entity, returns `null` when absent, applies the callback, flushes, and returns the entity.
+- `deleteOrmEntity({ entity, where, soft, softDeleteField })` loads one matching entity, returns `null` when absent, then soft-deletes or removes and flushes.
+
+These helpers do not derive tenant/organization scope or automatically emit. The caller owns complete `where` scope and create fields. `markOrmEntityChange` queues event/index work, `flushOrmEntityChanges` drains it, and `emitOrmEntityEvent` emits directly. Drain only after the durable write; suppressed indexing must be rebuilt.
+
+## Escalation rule
+
+Start here, then the one exact linked file. If unanswered, invoke `om-framework-context` with a narrow query and report the installed version and limitation. Never copy a private implementation detail into an app contract.

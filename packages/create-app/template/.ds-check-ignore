@@ -4,202 +4,1214 @@
     {
       "file": "src/app/start/page.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "max-h-[200px]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/BackendHeaderChrome.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "w-[220px]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/DemoFeedbackWidget.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "max-w-[calc(100vw-3rem)]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/DemoFeedbackWidget.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "animate-[subtle-bounce_2s_ease-in-out_infinite]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/DemoFeedbackWidget.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "min-w-[90px]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/DemoFeedbackWidget.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "animate-[caption-slide_0.3s_ease-out]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/DemoFeedbackWidget.tsx",
       "rule": "inline-style",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "style=",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/GlobalNoticeBars.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "max-w-[calc(100vw-2rem)]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/GlobalNoticeBars.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "supports-[backdrop-filter]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/GlobalNoticeBars.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "max-w-[calc(100vw-2rem)]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/GlobalNoticeBars.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "supports-[backdrop-filter]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/OrganizationSwitcher.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "data-[state=open]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/OrganizationSwitcher.tsx",
-      "rule": "inline-style",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "rule": "arbitrary-tailwind",
+      "match": "[&>span]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/ui/card.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "grid-rows-[auto_auto]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/ui/card.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "[.border-b]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/ui/card.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "[.border-t]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/ui/input.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "transition-[color,box-shadow]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/ui/input.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/ui/input.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/components/ui/label.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "group-data-[disabled=true]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/components/ui/label.tsx",
+      "rule": "arbitrary-tailwind",
+      "match": "group-data-[disabled=true]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "border-amber-500/40",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-400/10",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-800",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-100/90",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-emerald-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-indigo-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "border-indigo-300",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-indigo-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "hover:bg-indigo-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:border-indigo-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-indigo-300",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:hover:bg-indigo-950",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/payments/page.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "grid-cols-[auto_1fr]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/payments/page.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "bg-emerald-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "hover:bg-emerald-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "border-amber-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "hover:bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:border-amber-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-300",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:hover:bg-amber-950",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/payments/page.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/payments/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-extensions/page.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "border-amber-500/40",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-400/10",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-800",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-100/90",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-extensions/page.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "border-amber-500/40",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-400/10",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-800",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-100/90",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-handlers/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-handlers/page.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "md:grid-cols-[120px_120px_1fr]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-handlers/page.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "text-green-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-handlers/page.tsx",
-      "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "rule": "hardcoded-palette",
+      "match": "text-amber-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-integrations/page.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "bg-green-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-yellow-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-red-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-green-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-yellow-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "border-amber-500/40",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-400/10",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-800",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-100/90",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-integrations/page.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-integrations/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "border-amber-500/40",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-400/10",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-800",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-100/90",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-900",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/backend/umes-query-extensions/page.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/frontend/blog/[id]/page.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/dashboard/notes/widget.client.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "min-h-[160px]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/dashboard/notes/widget.client.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/dashboard/todos/widget.client.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "min-h-[120px]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/dashboard/welcome/widget.client.tsx",
       "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "min-h-[120px]",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "text-emerald-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "border-amber-200",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:border-amber-900/70",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-950/40",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
-      "file": "src/modules/example/widgets/injection/crud-validation/widget.ts",
-      "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
-      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
-      "rule": "arbitrary-tailwind",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-800",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-300",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "bg-emerald-100",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-emerald-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-emerald-900/30",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-emerald-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-blue-100",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-blue-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-blue-900/30",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-blue-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-amber-100",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-amber-900/30",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-violet-100",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-violet-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-violet-900/30",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-violet-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-rose-100",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-rose-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-rose-900/30",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-rose-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-recent-activity/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "text-emerald-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-emerald-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-amber-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-amber-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-blue-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-blue-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-violet-600",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-violet-400",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/portal-stats/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
       "rule": "hardcoded-palette",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "bg-blue-50",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-blue-700",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:bg-blue-950",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "dark:text-blue-300",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
     {
       "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
       "rule": "manual-dark-override",
-      "reason": "Pre-existing scaffold surface retained for compatibility; remove this entry when the file is migrated to semantic design-system tokens."
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "manual-dark-override",
+      "match": "dark:",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "bg-blue-500",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
+    },
+    {
+      "file": "src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "rule": "hardcoded-palette",
+      "match": "text-blue-500/70",
+      "reason": "Existing scaffold styling retained as a bounded migration baseline."
     }
   ]
 }

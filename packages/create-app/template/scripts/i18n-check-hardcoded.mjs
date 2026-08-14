@@ -16,17 +16,13 @@ const JSX_ATTRIBUTE_NAMES = [
   'emptyMessage',
 ]
 
-const JSX_TEXT_PATTERN = />\s*([A-Z][a-z]+(?:\s+[A-Za-z][a-zA-Z]*){1,}[.?!]?)\s*</g
-const JSX_ATTRIBUTE_PATTERN = new RegExp(
-  `(?:^|[\\s{(])(${JSX_ATTRIBUTE_NAMES.join('|')})\\s*=\\s*("([^"\\n]+)"|'([^'\\n]+)'|\\{\\s*("([^"\\n]+)"|'([^'\\n]+)')\\s*\\})`,
-  'g',
-)
-const MESSAGE_PATTERNS = Object.freeze([
-  { kind: 'throw-error', pattern: /throw\s+new\s+Error\(\s*(["'`])([^"'`\n]{2,})\1/g },
-  { kind: 'crud-form-error', pattern: /createCrudFormError\(\s*(["'`])([^"'`\n]{2,})\1/g },
-  { kind: 'raise-crud-error', pattern: /raiseCrudError\(\s*(["'`])([^"'`\n]{2,})\1/g },
-  { kind: 'toast-call', pattern: /(?<![a-zA-Z_$])toast\.(?:error|success|warning|warn|info|message|loading)\(\s*(["'`])([^"'`\n]{2,})\1/g },
-  { kind: 'flash-call', pattern: /(?<![a-zA-Z_$])flash(?:\.(?:error|success|warning|warn|info))?\(\s*(["'`])([^"'`\n]{2,})\1/g },
+const JSX_ATTRIBUTE_PREFIX = new RegExp(`(?:${JSX_ATTRIBUTE_NAMES.join('|')})\\s*=\\s*(?:\\{\\s*)?$`)
+const MESSAGE_PREFIXES = Object.freeze([
+  { kind: 'throw-error', pattern: /throw\s+new\s+Error\(\s*$/ },
+  { kind: 'crud-form-error', pattern: /createCrudFormError\(\s*$/ },
+  { kind: 'raise-crud-error', pattern: /raiseCrudError\(\s*$/ },
+  { kind: 'toast-call', pattern: /(?<![a-zA-Z_$])toast\.(?:error|success|warning|warn|info|message|loading)\(\s*$/ },
+  { kind: 'flash-call', pattern: /(?<![a-zA-Z_$])flash(?:\.(?:error|success|warning|warn|info))?\(\s*$/ },
 ])
 
 const TECHNICAL_TOKENS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRUE', 'FALSE', 'NULL', 'NaN', 'UTC'])
@@ -36,9 +32,9 @@ function looksEnglishPhrase(value) {
   const trimmed = value.trim()
   if (trimmed.length < 4 || trimmed.startsWith('[internal]')) return false
   if (TECHNICAL_TOKENS.has(trimmed) || TECHNICAL_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) return false
-  if (/^[A-Z0-9_]+$/.test(trimmed) || /^[a-zA-Z][\w-]*$/.test(trimmed)) return false
+  if (/^[A-Z0-9_]+$/.test(trimmed)) return false
   if (/\.[a-z]+\.[a-z]+/.test(trimmed) && !/\s/.test(trimmed)) return false
-  return (trimmed.match(/[A-Za-z]{2,}/g) ?? []).length >= 2 && /[a-z]/.test(trimmed)
+  return (trimmed.match(/[A-Za-z]{2,}/g) ?? []).length >= 1 && /[a-z]/.test(trimmed)
 }
 
 function collectSourceFiles(root) {
@@ -62,22 +58,87 @@ function collectSourceFiles(root) {
   return files.sort()
 }
 
-function scanLine(line, file, lineNumber) {
-  const findings = []
-  for (const match of line.matchAll(JSX_TEXT_PATTERN)) {
-    const value = match[1].trim()
-    if (looksEnglishPhrase(value)) findings.push({ kind: 'jsx-text', value, file, line: lineNumber, column: match.index + 1 })
+function lineAndColumn(source, offset) {
+  const lines = source.slice(0, offset).split('\n')
+  return { line: lines.length, column: lines.at(-1).length + 1 }
+}
+
+function collectSyntaxFacts(source) {
+  const strings = []
+  const syntaxMask = [...source]
+  let index = 0
+  while (index < source.length) {
+    if (source.startsWith('//', index)) {
+      const end = source.indexOf('\n', index + 2)
+      const stop = end === -1 ? source.length : end
+      for (let cursor = index; cursor < stop; cursor += 1) syntaxMask[cursor] = ' '
+      index = stop
+      continue
+    }
+    if (source.startsWith('/*', index)) {
+      const end = source.indexOf('*/', index + 2)
+      const stop = end === -1 ? source.length : end + 2
+      for (let cursor = index; cursor < stop; cursor += 1) {
+        if (syntaxMask[cursor] !== '\n') syntaxMask[cursor] = ' '
+      }
+      index = stop
+      continue
+    }
+    const quote = source[index]
+    if (quote !== "'" && quote !== '"' && quote !== '`') {
+      index += 1
+      continue
+    }
+    const start = index
+    index += 1
+    let value = ''
+    while (index < source.length) {
+      if (source[index] === '\\') {
+        value += source.slice(index, index + 2)
+        syntaxMask[index] = ' '
+        if (index + 1 < syntaxMask.length) syntaxMask[index + 1] = ' '
+        index += 2
+        continue
+      }
+      if (source[index] === quote) break
+      value += source[index]
+      if (syntaxMask[index] !== '\n') syntaxMask[index] = ' '
+      index += 1
+    }
+    syntaxMask[start] = ' '
+    if (index < source.length) syntaxMask[index] = ' '
+    strings.push({ value, offset: start + 1, prefix: source.slice(Math.max(0, start - 200), start) })
+    index += 1
   }
-  for (const match of line.matchAll(JSX_ATTRIBUTE_PATTERN)) {
-    const value = match[3] ?? match[4] ?? match[6] ?? match[7]
-    if (value && looksEnglishPhrase(value)) {
-      findings.push({ kind: 'jsx-attr', attribute: match[1], value, file, line: lineNumber, column: match.index + 1 })
+  return { strings, syntax: syntaxMask.join('') }
+}
+
+function scanSource(source, file) {
+  const findings = []
+  const facts = collectSyntaxFacts(source)
+  for (const match of facts.syntax.matchAll(/>([^<>{}]+)</g)) {
+    const value = match[1].trim()
+    if (looksEnglishPhrase(value)) {
+      findings.push({ kind: 'jsx-text', value, file, ...lineAndColumn(source, match.index + 1) })
     }
   }
-  for (const definition of MESSAGE_PATTERNS) {
-    for (const match of line.matchAll(definition.pattern)) {
-      const value = match[2]
-      if (looksEnglishPhrase(value)) findings.push({ kind: definition.kind, value, file, line: lineNumber, column: match.index + 1 })
+  for (const literal of facts.strings) {
+    if (!looksEnglishPhrase(literal.value)) continue
+    const attributeMatch = JSX_ATTRIBUTE_PREFIX.exec(literal.prefix)
+    if (attributeMatch) {
+      findings.push({
+        kind: 'jsx-attr',
+        attribute: /([\w-]+)\s*=/.exec(attributeMatch[0])?.[1],
+        value: literal.value,
+        file,
+        ...lineAndColumn(source, literal.offset),
+      })
+      continue
+    }
+    for (const definition of MESSAGE_PREFIXES) {
+      if (!definition.pattern.test(literal.prefix)) continue
+      findings.push({ kind: definition.kind, value: literal.value, file, ...lineAndColumn(source, literal.offset) })
+      break
     }
   }
   return findings
@@ -126,13 +187,11 @@ export function scanHardcodedI18n(root = process.cwd()) {
       }
     }
     const entries = allowlistCache.get(allowlistPath)
-    const lines = fs.readFileSync(absolutePath, 'utf8').split('\n')
-    lines.forEach((line, index) => {
-      for (const finding of scanLine(line, relativePath, index + 1)) {
-        if (isAllowlisted(finding, entries)) allowlisted += 1
-        else findings.push(finding)
-      }
-    })
+    const source = fs.readFileSync(absolutePath, 'utf8')
+    for (const finding of scanSource(source, relativePath)) {
+      if (isAllowlisted(finding, entries)) allowlisted += 1
+      else findings.push(finding)
+    }
   }
   return { advisory: true, filesScanned: files.length, findings, allowlisted, errors }
 }

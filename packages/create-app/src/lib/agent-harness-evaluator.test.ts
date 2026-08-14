@@ -2872,6 +2872,7 @@ const allowedReads = JSON.parse(mcpArgs.at(-2))
 const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
 for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
+if (JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause.classification !== 'completed') process.exit(9)
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
@@ -2901,7 +2902,7 @@ const judgeReport = [
   '## Verdict',
   'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
   '## Evidence',
-  '- Termination: provider-limit — HTTP 429 interrupted later acceptance criteria; no found artifact defect is excused.',
+  '- Termination: completed — the controller-bound writable result completed before review.',
   'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
   '## Artifact Findings',
   'No artifact findings.',
@@ -2931,7 +2932,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
     assert.equal(stored.judgeVerdict, 'pass')
-    assert.match(stored.judgeReport, /- Termination: provider-limit .*no found artifact defect is excused/)
+    assert.match(stored.judgeReport, /- Termination: completed .*controller-bound writable result completed/)
     assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
     assert.deepEqual(stored.artifactFindings, [])
     assert.deepEqual(stored.harnessOwnerFindings, [])

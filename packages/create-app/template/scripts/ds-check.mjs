@@ -66,47 +66,68 @@ function lineAndColumn(source, offset) {
   return { line: lines.length, column: lines.at(-1).length + 1 }
 }
 
-function collectStringCandidates(source) {
+function collectSyntaxFacts(source) {
   const candidates = []
+  const inlineStyleOffsets = []
+  const rawTableTags = []
+  const syntaxMask = [...source]
   let index = 0
   while (index < source.length) {
-    if (source[index] === '/' && source[index + 1] === '/') {
-      index = source.indexOf('\n', index + 2)
-      if (index < 0) break
+    if (source.startsWith('//', index)) {
+      const end = source.indexOf('\n', index + 2)
+      const stop = end === -1 ? source.length : end
+      for (let cursor = index; cursor < stop; cursor += 1) syntaxMask[cursor] = ' '
+      index = stop
       continue
     }
-    if (source[index] === '/' && source[index + 1] === '*') {
+    if (source.startsWith('/*', index)) {
       const end = source.indexOf('*/', index + 2)
-      index = end < 0 ? source.length : end + 2
+      const stop = end === -1 ? source.length : end + 2
+      for (let cursor = index; cursor < stop; cursor += 1) {
+        if (syntaxMask[cursor] !== '\n') syntaxMask[cursor] = ' '
+      }
+      index = stop
       continue
     }
     const quote = source[index]
-    if (quote !== '"' && quote !== "'" && quote !== '`') {
+    if (quote !== "'" && quote !== '"' && quote !== '`') {
       index += 1
       continue
     }
-    const start = index + 1
-    index = start
+    const start = index
+    index += 1
+    let value = ''
     while (index < source.length) {
       if (source[index] === '\\') {
+        value += source.slice(index, index + 2)
+        syntaxMask[index] = ' '
+        if (index + 1 < syntaxMask.length) syntaxMask[index + 1] = ' '
         index += 2
         continue
       }
       if (source[index] === quote) break
+      value += source[index]
+      if (syntaxMask[index] !== '\n') syntaxMask[index] = ' '
       index += 1
     }
-    candidates.push({ value: source.slice(start, index), offset: start })
+    syntaxMask[start] = ' '
+    if (index < source.length) syntaxMask[index] = ' '
+    const literalValue = quote === '`' ? value.replace(/\$\{[\s\S]*?\}/g, (expression) => ' '.repeat(expression.length)) : value
+    candidates.push({ value: literalValue, offset: start + 1 })
     index += 1
   }
-  return candidates
-}
-
-function isClassCandidate(source, candidate) {
-  const prefix = source.slice(Math.max(0, candidate.offset - 120), candidate.offset - 1)
-  if (/(?:className|class)\s*=\s*(?:\{\s*)?$/.test(prefix)) return true
-  if (/(?:cn|clsx|cva|twMerge)\s*\([^)]*$/.test(prefix)) return true
-  return /\s/.test(candidate.value)
-    && /(?:^|\s)(?:flex|grid|block|inline|hidden|relative|absolute|fixed|sticky|items-|justify-|gap-|space-|p[trblxy]?-|m[trblxy]?-|w-|h-|min-|max-|text-|bg-|border-|ring-|rounded-|shadow-)/.test(candidate.value)
+  const syntax = syntaxMask.join('')
+  for (const match of syntax.matchAll(/<[A-Za-z][^>]*>/g)) {
+    const openingTag = match[0]
+    const tag = /^<([A-Za-z][\w.-]*)/.exec(openingTag)?.[1]?.toLowerCase()
+    if (tag && ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'].includes(tag)) {
+      rawTableTags.push({ tag, offset: match.index })
+    }
+    for (const styleMatch of openingTag.matchAll(/\bstyle\s*=/g)) {
+      inlineStyleOffsets.push(match.index + styleMatch.index)
+    }
+  }
+  return { candidates, inlineStyleOffsets, rawTableTags }
 }
 
 function readIgnoreFile(root) {
@@ -119,8 +140,8 @@ function readIgnoreFile(root) {
     }
     const errors = []
     const entries = parsed.entries.map((entry, index) => {
-      if (!entry || typeof entry.file !== 'string' || typeof entry.rule !== 'string') {
-        errors.push(`.ds-check-ignore entry ${index + 1} requires file and rule strings.`)
+      if (!entry || typeof entry.file !== 'string' || typeof entry.rule !== 'string' || typeof entry.match !== 'string' || entry.match.length === 0) {
+        errors.push(`.ds-check-ignore entry ${index + 1} requires non-empty file, rule, and match strings.`)
       }
       if (typeof entry?.reason !== 'string' || entry.reason.trim().length === 0) {
         errors.push(`.ds-check-ignore entry ${index + 1} requires a non-empty reason.`)
@@ -136,12 +157,20 @@ function readIgnoreFile(root) {
 function matchesIgnore(entry, finding) {
   return entry.file === finding.file
     && entry.rule === finding.rule
-    && (typeof entry.match !== 'string' || finding.match.includes(entry.match))
+    && finding.match.includes(entry.match)
+    && (typeof entry.line !== 'number' || entry.line === finding.line)
 }
 
-export function scanDesignSystem(root = process.cwd()) {
+function isPolicyMatch(rule, match) {
+  if (rule.id !== 'arbitrary-tailwind') return true
+  const token = match.trim()
+  return /^(?:[a-z@][\w@/-]*:)*[a-z][\w/-]*-\[[^\]]+\]$/.test(token)
+    || /^\[(?:&|\.|[a-z-]+:)[^\]]+\]/.test(token)
+}
+
+export function scanDesignSystem(root = process.cwd(), options = {}) {
   const normalizedRoot = path.resolve(root)
-  const ignore = readIgnoreFile(normalizedRoot)
+  const ignore = options.useIgnore === false ? { entries: [], errors: [] } : readIgnoreFile(normalizedRoot)
   const findings = []
   const sourceFiles = collectSourceFiles(normalizedRoot)
 
@@ -154,7 +183,7 @@ export function scanDesignSystem(root = process.cwd()) {
       match: match.trim(),
       ...location,
     }
-    const ignoredBy = ignore.entries.find((entry) => matchesIgnore(entry, finding))
+    const ignoredBy = ignore.entries.find((entry) => !entry.matched && matchesIgnore(entry, finding))
     if (ignoredBy) ignoredBy.matched = true
     else findings.push(finding)
   }
@@ -162,30 +191,31 @@ export function scanDesignSystem(root = process.cwd()) {
   for (const absolutePath of sourceFiles) {
     const source = fs.readFileSync(absolutePath, 'utf8')
     const relativePath = path.relative(normalizedRoot, absolutePath).split(path.sep).join('/')
-    for (const candidate of collectStringCandidates(source)) {
-      if (!isClassCandidate(source, candidate)) continue
+    const syntaxFacts = collectSyntaxFacts(source, relativePath)
+    for (const candidate of syntaxFacts.candidates) {
       for (const rule of DS_RULES.filter((item) => item.stringPolicy)) {
         const pattern = new RegExp(rule.pattern, 'g')
         for (const match of candidate.value.matchAll(pattern)) {
+          if (!isPolicyMatch(rule, match[0])) continue
           recordFinding(source, relativePath, rule, match[0], candidate.offset + match.index)
         }
       }
     }
     const inlineStyleRule = DS_RULES.find((candidate) => candidate.id === 'inline-style')
-    for (const match of source.matchAll(/\bstyle\s*=/g)) {
-      recordFinding(source, relativePath, inlineStyleRule, match[0], match.index)
+    for (const offset of syntaxFacts.inlineStyleOffsets) {
+      recordFinding(source, relativePath, inlineStyleRule, 'style=', offset)
     }
     if (/(?:^|\/)backend(?:\/|$)/.test(relativePath)) {
       const rawTableRule = DS_RULES.find((candidate) => candidate.id === 'raw-backend-table')
-      for (const match of source.matchAll(/<(?:table|thead|tbody|tfoot|tr|th|td)\b/g)) {
-        recordFinding(source, relativePath, rawTableRule, match[0], match.index)
+      for (const { tag, offset } of syntaxFacts.rawTableTags) {
+        recordFinding(source, relativePath, rawTableRule, `<${tag}`, offset)
       }
     }
   }
 
   const staleIgnores = ignore.entries
     .filter((entry) => !entry.matched)
-    .map((entry) => ({ file: entry.file, rule: entry.rule, match: entry.match ?? null }))
+    .map((entry) => ({ file: entry.file, rule: entry.rule, match: entry.match, line: entry.line ?? null }))
   return {
     ok: findings.length === 0 && staleIgnores.length === 0 && ignore.errors.length === 0,
     filesScanned: sourceFiles.length,

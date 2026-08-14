@@ -38,6 +38,38 @@ test('standalone i18n checker detects visible JSX and mutation messages', () => 
   }
 })
 
+test('standalone i18n checker detects single-word and multiline user-facing literals', () => {
+  const root = createFixture({
+    'src/modules/example/backend/page.tsx': `export function Page() {
+      toast.error(
+        'Failed'
+      )
+      flash(
+        \`Changes saved
+successfully\`
+      )
+      throw new Error(
+        'Unavailable'
+      )
+      return <section
+        title={
+          'Details'
+        }
+      >Save</section>
+    }`,
+  })
+  try {
+    const findings = scanHardcodedI18n(root).findings
+    assert.ok(findings.some((finding) => finding.kind === 'toast-call' && finding.value === 'Failed'))
+    assert.ok(findings.some((finding) => finding.kind === 'flash-call' && finding.value.includes('Changes saved')))
+    assert.ok(findings.some((finding) => finding.kind === 'throw-error' && finding.value === 'Unavailable'))
+    assert.ok(findings.some((finding) => finding.kind === 'jsx-attr' && finding.value === 'Details'))
+    assert.ok(findings.some((finding) => finding.kind === 'jsx-text' && finding.value === 'Save'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('standalone i18n checker honors translations and internal opt-outs', () => {
   const root = createFixture({
     'src/modules/example/backend/page.tsx': `export function Page() {

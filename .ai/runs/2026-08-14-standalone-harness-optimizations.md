@@ -2,6 +2,7 @@
 
 Source doc: .ai/specs/2026-08-14-standalone-harness-optimizations.md
 Spec PR: #5294
+Run status: in progress — Phase 5.3 remains blocked on a supported contained Linux release runner.
 
 ## Goal
 
@@ -98,7 +99,7 @@ Make standalone-app harness runs resilient to interruption, enforce deterministi
 
 - [x] 5.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path. — f2aa7c0ba
 - [x] 5.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget. — 5831d55a7
-- [x] 5.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — c2e6307a9, 2f3464072
+- [ ] 5.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; release gate blocked as recorded below
 
 ## Harness Gate Evidence
 
