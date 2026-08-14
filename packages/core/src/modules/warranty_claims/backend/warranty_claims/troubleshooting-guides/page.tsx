@@ -20,7 +20,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Plus } from 'lucide-react'
 import type { TroubleshootingNode } from '../../../lib/troubleshooting'
@@ -62,6 +62,7 @@ function countGuideSteps(node: TroubleshootingNode | null): number {
 
 export default function WarrantyTroubleshootingGuidesPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -360,11 +361,11 @@ export default function WarrantyTroubleshootingGuidesPage() {
       header: t('warranty_claims.troubleshootingGuides.list.column.updated', 'Updated'),
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground" title={formatDateTime(row.original.updatedAt) ?? undefined}>
-          {formatRelativeTime(row.original.updatedAt, { translate: t }) ?? t('warranty_claims.common.noValue', 'Not set')}
+          {formatRelativeTime(row.original.updatedAt, { locale }) ?? t('warranty_claims.common.noValue', 'Not set')}
         </span>
       ),
     },
-  ], [reasonLabels, t])
+  ], [reasonLabels, locale, t])
 
   const activeTab = toFilterString(filterValues.isActive) === 'true'
     ? 'published'

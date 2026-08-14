@@ -202,6 +202,13 @@ async function executeSetReturnLabel(
   }
 }
 
+export function firstTranslatableIssueKey(err: z.ZodError): string {
+  const keyed = err.issues.find(
+    (issue) => typeof issue.message === 'string' && issue.message.startsWith('warranty_claims.'),
+  )?.message
+  return keyed ?? 'warranty_claims.errors.invalidInput'
+}
+
 export async function POST(req: Request) {
   try {
     const context = await resolveActionContext(req)
@@ -258,7 +265,7 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+      return NextResponse.json({ error: firstTranslatableIssueKey(err) }, { status: 400 })
     }
     logger.error('warranty_claims.return-label.post failed', { err })
     return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })

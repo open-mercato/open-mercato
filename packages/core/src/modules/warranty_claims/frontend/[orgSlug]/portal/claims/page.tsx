@@ -192,7 +192,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
     {
       accessorKey: 'updatedAt',
       header: t('warranty_claims.list.column.updatedAt'),
-      cell: ({ row }) => formatRelativeTime(row.original.updatedAt, { translate: t }) ?? t('warranty_claims.portal.value.notAvailable'),
+      cell: ({ row }) => formatRelativeTime(row.original.updatedAt, { locale }) ?? t('warranty_claims.portal.value.notAvailable'),
       meta: { maxWidth: 160 },
     },
     {

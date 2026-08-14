@@ -1,5 +1,6 @@
 import {
   claimLineCreateSchema,
+  claimLineUpdateSchema,
   claimSetReturnLabelSchema,
   registrationCreateSchema,
   registrationUpdateSchema,
@@ -94,5 +95,42 @@ describe('claimSetReturnLabelSchema', () => {
 
     expect(result.success).toBe(true)
     if (result.success) expect(result.data.labelUrl).toBeNull()
+  })
+})
+
+describe('validation messages are translation keys, not raw English (#5287)', () => {
+  const issueMessages = (result: { success: boolean; error?: { issues: { message: string }[] } }): string =>
+    result.success ? '' : (result.error?.issues.map((issue) => issue.message).join(' ') ?? '')
+
+  it('keys the approved-quantity min(0) message', () => {
+    const result = claimLineUpdateSchema.safeParse({ id: CLAIM_ID, qtyApproved: -1 })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('warranty_claims.errors.decimalNonNegative')
+  })
+
+  it('keys the vendor-policy contact email message', () => {
+    const result = vendorPolicyCreateSchema.safeParse({ ...scope, vendorName: 'Acme', contactEmail: 'not-an-email' })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('warranty_claims.errors.invalidEmail')
+  })
+
+  it('keys the return-label URL message', () => {
+    const result = claimSetReturnLabelSchema.safeParse({ ...scope, id: CLAIM_ID, labelUrl: 'not a url' })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('warranty_claims.errors.returnLabelUrlInvalid')
+  })
+
+  it('keys the recovery-rate format message (no raw regex leaked)', () => {
+    const result = vendorPolicyCreateSchema.safeParse({ ...scope, vendorName: 'Acme', recoveryRatePct: 'abc' })
+    expect(result.success).toBe(false)
+    const messages = issueMessages(result)
+    expect(messages).toContain('warranty_claims.errors.recoveryRateFormat')
+    expect(messages).not.toContain('\\d')
+  })
+
+  it('keys the approved-exceeds-claimed guard message', () => {
+    const result = claimLineUpdateSchema.safeParse({ id: CLAIM_ID, qtyClaimed: 2, qtyApproved: 5 })
+    expect(result.success).toBe(false)
+    expect(issueMessages(result)).toContain('warranty_claims.errors.qtyApprovedExceedsClaimed')
   })
 })

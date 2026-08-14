@@ -25,7 +25,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Plus } from 'lucide-react'
 import {
@@ -404,6 +404,7 @@ async function runBulkClaimActionWithProgress(
 
 export default function WarrantyClaimsPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -1074,12 +1075,12 @@ export default function WarrantyClaimsPage() {
         meta: { maxWidth: '96px' },
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground" title={formatDateTime(row.original.updatedAt) ?? undefined}>
-            {formatRelativeTime(row.original.updatedAt, { translate: t }) ?? t('warranty_claims.common.noValue')}
+            {formatRelativeTime(row.original.updatedAt, { locale }) ?? t('warranty_claims.common.noValue')}
           </span>
         ),
       },
     ]
-  }, [assigneeDisplayNames, stats?.slaAtRiskThresholdPct, t])
+  }, [assigneeDisplayNames, locale, stats?.slaAtRiskThresholdPct, t])
 
   const assignInitialAssignee =
     assignDialog?.rows.length === 1

@@ -1250,7 +1250,7 @@ export default function CreateWarrantyClaimPage() {
 
   React.useEffect(() => {
     let cancelled = false
-    void apiCall<GeneralSettingsResponse>('/api/warranty_claims/settings-general')
+    void apiCall<GeneralSettingsResponse>('/api/warranty_claims/settings-general', { headers: { 'x-om-forbidden-redirect': '0' } })
       .then((response) => {
         if (cancelled || !response.ok) return
         setDefaultWarrantyMonths(readDefaultWarrantyMonths(response.result))

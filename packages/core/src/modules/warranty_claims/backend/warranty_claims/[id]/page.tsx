@@ -42,6 +42,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { AttachmentInput } from '@open-mercato/core/modules/attachments/fields/attachment'
@@ -458,7 +459,9 @@ function resolveTimelineActor(event: ClaimEvent, claim: ClaimRecord, userNames: 
 }
 
 function translateErrorMessage(err: unknown, t: TranslateFn, fallbackKey: string): string {
-  if (err instanceof Error && err.message) return t(err.message)
+  const mappedMessage = mapCrudServerErrorToFormErrors(err).message
+  if (typeof mappedMessage === 'string' && mappedMessage.trim().length) return t(mappedMessage, mappedMessage)
+  if (err instanceof Error && err.message) return t(err.message, err.message)
   return t(fallbackKey)
 }
 
@@ -674,6 +677,7 @@ export function InlineQtyApprovedCell({
       disabled={disabled}
       aria-label={label}
       className="w-24"
+      onClick={(event) => event.stopPropagation()}
       onChange={(event) => setDraft(event.target.value)}
       onFocus={() => { blurSaveSuppressedRef.current = false }}
       onBlur={() => {
@@ -702,7 +706,7 @@ export function InlineQtyApprovedCell({
   )
 }
 
-function InlineLineSelectCell({
+export function InlineLineSelectCell({
   line,
   field,
   value,
@@ -724,27 +728,29 @@ function InlineLineSelectCell({
   const selectedValue = value ?? CLEAR_SELECT_VALUE
 
   return (
-    <Select
-      value={selectedValue}
-      disabled={disabled}
-      onValueChange={(nextValue) => {
-        const normalizedValue = nextValue === CLEAR_SELECT_VALUE ? null : nextValue
-        if (normalizedValue === value) return
-        void onSave(line, field, normalizedValue)
-      }}
-    >
-      <SelectTrigger aria-label={label} className="w-36">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {emptyLabel ? <SelectItem value={CLEAR_SELECT_VALUE}>{emptyLabel}</SelectItem> : null}
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div onClick={(event) => event.stopPropagation()}>
+      <Select
+        value={selectedValue}
+        disabled={disabled}
+        onValueChange={(nextValue) => {
+          const normalizedValue = nextValue === CLEAR_SELECT_VALUE ? null : nextValue
+          if (normalizedValue === value) return
+          void onSave(line, field, normalizedValue)
+        }}
+      >
+        <SelectTrigger aria-label={label} className="w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {emptyLabel ? <SelectItem value={CLEAR_SELECT_VALUE}>{emptyLabel}</SelectItem> : null}
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
 
@@ -779,7 +785,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
 
   React.useEffect(() => {
     let cancelled = false
-    void apiCall<{ result?: { defaultWarrantyMonths?: number | null } }>('/api/warranty_claims/settings-general', undefined, { fallback: {} })
+    void apiCall<{ result?: { defaultWarrantyMonths?: number | null } }>('/api/warranty_claims/settings-general', { headers: { 'x-om-forbidden-redirect': '0' } }, { fallback: {} })
       .then((call) => {
         if (cancelled || !call.ok) return
         const months = call.result?.result?.defaultWarrantyMonths
@@ -1964,7 +1970,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               <div>
                 <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.opened')}</p>
                 <p className="mt-1 text-sm font-medium text-foreground" title={formatDateTime(claim.createdAt) ?? undefined}>
-                  {formatRelativeTime(claim.createdAt, { locale, translate: t }) ?? noValue}
+                  {formatRelativeTime(claim.createdAt, { locale }) ?? noValue}
                 </p>
               </div>
               <div>

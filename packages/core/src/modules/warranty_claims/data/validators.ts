@@ -13,7 +13,7 @@ const clearableString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
 
 const clearableEmail = (max: number) =>
-  z.preprocess(emptyStringToNull, z.string().trim().email().max(max).nullable().optional())
+  z.preprocess(emptyStringToNull, z.string().trim().email('warranty_claims.errors.invalidEmail').max(max).nullable().optional())
 
 const optionalString = (max: number) => z.string().trim().max(max).optional()
 const requiredOptionalString = (max: number) =>
@@ -21,16 +21,16 @@ const requiredOptionalString = (max: number) =>
 const httpUrlString = (max: number) =>
   z.preprocess(
     emptyStringToNull,
-    z.string().trim().min(1).max(max).url().refine(
+    z.string().trim().min(1).max(max).url('warranty_claims.errors.returnLabelUrlInvalid').refine(
       (value) => value.startsWith('https://') || value.startsWith('http://'),
-      { message: 'Only http(s) URLs are allowed' },
+      { message: 'warranty_claims.errors.returnLabelUrlInvalid' },
     ).nullable().optional(),
   )
 const requiredString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max))
 const positiveDecimal = () => z.coerce.number().positive().max(999_999_999)
 const nullableDecimal = () =>
-  z.preprocess(emptyStringToNull, z.coerce.number().min(0).max(999_999_999).nullable().optional())
+  z.preprocess(emptyStringToNull, z.coerce.number().min(0, 'warranty_claims.errors.decimalNonNegative').max(999_999_999).nullable().optional())
 const nullableIsoDateString = () => z.preprocess(emptyStringToNull, z.string().datetime().nullable().optional())
 const jsonObjectSchema = z.record(z.string(), z.unknown())
 const optimisticLockTokenSchema = z.union([z.string().datetime(), z.date()]).nullable().optional()
@@ -180,7 +180,7 @@ const claimLineReceivingStateFields = {
 
 const settingsCurrencyCodeSchema = z.preprocess(
   emptyStringToNull,
-  z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).nullable().optional(),
+  z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'warranty_claims.errors.currencyCodeFormat').nullable().optional(),
 )
 
 const settingsAmountSchema = z.preprocess(
@@ -215,10 +215,10 @@ export const claimInitialLineCreateSchema = z.object({
 }).strict().superRefine((line, ctx) => {
   const qtyClaimed = line.qtyClaimed ?? 1
   if (typeof line.qtyApproved === 'number' && line.qtyApproved > qtyClaimed) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'qtyApproved must not exceed qtyClaimed', path: ['qtyApproved'] })
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'warranty_claims.errors.qtyApprovedExceedsClaimed', path: ['qtyApproved'] })
   }
   if (typeof line.qtyReceived === 'number' && line.qtyReceived > qtyClaimed) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'qtyReceived must not exceed qtyClaimed', path: ['qtyReceived'] })
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'warranty_claims.errors.qtyReceivedExceedsClaimed', path: ['qtyReceived'] })
   }
 })
 
@@ -250,7 +250,7 @@ export const claimCreateSchema = scopedSchema
       .string()
       .trim()
       .toUpperCase()
-      .regex(/^[A-Z]{3}$/)
+      .regex(/^[A-Z]{3}$/, 'warranty_claims.errors.currencyCodeFormat')
       .nullable()
       .optional(),
     lines: z.array(claimInitialLineCreateSchema).max(200).optional(),
@@ -260,7 +260,7 @@ export const claimCreateSchema = scopedSchema
     if (input.claimType === 'vendor_recovery') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Vendor recovery claims are created only via the vendor-recovery action',
+        message: '[internal] Vendor recovery claims are created only via the vendor-recovery action',
         path: ['claimType'],
       })
     }
@@ -311,10 +311,10 @@ export const claimLineUpdateSchema = z
   .superRefine((line, ctx) => {
     const qtyClaimed = hasOwn(line, 'qtyClaimed') && typeof line.qtyClaimed === 'number' ? line.qtyClaimed : null
     if (qtyClaimed !== null && hasOwn(line, 'qtyApproved') && typeof line.qtyApproved === 'number' && line.qtyApproved > qtyClaimed) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'qtyApproved must not exceed qtyClaimed', path: ['qtyApproved'] })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'warranty_claims.errors.qtyApprovedExceedsClaimed', path: ['qtyApproved'] })
     }
     if (qtyClaimed !== null && hasOwn(line, 'qtyReceived') && typeof line.qtyReceived === 'number' && line.qtyReceived > qtyClaimed) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'qtyReceived must not exceed qtyClaimed', path: ['qtyReceived'] })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'warranty_claims.errors.qtyReceivedExceedsClaimed', path: ['qtyReceived'] })
     }
   })
 
@@ -514,7 +514,7 @@ export const registrationDeleteSchema = scopedSchema
 const recoveryRatePctSchema = z
   .union([
     z.number(),
-    z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
+    z.string().trim().regex(/^\d+(\.\d{1,2})?$/, 'warranty_claims.errors.recoveryRateFormat'),
   ])
   .transform((value) => Number(value))
   .refine((value) => value >= 0 && value <= 100, {

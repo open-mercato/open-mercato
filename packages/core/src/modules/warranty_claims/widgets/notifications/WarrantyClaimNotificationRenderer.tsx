@@ -15,7 +15,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
@@ -134,6 +134,7 @@ export function WarrantyClaimNotificationRenderer({
   actions = [],
 }: NotificationRendererProps) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [executing, setExecuting] = React.useState(false)
   const meta = getNotificationMeta(notification.type)
@@ -142,7 +143,7 @@ export function WarrantyClaimNotificationRenderer({
   const claimNumber = notification.bodyVariables?.claimNumber ?? notification.titleVariables?.claimNumber
   const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
   const href = resolveClaimHref(notification)
-  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+  const timeAgo = formatRelativeTime(notification.createdAt, { locale }) ?? ''
   const title = translateText(
     t,
     notification.titleKey ?? meta.titleKey,
