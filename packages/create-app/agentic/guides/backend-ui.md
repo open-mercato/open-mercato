@@ -24,6 +24,10 @@ List destinations need stable `pageGroup`, `pageGroupKey`, and order. A `page.me
 
 For a new editable entity or module, unless the brief explicitly excludes an operation, deliver list, create, view/edit, and delete as one connected slice. The `DataTable` list owns server filter/search controls, a localized add action linking to create, and a stable linked row action to view/edit. `CrudForm` owns create/update/delete, custom-field save/reload/clear, `updatedAt` conflicts, and return navigation. Do not leave a new backend entity reachable only by typing a URL.
 
+## Cross-Record References
+
+When a form field or table column references another record — in this module or an installed one — render display names, never raw IDs. Form references are selection controls (searchable select or picker) backed by a scoped option-source route; reuse the owning module's picker or option source when one exists instead of authoring a new route. Table columns render the referenced record's display name or a stored display snapshot. UUIDs appear only in API payloads: a user never types one into a field and never reads one off a page.
+
 ## DataTable
 
 - Use `DataTable` with a stable colon-form `entityId`, explicit typed data/pagination loaded through shared API helpers, and `extensionTableId`. These are host contracts, not cosmetic props; `DataTable` has no `apiPath` prop.
