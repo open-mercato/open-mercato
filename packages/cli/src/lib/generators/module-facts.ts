@@ -2419,6 +2419,12 @@ export interface ModuleFactsJsonEntry {
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
+const MAX_ANCHORED_SECTION_BYTES = 32 * 1024
+
+interface ModuleFactsRenderContext {
+  sourceRoot: string
+  sourceLinkPrefix: string
+}
 
 function renderVersionStamp(
   coreVersion: string | null,
@@ -2432,18 +2438,26 @@ function renderVersionStamp(
   return `<!-- generated from @open-mercato/core ${version} — R1 staleness stamp -->`
 }
 
-function renderEntitiesSection(entities: ModuleEntityFact[], lookup: FactSourceLookup): string {
+function renderEntitiesSection(
+  entities: ModuleEntityFact[],
+  lookup: FactSourceLookup,
+  context: ModuleFactsRenderContext,
+): string {
   if (entities.length === 0) return `## Entities\n\n${EMPTY_SECTION_MARKER}`
   const header = '| Entity ID | Class | Table | Editable | CustomFields | Source |'
   const divider = '|---|---|---|---|---|---|'
   const rows = entities.map(
     (entity) =>
-      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} | ${renderLookedUpSource(lookup, 'entity', entity.id)} |`,
+      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} | ${renderLookedUpSource(lookup, 'entity', entity.id, context)} |`,
   )
   return ['## Entities', '', header, divider, ...rows].join('\n')
 }
 
-function renderEventsSection(events: ModuleEventFact[], lookup: FactSourceLookup): string {
+function renderEventsSection(
+  events: ModuleEventFact[],
+  lookup: FactSourceLookup,
+  context: ModuleFactsRenderContext,
+): string {
   const heading = `## Events  (${events.length})`
   if (events.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
   const header = '| ID | Category | Entity | Browser transport | Source |'
@@ -2451,7 +2465,7 @@ function renderEventsSection(events: ModuleEventFact[], lookup: FactSourceLookup
   const rows = events.map((event) => {
     const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
       .filter((value): value is string => value !== null)
-    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id)} |`
+    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id, context)} |`
   })
   return [heading, '', header, divider, ...rows].join('\n')
 }
@@ -2467,9 +2481,10 @@ function renderSourceLinkedListSection(
   lookup: FactSourceLookup,
   kind: ModuleFactSourceKind,
   idColumnLabel: string,
+  context: ModuleFactsRenderContext,
 ): string {
   if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const rows = values.map((value) => `| ${value} | ${renderLookedUpSource(lookup, kind, value)} |`)
+  const rows = values.map((value) => `| ${value} | ${renderLookedUpSource(lookup, kind, value, context)} |`)
   return [heading, '', `| ${idColumnLabel} | Source |`, '|---|---|', ...rows].join('\n')
 }
 
@@ -2484,22 +2499,37 @@ export function isExactSourceFilePath(sourcePath: string): boolean {
   return MODULE_CODE_EXTENSIONS.some((extension) => sourcePath.endsWith(extension))
 }
 
-function renderSourceLink(sourcePath: string): string {
+function renderSourceLabel(sourcePath: string, sourceRoot: string, line?: number): string {
+  const relativeSourcePath = sourcePath.startsWith(`${sourceRoot}/`)
+    ? sourcePath.slice(sourceRoot.length + 1)
+    : sourcePath
+  return line ? `${relativeSourcePath}:${line}` : relativeSourcePath
+}
+
+function renderSourceLink(sourcePath: string, context?: ModuleFactsRenderContext): string {
   if (!isExactSourceFilePath(sourcePath)) return sourcePath
-  return `[${sourcePath}](../../../${sourcePath})`
+  const label = context ? renderSourceLabel(sourcePath, context.sourceRoot) : sourcePath
+  return `[${label}](${context?.sourceLinkPrefix ?? '../../../'}${sourcePath})`
 }
 
-function renderSourceRefLink(source: ModuleFactSourceRef): string {
+function renderSourceRefLink(source: ModuleFactSourceRef, context: ModuleFactsRenderContext): string {
   const anchor = source.line ? `#L${source.line}` : ''
-  const label = source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
-  if (!isExactSourceFilePath(source.sourcePath)) return label
-  return `[${label}](../../../${source.sourcePath}${anchor})`
+  if (!isExactSourceFilePath(source.sourcePath)) {
+    return source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
+  }
+  const label = renderSourceLabel(source.sourcePath, context.sourceRoot, source.line)
+  return `[${label}](${context.sourceLinkPrefix}${source.sourcePath}${anchor})`
 }
 
 
-function renderLookedUpSource(lookup: FactSourceLookup, kind: ModuleFactSourceKind, id: string): string {
+function renderLookedUpSource(
+  lookup: FactSourceLookup,
+  kind: ModuleFactSourceKind,
+  id: string,
+  context: ModuleFactsRenderContext,
+): string {
   const source = lookup(kind, id)
-  return source ? renderSourceRefLink(source) : '—'
+  return source ? renderSourceRefLink(source, context) : '—'
 }
 
 function renderSafeScalar(value: ModuleFactSafeScalar | ModuleFactSafeScalar[] | undefined): string {
@@ -2518,19 +2548,23 @@ function renderOwnedContractMetadata(metadata: ModuleOwnedContractFact['metadata
 function renderOwnedContractSection(
   heading: string,
   facts: readonly ModuleOwnedContractFact[] | undefined,
+  context: ModuleFactsRenderContext,
 ): string {
   if (!facts || facts.length === 0) return ''
   const rows = facts.map(
-    (fact) => `| ${fact.id} | ${renderOwnedContractMetadata(fact.metadata)} | ${renderSourceRefLink(fact.source)} |`,
+    (fact) => `| ${fact.id} | ${renderOwnedContractMetadata(fact.metadata)} | ${renderSourceRefLink(fact.source, context)} |`,
   )
   return [heading, '', '| ID | Metadata | Source |', '|---|---|---|', ...rows].join('\n')
 }
 
-function renderDiRegistrationsSection(facts: readonly ModuleOwnedContractFact[] | undefined): string {
+function renderDiRegistrationsSection(
+  facts: readonly ModuleOwnedContractFact[] | undefined,
+  context: ModuleFactsRenderContext,
+): string {
   if (!facts || facts.length === 0) return ''
   const rows = facts.map((fact) => {
     const metadata = fact.metadata ?? {}
-    return `| ${fact.id} | ${renderSafeScalar(metadata.registrationKind)} | ${renderSafeScalar(metadata.lifetime)} | ${renderSafeScalar(metadata.injectionMode)} | ${renderSafeScalar(metadata.providerSymbol)} | ${renderSourceRefLink(fact.source)} |`
+    return `| ${fact.id} | ${renderSafeScalar(metadata.registrationKind)} | ${renderSafeScalar(metadata.lifetime)} | ${renderSafeScalar(metadata.injectionMode)} | ${renderSafeScalar(metadata.providerSymbol)} | ${renderSourceRefLink(fact.source, context)} |`
   })
   return [
     '## DI registrations (rich)',
@@ -2561,12 +2595,12 @@ function renderApiRouteAuthCell(route: ModuleApiRouteFact): string {
   return groups.map((group) => `${group.methods.join('/')} → ${group.label}`).join(' · ')
 }
 
-function renderApiRoutesSection(routes: ModuleApiRouteFact[]): string {
+function renderApiRoutesSection(routes: ModuleApiRouteFact[], context: ModuleFactsRenderContext): string {
   if (routes.length === 0) return `## API routes\n\n${EMPTY_SECTION_MARKER}`
   const header = '| Path | Methods | Auth (per-method requireFeatures) | Source |'
   const divider = '|---|---|---|---|'
   const rows = routes.map(
-    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} | ${route.sourcePath ? renderSourceLink(route.sourcePath) : '—'} |`,
+    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} | ${route.sourcePath ? renderSourceLink(route.sourcePath, context) : '—'} |`,
   )
   return ['## API routes', '', header, divider, ...rows].join('\n')
 }
@@ -2574,9 +2608,10 @@ function renderApiRoutesSection(routes: ModuleApiRouteFact[]): string {
 function renderLinkedFactsSection(
   heading: string,
   facts: ReadonlyArray<{ label: string; sourcePath: string }>,
+  context: ModuleFactsRenderContext,
 ): string {
   if (facts.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const rows = facts.map((fact) => `| ${fact.label} | ${renderSourceLink(fact.sourcePath)} |`)
+  const rows = facts.map((fact) => `| ${fact.label} | ${renderSourceLink(fact.sourcePath, context)} |`)
   return [heading, '', '| ID / path | Source |', '|---|---|', ...rows].join('\n')
 }
 
@@ -2590,24 +2625,41 @@ function renderExtensionHostContext(host: ModuleExtensionSurfaceFacts['hosts'][n
   return host.contextContract ?? host.runtimeContract ?? host.scopeContract ?? '—'
 }
 
-function renderExtensionHostSource(host: ModuleExtensionHostFact): string {
+function renderExtensionHostSource(host: ModuleExtensionHostFact, context: ModuleFactsRenderContext): string {
   if (host.source.kind === 'fact-ref') return `${host.source.factSection}:${host.source.factKey}`
-  return renderSourceRefLink({ sourcePath: host.source.path })
+  return renderSourceRefLink({ sourcePath: host.source.path }, context)
 }
 
-function renderExtensionHostsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+function renderExtensionHostsSection(
+  extensionSurfaces: ModuleExtensionSurfaceFacts,
+  context: ModuleFactsRenderContext,
+): string {
   const boundHosts = extensionSurfaces.hosts.filter((host) => host.bound)
   if (boundHosts.length === 0) return `## UMES hosts\n\n${EMPTY_SECTION_MARKER}`
-  const rows = boundHosts.map((host) =>
-    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host)} |`,
-  )
-  return [
+  const header = [
     '## UMES hosts',
     '',
     '| ID / pattern | Family | Supports | Context | Stability | Source |',
     '|---|---|---|---|---|---|',
-    ...rows,
-  ].join('\n')
+  ]
+  const renderRows = (hosts: readonly ModuleExtensionHostFact[]) => hosts.map((host) =>
+    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host, context)} |`,
+  )
+  const compact = [...header, ...renderRows(boundHosts)].join('\n')
+  if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
+  const families = [...new Set(boundHosts.map((host) => host.family))]
+  return [
+    '## UMES hosts',
+    '',
+    ...families.flatMap((family) => [
+      `### ${family}`,
+      '',
+      '| ID / pattern | Family | Supports | Context | Stability | Source |',
+      '|---|---|---|---|---|---|',
+      ...renderRows(boundHosts.filter((host) => host.family === family)),
+      '',
+    ]),
+  ].join('\n').trimEnd()
 }
 
 function compactContributionDetails(contribution: ModuleExtensionContributionFact): string {
@@ -2627,13 +2679,16 @@ function compactContributionDetails(contribution: ModuleExtensionContributionFac
   }).join('; ')
 }
 
-function renderExtensionContributionsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+function renderExtensionContributionsSection(
+  extensionSurfaces: ModuleExtensionSurfaceFacts,
+  context: ModuleFactsRenderContext,
+): string {
   if (extensionSurfaces.contributions.length === 0) return `## UMES contributions\n\n${EMPTY_SECTION_MARKER}`
   const rows = extensionSurfaces.contributions.map((contribution) => {
     const targets = contribution.targets.map((entry) => entry.id).join(', ')
     const resolution = contribution.targets.map((entry) => entry.resolution).join(', ')
     const phases = [...(contribution.phases ?? []), ...(contribution.operations ?? [])].join(', ') || '—'
-    const source = renderSourceRefLink({ sourcePath: contribution.source.path })
+    const source = renderSourceRefLink({ sourcePath: contribution.source.path }, context)
     return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} | ${source} |`
   })
   return [
@@ -2661,12 +2716,15 @@ function renderExtensionTargetRef(target: ModuleExtensionTargetRef): string {
   return `${target.kind}:${target.id}${method}${owner}`
 }
 
-function renderActivationBindingsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+function renderActivationBindingsSection(
+  extensionSurfaces: ModuleExtensionSurfaceFacts,
+  context: ModuleFactsRenderContext,
+): string {
   const activations = extensionSurfaces.activations ?? []
   if (activations.length === 0) return `## Active extension bindings\n\n${EMPTY_SECTION_MARKER}`
   const rows = activations.map((activation) => {
     const phases = activation.phases && activation.phases.length > 0 ? activation.phases.join(', ') : '—'
-    const source = activation.source ? renderSourceRefLink(activation.source) : '—'
+    const source = activation.source ? renderSourceRefLink(activation.source, context) : '—'
     const bridge = activation.bridge ? `${activation.bridge.factSection}:${activation.bridge.factKey}` : '—'
     return `| ${activation.id} | ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${bridge} | ${source} |`
   })
@@ -2679,12 +2737,15 @@ function renderActivationBindingsSection(extensionSurfaces: ModuleExtensionSurfa
   ].join('\n')
 }
 
-function renderIncomingContributionsSection(extensionSurfaces: ModuleExtensionSurfaceFacts): string {
+function renderIncomingContributionsSection(
+  extensionSurfaces: ModuleExtensionSurfaceFacts,
+  context: ModuleFactsRenderContext,
+): string {
   const incoming = extensionSurfaces.incoming ?? []
   if (incoming.length === 0) return `## Incoming installed contributions\n\n${EMPTY_SECTION_MARKER}`
   const rows = incoming.map((entry) => {
     const activation = entry.activationId ?? '—'
-    const source = entry.source ? renderSourceRefLink(entry.source) : '—'
+    const source = entry.source ? renderSourceRefLink(entry.source, context) : '—'
     return `| ${entry.contributorModuleId} | ${entry.contributionKind} | ${renderExtensionTargetRef(entry.target)} | ${entry.resolution} | ${activation} | ${entry.contributionId} · ${source} |`
   })
   return [
@@ -2699,12 +2760,13 @@ function renderIncomingContributionsSection(extensionSurfaces: ModuleExtensionSu
 function renderContributionResolutionsSection(
   extensionSurfaces: ModuleExtensionSurfaceFacts,
   lookup: FactSourceLookup,
+  context: ModuleFactsRenderContext,
 ): string {
   const resolutions = extensionSurfaces.contributionResolutions ?? []
   if (resolutions.length === 0) return `## Contribution resolutions\n\n${EMPTY_SECTION_MARKER}`
   const rows = resolutions.map((resolution) => {
     const activations = resolution.activationIds.length > 0 ? resolution.activationIds.join(', ') : '—'
-    const source = renderLookedUpSource(lookup, 'extension-contribution', resolution.contributionId)
+    const source = renderLookedUpSource(lookup, 'extension-contribution', resolution.contributionId, context)
     return `| ${resolution.contributionId} | ${renderExtensionTargetRef(resolution.target)} | ${resolution.resolution} | ${activations} | ${source} |`
   })
   return [
@@ -2726,22 +2788,51 @@ function renderOverrideTargetPath(target: ModuleOverrideTarget): string {
   return display
 }
 
-function renderOverrideTargetsSection(targets: readonly ModuleOverrideTarget[] | undefined): string {
+function renderOverrideTargetsSection(
+  targets: readonly ModuleOverrideTarget[] | undefined,
+  context: ModuleFactsRenderContext,
+): string {
   if (!targets || targets.length === 0) return `## Exact override targets\n\n${EMPTY_SECTION_MARKER}`
   const header = '| Domain | Path / key | Supported modes | Referenced fact | Source |'
   const divider = '|---|---|---|---|---|'
-  const rows = targets.map((target) => {
+  const renderRows = (group: readonly ModuleOverrideTarget[]) => group.map((target) => {
     const path = `\`${renderOverrideTargetPath(target)}\``
     const modes = target.modes.join(', ') || '—'
     const fact = `${target.factRef.factSection}:${target.factRef.factKey}`
-    return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source)} |`
+    return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
   })
-  return ['## Exact override targets', '', header, divider, ...rows].join('\n')
+  const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
+  if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
+  const domains = [...new Set(targets.map((target) => target.domain))]
+  return [
+    '## Exact override targets',
+    '',
+    ...domains.flatMap((domain) => [
+      `### ${domain}`,
+      '',
+      header,
+      divider,
+      ...renderRows(targets.filter((target) => target.domain === domain)),
+      '',
+    ]),
+  ].join('\n').trimEnd()
 }
 
 export interface ReferenceProjectionFingerprints {
   sourceFingerprint: string
   taxonomyFingerprint: string
+}
+
+export interface ModuleFactsMarkdownSection {
+  slug: string
+  title: string
+  description: string
+  markdown: string
+}
+
+export interface ModuleFactsMarkdownDirectory {
+  index: string
+  sections: ModuleFactsMarkdownSection[]
 }
 
 /**
@@ -2762,12 +2853,147 @@ function renderReferenceProjectionHeader(
   ]
 }
 
+function buildModuleFactsSections(
+  facts: ModuleFacts,
+  context: ModuleFactsRenderContext,
+): string[] {
+  const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
+  const lookup = buildFactSourceLookup(facts)
+  const sections = [
+    renderEntitiesSection(facts.entities, lookup, context),
+    renderEventsSection(facts.events, lookup, context),
+    renderSourceLinkedListSection(
+      `## ACL features  (${facts.aclFeatures.length})`,
+      facts.aclFeatures,
+      lookup,
+      'acl-feature',
+      'Feature',
+      context,
+    ),
+    renderApiRoutesSection(facts.apiRoutes, context),
+    renderLinkedFactsSection(
+      '## Backend pages',
+      facts.backendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath })),
+      context,
+    ),
+    renderLinkedFactsSection(
+      '## Frontend pages',
+      facts.frontendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath })),
+      context,
+    ),
+    renderSourceLinkedListSection('## DI service tokens', facts.diTokens, lookup, 'di-registration', 'Token', context),
+    renderSourceLinkedListSection('## Search entities', facts.searchEntities, lookup, 'search', 'Entity ID', context),
+    renderHostTokensSection(facts.hostTokens),
+    renderExtensionHostsSection(extensionSurfaces, context),
+    renderExtensionContributionsSection(extensionSurfaces, context),
+    renderActivationBindingsSection(extensionSurfaces, context),
+    renderIncomingContributionsSection(extensionSurfaces, context),
+    renderContributionResolutionsSection(extensionSurfaces, lookup, context),
+    renderExtensionDiagnosticsSection(extensionSurfaces),
+    renderSourceLinkedListSection('## Notifications', facts.notifications, lookup, 'notification', 'Notification ID', context),
+    renderLinkedFactsSection(
+      '## CLI commands',
+      facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath })),
+      context,
+    ),
+    renderLinkedFactsSection(
+      '## AI tools / MCP capabilities',
+      facts.aiTools.map((tool) => ({ label: tool.name, sourcePath: tool.sourcePath })),
+      context,
+    ),
+    renderLinkedFactsSection(
+      '## AI agents',
+      facts.aiAgents.map((agent) => ({ label: agent.id, sourcePath: agent.sourcePath })),
+      context,
+    ),
+    renderOverrideTargetsSection(facts.overrideTargets, context),
+  ].filter((section) => section.length > 0)
+  const owned = facts.ownedContracts ?? {}
+  sections.push(...[
+    renderOwnedContractSection('## Owned contract — module metadata', owned['module-metadata'], context),
+    renderOwnedContractSection('## Domain commands', owned.command, context),
+    renderOwnedContractSection('## Workers', owned.worker, context),
+    renderOwnedContractSection('## Page middleware', owned['page-middleware'], context),
+    renderOwnedContractSection('## Setup', owned.setup, context),
+    renderOwnedContractSection('## Encryption', owned.encryption, context),
+    renderDiRegistrationsSection(owned['di-registration'], context),
+    renderOwnedContractSection('## Custom entities', owned['custom-entity'], context),
+    renderOwnedContractSection('## AI extensions', owned['ai-extension'], context),
+    renderOwnedContractSection('## Generator plugins', owned['generator-plugin'], context),
+  ].filter((section) => section.length > 0))
+  return sections
+}
+
+function sectionTitle(section: string): string {
+  return section.split('\n', 1)[0].replace(/^## /, '').replace(/\s+\(\d+\)\s*$/, '')
+}
+
+function sectionSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function approximateSize(markdown: string): string {
+  return `~${Math.max(1, Math.ceil(Buffer.byteLength(markdown) / 1024))} KB`
+}
+
+function collectSectionAnchors(sections: readonly string[]): Array<{ title: string; offset: number; size: string; depth: number }> {
+  const anchors: Array<{ title: string; offset: number; size: string; depth: number }> = []
+  let sectionOffset = 0
+  for (const section of sections) {
+    const lines = section.split('\n')
+    anchors.push({ title: sectionTitle(section), offset: sectionOffset, size: approximateSize(section), depth: 0 })
+    for (let index = 0; index < lines.length; index += 1) {
+      if (lines[index].startsWith('### ')) {
+        const nextSubheading = lines.slice(index + 1).findIndex((line) => line.startsWith('### '))
+        const end = nextSubheading === -1 ? lines.length : index + 1 + nextSubheading
+        anchors.push({
+          title: `${sectionTitle(section)} / ${lines[index].slice(4)}`,
+          offset: sectionOffset + index,
+          size: approximateSize(lines.slice(index, end).join('\n')),
+          depth: 1,
+        })
+      }
+    }
+    sectionOffset += lines.length + 1
+  }
+  return anchors
+}
+
+function renderSectionedMarkdown(
+  facts: ModuleFacts,
+  header: readonly string[],
+  sections: readonly string[],
+): string {
+  const anchors = collectSectionAnchors(sections)
+  const indexLineCount = 6 + anchors.length
+  const firstSectionLine = header.length + indexLineCount + 1
+  const contents = anchors.map((anchor) => {
+    const prefix = anchor.depth === 1 ? '  ' : ''
+    return `${prefix}- ${anchor.title} — L${firstSectionLine + anchor.offset}, ${anchor.size}`
+  })
+  return [
+    ...header,
+    '',
+    '## Contents',
+    '',
+    ...contents,
+    '',
+    'Read caps: a read that does not reach the end-of-facts marker was truncated — re-read the missing sections by their line anchors.',
+    '',
+    sections.join('\n\n'),
+    '',
+    `<!-- end module facts: ${facts.module} — ${sections.length} sections -->`,
+    '',
+  ].join('\n')
+}
+
 export function renderModuleFactsMarkdown(
   facts: ModuleFacts,
   referenceProjection?: ReferenceProjectionFingerprints,
 ): string {
-  const extensionSurfaces = facts.extensionSurfaces ?? { hosts: [], contributions: [], unresolved: [] }
-  const lookup = buildFactSourceLookup(facts)
   const header = facts.sourceKind === 'local-reference' && referenceProjection
     ? renderReferenceProjectionHeader(facts, referenceProjection)
     : [
@@ -2775,73 +3001,58 @@ export function renderModuleFactsMarkdown(
         renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
         `Source root: ${renderSourceLink(facts.sourceRoot)}`,
       ]
-  const sections = [
+  const context = { sourceRoot: facts.sourceRoot, sourceLinkPrefix: '../../../' }
+  return renderSectionedMarkdown(facts, header, buildModuleFactsSections(facts, context))
+}
+
+export function renderModuleFactsDirectory(
+  facts: ModuleFacts,
+  referenceProjection?: ReferenceProjectionFingerprints,
+): ModuleFactsMarkdownDirectory {
+  const header = facts.sourceKind === 'local-reference' && referenceProjection
+    ? renderReferenceProjectionHeader(facts, referenceProjection)
+    : [
+        `# ${facts.module} — module facts (generated, do not edit)`,
+        renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
+        `Source root: ${facts.sourceRoot}`,
+      ]
+  const context = { sourceRoot: facts.sourceRoot, sourceLinkPrefix: '../../../../' }
+  const renderedSections = buildModuleFactsSections(facts, context)
+    .filter((section) => !section.endsWith(`\n\n${EMPTY_SECTION_MARKER}`))
+  const sections = renderedSections.map((section) => {
+    const title = sectionTitle(section)
+    return {
+      slug: sectionSlug(title),
+      title,
+      description: `Generated ${title.toLowerCase()} facts for ${facts.module}.`,
+      markdown: [
+        `# ${facts.module} — ${title}`,
+        '',
+        '[Back to module index](index.md)',
+        '',
+        section,
+        '',
+        `<!-- end module facts section: ${facts.module}/${sectionSlug(title)} -->`,
+        '',
+      ].join('\n'),
+    }
+  })
+  const sectionLinks = sections.map((section) =>
+    `- [${section.title}](${section.slug}.md) — ${approximateSize(section.markdown)} — ${section.description}`,
+  )
+  const index = [
     ...header,
     '',
-    renderEntitiesSection(facts.entities, lookup),
+    '## Sections',
     '',
-    renderEventsSection(facts.events, lookup),
+    ...sectionLinks,
     '',
-    renderSourceLinkedListSection(
-      `## ACL features  (${facts.aclFeatures.length})`,
-      facts.aclFeatures,
-      lookup,
-      'acl-feature',
-      'Feature',
-    ),
+    'Read only the section files needed for the task; every section ends with a completion marker.',
     '',
-    renderApiRoutesSection(facts.apiRoutes),
+    `<!-- end module facts: ${facts.module} — ${sections.length} sections -->`,
     '',
-    renderLinkedFactsSection('## Backend pages', facts.backendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
-    '',
-    renderLinkedFactsSection('## Frontend pages', facts.frontendPages.map((page) => ({ label: page.path, sourcePath: page.sourcePath }))),
-    '',
-    renderSourceLinkedListSection('## DI service tokens', facts.diTokens, lookup, 'di-registration', 'Token'),
-    '',
-    renderSourceLinkedListSection('## Search entities', facts.searchEntities, lookup, 'search', 'Entity ID'),
-    '',
-    renderHostTokensSection(facts.hostTokens),
-    '',
-    renderExtensionHostsSection(extensionSurfaces),
-    '',
-    renderExtensionContributionsSection(extensionSurfaces),
-    '',
-    renderActivationBindingsSection(extensionSurfaces),
-    '',
-    renderIncomingContributionsSection(extensionSurfaces),
-    '',
-    renderContributionResolutionsSection(extensionSurfaces, lookup),
-    '',
-    renderExtensionDiagnosticsSection(extensionSurfaces),
-    '',
-    renderSourceLinkedListSection('## Notifications', facts.notifications, lookup, 'notification', 'Notification ID'),
-    '',
-    renderLinkedFactsSection('## CLI commands', facts.cliCommands.map((command) => ({ label: command.command, sourcePath: command.sourcePath }))),
-    '',
-    renderLinkedFactsSection('## AI tools / MCP capabilities', facts.aiTools.map((tool) => ({ label: tool.name, sourcePath: tool.sourcePath }))),
-    '',
-    renderLinkedFactsSection('## AI agents', facts.aiAgents.map((agent) => ({ label: agent.id, sourcePath: agent.sourcePath }))),
-    '',
-    renderOverrideTargetsSection(facts.overrideTargets),
-    '',
-  ]
-  const owned = facts.ownedContracts ?? {}
-  const ownedSections = [
-    renderOwnedContractSection('## Owned contract — module metadata', owned['module-metadata']),
-    renderOwnedContractSection('## Domain commands', owned.command),
-    renderOwnedContractSection('## Workers', owned.worker),
-    renderOwnedContractSection('## Page middleware', owned['page-middleware']),
-    renderOwnedContractSection('## Setup', owned.setup),
-    renderOwnedContractSection('## Encryption', owned.encryption),
-    renderDiRegistrationsSection(owned['di-registration']),
-    renderOwnedContractSection('## Custom entities', owned['custom-entity']),
-    renderOwnedContractSection('## AI extensions', owned['ai-extension']),
-    renderOwnedContractSection('## Generator plugins', owned['generator-plugin']),
-  ].filter((section) => section.length > 0)
-  for (const section of ownedSections) {
-    sections.push(section, '')
-  }
-  return sections.join('\n')
+  ].join('\n')
+  return { index, sections }
 }
 
 export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry {
@@ -3095,6 +3306,7 @@ export interface ExtractLocalReferenceModuleFactsOptions {
 export interface LocalReferenceModuleFactsResult {
   entry: ReferenceModuleFactsEntry
   markdown: string
+  directory: ModuleFactsMarkdownDirectory
   warnings: string[]
   /**
    * First-party targets the activated projection could not correlate. They also remain in
@@ -3167,6 +3379,7 @@ export function extractLocalReferenceModuleFacts(
       facts: jsonEntry,
     },
     markdown: renderModuleFactsMarkdown(facts, fingerprints),
+    directory: renderModuleFactsDirectory(facts, fingerprints),
     warnings: activated.warnings,
     unresolvedTargets: activated.unresolvedFirstPartyTargets ?? [],
   }
@@ -3199,6 +3412,7 @@ export interface ExtractAllModuleFactsOptions {
 export interface ExtractAllModuleFactsResult {
   factsByModule: Record<string, ModuleFacts>
   markdownByModule: Record<string, string>
+  directoryByModule: Record<string, ModuleFactsMarkdownDirectory>
   warnings: string[]
   frameworkMarkdown: string
   /** Always empty under the default `throw` policy, which aborts before returning. */
@@ -3245,6 +3459,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
 
   const factsByModule: Record<string, ModuleFacts> = {}
   const markdownByModule: Record<string, string> = {}
+  const directoryByModule: Record<string, ModuleFactsMarkdownDirectory> = {}
   const warnings: string[] = []
   for (const source of sources) {
     const facts = extractModuleFacts({
@@ -3312,6 +3527,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
   for (const moduleId of Object.keys(factsByModule).sort((left, right) => left.localeCompare(right))) {
     factsByModule[moduleId].extensionSurfaces = withIncoming[moduleId]
     markdownByModule[moduleId] = renderModuleFactsMarkdown(factsByModule[moduleId])
+    directoryByModule[moduleId] = renderModuleFactsDirectory(factsByModule[moduleId])
     warnings.push(...correlated[moduleId].unresolved.map((entry) =>
       `[module-facts] ${moduleId} ${entry.reason}: ${entry.key} (${entry.source.path})`,
     ))
@@ -3319,6 +3535,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
   return {
     factsByModule,
     markdownByModule,
+    directoryByModule,
     warnings,
     frameworkMarkdown: renderFrameworkExtensionPointsMarkdown(),
     unresolvedFirstPartyTargets,

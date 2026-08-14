@@ -11,7 +11,7 @@ The harness is intentionally layered so an agent can assemble precise context wi
 | Root `AGENTS.md` | Non-negotiable safety, validation, precedence, and the three-axis router | Load first and always; it is the only initial bundle. |
 | `.ai/guides/*.md` | Stable framework concepts and contracts by area | Load the de-duplicated set selected by the area and primitive axes. |
 | Thin task skills | Branching procedure and links to focused references | Load only matched skills; open only the references needed by the chosen branch. |
-| `.ai/guides/modules/*.md` | Generated identifiers and discovered surfaces for an exact installed module/version | Load only for installed modules named, changed, integrated with, or used as hosts. |
+| `.ai/guides/modules/<id>/` | Generated identifiers and discovered surfaces for an exact installed module/version | Start at `index.md`, then load only the sections needed for named, changed, integrated, or hosting modules. |
 | `om-framework-context` output | Exact installed instructions, source/types, and bounded search results | Last-mile escalation after app call sites, facts, and concept guides cannot answer the question. |
 | External `open-mercato/skills` | SDLC and delivery workflows | Select independently only when the requested lifecycle needs one. |
 
@@ -82,7 +82,7 @@ For the complete current convention-file catalog, load `om-module-scaffold` → 
 
 ## Installed Framework Context
 
-1. Read `.ai/guides/modules/<id>.md` for entity IDs, events, routes/auth, ACL, DI, search, notifications, and host spots.
+1. Read `.ai/guides/modules/<id>/index.md` for the section inventory, then open only the files covering the required entity IDs, events, routes/auth, ACL, DI, search, notifications, or host spots. Every generated index and section ends with a marker; if a capped read does not reach it, re-read the missing content from the index rather than assuming the read was complete.
 2. When facts are insufficient, invoke `om-framework-context` or run `yarn framework:context --module <id> --query <term>`.
 3. Confirm the resolved package/version matches the fact sheet stamp.
 4. Read the reported instruction chain in precedence order, then search only the reported package/module root with the bounded `rg --no-ignore --hidden` command.

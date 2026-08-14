@@ -1,7 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { extractModuleFacts, isExactSourceFilePath, renderModuleFactsMarkdown } from '../module-facts'
+import {
+  extractModuleFacts,
+  isExactSourceFilePath,
+  renderModuleFactsDirectory,
+  renderModuleFactsMarkdown,
+} from '../module-facts'
 
 const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
 
@@ -119,8 +124,53 @@ describe('module-facts source-linked extension surfaces', () => {
     expect(markdown).toContain('## AI tools / MCP capabilities')
     expect(markdown).toContain('## AI agents')
     expect(markdown).toContain(
-      '(../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
+      '[api/records/route.ts](../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
     )
+  })
+
+  it('emits deterministic contents anchors and a terminal completeness marker', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+    })
+    const markdown = renderModuleFactsMarkdown(facts)
+    const lines = markdown.split('\n')
+    const anchors = [...markdown.matchAll(/^- (.+) — L(\d+), ~\d+ KB$/gm)]
+
+    expect(anchors.length).toBeGreaterThan(10)
+    for (const anchor of anchors) {
+      expect(lines[Number(anchor[2]) - 1]).toMatch(new RegExp(`^## ${anchor[1]}(?:\\s+\\(\\d+\\))?$`))
+    }
+    expect(markdown.trimEnd()).toMatch(/<!-- end module facts: facts — \d+ sections -->$/)
+    expect(renderModuleFactsMarkdown(facts)).toBe(markdown)
+  })
+
+  it('renders a directory index and section files with deeper exact source links', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+      registrySource: `export const modules = [{
+        id: 'facts',
+        apis: [{
+          path: '/facts/records-custom',
+          handlers: { GET: async () => undefined },
+          metadata: { GET: { requireFeatures: ['facts.view'] } },
+        }],
+      }]`,
+    })
+    const directory = renderModuleFactsDirectory(facts)
+
+    expect(directory.index).toContain('[API routes](api-routes.md)')
+    expect(directory.index.trimEnd()).toMatch(/<!-- end module facts: facts — \d+ sections -->$/)
+    const apiRoutes = directory.sections.find((section) => section.slug === 'api-routes')
+    expect(apiRoutes?.markdown).toContain(
+      '[api/records/route.ts](../../../../node_modules/@open-mercato/example/src/modules/facts/api/records/route.ts)',
+    )
+    expect(apiRoutes?.markdown.trimEnd()).toMatch(/<!-- end module facts section: facts\/api-routes -->$/)
   })
 
   it('links only exact module code files and never a directory', () => {
