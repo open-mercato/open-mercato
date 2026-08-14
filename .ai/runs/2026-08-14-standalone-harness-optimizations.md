@@ -91,7 +91,7 @@ PR: #5295
 
 - [x] 4.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path. — f2aa7c0ba
 - [x] 4.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget. — 5831d55a7
-- [x] 4.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and resolve the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; the maintainer explicitly waived the Linux/Bubblewrap-only release lane on 2026-08-14, and this record does not claim that lane ran
+- [x] 4.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; the maintainer explicitly waived the Linux/Bubblewrap-only release lane on 2026-08-14, and this record does not claim that lane ran
 
 ## Harness Gate Evidence
 
