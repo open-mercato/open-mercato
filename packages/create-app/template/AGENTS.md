@@ -30,7 +30,7 @@ Route first; never probe unmatched context.
 
 ## Validation
 
-Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Report failures; never migrate to validate.
+Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration/spec exit: `yarn test:integration:ephemeral`. Report failures; never migrate to validate.
 
 ## Three-Axis Context Assembler
 

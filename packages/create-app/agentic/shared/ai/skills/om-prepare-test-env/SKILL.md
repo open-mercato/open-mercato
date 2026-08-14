@@ -62,6 +62,10 @@ env block into the Playwright process (`DATABASE_URL` for the ephemeral DB, queu
 webhook secrets). Without it, fixtures silently hit the dev database from `.env`. Always run
 suites via `yarn test:integration:ephemeral [filter]`.
 
+## Consumed by the spec exit gate
+
+`om-implement-spec` uses this descriptor whenever a spec's Integration Coverage requires integration tests. The tests must be authored in their owning phase and executed with `yarn test:integration:ephemeral`; if this runner is unavailable, the implementation ledger records `integration: blocked (<reason>)` and the final phase remains open. The exit gate never falls back to plain `yarn test:integration` or the developer database.
+
 ## Readiness probe contract
 
 - Shell: `GET /login` → 200.
