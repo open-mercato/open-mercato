@@ -458,7 +458,13 @@ export function getApiRouteManifests(): ApiRouteManifestEntry[] {
   return _apiRouteManifests ?? []
 }
 
-// CLI modules registry - shared between CLI and module workers
+// CLI modules registry - populated ONLY by the `mercato` bin (packages/cli/src/bin.ts
+// plus the `init` and `seed:defaults` commands). Runtime code MUST NOT read it: it
+// fails open (see getCliModules below), so outside a CLI process a reader gets an
+// empty list and silently does nothing. The events worker made exactly that mistake
+// and dropped every persistent subscriber. Runtime code uses the app registry
+// (`getModules` from ../lib/modules/registry) or a DI-resolved service.
+// Enforced by src/modules/__tests__/cli-registry-boundary.test.ts.
 let _cliModules: Module[] | null = null
 
 export function registerCliModules(modules: Module[]) {

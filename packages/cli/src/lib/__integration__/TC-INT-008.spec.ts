@@ -247,18 +247,28 @@ function expectedGuideOutputNames(): string[] {
   }
 
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
-  // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
-  // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
+  // the v1/v2 sidecars and disabled local-reference projection are copied as-is,
+  // while installed fact-sheets are filtered to the fixture's enabled modules. The legacy
+  // core.<module>.md redirect stubs are no longer
   // emitted (#3754). framework-extension-points.md is likewise generated into
   // dist/agentic/guides by both build.mjs pipelines (#4810) rather than checked in
   // alongside the static conceptual guides, so it needs an explicit entry here.
   collected.add('module-facts.json')
+  collected.add('module-facts.v2.json')
+  collected.add('reference-module-facts.json')
   collected.add('framework-extension-points.md')
   collected.add('upstream/AGENTS.md')
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
   collected.add('upstream/manifest.json')
   for (const moduleId of FIXTURE_ENABLED_MODULES) {
-    collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
+    const moduleFactsRoot = path.join(cliDir, 'dist', 'agentic', 'guides', 'modules', moduleId)
+    for (const file of fs.readdirSync(moduleFactsRoot)) {
+      if (file.endsWith('.md')) collected.add(normalizePath(path.join('modules', moduleId, file)))
+    }
+  }
+  const referenceFactsRoot = path.join(cliDir, 'dist', 'agentic', 'guides', 'reference-modules')
+  for (const file of listRelativeFiles(referenceFactsRoot)) {
+    collected.add(normalizePath(path.join('reference-modules', file)))
   }
 
   return Array.from(collected).sort()
@@ -310,7 +320,7 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       for (const moduleId of FIXTURE_ENABLED_MODULES) {
         expect(agentsSource).toContain(`\`${moduleId}\``)
       }
-      expect(agentsSource).toContain('`.ai/guides/modules/<id>.md`')
+      expect(agentsSource).toContain('`.ai/guides/modules/<id>/index.md`')
       expect(agentsSource.match(/\.ai\/guides\/modules\//g)).toHaveLength(1)
       expect(agentsSource).not.toContain('`auth`')
       expect(agentsSource).not.toContain('Core CRM capabilities')

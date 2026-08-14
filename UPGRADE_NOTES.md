@@ -22,7 +22,81 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.7 → 0.6.8 (unreleased)
+## 0.6.7 → 0.7.0 (2026-08-12)
+
+### Standalone apps gain deterministic design-system and i18n checks
+
+New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and
+`scripts/i18n-check-hardcoded.mjs` as the advisory `yarn i18n:check-hardcoded` report. Their
+`typecheck` script also uses the same `NODE_OPTIONS=--max-old-space-size=8192` headroom as
+`build`. Existing apps keep their user-owned package scripts and `.ai/agentic.config.json`, so
+adoption is manual:
+
+1. Copy `packages/create-app/template/scripts/ds-check.mjs`,
+   `packages/create-app/template/scripts/i18n-check-hardcoded.mjs`, and the reasoned
+   `.ds-check-ignore` baseline into the matching app paths, then remove baseline entries as
+   their files move to semantic tokens.
+2. Add `"ds:check": "node scripts/ds-check.mjs"` and
+   `"i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs"` to `package.json`, and
+   change `typecheck` to
+   `cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit`.
+3. Add `"yarn ds:check"` immediately after `"yarn lint"` in
+   `.ai/agentic.config.json` `validation.commands`. Keep the i18n command advisory until a
+   project-specific allowlist has been reviewed.
+
+The design-system checker supports `--json` and fails on findings, malformed ignore data, or
+stale ignore entries. The i18n checker also supports `--json`, reports JSX and message-call
+findings, honors module `i18n/.hardcoded-allowlist.json` files and `[internal]` messages, and
+returns success for findings while it remains advisory.
+
+### Generated module fact-sheets moved to per-module directories
+
+`agentic:init` now writes each installed module's generated Markdown facts under `.ai/guides/modules/<id>/`, with `index.md` as the entry point and one file per non-empty section. Local reference projections use the matching `.ai/guides/reference-modules/<id>/index.md` layout. The JSON sidecars remain at `.ai/guides/module-facts.json`, `.ai/guides/module-facts.v2.json`, and `.ai/guides/reference-module-facts.json` with unchanged schemas.
+
+**Action for harness and automation authors:** replace literal `.ai/guides/modules/<id>.md` reads with `.ai/guides/modules/<id>/index.md`, then follow the section links needed for the task. The update harness removes prior-manifest-owned flat sheets, including locally modified generated copies, because retaining them would leave stale facts beside the authoritative directory. Unknown files that were never owned by the generated harness remain untouched.
+
+### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
+
+Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**
+
+**The full-app compose stacks no longer default `JWT_SECRET`.** `docker-compose.fullapp.yml` and its create-app template twin used to resolve `${JWT_SECRET:-JWT}`, so a deployment that never set the variable signed its tokens with the literal `JWT` — a value published in this repository. Both files now declare `${JWT_SECRET:?…}`, so `docker compose up` fails fast with an explanatory message instead of starting an impersonatable stack. The same files also stopped pinning `NODE_ENV: development` over an image whose `runner` stage already sets `NODE_ENV=production`; they now default to `${NODE_ENV:-production}`. The Next.js server child was already insulated (the CLI forces production for it), but the pin leaked into every other process in those containers — `mercato init`, migrations, the auto-spawned worker supervisor and scheduler, and the entire MCP sidecar — which is where a `NODE_ENV`-keyed safety check like the one below would otherwise have downgraded itself to a warning.
+
+Set the variable in the `.env` file **next to the compose file** (the repository root) — not in `apps/mercato/.env`, which cannot override a variable the compose file passes into the container:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+**The app refuses to run in production with an unsafe signing secret.** At startup (and on every secret read, which covers worker, scheduler, and CLI processes) Open Mercato now rejects a `JWT_SECRET` — or a per-audience `JWT_<AUDIENCE>_SECRET` override — that is missing, shorter than 32 characters, or one of the placeholder values shipped in this repository's examples, including the old 32-character guide value `your-secure-jwt-secret-change-me`. Outside production the same conditions only log a warning, so local development is unaffected. If your production deployment currently uses a short-but-real secret, rotate it to `openssl rand -hex 32` **before** upgrading; rotating logs every user out.
+
+**Legacy fallback now requires a fixed cutover.** `JWT_LEGACY_GRACE_MINUTES` was read as an on/off switch: any value other than `0`, `false`, or `off` enabled raw-secret verification of pre-migration tokens *forever*, and those tokens are accepted without a session id — so they survive logout and password reset. The value is now honored as minutes measured against the token's own `iat`, but that relative age is not sufficient by itself because anyone holding the former secret can choose a fresh `iat`. Raw-secret fallback therefore stays disabled unless `JWT_LEGACY_CUTOVER_AT` contains a valid future ISO-8601 instant. Tokens issued more than 60 seconds in the future are also rejected.
+
+For a rolling deployment that must preserve pre-migration sessions, set both `JWT_LEGACY_GRACE_MINUTES=480` and a near-term `JWT_LEGACY_CUTOVER_AT` before rollout. The 480-minute age cap remains the default once a cutover is configured. Deployments that have already migrated should set `JWT_LEGACY_GRACE_MINUTES=0`; fresh installs have no pre-migration tokens and should start there. Without a valid cutover, pre-migration tokens are rejected and those users must sign in again.
+
+### Login rejects users with `isConfirmed: false` (#4541)
+
+`POST /api/auth/login` and `resolveCanonicalStaffAuthContext` now treat `isConfirmed === false` as "deactivated" and refuse the session, returning the same generic `401` as a wrong password. Deactivating a user through `PUT /api/auth/users` with `{ isConfirmed: false }` additionally deletes that user's `sessions` rows, so existing tokens stop resolving immediately.
+
+`User.isConfirmed` defaults to `true` and no seeding or invitation path sets it to `false`, so no existing account loses access on upgrade. The only in-tree producer of `false` is `deactivateDemoUsersIfSelfOnboardingEnabled`, which also nulls the password hash — those accounts could not authenticate before this change either.
+
+**Action for module authors:** if your module sets `isConfirmed` directly on `User` rows, be aware it is now an authentication gate rather than an informational flag. Code that used `isConfirmed: false` to mean "invited, not yet onboarded" while still expecting the user to be able to log in must move to its own field.
+
+### Command interceptors contribute audit context via `metadata.logContext` (#4542)
+
+`CommandInterceptorBeforeResult.metadata` gains a reserved key: when a `beforeExecute` hook returns `{ metadata: { logContext: { … } } }`, those keys are shallow-merged into the persisted `ActionLog.context_json`. This is how a downstream app stamps caller metadata (IP, user agent, request id) onto audit entries written by core CRUD commands, without wrapping core routes.
+
+```typescript
+beforeExecute: async (input, context) => ({
+  ok: true,
+  metadata: {
+    logContext: { ip: context.requestIp, userAgent: context.userAgent },
+  },
+})
+```
+
+The key is `logContext`, not `context`, specifically so that the generic `metadata` payload an interceptor already passes to its own `afterExecute` hook is never silently promoted into audit storage.
+
+**Also changed:** `ActionLog.context_json` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context` (in ascending precedence). Previously `buildLog().context` replaced `options.metadata.context` wholesale, so entries where both were set now carry the union of their keys rather than only the former's. **Action:** if you read `context_json` and relied on absent base keys, key off the specific fields you own rather than the object's shape.
 
 ### Global search is gated on `search.global` and filters results per entity (#5163)
 
@@ -44,7 +118,7 @@ Two changes ship together on `GET /api/search/search/global`, the endpoint the C
 
 **Action for API consumers:** this is a **narrowing** for an integration whose token holds `search.view` but not the view feature of the entity types it searches. Grant those callers the per-entity view features they need, or call the endpoint as a superadmin. Like the global endpoint, the filter fails closed for an entity type that declares no `aclFeatures`; run with `OM_SEARCH_DEBUG=true` and look for `search.api.search entity-filtered` to see which types were dropped and why. The endpoint also answers `503` when `rbacService` or `searchIndexer` is not registered, since neither the narrowing nor the filter can be evaluated without them.
 
-**The example module gained a `search.ts` (app and create-app template).** `example:todo` is indexed through its CRUD route's `indexer: { entityType }` but no `search.ts` declared it, so the fail-closed filter above hid it from every non-superadmin — the concrete symptom being `TC-EXAMPLE-001`, which searches todos as `admin`. It now declares `aclFeatures: ['example.todos.view']`, the same feature `GET /api/example/todos` enforces. Because a `search.ts` also makes `SearchIndexer` pick the entity up, example todos are now indexed into the fulltext and vector strategies as well, not only the `query_index` tokens they already had. This affects the demo module only; if you do not want todos embedded, set `enabled: false` on that entity — but note that also removes them from search entirely. `example:example_customer_priority` is deliberately left unconfigured: it holds a customer id and a priority enum with no human-readable text.
+**The example module's `search.ts` is what keeps example todos visible.** `example:todo` is indexed through its CRUD route's `indexer: { entityType }`, so before that config existed the fail-closed filter hid it from every non-superadmin — the concrete symptom being `TC-EXAMPLE-001`, which searches todos as `admin`. The config (shipped separately, in the app and in the create-app template) declares `aclFeatures: ['example.todos.view']`, the same feature `GET /api/example/todos` enforces, and the drift guard now pins that mapping so the hybrid filter cannot regress it again. `example:example_customer_priority` stays unconfigured: it holds a customer id and a priority enum with no human-readable text.
 
 ### The `empty` and `crm` starter presets now enable the `search` module (#5164)
 
@@ -120,6 +194,159 @@ const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
 
 If you hit this, the fix is to stop routing literal `{{...}}` text through `UPDATE_ENTITY` input or `EMIT_EVENT` payload fields — escape it, or move the templating to the consumer that is supposed to render it. Search stored definitions for `{{` in activity `config.input` and `config.payload` before upgrading if you want to find these ahead of time.
 
+### Credential-free integrations now resolve as configured (#4897)
+
+An integration whose effective credentials schema declares `fields: []` now resolves through the
+payment-gateway descriptor as credential-free: `requiresConfiguration: false`, `isConfigured: true`,
+and `configurationStatus: 'unmanaged'`. Previously the descriptor attempted a credential lookup and
+reported `requiresConfiguration: true`, `isConfigured: false`, and
+`configurationStatus: 'missing_credentials'`, which could disable an otherwise usable provider.
+
+**Action for integration authors:** none. Providers that declare one or more credential fields keep
+the existing credential and state checks. If an integration inherits credentials from its bundle,
+the bundle's effective schema is still used, so declaring `fields: []` on the integration does not
+bypass required bundle credentials.
+
+### `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` is removed
+
+The `example` module's `widgets/injection-table.ts` used to export a value chosen by a
+ternary — `(NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED || NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED)
+? { …always, …crossModule } : always` — and `widgets/components.ts` exported a
+conditionally spread array keyed on `NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED`.
+Both exports are now single, unconditional literals.
+
+The reason is not cosmetic. The module fact extractor
+(`packages/cli/src/lib/generators/module-extension-facts.ts` → `readRootObject` /
+`extractObjectConvention` → `staticValue`) folds only statically known values, and it folds a
+ternary solely when both branches are deeply equal. Neither export qualified, so the
+framework's own reader published **zero** contributions for both files: every scaffolded app
+and every agent fact-sheet saw the canonical reference module as contributing no widget
+injection and no component override at all. Running the real extractor over the module now
+reads 26 injection-table contributions and 3 component-override contributions where it
+previously read 0 and 0.
+
+**What replaces the flag.** Nothing, by design. The cross-module entries (customers, catalog,
+sales) ship unconditionally, and they are inert without their host module: each of them is
+keyed on a spot id that only `customers`, `catalog`, or `sales` renders, and a module that is
+not installed renders no spot. The change also adds nothing to the widget registry — the
+loader reads widget entries (`loadWidgetEntries`) and injection tables (`loadInjectionTable`)
+from two independent sources, so every `example` widget was already enumerated regardless of
+what the table said. On top of that, `injection-loader.ts` skips any widget whose
+`metadata.requiredModules` names a module that is not in the enabled set; the `example`
+widgets do not declare `requiredModules` today, which is the mechanism to reach for if you
+copy one of these entries into a widget that calls another module's API directly. The two
+checkout demo overrides also register unconditionally, but their `wrapper`
+returns the original component **by identity** while
+`NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED` is off. Because
+`resolveRegisteredComponent` does `resolved = override.wrapper(resolved)`, an identity return
+is indistinguishable from no override, so the rendered DOM is unchanged and that flag keeps
+its existing meaning and default.
+
+**Which behavior this settles on.** The documented default was misleading. `apps/mercato/.env.example`
+ships `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=true`, and that flag was OR-ed into the
+same condition, so any app started from the monorepo `.env.example` already had every
+cross-module example injection **enabled** — directly contradicting the
+`NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false` line and its `(default: false)` comment
+sitting a few lines below it. This change settles on the behavior those apps were actually
+getting: cross-module example injections are always on. It also decouples them from
+`NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED`, which is a `CrudForm` event-emission switch
+and never should have gated an injection table.
+
+**This is a real default change for scaffolded standalone apps.** An app created by
+`create-mercato-app` sets neither flag, so before this change it registered only the
+example-owned demo surfaces; now it also registers the cross-module entries targeting
+`customers`, `catalog` and `sales`. They stay inert unless the host module is enabled — a
+cross-module entry is keyed on a spot id only its host renders — but the registrations are
+present, and the UMES DevTool will list them. If you want a scaffolded app to carry the
+example's source without its cross-module injections, remove the entries from
+`src/modules/example/widgets/injection-table.ts` in your app, or disable the `example`
+module entirely (it ships unregistered in every built-in preset).
+
+**Action for downstream apps:** delete `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED` from
+your `.env` files and from any CI/deployment environment that exports it; it is now dead
+configuration and setting it has no effect. It has been removed from
+`apps/mercato/.env.example` (`packages/create-app/template/.env.example` never documented it).
+If you copied `example/widgets/injection-table.ts` into your own module and kept the
+`false` branch to hide the cross-module entries, delete the entries you do not want instead of
+gating them — an env-gated export is unreadable to the fact extractor and will make your
+module look empty to the agent harness.
+
+**Action for module authors generally:** export `injectionTable` and `componentOverrides` as
+plain literals. Gate behavior *inside* a widget or wrapper, or declare
+`metadata.requiredModules` on the widget; do not branch the exported registry value itself.
+
+
+### Generated facts gain a v2 sidecar, and extension joins now derive irregular plurals (#4897)
+
+`BACKWARD_COMPATIBILITY.md` §14 freezes the `hosts`, `contributions`, and `unresolved` arrays of
+generated `.ai/guides/module-facts.json`, together with their correlation-resolution values and
+exact public IDs, as STABLE once published. Four changes land against that surface and the
+adjacent generator/query types. Three correct values that named something nonexistent, and the
+fourth fixes a join that resolved to a table that does not exist, but correctness does not erase
+the published contract: each is a visible value change for anyone who reads the generated facts
+or extends an entity.
+
+The generated-facts boundary is now explicitly versioned. `.ai/guides/module-facts.json` remains
+the v1 compatibility artifact: its stable extension-surface arrays, exact contribution IDs,
+classification modes, and correlation behavior are generated with the legacy reader contract.
+`.ai/guides/module-facts.v2.json` is an additive sibling containing the corrected reader facts.
+Newly generated harness consumers prefer v2 and fall back to v1, while downstream tools that have
+not migrated keep reading the original path without observing stable-value changes. Both files
+retain the frozen top-level `Record<moduleId, ModuleFactsJsonEntry>` shape; the version is carried
+by the filename rather than an invented non-module key.
+
+**Action for direct extractor callers:** omission of `factsContractVersion` selects v2. Pass
+`factsContractVersion: 1` only while reproducing the legacy sidecar during the compatibility
+window; migrate comparisons and pinned IDs to v2, then remove the explicit v1 selection.
+
+**1. Contribution IDs from `ComponentReplacementHandles` gain their component segment.**
+`packages/cli/src/lib/generators/module-extension-facts.ts` now folds
+`ComponentReplacementHandles.section('ui.detail', 'NotesSection')` into the handle the runtime
+actually registers, so the contribution publishes `section:ui.detail.NotesSection` where it
+previously published `ui.detail`. The old value named no component — `ui.detail` is the section
+namespace, not a component id — so nothing could have correlated against it successfully. Still,
+it is an exact public ID changing: a scaffolded app or downstream tool that pinned the old string
+should move to `module-facts.v2.json` and repin. The same applies to the sibling `page`,
+`dataTable`, and `crudForm` formulas. The legacy sidecar keeps the old strings during the bridge.
+
+**2. One published `mode` value changes: `section:auth.login.form` moves `replace` → `wrapper`.**
+The component-override reader used to discriminate `mode` on an `entry.props` property that the
+`ComponentOverride` union has no member for; together with the other reader fixes in this change it
+now discriminates on the union's real members (`wrapper` / `propsTransform` / `replacement`).
+Measured across a 55-module corpus, `section:auth.login.form` (enterprise `security`) is the only
+leaf whose value changes in v2; every other contribution keeps the mode it published. `wrapper` is
+what that entry has always done at runtime — the v1 fact sheet was wrong, not the module. The v1
+sidecar continues to publish `replace` during the bridge.
+
+**3. Recovered injection-table contributions (additive).** The extractor silently dropped every
+string-form and single-object-form slot declaration, hiding twelve real contributions across six
+modules — `integrations` published none at all. Those contributions appear in v2. This is additive:
+no previously published ID disappears or changes. The v1 sidecar preserves its published arrays;
+the generated-facts JSON budget was raised 3.50MB → 3.56MB to hold the corrected projection.
+
+**4. `EntityExtension` joins derive irregular plurals through `pluralizeBaseName`.**
+`packages/shared/src/lib/query/engine.ts` derived an extension's physical table by appending an
+`s` to the entity segment, while the same file already used `pluralizeBaseName` for every other
+table-name fallback. Any third-party extension whose entity segment ends in `y` therefore joined
+a table that does not exist: `foo:company` derived `companys`. It now derives `companies`.
+
+**Action for module authors:** this is a runtime behavior change in the shared query engine. If
+you worked around the old derivation by adding a `y`-ending entity's real table under
+`EntityExtension.table`, that declaration is now redundant but still honored — an explicit
+`table` always wins, so nothing breaks either way. Keep `table` for plurals no guesser can win
+(`person` → `people`) and for any entity whose `@Entity({ tableName })` simply does not match the
+derived name. Behavior is unchanged for every entity segment that does not end in `y`.
+
+**Type-surface note (#4897).** `ExtractAllModuleFactsResult`
+(`packages/cli/src/lib/generators/module-facts.ts`) gains optional
+`unresolvedFirstPartyTargets?: string[]` and `factCoverage?: ModuleFactCoverageFamily[]` fields.
+The implementation always populates both, while optionality preserves source compatibility for
+existing constructors, mocks, and wrappers. `ListConfig.csv` (`packages/shared/src/lib/crud/factory.ts`) widens
+in the other direction and needs no action: `headers` accepts a function in addition to
+`string[]`, and `row` gains a second `ctx` parameter, so every existing `(item) => …`
+implementation stays assignable.
+
+
 ### Settings sections are identified by their untranslated group id (#4843)
 
 `buildSettingsSections` used to identify each settings section by slugging the **rendered** group label, so `SettingsSection.id` was locale-dependent — `module-configs` in one deployment, `konfiguracja-modu` in another. Sections now carry the untranslated group id instead: the `pageGroupKey` a settings page declares (for example `settings.sections.moduleConfigs`), falling back to its raw `pageGroup` label when it declares no key. This matches how the main sidebar already identifies its nav groups, and it is what makes the ordering in `settingsSectionOrder` locale-independent.
@@ -162,6 +389,20 @@ Scope limits worth knowing:
 **Action for downstream:** none for modules that already follow the documented dashboard-widget convention. If one of your dashboard widgets reaches its browser component through a *static* import in `widget.ts`, switch it to `lazyDashboardWidget(() => import('./widget.client'))` — that is what makes the CLI bundle safe. If you dynamically `import()` a server-side module whose name ends in `.client`, rename it or import it statically; a dynamic import of such a path now resolves to the stub and throws `[internal] Client-only module … is not available in the CLI runtime` when called.
 
 ---
+
+### Events worker dispatches through the DI event bus instead of the CLI-only module registry
+
+The events worker used to build its own subscriber map from `getCliModules()` - a registry populated **only** by `registerCliModules()` inside the `mercato` bin. Any worker started another way (a custom entrypoint, an in-process runner, a container whose command bypasses the CLI) resolved zero subscribers, returned early, and marked the job **completed**: no error, no log. Because default-on single-delivery had already skipped those subscribers inline, the side effect vanished - taking every wildcard `event: '*'` persistent subscriber with it (outbound webhooks, workflow event triggers, business-rule CRUD triggers).
+
+The worker now resolves `eventBus` from its per-job DI container and calls the new `EventBus.dispatchQueued(event, payload, options, resolve)`, passing its own `ctx.resolve` as the last argument so subscribers bind to the container that job runs in. The bus owns subscriber selection for both halves of single-delivery, so they cannot disagree. `packages/cli`-launched workers are unaffected: `mercato queue worker` already bootstraps the app module registry (`registerModules`) before the CLI one, from the same array.
+
+Two related changes:
+
+- **The worker fails loudly instead of silently.** If `eventBus` cannot be resolved (or predates `dispatchQueued`), `handle()` throws. The job retries and dead-letters with an actionable message rather than disappearing.
+- **Turning single-delivery off no longer dual-dispatches.** The producer stamps the queued job `persistentDeliveredInline: true` when it delivered inline, and the worker skips such jobs, so `OM_EVENTS_SINGLE_DELIVERY=false` now means inline-only rather than inline *and* worker. Retry is preserved: the stamp is only written when every persistent subscriber succeeded inline, so a handler that threw leaves the job unstamped and the worker runs it with the queue's retry and dead-lettering. Note that a retried job re-runs the persistent subscribers that already succeeded inline, which is why persistent subscribers must be idempotent (`packages/events/AGENTS.md`).
+- **The worker dispatches persistent subscribers only.** It used to select by exact event name and run *every* subscriber registered under it. That difference is invisible on the normal path - with single-delivery on, ephemeral subscribers have already run inline - but one combination changes: an enqueue-only emit (`{ persistent: true, deliverInline: false }`) with `OM_EVENTS_SINGLE_DELIVERY=false` skips inline delivery entirely, so an *ephemeral* subscriber registered on that exact event name no longer runs at all. `packages/events/AGENTS.md` already restricts enqueue-only to events whose subscribers are all `persistent: true`, so a conforming caller is unaffected; if you carry that combination, mark the subscriber `persistent: true` or drop `deliverInline: false`.
+
+**Action for downstream:** none for delivery semantics - `OM_EVENTS_SINGLE_DELIVERY` is read exactly as before. Custom `EventBus` implementations must add `dispatchQueued`; the worker's exported `clearListenerCache()` is now a deprecated no-op and will be removed in a later release. If you carry a local patch swapping the worker's `getCliModules()` for `getModules()`, remove it - `patch-package` will fail to apply against this release.
 
 ### Query index reindex now fails when a batch loses records
 

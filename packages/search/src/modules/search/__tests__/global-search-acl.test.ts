@@ -43,10 +43,24 @@ describe('global search ACL contract', () => {
 describe('searchable entity ACL coverage', () => {
   const repoRoot = join(__dirname, '..', '..', '..', '..', '..', '..')
 
+  // `entityId:` is written either as a string literal or as a module-level const,
+  // so the token is resolved against the file rather than matched literally.
+  function resolveEntityIdToken(source: string, token: string): string | null {
+    const literal = token.match(/^'(.+)'$/)
+    if (literal) return literal[1]
+    const declaration = source.match(
+      new RegExp(`^const ${token} = '([^']+)'`, 'm'),
+    )
+    return declaration ? declaration[1] : null
+  }
+
   function readEntityBlock(file: string, entityId: string): string {
     const source = readFileSync(file, 'utf8')
-    const start = source.indexOf(`      entityId: '${entityId}',`)
-    expect(start).toBeGreaterThan(-1)
+    const declaration = [...source.matchAll(/^ {6}entityId: (.+),$/gm)].find(
+      (match) => resolveEntityIdToken(source, match[1]) === entityId,
+    )
+    expect(declaration).toBeDefined()
+    const start = declaration!.index!
     const nextEntity = source.indexOf('\n    {', start + 1)
     return source.slice(start, nextEntity === -1 ? undefined : nextEntity)
   }

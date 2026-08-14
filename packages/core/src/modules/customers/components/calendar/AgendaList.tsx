@@ -44,12 +44,12 @@ function formatUrlHost(location: string): string {
   }
 }
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+function formatTime(locale: string, date: Date): string {
+  return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 }
 
-function groupLabelOf(date: Date): string {
-  return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+function groupLabelOf(locale: string, date: Date): string {
+  return date.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })
 }
 
 function deriveTypeLabel(interactionType: string): string {
@@ -94,7 +94,7 @@ function AgendaDayHeader({ date, count }: { date: Date; count: number }) {
       : resolvedCount
   return (
     <div className="flex w-full items-center gap-2 bg-muted/50 px-3 py-2.5 sm:px-5">
-      <span className="text-sm font-semibold text-foreground">{groupLabelOf(date)}</span>
+      <span className="text-sm font-semibold text-foreground">{groupLabelOf(locale, date)}</span>
       {todayMarker || tomorrowMarker ? (
         <span className={cn('text-xs font-medium', todayMarker ? 'text-foreground' : 'text-muted-foreground')}>
           {`· ${todayMarker ? t('customers.calendar.agenda.today', 'Today') : t('customers.calendar.agenda.tomorrow', 'Tomorrow')}`}
@@ -116,6 +116,7 @@ function AgendaRow({
   onItemClick: (item: CalendarItem) => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const canceled = item.status === 'canceled'
   const done = item.status === 'done'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
@@ -131,8 +132,8 @@ function AgendaRow({
     : item.locationKind === 'url' && item.location
       ? formatUrlHost(item.location)
       : item.location
-  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTime(item.start)
-  const endLabel = item.allDay ? null : formatTime(item.end)
+  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTime(locale, item.start)
+  const endLabel = item.allDay ? null : formatTime(locale, item.end)
   const ariaTime = item.allDay ? startLabel : `${startLabel} – ${endLabel}`
   return (
     <Button

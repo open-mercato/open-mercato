@@ -57,6 +57,7 @@ describe('assertActorCanAccessUserTarget', () => {
         actorUserId: actorId,
         tenantId,
         targetUserId,
+        organizationScope: { allowedIds: null },
       }),
     ).resolves.toBeUndefined()
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
@@ -74,6 +75,7 @@ describe('assertActorCanAccessUserTarget', () => {
         actorUserId: actorId,
         tenantId,
         targetUserId,
+        organizationScope: { allowedIds: null },
       }),
     ).resolves.toBeUndefined()
   })
@@ -90,6 +92,7 @@ describe('assertActorCanAccessUserTarget', () => {
         actorUserId: actorId,
         tenantId,
         targetUserId,
+        organizationScope: { allowedIds: null },
       }),
     ).resolves.toBeUndefined()
   })
@@ -106,6 +109,7 @@ describe('assertActorCanAccessUserTarget', () => {
         actorUserId: actorId,
         tenantId,
         targetUserId,
+        organizationScope: { allowedIds: null },
       }),
     ).rejects.toMatchObject({ status: 404 })
   })
@@ -122,6 +126,7 @@ describe('assertActorCanAccessUserTarget', () => {
         actorUserId: actorId,
         tenantId,
         targetUserId,
+        organizationScope: { allowedIds: null },
       }),
     ).rejects.toMatchObject({ status: 404 })
   })
@@ -139,6 +144,7 @@ describe('assertActorCanAccessUserTarget', () => {
         tenantId,
         organizationId: orgId,
         targetUserId,
+        organizationScope: { allowedIds: [orgId] },
       }),
     ).rejects.toMatchObject({ status: 403 })
   })
@@ -156,6 +162,30 @@ describe('assertActorCanAccessUserTarget', () => {
         tenantId,
         organizationId: orgId,
         targetUserId,
+        organizationScope: { allowedIds: [orgId] },
+      }),
+    ).resolves.toBeUndefined()
+  })
+
+  test('allows a descendant target present in the canonical expanded organization scope', async () => {
+    const descendantOrganizationId = '66666666-6666-6666-6666-666666666666'
+    const em = makeEm()
+    mockFindOneWithDecryption.mockResolvedValueOnce({
+      id: targetUserId,
+      tenantId,
+      organizationId: descendantOrganizationId,
+    })
+    const rbacService = makeRbac({ isSuperAdmin: false, organizations: [orgId] })
+
+    await expect(
+      assertActorCanAccessUserTarget({
+        em: em as never,
+        rbacService: rbacService as never,
+        actorUserId: actorId,
+        tenantId,
+        organizationId: orgId,
+        targetUserId,
+        organizationScope: { allowedIds: [orgId, descendantOrganizationId] },
       }),
     ).resolves.toBeUndefined()
   })

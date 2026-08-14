@@ -1,72 +1,98 @@
 import type {
-  SearchModuleConfig,
   SearchBuildContext,
   SearchIndexSource,
+  SearchModuleConfig,
   SearchResultPresenter,
 } from '@open-mercato/shared/modules/search'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
-function todoTitle(record: Record<string, unknown>): string {
-  const title = record.title
-  if (typeof title === 'string' && title.trim().length > 0) return title.trim()
-  return String(record.id ?? '')
+const ENTITY_ID = 'example:todo' as const
+
+function pickString(...candidates: Array<unknown>): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const trimmed = candidate.trim()
+    if (trimmed.length > 0) return trimmed
+  }
+  return null
 }
 
-function isDone(record: Record<string, unknown>): boolean {
-  return record.is_done === true || record.isDone === true
+function appendLine(lines: string[], label: string, value: unknown) {
+  if (value === null || value === undefined) return
+  const text = Array.isArray(value)
+    ? value.map((entry) => (entry === null || entry === undefined ? '' : String(entry))).filter(Boolean).join(', ')
+    : String(value)
+  if (!text.trim()) return
+  lines.push(`${label}: ${text}`)
 }
 
-function labelValues(customFields: Record<string, unknown>): string[] {
-  const labels = customFields.labels
-  if (Array.isArray(labels)) return labels.map(String).filter(Boolean)
-  if (typeof labels === 'string' && labels.trim().length > 0) return [labels.trim()]
-  return []
-}
-
-async function buildPresenter(ctx: SearchBuildContext): Promise<SearchResultPresenter> {
-  const { t } = await resolveTranslations()
+function buildTodoPresenter(
+  t: TranslateFn,
+  record: Record<string, unknown>,
+  customFields: Record<string, unknown>,
+): SearchResultPresenter {
+  const title = pickString(record.title, customFields.title) ?? String(record.id ?? '')
+  const isDone = record.is_done === true
   return {
-    title: todoTitle(ctx.record),
-    subtitle: isDone(ctx.record)
-      ? t('example.search.status.done', 'Done')
-      : t('example.search.status.open', 'Open'),
-    icon: 'lucide:check-square',
-    badge: t('example.search.badge.todo', 'Todo'),
+    title,
+    subtitle: isDone
+      ? t('example.search.todo.subtitle.done', 'Completed')
+      : t('example.search.todo.subtitle.open', 'Open'),
+    icon: 'check-square',
+    badge: t('example.search.todo.badge', 'Todo'),
   }
 }
 
 /**
- * `example:example_customer_priority` is deliberately absent. It stores a customer
- * id and a priority enum and carries no human-readable text, so indexing it would
- * only add noise; without a config here it stays out of search results entirely.
+ * Builds the text handed to the fuzzy/vector strategies.
+ *
+ * `notes` is deliberately absent. It is declared in `encryption.ts`, so it is
+ * sensitive by definition and MUST NOT be shipped to an external embedding or
+ * fulltext provider. It stays reachable through the `tokens` strategy instead:
+ * `reindexSearchTokensForRecord` decrypts the index doc before tokenizing it, so
+ * `search_tokens` holds hashes of the plaintext notes and matches them without
+ * the plaintext ever leaving the database.
  */
+function buildTodoSource(ctx: SearchBuildContext, presenter: SearchResultPresenter): SearchIndexSource | null {
+  const lines: string[] = []
+  appendLine(lines, 'Title', ctx.record.title ?? ctx.customFields.title)
+  appendLine(lines, 'Labels', ctx.customFields.labels)
+  if (!lines.length) return null
+  return {
+    text: lines,
+    presenter,
+    checksumSource: { record: ctx.record, customFields: ctx.customFields },
+  }
+}
+
 export const searchConfig: SearchModuleConfig = {
   entities: [
     {
-      entityId: 'example:todo',
-      /**
-       * The same feature `GET /api/example/todos` enforces. Global search, the
-       * hybrid `GET /api/search/search` endpoint and the AI tools all fail closed
-       * on a missing `aclFeatures`, so omitting this hides todos from every
-       * non-superadmin instead of leaving them ungated.
-       */
-      aclFeatures: ['example.todos.view'],
+      entityId: ENTITY_ID,
       enabled: true,
-      priority: 1,
-      buildSource: async (ctx): Promise<SearchIndexSource | null> => {
-        const lines: string[] = [`Title: ${todoTitle(ctx.record)}`]
-        const labels = labelValues(ctx.customFields)
-        if (labels.length > 0) lines.push(`Labels: ${labels.join(', ')}`)
-        return {
-          text: lines,
-          presenter: await buildPresenter(ctx),
-          checksumSource: { record: ctx.record, customFields: ctx.customFields },
-        }
+      priority: 5,
+      aclFeatures: ['example.todos.view'],
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return buildTodoSource(ctx, buildTodoPresenter(t, ctx.record, ctx.customFields))
       },
-      formatResult: async (ctx) => buildPresenter(ctx),
-      resolveUrl: async (ctx) => `/backend/example/todos/${encodeURIComponent(String(ctx.record.id))}/edit`,
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return buildTodoPresenter(t, ctx.record, ctx.customFields)
+      },
+      resolveUrl: (ctx) => `/backend/todos/${encodeURIComponent(String(ctx.record.id))}/edit`,
       fieldPolicy: {
+        // `searchable` is a whitelist of fields safe to hand to an external
+        // provider as plaintext.
         searchable: ['title'],
+        // `notes` is encrypted at rest, so it is excluded rather than hash-only:
+        // `hashOnly` advertises an approved hash sibling for exact-equality
+        // lookup, and this module's encryption map declares no `hashField`.
+        // Excluding it here costs nothing in reachability — `search_tokens` is
+        // built by the query indexer from the DECRYPTED index doc and is not
+        // gated by this policy, so token search over notes keeps working.
+        excluded: ['notes'],
       },
     },
   ],
