@@ -58,7 +58,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
    - `POST /api/document-generators/preview` — accepts `{ template_id, data }`, renders the selected format, returns a stream; **zero side effects**
    - `POST /api/document-generators/generate` — accepts `{ template_id, data }`, renders the selected format and persists generation history from server-derived resource identity on a best-effort basis
    - `GET /api/document-generators/documents` — returns paginated, scoped generation history
-4. **Live preview** — `PreviewPanel` renders PDF blob URLs in a native iframe and Markdown as source text; download calls `POST /generate` separately.
+4. **Live preview** — `PreviewPanel` renders PDF blob URLs in the native browser PDF viewer with an open-in-new-tab fallback; Markdown renders as source text. Native Chromium PDF rendering is incompatible with a sandboxed Blob iframe, so the preview boundary is instead restricted to a Blob created from the authenticated `application/pdf` response protected by `nosniff` and `no-store`. Download calls `POST /generate` separately through `useGuardedMutation` and supports `Cmd/Ctrl+Enter`.
 5. **Generator plugin** (`generators.ts`) — `document-generators.templates` plugin enables modules to register templates via `mercato generate registry`.
 
 ### Design Decisions
@@ -456,7 +456,7 @@ The loaded template must derive `resourceKind`, canonical `resourceId`, and an o
 
 ### GET /api/document-generators/documents
 
-Returns paginated generation history filtered by the authenticated tenant and organization. Optional `resource_kind` and `resource_id` query parameters narrow the result. Resource-detail consumers must send both filters together so a history panel can never mix records from different source types that happen to share an identifier.
+Returns paginated generation history filtered by the authenticated tenant and organization. Optional `resource_kind`, `resource_id`, `template_id`, `generated_by`, `generated_from`, and `generated_to` query parameters narrow the result. `sort` accepts `resource_label`, `template_label`, `format`, `generated_by`, or `generated_at`; `sort_direction` accepts `asc` or `desc`. Resource-detail consumers must send both resource filters together so a history panel can never mix records from different source types that happen to share an identifier.
 
 ---
 
@@ -502,7 +502,7 @@ External templates may register their own fonts within the owning module when th
 A document tab (retaining its existing frozen PDF-oriented injection ID) is injected into detail views via `injection-table.ts`. The tab renders a resource-scoped document panel:
 
 1. **Template list** — card grid fetched from `GET /api/document-generators/templates`, filtered by `TemplateFilter` (`resourceKind`, `documentType`, `format`, `tags`).
-2. **Preview dialog** (`PreviewPanel`) — calls `POST /api/document-generators/preview`; PDF uses the existing iframe and Markdown is displayed as source text. The format-aware download button calls `POST /api/document-generators/generate`.
+2. **Preview dialog** (`PreviewPanel`) — calls `POST /api/document-generators/preview`; PDF uses the native browser viewer with an open-in-new-tab fallback and Markdown is displayed as source text. Chromium cannot render the Blob PDF viewer in a sandboxed iframe, so the Blob is constrained by authenticated access, PDF MIME, `nosniff`, and `no-store`. The format-aware download button and `Cmd/Ctrl+Enter` call `POST /api/document-generators/generate` through `useGuardedMutation`; download Blob URLs are revoked on the next task so browsers can consume the click first.
 3. **Source history** (Phase 6) — a compact `DataTable` below the template list calls `GET /api/document-generators/documents` with both `resource_kind` and `resource_id`, showing only documents generated for the current order, quote, or other source record. A successful production download refreshes this table without reloading the detail page.
 
 ### Backend pages
@@ -638,9 +638,9 @@ No changes to existing services or templates required.
 | File | Description |
 |------|-------------|
 | `data/entities.ts` | `GeneratedDocument` entity — `id`, `organization_id`, `tenant_id`, `resource_kind`, `resource_id`, `resource_label`, `template_id`, `template_label`, `format` (default `'pdf'`), `mime_type` (default `'application/pdf'`), `generated_by`, `generated_at`, `attachment_id` (nullable — populated in Phase 7). Table `document_generators_generated_documents` |
-| `data/validators.ts` | Zod schemas: `generateSchema` accepts only template identity + data; `listDocumentsSchema` supports resource filters for history reads |
-| `services/generation-history-service/` | Scoped creation and paginated listing of generation history |
-| `api/document-generators/documents/route.ts` | Paginated history endpoint, filterable by `resource_kind` and `resource_id`; exports `openApi` + `metadata` |
+| `data/validators.ts` | Zod schemas: `generateSchema` accepts only template identity + data; `listDocumentsSchema` supports scoped history filters, date ranges, and sorting |
+| `services/generation-history-service/` | Scoped creation plus filtered, sorted, paginated listing of generation history |
+| `api/document-generators/documents/route.ts` | Paginated history endpoint with resource/template/user/date filters and allowlisted sorting; exports `openApi` + `metadata` |
 | `migrations/Migration20260809121904_document_generators.ts` | Generated migration accompanied by the module snapshot |
 
 > **Format-agnostic by design.** The entity is named `GeneratedDocument` and carries `format` + `mime_type` discriminators. `BaseDocumentService` is format-neutral in shared; the plugin owns both `PdfRenderingService` and `MarkdownRenderingService`, including their dependencies and output metadata.
@@ -654,8 +654,8 @@ No changes to existing services or templates required.
 | `setup.ts` | Add `document_generators.generate` to `superadmin` + `admin` role features |
 | `backend/document-generators/page.tsx` | Navigation-hidden compatibility redirect to the overview route |
 | `backend/document-generators/overview/page.tsx` | Module overview with cards linking to the template list and generation history |
-| `backend/document-generators/templates/page.tsx` | Template list moved from the module root without changing its API contract |
-| `backend/document-generators/history/page.tsx` | Dedicated history page with a paginated `DataTable` fetched from `GET /api/document-generators/documents` |
+| `backend/document-generators/templates/page.tsx` | Thin page shell delegating catalogue rendering to its route-local `components/TemplatesList.tsx` |
+| `backend/document-generators/history/page.tsx` | Thin history page shell delegating the filtered, sortable table to route-local `components/HistoryList.tsx` and `hooks/history/**` |
 | `i18n/*.json` | New keys: `document_generators.history.title`, `document_generators.history.resource`, `document_generators.history.template`, `document_generators.history.generatedBy`, `document_generators.history.generatedAt`, `document_generators.history.empty` |
 
 #### Data flow

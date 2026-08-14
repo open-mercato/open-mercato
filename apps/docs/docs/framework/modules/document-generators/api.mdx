@@ -94,27 +94,34 @@ Content-Disposition: attachment; filename="invoice-1042.pdf"
 **Typical client-side usage:**
 
 ```ts
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { downloadBlob } from '@open-mercato/document-generators/modules/document_generators/utils'
+import {
+  downloadBlob,
+  revokeObjectUrlAfterNavigation,
+} from '@open-mercato/document-generators/modules/document_generators/utils'
 
-const { result, error } = await apiCall(
-  '/api/document-generators/generate',
-  {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      template_id: template.id,
-      data: record,
-    }),
+const { runMutation, retryLastMutation } = useGuardedMutation({
+  contextId: 'document-generators.generate',
+})
+const payload = { template_id: template.id, data: record }
+const { result } = await runMutation({
+  operation: async () => {
+    const call = await apiCall('/api/document-generators/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }, { parse: (response) => response.blob() })
+    if (!call.ok || !call.result) throw new Error('Document generation failed')
+    return { result: call.result }
   },
-  { parse: (res) => res.blob() },
-)
+  context: { resourceKind: template.resourceKind, templateId: template.id, retryLastMutation },
+  mutationPayload: payload,
+})
 
-if (!error && result) {
-  const url = URL.createObjectURL(result)
-  downloadBlob(url, template.id)
-  URL.revokeObjectURL(url)
-}
+const url = URL.createObjectURL(result)
+downloadBlob(url, template.id)
+revokeObjectUrlAfterNavigation(url)
 ```
 
 ---
@@ -128,6 +135,24 @@ if (!error && result) {
 | When to call | On template card click | On the download button click |
 | Resource identity | Derived server-side | Derived server-side and persisted |
 | Safe to call repeatedly | Yes | Avoid |
+
+The built-in PDF preview uses the native browser viewer and provides an open-in-new-tab fallback. Chromium cannot render a Blob-backed PDF viewer inside a sandboxed iframe, so the embedded Blob is constrained at the response boundary with authenticated access, `Content-Type: application/pdf`, `X-Content-Type-Options: nosniff`, and `Cache-Control: no-store`.
+
+---
+
+### `GET /api/document-generators/documents`
+
+Returns organization-scoped generation history. The endpoint is paginated and supports server-side filters and sorting.
+
+| Query parameter | Description |
+|---|---|
+| `page`, `pageSize` | 1-indexed pagination; `pageSize` is capped at 100 |
+| `resource_kind`, `resource_id` | Exact source-resource filters |
+| `template_id` | Exact template ID |
+| `generated_by` | Exact generator user UUID |
+| `generated_from`, `generated_to` | Inclusive ISO date-time boundaries |
+| `sort` | `resource_label`, `template_label`, `format`, `generated_by`, or `generated_at` |
+| `sort_direction` | `asc` or `desc`; defaults to `desc` |
 
 ---
 
