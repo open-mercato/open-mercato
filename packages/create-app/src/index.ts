@@ -28,6 +28,7 @@ interface Options {
   registry?: string
   initGit?: boolean
   agents?: string
+  experimentalHooksValidator?: boolean
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
@@ -58,6 +59,8 @@ ${pc.bold('Options:')}
   --no-init-git      Do not prompt for or initialize a local Git repository
   --agents <list>    Set up agent tooling non-interactively (skips the wizard):
                      comma-separated claude-code,codex,cursor — or 'all' / 'none'
+  --experimental-hooks-validator
+                     Install experimental gate-evidence/typecheck validator hooks
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
@@ -71,6 +74,7 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --preset crm
   npx create-mercato-app my-store --init-git
   npx create-mercato-app my-store --agents claude-code,codex
+  npx create-mercato-app my-store --agents codex --experimental-hooks-validator
   npx create-mercato-app my-store --agents all
   npx create-mercato-app my-store --agents none
   npx create-mercato-app my-prm --app prm
@@ -101,6 +105,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     registry: undefined,
     initGit: undefined,
     agents: undefined,
+    experimentalHooksValidator: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -118,6 +123,8 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     } else if (arg === '--agents') {
       options.agents = requireOptionValue(args, index, arg)
       index += 1
+    } else if (arg === '--experimental-hooks-validator') {
+      options.experimentalHooksValidator = true
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
     } else if (arg === '--init-git') {
@@ -454,13 +461,20 @@ function resolveAgentSelection(options: Options): AgentSelection {
   return { mode: 'tools', tools: parsed.tools }
 }
 
-async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection): Promise<boolean> {
+async function maybeRunAgenticSetup(
+  targetDir: string,
+  selection: AgentSelection,
+  experimentalHooksValidator?: boolean,
+): Promise<boolean> {
   if (selection.mode === 'skip') {
-    return runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
+    return runAgenticSetup(targetDir, async () => '', { tool: 'skip', experimentalHooksValidator })
   }
 
   if (selection.mode === 'tools') {
-    return runAgenticSetup(targetDir, async () => '', { tool: selection.tools.join(',') })
+    return runAgenticSetup(targetDir, async () => '', {
+      tool: selection.tools.join(','),
+      experimentalHooksValidator,
+    })
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -468,7 +482,7 @@ async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection
     new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
 
   try {
-    return await runAgenticSetup(targetDir, ask)
+    return await runAgenticSetup(targetDir, ask, { experimentalHooksValidator })
   } finally {
     rl.close()
   }
@@ -580,6 +594,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       '--agents is not supported with --app/--app-url. Imported ready apps manage their own agentic tooling; run `yarn mercato agentic:init` inside the app instead.',
     )
   }
+  if (options.experimentalHooksValidator && readyAppSource) {
+    throw new Error(
+      '--experimental-hooks-validator is not supported with --app/--app-url. Run `yarn mercato agentic:init --experimental-hooks-validator` inside the imported app instead.',
+    )
+  }
 
   // Resolve (and validate) the agentic selection up front so a bad --agents
   // value fails before any scaffolding work happens.
@@ -617,7 +636,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   let agenticConfigured = false
   if (!readyAppSource) {
-    agenticConfigured = await maybeRunAgenticSetup(targetDir, agentSelection)
+    agenticConfigured = await maybeRunAgenticSetup(
+      targetDir,
+      agentSelection,
+      options.experimentalHooksValidator,
+    )
   }
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)

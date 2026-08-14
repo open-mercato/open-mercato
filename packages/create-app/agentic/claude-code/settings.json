@@ -10,27 +10,6 @@
             "timeout": 15
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "npx tsx \"$CLAUDE_PROJECT_DIR/.claude/hooks/gate-evidence.ts\" record",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "npx tsx \"$CLAUDE_PROJECT_DIR/.claude/hooks/gate-evidence.ts\" check",
-            "timeout": 20
-          }
-        ]
       }
     ]
   }
