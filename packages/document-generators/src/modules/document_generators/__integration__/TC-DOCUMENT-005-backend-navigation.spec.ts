@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 
-test.describe('TC-PDF-005: document generators backend navigation', () => {
+test.describe('TC-DOCUMENT-005: document generators backend navigation', () => {
   test.beforeEach(async ({ page }) => {
     await login(page, 'admin')
   })
