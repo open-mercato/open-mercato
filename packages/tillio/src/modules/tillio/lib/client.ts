@@ -1,14 +1,42 @@
 import { z } from 'zod'
-import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { safeOutboundFetch, UnsafeOutboundUrlError, type HostLookup } from '@open-mercato/shared/lib/url-safety'
 import { TillioApiError } from './errors'
-import { assertPublicTillioApiUrl } from './url-guard'
+import { assertPublicTillioApiUrl, TILLIO_URL_SUBJECT } from './url-guard'
 
 const TILLIO_REQUEST_TIMEOUT_MS = 15_000
 const TILLIO_MIN_REQUEST_SPACING_MS = 200
 const TILLIO_MAX_RETRIES = 3
 const TILLIO_RETRY_BASE_MS = 500
 const TILLIO_RETRY_MAX_MS = 8_000
+const TILLIO_MAX_REDIRECTS = 3
 const RETRYABLE_STATUSES = new Set([429, 503])
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
+// Tillio's rate limit is per environment, not per request, so the spacing has to be shared
+// by every client this process builds. As a closure variable it reset with each client —
+// and clients are built per request — so it never actually throttled. Still per process:
+// horizontally the server-side limit stays the real backstop.
+let lastRequestAt = 0
+
+export type TillioClientDeps = {
+  /** Test seam handed to `safeOutboundFetch`; production uses the DNS-pinned default. */
+  fetchImpl?: typeof fetch
+  /** Test seam for the DNS resolution that outbound URL validation performs. */
+  lookupHost?: HostLookup
+}
+
+// The token travels in the query string (`DELETE /api/config` accepts it nowhere else),
+// so no URL may be pasted into an error message as-is.
+export function redactTillioUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl)
+    if (url.searchParams.has('token')) url.searchParams.set('token', '***')
+    return url.toString()
+  } catch {
+    return rawUrl.split('?')[0] ?? ''
+  }
+}
 
 export type TillioPlugin = 'Ringostat' | 'P4' | 'Focus' | 'Plus'
 
@@ -72,7 +100,7 @@ function backoffMs(attempt: number): number {
   return exponential + jitter
 }
 
-export function createTillioClient(environment: TillioClientEnvironment) {
+export function createTillioClient(environment: TillioClientEnvironment, deps: TillioClientDeps = {}) {
   const apiUrl = environment.apiUrl.trim().replace(/\/+$/, '')
   const apiKey = environment.apiKey.trim()
   const tenantSystemId = environment.tenantSystemId.trim()
@@ -82,8 +110,7 @@ export function createTillioClient(environment: TillioClientEnvironment) {
   // SSRF guard: apiUrl is user-supplied, so reject loopback/private/link-local targets
   // before any request goes out (covers health check, validate, attach/detach, pull).
   assertPublicTillioApiUrl(apiUrl)
-
-  let lastRequestAt = 0
+  const apiHostname = new URL(apiUrl).hostname.toLowerCase()
 
   function buildHeaders(tenantDomain: string, token?: string): Record<string, string> {
     const headers: Record<string, string> = {
@@ -108,6 +135,78 @@ export function createTillioClient(environment: TillioClientEnvironment) {
     return url.toString()
   }
 
+  // `safeOutboundFetch` validates the URL, pins the connection to the address it validated
+  // (so DNS cannot rebind between check and connect) and never follows redirects on its own.
+  async function fetchOnce(
+    method: string,
+    url: string,
+    init: { headers: Record<string, string>; body?: unknown },
+  ): Promise<Response> {
+    const hasBody = init.body !== undefined
+    const controller = new AbortController()
+    const timer = setTimeout(
+      () => controller.abort(new FetchTimeoutError(redactTillioUrl(url), TILLIO_REQUEST_TIMEOUT_MS)),
+      TILLIO_REQUEST_TIMEOUT_MS,
+    )
+    try {
+      return await safeOutboundFetch(
+        url,
+        {
+          method,
+          headers: {
+            accept: 'application/json',
+            ...(hasBody ? { 'content-type': 'application/json' } : {}),
+            ...init.headers,
+          },
+          ...(hasBody ? { body: JSON.stringify(init.body) } : {}),
+          signal: controller.signal,
+        },
+        { subject: TILLIO_URL_SUBJECT, lookupHost: deps.lookupHost, fetchImpl: deps.fetchImpl },
+      )
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === 'AbortError') {
+        const reason = (controller.signal as AbortSignal & { reason?: unknown }).reason
+        if (reason instanceof Error) throw reason
+      }
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  // Every hop goes back through `fetchOnce`, so a redirect target is validated exactly like
+  // the original URL. The request carries `X-Api-Key` and `X-Token`, so a hop that leaves the
+  // configured host — or downgrades https to http — would hand those credentials to someone
+  // else and is refused instead of followed.
+  function resolveRedirectTarget(currentUrl: string, response: Response): string {
+    const location = response.headers.get('location')
+    if (!location) {
+      throw new TillioApiError(
+        `Tillio answered ${response.status} without a Location header`,
+        response.status,
+        'redirect',
+      )
+    }
+    let target: URL
+    try {
+      target = new URL(location, currentUrl)
+    } catch {
+      throw new TillioApiError(`Tillio redirected to an unusable location`, response.status, 'redirect')
+    }
+    const current = new URL(currentUrl)
+    if (target.hostname.toLowerCase() !== apiHostname) {
+      throw new TillioApiError(
+        `Tillio redirected off the configured host, to "${target.hostname}"`,
+        response.status,
+        'redirect',
+      )
+    }
+    if (current.protocol === 'https:' && target.protocol !== 'https:') {
+      throw new TillioApiError('Tillio redirected from https to a plaintext URL', response.status, 'redirect')
+    }
+    return target.toString()
+  }
+
   async function rawRequest(
     method: string,
     url: string,
@@ -115,25 +214,46 @@ export function createTillioClient(environment: TillioClientEnvironment) {
     attempt = 0,
   ): Promise<Response> {
     await throttle()
-    const hasBody = init.body !== undefined
+    let currentMethod = method
+    let currentUrl = url
+    let currentInit = init
     let response: Response
-    try {
-      response = await fetchWithTimeout(url, {
-        method,
-        timeoutMs: TILLIO_REQUEST_TIMEOUT_MS,
-        headers: {
-          accept: 'application/json',
-          ...(hasBody ? { 'content-type': 'application/json' } : {}),
-          ...init.headers,
-        },
-        ...(hasBody ? { body: JSON.stringify(init.body) } : {}),
-      })
-    } catch (err) {
-      if (err instanceof FetchTimeoutError) {
-        throw new TillioApiError(`Tillio request timed out: ${method} ${url}`, 0, 'timeout')
+    for (let hop = 0; ; hop += 1) {
+      try {
+        response = await fetchOnce(currentMethod, currentUrl, currentInit)
+      } catch (err) {
+        if (err instanceof FetchTimeoutError) {
+          throw new TillioApiError(
+            `Tillio request timed out: ${currentMethod} ${redactTillioUrl(currentUrl)}`,
+            0,
+            'timeout',
+          )
+        }
+        if (err instanceof UnsafeOutboundUrlError) {
+          throw new TillioApiError(`Tillio request blocked: ${err.message}`, 0, err.reason)
+        }
+        const message = err instanceof Error ? err.message : 'network error'
+        throw new TillioApiError(
+          `Tillio request failed: ${currentMethod} ${redactTillioUrl(currentUrl)}: ${message}`,
+          0,
+          'network',
+        )
       }
-      const message = err instanceof Error ? err.message : 'network error'
-      throw new TillioApiError(`Tillio request failed: ${method} ${url}: ${message}`, 0, 'network')
+
+      if (!REDIRECT_STATUSES.has(response.status)) break
+      if (hop >= TILLIO_MAX_REDIRECTS) {
+        throw new TillioApiError(
+          `Tillio redirected more than ${TILLIO_MAX_REDIRECTS} times`,
+          response.status,
+          'redirect',
+        )
+      }
+      currentUrl = resolveRedirectTarget(currentUrl, response)
+      // 303 means "fetch the result with GET", so the body must not be replayed.
+      if (response.status === 303 && currentMethod !== 'GET' && currentMethod !== 'HEAD') {
+        currentMethod = 'GET'
+        currentInit = { headers: currentInit.headers }
+      }
     }
 
     if (RETRYABLE_STATUSES.has(response.status) && attempt < TILLIO_MAX_RETRIES) {

@@ -1,4 +1,4 @@
-import { tillioAdapter } from '../lib/adapter'
+import { createTillioAdapter } from '../lib/adapter'
 
 const credentials = {
   apiUrl: 'https://x.example.com',
@@ -31,10 +31,15 @@ function queryOf(fetchCall: unknown[]): URLSearchParams {
 
 describe('tillioAdapter.fetchCalls', () => {
   const fetchMock = jest.fn()
+  // The client now validates and DNS-pins every outbound URL, so the test injects both
+  // seams instead of stubbing the global fetch.
+  const tillioAdapter = createTillioAdapter({
+    fetchImpl: fetchMock as unknown as typeof fetch,
+    lookupHost: async () => [{ address: '93.184.216.34', family: 4 }],
+  })
 
   beforeEach(() => {
     fetchMock.mockReset()
-    ;(global as unknown as { fetch: unknown }).fetch = fetchMock
   })
 
   it('walks every page reported by pagination and reports no cursor at the end', async () => {

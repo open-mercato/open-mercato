@@ -39,6 +39,27 @@ export class TillioOperatorLimitError extends Error {
   }
 }
 
+/**
+ * Raised when the operator's token could not be revoked at Tillio. The local record stays in
+ * place, because dropping it would leave a live token nobody holds a handle to any more.
+ * `environmentMissing` separates the two outcomes for the caller: a provider failure is worth
+ * retrying, a missing environment is not — it needs the credentials fixed, or a forced detach.
+ */
+export class TillioRevocationFailedError extends Error {
+  readonly environmentMissing: boolean
+
+  constructor(environmentMissing: boolean, message?: string) {
+    super(
+      message
+        ?? (environmentMissing
+          ? 'The Tillio environment is no longer configured, so the operator token cannot be revoked.'
+          : 'Tillio did not confirm the operator token was revoked.'),
+    )
+    this.name = 'TillioRevocationFailedError'
+    this.environmentMissing = environmentMissing
+  }
+}
+
 export function classifyTillioError(err: unknown): OperatorErrorSection {
   if (err instanceof TillioApiError) {
     if (err.status === 0 || err.status === 401 || err.status === 403) return 'environment'
@@ -134,6 +155,13 @@ export async function attachOperator(
   }
 
   try {
+    // Re-read right before the write: the credentials store has no compare-and-set, so the
+    // only thing narrowing the window between the limit check and the save is checking again
+    // once the slow remote calls are behind us. A concurrent attach that got here first wins,
+    // and this one is undone rather than silently overwriting the stored operator.
+    const current = await readOperatorsBlob(deps.credentialsService, deps.scope)
+    if (current.operators.length > 0) throw new TillioOperatorLimitError()
+
     await saveOperatorsBlob(deps.credentialsService, deps.scope, {
       operators: [record],
       defaultOperatorId: operatorId,
@@ -153,18 +181,37 @@ export type DetachOperatorDeps = {
   scope: IntegrationScope
 }
 
+export type DetachOperatorOptions = {
+  /**
+   * Drop the local record even though the token could not be revoked. The caller has to
+   * decide this explicitly, because the token stays live on Tillio's side afterwards.
+   */
+  force?: boolean
+}
+
 export async function detachOperator(
   deps: DetachOperatorDeps,
   operatorId: string,
-): Promise<{ ok: boolean; detached: boolean }> {
+  options: DetachOperatorOptions = {},
+): Promise<{ ok: boolean; detached: boolean; revoked: boolean }> {
   const blob = await readOperatorsBlob(deps.credentialsService, deps.scope)
   const operator = blob.operators.find((entry) => entry.id === operatorId)
-  if (!operator) return { ok: true, detached: false }
+  if (!operator) return { ok: true, detached: false, revoked: false }
 
   const environment = await resolveEnvironment(deps.credentialsService, deps.scope)
-  if (environment) {
-    const client = createTillioClient(environment)
-    await client.deleteConfig(operator.plugin, operator.token, operator.tenantDomain).catch(() => undefined)
+  let revoked = false
+  if (!environment) {
+    if (!options.force) throw new TillioRevocationFailedError(true)
+  } else {
+    try {
+      const client = createTillioClient(environment)
+      await client.deleteConfig(operator.plugin, operator.token, operator.tenantDomain)
+      revoked = true
+    } catch (err) {
+      if (!options.force) {
+        throw new TillioRevocationFailedError(false, err instanceof Error ? err.message : undefined)
+      }
+    }
   }
 
   const remaining = blob.operators.filter((entry) => entry.id !== operatorId)
@@ -175,5 +222,5 @@ export async function detachOperator(
       : blob.defaultOperatorId,
   })
 
-  return { ok: true, detached: true }
+  return { ok: true, detached: true, revoked }
 }

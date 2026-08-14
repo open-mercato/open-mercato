@@ -39,6 +39,17 @@ type AttachResult = {
   operator?: { id: string; plugin: string; tenantDomain: string }
 }
 
+type DetachResult = {
+  ok: boolean
+  message?: string
+  code?: string
+  section?: 'environment' | 'operator'
+  detached?: boolean
+  revoked?: boolean
+  /** Set when the record survived because the token could not be revoked. */
+  canForce?: boolean
+}
+
 export default function OperatorsConfigWidget(
   _props: InjectionWidgetComponentProps<Record<string, unknown>, Record<string, unknown>>,
 ) {
@@ -108,6 +119,16 @@ export default function OperatorsConfigWidget(
     }
   }, [keyInput, load, mutationContext, pending, runMutation, t])
 
+  const sendDetach = React.useCallback(async (operatorId: string, force: boolean) => {
+    const query = force ? '?force=true' : ''
+    return runMutation({
+      context: mutationContext,
+      mutationPayload: { providerKey: 'tillio', force },
+      operation: () =>
+        apiCall<DetachResult>(`/api/tillio/operators/${encodeURIComponent(operatorId)}${query}`, { method: 'DELETE' }),
+    })
+  }, [mutationContext, runMutation])
+
   const detach = React.useCallback(async (operatorId: string) => {
     const confirmed = await confirm({
       title: t('tillio.operators.detachConfirmTitle', 'Detach this operator?'),
@@ -119,21 +140,40 @@ export default function OperatorsConfigWidget(
     if (!confirmed) return
     setPending(true)
     try {
-      const response = await runMutation({
-        context: mutationContext,
-        mutationPayload: { providerKey: 'tillio' },
-        operation: () => apiCall(`/api/tillio/operators/${encodeURIComponent(operatorId)}`, { method: 'DELETE' }),
+      const response = await sendDetach(operatorId, false)
+      const body = response.result as DetachResult | undefined
+      if (response.ok) {
+        flash(t('tillio.operators.detached', 'Operator detached.'), 'success')
+        await load()
+        return
+      }
+
+      // The token is still live on Tillio's side, so the record stayed. Removing it anyway
+      // is a separate, explicit decision — it leaves that token behind with no handle to it.
+      if (!body?.canForce) {
+        flash(body?.message ?? t('tillio.operators.detachFailed', 'Could not detach the operator.'), 'error')
+        return
+      }
+      const forceConfirmed = await confirm({
+        title: t('tillio.operators.forceDetachTitle', 'Detach without revoking?'),
+        text: t('tillio.operators.forceDetachText', 'The Tillio token could not be revoked, so it stays active until you remove it in Tillio. Remove the operator here anyway?'),
+        confirmText: t('tillio.operators.forceDetachAction', 'Detach anyway'),
+        cancelText: t('tillio.operators.cancel', 'Cancel'),
+        variant: 'destructive',
       })
-      if (!response.ok) {
+      if (!forceConfirmed) return
+
+      const forced = await sendDetach(operatorId, true)
+      if (!forced.ok) {
         flash(t('tillio.operators.detachFailed', 'Could not detach the operator.'), 'error')
         return
       }
-      flash(t('tillio.operators.detached', 'Operator detached.'), 'success')
+      flash(t('tillio.operators.detachedNotRevoked', 'Operator removed. Revoke its token in Tillio manually.'), 'success')
       await load()
     } finally {
       setPending(false)
     }
-  }, [confirm, load, mutationContext, runMutation, t])
+  }, [confirm, load, sendDetach, t])
 
   const copyTenantDomain = React.useCallback(async (tenantDomain: string) => {
     try {

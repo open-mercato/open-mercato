@@ -9,7 +9,7 @@ import type {
   ValidatePhoneCallProviderInput,
 } from '@open-mercato/shared/modules/phone_calls/types'
 import { TillioApiError } from './errors'
-import { createTillioClient } from './client'
+import { createTillioClient, type TillioClientDeps } from './client'
 import { ENV_PROBE_TENANT_DOMAIN, environmentSchema } from './environment'
 import { normalizeTillioCall } from './normalizer'
 import { operatorPluginSchema } from './operators-store'
@@ -38,80 +38,86 @@ function parseCursor(cursor: string | null | undefined): number {
   return Math.trunc(parsed)
 }
 
-export const tillioAdapter: PhoneCallProviderAdapter = {
-  providerKey: 'tillio',
-  displayName: 'Tillio',
+// `deps` only carries the outbound-fetch test seams down to the client; production builds
+// the adapter without them and gets URL validation plus DNS pinning from `safeOutboundFetch`.
+export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProviderAdapter {
+  return {
+    providerKey: 'tillio',
+    displayName: 'Tillio',
 
-  async validateConnection(input: ValidatePhoneCallProviderInput): Promise<ProviderValidationResult> {
-    const parsed = environmentSchema.safeParse(input.credentials)
-    if (!parsed.success || !parsed.data.tenantSystemId) {
-      return { ok: false, message: 'Tillio environment is not configured.' }
-    }
-    try {
+    async validateConnection(input: ValidatePhoneCallProviderInput): Promise<ProviderValidationResult> {
+      const parsed = environmentSchema.safeParse(input.credentials)
+      if (!parsed.success || !parsed.data.tenantSystemId) {
+        return { ok: false, message: 'Tillio environment is not configured.' }
+      }
+      try {
+        const client = createTillioClient({
+          apiUrl: parsed.data.apiUrl,
+          apiKey: parsed.data.apiKey,
+          tenantSystemId: parsed.data.tenantSystemId,
+        }, deps)
+        await client.getPlugins(ENV_PROBE_TENANT_DOMAIN)
+        return { ok: true }
+      } catch (err) {
+        const message = err instanceof TillioApiError || err instanceof Error ? err.message : 'Validation failed'
+        return { ok: false, message }
+      }
+    },
+
+    async fetchCall(_input: FetchPhoneCallInput): Promise<NormalizedPhoneCall | null> {
+      throw new Error('[internal] tillio.fetchCall is not part of the pull slice.')
+    },
+
+    async fetchCalls(input: FetchPhoneCallsInput): Promise<NormalizedPhoneCallBatch> {
+      const credentials = pullCredentialsSchema.parse(input.credentials)
+      const { operator } = credentials
       const client = createTillioClient({
-        apiUrl: parsed.data.apiUrl,
-        apiKey: parsed.data.apiKey,
-        tenantSystemId: parsed.data.tenantSystemId,
-      })
-      await client.getPlugins(ENV_PROBE_TENANT_DOMAIN)
-      return { ok: true }
-    } catch (err) {
-      const message = err instanceof TillioApiError || err instanceof Error ? err.message : 'Validation failed'
-      return { ok: false, message }
-    }
-  },
+        apiUrl: credentials.apiUrl,
+        apiKey: credentials.apiKey,
+        tenantSystemId: credentials.tenantSystemId,
+      }, deps)
 
-  async fetchCall(_input: FetchPhoneCallInput): Promise<NormalizedPhoneCall | null> {
-    throw new Error('[internal] tillio.fetchCall is not part of the pull slice.')
-  },
+      const from = input.from ? formatTillioTimestamp(input.from) : undefined
+      const to = input.to ? formatTillioTimestamp(input.to) : undefined
+      const limit = input.limit && input.limit > 0 ? Math.trunc(input.limit) : TILLIO_DEFAULT_BATCH_LIMIT
 
-  async fetchCalls(input: FetchPhoneCallsInput): Promise<NormalizedPhoneCallBatch> {
-    const credentials = pullCredentialsSchema.parse(input.credentials)
-    const { operator } = credentials
-    const client = createTillioClient({
-      apiUrl: credentials.apiUrl,
-      apiKey: credentials.apiKey,
-      tenantSystemId: credentials.tenantSystemId,
-    })
+      const calls: NormalizedPhoneCall[] = []
+      let page = parseCursor(input.cursor)
+      let nextCursor: string | null = null
 
-    const from = input.from ? formatTillioTimestamp(input.from) : undefined
-    const to = input.to ? formatTillioTimestamp(input.to) : undefined
-    const limit = input.limit && input.limit > 0 ? Math.trunc(input.limit) : TILLIO_DEFAULT_BATCH_LIMIT
+      while (true) {
+        const response = await client.getCalls({
+          tenantDomain: operator.tenantDomain,
+          token: operator.token,
+          from,
+          to,
+          page,
+        })
 
-    const calls: NormalizedPhoneCall[] = []
-    let page = parseCursor(input.cursor)
-    let nextCursor: string | null = null
+        for (const rawCall of response.calls) {
+          calls.push(normalizeTillioCall(rawCall, { operatorId: operator.id, plugin: operator.plugin }))
+        }
 
-    while (true) {
-      const response = await client.getCalls({
-        tenantDomain: operator.tenantDomain,
-        token: operator.token,
-        from,
-        to,
-        page,
-      })
+        // Guards against a broken response, not against large ranges: a `page`
+        // parameter the server ignored, a nonsensical `pages` count, or an empty
+        // page before the last one would otherwise spin this loop forever.
+        const { pages, page: echoedPage } = response.pagination
+        if (echoedPage !== page) break
+        if (pages < 1 || page >= pages) break
+        if (response.calls.length === 0) break
 
-      for (const rawCall of response.calls) {
-        calls.push(normalizeTillioCall(rawCall, { operatorId: operator.id, plugin: operator.plugin }))
+        page += 1
+        // The current page is always drained before stopping, so the cursor never
+        // advances past calls we did not collect.
+        if (calls.length >= limit) {
+          nextCursor = String(page)
+          break
+        }
       }
 
-      // Guards against a broken response, not against large ranges: a `page`
-      // parameter the server ignored, a nonsensical `pages` count, or an empty
-      // page before the last one would otherwise spin this loop forever.
-      const { pages, page: echoedPage } = response.pagination
-      if (echoedPage !== page) break
-      if (pages < 1 || page >= pages) break
-      if (response.calls.length === 0) break
-
-      page += 1
-      // The current page is always drained before stopping, so the cursor never
-      // advances past calls we did not collect.
-      if (calls.length >= limit) {
-        nextCursor = String(page)
-        break
-      }
-    }
-
-    return { calls, nextCursor }
-  },
+      return { calls, nextCursor }
+    },
+  }
 }
+
+export const tillioAdapter: PhoneCallProviderAdapter = createTillioAdapter()

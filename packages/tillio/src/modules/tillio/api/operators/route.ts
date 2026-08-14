@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import {
   computeEnvFingerprint,
@@ -23,6 +24,7 @@ import {
 } from '../../lib/operators'
 
 const SUPPORTED_PLUGINS = ['Ringostat'] as const
+const TILLIO_OPERATOR_RESOURCE_KIND = 'tillio.operator'
 
 const attachBodySchema = z.object({
   plugin: z.literal('Ringostat'),
@@ -107,11 +109,29 @@ export async function POST(req: Request) {
     )
   }
 
+  const guarded = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { userId: auth.sub, tenantId: auth.tenantId, organizationId: auth.orgId },
+    input: {
+      resourceKind: TILLIO_OPERATOR_RESOURCE_KIND,
+      operation: 'create',
+      // The operator key is a credential, so it is described to guards, never handed to them.
+      mutationPayload: { plugin: parsedBody.data.plugin, label: parsedBody.data.label ?? null },
+    },
+  })
+  if (!guarded.ok) return guarded.response
+
+  const guardedLabel = typeof guarded.modifiedPayload?.label === 'string'
+    ? guarded.modifiedPayload.label
+    : parsedBody.data.label
+
   try {
     const operator = await attachOperator(
       { credentialsService, scope, appUrl },
-      { plugin: parsedBody.data.plugin, config: parsedBody.data.config, label: parsedBody.data.label },
+      { plugin: parsedBody.data.plugin, config: parsedBody.data.config, label: guardedLabel },
     )
+    await guarded.runAfterSuccess()
     return NextResponse.json({
       ok: true,
       operator: { id: operator.id, plugin: operator.plugin, tenantDomain: operator.tenantDomain },

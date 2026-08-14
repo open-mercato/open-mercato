@@ -114,6 +114,33 @@ describe('attachOperator', () => {
       .rejects.toThrow('disk full')
     expect(client.deleteConfig).toHaveBeenCalledWith('Ringostat', 'tok-1', 'app.example.com/OM-x-ringostat-1')
   })
+
+  it('gives up rather than overwriting an operator a concurrent attach stored first', async () => {
+    const client = mockClient()
+    const store: Record<string, Record<string, unknown> | null> = { [TILLIO_INTEGRATION_ID]: { ...readyEnv } }
+    let reads = 0
+    const service: TillioCredentialsService = {
+      getRaw: jest.fn(async (id: string) => {
+        // The second read is the one taken right before the write: by then a concurrent
+        // attach has already stored its operator.
+        if (id === TILLIO_OPERATORS_INTEGRATION_ID && ++reads === 2) {
+          return {
+            operators: [{ id: 'ringostat-1', plugin: 'Ringostat', config: { key: 'other' }, token: 'other-token', tenantDomain: 'd', envFingerprint: 'fp' }],
+            defaultOperatorId: 'ringostat-1',
+          }
+        }
+        return store[id] ?? null
+      }),
+      save: jest.fn(async (id: string, credentials: Record<string, unknown>) => {
+        store[id] = credentials
+      }),
+    }
+
+    await expect(attachOperator({ credentialsService: service, scope, appUrl }, { plugin: 'Ringostat', config: { key: 'k' } }))
+      .rejects.toBeInstanceOf(TillioOperatorLimitError)
+    expect(client.deleteConfig).toHaveBeenCalledWith('Ringostat', 'tok-1', 'app.example.com/OM-x-ringostat-1')
+    expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toBeUndefined()
+  })
 })
 
 describe('detachOperator', () => {
@@ -129,7 +156,7 @@ describe('detachOperator', () => {
 
     const result = await detachOperator({ credentialsService: service, scope }, 'ringostat-1')
 
-    expect(result).toEqual({ ok: true, detached: true })
+    expect(result).toEqual({ ok: true, detached: true, revoked: true })
     expect(client.deleteConfig).toHaveBeenCalledWith('Ringostat', 'tok-1', 'app.example.com/OM-x-ringostat-1')
     const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: unknown[]; defaultOperatorId: string | null }
     expect(saved.operators).toHaveLength(0)
@@ -145,8 +172,59 @@ describe('detachOperator', () => {
 
     const result = await detachOperator({ credentialsService: service, scope }, 'missing')
 
-    expect(result).toEqual({ ok: true, detached: false })
+    expect(result).toEqual({ ok: true, detached: false, revoked: false })
     expect(client.deleteConfig).not.toHaveBeenCalled()
+  })
+
+  it('keeps the operator when the provider refuses the revocation', async () => {
+    mockClient({ deleteConfig: jest.fn().mockRejectedValue(new TillioApiError('nope', 422, 'invalid')) })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: {
+        operators: [{ id: 'ringostat-1', plugin: 'Ringostat', config: { key: 'x' }, token: 'tok-1', tenantDomain: 'd', envFingerprint: 'fp' }],
+        defaultOperatorId: 'ringostat-1',
+      },
+    })
+
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
+      .rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: unknown[] }
+    expect(saved.operators).toHaveLength(1)
+  })
+
+  it('keeps the operator when the environment is gone, so the token is not orphaned silently', async () => {
+    const client = mockClient()
+    const { service, store } = fakeStore({
+      [TILLIO_OPERATORS_INTEGRATION_ID]: {
+        operators: [{ id: 'ringostat-1', plugin: 'Ringostat', config: { key: 'x' }, token: 'tok-1', tenantDomain: 'd', envFingerprint: 'fp' }],
+        defaultOperatorId: 'ringostat-1',
+      },
+    })
+
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
+      .rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: true })
+
+    expect(client.deleteConfig).not.toHaveBeenCalled()
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: unknown[] }
+    expect(saved.operators).toHaveLength(1)
+  })
+
+  it('removes the operator on a forced detach and reports the token was not revoked', async () => {
+    mockClient({ deleteConfig: jest.fn().mockRejectedValue(new TillioApiError('nope', 422, 'invalid')) })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: {
+        operators: [{ id: 'ringostat-1', plugin: 'Ringostat', config: { key: 'x' }, token: 'tok-1', tenantDomain: 'd', envFingerprint: 'fp' }],
+        defaultOperatorId: 'ringostat-1',
+      },
+    })
+
+    const result = await detachOperator({ credentialsService: service, scope }, 'ringostat-1', { force: true })
+
+    expect(result).toEqual({ ok: true, detached: true, revoked: false })
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: unknown[] }
+    expect(saved.operators).toHaveLength(0)
   })
 })
 
