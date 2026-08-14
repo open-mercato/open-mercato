@@ -74,28 +74,35 @@ Make standalone-app harness runs resilient to interruption, enforce deterministi
 - [x] 1.2 Add the deterministic `ds-check.mjs` scanner with JSON output, justified ignore handling, fixture coverage, and rule-parity coverage. — ce8ead42e
 - [x] 1.3 Wire `ds:check` into the scaffold package scripts and emitted validation gate, keeping emitted AGENTS guidance within budget. — 28972c058
 - [x] 1.4 Add the advisory `i18n-check-hardcoded.mjs` scanner, script entry, opt-outs, allowlist behavior, and fixture coverage. — 9d6b4df9d
-- [ ] 1.5 Add failure-first harness cases and complete the knowledge-change synchronization and validation for the template gates.
+- [x] 1.5 Add failure-first harness cases and complete the knowledge-change synchronization and validation for the template gates. — c2e6307a9
 - [x] 1.6 Document manual adoption for existing standalone apps in `UPGRADE_NOTES.md`. — 8cd9f1560
 
 ### Phase 2: Session resilience contract
 
-- [ ] 2.1 Add the per-slice ledger-write invariant and exact evidence format to `om-implement-spec` planning guidance.
-- [ ] 2.2 Add typecheck-first resume reconciliation and link the contract from the standalone `om-auto-implement-spec` override.
-- [ ] 2.3 Add the atomic paired-edit rule and failure-first harness knowledge coverage.
+- [x] 2.1 Add the per-slice ledger-write invariant and exact evidence format to `om-implement-spec` planning guidance. — de62619e8
+- [x] 2.2 Add typecheck-first resume reconciliation and link the contract from the standalone `om-auto-implement-spec` override. — 5f47824e8
+- [x] 2.3 Add the atomic paired-edit rule and failure-first harness knowledge coverage. — 256542f20
 
 ### Phase 3: Ephemeral integration exit gate
 
-- [ ] 3.1 Require the final spec phase to write and run declared integration coverage through `test:integration:ephemeral`, or record an explicit blocked ledger entry.
-- [ ] 3.2 Cross-reference the exit-gate contract from `om-prepare-test-env` and emitted integration guidance, with synchronized knowledge validation.
+- [x] 3.1 Require the final spec phase to write and run declared integration coverage through `test:integration:ephemeral`, or record an explicit blocked ledger entry. — fd4975231
+- [x] 3.2 Cross-reference the exit-gate contract from `om-prepare-test-env` and emitted integration guidance, with synchronized knowledge validation. — eeaca0f28
 
 ### Phase 4: Stop-cause reporting
 
-- [ ] 4.1 Extract and sanitize additive `manifest.stopCause` evidence with deterministic classifications and unit fixtures.
-- [ ] 4.2 Render stop-cause evidence in the session-share issue/report templates and update bundle snapshots.
-- [ ] 4.3 Require termination classification in judge reports, retaining `unknown` compatibility for older bundles and covering provider-limit fixtures.
+- [x] 4.1 Extract and sanitize additive `manifest.stopCause` evidence with deterministic classifications and unit fixtures. — acf64c42a
+- [x] 4.2 Render stop-cause evidence in the session-share issue/report templates and update bundle snapshots. — cb227ad20
+- [x] 4.3 Require termination classification in judge reports, retaining `unknown` compatibility for older bundles and covering provider-limit fixtures. — 51537c236
 
 ### Phase 5: Framework contract digest
 
-- [ ] 5.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path.
-- [ ] 5.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget.
-- [ ] 5.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate.
+- [x] 5.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path. — f2aa7c0ba
+- [x] 5.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget. — 5831d55a7
+- [x] 5.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — c2e6307a9, 2f3464072
+
+## Harness Gate Evidence
+
+- `harness:validate-knowledge-change`: passed the controller-owned base-fails/head-passes proof against `origin/develop`.
+- Fresh emitted controller: deterministic `harness:validate --all` passed 232/232 cases with installed sources resolved inside the dependency root.
+- `integration: blocked (the packed-artifact Verdaccio lane completed publish/install, fresh generation, production builds, and ephemeral startup, then the repository-wide Playwright suite reported 15 unrelated pre-existing module failures; 1,883 passed, 96 skipped, 3 flaky)`.
+- `release: blocked (native macOS sandbox-exec cannot provide the host-isolated loopback required by the complete release lane; preflight stopped before target preparation, provider invocation, or writes and requires Linux Bubblewrap)`.
