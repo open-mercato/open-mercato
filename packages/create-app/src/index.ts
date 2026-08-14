@@ -153,7 +153,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
   return { appName, options }
 }
 
-type Ask = (question: string) => Promise<string>
+export type Ask = (question: string) => Promise<string>
 
 const PRESET_PROMPT_OPTIONS = [
   { number: '1', id: 'classic', label: 'Classic     (default)', hint: 'full demo-ready starter' },
@@ -241,7 +241,7 @@ function normalizeGitInitAnswer(answer: string): boolean {
   throw new Error(`Unknown answer "${answer}". Choose yes or no.`)
 }
 
-async function promptForGitInitialization(ask: Ask): Promise<boolean> {
+export async function promptForGitInitialization(ask: Ask): Promise<boolean> {
   console.log('')
   console.log('🌱  Git repository setup')
   console.log('')
@@ -253,7 +253,9 @@ async function promptForGitInitialization(ask: Ask): Promise<boolean> {
     const answer = await ask('   Initialize Git repository? [Y/n]: ')
 
     try {
-      return normalizeGitInitAnswer(answer)
+      const shouldInitialize = normalizeGitInitAnswer(answer)
+      console.log('')
+      return shouldInitialize
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.log(pc.yellow(`   ${message}`))
