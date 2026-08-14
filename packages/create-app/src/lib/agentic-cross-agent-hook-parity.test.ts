@@ -33,7 +33,11 @@ for (const agent of SHIPPING_HOOKS) {
   })
 
   test(`${agent}: every hook its config registers exists on disk`, () => {
-    const configName = agent === 'claude-code' ? 'settings.json' : 'hooks.json'
+    const configName = agent === 'claude-code'
+      ? 'settings.experimental-hooks-validator.json'
+      : agent === 'cursor'
+        ? 'hooks.experimental-hooks-validator.json'
+        : 'hooks.json'
     const configPath = path.join(agenticRoot, agent, configName)
     assert.ok(fs.existsSync(configPath), `${agent} ships hooks but no ${configName} to register them`)
     const config = fs.readFileSync(configPath, 'utf8')
@@ -47,17 +51,27 @@ for (const agent of SHIPPING_HOOKS) {
     }
   })
 
-  test(`${agent}: the wizard installs every hook in the source tree`, () => {
+  test(`${agent}: the wizard keeps every shipped hook available behind setup policy`, () => {
     const wizard = fs.readFileSync(
       fileURLToPath(new URL(`../setup/tools/${agent}.ts`, import.meta.url)),
       'utf8',
     )
     for (const hook of fs.readdirSync(path.join(agenticRoot, agent, 'hooks'))) {
       assert.ok(wizard.includes(`hooks/${hook}`) || /copyHooksDir|hooks'\)/.test(wizard),
-        `the wizard never installs ${agent}/hooks/${hook}`)
+        `the wizard cannot install ${agent}/hooks/${hook}`)
     }
   })
 }
+
+test('default tool configs do not register the experimental gate-evidence validator', () => {
+  for (const [agent, configName] of [
+    ['claude-code', 'settings.json'],
+    ['cursor', 'hooks.json'],
+  ] as const) {
+    const config = fs.readFileSync(path.join(agenticRoot, agent, configName), 'utf8')
+    assert.doesNotMatch(config, /gate-evidence/)
+  }
+})
 
 for (const [name, hook] of PORTS) {
   test(`${name}: matchGates agrees with claude-code`, () => {
