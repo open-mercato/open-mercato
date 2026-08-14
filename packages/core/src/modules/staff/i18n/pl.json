@@ -1465,6 +1465,7 @@
   "staff.time_tracking.timesheet.view.label": "Widok timesheetu",
   "staff.time_tracking.timesheet.view.list": "Lista",
   "staff.timesheets.errors.bulkSave": "Nie udało się zbiorczo zapisać wpisów czasu.",
+  "staff.timesheets.errors.bulkTagsUnsupported": "Tagów nie można zmieniać w siatce karty czasu pracy. Otwórz wpis czasu, aby edytować jego tagi.",
   "staff.timesheets.errors.copyDaySameDate": "Dzień źródłowy i docelowy muszą być różne.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "Dzień docelowy zawiera już wpisy czasu. Przejrzyj je najpierw lub potwierdź, aby mimo to dodać kopie.",
   "staff.timesheets.errors.entryNotFound": "Wpis czasu nie istnieje, został usunięty lub nie należy do Ciebie.",

@@ -1465,6 +1465,7 @@
   "staff.time_tracking.timesheet.view.label": "Vista de la hoja de horas",
   "staff.time_tracking.timesheet.view.list": "Lista",
   "staff.timesheets.errors.bulkSave": "No se pudieron guardar en lote los registros de tiempo.",
+  "staff.timesheets.errors.bulkTagsUnsupported": "Las etiquetas no se pueden cambiar desde la cuadrícula de la hoja de horas. Abre el registro de tiempo para editar sus etiquetas.",
   "staff.timesheets.errors.copyDaySameDate": "El día de origen y el de destino deben ser diferentes.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "El día de destino ya tiene registros de tiempo. Revísalos primero o confirma para añadir estas copias de todos modos.",
   "staff.timesheets.errors.entryNotFound": "Registro de tiempo no encontrado, eliminado o no asignado a ti.",

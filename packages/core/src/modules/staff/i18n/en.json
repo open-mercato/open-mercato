@@ -1465,6 +1465,7 @@
   "staff.time_tracking.timesheet.view.label": "Timesheet view",
   "staff.time_tracking.timesheet.view.list": "List",
   "staff.timesheets.errors.bulkSave": "Failed to bulk save time entries.",
+  "staff.timesheets.errors.bulkTagsUnsupported": "Tags cannot be changed from the timesheet grid. Open the time entry to edit its tags.",
   "staff.timesheets.errors.copyDaySameDate": "The source and target day must be different.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "The target day already has time entries. Review them first, or confirm to add these copies anyway.",
   "staff.timesheets.errors.entryNotFound": "Time entry not found, deleted, or not owned by you.",

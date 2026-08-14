@@ -1465,6 +1465,7 @@
   "staff.time_tracking.timesheet.view.label": "Timesheet-Ansicht",
   "staff.time_tracking.timesheet.view.list": "Liste",
   "staff.timesheets.errors.bulkSave": "Zeiteinträge konnten nicht im Stapel gespeichert werden.",
+  "staff.timesheets.errors.bulkTagsUnsupported": "Tags können nicht im Stundenzettel-Raster geändert werden. Öffnen Sie den Zeiteintrag, um seine Tags zu bearbeiten.",
   "staff.timesheets.errors.copyDaySameDate": "Quell- und Zieltag müssen unterschiedlich sein.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "Der Zieltag enthält bereits Zeiteinträge. Prüfen Sie diese zuerst oder bestätigen Sie, um die Kopien trotzdem hinzuzufügen.",
   "staff.timesheets.errors.entryNotFound": "Zeiteintrag nicht gefunden, gelöscht oder Ihnen nicht zugeordnet.",

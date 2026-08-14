@@ -364,12 +364,22 @@ export const staffTimeEntryStartTimerSchema = z.object({
 export const staffTimeEntryBulkItemSchema = z.object({
   id: z.string().uuid().optional().nullable(),
   date: z.coerce.date(),
-  timeProjectId: z.string().uuid(),
+  // Optional only because a task carries its project: a row naming a `taskId`
+  // inherits the project from it, exactly as the single-entry path does. The
+  // route refuses a row that names neither with `staff.timesheets.errors.projectRequired`,
+  // so every stored row still lands on a project — the (project, date) cell the
+  // lock gate addresses is never blank.
+  timeProjectId: z.string().uuid().optional().nullable(),
   durationMinutes: z.number().int().min(0).max(1440),
   notes: z.string().max(2000).optional().nullable(),
   taskId: z.string().uuid().optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
   isBillable: z.boolean().optional(),
+  // Accepted by the schema and REFUSED by the route with 422: assigning tags
+  // means dispatching the tag commands, which fork their own EntityManager and
+  // cannot participate in this route's per-row transaction. Kept in the schema
+  // so the refusal is explicit — dropping the key would let zod strip it and
+  // restore the silent no-op.
   tagIds: z.array(z.string().uuid()).max(50).optional(),
   rateOverrideAmount: moneyAmountSchema.optional().nullable(),
 })

@@ -1465,6 +1465,7 @@
   "staff.time_tracking.timesheet.view.label": "타임시트 보기",
   "staff.time_tracking.timesheet.view.list": "목록",
   "staff.timesheets.errors.bulkSave": "근무 시간 항목을 일괄 저장하지 못했습니다.",
+  "staff.timesheets.errors.bulkTagsUnsupported": "타임시트 그리드에서는 태그를 변경할 수 없습니다. 시간 기록을 열어 태그를 편집하세요.",
   "staff.timesheets.errors.copyDaySameDate": "원본 날짜와 대상 날짜는 서로 달라야 합니다.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "대상 날짜에 이미 근무 시간 항목이 있습니다. 먼저 확인하거나 그래도 복사본을 추가하려면 확인하세요.",
   "staff.timesheets.errors.entryNotFound": "근무 시간 항목을 찾을 수 없거나, 삭제되었거나, 본인 소유가 아닙니다.",

@@ -185,10 +185,51 @@ async function assertTaskBelongsToProject(
   task: StaffTimeTask | null,
   projectId: string | null,
 ): Promise<void> {
-  if (!task || !projectId || task.timeProjectId === projectId) return
+  if (timeEntryTaskMatchesProject(task, projectId)) return
   const { translate } = await resolveTranslations()
   const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
   throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
+}
+
+/**
+ * The rule the assertion above enforces, as a predicate: a task belongs to
+ * exactly one project, so an entry naming both must name the same one. Exported
+ * because the grid bulk save validates a whole batch at once and answers with a
+ * per-row error list rather than a thrown 422 — it reuses the rule and only
+ * differs in how it reports a violation.
+ */
+export function timeEntryTaskMatchesProject(
+  task: { timeProjectId?: string | null } | null | undefined,
+  projectId: string | null | undefined,
+): boolean {
+  if (!task || !projectId) return true
+  return task.timeProjectId === projectId
+}
+
+/**
+ * Screen 8 picks a task and lets the project follow from it ("Projekt i klient
+ * wynikają z zadania"), so a write that names only a task still lands on the
+ * project the task belongs to — and with it the billable and currency defaults.
+ * One derivation for every write path, including the grid bulk save.
+ */
+export function resolveTimeEntryProjectId(
+  requestedProjectId: string | null | undefined,
+  task: { timeProjectId?: string | null } | null | undefined,
+): string | null {
+  return requestedProjectId ?? task?.timeProjectId ?? null
+}
+
+/**
+ * The billable default chain, in one place: an explicit value wins, then the
+ * project's own default — a fixed-price engagement is non-billable however the
+ * tenant normally works — and the tenant setting only decides what is left.
+ */
+export function resolveTimeEntryBillable(params: {
+  requested?: boolean | null
+  project?: { billableByDefault?: boolean | null } | null
+  settings: TimeTrackingSettings
+}): boolean {
+  return params.requested ?? params.project?.billableByDefault ?? params.settings.defaults.billable
 }
 
 /**
@@ -211,6 +252,18 @@ async function readEntrySettingsFrom(
 
 async function readEntrySettings(ctx: CommandRuntimeContext, tenantId: string): Promise<TimeTrackingSettings> {
   return readEntrySettingsFrom(ctx.container, tenantId)
+}
+
+/**
+ * The same tenant-settings read, for write paths that run outside a command —
+ * the grid bulk save reads it ONCE per request (it is identical for every row)
+ * and then seeds rounding and the billable default from that one snapshot.
+ */
+export async function resolveTimeEntrySettings(
+  container: ContainerLike,
+  tenantId: string,
+): Promise<TimeTrackingSettings> {
+  return readEntrySettingsFrom(container, tenantId)
 }
 
 /**
@@ -298,8 +351,12 @@ async function assertEntryProjectAccess(params: {
  * the one that matches intent: a client sending the new key means it.
  * Returns `undefined` when neither key was supplied, so a PUT that omits both
  * leaves the stored note alone.
+ *
+ * Exported so the grid bulk save applies the SAME precedence — it accepts both
+ * keys too, and a second interpretation of which one wins is exactly the kind of
+ * divergence that makes one screen's edit disappear on another.
  */
-function resolveNotesInput(parsed: {
+export function resolveTimeEntryNotesInput(parsed: {
   notes?: string | null
   description?: string | null
 }): string | null | undefined {
@@ -310,9 +367,10 @@ function resolveNotesInput(parsed: {
 
 /**
  * `rate_override_amount` is `numeric(14,4)`, which MikroORM surfaces as a string;
- * the validator accepts a JSON number. One conversion point keeps the two apart.
+ * the validator accepts a JSON number. One conversion point keeps the two apart,
+ * for the grid bulk save as much as for this file.
  */
-function toStoredRateOverride(amount: number | null | undefined): string | null {
+export function toStoredTimeEntryRateOverride(amount: number | null | undefined): string | null {
   return amount === null || amount === undefined ? null : String(amount)
 }
 
@@ -324,7 +382,7 @@ function toStoredRateOverride(amount: number | null | undefined): string | null 
  * later settings change from silently restating money that has already been
  * invoiced (risk R1).
  */
-function roundedMinutesFor(durationMinutes: number, settings: TimeTrackingSettings): number {
+export function roundedMinutesFor(durationMinutes: number, settings: TimeTrackingSettings): number {
   return roundMinutes(durationMinutes, settings.rounding)
 }
 
@@ -725,10 +783,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     // Validate referenced task and timeProjectId are in-scope before persisting.
     // Without these checks a foreign or stale UUID would produce a dangling reference.
     const task = await requireTaskInScope(em, parsed.taskId ?? null, parsed.tenantId, parsed.organizationId)
-    // Screen 8 picks a task and lets the project follow from it ("Projekt i klient
-    // wynikają z zadania"), so a request that names only a task still gets the
-    // project the entry belongs to — and with it the billable and currency defaults.
-    const requestedProjectId = parsed.timeProjectId ?? task?.timeProjectId ?? null
+    const requestedProjectId = resolveTimeEntryProjectId(parsed.timeProjectId, task)
     const project = await requireTimeProjectInScope(em, requestedProjectId, parsed.tenantId, parsed.organizationId)
     await assertTaskBelongsToProject(task, project?.id ?? null)
 
@@ -750,16 +805,14 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       roundedMinutes: roundedMinutesFor(parsed.durationMinutes, settings),
       startedAt: parsed.startedAt ?? null,
       endedAt: parsed.endedAt ?? null,
-      notes: resolveNotesInput(parsed) ?? null,
+      notes: resolveTimeEntryNotesInput(parsed) ?? null,
       timeProjectId: project?.id ?? null,
       taskId: task?.id ?? null,
       customerId: parsed.customerId ?? null,
       dealId: parsed.dealId ?? null,
       orderId: parsed.orderId ?? null,
-      // The project's own default wins over the tenant-wide one: a fixed-price
-      // engagement is non-billable however the tenant normally works.
-      isBillable: parsed.isBillable ?? project?.billableByDefault ?? settings.defaults.billable,
-      rateOverrideAmount: toStoredRateOverride(parsed.rateOverrideAmount),
+      isBillable: resolveTimeEntryBillable({ requested: parsed.isBillable, project, settings }),
+      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount),
       // Snapshotted rather than joined at read time so a later project currency
       // change cannot re-denominate money that has already been reported (D-3).
       rateCurrencyCode: project?.currencyCode ?? null,
@@ -878,7 +931,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     // A card knows its task, not always its project, and a task belongs to exactly
     // one project — so the project follows from the task, exactly as it does when
     // an entry is created from screen 8.
-    const requestedProjectId = parsed.timeProjectId ?? task?.timeProjectId ?? null
+    const requestedProjectId = resolveTimeEntryProjectId(parsed.timeProjectId, task)
     const project = await requireTimeProjectInScope(em, requestedProjectId, parsed.tenantId, parsed.organizationId)
     await assertTaskBelongsToProject(task, project?.id ?? null)
 
@@ -1103,7 +1156,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       })
     }
 
-    const notes = resolveNotesInput(parsed)
+    const notes = resolveTimeEntryNotesInput(parsed)
 
     // A `date` move re-anchors the STORED clocks first, so what reconciliation
     // reasons about is the entry as it will exist on its new day. Order matters:
@@ -1152,7 +1205,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     if (parsed.orderId !== undefined) entry.orderId = parsed.orderId ?? null
     if (parsed.isBillable !== undefined) entry.isBillable = parsed.isBillable
     if (parsed.rateOverrideAmount !== undefined) {
-      entry.rateOverrideAmount = toStoredRateOverride(parsed.rateOverrideAmount)
+      entry.rateOverrideAmount = toStoredTimeEntryRateOverride(parsed.rateOverrideAmount)
     }
     if (notes !== undefined) entry.notes = notes
     entry.updatedAt = new Date()
