@@ -357,6 +357,54 @@ describe('DealsSection', () => {
         expect(screen.queryByRole('button', { name: 'Load more deals' })).toBeNull()
       })
     })
+
+    // `/api/customers/deals` is a query-engine list and does not clamp, so the
+    // page past the end comes back empty. That is what ends the sequence.
+    it('stops on the empty page past the end', async () => {
+      readApiResultOrThrowMock
+        .mockResolvedValueOnce({ items: makeFullPage(), totalPages: 1, total: 10 })
+        .mockResolvedValueOnce({ items: [], totalPages: 1, total: 10 })
+
+      renderWithProviders(
+        <DealsSection
+          scope={{ kind: 'person', entityId: 'person-1' }}
+          addActionLabel="Add deal"
+          emptyLabel="—"
+          emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+        />,
+      )
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more deals' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more deals' })).toBeNull()
+      })
+      expect(screen.getByText('Deal 10')).toBeInTheDocument()
+    })
+
+    // The served page decides, not the rows left after the append dedupes by
+    // id: a full page of already-known deals must still offer the next one.
+    it('offers Load more when a full page dedupes away entirely', async () => {
+      readApiResultOrThrowMock
+        .mockResolvedValueOnce({ items: makeFullPage(), totalPages: 1, total: 10 })
+        .mockResolvedValueOnce({ items: makeFullPage(), totalPages: 1, total: 10 })
+
+      renderWithProviders(
+        <DealsSection
+          scope={{ kind: 'person', entityId: 'person-1' }}
+          addActionLabel="Add deal"
+          emptyLabel="—"
+          emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+        />,
+      )
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more deals' }))
+
+      await waitFor(() => {
+        expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
+      })
+      expect(screen.getByRole('button', { name: 'Load more deals' })).toBeInTheDocument()
+    })
   })
 
 })

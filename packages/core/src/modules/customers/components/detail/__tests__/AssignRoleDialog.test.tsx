@@ -192,6 +192,75 @@ describe('AssignRoleDialog', () => {
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
   })
 
+  // `/api/staff/team-members/assignable` is a query-engine list, so a page past
+  // the end comes back empty rather than re-serving the last one. That empty
+  // page is what ends the sequence.
+  it('stops on the empty page past the end', async () => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 24 }, (_, index) => ({
+          userId: `user-${index + 1}`,
+          displayName: `User ${index + 1}`,
+          teamName: 'Sales',
+          user: { email: `user${index + 1}@example.com` },
+        })),
+        total: 24,
+        page: 1,
+        pageSize: 24,
+      })
+      .mockResolvedValueOnce({ items: [], total: 24, page: 2, pageSize: 24 })
+
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[{ id: 'rt-1', value: 'account_manager', label: 'Account manager' }]}
+        entityName="Acme Corp"
+        initialRoleType="account_manager"
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+    })
+    expect(screen.getByText('User 24')).toBeInTheDocument()
+  })
+
+  // A full page whose rows collapse under the client dedupe must still offer
+  // the next one: the guard reads what the server served.
+  it('offers Load more when dedupe shortens a full page', async () => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: Array.from({ length: 24 }, () => ({
+        userId: 'user-1',
+        displayName: 'User 1',
+        teamName: 'Sales',
+        user: { email: 'user1@example.com' },
+      })),
+      total: 24,
+      page: 1,
+      pageSize: 24,
+    })
+
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[{ id: 'rt-1', value: 'account_manager', label: 'Account manager' }]}
+        entityName="Acme Corp"
+        initialRoleType="account_manager"
+      />,
+    )
+
+    expect(await screen.findByText('User 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Load more' })).toBeInTheDocument()
+  })
+
   it('keeps the footer actions available after selecting a user and can load more results', async () => {
     readApiResultOrThrowMock
       .mockResolvedValueOnce({

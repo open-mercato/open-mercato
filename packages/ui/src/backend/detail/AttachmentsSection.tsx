@@ -5,6 +5,7 @@ import { Upload, Trash2, File, FileText, FileSpreadsheet, FileArchive, FileAudio
 import { Button } from '../../primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AttachmentVisualPreview, formatAttachmentFileSize } from './AttachmentVisualPreview'
 import { AttachmentDeleteDialog } from './AttachmentDeleteDialog'
@@ -47,9 +48,9 @@ function AttachmentsSectionImpl({
   const t = useT()
   const [items, setItems] = React.useState<AttachmentItem[]>([])
   const [page, setPage] = React.useState(1)
-  // Short-page termination instead of a `total`/`totalPages` bound: a page that
-  // comes back full is the only reliable "there may be more" signal. A reported
-  // total can under-report (a capped list count) or drift while the user pages.
+  // Short-page termination instead of a `total`/`totalPages` bound — see
+  // `hasMoreFromPage`. This endpoint clamps, so `load` also checks it was
+  // served the page it asked for.
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -83,9 +84,23 @@ function AttachmentsSectionImpl({
       }
       const payload = call.result ?? { items: [] }
       const nextItems = Array.isArray(payload.items) ? payload.items : []
-      setItems((current) => (replace ? nextItems : [...current, ...nextItems]))
-      setPage(typeof payload.page === 'number' ? payload.page : targetPage)
-      setHasMore(nextItems.length >= PAGE_SIZE)
+      // `/api/attachments` clamps the requested page to the last one — for the
+      // offset and for the page it echoes back — so a request past the end does
+      // not come back short, it comes back full, re-serving the last page. Take
+      // an echoed page below the one asked for as the end of the list: appending
+      // it would duplicate every row, and its clamped page number would never
+      // advance, leaving the affordance with no terminating state.
+      const returnedPage = typeof payload.page === 'number' ? payload.page : targetPage
+      const servedRequestedPage = returnedPage >= targetPage
+      setItems((current) => {
+        if (replace) return nextItems
+        if (!servedRequestedPage) return current
+        const merged = new Map(current.map((item) => [item.id, item]))
+        nextItems.forEach((item) => merged.set(item.id, item))
+        return Array.from(merged.values())
+      })
+      setPage(returnedPage)
+      setHasMore(servedRequestedPage && hasMoreFromPage(nextItems.length, PAGE_SIZE))
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {

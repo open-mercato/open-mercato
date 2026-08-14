@@ -7,6 +7,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -75,9 +76,9 @@ export function AssignRoleDialog({
   const [activeTeam, setActiveTeam] = React.useState('all')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [totalUsers, setTotalUsers] = React.useState(0)
-  // Short-page termination instead of `users.length >= totalUsers`: the
-  // reported total can under-report (a capped list count) or drift between
-  // requests, which hid team members the API would still return.
+  // Short-page termination instead of `users.length >= totalUsers` — see
+  // `hasMoreFromPage`. Measured on the served count, not on `users`, which is
+  // deduped by id.
   const [hasMore, setHasMore] = React.useState(false)
   const [currentPage, setCurrentPage] = React.useState(1)
   const deferredSearchQuery = React.useDeferredValue(searchQuery)
@@ -98,6 +99,7 @@ export function AssignRoleDialog({
       setActiveTeam('all')
       setLoadError(null)
       setTotalUsers(0)
+      setHasMore(false)
       setCurrentPage(1)
       requestSequenceRef.current = 0
       return
@@ -114,6 +116,7 @@ export function AssignRoleDialog({
     setActiveTeam('all')
     setLoadError(null)
     setTotalUsers(0)
+    setHasMore(false)
     setCurrentPage(1)
     requestSequenceRef.current = 0
   }, [initialRoleType, open])
@@ -158,7 +161,7 @@ export function AssignRoleDialog({
           return Array.from(merged.values())
         })
         setTotalUsers(result.total)
-        setHasMore(result.items.length >= ASSIGNABLE_STAFF_PAGE_SIZE)
+        setHasMore(hasMoreFromPage(result.servedCount, ASSIGNABLE_STAFF_PAGE_SIZE))
         setCurrentPage(result.page)
         setLoadError(null)
       } catch {

@@ -125,4 +125,54 @@ describe('LinkedEntitiesField', () => {
     })
     expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
   })
+
+  // `/api/customers/companies` is a query-engine list: the page past the end
+  // comes back empty rather than clamped, and that empty page ends the run.
+  it('stops on the empty page past the end', async () => {
+    readApiResultOrThrowMock.mockReset()
+    let companiesCall = 0
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/companies')) {
+        companiesCall += 1
+        if (companiesCall === 1) {
+          return Promise.resolve({
+            items: Array.from({ length: 20 }, (_, index) => ({
+              id: `company-${index + 1}`,
+              name: `Company ${index + 1}`,
+            })),
+            totalPages: 1,
+            total: 20,
+            pageSize: 20,
+          })
+        }
+        return Promise.resolve({ items: [], totalPages: 1, total: 20, pageSize: 20 })
+      }
+      return Promise.resolve({ items: [] })
+    })
+
+    await act(async () => {
+      renderWithProviders(
+        <LinkedEntitiesField
+          visible={new Set(['linkedEntities'])}
+          activityType="meeting"
+          linkedEntities={[]}
+          setLinkedEntities={jest.fn()}
+        />,
+      )
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Company 1')).toBeInTheDocument()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+    })
+    expect(screen.getByText('Company 20')).toBeInTheDocument()
+  })
 })

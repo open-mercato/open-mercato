@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Building2, Briefcase, FileText, Search, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -80,9 +81,9 @@ function EntityLinkSearchPopover({
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ id: string; label: string }>>([])
   const [page, setPage] = React.useState(1)
-  // Short-page termination instead of a `total`/`totalPages` bound: a full page
-  // is the only reliable "there may be more" signal, since a reported total can
-  // under-report (a capped list count) or drift between requests.
+  // Short-page termination instead of a `total`/`totalPages` bound — see
+  // `hasMoreFromPage`. `items` is the raw response, before the mapping and
+  // filtering below, so its length is what the server served.
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const selectableResults = React.useMemo(
@@ -114,7 +115,7 @@ function EntityLinkSearchPopover({
           nextResults.forEach((entry) => merged.set(entry.id, entry))
           return Array.from(merged.values())
         })
-        setHasMore(items.length >= PAGE_SIZE)
+        setHasMore(hasMoreFromPage(items.length, PAGE_SIZE))
       })
       .catch(() => {
         setResults([])

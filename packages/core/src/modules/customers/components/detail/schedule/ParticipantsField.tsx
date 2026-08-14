@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Users, X, Clock, CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -32,9 +33,9 @@ function ParticipantSearchPopover({
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ userId: string; name: string; email: string }>>([])
   const [page, setPage] = React.useState(1)
-  // Short-page termination instead of a `total`-derived page bound: a full page
-  // is the only reliable "there may be more" signal, since a reported total can
-  // under-report (a capped list count) or drift between requests.
+  // Short-page termination instead of a `total`-derived page bound — see
+  // `hasMoreFromPage`. Measured on the served count, not on `members`, which is
+  // deduped by user id.
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -61,7 +62,7 @@ function ParticipantSearchPopover({
           nextResults.forEach((entry) => merged.set(entry.userId, entry))
           return Array.from(merged.values())
         })
-        setHasMore(members.length >= PAGE_SIZE)
+        setHasMore(hasMoreFromPage(result.servedCount, PAGE_SIZE))
         setLoadError(null)
       })
       .catch(() => {
