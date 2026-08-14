@@ -1,9 +1,8 @@
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 
-type Translator = (key: string, fallback: string) => string
-
-export function buildTemplatesDataTableColumns(t: Translator): ColumnDef<TemplateMeta>[] {
+export function buildTemplatesListTableColumns(t: TranslateFn): ColumnDef<TemplateMeta>[] {
   return [
     {
       accessorKey: 'id',
