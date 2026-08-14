@@ -23,13 +23,20 @@ test('standalone ds checker accepts semantic-token source', () => {
     'src/modules/example/backend/page.tsx': `// style= and <table> are explanatory text, not JSX.
       const note = 'Use <table> only through DataTable'
       const selected = 'items[0]'
-      export const Page = ({ items }: { items: string[] }) => <div className={\`text-status-danger-fg border-border \${items[0]}\`} />`,
+      const loopback = '[::1]'
+      export const Page = ({ items }: { items: string[] }) => <div className={\`text-status-danger-fg border-border \${items[0]}\`} data-host={loopback} />`,
   })
   try {
     assert.deepEqual(scanDesignSystem(root).findings, [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('standalone ds checker keeps the shipped template baseline clean', () => {
+  const templateRoot = path.resolve(import.meta.dirname, '../../template')
+  const result = scanDesignSystem(templateRoot)
+  assert.equal(result.ok, true, JSON.stringify(result, null, 2))
 })
 
 test('standalone ds checker finds policy literals stored outside a className expression', () => {
