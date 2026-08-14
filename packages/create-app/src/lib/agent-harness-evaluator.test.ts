@@ -2853,6 +2853,14 @@ test('generative judge uses the reusable judge skill, pinned code-review evidenc
   const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
+    const providerLimitManifest = path.join(controller, '.ai', 'harness', 'results', 'provider-limit-manifest.json')
+    fs.writeFileSync(providerLimitManifest, JSON.stringify({
+      schemaVersion: 1,
+      stopCause: {
+        classification: 'provider-limit',
+        lastEntryError: { name: 'ProviderError', statusCode: 429, message: 'usage limit reached' },
+      },
+    }))
     const casesPath = path.join(controller, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8'))
     cases.find((entry: { id: string }) => entry.id === 'OMH-011').expectedRouter.required.push('backend-ui')
@@ -2872,7 +2880,9 @@ const allowedReads = JSON.parse(mcpArgs.at(-2))
 const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
 for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
-if (JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause.classification !== 'completed') process.exit(9)
+const termination = JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause.classification
+if (!['completed', 'provider-limit', 'provider-error', 'user-abort', 'unknown'].includes(termination)) process.exit(9)
+const reportedTermination = termination === 'provider-error' ? 'completed' : termination
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
@@ -2902,7 +2912,7 @@ const judgeReport = [
   '## Verdict',
   'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
   '## Evidence',
-  '- Termination: completed — the controller-bound writable result completed before review.',
+  '- Termination: ' + reportedTermination + ' — the controller-bound session manifest classification.',
   'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
   '## Artifact Findings',
   'No artifact findings.',
@@ -2920,6 +2930,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', providerLimitManifest,
     ], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
@@ -2932,7 +2943,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
     assert.equal(stored.judgeVerdict, 'pass')
-    assert.match(stored.judgeReport, /- Termination: completed .*controller-bound writable result completed/)
+    assert.match(stored.judgeReport, /- Termination: provider-limit .*controller-bound session manifest classification/)
     assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
     assert.deepEqual(stored.artifactFindings, [])
     assert.deepEqual(stored.harnessOwnerFindings, [])
@@ -2958,6 +2969,32 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
       '.ai/skills/om-backend-ui-design/references/quality-states.md',
     ])
     assert.ok(stored.actualContext.paths.includes('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt'))
+
+    const oldBundleManifest = path.join(controller, '.ai', 'harness', 'results', 'old-bundle-manifest.json')
+    fs.writeFileSync(oldBundleManifest, JSON.stringify({ schemaVersion: 1 }))
+    const oldBundleReview = runEvaluator(controller, [
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', oldBundleManifest,
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(oldBundleReview.status, 0, `${oldBundleReview.stdout}\n${oldBundleReview.stderr}`)
+    assert.match(storedReviewResults(controller).at(-1).judgeReport, /- Termination: unknown .*controller-bound session manifest classification/)
+
+    const mismatchManifest = path.join(controller, '.ai', 'harness', 'results', 'mismatch-manifest.json')
+    fs.writeFileSync(mismatchManifest, JSON.stringify({ stopCause: { classification: 'provider-error' } }))
+    const mismatchReview = runEvaluator(controller, [
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', mismatchManifest,
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(mismatchReview.status, 1, `${mismatchReview.stdout}\n${mismatchReview.stderr}`)
+    assert.ok(storedReviewResults(controller).at(-1).violations.some(
+      (violation: string) => /does not match normalized manifest stop cause provider-error/.test(violation),
+    ))
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })

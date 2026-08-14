@@ -43,6 +43,20 @@ test('standalone ds checker finds policy literals stored outside a className exp
   }
 })
 
+test('standalone ds checker catches negative utilities and arbitrary variants', () => {
+  const root = createFixture({
+    'src/modules/example/frontend/page.tsx': `export const Page = () => <div className="-top-[1px] supports-[display:grid]:grid data-[state=open]:block [&>svg]:size-4" />`,
+  })
+  try {
+    const matches = scanDesignSystem(root).findings
+      .filter((finding) => finding.rule === 'arbitrary-tailwind')
+      .map((finding) => finding.match)
+    assert.deepEqual(matches, ['-top-[1px]', 'supports-[display:grid]', 'data-[state=open]', '[&>svg]'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('standalone ds checker reports every deterministic violation family', () => {
   const root = createFixture({
     'src/modules/example/backend/page.tsx': `export const Page = () => (

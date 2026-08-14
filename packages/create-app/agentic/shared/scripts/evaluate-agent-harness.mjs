@@ -159,7 +159,7 @@ Usage:
   node scripts/evaluate-agent-harness.mjs [--root <app>] [--case <OMH-NNN> | --family <name> | --all]
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> [selector] [--model <selector>] [--reasoning-effort <level>] [--timeout <ms>]
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --case <id> --writable-root <absolute-path> --acknowledge-writes
-  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --judge-writable-result <absolute-result.json> --writable-root <absolute-path> [--judge-validation-result <absolute-result.json>]
+  node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --judge-writable-result <absolute-result.json> --writable-root <absolute-path> [--judge-validation-result <absolute-result.json>] [--judge-manifest <absolute-manifest.json>]
   node scripts/evaluate-agent-harness.mjs --runner <codex|claude> --review-writable-result <absolute-result.json> --writable-root <absolute-path> [--review-validation-result <absolute-result.json>]
 
 Default mode is deterministic and validates the complete catalog. An explicit runner --all
@@ -184,6 +184,7 @@ function parseArgs(argv) {
     writableRoot: undefined,
     reviewWritableResult: undefined,
     reviewValidationResult: undefined,
+    judgeManifest: undefined,
     judgeCanonical: false,
     acknowledgeWrites: false,
   }
@@ -216,6 +217,7 @@ function parseArgs(argv) {
       options.reviewValidationResult = value()
       if (arg === '--judge-validation-result') options.judgeCanonical = true
     }
+    else if (arg === '--judge-manifest') options.judgeManifest = value()
     else if (arg === '--acknowledge-writes') options.acknowledgeWrites = true
     else throw new Error(`unknown argument: ${arg}`)
   }
@@ -253,6 +255,10 @@ function parseArgs(argv) {
   }
   if (options.judgeCanonical && !argv.includes('--judge-writable-result')) {
     throw new Error('--judge-validation-result requires --judge-writable-result')
+  }
+  if (options.judgeManifest) {
+    if (!options.judgeCanonical || !options.reviewWritableResult) throw new Error('--judge-manifest requires --judge-writable-result')
+    if (!path.isAbsolute(options.judgeManifest)) throw new Error('--judge-manifest must be an absolute path')
   }
   return options
 }
@@ -1633,6 +1639,16 @@ function validateReviewResponse(response, reviewedPaths, evidenceIds) {
 export function normalizeManifestStopCause(manifest) {
   const classification = manifest?.stopCause?.classification
   return STOP_CAUSE_CLASSIFICATIONS.has(classification) ? classification : 'unknown'
+}
+
+function readJudgeManifest(root, requestedPath) {
+  const absolute = fs.realpathSync(requestedPath)
+  if (!isPathInside(fs.realpathSync(root), absolute)) throw new Error('--judge-manifest must be inside the controller root')
+  const stat = fs.lstatSync(requestedPath)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65_536) throw new Error('--judge-manifest must be a bounded regular file')
+  const manifest = readJson(absolute)
+  if (!isPlainObject(manifest)) throw new Error('--judge-manifest must contain a JSON object')
+  return normalizeManifestStopCause(manifest)
 }
 
 export function terminationReportErrors(report, expectedTermination) {
@@ -3483,9 +3499,9 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
   ]
   const evidenceIds = validationEvidence.map((entry) => entry.id)
   const reviewReferences = routedReviewReferences(caseRecord)
-  const terminationClassification = normalizeManifestStopCause({
-    stopCause: { classification: source.status === 'pass' ? 'completed' : 'unknown' },
-  })
+  const terminationClassification = options.judgeManifest
+    ? readJudgeManifest(root, options.judgeManifest)
+    : normalizeManifestStopCause({ stopCause: { classification: source.status === 'pass' ? 'completed' : 'unknown' } })
   const validationResult = targetValidationRecord
     ? { path: targetValidationRecord.relative, sha256: targetValidationRecord.sha256 }
     : undefined

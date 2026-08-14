@@ -55,7 +55,7 @@ successfully\`
         title={
           'Details'
         }
-      >Save</section>
+      ><><button>Add</button><span>Yes</span><span>No</span><span>OK</span><span>Save</span><>Done</></></section>
     }`,
   })
   try {
@@ -64,7 +64,30 @@ successfully\`
     assert.ok(findings.some((finding) => finding.kind === 'flash-call' && finding.value.includes('Changes saved')))
     assert.ok(findings.some((finding) => finding.kind === 'throw-error' && finding.value === 'Unavailable'))
     assert.ok(findings.some((finding) => finding.kind === 'jsx-attr' && finding.value === 'Details'))
-    assert.ok(findings.some((finding) => finding.kind === 'jsx-text' && finding.value === 'Save'))
+    for (const value of ['Add', 'Yes', 'No', 'OK', 'Save', 'Done']) {
+      assert.ok(findings.some((finding) => finding.kind === 'jsx-text' && finding.value === value))
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('standalone i18n checker ignores TypeScript syntax and translated JSX expressions', () => {
+  const root = createFixture({
+    'src/modules/example/lib/service.ts': `export async function load<T>(timeoutMs: number, logger: Pick<Console, 'error'>): Promise<T> {
+      logger.error(timeoutMs)
+      return {} as T
+    }`,
+    'src/modules/example/backend/page.tsx': `type Props = { activeOrgLabel: string }
+      export function Page({ activeOrgLabel }: Props) {
+        const t = (key: string) => key
+        return <section aria-label={\`${'${'}t('example.organization')}: ${'${'}activeOrgLabel}\`} title={t('example.title')}>
+          <span>{t('example.description')}</span>
+        </section>
+      }`,
+  })
+  try {
+    assert.deepEqual(scanHardcodedI18n(root).findings, [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
