@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { canonicalizeResourceTag } from '@open-mercato/shared/lib/crud/cache'
 import { PhoneCall } from '@open-mercato/core/modules/phone_calls/data/entities'
 
 const emitPhoneCallsEventMock = jest.fn(async () => {})
@@ -205,10 +206,15 @@ describe('phone_calls.call.ingest', () => {
       resourceId: result.phoneCallId,
       tenantId,
       organizationId,
-      context: { cacheAliases: ['PhoneCall'] },
     })
-    // The list route builds its cache tag from the entity class name; a mismatch here means
-    // an ingest leaves stale list pages cached.
+
+    // The list route has no `events`/`actions`, so `makeCrudRoute` falls back to the ORM entity
+    // name for its cache tag. An alias that stops canonicalizing to the same tag means an ingest
+    // leaves stale list pages cached, which is exactly the bug this log entry exists to prevent.
+    const aliases = (log!.context as { cacheAliases?: string[] }).cacheAliases ?? []
+    expect(aliases.map((alias) => canonicalizeResourceTag(alias)))
+      .toContain(canonicalizeResourceTag(PhoneCall.name))
+
     expect(JSON.stringify(log)).not.toContain('+48111')
     expect(log).not.toHaveProperty('snapshotAfter')
   })
