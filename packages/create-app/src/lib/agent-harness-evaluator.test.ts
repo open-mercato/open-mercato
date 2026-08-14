@@ -101,9 +101,9 @@ function stageApp(): string {
     path.join(root, '.ai', 'guides', 'framework-extension-points.md'),
     '# Framework extension points\nGenerated framework extension facts.\n',
   )
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules', 'example'), { recursive: true })
   fs.writeFileSync(
-    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example', 'index.md'),
     '# Local reference module: example\nGenerated contribution, activation, and override-target facts.\n',
   )
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'upstream'), { recursive: true })
@@ -460,6 +460,23 @@ test('runner selection distinguishes explicit primary all-cases from the default
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: false, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-002', 'OMH-003'])
 })
 
+test('a declared module fact index allows only its sibling section files', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    caseReadAllowlist: (caseRecord: unknown, writable: boolean, appRoot: string) => string[]
+  }
+  const allowlist = evaluator.caseReadAllowlist({
+    context: {
+      required: ['.ai/guides/modules/customers/index.md'],
+      allowedExtra: ['.ai/guides/reference-modules/example/index.md'],
+    },
+    expectedRouter: { required: [], allowedExtra: [] },
+  }, false, process.cwd())
+
+  assert.ok(allowlist.includes('.ai/guides/modules/customers/*.md'))
+  assert.ok(allowlist.includes('.ai/guides/reference-modules/example/*.md'))
+  assert.ok(!allowlist.includes('.ai/guides/modules/sales/*.md'))
+})
+
 test('live timeout policy gives slow default runners measured floors without overriding operator timeouts', async () => {
   const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
     resolveLiveCaseTimeout: (
@@ -644,13 +661,13 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
     }
     cases[0].context.allowedExtra = [
       ...(cases[0].context.allowedExtra ?? []),
-      '.ai/guides/modules/not_enabled.md',
+      '.ai/guides/modules/not_enabled/index.md',
     ]
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stderr, /allowed-extra context does not exist: \.ai\/guides\/modules\/not_enabled\.md/)
+    assert.match(result.stderr, /allowed-extra context does not exist: \.ai\/guides\/modules\/not_enabled\/index\.md/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -831,8 +848,8 @@ test('writable evaluation materializes and admits bounded installed framework co
     fs.cpSync(path.join(controller, 'AGENTS.md'), path.join(target, 'AGENTS.md'))
     fs.cpSync(path.join(controller, '.ai', 'guides'), path.join(target, '.ai', 'guides'), { recursive: true })
     fs.cpSync(path.join(controller, '.ai', 'skills'), path.join(target, '.ai', 'skills'), { recursive: true })
-    fs.mkdirSync(path.join(target, '.ai', 'guides', 'modules'), { recursive: true })
-    fs.writeFileSync(path.join(target, '.ai', 'guides', 'modules', 'workflows.md'), '# Workflows\nUse installed workflow contracts.\n')
+    fs.mkdirSync(path.join(target, '.ai', 'guides', 'modules', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(target, '.ai', 'guides', 'modules', 'workflows', 'index.md'), '# Workflows\nUse installed workflow contracts.\n')
     fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
     fs.writeFileSync(path.join(corePackageRoot, 'package.json'), JSON.stringify({
       name: '@open-mercato/core',
@@ -910,7 +927,7 @@ export async function callApiActivity(input: CallApiInput, effects: CallApiEffec
 \`)
 const selectedContext = [
   'AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md',
-  '.ai/guides/modules/workflows.md', ...requiredContext,
+  '.ai/guides/modules/workflows/index.md', ...requiredContext,
 ]
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['ai-workflow'], selectedSkills: ['om-build-workflow'],
@@ -943,7 +960,7 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
     'AGENTS.md',
     '.ai/guides/extensions.md',
     '.ai/guides/backend-ui.md',
-    '.ai/guides/modules/customers.md',
+    '.ai/guides/modules/customers/index.md',
     '.ai/skills/om-system-extension/SKILL.md',
     '.ai/skills/om-backend-ui-design/SKILL.md',
     '.ai/skills/om-framework-context/SKILL.md',
@@ -971,9 +988,9 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
     const controller = stageApp()
     const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
     try {
-      fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules'), { recursive: true })
+      fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
       fs.writeFileSync(
-        path.join(controller, '.ai', 'guides', 'modules', 'customers.md'),
+        path.join(controller, '.ai', 'guides', 'modules', 'customers', 'index.md'),
         '# Customers\nUse the installed customers module without guessing private contracts.\n',
       )
       fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'customers', 'backend'), { recursive: true })
@@ -1867,14 +1884,14 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
 
 test('module facts and upstream compatibility references count as progressive rather than initial context', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
-  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'sales.md'), '# Sales\nInstalled sales module facts.\n')
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules', 'sales'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'sales', 'index.md'), '# Sales\nInstalled sales module facts.\n')
   const context = [
     'AGENTS.md',
     '.ai/guides/extensions.md',
     '.ai/skills/om-system-extension/SKILL.md',
     '.ai/skills/om-framework-context/SKILL.md',
-    '.ai/guides/modules/sales.md',
+    '.ai/guides/modules/sales/index.md',
     '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md',
   ]
   const bin = installFakeRunner(root, 'codex', `
@@ -1897,9 +1914,9 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     const [stored] = storedResults(root)
-    assert.ok(stored.actualContext.paths.includes('.ai/guides/modules/sales.md'))
+    assert.ok(stored.actualContext.paths.includes('.ai/guides/modules/sales/index.md'))
     assert.ok(stored.actualContext.paths.includes('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
-    assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/modules/sales.md'))
+    assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/modules/sales/index.md'))
     assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
@@ -2127,19 +2144,19 @@ for (const command of ['cat AGENTS.md .agents/skills/om-spec-writing/SKILL.md', 
 
 test('a case may bound optional context for an explicitly allowed extra route', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
-  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers', 'index.md'), '# customers\n')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture', 'framework-context'], selectedSkills: ['om-framework-context'],
-  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/modules/customers.md', '.ai/skills/om-framework-context/SKILL.md'],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/modules/customers/index.md', '.ai/skills/om-framework-context/SKILL.md'],
   decisions: ['installed-version', 'bounded-source-search'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .ai/guides/architecture.md .ai/guides/modules/customers.md .ai/skills/om-framework-context/SKILL.md'
+  command: 'cat AGENTS.md .ai/guides/architecture.md .ai/guides/modules/customers/index.md .ai/skills/om-framework-context/SKILL.md'
 } }))
 `)
   try {
@@ -2752,18 +2769,18 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 test('secret redaction preserves legitimate skill reference names beginning with skew', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const reference = '.ai/skills/om-framework-context/references/skew-and-escalation.md'
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
-  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers', 'index.md'), '# customers\n')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs'); const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['framework-context'], selectedSkills: ['om-framework-context'],
-  selectedContext: ['AGENTS.md', '.ai/guides/modules/customers.md', '.ai/skills/om-framework-context/SKILL.md', '${reference}'],
+  selectedContext: ['AGENTS.md', '.ai/guides/modules/customers/index.md', '.ai/skills/om-framework-context/SKILL.md', '${reference}'],
   decisions: ['installed-version', 'bounded-source-search'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .ai/guides/modules/customers.md .ai/skills/om-framework-context/SKILL.md ${reference}'
+  command: 'cat AGENTS.md .ai/guides/modules/customers/index.md .ai/skills/om-framework-context/SKILL.md ${reference}'
 } }))
 `)
   try {
@@ -4270,10 +4287,10 @@ function stageSpecTarget(fixtureId: string): string {
     path.join(generatedGuidesRoot, 'reference-module-facts.json'),
     path.join(root, '.ai', 'guides', 'reference-module-facts.json'),
   )
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
-  fs.copyFileSync(
-    path.join(generatedGuidesRoot, 'reference-modules', 'example.md'),
-    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+  fs.cpSync(
+    path.join(generatedGuidesRoot, 'reference-modules', 'example'),
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example'),
+    { recursive: true },
   )
   const sourceLinks = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8')) as {
     records: Array<Record<string, unknown>>
@@ -4405,7 +4422,7 @@ Each test creates its own tenant, organization, warehouses, users, and stock row
 
 Phases are dependency ordered; each one leaves the application working and closes with its own evidence.
 
-Module work routes to om-module-scaffold and UI work routes to om-backend-ui-design. Planning starts at the reference module's entry document and its surface index, then checks .ai/guides/reference-modules/example.md against .ai/guides/reference-module-facts.json. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
+Module work routes to om-module-scaffold and UI work routes to om-backend-ui-design. Planning starts at the reference module's entry document and its surface index, then checks .ai/guides/reference-modules/example/index.md against .ai/guides/reference-module-facts.json. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
 
 The generated reference projection binds the planned seams exactly. The bulk action uses capability umes.injection.datatable-bulk-action, contribution example.injection.todo-bulk-complete@data-table:example.todos.list:bulk-actions, activation widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer, and override target 53534ccb2cedeb06. Durable progress uses capability runtime.bulk-operation-progress, workers example:todos-bulk-dispatch and example:todos-bulk-complete, and override targets 3cce1583e990d1d5 and f13b1b4f95dcb7af. The lifecycle definition uses capability workflows.code-definition and the specialist contribution workflow:example.todo-created-reference at specialistRoute workflows from src/modules/example/workflows.ts.
 
@@ -4610,7 +4627,7 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
     fs.rmSync(path.join(root, '.ai/guides/reference-module-facts.json'))
   }, 'plan.reference-facts-readable'],
   ['a plan that omits the generated reference sheet route', (root) => {
-    rewriteNewFeatureSpec(root, (spec) => spec.replace('.ai/guides/reference-modules/example.md', 'the generated guide'))
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('.ai/guides/reference-modules/example/index.md', 'the generated guide'))
   }, 'plan.reference-sheet-route'],
   ['a plan that drops the exact progress capability', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('runtime.bulk-operation-progress', 'the progress capability'))

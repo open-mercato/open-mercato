@@ -345,5 +345,5 @@ test('the module-fact index sheds itself rather than pushing the root past its b
   )
   assert.match(root, /Enabled module facts: \d+ sheets bundled, too many to index inline/)
   assert.ok(!root.includes('scale_probe_00'), 'the pointer form must not enumerate module ids')
-  assert.match(root, /Load `\.ai\/guides\/modules\/<id>\.md` only for a named or targeted installed module\/host/)
+  assert.match(root, /Load `\.ai\/guides\/modules\/<id>\/index\.md` only for a targeted installed module\/host/)
 })

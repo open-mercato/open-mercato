@@ -49,7 +49,7 @@ const EXAMPLE_ROOT = 'src/modules/example'
 const EXAMPLE_INVENTORY = `${EXAMPLE_ROOT}/references/surface-inventory.json`
 const REFERENCE_FACTS = '.ai/guides/reference-module-facts.json'
 const SOURCE_LINK_INVENTORY = '.ai/harness/source-link-inventory.json'
-const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
+const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
 const EXAMPLE_FILE_PATTERN = /\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g
 // A directory-only or globbed hint is not a source link. `src/modules/example/api/**`,
 // `src/modules/example/widgets/*.ts` and a bare `src/modules/example/commands/` all name a
