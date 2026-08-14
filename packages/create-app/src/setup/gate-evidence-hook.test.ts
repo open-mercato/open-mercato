@@ -9,7 +9,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { matchGates, shouldBlock } from '../../agentic/claude-code/hooks/gate-evidence'
+import {
+  isAttributableGateCommand,
+  matchGates,
+  nextSessionState,
+  resolveExitCode,
+  shouldBlock,
+} from '../../agentic/claude-code/hooks/gate-evidence'
 
 test('matchGates: matches a plain package script', () => {
   assert.deepEqual(matchGates('yarn typecheck'), ['typecheck'])
@@ -76,4 +82,76 @@ test('shouldBlock: allows when there is no source tree at all', () => {
     sessionStartedAtMs: SESSION_START,
     lastGreenTypecheckMs: null,
   }), false)
+})
+
+test('isAttributableGateCommand: accepts a plain gate and an && chain', () => {
+  // `&&` short-circuits, so a non-zero status still belongs to a gate that actually ran.
+  assert.equal(isAttributableGateCommand('yarn typecheck'), true)
+  assert.equal(isAttributableGateCommand('yarn generate && yarn typecheck && yarn lint'), true)
+})
+
+test('isAttributableGateCommand: rejects a piped gate', () => {
+  // The failure the harness's own verification rules warn about: `tail`'s exit status, not
+  // `tsc`'s. Recording it would manufacture the false green this hook exists to prevent.
+  assert.equal(isAttributableGateCommand('yarn typecheck | tail -30'), false)
+})
+
+test('isAttributableGateCommand: rejects sequenced and status-swallowing commands', () => {
+  assert.equal(isAttributableGateCommand('yarn typecheck; yarn lint'), false)
+  assert.equal(isAttributableGateCommand('yarn typecheck || true'), false)
+  assert.equal(isAttributableGateCommand('yarn typecheck\nyarn lint'), false)
+})
+
+test('resolveExitCode: reads both spellings the payload may use', () => {
+  assert.equal(resolveExitCode({ tool_response: { exit_code: 1 } }), 1)
+  assert.equal(resolveExitCode({ tool_response: { exitCode: 2 } }), 2)
+  assert.equal(resolveExitCode({ tool_response: { exit_code: 0 } }), 0)
+})
+
+test('resolveExitCode: reports an unknown status as unknown, never as a pass', () => {
+  // Zero here would record a green gate nobody observed, which is the exact substitution the
+  // hook is meant to make impossible.
+  assert.equal(resolveExitCode({}), null)
+  assert.equal(resolveExitCode({ tool_response: {} }), null)
+  assert.equal(resolveExitCode({ tool_response: { exit_code: '0' } } as never), null)
+})
+
+test('nextSessionState: starts a fresh record when the session id changes', () => {
+  const previous = {
+    sessionId: 'session-one',
+    sessionStartedAt: '2026-08-13T09:00:00.000Z',
+    gates: { typecheck: { exitCode: 0, finishedAt: '2026-08-13T09:05:00.000Z' } },
+  }
+  const next = nextSessionState(previous, 'session-two', '2026-08-14T09:00:00.000Z')
+  assert.equal(next.sessionId, 'session-two')
+  assert.equal(next.sessionStartedAt, '2026-08-14T09:00:00.000Z')
+  assert.equal(next.gates, undefined)
+})
+
+test('nextSessionState: keeps the record within one session', () => {
+  const previous = {
+    sessionId: 'session-one',
+    sessionStartedAt: '2026-08-14T09:00:00.000Z',
+    gates: { typecheck: { exitCode: 0, finishedAt: '2026-08-14T09:05:00.000Z' } },
+  }
+  assert.equal(nextSessionState(previous, 'session-one', '2026-08-14T10:00:00.000Z'), previous)
+})
+
+test('nextSessionState: a stale start time cannot leak into a later session', () => {
+  // The regression this guards: with sessionStartedAt pinned to the first session forever,
+  // a docs-only session gets blocked over source somebody else edited days earlier.
+  const yesterday = { sessionId: 'session-one', sessionStartedAt: '2026-08-13T09:00:00.000Z' }
+  const today = nextSessionState(yesterday, 'session-two', '2026-08-14T09:00:00.000Z')
+  const staleEditMs = Date.parse('2026-08-13T12:00:00.000Z')
+  assert.equal(shouldBlock({
+    newestSrcMtimeMs: staleEditMs,
+    sessionStartedAtMs: Date.parse(today.sessionStartedAt!),
+    lastGreenTypecheckMs: null,
+  }), false)
+})
+
+test('nextSessionState: sets the start time once when no session id is supplied', () => {
+  const first = nextSessionState({}, null, '2026-08-14T09:00:00.000Z')
+  assert.equal(first.sessionStartedAt, '2026-08-14T09:00:00.000Z')
+  assert.equal(nextSessionState(first, null, '2026-08-14T11:00:00.000Z'), first)
 })

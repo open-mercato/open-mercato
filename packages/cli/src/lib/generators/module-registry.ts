@@ -1359,6 +1359,7 @@ function collectCommandLoaderEntries(
   roots: ModuleRoots,
   imps: ModuleImports,
   modId: string,
+  quiet = false,
 ): CommandLoaderGenerationEntry[] {
   const files = scanModuleDir(roots, COMMAND_SCAN_CONFIG)
   const entries: CommandLoaderGenerationEntry[] = []
@@ -1370,9 +1371,7 @@ function collectCommandLoaderEntries(
     const basename = path.basename(logicalKey)
     if (basename === 'shared' || basename === 'factory') continue
     const ids = extractCommandIdsFromSource(resolved.absolutePath)
-    // Only meaningful when this file actually contributes ids: a helper module under
-    // `commands/` with no registrations is not expected to call `registerCommand`.
-    if (ids.length > 0) warnIfRegisterCommandNotAtImportTime(resolved.absolutePath)
+    if (ids.length > 0) warnIfRegisterCommandNotAtImportTime(resolved.absolutePath, quiet)
     entries.push({
       moduleId: modId,
       key: `${modId}:commands:${logicalKey}`,
@@ -1468,6 +1467,27 @@ function findExistingModuleFileByBaseNames(baseDir: string, relativeBaseNames: s
   return null
 }
 
+const warnedConventionPaths = new Set<string>()
+
+/**
+ * Clears the once-per-path warning ledger.
+ *
+ * A single `yarn generate` runs three registry emitters over one discovery, and each of them
+ * walks the same frontend and backend page files, so an unguarded warning would print the
+ * same line up to six times. A diagnostic that repeats is a diagnostic that gets skimmed
+ * past, so each offending path is named once per run and the ledger resets when the run's
+ * discovery is built.
+ */
+export function resetConventionWarnings(): void {
+  warnedConventionPaths.clear()
+}
+
+function alreadyWarned(sourcePath: string): boolean {
+  if (warnedConventionPaths.has(sourcePath)) return true
+  warnedConventionPaths.add(sourcePath)
+  return false
+}
+
 /**
  * Warns when a discovered page metadata file exports no `metadata` binding.
  *
@@ -1478,9 +1498,10 @@ function findExistingModuleFileByBaseNames(baseDir: string, relativeBaseNames: s
  * authorization gate and nothing in the build says so. The warning names that consequence
  * because the rule alone ("export `metadata`") does not convey why it matters.
  */
-export function warnIfPageMetaMissingMetadataExport(metaPath: string | null): void {
-  if (!metaPath) return
+export function warnIfPageMetaMissingMetadataExport(metaPath: string | null, quiet = false): void {
+  if (!metaPath || quiet) return
   if (hasNamedExport(metaPath, 'metadata')) return
+  if (alreadyWarned(metaPath)) return
   console.warn(
     `[generate] ⚠ Page metadata file exports no 'metadata' — page metadata is dropped, `
     + `including requireAuth/requireFeatures, so the page renders with NO authorization gate: ${metaPath}`,
@@ -1500,7 +1521,8 @@ export function warnIfPageMetaMissingMetadataExport(metaPath: string | null): vo
  * `registerCommand(` call and none of them is at top level (column 0), which is how every
  * correct module writes them.
  */
-export function warnIfRegisterCommandNotAtImportTime(sourcePath: string): void {
+export function warnIfRegisterCommandNotAtImportTime(sourcePath: string, quiet = false): void {
+  if (quiet) return
   let source = ''
   try {
     source = fs.readFileSync(sourcePath, 'utf8')
@@ -1510,6 +1532,7 @@ export function warnIfRegisterCommandNotAtImportTime(sourcePath: string): void {
   if (!/\bregisterCommand\s*\(/.test(source)) return
   const hasTopLevelCall = /^registerCommand\s*\(/m.test(source)
   if (hasTopLevelCall) return
+  if (alreadyWarned(sourcePath)) return
   console.warn(
     `[generate] ⚠ registerCommand(...) is never called at import time — these command ids will `
     + `appear in the manifest but the handlers will not register at runtime: ${sourcePath}`,
@@ -1849,7 +1872,9 @@ function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
 
 async function createModuleRegistryDiscovery(
   resolver: PackageResolver,
+  quiet = false,
 ): Promise<ModuleRegistryDiscovery> {
+  resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
@@ -1881,7 +1906,7 @@ async function createModuleRegistryDiscovery(
       resolve,
       frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
       backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),
-      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId),
+      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId, quiet),
       getSubscribers: () => subscribers ??= discoverSubscribers(roots, imps, modId),
       getWorkers: () => workers ??= discoverWorkers(roots, imps, modId),
       translations: discoverTranslations(roots),
@@ -1943,8 +1968,9 @@ async function processPageFiles(options: {
   runtimeImports: string[]
   manifestImports?: string[]
   importIdRef: { value: number }
+  quiet?: boolean
 }): Promise<PageRouteGenerationResult> {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef } = options
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef, quiet } = options
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
@@ -1970,7 +1996,7 @@ async function processPageFiles(options: {
     const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
-    warnIfPageMetaMissingMetadataExport(metaPath)
+    warnIfPageMetaMissingMetadataExport(metaPath, quiet)
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
@@ -2817,6 +2843,7 @@ async function processPageFilesAst(options: {
   pkgImportBase: string
   imports: string[]
   importIdRef: { value: number }
+  quiet?: boolean
 }): Promise<{ routes: WriterFunction[]; routePatterns: string[] }> {
   const {
     files,
@@ -2828,6 +2855,7 @@ async function processPageFilesAst(options: {
     pkgImportBase,
     imports,
     importIdRef,
+    quiet,
   } = options
   const routes: WriterFunction[] = []
   const routePatterns: string[] = []
@@ -2864,7 +2892,7 @@ async function processPageFilesAst(options: {
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
 
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
-    warnIfPageMetaMissingMetadataExport(metaPath)
+    warnIfPageMetaMissingMetadataExport(metaPath, quiet)
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = sanitizeGeneratedModuleSpecifier(
@@ -3428,6 +3456,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           runtimeImports,
           manifestImports: frontendRouteManifestImports,
           importIdRef,
+          quiet,
         })
         frontendRoutes.push(...generatedFrontendRoutes.eagerRoutes)
         runtimeFrontendRoutes.push(...generatedFrontendRoutes.runtimeRoutes)
@@ -3551,6 +3580,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           runtimeImports,
           manifestImports: backendRouteManifestImports,
           importIdRef,
+          quiet,
         })
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
         runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
@@ -4080,6 +4110,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           pkgImportBase: imps.pkgBase,
           imports,
           importIdRef,
+          quiet,
         })
         frontendRoutes.push(...feAst.routes)
         hasRouteComponents = true
@@ -4101,6 +4132,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           pkgImportBase: imps.pkgBase,
           imports,
           importIdRef,
+          quiet,
         })
         backendRoutes.push(...beAst.routes)
         for (const pattern of beAst.routePatterns) {
@@ -4703,22 +4735,22 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 }
 
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryApp(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryAppFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryCliFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistries(options: ModuleRegistryOptions): Promise<GeneratorResult[]> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return [
     await generateModuleRegistryFromDiscovery({ ...options, discovery }),
     await generateModuleRegistryAppFromDiscovery({ ...options, discovery }),

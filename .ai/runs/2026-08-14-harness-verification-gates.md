@@ -140,3 +140,28 @@ piece of work rather than a config tweak.
 - [x] 5.1 Add the gate-evidence hook to the agentic hooks template — bbe6988e7
 - [x] 5.2 Register it in the generated hook settings — bbe6988e7
 - [x] 5.3 Unit tests for the comparison and gate-command matching — bbe6988e7
+
+### Phase 6: Review follow-up (PR #5301)
+
+Code review found one Major and seven Minor issues, four of them ways the hook could record
+a gate as passed without observing a passing exit status — the property this run exists to
+remove. Fixed in the same PR.
+
+- [x] 6.1 Install Claude hooks from disk in `mercato agentic:init`, and claim them in the
+  `--update-harness` ownership manifest. The CLI generator copied only
+  `entity-migration-check.ts` while shipping a `settings.json` that registers
+  `gate-evidence.ts`, so apps set up through that path got a hook registration pointing at a
+  file that was never written.
+- [x] 6.2 Treat an unreported exit status as unknown rather than as `0`.
+- [x] 6.3 Do not record a gate whose exit status belongs to something else — a pipe, a `;`
+  sequence, or `|| true`. This is the failure `verification.md` warns about, so recording it
+  would have re-created it.
+- [x] 6.4 Reset the session record on a new `session_id`, so `sessionStartedAt` cannot stay
+  pinned to the first session and block a later one over somebody else's unverified edits.
+- [x] 6.5 Honor `stop_hook_active` so the Stop hook blocks at most once per stop sequence.
+- [x] 6.6 Gitignore `.ai/.gate-state.json` in the template.
+- [x] 6.7 Honor `quiet` in the page-metadata and registerCommand warnings, and name each
+  offending path once per run instead of once per registry emitter.
+- [x] 6.8 Fold the OpenAPI fallback log into the warning; drop redundant inline comments.
+- [x] 6.9 Tests for every item above, plus a hook-parity test asserting the two generators
+  install the same hook set — the class of defect 6.1 belongs to.

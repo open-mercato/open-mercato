@@ -3,10 +3,10 @@
  *
  * Two modes, mirroring `entity-migration-check`'s shape:
  *
- * - `record` (PostToolUse on Bash) — when a Bash command was a validation gate, append its
- *   exit status to `.ai/.gate-state.json`.
+ * - `record` (PostToolUse on Bash) — when a Bash command was a validation gate AND its exit
+ *   status genuinely belongs to that gate, append the status to `.ai/.gate-state.json`.
  * - `check` (Stop) — block when a file under `src/` changed after the session started and is
- *   newer than the last exit-0 typecheck.
+ *   newer than the last exit-0 typecheck, unless this stop is already the result of a block.
  *
  * Why this exists: a gate that is claimed but never run is indistinguishable, in a
  * transcript, from one that passed. This makes the difference mechanical.
@@ -14,8 +14,10 @@
  * Deliberate limits. The blocker only considers `typecheck`: demanding a green `build` on
  * every stop would be punitive, and typecheck is the cheap gate that catches the defect class
  * this guards. It compares mtimes rather than hashing, so a touch-without-edit costs one
- * gate run. And the state file can simply be deleted — this is a speed bump against
- * carelessness, not a defense against deliberate circumvention.
+ * gate run. It blocks at most once per stop sequence, so a gate that genuinely cannot pass
+ * is reported to the user rather than trapping the agent. And the state file can simply be
+ * deleted — this is a speed bump against carelessness, not a defense against deliberate
+ * circumvention.
  */
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -29,6 +31,7 @@ export type GateName = 'typecheck' | 'lint' | 'test' | 'build' | 'generate'
 export type GateRecord = { exitCode: number; finishedAt: string }
 
 export type GateState = {
+  sessionId?: string
   sessionStartedAt?: string
   gates?: Partial<Record<GateName, GateRecord>>
 }
@@ -54,6 +57,54 @@ export function matchGates(command: string): GateName[] {
     if (pattern.test(command)) found.add(gate)
   }
   return [...found]
+}
+
+/**
+ * Decides whether a command's exit status can be attributed to the gates it names.
+ *
+ * A pipeline reports the exit status of its LAST stage, so `yarn typecheck | tail -30`
+ * reports `tail`'s success no matter what `tsc` did. `;` and `||` break the link the same
+ * way. `&&` does not: it short-circuits, so a non-zero status still belongs to a gate that
+ * ran — at worst a later gate's failure is attributed to an earlier one, which only costs a
+ * re-run.
+ *
+ * Recording an unattributable status would manufacture exactly the false green this hook
+ * exists to prevent, so those commands are not recorded at all.
+ */
+export function isAttributableGateCommand(command: string): boolean {
+  return !/[|;\n]/.test(command)
+}
+
+/**
+ * Resolves the exit status a Bash tool response reported, or `null` when it reported none.
+ *
+ * `null` is not zero. An unknown outcome must never be stored as a pass — the whole point of
+ * the state file is that it holds observed results, and a payload shape this hook does not
+ * recognize is the one case where it has observed nothing.
+ */
+export function resolveExitCode(data: HookInput): number | null {
+  const response = data.tool_response ?? {}
+  const value = response.exit_code ?? response.exitCode
+  return typeof value === 'number' ? value : null
+}
+
+/**
+ * Rolls the state forward into the session the current invocation belongs to.
+ *
+ * The state file outlives the session that wrote it, so a `sessionStartedAt` set once and
+ * never revisited would pin every later session to the first one's clock and make the
+ * "changed during THIS session" test meaningless. A new `session_id` therefore starts from a
+ * clean record: gates observed in an earlier session prove nothing about this one.
+ *
+ * Payloads without a `session_id` keep the original set-once behavior, so an older client
+ * degrades rather than resetting on every call.
+ */
+export function nextSessionState(previous: GateState, sessionId: string | null, startedAt: string): GateState {
+  if (!sessionId) {
+    return previous.sessionStartedAt ? previous : { ...previous, sessionStartedAt: startedAt }
+  }
+  if (previous.sessionId === sessionId && previous.sessionStartedAt) return previous
+  return { sessionId, sessionStartedAt: startedAt }
 }
 
 /**
@@ -135,15 +186,11 @@ function readStdin(): Promise<string> {
   })
 }
 
-type HookInput = {
+export type HookInput = {
+  session_id?: string
+  stop_hook_active?: boolean
   tool_input?: { command?: string }
   tool_response?: { exit_code?: number; exitCode?: number }
-}
-
-function resolveExitCode(data: HookInput): number {
-  const response = data.tool_response ?? {}
-  const value = response.exit_code ?? response.exitCode
-  return typeof value === 'number' ? value : 0
 }
 
 async function main(): Promise<void> {
@@ -159,19 +206,19 @@ async function main(): Promise<void> {
     }
   }
 
-  const state = readState()
+  const previous = readState()
   const now = new Date()
-  if (!state.sessionStartedAt) {
-    state.sessionStartedAt = now.toISOString()
-    writeState(state)
-  }
+  const state = nextSessionState(previous, data.session_id ?? null, now.toISOString())
+  if (state !== previous) writeState(state)
 
   if (mode === 'record') {
     const command = data.tool_input?.command
     if (!command) return
     const gates = matchGates(command)
     if (!gates.length) return
+    if (!isAttributableGateCommand(command)) return
     const exitCode = resolveExitCode(data)
+    if (exitCode === null) return
     state.gates = state.gates ?? {}
     for (const gate of gates) {
       state.gates[gate] = { exitCode, finishedAt: now.toISOString() }
@@ -179,6 +226,8 @@ async function main(): Promise<void> {
     writeState(state)
     return
   }
+
+  if (data.stop_hook_active) return
 
   const typecheck = state.gates?.typecheck
   const blocked = shouldBlock({

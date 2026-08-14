@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import {
+  resetConventionWarnings,
   warnIfPageMetaMissingMetadataExport,
   warnIfRegisterCommandNotAtImportTime,
 } from '../module-registry'
@@ -21,6 +22,7 @@ let warnSpy: jest.SpyInstance
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-warn-'))
   warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  resetConventionWarnings()
 })
 
 afterEach(() => {
@@ -111,6 +113,42 @@ describe('di register export', () => {
   it('stays silent when quiet is set', () => {
     const file = write('di.ts', `export function nope() {}\n`)
     warnIfDiMissingRegisterExport(file, true)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('warning volume', () => {
+  it('names each offending page metadata file once per run, not once per emitter', () => {
+    // One `yarn generate` walks the same page files through three registry emitters. A
+    // warning repeated six times reads as noise, and noise is what gets tuned out.
+    const file = write('page.meta.ts', `export const meta = { requireAuth: true }\n`)
+    warnIfPageMetaMissingMetadataExport(file)
+    warnIfPageMetaMissingMetadataExport(file)
+    warnIfPageMetaMissingMetadataExport(file)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns again for the same path once a new run resets the ledger', () => {
+    const file = write('page.meta.ts', `export const meta = { requireAuth: true }\n`)
+    warnIfPageMetaMissingMetadataExport(file)
+    resetConventionWarnings()
+    warnIfPageMetaMissingMetadataExport(file)
+    expect(warnSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['page metadata', (file: string) => warnIfPageMetaMissingMetadataExport(file, true)],
+    ['registerCommand reachability', (file: string) => warnIfRegisterCommandNotAtImportTime(file, true)],
+  ])('stays silent for %s when quiet is set', (_label, warn) => {
+    // `generateModuleRegistries` is called with `quiet: true` by module install and by the
+    // generator snapshot tests; a caller that asked for silence must get it.
+    const file = write('subject.ts', [
+      `export const meta = { requireAuth: true }`,
+      `export function registerLibraryCommands() {`,
+      `  registerCommand({ id: 'library.books.create' })`,
+      `}`,
+    ].join('\n'))
+    warn(file)
     expect(warnSpy).not.toHaveBeenCalled()
   })
 })
