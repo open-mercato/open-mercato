@@ -48,12 +48,12 @@ Command-bus audit entries written outside a request must record *which* automate
 
 ### Phase 2: Close the two blockers — stop narrowing the actor contract
 
-- [ ] 2.1 Derive the actor with the same predicate the schema uses, so nil / v6–v8 / max UUID actors keep `actor_user_id` and `source_key` (closes blocker 1, and with it blocker 2's undo/redo 400)
-- [ ] 2.2 Gate the system branch on the recognized `system:` shape with a bounded stored length, so a malformed subject is dropped as before rather than persisted as authoritative attribution (major 3); trim the actor once at the top of `sanitizeActor` (nit 7) and document how `context.systemActor` relates to `context.source` (nit 8)
+- [x] 2.1 Derive the actor with the same predicate the schema uses, so nil / v6–v8 / max UUID actors keep `actor_user_id` and `source_key` (closes blocker 1, and with it blocker 2's undo/redo 400) — 3dd1c2bef
+- [x] 2.2 Gate the system branch on the recognized `system:` shape with a bounded stored length, so a malformed subject is dropped as before rather than persisted as authoritative attribution (major 3); trim the actor once at the top of `sanitizeActor` (nit 7) and document how `context.systemActor` relates to `context.source` (nit 8) — 3dd1c2bef
 
 ### Phase 3: Pin the boundary this change moves
 
-- [ ] 3.1 Add regression tests for the nil UUID (`SCHEDULER_SYSTEM_ACTOR_ID`), a UUIDv7 actor, the max UUID, and a garbage actor — each asserting `actorUserId`, `sourceKey`, and `contextJson` (major 4)
+- [x] 3.1 Add regression tests for the nil UUID (`SCHEDULER_SYSTEM_ACTOR_ID`), a UUIDv7 actor, the max UUID, and a garbage actor — each asserting `actorUserId`, `sourceKey`, and `contextJson` (major 4) — 3dd1c2bef
 
 ### Phase 4: Correct the PR's own claims
 
