@@ -74,9 +74,22 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Cache Yarn packages
-        # Package *downloads* are safe to cache — only the audit result is not.
-        uses: actions/cache@v6
+      - name: Restore Yarn package cache
+        # Restore-only, deliberately — `actions/cache` (which also *saves*) is a
+        # cache-poisoning sink here and CodeQL flags it as such
+        # (`actions/cache-poisoning/direct-cache`, high severity).
+        #
+        # This workflow is triggered by `schedule`/`workflow_dispatch`, so it always
+        # runs in the *default branch's* privileged context and writes to the default
+        # branch's cache scope — but the matrix above checks out `develop` and `main`.
+        # A save step would therefore let content from a non-default ref land under a
+        # `yarn-<os>-<lockfile hash>` key that any other workflow, on any branch,
+        # happily restores.
+        #
+        # Restoring is safe and keeps the speed-up: `ci.yml` populates these keys from
+        # the branch being built, and a miss only costs this daily job a cold install.
+        # Guarded by scripts/__tests__/workflow-cache-poisoning.test.mjs.
+        uses: actions/cache/restore@v6
         with:
           path: .yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
