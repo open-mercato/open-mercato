@@ -178,6 +178,27 @@ describe('module-facts source-linked extension surfaces', () => {
     expect(apiRoutes?.markdown.trimEnd()).toMatch(/<!-- end module facts section: facts\/api-routes -->$/)
   })
 
+  it('omits sections with no facts and says so in the index', () => {
+    const facts = extractModuleFacts({
+      moduleId: 'facts',
+      moduleRoot,
+      sourcePackage: '@open-mercato/example',
+      sourceVersion: '1.2.3',
+    })
+    const flatHeadings = [...renderModuleFactsMarkdown(facts).matchAll(/^## (.+)$/gm)].map((match) => match[1])
+    const emptyHeadings = [...renderModuleFactsMarkdown(facts).matchAll(/^## (.+)\n\n_none_$/gm)]
+      .map((match) => match[1].replace(/\s+\(\d+\)\s*$/, ''))
+    const directory = renderModuleFactsDirectory(facts)
+
+    expect(emptyHeadings.length).toBeGreaterThan(0)
+    expect(flatHeadings.length).toBeGreaterThan(directory.sections.length)
+    for (const section of directory.sections) expect(section.markdown).not.toContain('_none_')
+    for (const heading of emptyHeadings) expect(directory.index).not.toContain(`[${heading}](`)
+    expect(directory.index).toContain(
+      'A section absent from this list has no facts for facts; this index is complete only when the read reaches the marker below.',
+    )
+  })
+
   it('links only exact module code files and never a directory', () => {
     const facts = extractModuleFacts({
       moduleId: 'facts',

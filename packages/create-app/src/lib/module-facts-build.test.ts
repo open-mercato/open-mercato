@@ -69,7 +69,16 @@ test('build emits customers facts and the framework extension catalog (T5)', () 
     .filter((file) => file.endsWith('.md'))
     .map((file) => fs.readFileSync(join(customersGuidesDir, file), 'utf8'))
     .join('\n')
+  const customersIndex = fs.readFileSync(join(customersGuidesDir, 'index.md'), 'utf8')
   assert.match(markdown, /## Backend pages/)
+  assert.equal(
+    markdown.includes('## Frontend pages'),
+    false,
+    'a section with no facts must be omitted from the directory layout, not emitted as _none_',
+  )
+  assert.equal(fs.existsSync(join(customersGuidesDir, 'frontend-pages.md')), false)
+  assert.equal(customersIndex.includes('(frontend-pages.md)'), false)
+  assert.match(customersIndex, /A section absent from this list has no facts for customers;/)
   assert.match(markdown, /## CLI commands/)
   assert.match(markdown, /## AI tools \/ MCP capabilities/)
   assert.match(markdown, /## AI agents/)

@@ -2663,6 +2663,9 @@ function renderLinkedFactsSection(
 }
 
 function renderHostTokensSection(hostTokens: ModuleHostTokens): string {
+  if (hostTokens.entityIds.length === 0 && hostTokens.tableIds.length === 0) {
+    return `## Host extension points\n\n${EMPTY_SECTION_MARKER}`
+  }
   const entityIdsLine = hostTokens.entityIds.length > 0 ? hostTokens.entityIds.join(' · ') : EMPTY_SECTION_MARKER
   const tableIdsLine = hostTokens.tableIds.length > 0 ? hostTokens.tableIds.join(' · ') : EMPTY_SECTION_MARKER
   return ['## Host extension points', '', `- Entity IDs: ${entityIdsLine}`, `- Table IDs: ${tableIdsLine}`].join('\n')
@@ -3031,6 +3034,12 @@ function renderSectionedMarkdown(
   ].join('\n')
 }
 
+/**
+ * @deprecated Superseded by {@link renderModuleFactsDirectory}, which both build
+ * pipelines write. The hrefs rendered here assume the retired flat
+ * `.ai/guides/modules/<id>.md` location and resolve one path segment short of the
+ * shipped `<id>/index.md` layout. Retained so existing callers keep working.
+ */
 export function renderModuleFactsMarkdown(
   facts: ModuleFacts,
   referenceProjection?: ReferenceProjectionFingerprints,
@@ -3101,6 +3110,7 @@ export function renderModuleFactsDirectory(
     ...sectionLinks,
     '',
     'Read only the section files needed for the task; every section ends with a completion marker.',
+    `A section absent from this list has no facts for ${facts.module}; this index is complete only when the read reaches the marker below.`,
     '',
     `<!-- end module facts: ${facts.module} — ${sections.length} sections -->`,
     '',
@@ -3358,6 +3368,7 @@ export interface ExtractLocalReferenceModuleFactsOptions {
 
 export interface LocalReferenceModuleFactsResult {
   entry: ReferenceModuleFactsEntry
+  /** @deprecated Flat rendering; read `directory` for the shipped layout. */
   markdown: string
   directory: ModuleFactsMarkdownDirectory
   warnings: string[]
@@ -3464,6 +3475,7 @@ export interface ExtractAllModuleFactsOptions {
 
 export interface ExtractAllModuleFactsResult {
   factsByModule: Record<string, ModuleFacts>
+  /** @deprecated Flat rendering; read `directoryByModule` for the shipped layout. */
   markdownByModule: Record<string, string>
   directoryByModule: Record<string, ModuleFactsMarkdownDirectory>
   warnings: string[]
