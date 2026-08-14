@@ -5,6 +5,7 @@ import * as React from 'react'
 import { cleanup } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { MonthGrid } from '../MonthGrid'
+import { formatTimeRange } from '../EventBlock'
 import type { CalendarItem } from '../types'
 import { buildCalendarItem } from './fixtures'
 
@@ -79,4 +80,23 @@ describe('MonthGrid — locale-aware date formatting (#5116)', () => {
     expect(plLabel).not.toBe('')
     expect(plLabel).not.toBe(enLabel)
   })
+})
+
+describe('MonthGrid — shared time-range formatting (#5275)', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it.each(['pl', 'de'])(
+    'renders the event pill range exactly as the week view renders it in %s',
+    (locale) => {
+      const item = buildCalendarItem()
+
+      const view = renderGrid(locale, [item])
+      const pillLabel = eventPillLabel(view.container)
+      view.unmount()
+
+      expect(pillLabel).toBe(`${item.title} · ${formatTimeRange(locale, item.start, item.end)}`)
+    },
+  )
 })

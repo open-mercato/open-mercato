@@ -10,6 +10,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
+import { formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { CalendarItem, MonthGridProps } from './types'
 
 const MAX_PILLS_PER_DAY = 2
@@ -17,10 +18,6 @@ const SOFT_TINT_ALPHA = '1A'
 
 function dayKeyOf(date: Date): string {
   return format(date, 'yyyy-MM-dd')
-}
-
-function formatTime(locale: string, date: Date): string {
-  return date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 }
 
 function fullDateLabel(locale: string, date: Date): string {
@@ -64,7 +61,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
   const locale = useLocale()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTime(locale, item.start)} – ${formatTime(locale, item.end)}`
+  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
     : undefined
