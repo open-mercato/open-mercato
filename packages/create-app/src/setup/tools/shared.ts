@@ -251,14 +251,27 @@ export function finalizeHarnessManifest(config: AgenticConfig, selectedTools: st
     paths.add(join(targetDir, 'CLAUDE.md'))
     paths.add(join(targetDir, '.claude', 'settings.json'))
     paths.add(join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+    }
     paths.add(join(targetDir, '.mcp.json.example'))
   }
-  if (selectedTools.includes('codex')) paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+  if (selectedTools.includes('codex')) {
+    paths.add(join(targetDir, '.codex', 'mcp.json.example'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.codex', 'hooks.json'))
+      paths.add(join(targetDir, '.codex', 'hooks', 'gate-evidence.mjs'))
+    }
+  }
   if (selectedTools.includes('cursor')) {
-    for (const file of listFiles(join(AGENTIC_ROOT, 'cursor'))) {
-      const rel = relative(join(AGENTIC_ROOT, 'cursor'), file)
-      const mapped = rel === 'mcp.json.example' ? join(targetDir, '.cursor', 'mcp.json.example') : join(targetDir, '.cursor', rel)
-      paths.add(mapped)
+    paths.add(join(targetDir, '.cursor', 'hooks.json'))
+    paths.add(join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
+    paths.add(join(targetDir, '.cursor', 'mcp.json.example'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'open-mercato.mdc'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'entity-guard.mdc'))
+    paths.add(join(targetDir, '.cursor', 'rules', 'generated-guard.mdc'))
+    if (config.experimentalHooksValidator) {
+      paths.add(join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
     }
   }
 

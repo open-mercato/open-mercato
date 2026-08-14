@@ -38,14 +38,17 @@ export function generateCursor(config: AgenticConfig): void {
   copyFile('rules/entity-guard.mdc', join(targetDir, '.cursor', 'rules', 'entity-guard.mdc'))
   copyFile('rules/generated-guard.mdc', join(targetDir, '.cursor', 'rules', 'generated-guard.mdc'))
 
-  // .cursor/hooks.json
-  copyFile('hooks.json', join(targetDir, '.cursor', 'hooks.json'))
+  copyFile(
+    config.experimentalHooksValidator ? 'hooks.experimental-hooks-validator.json' : 'hooks.json',
+    join(targetDir, '.cursor', 'hooks.json'),
+  )
 
   // .cursor/hooks/entity-migration-check.mjs
   copyFile('hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
 
-  // .cursor/hooks/gate-evidence.mjs
-  copyFile('hooks/gate-evidence.mjs', join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
+  if (config.experimentalHooksValidator) {
+    copyFile('hooks/gate-evidence.mjs', join(targetDir, '.cursor', 'hooks', 'gate-evidence.mjs'))
+  }
 
   // .cursor/mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
