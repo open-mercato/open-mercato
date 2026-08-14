@@ -62,8 +62,8 @@ Make generated module fact-sheets mechanically readable under agent read caps, t
 
 ### Phase 2: Directory-based module fact sheets
 
-- [ ] 2.1 Add directory artifact generation for installed and reference modules
-- [ ] 2.2 Migrate both build pipelines to the split layout
-- [ ] 2.3 Migrate setup selection, copying, ownership, routing, and stale cleanup
-- [ ] 2.4 Rewrite harness consumers and update tests, guides, and upgrade notes
+- [x] 2.1 Add directory artifact generation for installed and reference modules — 3f80ae4d8
+- [x] 2.2 Migrate both build pipelines to the split layout — 3f80ae4d8
+- [x] 2.3 Migrate setup selection, copying, ownership, routing, and stale cleanup — 3f80ae4d8
+- [x] 2.4 Rewrite harness consumers and update tests, guides, and upgrade notes — 3f80ae4d8
 - [ ] 2.5 Complete harness refresh, full validation, and review readiness
