@@ -51,8 +51,8 @@ Source doc: `.ai/specs/2026-07-24-standalone-ai-development-harness.md`
 
 ### Phase 1: Option and generator contract
 
-- [ ] 1.1 Add and propagate the experimental validator option through both setup entrypoints
-- [ ] 1.2 Gate emitted hook registrations, hook scripts, ownership manifests, and setup summaries while preserving tool parity
+- [x] 1.1 Add and propagate the experimental validator option through both setup entrypoints — 0977f8a39
+- [x] 1.2 Gate emitted hook registrations, hook scripts, ownership manifests, and setup summaries while preserving tool parity — 0977f8a39
 
 ### Phase 2: Documentation and regression coverage
 
