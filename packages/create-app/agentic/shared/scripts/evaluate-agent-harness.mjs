@@ -1641,6 +1641,19 @@ export function normalizeManifestStopCause(manifest) {
   return STOP_CAUSE_CLASSIFICATIONS.has(classification) ? classification : 'unknown'
 }
 
+function normalizeManifestStopCauseEvidence(manifest, root) {
+  const classification = normalizeManifestStopCause(manifest)
+  const sourceError = manifest?.stopCause?.lastEntryError
+  if (!isPlainObject(sourceError)) return { classification, lastEntryError: null }
+  const name = typeof sourceError.name === 'string' ? sanitize(sourceError.name, root, 200) : ''
+  const statusCode = Number.isInteger(sourceError.statusCode) ? sourceError.statusCode : null
+  const message = typeof sourceError.message === 'string' ? sanitize(sourceError.message, root, 1_000) : ''
+  return {
+    classification,
+    lastEntryError: name || statusCode !== null || message ? { name, statusCode, message } : null,
+  }
+}
+
 function readJudgeManifest(root, requestedPath) {
   const absolute = fs.realpathSync(requestedPath)
   if (!isPathInside(fs.realpathSync(root), absolute)) throw new Error('--judge-manifest must be inside the controller root')
@@ -1648,7 +1661,7 @@ function readJudgeManifest(root, requestedPath) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65_536) throw new Error('--judge-manifest must be a bounded regular file')
   const manifest = readJson(absolute)
   if (!isPlainObject(manifest)) throw new Error('--judge-manifest must contain a JSON object')
-  return normalizeManifestStopCause(manifest)
+  return normalizeManifestStopCauseEvidence(manifest, root)
 }
 
 export function terminationReportErrors(report, expectedTermination) {
@@ -1659,7 +1672,7 @@ export function terminationReportErrors(report, expectedTermination) {
     : [`judge report termination ${match[1]} does not match normalized manifest stop cause ${expectedTermination}`]
 }
 
-function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences, expectedTermination) {
+function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences, expectedTerminationEvidence) {
   const errors = validateReviewResponse(response, reviewedPaths, evidenceIds)
   if (!['pass', 'fail', 'inconclusive'].includes(response?.judgeVerdict)) errors.push('judgeVerdict is invalid')
   if (JSON.stringify(response?.artifactFindings) !== JSON.stringify(response?.findings)) errors.push('artifactFindings must match the code-review findings projection')
@@ -1674,7 +1687,10 @@ function validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewRefer
     '## Design-System Review', '## Harness-Owner Findings', '## Missing or Unverifiable Evidence',
     '## Recommended Next Actions',
   ]) if (!report.includes(heading)) errors.push(`judge report is missing ${heading}`)
-  errors.push(...terminationReportErrors(report, expectedTermination))
+  errors.push(...terminationReportErrors(report, expectedTerminationEvidence.classification))
+  for (const value of Object.values(expectedTerminationEvidence.lastEntryError ?? {}).filter((item) => item !== null && String(item).length > 0)) {
+    if (!report.includes(String(value))) errors.push(`judge report is missing sanitized termination error evidence ${String(value)}`)
+  }
   const expectedReviewer = reviewReferences.length ? 'om-backend-ui-design' : 'not-applicable'
   if (response?.designSystemReview?.reviewer !== expectedReviewer) errors.push(`designSystemReview reviewer must be ${expectedReviewer}`)
   for (const finding of response?.harnessOwnerFindings ?? []) {
@@ -3394,7 +3410,7 @@ function copyInertReviewSource(sourceRoot, relative, destinationRoot) {
   fs.writeFileSync(destination, inert, { mode: 0o400 })
 }
 
-function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPaths, sourceResultHash, targetFingerprint, skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences, terminationClassification }) {
+function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPaths, sourceResultHash, targetFingerprint, skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences, terminationEvidence }) {
   const bundleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-review-'))
   for (const relative of reviewedPaths) copyInertReviewSource(targetRoot, relative, bundleRoot)
   for (const relative of skill.files) copyReviewFile(skill.root, relative, path.join(bundleRoot, '.agents', 'skills', REVIEW_SKILL))
@@ -3415,7 +3431,7 @@ function buildReviewBundle({ controllerRoot, targetRoot, caseRecord, reviewedPat
     reviewedSources: reviewedPaths.map((relative) => ({ path: relative, bundlePath: reviewSourceBundlePath(relative) })),
     sourceResultHash,
     targetFingerprint,
-    manifest: { stopCause: { classification: terminationClassification, lastEntryError: null } },
+    manifest: { stopCause: terminationEvidence },
     validationEvidence,
     ...(validationResult ? { validationResult } : {}),
     reviewReferences,
@@ -3430,7 +3446,7 @@ function buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences, canonic
 
 The only controller validation evidence IDs are: ${evidenceIds.join(', ')}. Include each exactly once with status pass and include each ID in the validation table. Routed UI/design-system references: ${reviewReferences.length ? reviewReferences.join(', ') : 'none'}. Review only these original-path to inert-bundle mappings: ${reviewedSources.join(', ')}. Findings must use the original path before =>.
 
-Return the strict structured object required by the supplied schema. The report field must use the code-review skill's exact headings and verdict marker.${canonicalJudge ? ` The judgeReport field must use the judge skill report headings and its termination line must exactly report the controller-normalized REVIEW_EVIDENCE.json manifest classification: ${expectedTermination}. Separate artifact findings from the smallest harness-owner findings, and report design-system review as om-backend-ui-design only when routed references were supplied; otherwise use not-applicable.` : ''} Findings must reference only reviewed source paths. Do not include any prose outside the structured object.`
+Return the strict structured object required by the supplied schema. The report field must use the code-review skill's exact headings and verdict marker.${canonicalJudge ? ` The judgeReport field must use the judge skill report headings and its termination line must exactly report the controller-normalized REVIEW_EVIDENCE.json manifest classification: ${expectedTermination}. When manifest.stopCause.lastEntryError is non-null, bind the termination evidence to every sanitized non-null error field from REVIEW_EVIDENCE.json. Separate artifact findings from the smallest harness-owner findings, and report design-system review as om-backend-ui-design only when routed references were supplied; otherwise use not-applicable.` : ''} Findings must reference only reviewed source paths. Do not include any prose outside the structured object.`
 }
 
 function writeReviewResult(root, targetRoot, result, resultSchema) {
@@ -3499,16 +3515,17 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
   ]
   const evidenceIds = validationEvidence.map((entry) => entry.id)
   const reviewReferences = routedReviewReferences(caseRecord)
-  const terminationClassification = options.judgeManifest
+  const terminationEvidence = options.judgeManifest
     ? readJudgeManifest(root, options.judgeManifest)
-    : normalizeManifestStopCause({ stopCause: { classification: source.status === 'pass' ? 'completed' : 'unknown' } })
+    : normalizeManifestStopCauseEvidence({ stopCause: { classification: source.status === 'pass' ? 'completed' : 'unknown' } }, root)
+  const terminationClassification = terminationEvidence.classification
   const validationResult = targetValidationRecord
     ? { path: targetValidationRecord.relative, sha256: targetValidationRecord.sha256 }
     : undefined
   const bundleRoot = buildReviewBundle({
     controllerRoot: root, targetRoot, caseRecord, reviewedPaths,
     sourceResultHash: sourceRecord.sha256, targetFingerprint: currentFingerprint,
-    skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences, terminationClassification,
+    skill, judgeSkill, policyPath, validationEvidence, validationResult, reviewReferences, terminationEvidence,
   })
   try {
     const expectedReads = [
@@ -3548,7 +3565,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       allowedReads: expectedReads,
       allowedWrites: [],
       validateResponse: (response) => options.judgeCanonical
-        ? validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences, terminationClassification)
+        ? validateJudgeResponse(response, reviewedPaths, evidenceIds, reviewReferences, terminationEvidence)
         : validateReviewResponse(response, reviewedPaths, evidenceIds),
     })
     const reviewContext = { allowedWrites: expectedReads, context: { forbidden: [] } }

@@ -2858,7 +2858,7 @@ test('generative judge uses the reusable judge skill, pinned code-review evidenc
       schemaVersion: 1,
       stopCause: {
         classification: 'provider-limit',
-        lastEntryError: { name: 'ProviderError', statusCode: 429, message: 'usage limit reached' },
+        lastEntryError: { name: 'ProviderError', statusCode: 429, message: 'usage limit reached for sk-12345678901234567890' },
       },
     }))
     const casesPath = path.join(controller, '.ai', 'harness', 'cases.json')
@@ -2880,9 +2880,13 @@ const allowedReads = JSON.parse(mcpArgs.at(-2))
 const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
 for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
-const termination = JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause.classification
+const stopCause = JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause
+const termination = stopCause.classification
 if (!['completed', 'provider-limit', 'provider-error', 'user-abort', 'unknown'].includes(termination)) process.exit(9)
 const reportedTermination = termination === 'provider-error' ? 'completed' : termination
+const errorSummary = stopCause.lastEntryError
+  ? Object.values(stopCause.lastEntryError).filter((value) => value !== null && String(value).length > 0).join(' ')
+  : 'no error summary'
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
@@ -2912,7 +2916,7 @@ const judgeReport = [
   '## Verdict',
   'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
   '## Evidence',
-  '- Termination: ' + reportedTermination + ' — the controller-bound session manifest classification.',
+  '- Termination: ' + reportedTermination + ' — the controller-bound session manifest classification; ' + errorSummary + '.',
   'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
   '## Artifact Findings',
   'No artifact findings.',
@@ -2944,6 +2948,8 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.equal(stored.verdict, 'approve')
     assert.equal(stored.judgeVerdict, 'pass')
     assert.match(stored.judgeReport, /- Termination: provider-limit .*controller-bound session manifest classification/)
+    assert.match(stored.judgeReport, /ProviderError 429 usage limit reached for <redacted-token>/)
+    assert.doesNotMatch(stored.judgeReport, /sk-12345678901234567890/)
     assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
     assert.deepEqual(stored.artifactFindings, [])
     assert.deepEqual(stored.harnessOwnerFindings, [])
