@@ -1,5 +1,6 @@
 import { createTillioEnvironmentHealthCheck } from '../lib/health'
 import { createTillioClient } from '../lib/client'
+import { TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID } from '../lib/environment'
 
 jest.mock('../lib/client', () => ({
   createTillioClient: jest.fn(),
@@ -15,6 +16,19 @@ function mockPlugins(getPlugins = jest.fn().mockResolvedValue({ plugins: [] })) 
   return getPlugins
 }
 
+function fakeStore(initial: Record<string, Record<string, unknown> | null> = {}) {
+  const store: Record<string, Record<string, unknown> | null> = { ...initial }
+  return {
+    store,
+    service: {
+      getRaw: jest.fn(async (id: string) => store[id] ?? null),
+      save: jest.fn(async (id: string, credentials: Record<string, unknown>) => {
+        store[id] = credentials
+      }),
+    },
+  }
+}
+
 describe('createTillioEnvironmentHealthCheck.check', () => {
   beforeEach(() => {
     createTillioClientMock.mockReset()
@@ -22,50 +36,87 @@ describe('createTillioEnvironmentHealthCheck.check', () => {
 
   it('generates and persists tenantSystemId when missing, then reports healthy', async () => {
     const probe = mockPlugins()
-    const save = jest.fn().mockResolvedValue(undefined)
-    const health = createTillioEnvironmentHealthCheck({ credentialsService: { save } })
+    const { service, store } = fakeStore()
+    const health = createTillioEnvironmentHealthCheck({ credentialsService: service })
 
     const res = await health.check({ ...env }, scope)
 
-    expect(save).toHaveBeenCalledWith(
-      'tillio',
-      expect.objectContaining({ apiUrl: env.apiUrl, apiKey: env.apiKey, tenantSystemId: expect.stringMatching(/^OM-/) }),
+    expect(service.save).toHaveBeenCalledWith(
+      TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID,
+      { tenantSystemId: expect.stringMatching(/^OM-/) },
       scope,
     )
+    expect(store.tillio).toBeUndefined()
     expect(probe).toHaveBeenCalledWith('test_connection')
     expect(res.status).toBe('healthy')
   })
 
   it('reuses an existing tenantSystemId without re-saving', async () => {
     mockPlugins()
-    const save = jest.fn()
-    const health = createTillioEnvironmentHealthCheck({ credentialsService: { save } })
+    const { service } = fakeStore({
+      [TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID]: { tenantSystemId: 'OM-existing' },
+    })
+    const health = createTillioEnvironmentHealthCheck({ credentialsService: service })
 
-    const res = await health.check({ ...env, tenantSystemId: 'OM-existing' }, scope)
+    const res = await health.check({ ...env }, scope)
 
-    expect(save).not.toHaveBeenCalled()
+    expect(service.save).not.toHaveBeenCalled()
+    expect(createTillioClientMock).toHaveBeenCalledWith(expect.objectContaining({ tenantSystemId: 'OM-existing' }))
+    expect(res.status).toBe('healthy')
+  })
+
+  it('adopts an identity left in the credentials record instead of minting a new one', async () => {
+    mockPlugins()
+    const { service } = fakeStore()
+    const health = createTillioEnvironmentHealthCheck({ credentialsService: service })
+
+    const res = await health.check({ ...env, tenantSystemId: 'OM-legacy' }, scope)
+
+    expect(service.save).toHaveBeenCalledWith(
+      TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID,
+      { tenantSystemId: 'OM-legacy' },
+      scope,
+    )
+    expect(createTillioClientMock).toHaveBeenCalledWith(expect.objectContaining({ tenantSystemId: 'OM-legacy' }))
+    expect(res.status).toBe('healthy')
+  })
+
+  it('keeps the identity when the credentials record is saved without it', async () => {
+    mockPlugins()
+    const { service } = fakeStore({
+      [TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID]: { tenantSystemId: 'OM-kept' },
+    })
+    const health = createTillioEnvironmentHealthCheck({ credentialsService: service })
+
+    // What the integration form writes back: the schema fields only.
+    const res = await health.check({ apiUrl: env.apiUrl, apiKey: 'rotated' }, scope)
+
+    expect(service.save).not.toHaveBeenCalled()
+    expect(createTillioClientMock).toHaveBeenCalledWith(expect.objectContaining({ tenantSystemId: 'OM-kept' }))
     expect(res.status).toBe('healthy')
   })
 
   it('reports unhealthy when getPlugins fails', async () => {
     mockPlugins(jest.fn().mockRejectedValue(new Error('401 unauthorized')))
-    const save = jest.fn().mockResolvedValue(undefined)
-    const health = createTillioEnvironmentHealthCheck({ credentialsService: { save } })
+    const { service } = fakeStore({
+      [TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID]: { tenantSystemId: 'OM-x' },
+    })
+    const health = createTillioEnvironmentHealthCheck({ credentialsService: service })
 
-    const res = await health.check({ ...env, tenantSystemId: 'OM-x' }, scope)
+    const res = await health.check({ ...env }, scope)
 
     expect(res.status).toBe('unhealthy')
     expect(res.message).toContain('401')
   })
 
   it('reports unhealthy for an incomplete environment without touching Tillio', async () => {
-    const save = jest.fn()
-    const health = createTillioEnvironmentHealthCheck({ credentialsService: { save } })
+    const { service } = fakeStore()
+    const health = createTillioEnvironmentHealthCheck({ credentialsService: service })
 
     const res = await health.check({ apiUrl: 'https://x.example.com' }, scope)
 
     expect(res.status).toBe('unhealthy')
-    expect(save).not.toHaveBeenCalled()
+    expect(service.save).not.toHaveBeenCalled()
     expect(createTillioClientMock).not.toHaveBeenCalled()
   })
 })

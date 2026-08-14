@@ -1,11 +1,16 @@
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
-import { ENV_PROBE_TENANT_DOMAIN, TILLIO_INTEGRATION_ID, environmentSchema, generateTenantSystemId } from './environment'
+import {
+  ENV_PROBE_TENANT_DOMAIN,
+  environmentSchema,
+  generateTenantSystemId,
+  readTenantSystemId,
+  saveTenantSystemId,
+  type TillioIdentityStore,
+} from './environment'
 
-export type CredentialsServiceLike = {
-  save: (integrationId: string, credentials: Record<string, unknown>, scope: IntegrationScope) => Promise<void>
-}
+export type CredentialsServiceLike = TillioIdentityStore
 
 type HealthResult = {
   status: 'healthy' | 'degraded' | 'unhealthy'
@@ -24,11 +29,13 @@ export function createTillioEnvironmentHealthCheck(deps: { credentialsService: C
       // Writes on first run: the client sends this id as X-System/X-Tenant and refuses to build
       // without one, so the probe below cannot run before it exists. A subscriber on
       // `integrations.credentials.updated` would leave a window where Check reports "not configured".
-      let tenantSystemId = parsed.data.tenantSystemId
+      let tenantSystemId = await readTenantSystemId(deps.credentialsService, scope)
       if (!tenantSystemId) {
-        tenantSystemId = generateTenantSystemId()
+        // Adopts an identity still sitting in the legacy record before minting a new one:
+        // a fresh id would change X-System/X-Tenant and invalidate every operator token.
+        tenantSystemId = parsed.data.tenantSystemId ?? generateTenantSystemId()
         try {
-          await deps.credentialsService.save(TILLIO_INTEGRATION_ID, { ...parsed.data, tenantSystemId }, scope)
+          await saveTenantSystemId(deps.credentialsService, scope, tenantSystemId)
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to persist the environment identity'
           return { status: 'unhealthy', message }

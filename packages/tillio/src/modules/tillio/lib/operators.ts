@@ -4,7 +4,7 @@ import { createTillioClient } from './client'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
-import { TILLIO_INTEGRATION_ID, environmentSchema } from './environment'
+import { TILLIO_INTEGRATION_ID, environmentSchema, readTenantSystemId } from './environment'
 import {
   buildTenantDomain,
   computeEnvFingerprint,
@@ -73,11 +73,14 @@ export async function resolveEnvironment(
 ): Promise<TillioResolvedEnvironment | null> {
   const raw = await credentialsService.getRaw(TILLIO_INTEGRATION_ID, scope)
   const parsed = environmentSchema.safeParse(raw ?? {})
-  if (!parsed.success || !parsed.data.tenantSystemId) return null
+  if (!parsed.success) return null
+  // Falls back to the legacy location until the next health check moves the identity across.
+  const tenantSystemId = (await readTenantSystemId(credentialsService, scope)) ?? parsed.data.tenantSystemId
+  if (!tenantSystemId) return null
   return {
     apiUrl: parsed.data.apiUrl,
     apiKey: parsed.data.apiKey,
-    tenantSystemId: parsed.data.tenantSystemId,
+    tenantSystemId,
   }
 }
 
