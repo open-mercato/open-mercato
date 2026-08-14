@@ -47,11 +47,10 @@
   "tillio.pull.failed": "Nie udało się pobrać połączeń z Tillio.",
   "tillio.pull.notReadyTitle": "Tillio niegotowe",
   "tillio.pull.operatorMissing": "Podepnij operatora Tillio na stronie integracji, zanim pobierzesz połączenia.",
-  "tillio.pull.partial": "Pobrano {created} nowych i {updated} zaktualizowanych połączeń, {failed} nieudanych.",
   "tillio.pull.pulling": "Pobieranie...",
+  "tillio.pull.queued": "Pobieranie połączeń z Tillio. Postęp śledzisz na pasku postępu.",
   "tillio.pull.rangeRequired": "Najpierw wybierz zakres dat.",
   "tillio.pull.retry": "Spróbuj ponownie",
-  "tillio.pull.succeeded": "Pobrano {created} nowych i {updated} zaktualizowanych połączeń.",
   "tillio.pull.timezoneHint": "Dni są interpretowane w strefie Europe/Warsaw, której używa Tillio.",
   "tillio.pull.title": "Pobierz połączenia z Tillio",
   "tillio.title": "Telefonia Tillio"

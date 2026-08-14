@@ -143,7 +143,7 @@ packages/core/src/modules/phone_calls/
 
 packages/tillio/src/modules/tillio/
   index.ts  acl.ts  setup.ts  di.ts  integration.ts
-  api/pull/route.ts              # readiness (GET) + pull (POST)
+  api/pull/route.ts              # readiness (GET) + queue a pull (POST)
   api/operators/route.ts         # list + attach operator
   api/operators/[id]/route.ts    # detach operator
   lib/adapter.ts                 # dispatches by operator plugin
@@ -151,6 +151,9 @@ packages/tillio/src/modules/tillio/
   lib/health.ts                  # env validation via getPlugins
   lib/operators.ts  lib/operators-store.ts
   lib/pull-readiness.ts          # blocker precedence
+  lib/pull-job.ts                # the durable pull: cursor walk plus ingest
+  lib/queue.ts                   # tillio-pull queue
+  workers/tillio-pull.ts         # runs lib/pull-job.ts off the request
   lib/normalizer.ts  lib/tz.ts  lib/url-guard.ts
   widgets/injection/pull-calls/          # pull action on the hub list toolbar
   widgets/injection/operators-config/    # operator configuration tab
@@ -290,9 +293,24 @@ The readiness gate runs before the provider is contacted; a blocked tenant gets 
 { ok: false, code: PullBlocker, section: 'environment' | 'operator', message: string }
 ```
 
-On success: `{ ok: true, fetched, created, updated, failed, nextCursor, hasMore }`. Each call is ingested by
-its own command invocation so one bad record cannot roll back the batch; failures increment `failed` and emit
-`phone_calls.call.ingest_failed`.
+The route does not sweep the range itself. It creates a scoped `ProgressJob`, enqueues one
+`tillio-pull` job and answers `202` with `{ ok: true, progressJobId }`; a second request while a pull is
+still running is refused with `429` `pull_already_running`. A wide range can take minutes of provider
+paging, which is longer than a request should stay open, and the operator gets cancellation plus progress
+that survives navigation and a process restart.
+
+`workers/tillio-pull.ts` runs `lib/pull-job.ts`, which re-resolves the environment and the operator (both can
+change while the job waits), walks the provider cursor until it is exhausted, and ingests each call through
+`phone_calls.call.ingest`. Each call gets its own command invocation so one bad record cannot roll back the
+batch; failures are counted and emit `phone_calls.call.ingest_failed`. The job payload carries the range and
+the scope but no credentials, so a replay after a rotation picks up the current ones. Replaying the whole job
+is safe for the same reason re-pulling a range is: ingest keys on `(provider_key, external_call_id)`.
+
+`meta.resourceKind` on the progress job is the hub's refresh signal - the call list reloads on
+`progress.job.completed` for any job carrying it, without knowing which provider queued it.
+
+`TILLIO_QUEUE_CONCURRENCY` (default 1, ceiling 20) bounds how many sweeps run at once. One is the default
+because parallel sweeps against the same environment only buy provider throttling.
 
 Days are interpreted in the `Europe/Warsaw` wall clock that Tillio uses, then converted to instants.
 
@@ -414,8 +432,10 @@ The list is read-only: no create, no row actions, no bulk actions. The empty sta
 ### Injected widgets - implemented
 
 `pull-calls` injects into `data-table:phone_calls.calls:toolbar` - the Pull action lives where the calls are,
-not on the integration page. `operators-config` injects the `Operator configuration` tab into the Tillio
-integration detail spot. Both are provider-owned; the hub does not know Tillio exists.
+not on the integration page. The dialog hands the range over and closes; `ProgressTopBar` owns the run from
+there, and the list reloads itself when the job completes. `operators-config` injects the
+`Operator configuration` tab into the Tillio integration detail spot. Both are provider-owned; the hub does
+not know Tillio exists.
 
 ### Planned
 
@@ -453,7 +473,8 @@ Hub tests carry the `HUB` infix and live in `packages/core`; provider tests use 
 Widget tests live in the provider package on purpose: the hub must keep passing with Tillio disabled.
 
 Unit tests: Tillio client, adapter fetch, health, normalizer, operators, operators store, pull readiness,
-timezone conversion and URL guard (provider package); the ingest command (core).
+the pull job (cursor walk, isolated ingest failure, cancellation, operator detached mid-flight), timezone
+conversion and URL guard (provider package); the ingest command (core).
 
 Two constraints worth recording for whoever writes the next test:
 
@@ -477,6 +498,7 @@ Two constraints worth recording for whoever writes the next test:
 | Recording URLs and raw payloads leak (numbers and recordings are PII) | High (security) | Whole-column encryption for `recording_url`, `raw_snapshot`, `provider_facts` and participant fields; `phone_calls.manage` gates raw payload |
 | Cross-organization call exposure | High (security) | Tenant/org scoping on every query; covered by TC-PHONE-HUB-005 |
 | A single bad record aborts a whole pull batch | Medium | One command invocation per call; failures are isolated, counted, and emitted as `ingest_failed` |
+| A wide range outlives the request, leaving the operator with no progress and nothing to resume | Medium | The sweep runs in the `tillio-pull` worker behind a cancellable `ProgressJob`; the route answers `202` |
 | Duplicate calls from re-pull or a later webhook | Medium | Unique `(provider_key, external_call_id)` per scope plus idempotent ingest |
 | Provider timestamps are ambiguous (wall clock vs offset) | Medium | Day inputs converted from the provider's `Europe/Warsaw` wall clock; conversion unit-tested |
 | Tillio's webhook contract is weaker than assumed | Medium | Pull/backfill is the required first path; webhooks are a later phase |
@@ -508,8 +530,8 @@ entities and migration, the ingest command, the read API, the backend list, Open
 within the phase: the detail page and the provider registry (one provider does not justify dispatch).
 
 **Phase 2 - Tillio provider.** Implemented. `@open-mercato/tillio` with the two-level configuration, the
-single adapter dispatching by plugin, health check, readiness, pull, operator routes, normalizer, and the two
-injected widgets. Deferred: additional operator plugins.
+single adapter dispatching by plugin, health check, readiness, the queued pull and its worker, operator
+routes, normalizer, and the two injected widgets. Deferred: additional operator plugins.
 
 **Phase 3 - communication projection.** Planned. Register the `phone_calls.call` activity type, an idempotent
 projection command refreshed after ingest, a renderer for the Personal Communication Hub, and
@@ -574,6 +596,21 @@ Scope of this report: the implemented slice (Phases 1-2). Planned phases are des
 ---
 
 ## Changelog
+
+### 2026-08-14 - Pull moved off the request
+
+- `POST /api/tillio/pull` now creates a cancellable `ProgressJob`, enqueues the `tillio-pull` worker and
+  answers `202` with `{ progressJobId }`; the previous contract swept the range inside the request and
+  returned counts, which left a wide range with no durable progress and nothing to resume. A concurrent pull
+  is refused with `429`.
+- Added `lib/pull-job.ts`, `lib/queue.ts` and `workers/tillio-pull.ts`; the worker re-resolves environment and
+  operator on every attempt and carries no credentials in its payload.
+- The call list reloads on `progress.job.completed` for jobs whose `meta.resourceKind` is the phone-call
+  resource kind, replacing the widget's full page reload. The constant moved to
+  `@open-mercato/shared/modules/phone_calls/types` so a client surface can read it without importing the
+  ingest command.
+- Removed `fetchCall` from the provider adapter contract: it was declared but implemented only as a throwing
+  stub, and nothing consumed it. It returns with the phase that needs single-call retrieval.
 
 ### 2026-07-16 - Reconciled with the implementation
 

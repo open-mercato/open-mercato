@@ -47,11 +47,10 @@
   "tillio.pull.failed": "Anrufe konnten nicht von Tillio abgerufen werden.",
   "tillio.pull.notReadyTitle": "Tillio ist nicht bereit",
   "tillio.pull.operatorMissing": "Verbinden Sie einen Tillio-Operator auf der Integrationsseite, bevor Sie Anrufe abrufen.",
-  "tillio.pull.partial": "{created} neue und {updated} aktualisierte Anrufe abgerufen, {failed} fehlgeschlagen.",
   "tillio.pull.pulling": "Wird abgerufen...",
+  "tillio.pull.queued": "Anrufe werden von Tillio abgerufen. Den Fortschritt siehst du in der Fortschrittsleiste.",
   "tillio.pull.rangeRequired": "Wählen Sie zuerst einen Zeitraum.",
   "tillio.pull.retry": "Erneut versuchen",
-  "tillio.pull.succeeded": "{created} neue und {updated} aktualisierte Anrufe abgerufen.",
   "tillio.pull.timezoneHint": "Tage werden in der von Tillio verwendeten Zeitzone Europe/Warsaw interpretiert.",
   "tillio.pull.title": "Anrufe von Tillio abrufen",
   "tillio.title": "Tillio-Telefonie"

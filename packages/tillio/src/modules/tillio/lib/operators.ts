@@ -4,7 +4,8 @@ import { createTillioClient } from './client'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
-import { TILLIO_INTEGRATION_ID, environmentSchema, readTenantSystemId } from './environment'
+import { environmentSchema, readTenantSystemId } from './environment'
+import { TILLIO_INTEGRATION_ID } from '../integration'
 import {
   buildTenantDomain,
   computeEnvFingerprint,

@@ -47,11 +47,10 @@
   "tillio.pull.failed": "Tillio에서 통화를 가져오지 못했습니다.",
   "tillio.pull.notReadyTitle": "Tillio가 준비되지 않음",
   "tillio.pull.operatorMissing": "통화를 가져오기 전에 연동 페이지에서 Tillio 오퍼레이터를 연결하세요.",
-  "tillio.pull.partial": "신규 통화 {created}건과 업데이트된 통화 {updated}건을 가져왔으며 {failed}건이 실패했습니다.",
   "tillio.pull.pulling": "가져오는 중...",
+  "tillio.pull.queued": "Tillio에서 통화를 가져오는 중입니다. 진행 상황은 진행률 표시줄에서 확인하세요.",
   "tillio.pull.rangeRequired": "먼저 기간을 선택하세요.",
   "tillio.pull.retry": "다시 시도",
-  "tillio.pull.succeeded": "신규 통화 {created}건과 업데이트된 통화 {updated}건을 가져왔습니다.",
   "tillio.pull.timezoneHint": "날짜는 Tillio가 사용하는 Europe/Warsaw 시간대를 기준으로 해석됩니다.",
   "tillio.pull.title": "Tillio에서 통화 가져오기",
   "tillio.title": "Tillio 전화 연동"

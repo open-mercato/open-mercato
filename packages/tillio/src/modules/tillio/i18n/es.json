@@ -47,11 +47,10 @@
   "tillio.pull.failed": "No se pudieron obtener las llamadas de Tillio.",
   "tillio.pull.notReadyTitle": "Tillio no está listo",
   "tillio.pull.operatorMissing": "Conecte un operador de Tillio en la página de integración antes de obtener llamadas.",
-  "tillio.pull.partial": "Se obtuvieron {created} llamadas nuevas y {updated} actualizadas, {failed} fallidas.",
   "tillio.pull.pulling": "Obteniendo...",
+  "tillio.pull.queued": "Obteniendo llamadas de Tillio. Sigue el avance en la barra de progreso.",
   "tillio.pull.rangeRequired": "Elija primero un rango de fechas.",
   "tillio.pull.retry": "Reintentar",
-  "tillio.pull.succeeded": "Se obtuvieron {created} llamadas nuevas y {updated} actualizadas.",
   "tillio.pull.timezoneHint": "Los días se interpretan en la zona horaria Europe/Warsaw que utiliza Tillio.",
   "tillio.pull.title": "Obtener llamadas de Tillio",
   "tillio.title": "Telefonía Tillio"

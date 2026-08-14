@@ -48,6 +48,10 @@ export interface PhoneCallProviderScope {
   organizationId: string
 }
 
+// Declared here rather than next to the ingest command so client surfaces can read it without
+// pulling the command module (and MikroORM with it) into the browser bundle.
+export const PHONE_CALL_RESOURCE_KIND = 'phone_calls.phone_call'
+
 export type PhoneCallProviderCredentials = Record<string, unknown>
 
 export interface ValidatePhoneCallProviderInput {

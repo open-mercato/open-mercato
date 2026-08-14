@@ -1,14 +1,19 @@
 import { buildIntegrationDetailWidgetSpotId, type IntegrationBundle, type IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
 
-export const tillioDetailWidgetSpotId = buildIntegrationDetailWidgetSpotId('tillio')
+// Two names for one value on purpose: the integration registry keys credentials by the integration id
+// while the phone_calls hub keys calls by the provider key, and the two axes need not agree.
+export const TILLIO_INTEGRATION_ID = 'tillio'
+export const TILLIO_PROVIDER_KEY = 'tillio'
+
+export const tillioDetailWidgetSpotId = buildIntegrationDetailWidgetSpotId(TILLIO_INTEGRATION_ID)
 
 export const integration: IntegrationDefinition = {
-  id: 'tillio',
+  id: TILLIO_INTEGRATION_ID,
   title: 'Tillio',
   description: 'VoIP bridge for the phone_calls hub. Configure the Tillio environment, then attach one Ringostat operator.',
   category: 'communication',
   hub: 'phone_calls',
-  providerKey: 'tillio',
+  providerKey: TILLIO_PROVIDER_KEY,
   icon: 'phone-call',
   package: '@open-mercato/tillio',
   version: '0.1.0',

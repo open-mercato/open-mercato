@@ -7,8 +7,10 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { PHONE_CALL_RESOURCE_KIND } from '@open-mercato/shared/modules/phone_calls/types'
 
 type PhoneCallRow = {
   id: string
@@ -84,6 +86,15 @@ export default function PhoneCallsPage() {
   }, [])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [reloadToken, setReloadToken] = React.useState(0)
+
+  // Ingest runs in a provider worker, so the rows land after the page did. Any job that
+  // declares this resource kind wrote calls, whichever provider queued it.
+  useAppEvent('progress.job.completed', (event) => {
+    const meta = (event.payload as { meta?: Record<string, unknown> | null } | undefined)?.meta
+    if (meta?.resourceKind !== PHONE_CALL_RESOURCE_KIND) return
+    setReloadToken((token) => token + 1)
+  }, [])
 
   const queryString = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -133,7 +144,7 @@ export default function PhoneCallsPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [queryString, t])
+  }, [queryString, reloadToken, t])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {

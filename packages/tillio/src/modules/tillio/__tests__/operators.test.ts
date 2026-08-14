@@ -1,6 +1,6 @@
 import { createTillioClient } from '../lib/client'
 import { TillioApiError } from '../lib/errors'
-import { TILLIO_INTEGRATION_ID } from '../lib/environment'
+import { TILLIO_INTEGRATION_ID } from '../integration'
 import { TILLIO_OPERATORS_INTEGRATION_ID, type TillioCredentialsService } from '../lib/operators-store'
 import {
   attachOperator,

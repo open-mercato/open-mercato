@@ -35,12 +35,7 @@ type PullReadiness = {
 type PullResult = {
   ok: boolean
   message?: string
-  fetched?: number
-  created?: number
-  updated?: number
-  failed?: number
-  nextCursor?: string | null
-  hasMore?: boolean
+  progressJobId?: string
 }
 
 function toDayString(date: Date): string {
@@ -109,54 +104,26 @@ export default function PullCallsWidget(
     const to = toDayString(range.end)
 
     setPending(true)
-    let created = 0
-    let updated = 0
-    let failed = 0
-    let cursor: string | null = null
-
     try {
-      // The route returns one batch per call; keep resuming from `nextCursor`
-      // until Tillio has no further pages for this range.
-      do {
-        const response = await runMutation({
-          context: mutationContext,
-          mutationPayload: { providerKey: 'tillio', from, to },
-          operation: () =>
-            apiCall<PullResult>('/api/tillio/pull', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ from, to, ...(cursor ? { cursor } : {}) }),
-            }),
-        })
-        const body = response.result as PullResult | undefined
-        if (!response.ok) {
-          flash(body?.message ?? t('tillio.pull.failed', 'Could not pull calls from Tillio.'), 'error')
-          return
-        }
-        created += body?.created ?? 0
-        updated += body?.updated ?? 0
-        failed += body?.failed ?? 0
-        cursor = body?.hasMore ? (body.nextCursor ?? null) : null
-      } while (cursor)
-
-      if (failed > 0) {
-        flash(
-          t('tillio.pull.partial', 'Pulled {created} new and {updated} updated calls, {failed} failed.')
-            .replace('{created}', String(created))
-            .replace('{updated}', String(updated))
-            .replace('{failed}', String(failed)),
-          'warning',
-        )
-      } else {
-        flash(
-          t('tillio.pull.succeeded', 'Pulled {created} new and {updated} updated calls.')
-            .replace('{created}', String(created))
-            .replace('{updated}', String(updated)),
-          'success',
-        )
+      const response = await runMutation({
+        context: mutationContext,
+        mutationPayload: { providerKey: 'tillio', from, to },
+        operation: () =>
+          apiCall<PullResult>('/api/tillio/pull', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ from, to }),
+          }),
+      })
+      const body = response.result as PullResult | undefined
+      if (!response.ok) {
+        flash(body?.message ?? t('tillio.pull.failed', 'Could not pull calls from Tillio.'), 'error')
+        return
       }
+      // The sweep runs in a worker, so the dialog only confirms the handover; the top bar owns
+      // the rest and the list picks the calls up on its next load.
+      flash(t('tillio.pull.queued', 'Pulling calls from Tillio. Track it in the progress bar.'), 'success')
       setOpen(false)
-      window.location.reload()
     } finally {
       setPending(false)
     }

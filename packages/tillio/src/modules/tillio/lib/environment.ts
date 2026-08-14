@@ -2,8 +2,6 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 
-export const TILLIO_INTEGRATION_ID = 'tillio'
-
 // Own key, like the operators blob: saving integration credentials keeps the submitted fields
 // plus the schema's secret fields, and the identity is in neither, so it was dropped on every save.
 export const TILLIO_ENVIRONMENT_IDENTITY_INTEGRATION_ID = 'tillio_environment'

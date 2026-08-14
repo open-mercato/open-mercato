@@ -5,33 +5,18 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
-import type { NormalizedPhoneCall } from '@open-mercato/shared/modules/phone_calls/types'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import { PHONE_CALL_RESOURCE_KIND } from '@open-mercato/shared/modules/phone_calls/types'
+import { TILLIO_PROVIDER_KEY } from '../../integration'
 import {
-  PHONE_CALL_RESOURCE_KIND,
-  PHONE_CALLS_CALL_INGEST_COMMAND_ID,
-  type IngestPhoneCallResult,
-} from '@open-mercato/core/modules/phone_calls/commands/calls'
-import { emitPhoneCallsEvent } from '@open-mercato/core/modules/phone_calls/events'
-import { TILLIO_INTEGRATION_ID } from '../../lib/environment'
-import { TillioApiError } from '../../lib/errors'
-import { tillioAdapter } from '../../lib/adapter'
-import { classifyTillioError, isTillioEnvironmentHealthy, resolveEnvironment, type TillioResolvedEnvironment } from '../../lib/operators'
-import {
-  readOperatorsBlob,
-  type TillioCredentialsService,
-  type TillioOperatorRecord,
-} from '../../lib/operators-store'
-import {
-  blockerSection,
-  evaluatePullReadiness,
-  PULL_BLOCKER_MESSAGES,
-  type PullReadiness,
-} from '../../lib/pull-readiness'
-import { zonedDayEnd, zonedDayStart } from '../../lib/tz'
-
-const TILLIO_PROVIDER_KEY = 'tillio'
+  resolvePullContext,
+  TILLIO_PULL_JOB_TYPE,
+  type TillioPullJobPayload,
+} from '../../lib/pull-job'
+import type { TillioCredentialsService } from '../../lib/operators-store'
+import { blockerSection, PULL_BLOCKER_MESSAGES } from '../../lib/pull-readiness'
+import { getTillioQueue, TILLIO_PULL_QUEUE } from '../../lib/queue'
 
 const daySchema = z.iso.date()
 
@@ -56,53 +41,15 @@ export const openApi = {
   },
   POST: {
     tags: ['Tillio'],
-    summary: 'Pull phone calls from Tillio into the phone_calls hub',
+    summary: 'Queue a Tillio phone-call pull and return its progress job id',
+    responses: [
+      { status: 202, description: 'Pull queued; returns { progressJobId }' },
+      { status: 400, description: 'Invalid day range' },
+      { status: 401, description: 'Unauthorized' },
+      { status: 409, description: 'Tillio is not ready to pull (environment or operator blocker)' },
+      { status: 429, description: 'A pull is already running for this scope' },
+    ],
   },
-}
-
-type PullContext = {
-  readiness: PullReadiness
-  environment: TillioResolvedEnvironment | null
-  operator: TillioOperatorRecord | null
-}
-
-async function resolvePullContext(
-  credentialsService: TillioCredentialsService,
-  em: EntityManager,
-  scope: IntegrationScope,
-): Promise<PullContext> {
-  const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentHealthy = environment ? await isTillioEnvironmentHealthy(em, scope) : false
-  const blob = await readOperatorsBlob(credentialsService, scope)
-  const operator =
-    blob.operators.find((entry) => entry.id === blob.defaultOperatorId) ?? blob.operators[0] ?? null
-
-  return {
-    readiness: evaluatePullReadiness({ environment, environmentHealthy, operator }),
-    environment,
-    operator,
-  }
-}
-
-function buildIngestInput(call: NormalizedPhoneCall, scope: IntegrationScope): Record<string, unknown> {
-  return {
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    providerKey: TILLIO_PROVIDER_KEY,
-    integrationId: TILLIO_INTEGRATION_ID,
-    externalCallId: call.externalCallId,
-    externalConversationId: call.externalConversationId ?? null,
-    direction: call.direction,
-    status: call.status,
-    participants: call.participants,
-    recording: call.recording ?? null,
-    startedAt: call.startedAt ?? null,
-    answeredAt: call.answeredAt ?? null,
-    endedAt: call.endedAt ?? null,
-    durationSeconds: call.durationSeconds ?? null,
-    providerFacts: call.providerFacts,
-    rawPayload: call.rawPayload,
-  }
 }
 
 export async function GET(req: Request) {
@@ -140,15 +87,26 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as TillioCredentialsService
-  const commandBus = container.resolve('commandBus') as CommandBus
+  const progressService = container.resolve('progressService') as ProgressService
   const em = container.resolve('em') as EntityManager
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
+  const progressContext = {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: auth.sub ?? null,
+  }
 
-  const { readiness, environment, operator } = await resolvePullContext(credentialsService, em, scope)
-  if (readiness.blocker || !environment || !operator) {
-    const blocker = readiness.blocker ?? 'environment_not_ready'
+  // Checked here as well as in the worker so an unconfigured provider answers immediately
+  // instead of parking a job that can only fail.
+  const { readiness } = await resolvePullContext(credentialsService, em, scope)
+  if (readiness.blocker) {
     return NextResponse.json(
-      { ok: false, code: blocker, section: blockerSection(blocker), message: PULL_BLOCKER_MESSAGES[blocker] },
+      {
+        ok: false,
+        code: readiness.blocker,
+        section: blockerSection(readiness.blocker),
+        message: PULL_BLOCKER_MESSAGES[readiness.blocker],
+      },
       { status: 409 },
     )
   }
@@ -169,88 +127,43 @@ export async function POST(req: Request) {
   })
   if (!guarded.ok) return guarded.response
 
-  let batch
-  try {
-    batch = await tillioAdapter.fetchCalls({
-      credentials: {
-        apiUrl: environment.apiUrl,
-        apiKey: environment.apiKey,
-        tenantSystemId: environment.tenantSystemId,
-        operator: {
-          id: operator.id,
-          plugin: operator.plugin,
-          token: operator.token,
-          tenantDomain: operator.tenantDomain,
-        },
-      },
-      scope,
-      integrationId: TILLIO_INTEGRATION_ID,
-      from: zonedDayStart(body.from),
-      to: zonedDayEnd(body.to),
-      cursor: body.cursor ?? null,
-      limit: body.limit ?? null,
-    })
-  } catch (err) {
-    if (err instanceof TillioApiError) {
-      const section = classifyTillioError(err)
-      return NextResponse.json(
-        { ok: false, section, message: err.message },
-        { status: section === 'environment' ? 502 : 422 },
-      )
-    }
-    return NextResponse.json({ ok: false, section: 'operator', message: 'Failed to fetch calls from Tillio.' }, { status: 500 })
+  // Best-effort: this check and `createJob` are not atomic, so two near-simultaneous requests
+  // can both pass. Harmless because the worker runs at concurrency 1 and ingest is idempotent.
+  const active = await progressService.getActiveJobs(progressContext)
+  if (active.some((job) => job.jobType === TILLIO_PULL_JOB_TYPE)) {
+    return NextResponse.json(
+      { ok: false, code: 'pull_already_running', section: 'operator', message: 'A Tillio pull is already running.' },
+      { status: 429 },
+    )
   }
 
-  const commandContext: CommandRuntimeContext = {
-    container,
-    auth,
-    organizationScope: {
-      selectedId: scope.organizationId,
-      filterIds: [scope.organizationId],
-      allowedIds: [scope.organizationId],
-      tenantId: scope.tenantId,
-    },
-    selectedOrganizationId: scope.organizationId,
-    organizationIds: [scope.organizationId],
-    request: req,
-  }
-
-  let created = 0
-  let updated = 0
-  let failed = 0
-  // One ingest command (hence one transaction) per call, run sequentially: this keeps
-  // failures isolated so a single bad record only bumps `failed` and the rest of the
-  // batch still lands. For a manual, low-frequency pull (<=500 per batch) that isolation
-  // is worth more than the throughput a single bulk transaction would buy.
-  for (const call of batch.calls) {
-    try {
-      const executed = await commandBus.execute<Record<string, unknown>, IngestPhoneCallResult>(
-        PHONE_CALLS_CALL_INGEST_COMMAND_ID,
-        { input: buildIngestInput(call, scope), ctx: commandContext },
-      )
-      if (executed.result.created) created += 1
-      else updated += 1
-    } catch {
-      failed += 1
-      // Keep a forensic trail for the swallowed failure (event carries no PII).
-      await emitPhoneCallsEvent('phone_calls.call.ingest_failed', {
+  const progressJob = await progressService.createJob(
+    {
+      jobType: TILLIO_PULL_JOB_TYPE,
+      name: 'Pull calls from Tillio',
+      description: `Pulling Tillio calls from ${body.from} to ${body.to}`,
+      cancellable: true,
+      meta: {
+        resourceKind: PHONE_CALL_RESOURCE_KIND,
         providerKey: TILLIO_PROVIDER_KEY,
-        externalCallId: call.externalCallId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      }).catch(() => undefined)
-    }
+        from: body.from,
+        to: body.to,
+      },
+    },
+    progressContext,
+  )
+
+  const payload: TillioPullJobPayload = {
+    progressJobId: progressJob.id,
+    scope: { tenantId: auth.tenantId, organizationId: auth.orgId, userId: auth.sub ?? null },
+    from: body.from,
+    to: body.to,
+    cursor: body.cursor ?? null,
+    limit: body.limit ?? null,
   }
+  await getTillioQueue(TILLIO_PULL_QUEUE).enqueue(payload as unknown as Record<string, unknown>)
 
   await guarded.runAfterSuccess()
 
-  return NextResponse.json({
-    ok: true,
-    fetched: batch.calls.length,
-    created,
-    updated,
-    failed,
-    nextCursor: batch.nextCursor ?? null,
-    hasMore: Boolean(batch.nextCursor),
-  })
+  return NextResponse.json({ ok: true, progressJobId: progressJob.id }, { status: 202 })
 }

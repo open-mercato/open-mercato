@@ -6,6 +6,7 @@ import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { PHONE_CALL_RESOURCE_KIND } from '@open-mercato/shared/modules/phone_calls/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
@@ -17,7 +18,7 @@ import {
 import { emitPhoneCallsEvent } from '../events'
 
 export const PHONE_CALLS_CALL_INGEST_COMMAND_ID = 'phone_calls.call.ingest'
-export const PHONE_CALL_RESOURCE_KIND = 'phone_calls.phone_call'
+export { PHONE_CALL_RESOURCE_KIND }
 
 const phoneCallCrudIndexer: CrudIndexerConfig<PhoneCall> = {
   entityType: E.phone_calls.phone_call,

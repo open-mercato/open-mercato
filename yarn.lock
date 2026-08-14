@@ -8108,6 +8108,7 @@ __metadata:
   resolution: "@open-mercato/tillio@workspace:packages/tillio"
   dependencies:
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"

@@ -7,6 +7,7 @@ import type {
   ProviderValidationResult,
   ValidatePhoneCallProviderInput,
 } from '@open-mercato/shared/modules/phone_calls/types'
+import { TILLIO_PROVIDER_KEY } from '../integration'
 import { TillioApiError } from './errors'
 import { createTillioClient, type TillioClientDeps } from './client'
 import { ENV_PROBE_TENANT_DOMAIN, environmentSchema } from './environment'
@@ -41,7 +42,7 @@ function parseCursor(cursor: string | null | undefined): number {
 // the adapter without them and gets URL validation plus DNS pinning from `safeOutboundFetch`.
 export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProviderAdapter {
   return {
-    providerKey: 'tillio',
+    providerKey: TILLIO_PROVIDER_KEY,
     displayName: 'Tillio',
 
     async validateConnection(input: ValidatePhoneCallProviderInput): Promise<ProviderValidationResult> {
