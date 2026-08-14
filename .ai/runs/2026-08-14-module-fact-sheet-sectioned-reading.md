@@ -49,6 +49,8 @@ Make generated module fact-sheets mechanically readable under agent read caps, t
 
 ## Progress
 
+PR: #5293
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: In-file sectioned reading affordances
@@ -66,4 +68,4 @@ Make generated module fact-sheets mechanically readable under agent read caps, t
 - [x] 2.2 Migrate both build pipelines to the split layout — 3f80ae4d8
 - [x] 2.3 Migrate setup selection, copying, ownership, routing, and stale cleanup — 3f80ae4d8
 - [x] 2.4 Rewrite harness consumers and update tests, guides, and upgrade notes — 3f80ae4d8
-- [ ] 2.5 Complete harness refresh, full validation, and review readiness
+- [x] 2.5 Complete harness refresh, full validation, and review readiness — 2aaf6592c
