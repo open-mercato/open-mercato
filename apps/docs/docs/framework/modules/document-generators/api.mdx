@@ -19,7 +19,7 @@ Returns all templates registered by application modules through `document-genera
 // Response
 [
   {
-    "id": "order-invoice",
+    "id": "sales.order-invoice",
     "label": "Order Invoice",
     "description": "Standard invoice for sales orders.",
     "module": "sales",
@@ -57,7 +57,7 @@ Renders the selected template for preview. PDF output is displayed in an iframe;
 ```jsonc
 // Request body
 {
-  "template_id": "order-invoice",
+  "template_id": "sales.order-invoice",
   "data": { "id": "order_01JXYZ..." }
 }
 ```
@@ -79,7 +79,7 @@ Renders the selected template and streams it to the browser as a file download.
 ```jsonc
 // Request body
 {
-  "template_id": "order-invoice",
+  "template_id": "sales.order-invoice",
   "data": { "id": "order_01JXYZ..." }
 }
 ```

@@ -27,7 +27,7 @@ test.describe('TC-PDF-003: PDF generate', () => {
     try {
       orderId = await createSalesOrderFixture(request, token)
       const response = await generateDocument(request, token, {
-        template_id: 'order-invoice',
+        template_id: 'sales.order-invoice',
         data: { id: orderId },
       })
 
@@ -50,7 +50,7 @@ test.describe('TC-PDF-003: PDF generate', () => {
     try {
       quoteId = await createSalesQuoteFixture(request, token)
       const response = await generateDocument(request, token, {
-        template_id: 'sales-offer',
+        template_id: 'sales.offer',
         data: { id: quoteId },
       })
 
@@ -66,7 +66,7 @@ test.describe('TC-PDF-003: PDF generate', () => {
   test('should return 500 when the source order does not exist', async ({ request }) => {
     const token = await getAuthToken(request)
     const response = await generateDocument(request, token, {
-      template_id: 'order-invoice',
+      template_id: 'sales.order-invoice',
       data: { id: randomUUID() },
     })
 
@@ -97,7 +97,7 @@ test.describe('TC-PDF-003: PDF generate', () => {
 
   test('should reject an unauthenticated request', async ({ request }) => {
     const response = await request.post('/api/document-generators/generate', {
-      data: { template_id: 'order-invoice', data: { id: randomUUID() } },
+      data: { template_id: 'sales.order-invoice', data: { id: randomUUID() } },
     })
     expect(response.ok()).toBe(false)
     expect([401, 403]).toContain(response.status())

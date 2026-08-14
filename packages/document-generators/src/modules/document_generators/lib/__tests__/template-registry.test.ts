@@ -117,16 +117,30 @@ describe('templateRegistry.listTemplates', () => {
 
     expect(() => templateRegistry.register([
       makeEntry({ id: 'new' }),
-      makeEntry({ id: 'existing' }),
-    ])).toThrow(DuplicateTemplateError)
+      makeEntry({ id: 'existing', module: 'third_party' }),
+    ])).toThrow(
+      '[internal] Duplicate template ID "existing": already registered by module "example", attempted by module "third_party". Template IDs must be globally unique and module-namespaced.',
+    )
     expect(templateRegistry.listTemplates().map((template) => template.id)).toEqual(['existing'])
+  })
+
+  it('rejects re-registering the same entry so duplicate bootstrap registration fails fast', () => {
+    const entry = makeEntry({ id: 'example.sample-report' })
+    templateRegistry.register([entry])
+
+    expect(() => templateRegistry.register([entry])).toThrow(DuplicateTemplateError)
+    expect(templateRegistry.listTemplates().map((template) => template.id)).toEqual([
+      'example.sample-report',
+    ])
   })
 
   it('rejects duplicate IDs within one batch', () => {
     expect(() => templateRegistry.register([
       makeEntry({ id: 'duplicate' }),
       makeEntry({ id: 'duplicate', module: 'custom' }),
-    ])).toThrow('[internal] Duplicate template ID: duplicate')
+    ])).toThrow(
+      '[internal] Duplicate template ID "duplicate": already registered by module "example", attempted by module "custom". Template IDs must be globally unique and module-namespaced.',
+    )
     expect(templateRegistry.listTemplates()).toEqual([])
   })
 })

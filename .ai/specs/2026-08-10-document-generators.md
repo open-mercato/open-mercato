@@ -218,6 +218,7 @@ interface TemplateRegistry {
 ```
 
 > Sales is registered through `packages/core/src/modules/sales/document-generators.ts`. Generated bootstrap code calls `register(...)`; route files do not import a domain registry for side effects.
+> Template IDs use the global `<module>.<template>` namespace. Duplicate registration is intentionally never idempotent: a second registration of the same ID, including the same entry, is treated as an invalid bootstrap graph and fails before the copied registry state is committed.
 ```ts
 // Neutral declaration contract: @open-mercato/shared/modules/document-generators
 interface TemplateMeta {
@@ -338,7 +339,7 @@ export class QuotesDocumentService extends BaseDocumentService {
   constructor() {
     super()
     this.registerTemplate({
-      id: 'sales-offer',
+      id: 'sales.offer',
       documentType: 'offer',
       format: 'pdf',
       filename: ({ data }) => `offer-${String(data.document.number)}.pdf`,
@@ -383,7 +384,7 @@ Returns all available templates. The global catalogue remains the default; calle
 **Response:**
 ```json
 [
-  { "id": "sales-offer", "label": "Sales Offer", "description": "..." },
+  { "id": "sales.offer", "label": "Sales Offer", "description": "..." },
   { "id": "custom-invoice", "label": "Custom Invoice", "description": "..." }
 ]
 ```
@@ -418,7 +419,7 @@ Renders a PDF for preview — **no side effects** (no logging, no events, no per
 **Request:**
 ```json
 {
-  "template_id": "sales-offer",
+  "template_id": "sales.offer",
   "data": { /* raw context.record */ }
 }
 ```
@@ -439,7 +440,7 @@ Generates a PDF and records generation history on a best-effort basis. Used by t
 **Request:**
 ```json
 {
-  "template_id": "sales-offer",
+  "template_id": "sales.offer",
   "data": { /* raw context.record — at minimum { id } when fetchData is defined */ }
 }
 ```
@@ -584,7 +585,7 @@ No changes to existing services or templates required.
 
 1. Shared `document-generators` contracts plus the engine-owned `lib/template-registry.ts`
 2. `BaseDocumentService` in `@open-mercato/shared/modules/document-generators`
-3. Sales-owned `QuotesDocumentService`, local validation, and `sales-offer` registration through `sales/document-generators.ts`
+3. Sales-owned `QuotesDocumentService`, local validation, and `sales.offer` registration through `sales/document-generators.ts`
 4. Generated bootstrap registration in the engine-owned registry
 5. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
 6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation using React-PDF's built-in Helvetica family
@@ -628,7 +629,7 @@ No changes to existing services or templates required.
 2. Added `MarkdownTemplateSource`, `MarkdownRenderInput`, and `MarkdownRenderingService` colocated in the Markdown engine folder.
 3. Added `DocumentRenderer` shared by preview and generate routes, with a format-to-renderer map and format-neutral `DocumentRenderInput`.
 4. Reorganized built-in templates to `<logical-template>/<format>/` while keeping normalized data types at the logical-template level.
-5. Added `order-invoice-markdown` to `OrdersDocumentService`; it shares the order fetch, normalization, resource identity, and history pipeline with the PDF invoice.
+5. Added `sales.order-invoice-markdown` to `OrdersDocumentService`; it shares the order fetch, normalization, resource identity, and history pipeline with the PDF invoice.
 6. Added Markdown source preview and format-aware downloading in `PreviewPanel`.
 
 ### Phase 5 — History & Backend Page ✅
@@ -779,11 +780,11 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 
 ## Migration & Backward Compatibility
 
-The unreleased implementation was decentralized before merge. Sales now owns `OrdersDocumentService`, `QuotesDocumentService`, their validators and snapshots, the order/quote templates, the two detail widgets, and the corresponding `sales.documents.templates.*` translations. It contributes the unchanged template IDs and resource kinds through `sales/document-generators.ts`. The engine package no longer contains a domain directory or resolves any Sales entity.
+The unreleased implementation was decentralized before merge. Sales now owns `OrdersDocumentService`, `QuotesDocumentService`, their validators and snapshots, the order/quote templates, the two detail widgets, and the corresponding `sales.documents.templates.*` translations. It contributes namespaced template IDs and unchanged resource kinds through `sales/document-generators.ts`. The engine package no longer contains a domain directory or resolves any Sales entity.
 
 Neutral template contracts and `BaseDocumentService` moved to `@open-mercato/shared/modules/document-generators`; owning modules import them directly from shared. The previous root exports from `@open-mercato/document-generators` remain as deprecated compatibility re-exports for at least one minor version, while the old internal service/type paths are no longer used by first-party code. Format mechanics stay in `@open-mercato/document-generators`: `@react-pdf/renderer`, PDF primitives, theme/logo, Markdown/PDF renderers, preview/generate routes, MIME/filename output, and history. Domain templates consume the plugin-owned React-PDF dependency through `modules/document_generators/providers/react-pdf`, while reusable theme and components remain under `modules/document_generators/templates/shared` and are imported directly. Built-in templates use React-PDF's standard Helvetica family and ship no local font assets.
 
-No database migration is required. Template IDs (`order-invoice`, `order-invoice-markdown`, `sales-offer`), resource kinds (`sales.order`, `sales.quote`), API routes, history rows, ACL features, and injection spot IDs remain unchanged. The widget implementation IDs are unreleased and move from the engine namespace to the owning Sales namespace.
+No database migration is required. Before the first release, the built-in template IDs were namespaced as `sales.order-invoice`, `sales.order-invoice-markdown`, and `sales.offer` so third-party modules can use their own namespace without colliding with Sales. No deployed history rows or published template-ID contract exists to migrate. Resource kinds (`sales.order`, `sales.quote`), API routes, ACL features, and injection spot IDs remain unchanged. The widget implementation IDs are unreleased and move from the engine namespace to the owning Sales namespace.
 
 `TemplateLoadContext.translate` and `TemplateDataContext.translate` are additive optional fields. Existing external template registrations and direct `TemplateRegistry.load` callers that provide only `locale` continue to compile and run. The built-in preview and generate routes always provide the request translator returned by `resolveTranslations()`. `BaseDocumentService` retains a key-returning compatibility fallback only for legacy callers that omit the translator; it does not select a locale or load a second dictionary. New document services should build user-facing labels with the supplied translator and include them in normalized template data.
 
@@ -791,7 +792,7 @@ The unreleased generate contract no longer accepts client-supplied `resource_kin
 
 No released template ID, route, or public contract is removed or renamed. Domain translations move from `document_generators.documents.*` to `sales.documents.templates.*`; the feature is still on an unmerged PR, so a dual-key compatibility window is unnecessary.
 
-The unreleased registry contract is simplified before merge from separate `registerInternal` / `registerExternal` methods and a grouped response to one `register` method and a flat `TemplateMeta[]` response. The registry validates each batch before mutation and rejects duplicate IDs instead of silently shadowing or dropping templates. Existing template IDs remain unchanged.
+The unreleased registry contract is simplified before merge from separate `registerInternal` / `registerExternal` methods and a grouped response to one `register` method and a flat `TemplateMeta[]` response. The registry validates each batch before mutation and rejects every duplicate ID instead of silently shadowing or dropping templates. This strict fail-fast is intentional even for an otherwise identical entry: registering the same global ID twice indicates an invalid generated bootstrap or module graph and must prevent application startup. Built-in IDs use the `<module>.<template>` namespace to minimize accidental third-party collisions, and duplicate diagnostics identify both the registered and incoming modules.
 
 The unreleased `BaseDocumentService.filename()` fallback is also removed before merge. Every `DocumentTemplateEntry` requires its own `filename` handler so output naming stays colocated with `format` and `load`; multi-format services cannot accidentally reuse a PDF extension for another renderer. `buildDocumentFilename` is only a convenience helper—template authors remain free to provide any custom naming function.
 
@@ -850,6 +851,7 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 
 | Date | Author | Summary |
 |------|--------|---------|
+| 2026-08-14 | Codex | Namespaced the unreleased Sales template IDs as `sales.order-invoice`, `sales.order-invoice-markdown`, and `sales.offer`. Preserved the intentional strict bootstrap invariant that every duplicate ID, including an identical re-registration, fails atomically; diagnostics now identify both modules and direct authors to global module namespacing. |
 | 2026-08-12 | Codex | Decentralized domain ownership: moved Sales services/templates/widgets/i18n into `sales`, moved neutral contracts and `BaseDocumentService` into `shared`, retained PDF/Markdown engines and dependencies in the plugin, and registered Sales entries through the existing generated bootstrap. |
 | 2026-05-06 | Krzysztof Polak | Spec created — Phases 1–4 designed |
 | 2026-05-07 | Krzysztof Polak | Initial compliance report added |

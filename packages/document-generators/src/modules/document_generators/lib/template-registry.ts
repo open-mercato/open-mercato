@@ -21,8 +21,10 @@ export class UnknownTemplateError extends Error {
 }
 
 export class DuplicateTemplateError extends Error {
-  constructor(id: string) {
-    super(`[internal] Duplicate template ID: ${id}`)
+  constructor(id: string, registeredModule: string, incomingModule: string) {
+    super(
+      `[internal] Duplicate template ID "${id}": already registered by module "${registeredModule}", attempted by module "${incomingModule}". Template IDs must be globally unique and module-namespaced.`,
+    )
     this.name = 'DuplicateTemplateError'
   }
 }
@@ -37,8 +39,9 @@ export class TemplateRegistry implements TemplateRegistryInterface {
   register(entries: TemplateEntry[]): void {
     const templates = new Map(this.templates)
     for (const entry of entries) {
-      if (templates.has(entry.id)) {
-        throw new DuplicateTemplateError(entry.id)
+      const registered = templates.get(entry.id)
+      if (registered) {
+        throw new DuplicateTemplateError(entry.id, registered.module, entry.module)
       }
       templates.set(entry.id, entry)
     }

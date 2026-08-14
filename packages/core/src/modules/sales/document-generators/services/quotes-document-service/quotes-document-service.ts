@@ -14,7 +14,7 @@ import type {
 } from './types'
 
 /** Template IDs registered by this service — exported for TemplateId type derivation. */
-export const QUOTES_TEMPLATE_IDS = ['sales-offer'] as const
+export const QUOTES_TEMPLATE_IDS = ['sales.offer'] as const
 
 /**
  * Document service for the Quotes module.
@@ -32,7 +32,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     super()
 
     this.registerTemplate({
-      id: 'sales-offer',
+      id: 'sales.offer',
       label: 'sales.documents.templates.metadata.salesOffer.label',
       description: 'sales.documents.templates.metadata.salesOffer.description',
       documentType: 'offer',

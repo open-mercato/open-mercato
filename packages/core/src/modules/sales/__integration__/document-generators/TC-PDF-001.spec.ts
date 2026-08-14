@@ -7,7 +7,7 @@ import { listTemplateFilterOptions, listTemplates } from './helpers/fixtures'
  *
  * Calls GET /api/document-generators/templates and verifies that the Sales
  * templates — the Order
- * Invoice ('order-invoice') and the Sales Offer ('sales-offer') — are present
+ * Invoice ('sales.order-invoice') and the Sales Offer ('sales.offer') — are present
  * with a well-formed metadata shape.
  */
 test.describe('TC-PDF-001: PDF templates listing', () => {
@@ -17,11 +17,11 @@ test.describe('TC-PDF-001: PDF templates listing', () => {
 
     expect(Array.isArray(result)).toBe(true)
     const templateIds = result.map((template) => template.id)
-    expect(templateIds).toContain('order-invoice')
-    expect(templateIds).toContain('order-invoice-markdown')
-    expect(templateIds).toContain('sales-offer')
+    expect(templateIds).toContain('sales.order-invoice')
+    expect(templateIds).toContain('sales.order-invoice-markdown')
+    expect(templateIds).toContain('sales.offer')
 
-    const orderInvoice = result.find((template) => template.id === 'order-invoice')
+    const orderInvoice = result.find((template) => template.id === 'sales.order-invoice')
     expect(orderInvoice).toBeDefined()
     expect(orderInvoice).toMatchObject({
       module: 'sales',
@@ -33,14 +33,14 @@ test.describe('TC-PDF-001: PDF templates listing', () => {
     expect(orderInvoice?.label.length).toBeGreaterThan(0)
     expect(Array.isArray(orderInvoice?.tags)).toBe(true)
 
-    expect(result.find((template) => template.id === 'order-invoice-markdown')).toMatchObject({
+    expect(result.find((template) => template.id === 'sales.order-invoice-markdown')).toMatchObject({
       module: 'sales',
       resourceKind: 'sales.order',
       documentType: 'invoice',
       format: 'md',
     })
 
-    const salesOffer = result.find((template) => template.id === 'sales-offer')
+    const salesOffer = result.find((template) => template.id === 'sales.offer')
     expect(salesOffer).toMatchObject({
       module: 'sales',
       resourceKind: 'sales.quote',

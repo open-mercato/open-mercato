@@ -11,9 +11,9 @@ The Sales module contributes three template variants through its `document-gener
 
 | Template | ID | Resource | Document type |
 |----------|----|----------|---------------|
-| Order Invoice | `order-invoice` | `sales.order` | invoice |
-| Order Invoice (Markdown) | `order-invoice-markdown` | `sales.order` | invoice |
-| Sales Offer | `sales-offer` | `sales.quote` | offer |
+| Order Invoice | `sales.order-invoice` | `sales.order` | invoice |
+| Order Invoice (Markdown) | `sales.order-invoice-markdown` | `sales.order` | invoice |
+| Sales Offer | `sales.offer` | `sales.quote` | offer |
 
 Both templates use React-PDF's built-in Helvetica font and authoring tokens exported by the rendering package. Their services, translations, templates and detail widgets are owned by Sales; the plugin provides the registry, rendering infrastructure and authoring toolkit.
 
@@ -24,6 +24,8 @@ To contribute templates from another module, extend `BaseDocumentService` import
 ## Registering templates from another module
 
 Templates are registered via a **convention file** named `document-generators.ts` at the root of any module (sibling of `index.ts`, `acl.ts`, etc.). The `mercato generate registry` step scans all loaded modules for this file and adds its templates to the global registry automatically.
+
+Template IDs share one global namespace and must use `<module>.<template>` namespacing, for example `my_module.invoice`. Registration is intentionally strict: any second registration of the same ID, including an otherwise identical entry, stops bootstrap with a diagnostic naming both modules. This prevents duplicate generator output or module evaluation from silently shadowing a template.
 
 No widget or injection-table entry is needed for Sales orders and quotes because Sales already owns those document tabs. Other resources must contribute their own thin widget.
 
@@ -51,7 +53,7 @@ export class MyModuleInvoiceDocumentService extends BaseDocumentService {
     super()
 
     this.registerTemplate({
-      id: 'my-module-invoice',
+      id: 'my_module.invoice',
       label: 'My Module Invoice',
       description: 'Standard invoice for my module orders.',
       documentType: 'invoice',

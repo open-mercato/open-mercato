@@ -156,12 +156,12 @@ describe('OrdersDocumentService templates', () => {
     const entries = service.getEntries()
 
     expect(entries.map((entry) => ({ id: entry.id, format: entry.format }))).toEqual([
-      { id: 'order-invoice', format: 'pdf' },
-      { id: 'order-invoice-markdown', format: 'md' },
+      { id: 'sales.order-invoice', format: 'pdf' },
+      { id: 'sales.order-invoice-markdown', format: 'md' },
     ])
 
-    const pdf = entries.find((entry) => entry.id === 'order-invoice')
-    const markdown = entries.find((entry) => entry.id === 'order-invoice-markdown')
+    const pdf = entries.find((entry) => entry.id === 'sales.order-invoice')
+    const markdown = entries.find((entry) => entry.id === 'sales.order-invoice-markdown')
     expect(pdf?.filename({ data: { document: { number: 'ORD-9' } } })).toBe('invoice-ORD-9.pdf')
     expect(pdf?.filename({ data: {} })).toBe('invoice.pdf')
     expect(markdown?.filename({ data: { document: { number: 'ORD-9' } } })).toBe('invoice-ORD-9.md')

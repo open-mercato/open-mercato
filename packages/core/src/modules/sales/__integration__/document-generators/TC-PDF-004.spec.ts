@@ -28,7 +28,7 @@ test.describe('TC-PDF-004: generation history', () => {
     try {
       orderId = await createSalesOrderFixture(request, token)
       const gen = await generateDocument(request, token, {
-        template_id: 'order-invoice',
+        template_id: 'sales.order-invoice',
         data: { id: orderId },
       })
 
@@ -42,13 +42,13 @@ test.describe('TC-PDF-004: generation history', () => {
       expect(row?.resourceLabel).toBeTruthy()
       expect(row?.resourceLabel).not.toBe(orderId)
       expect(row?.resourceKind).toBe('sales.order')
-      expect(row?.templateId).toBe('order-invoice')
+      expect(row?.templateId).toBe('sales.order-invoice')
       expect(typeof row?.templateLabel).toBe('string')
       expect(row?.templateLabel.length).toBeGreaterThan(0)
       expect(row?.generatedAt).toBeTruthy()
 
       const filteredHistory = await listDocuments(request, token, {
-        template_id: 'order-invoice',
+        template_id: 'sales.order-invoice',
         generated_by: row!.generatedBy,
         generated_from: new Date(Date.now() - 60_000).toISOString(),
         generated_to: new Date(Date.now() + 60_000).toISOString(),

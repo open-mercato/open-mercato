@@ -13,7 +13,7 @@ const scope = { organizationId: 'org-1', tenantId: 'tenant-1' }
 function makeCreateInput(overrides: Partial<CreateGeneratedDocumentInput> = {}): CreateGeneratedDocumentInput {
   return {
     scope,
-    templateId: 'sales-offer',
+    templateId: 'sales.offer',
     templateLabel: 'Sample Report',
     resourceKind: 'example.record',
     resourceId: 'record-7',
@@ -42,7 +42,7 @@ describe('GenerationHistoryService.create', () => {
       resourceKind: 'example.record',
       resourceId: 'record-7',
       resourceLabel: 'Record #7',
-      templateId: 'sales-offer',
+      templateId: 'sales.offer',
       templateLabel: 'Sample Report',
       format: 'pdf',
       mimeType: 'application/pdf',
@@ -87,7 +87,7 @@ describe('GenerationHistoryService.listAndCount', () => {
       resourceKind: 'example.record',
       resourceId: 'record-7',
       resourceLabel: 'Record #7',
-      templateId: 'sales-offer',
+      templateId: 'sales.offer',
       templateLabel: 'Sample Report',
       format: 'pdf',
       generatedBy: 'user-1',

@@ -157,6 +157,7 @@ describe('QuotesDocumentService templates', () => {
     const service = new QuotesDocumentService()
     const [template] = service.getEntries()
 
+    expect(template).toMatchObject({ id: 'sales.offer', format: 'pdf' })
     expect(template.filename({ data: { document: { number: 'Q-9' } } })).toBe('offer-Q-9.pdf')
     expect(template.filename({ data: {} })).toBe('offer.pdf')
   })

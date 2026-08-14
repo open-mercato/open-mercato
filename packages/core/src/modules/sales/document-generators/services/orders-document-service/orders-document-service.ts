@@ -14,7 +14,7 @@ import type {
 } from './types'
 
 /** Template IDs registered by this service — exported for TemplateId type derivation. */
-export const ORDERS_TEMPLATE_IDS = ['order-invoice', 'order-invoice-markdown'] as const
+export const ORDERS_TEMPLATE_IDS = ['sales.order-invoice', 'sales.order-invoice-markdown'] as const
 
 /**
  * Document service for the Orders module.
@@ -32,7 +32,7 @@ export class OrdersDocumentService extends BaseDocumentService {
     super()
 
     this.registerTemplate({
-      id: 'order-invoice',
+      id: 'sales.order-invoice',
       label: 'sales.documents.templates.metadata.orderInvoice.label',
       description: 'sales.documents.templates.metadata.orderInvoice.description',
       documentType: 'invoice',
@@ -50,7 +50,7 @@ export class OrdersDocumentService extends BaseDocumentService {
     })
 
     this.registerTemplate({
-      id: 'order-invoice-markdown',
+      id: 'sales.order-invoice-markdown',
       label: 'sales.documents.templates.metadata.orderInvoiceMarkdown.label',
       description: 'sales.documents.templates.metadata.orderInvoiceMarkdown.description',
       documentType: 'invoice',

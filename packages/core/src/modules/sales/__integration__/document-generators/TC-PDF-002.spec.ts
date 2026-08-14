@@ -26,7 +26,7 @@ test.describe('TC-PDF-002: PDF preview', () => {
     try {
       orderId = await createSalesOrderFixture(request, token)
       const response = await previewDocument(request, token, {
-        template_id: 'order-invoice',
+        template_id: 'sales.order-invoice',
         data: { id: orderId },
       })
 
@@ -44,7 +44,7 @@ test.describe('TC-PDF-002: PDF preview', () => {
   test('should return 500 when the source order does not exist', async ({ request }) => {
     const token = await getAuthToken(request)
     const response = await previewDocument(request, token, {
-      template_id: 'order-invoice',
+      template_id: 'sales.order-invoice',
       data: { id: randomUUID() },
     })
 
@@ -56,7 +56,7 @@ test.describe('TC-PDF-002: PDF preview', () => {
 
   test('should return 400 when template_id or data is missing', async ({ request }) => {
     const token = await getAuthToken(request)
-    const response = await previewDocument(request, token, { template_id: 'order-invoice' })
+    const response = await previewDocument(request, token, { template_id: 'sales.order-invoice' })
 
     expect(response.status()).toBe(400)
     const body = await response.json()
@@ -76,7 +76,7 @@ test.describe('TC-PDF-002: PDF preview', () => {
 
   test('should reject an unauthenticated request', async ({ request }) => {
     const response = await request.post('/api/document-generators/preview', {
-      data: { template_id: 'order-invoice', data: { id: randomUUID() } },
+      data: { template_id: 'sales.order-invoice', data: { id: randomUUID() } },
     })
     expect(response.ok()).toBe(false)
     expect([401, 403]).toContain(response.status())
