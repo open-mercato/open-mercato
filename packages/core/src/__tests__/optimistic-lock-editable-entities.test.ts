@@ -55,6 +55,7 @@ const moduleEntities: Record<string, string[]> = {
     'StaffTimeTask',
     'StaffTimeTag',
     'StaffTimeTaskComment',
+    'StaffTimeReport',
   ],
   resources: ['ResourcesResource', 'ResourcesResourceType'],
   dictionaries: ['Dictionary', 'DictionaryEntry'],
@@ -161,6 +162,7 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   StaffTimeTaskStatus: ['staff/api/timesheets/task-statuses/route.ts'],
   StaffTimeTask: ['staff/api/timesheets/tasks/route.ts'],
   StaffTimeTag: ['staff/api/timesheets/tags/route.ts'],
+  StaffTimeReport: ['staff/api/timesheets/reports/route.ts'],
   // StaffTimeTaskComment — hand-written thread route; the lock is enforced at the
   // command layer via `assertOptimisticLock` (case c).
   ResourcesResource: ['resources/api/resources.ts'],
