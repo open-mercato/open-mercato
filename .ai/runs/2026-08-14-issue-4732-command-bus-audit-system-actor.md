@@ -57,8 +57,8 @@ Command-bus audit entries written outside a request must record *which* automate
 
 ### Phase 4: Correct the PR's own claims
 
-- [ ] 4.1 Replace the unfounded tenant/org-id benefit with the real one (`validationWarningLogged` is a module-global one-shot that system actors used to burn), and state the `context.systemActor` queryability trade-off honestly instead of claiming immediate UI visibility (minors 5 and 6)
+- [x] 4.1 Replace the unfounded tenant/org-id benefit with the real one (`validationWarningLogged` is a module-global one-shot that system actors used to burn), and state the `context.systemActor` queryability trade-off honestly instead of claiming immediate UI visibility (minors 5 and 6) — PR body updated in place
 
 ### Phase 5: Validate and finalize
 
-- [ ] 5.1 Run the configured validation gate, then the `om-auto-review-pr` pass, and finalize the PR body, labels, and summary comment
+- [x] 5.1 Run the configured validation gate, then the `om-auto-review-pr` pass, and finalize the PR body, labels, and summary comment — b6305e174
