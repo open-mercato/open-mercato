@@ -3,8 +3,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { TILLIO_INTEGRATION_ID } from '../integration'
 import { environmentSchema, type TillioEnvironment } from './environment'
-import { attachOperator, TillioOperatorLimitError } from './operators'
-import type { TillioCredentialsService } from './operators-store'
+import { attachOperator, detachOperator, TillioOperatorLimitError } from './operators'
+import { readOperatorsBlob, type TillioCredentialsService, type TillioOperatorRecord } from './operators-store'
 
 const logger = createLogger('tillio').child({ component: 'preset' })
 
@@ -13,15 +13,23 @@ export const TILLIO_ENV_VARS = {
   apiKey: 'OM_INTEGRATION_TILLIO_API_KEY',
   ringostatKey: 'OM_INTEGRATION_TILLIO_RINGOSTAT_KEY',
   force: 'OM_INTEGRATION_TILLIO_FORCE_PRECONFIGURE',
+  replaceOperator: 'OM_INTEGRATION_TILLIO_REPLACE_OPERATOR',
 } as const
 
 export type TillioEnvPreset =
   | { status: 'absent' }
   | { status: 'incomplete'; missing: string[] }
-  | { status: 'ready'; credentials: TillioEnvironment; ringostatKey: string | null; force: boolean }
+  | {
+    status: 'ready'
+    credentials: TillioEnvironment
+    ringostatKey: string | null
+    force: boolean
+    replaceOperator: boolean
+  }
 
 export type TillioPresetOutcome =
   | { status: 'skipped'; reason: string }
+  | { status: 'blocked'; reason: string }
   | {
     status: 'applied'
     credentialsAction: 'saved' | 'kept'
@@ -60,6 +68,9 @@ export type ApplyTillioEnvPresetParams = {
   env?: NodeJS.ProcessEnv
   appUrl?: string
   integrationLogService?: IntegrationLogServiceLike
+  // Supplied by the CLI, where somebody is at the terminal to answer. Tenant bootstrap passes
+  // nothing, so the swap is refused unless the deployment declared it through the env var.
+  confirmOperatorReplacement?: (operator: TillioOperatorRecord) => Promise<boolean>
 }
 
 function readValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -83,7 +94,17 @@ export function readTillioEnvPreset(env: NodeJS.ProcessEnv = process.env): Tilli
     credentials: environmentSchema.parse({ apiUrl, apiKey }),
     ringostatKey: readValue(env, TILLIO_ENV_VARS.ringostatKey) ?? null,
     force: parseBooleanToken(readValue(env, TILLIO_ENV_VARS.force)) ?? false,
+    replaceOperator: parseBooleanToken(readValue(env, TILLIO_ENV_VARS.replaceOperator)) ?? false,
   }
+}
+
+function pointsAtAnotherEnvironment(
+  stored: Record<string, unknown> | null,
+  next: TillioEnvironment,
+): boolean {
+  const parsed = environmentSchema.safeParse(stored ?? {})
+  if (!parsed.success) return false
+  return parsed.data.apiUrl !== next.apiUrl || parsed.data.apiKey !== next.apiKey
 }
 
 async function attachOperatorFromPreset(params: {
@@ -130,6 +151,32 @@ export async function applyTillioEnvPreset(params: ApplyTillioEnvPresetParams): 
   const existing = await params.credentialsService.getRaw(TILLIO_INTEGRATION_ID, params.scope)
   // Overwriting silently would undo a rotation somebody performed in the UI.
   const credentialsAction = existing && !force ? 'kept' : 'saved'
+
+  if (credentialsAction === 'saved' && pointsAtAnotherEnvironment(existing, preset.credentials)) {
+    const attached = (await readOperatorsBlob(params.credentialsService, params.scope)).operators[0] ?? null
+    if (attached) {
+      if (!preset.ringostatKey) {
+        return {
+          status: 'blocked',
+          reason: `The attached operator belongs to the current environment. Set ${TILLIO_ENV_VARS.ringostatKey} so it can be reattached to the new one.`,
+        }
+      }
+
+      const approved = preset.replaceOperator
+        || (params.confirmOperatorReplacement ? await params.confirmOperatorReplacement(attached) : false)
+      if (!approved) {
+        return {
+          status: 'blocked',
+          reason: `Switching environments would strand the attached operator. Confirm the replacement or set ${TILLIO_ENV_VARS.replaceOperator}.`,
+        }
+      }
+
+      // Revoked while the credentials that minted its token are still stored; afterwards the new
+      // environment would reject the token and the record could only be dropped by force.
+      await detachOperator({ credentialsService: params.credentialsService, scope: params.scope }, attached.id)
+    }
+  }
+
   if (credentialsAction === 'saved') {
     await params.credentialsService.save(TILLIO_INTEGRATION_ID, { ...preset.credentials }, params.scope)
   }

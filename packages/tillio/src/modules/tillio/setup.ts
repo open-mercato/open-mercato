@@ -23,6 +23,8 @@ export const setup: ModuleSetupConfig = {
       })
       if (result.status === 'skipped') {
         logger.debug('env preset not applied', { reason: result.reason })
+      } else if (result.status === 'blocked') {
+        logger.warn('env preset refused', { reason: result.reason })
       } else {
         logger.info('env preset applied', {
           credentialsAction: result.credentialsAction,

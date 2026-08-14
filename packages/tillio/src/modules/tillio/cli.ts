@@ -1,13 +1,30 @@
+import { createInterface } from 'node:readline'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { applyTillioEnvPreset, TILLIO_ENV_VARS } from './lib/preset'
-import type { TillioCredentialsService } from './lib/operators-store'
+import type { TillioCredentialsService, TillioOperatorRecord } from './lib/operators-store'
 
 const USAGE = [
   'Usage: yarn mercato tillio configure-from-env --tenant <tenantId> --org <organizationId> [--force]',
   `Required env: ${TILLIO_ENV_VARS.apiUrl}, ${TILLIO_ENV_VARS.apiKey}`,
-  `Optional env: ${TILLIO_ENV_VARS.ringostatKey} (attaches the operator), ${TILLIO_ENV_VARS.force} (overwrites existing credentials)`,
+  `Optional env: ${TILLIO_ENV_VARS.ringostatKey} (attaches the operator), ${TILLIO_ENV_VARS.force} (overwrites existing credentials), ${TILLIO_ENV_VARS.replaceOperator} (answers the replacement prompt for unattended runs)`,
 ].join('\n')
+
+async function confirmOperatorReplacement(operator: TillioOperatorRecord): Promise<boolean> {
+  if (!process.stdin.isTTY) return false
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    console.log(`[tillio] The environment variables point at a different Tillio instance than the stored ones.`)
+    console.log(`[tillio] Operator ${operator.id} (${operator.plugin}) is attached to the current one and will be revoked before the switch.`)
+    const answer = await new Promise<string>((resolve) => {
+      rl.question('[tillio] Detach it and attach a new one from env? [y/N] ', (value) => resolve(value.trim().toLowerCase()))
+    })
+    return answer === 'y' || answer === 'yes'
+  } finally {
+    rl.close()
+  }
+}
 
 function parseArgs(rest: string[]): Record<string, string | boolean> {
   const args: Record<string, string | boolean> = {}
@@ -68,10 +85,16 @@ const configureFromEnv: ModuleCli = {
         integrationLogService: container.resolve('integrationLogService'),
         scope: { tenantId, organizationId },
         force,
+        confirmOperatorReplacement,
       })
 
       if (result.status === 'skipped') {
         console.log(`[tillio] Skipped: ${result.reason}`)
+        return
+      }
+      if (result.status === 'blocked') {
+        console.error(`[tillio] Blocked: ${result.reason}`)
+        process.exitCode = 1
         return
       }
 

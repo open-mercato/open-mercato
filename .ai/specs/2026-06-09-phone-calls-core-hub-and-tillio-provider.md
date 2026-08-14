@@ -194,6 +194,7 @@ the UI, so the provider parses its own env vars in `lib/preset.ts`.
 | `OM_INTEGRATION_TILLIO_API_KEY` | yes | Tillio API key |
 | `OM_INTEGRATION_TILLIO_RINGOSTAT_KEY` | no | Ringostat key; when set, the operator is attached too |
 | `OM_INTEGRATION_TILLIO_FORCE_PRECONFIGURE` | no | Overwrite credentials that already exist (default off) |
+| `OM_INTEGRATION_TILLIO_REPLACE_OPERATOR` | no | Pre-answers the operator replacement prompt for unattended runs (default off) |
 
 The preset performs no writes of its own: each step calls the service the admin UI calls for the same
 action - `integrationCredentialsService` for the credentials form, `integrationStateService` for the enable
@@ -213,6 +214,15 @@ credentials are kept unless forced, and an occupied operator slot is reported as
 an error. The keep-unless-forced rule is what makes UI edits durable - without it every bootstrap would
 silently restore the env values over a rotation performed by hand. A half-set preset is reported and skipped
 rather than thrown, so it cannot fail tenant bootstrap.
+
+A forced run whose variables point at a *different* instance is the one case that cannot be resolved by
+writing credentials alone: the attached operator's token was minted by the stored environment, so once the
+credentials are replaced it can no longer be revoked and the record can only be dropped by force. The preset
+therefore refuses that switch unless the replacement is approved, either by
+`OM_INTEGRATION_TILLIO_REPLACE_OPERATOR` for unattended runs or by answering the CLI prompt. On approval the
+operator is detached first, while the credentials that minted its token are still stored, and reattached from
+`OM_INTEGRATION_TILLIO_RINGOSTAT_KEY` afterwards - which is why the switch is also refused when that key is
+absent. Tenant bootstrap has nobody to ask, so without the variable it refuses and logs the reason.
 
 The preset also marks the integration enabled, because an integration with no state row resolves to disabled
 and the scheduled health probe only visits enabled ones.
@@ -510,7 +520,8 @@ Widget tests live in the provider package on purpose: the hub must keep passing 
 
 Unit tests: Tillio client, adapter fetch, health, normalizer, operators, operators store, pull readiness,
 the pull job (cursor walk, isolated ingest failure, cancellation, operator detached mid-flight), the env
-preset (absent, incomplete, complete, rerun with an occupied slot, unhealthy environment, keep-unless-forced),
+preset (absent, incomplete, complete, rerun with an occupied slot, unhealthy environment, keep-unless-forced,
+refused and approved environment switches),
 timezone conversion and URL guard (provider package); the ingest command (core).
 
 Two constraints worth recording for whoever writes the next test:
@@ -642,6 +653,8 @@ Scope of this report: the implemented slice (Phases 1-2). Planned phases are des
   hand-configured tenants converge on the same stored state and the result stays editable in the UI.
 - The chain covers the operator too when `OM_INTEGRATION_TILLIO_RINGOSTAT_KEY` is set; the token stays a
   product of `attachOperator` rather than an input.
+- A forced switch to a different Tillio instance revokes the attached operator before the credentials are
+  replaced, and is refused unless approved by `OM_INTEGRATION_TILLIO_REPLACE_OPERATOR` or the CLI prompt.
 
 ### 2026-08-14 - Pull moved off the request
 
