@@ -333,3 +333,21 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. Third-party transports that call `commandBus.execute` inside their own `try/catch` can honour the same contract in two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
+
+---
+
+## Passkey MFA Verification Payload (2026-08-14)
+
+Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes) that does not follow the deprecation protocol**, and it is recorded here as the exception rather than the rule.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API request shape (`POST /api/security/mfa/verify`, `POST /api/security/sudo/verify`, `methodType: 'passkey'`) | `payload` must be `{ response }` carrying a WebAuthn assertion. The `{ credentialId, challenge }` alternative is removed and now answers `401` | ✗ BREAKING (deliberate — see rationale) |
+| Provider contract (`MfaProviderInterface.verifySchema` for `passkey`) | `verifyPayloadSchema` narrows from a union to a single object requiring `response` | ✗ BREAKING for a caller that validated against the exported schema |
+| Verification behavior | A verified `verifyAuthenticationResponse` is the only route to a positive verdict; an absent verify context is a rejection rather than a `credentialId` comparison | ✗ BREAKING for a client that skipped `/api/security/mfa/prepare` |
+| Failure mode | A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout | ✓ Strictly safer (no verdict flips from negative to positive) |
+| API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
+
+**Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut carry a fabricated public key and can no longer authenticate — those users need an admin MFA reset and a fresh enrollment. Operator-facing detail is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).

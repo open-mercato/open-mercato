@@ -24,6 +24,16 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### Passkey MFA verification requires a real WebAuthn assertion (#3852)
+
+`PasskeyProvider.verify()` used to accept a second payload shape — `{ credentialId, challenge }` — beside the genuine `{ response }` assertion, and approved it by string comparison. Both compared values are public: `prepareChallenge()` returns the credential id and the challenge to the caller, and `GET /api/security/mfa/methods` discloses `providerMetadata.credentialId`. A third shape needed even less: with no prepared challenge at all, only the disclosed credential id was compared. Anyone who could reach the verify step for a session therefore passed the passkey second factor with no authenticator private key and no signature, in both login-time MFA and passkey-as-sudo step-up.
+
+**`POST /api/security/mfa/verify` and `POST /api/security/sudo/verify` now answer `401` for a passkey payload that is not a WebAuthn assertion.** This is a deliberate break of the request-shape contract with no deprecation window, because the shape being removed *is* the vulnerability — see the matching entry in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md).
+
+**Action for client authors:** send the object returned by `@simplewebauthn/browser`'s `startAuthentication()` as `payload.response`. The first-party UI already does this, so no change is needed for apps that use the shipped `PasskeyChallengeVerify` component. A client that submitted the credential id and challenge was, by construction, not performing cryptographic verification.
+
+**Action for operators:** the passkey *enrollment* path still accepts a client-supplied `publicKey` without attestation. A credential enrolled that way carries a public key no authenticator holds the private half of, so it can never produce a verifiable assertion and now fails every login. A user whose only MFA method is such a credential needs an admin MFA reset (`POST /api/security/users/{id}/mfa/reset`) and a fresh enrollment through the browser ceremony. Audit `mfa_methods` rows of type `passkey` before upgrading if you ever provisioned passkeys through the API rather than the UI.
+
 ### Standalone apps gain deterministic design-system and i18n checks
 
 New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and
