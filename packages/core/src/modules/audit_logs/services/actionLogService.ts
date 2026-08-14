@@ -5,6 +5,7 @@ import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
   actionLogListSchema,
+  uuid,
   type ActionLogCreateInput,
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
@@ -34,24 +35,51 @@ const SORT_FIELDS = {
   createdAt: 'action_logs.created_at',
 } as const
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+// Mirrors what `uuid` (`data/validators.ts`) accepts — versions 1-8 plus the nil and
+// max UUIDs — and is used only when the zod runtime is unavailable, so the actor
+// sanitizer can never reject a value `actionLogCreateSchema` would have accepted.
+const SCHEMA_UUID_REGEX = /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
 const API_KEY_ACTOR_PREFIX = 'api_key:'
+const SYSTEM_ACTOR_PREFIX = 'system:'
+// `context.systemActor` names the automated principal behind an entry; `context.source`
+// (read by `deriveActionLogSource`) names the channel it arrived through. They are
+// siblings on purpose and never contradict each other: an entry carrying `systemActor`
+// has a null actor column, which already derives the `system` source.
 const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
+const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
 
 function toNullableUuid(value: unknown): string | null {
   return typeof value === 'string' && UUID_REGEX.test(value) ? value : null
 }
 
-function normalizeActorUserId(value: unknown): string | null {
-  if (typeof value !== 'string' || value.length === 0) return null
-  const candidate = value.startsWith(API_KEY_ACTOR_PREFIX) ? value.slice(API_KEY_ACTOR_PREFIX.length) : value
-  return toNullableUuid(candidate)
+function isSchemaUuid(value: string): boolean {
+  try {
+    return uuid.safeParse(value).success
+  } catch {
+    return SCHEMA_UUID_REGEX.test(value)
+  }
 }
 
-function toSystemActorReference(value: unknown): string | null {
+function readActorCandidate(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
-  if (trimmed.length === 0) return null
-  return normalizeActorUserId(trimmed) ? null : trimmed
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeActorUserId(value: unknown): string | null {
+  const candidate = readActorCandidate(value)
+  if (!candidate) return null
+  const unwrapped = candidate.startsWith(API_KEY_ACTOR_PREFIX)
+    ? candidate.slice(API_KEY_ACTOR_PREFIX.length)
+    : candidate
+
+  return isSchemaUuid(unwrapped) ? unwrapped : null
+}
+
+function toSystemActorReference(candidate: string): string | null {
+  if (!candidate.startsWith(SYSTEM_ACTOR_PREFIX)) return null
+  if (candidate.length === SYSTEM_ACTOR_PREFIX.length) return null
+  return candidate.slice(0, SYSTEM_ACTOR_REFERENCE_MAX_LENGTH)
 }
 
 type ActionLogProjectionBackfillOptions = {
@@ -248,8 +276,9 @@ export class ActionLogService {
 
   private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
     if (!input) return input
-    const actorUserId = normalizeActorUserId(input.actorUserId)
-    const systemActorReference = toSystemActorReference(input.actorUserId)
+    const candidate = readActorCandidate(input.actorUserId)
+    const actorUserId = normalizeActorUserId(candidate)
+    const systemActorReference = candidate && !actorUserId ? toSystemActorReference(candidate) : null
 
     if (!systemActorReference) {
       if (actorUserId === (input.actorUserId ?? null)) return input

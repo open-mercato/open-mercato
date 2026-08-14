@@ -279,6 +279,109 @@ describe('ActionLogService normalizeInput', () => {
     expect(created.contextJson).toEqual({ systemActor: 'system:example_customers_sync:outbound' })
   })
 
+  it('keeps every actor id the create schema accepts in the uuid-backed actor column', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const schemaAcceptedActors = [
+      '00000000-0000-0000-0000-000000000000',
+      'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      '01900000-0000-7000-8000-000000000000',
+      '44444444-4444-6444-8444-444444444444',
+      '11111111-1111-4111-8111-111111111111',
+    ]
+
+    for (const actorUserId of schemaAcceptedActors) {
+      const parsed = serviceWithPrivateAccess.parseCreateInput({
+        commandId: 'scheduler.schedules.run',
+        actorUserId,
+      })
+
+      expect(parsed.actorUserId).toBe(actorUserId)
+      expect(parsed.context).toBeUndefined()
+    }
+  })
+
+  it('leaves the scheduler system actor queryable so undo and redo keep resolving its entries', () => {
+    const schedulerSystemActorId = '00000000-0000-0000-0000-000000000000'
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'scheduler.schedules.run',
+      actorUserId: schedulerSystemActorId,
+    }))
+
+    expect(created.actorUserId).toBe(schedulerSystemActorId)
+    expect(created.sourceKey).toBe('ui')
+    expect(created.contextJson).toBeNull()
+  })
+
+  it('drops an unrecognized actor instead of recording it as an automated principal', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    for (const actorUserId of ['not-a-uuid', 'system:', 'api_key:not-a-uuid']) {
+      const parsed = serviceWithPrivateAccess.parseCreateInput({
+        commandId: 'example.todos.create',
+        actorUserId,
+      })
+      const created = serviceWithPrivateAccess.createLogEntity({
+        create: (_entity, payload) => payload,
+      }, parsed)
+
+      expect(created.actorUserId).toBeNull()
+      expect(created.sourceKey).toBe('system')
+      expect(created.contextJson).toBeNull()
+    }
+  })
+
+  it('trims a padded actor id into the actor column rather than treating it as a system actor', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'customers.people.update',
+      actorUserId: '  11111111-1111-4111-8111-111111111111  ',
+    })
+
+    expect(parsed.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
+    expect(parsed.context).toBeUndefined()
+  })
+
+  it('caps the preserved system actor identifier so a corrupted subject cannot bloat the context column', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'example.todos.create',
+      actorUserId: `system:${'a'.repeat(600)}`,
+    })
+
+    expect(parsed.actorUserId).toBeNull()
+    expect((parsed.context as Record<string, unknown>).systemActor).toBe(`system:${'a'.repeat(248)}`)
+  })
+
   it('populates projection columns when creating a log entity', () => {
     const service = new ActionLogService(
       {} as unknown as ConstructorParameters<typeof ActionLogService>[0],
