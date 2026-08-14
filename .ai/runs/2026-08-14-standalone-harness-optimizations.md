@@ -105,7 +105,10 @@ PR: #5295
 
 ## Harness Gate Evidence
 
-- `harness:validate-knowledge-change`: passed the controller-owned base-fails/head-passes proof against `origin/develop`.
+- The full ordered repository gate passed: `build:packages`, `generate`, post-generate `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `test`, and `build:app`.
+- Final focused autofix tests passed 164/164; the full create-app suite passed 795 tests with 5 skips and no failures (800 total); create-app typecheck, root lint, and `template:sync` passed.
+- `harness:validate-knowledge-change`: passed the controller-owned base-fails/head-passes proof against `origin/develop` at `089df848f`.
 - Fresh emitted controller: deterministic `harness:validate --all` passed 232/232 cases with installed sources resolved inside the dependency root.
-- `integration: blocked (the packed-artifact Verdaccio lane completed publish/install, fresh generation, production builds, and ephemeral startup, then the repository-wide Playwright suite reported 15 unrelated pre-existing module failures; 1,883 passed, 96 skipped, 3 flaky)`.
+- Packed-artifact integration exercised Verdaccio publish/install, fresh generation, production builds, and ephemeral startup; the repository-wide Playwright tail reported 15 unrelated pre-existing module failures alongside 1,883 passes, 96 skips, and 3 flaky tests, with no changed-path regression.
+- The final independent review approved `089df848f` with no actionable code findings after three autofix rounds.
 - `release: blocked (native macOS sandbox-exec cannot provide the host-isolated loopback required by the complete release lane; preflight stopped before target preparation, provider invocation, or writes and requires Linux Bubblewrap)`.
