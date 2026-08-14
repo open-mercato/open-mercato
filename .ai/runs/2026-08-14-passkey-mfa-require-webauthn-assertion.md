@@ -72,13 +72,13 @@ The Playwright specs used the bypass as their shortcut, so they assert a behavio
 
 ### Phase 1: Close the bypass in PasskeyProvider
 
-- [ ] 1.1 Require a `response` payload and reject unparseable payloads without throwing
-- [ ] 1.2 Delete the context-absent and string-compare acceptance branches
+- [x] 1.1 Require a `response` payload and reject unparseable payloads without throwing — b635b1677
+- [x] 1.2 Delete the context-absent and string-compare acceptance branches — b635b1677
 
 ### Phase 2: Unit regression coverage
 
-- [ ] 2.1 Replace the legacy-payload test with bypass regression tests
-- [ ] 2.2 Add a real-crypto test proving a genuine assertion still verifies
+- [x] 2.1 Replace the legacy-payload test with bypass regression tests — 0ed09d4b7
+- [x] 2.2 Add a real-crypto test proving a genuine assertion still verifies — 0ed09d4b7
 
 ### Phase 3: Realign the integration suite
 
