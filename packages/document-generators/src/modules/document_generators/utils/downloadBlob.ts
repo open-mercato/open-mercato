@@ -5,3 +5,8 @@ export function downloadBlob(url: string, filename: string) {
   a.download = filename
   a.click()
 }
+
+/** Lets the browser consume a clicked blob URL before releasing it. */
+export function revokeObjectUrlAfterNavigation(url: string) {
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}

@@ -1,4 +1,4 @@
-export { downloadBlob } from './downloadBlob'
+export { downloadBlob, revokeObjectUrlAfterNavigation } from './downloadBlob'
 export { escapeInline, escapeTableCell } from './escape'
 export { buildDocumentFilename } from './filename'
 export { formatDate } from './formatDate'
