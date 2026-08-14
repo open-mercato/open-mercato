@@ -1,4 +1,5 @@
 {
+  "document_generators.errors.forbidden": "You do not have permission to use this document template.",
   "document_generators.errors.invalid_json": "The request body must contain valid JSON.",
   "document_generators.errors.invalid_query": "The template filters are invalid.",
   "document_generators.errors.invalid_request": "Select a template and provide valid document data.",

@@ -60,6 +60,6 @@ export interface RenderedDocument {
 export interface TemplateRegistry {
   register(entries: TemplateEntry[]): void
   listTemplates(filter?: TemplateFilter, translate?: TranslateFn): TemplateMeta[]
-  listTemplateFilterOptions(): TemplateFilterOptions
+  listTemplateFilterOptions(templates?: TemplateMeta[]): TemplateFilterOptions
   load(input: { id: string; data: unknown }, context: TemplateLoadContext): Promise<LoadedTemplate>
 }

@@ -51,7 +51,11 @@ const translate = ((key: string) => `translated:${key}`) as TranslateFn
 describe('BaseDocumentService.getEntries', () => {
   it('maps registered templates to registry entries with module and resourceKind bound', () => {
     const service = new TestDocumentService()
-    service.registerTemplate(makeTemplate({ id: 'sample-report', documentType: 'report' }))
+    service.registerTemplate(makeTemplate({
+      id: 'sample-report',
+      documentType: 'report',
+      requiredFeatures: ['example.records.view'],
+    }))
 
     const [entry] = service.getEntries()
 
@@ -63,6 +67,7 @@ describe('BaseDocumentService.getEntries', () => {
       documentType: 'report',
       format: 'pdf',
       tags: ['example', 'report'],
+      requiredFeatures: ['example.records.view'],
     })
     expect(typeof entry.fromRecord).toBe('function')
     expect(typeof entry.filename).toBe('function')

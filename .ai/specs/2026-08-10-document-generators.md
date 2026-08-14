@@ -230,6 +230,7 @@ interface TemplateMeta {
   documentType: string // document kind — e.g. 'offer' | 'invoice' | 'contract'
   format: string
   tags: string[]
+  requiredFeatures?: string[] // owning-module permissions enforced before fetchData/load
 }
 
 interface TemplateDataContext {
@@ -467,7 +468,7 @@ Returns paginated generation history filtered by the authenticated tenant and or
 |----------------|-------|
 | **Widget Injection** | Any module's detail view — each widget registers its own injection spot in `injection-table.ts` |
 | **Backend Pages** | `/backend/document-generators` — hidden redirect; `/backend/document-generators/overview` — module overview; `/backend/document-generators/templates` — template overview; `/backend/document-generators/history` — generation history |
-| **ACL Features** | `document_generators.view`, `document_generators.generate` |
+| **ACL Features** | `document_generators.documents.view`, `document_generators.documents.generate` |
 
 ---
 
@@ -552,8 +553,8 @@ No changes to existing services or templates required.
 
 ### Tenant & Data Isolation
 
-- **Risk exists and is mitigated.** Both built-in document services (`QuotesDocumentService`, `OrdersDocumentService`) query tenant-scoped records: `sales_quotes`, `sales_quote_lines`, `sales_orders`, `CustomerEntity`, `CustomerAddress`. A user with `document_generators.view` could otherwise retrieve data from a different tenant by submitting an arbitrary UUID.
-- **Mitigation:** `getAuthFromRequest` is called in both route handlers (`/generate`, `/preview`). The resulting `AuthContext` is propagated through `templateRegistry.load → fetchData` via `ctx.auth`; the loaded template is then passed to `PdfRenderingService.render`. Each built-in service validates its local input as `{ id: UUID }`, ignores all other client-supplied record fields, and queries by `id`, `tenant_id`, and `organization_id`. Missing scope, invalid input, inaccessible records, and database failures all reject the render pipeline — raw request data is never used as a fallback.
+- **Risk exists and is mitigated.** Both built-in document services (`QuotesDocumentService`, `OrdersDocumentService`) query tenant-scoped records: `sales_quotes`, `sales_quote_lines`, `sales_orders`, `CustomerEntity`, `CustomerAddress`. A user with only the document-generators feature could otherwise retrieve source-module data by submitting an arbitrary UUID.
+- **Mitigation:** each template declares its owning-module `requiredFeatures`. The catalogue and filter-options endpoints omit templates the caller cannot access, while `/generate` and `/preview` check those requirements through the scoped RBAC service before `TemplateRegistry.load()` can invoke `fetchData`. Sales order templates require `sales.orders.view`; quote templates require `sales.quotes.view`. The resulting `AuthContext` is also propagated through `templateRegistry.load → fetchData`; each built-in service validates its local input as `{ id: UUID }`, ignores all other client-supplied record fields, and queries by `id`, `tenant_id`, and `organization_id`. Missing scope, insufficient features, invalid input, inaccessible records, and database failures all reject the render pipeline — raw request data is never used as a fallback.
 - **Module-owned `DocumentService` contract:** any module subclassing `BaseDocumentService` from `@open-mercato/shared/modules/document-generators` **must** apply the same tenant scoping in `fetchData`. The `ctx.auth` argument is available for exactly this purpose. Implementations that ignore it are considered a security defect.
 
 ### Font Loading
@@ -577,7 +578,7 @@ No changes to existing services or templates required.
 ### Phase 1 — Foundation ✅
 
 1. Package scaffold (`package.json`, `build.mjs`, `tsconfig.json`)
-2. `acl.ts` with `document_generators.view`, `document_generators.generate`
+2. `acl.ts` with `document_generators.documents.view`, `document_generators.documents.generate`
 3. `setup.ts` with `defaultRoleFeatures`
 4. Module `index.ts`
 
@@ -651,8 +652,8 @@ No changes to existing services or templates required.
 | File | Change |
 |------|--------|
 | `api/document-generators/generate/route.ts` | Persist the neutral render result through `GenerationHistoryService` after a successful render, using only canonical template-derived resource identity |
-| `acl.ts` | Add `document_generators.generate` feature |
-| `setup.ts` | Add `document_generators.generate` to `superadmin` + `admin` role features |
+| `acl.ts` | Add `document_generators.documents.generate` feature |
+| `setup.ts` | Add `document_generators.documents.generate` to `superadmin` + `admin` role features |
 | `backend/document-generators/page.tsx` | Navigation-hidden compatibility redirect to the overview route |
 | `backend/document-generators/overview/page.tsx` | Module overview with cards linking to the template list and generation history |
 | `backend/document-generators/templates/page.tsx` | Thin page shell delegating catalogue rendering to its route-local `components/TemplatesList.tsx` |
@@ -723,7 +724,7 @@ Order/quote detail widget
 - The browser-provided filters are narrowing inputs only. They never replace the authenticated `tenant_id` and `organization_id` predicates enforced by `GenerationHistoryService`.
 - Both source filters are mandatory for the detail-widget variant. Missing `resourceKind` or `resourceId` suppresses the request and renders no cross-resource fallback.
 - A resource history refresh must preserve the current page when it is still valid and fall back to the last valid page after deletions or future retention work reduce the result count.
-- No schema, migration, ACL, event, or new API route is required. The existing `document_generators.view` guard and history endpoint remain authoritative.
+- No schema, migration, event, or new API route is required. The existing `document_generators.documents.view` guard and history endpoint remain authoritative.
 
 #### Frontend architecture contract
 
@@ -784,7 +785,9 @@ The unreleased implementation was decentralized before merge. Sales now owns `Or
 
 Neutral template contracts and `BaseDocumentService` moved to `@open-mercato/shared/modules/document-generators`; owning modules import them directly from shared. The previous root exports from `@open-mercato/document-generators` remain as deprecated compatibility re-exports for at least one minor version, while the old internal service/type paths are no longer used by first-party code. Format mechanics stay in `@open-mercato/document-generators`: `@react-pdf/renderer`, PDF primitives, theme/logo, Markdown/PDF renderers, preview/generate routes, MIME/filename output, and history. Domain templates consume the plugin-owned React-PDF dependency through `modules/document_generators/providers/react-pdf`, while reusable theme and components remain under `modules/document_generators/templates/shared` and are imported directly. Built-in templates use React-PDF's standard Helvetica family and ship no local font assets.
 
-No database migration is required. Before the first release, the built-in template IDs were namespaced as `sales.order-invoice`, `sales.order-invoice-markdown`, and `sales.offer` so third-party modules can use their own namespace without colliding with Sales. No deployed history rows or published template-ID contract exists to migrate. Resource kinds (`sales.order`, `sales.quote`), API routes, ACL features, and injection spot IDs remain unchanged. The widget implementation IDs are unreleased and move from the engine namespace to the owning Sales namespace.
+No database migration is required. Before the first release, the built-in template IDs were namespaced as `sales.order-invoice`, `sales.order-invoice-markdown`, and `sales.offer` so third-party modules can use their own namespace without colliding with Sales. The unreleased ACL IDs were likewise corrected to the repository convention as `document_generators.documents.view` and `document_generators.documents.generate` before any role configuration could persist the old values. No deployed history rows, stored ACL grants, or published template-ID contract exists to migrate. Resource kinds (`sales.order`, `sales.quote`), API routes, and injection spot IDs remain unchanged. The widget implementation IDs are unreleased and move from the engine namespace to the owning Sales namespace.
+
+`TemplateMeta.requiredFeatures` and `DocumentTemplateEntry.requiredFeatures` are additive optional fields. Existing templates without this declaration remain available under the document-generators ACL alone. New templates that load records owned by another module must declare that module's view feature; the engine enforces it server-side before any template data loader runs.
 
 `TemplateLoadContext.translate` and `TemplateDataContext.translate` are additive optional fields. Existing external template registrations and direct `TemplateRegistry.load` callers that provide only `locale` continue to compile and run. The built-in preview and generate routes always provide the request translator returned by `resolveTranslations()`. `BaseDocumentService` retains a key-returning compatibility fallback only for legacy callers that omit the translator; it does not select a locale or load a second dictionary. New document services should build user-facing labels with the supplied translator and include them in normalized template data.
 
@@ -851,6 +854,7 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 
 | Date | Author | Summary |
 |------|--------|---------|
+| 2026-08-14 | Codex | Added optional source-module `requiredFeatures` to template declarations and scoped RBAC enforcement before template data loading; filtered catalogue/options by effective access, required Sales order/quote view features, and corrected the unreleased document-generator ACL IDs to `document_generators.documents.view` / `.generate`. |
 | 2026-08-14 | Codex | Namespaced the unreleased Sales template IDs as `sales.order-invoice`, `sales.order-invoice-markdown`, and `sales.offer`. Preserved the intentional strict bootstrap invariant that every duplicate ID, including an identical re-registration, fails atomically; diagnostics now identify both modules and direct authors to global module namespacing. |
 | 2026-08-12 | Codex | Decentralized domain ownership: moved Sales services/templates/widgets/i18n into `sales`, moved neutral contracts and `BaseDocumentService` into `shared`, retained PDF/Markdown engines and dependencies in the plugin, and registered Sales entries through the existing generated bootstrap. |
 | 2026-05-06 | Krzysztof Polak | Spec created — Phases 1–4 designed |

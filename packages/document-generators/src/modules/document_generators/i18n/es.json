@@ -1,4 +1,5 @@
 {
+  "document_generators.errors.forbidden": "No tienes permiso para utilizar esta plantilla de documento.",
   "document_generators.errors.invalid_json": "El cuerpo de la solicitud debe contener JSON válido.",
   "document_generators.errors.invalid_query": "Los filtros de plantillas no son válidos.",
   "document_generators.errors.invalid_request": "Selecciona una plantilla y proporciona datos de documento válidos.",

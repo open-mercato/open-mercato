@@ -7,8 +7,8 @@ const widget: InjectionWidgetModule = {
   metadata: {
     id: 'example.injection.document-generators-order-tab',
     title: 'Documents',
-    // Gates the tab — users without document_generators.view will not see it
-    features: ['document_generators.view'],
+    // Gates the tab by both document access and the owning record permission.
+    features: ['document_generators.documents.view', 'sales.orders.view'],
     priority: 10,
   },
   Widget: DocumentGeneratorsOrderTabWidget,

@@ -39,7 +39,7 @@ beforeEach(() => {
 
 describe('templateRegistry.listTemplates', () => {
   it('lists templates from multiple registrations and strips runtime handlers', () => {
-    templateRegistry.register([makeEntry({ id: 'first' })])
+    templateRegistry.register([makeEntry({ id: 'first', requiredFeatures: ['example.records.view'] })])
     templateRegistry.register([makeEntry({ id: 'second', module: 'custom' })])
 
     const templates = templateRegistry.listTemplates()
@@ -59,6 +59,19 @@ describe('templateRegistry.listTemplates', () => {
       resourceKind: 'example.record',
       documentType: 'report',
       format: 'pdf',
+      requiredFeatures: ['example.records.view'],
+    })
+  })
+
+  it('returns access metadata for a single registered template', () => {
+    templateRegistry.register([makeEntry({
+      id: 'protected-report',
+      requiredFeatures: ['example.records.view'],
+    })])
+
+    expect(templateRegistry.getTemplateMetadata('protected-report')).toMatchObject({
+      id: 'protected-report',
+      requiredFeatures: ['example.records.view'],
     })
   })
 
@@ -109,6 +122,20 @@ describe('templateRegistry.listTemplates', () => {
     expect(templateRegistry.listTemplateFilterOptions()).toEqual({
       resourceKinds: ['example.record', 'example.report'],
       formats: ['md', 'pdf'],
+    })
+  })
+
+  it('builds options from an access-filtered template list', () => {
+    templateRegistry.register([
+      makeEntry({ id: 'allowed-pdf', resourceKind: 'example.allowed', format: 'pdf' }),
+      makeEntry({ id: 'denied-markdown', resourceKind: 'example.denied', format: 'md' }),
+    ])
+
+    const allowedTemplates = templateRegistry.listTemplates({ resourceKind: 'example.allowed' })
+
+    expect(templateRegistry.listTemplateFilterOptions(allowedTemplates)).toEqual({
+      resourceKinds: ['example.allowed'],
+      formats: ['pdf'],
     })
   })
 

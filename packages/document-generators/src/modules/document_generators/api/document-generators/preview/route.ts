@@ -9,13 +9,14 @@ import { DocumentRenderer } from '../../../services/document-renderer'
 import { previewSchema } from '../../../data/validators'
 import { parseJsonBody, requireOrganization } from '../../_shared/http'
 import { documentResponse } from '../../_shared/document-response'
+import { requireTemplateAccess, TemplateAccessDeniedError } from '../../_shared/template-access'
 
 const logger = createLogger('document_generators').child({ component: 'preview-route' })
 const documentRenderer = new DocumentRenderer()
 
 export const metadata = {
   path: '/document-generators/preview',
-  POST: { requireAuth: true, requireFeatures: ['document_generators.view'] },
+  POST: { requireAuth: true, requireFeatures: ['document_generators.documents.view'] },
 }
 
 /**
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
   if (!org.ok) return org.response
 
   try {
+    await requireTemplateAccess(template_id, { container, auth })
     const template = await templateRegistry.load({ id: template_id, data }, { container, auth, locale, translate: t })
     const output = await documentRenderer.render(template.render)
     const rendered = {
@@ -61,6 +63,13 @@ export async function POST(request: Request) {
         error: 'unknown_template',
         message: t('document_generators.errors.unknown_template', 'The selected document template is not available.'),
       }, { status: 400 })
+    }
+    if (err instanceof TemplateAccessDeniedError) {
+      return NextResponse.json({
+        error: 'forbidden',
+        message: t('document_generators.errors.forbidden', 'You do not have permission to use this document template.'),
+        requiredFeatures: err.requiredFeatures,
+      }, { status: 403 })
     }
     logger.error('Document preview render failed', { err })
     return NextResponse.json({
@@ -78,6 +87,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Generated document stream' },
         { status: 400, description: 'Missing or invalid template_id / data' },
         { status: 401, description: 'Unauthorized' },
+        { status: 403, description: 'Missing a feature required by the selected template' },
         { status: 500, description: 'Document rendering failed' },
       ],
     },

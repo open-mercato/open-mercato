@@ -1,12 +1,15 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { NextResponse } from 'next/server'
 import { templateRegistry } from '../../../lib/template-registry'
 import { listTemplatesSchema } from '../../../data/validators'
+import { filterTemplatesByAccess } from '../../_shared/template-access'
 
 export const metadata = {
   path: '/document-generators/templates',
-  GET: { requireAuth: true, requireFeatures: ['document_generators.view'] },
+  GET: { requireAuth: true, requireFeatures: ['document_generators.documents.view'] },
 }
 
 /**
@@ -15,6 +18,8 @@ export const metadata = {
  * @returns JSON array of TemplateMeta
  */
 export async function GET(request: Request) {
+  const container = await createRequestContainer()
+  const auth = await getAuthFromRequest(request)
   const { t } = await resolveTranslations()
   const searchParams = new URL(request.url).searchParams
   const resourceKind = searchParams.get('resource_kind') ?? undefined
@@ -43,7 +48,8 @@ export async function GET(request: Request) {
     tags: queryResult.data.tags,
   }
 
-  return NextResponse.json(templateRegistry.listTemplates(filter, t))
+  const templates = templateRegistry.listTemplates(filter, t)
+  return NextResponse.json(await filterTemplatesByAccess(templates, { container, auth }))
 }
 
 export const openApi: OpenApiRouteDoc = {

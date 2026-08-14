@@ -1,4 +1,5 @@
 {
+  "document_generators.errors.forbidden": "Sie haben keine Berechtigung, diese Dokumentvorlage zu verwenden.",
   "document_generators.errors.invalid_json": "Der Anfragetext muss gültiges JSON enthalten.",
   "document_generators.errors.invalid_query": "Die Vorlagenfilter sind ungültig.",
   "document_generators.errors.invalid_request": "Wählen Sie eine Vorlage aus und geben Sie gültige Dokumentdaten an.",

@@ -1,4 +1,5 @@
 {
+  "document_generators.errors.forbidden": "이 문서 템플릿을 사용할 권한이 없습니다.",
   "document_generators.errors.invalid_json": "요청 본문에 유효한 JSON이 포함되어야 합니다.",
   "document_generators.errors.invalid_query": "템플릿 필터가 올바르지 않습니다.",
   "document_generators.errors.invalid_request": "템플릿을 선택하고 유효한 문서 데이터를 입력하세요.",

@@ -17,7 +17,7 @@ const HISTORY_SORT_FIELDS: Record<string, NonNullable<ListGeneratedDocumentsQuer
 
 export const metadata = {
   path: '/document-generators/documents',
-  GET: { requireAuth: true, requireFeatures: ['document_generators.view'] },
+  GET: { requireAuth: true, requireFeatures: ['document_generators.documents.view'] },
 }
 
 /**

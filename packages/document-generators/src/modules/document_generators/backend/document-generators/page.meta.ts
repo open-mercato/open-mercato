@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['document_generators.view'],
+  requireFeatures: ['document_generators.documents.view'],
   pageTitle: 'Document generator',
   pageTitleKey: 'document_generators.overview.title',
   pageGroup: 'Document Generators',

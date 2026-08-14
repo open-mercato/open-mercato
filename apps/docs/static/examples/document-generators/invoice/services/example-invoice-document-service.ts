@@ -116,6 +116,7 @@ export class ExampleInvoicesDocumentService extends BaseDocumentService {
       documentType: 'invoice',
       format: 'pdf',
       tags: ['invoice', 'order', 'sales'],
+      requiredFeatures: ['sales.orders.view'],
       note: 'Rendered in the Documents tab on the Order detail page (sales.document.detail.order:tabs).',
       filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'pdf'),
       load: () =>

@@ -38,6 +38,7 @@ export class QuotesDocumentService extends BaseDocumentService {
       documentType: 'offer',
       format: 'pdf',
       tags: ['offer', 'sales'],
+      requiredFeatures: ['sales.quotes.view'],
       note: 'Rendered in the PDF tab on the Quote detail page (sales.document.detail.quote:tabs).',
       filename: ({ data }) => buildDocumentFilename(data, 'offer', 'pdf'),
       load: () =>

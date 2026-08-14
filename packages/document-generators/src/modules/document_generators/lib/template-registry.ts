@@ -36,6 +36,29 @@ export class DuplicateTemplateError extends Error {
 export class TemplateRegistry implements TemplateRegistryInterface {
   private templates = new Map<string, TemplateEntry>()
 
+  /**
+   * Projects a runtime registry entry to safe, optionally translated catalogue metadata.
+   */
+  private toMeta(entry: TemplateEntry, translate?: TranslateFn): TemplateMeta {
+    return {
+      id: entry.id,
+      label: translate ? translate(entry.label, entry.label) : entry.label,
+      description: translate ? translate(entry.description, entry.description) : entry.description,
+      module: entry.module,
+      resourceKind: entry.resourceKind,
+      documentType: entry.documentType,
+      format: entry.format,
+      tags: entry.tags,
+      note: entry.note,
+      requiredFeatures: entry.requiredFeatures,
+    }
+  }
+
+  /**
+   * Atomically registers a batch of templates and rejects every duplicate global ID.
+   *
+   * @throws DuplicateTemplateError if an ID is already registered or repeated in the batch
+   */
   register(entries: TemplateEntry[]): void {
     const templates = new Map(this.templates)
     for (const entry of entries) {
@@ -52,18 +75,6 @@ export class TemplateRegistry implements TemplateRegistryInterface {
    * Returns template metadata for use in the templates listing endpoint.
    */
   listTemplates(filter?: TemplateFilter, translate?: TranslateFn): TemplateMeta[] {
-    const toMeta = ({ id, label, description, module, resourceKind, documentType, format, tags, note }: TemplateEntry): TemplateMeta =>
-      ({
-        id,
-        label: translate ? translate(label, label) : label,
-        description: translate ? translate(description, description) : description,
-        module,
-        resourceKind,
-        documentType,
-        format,
-        tags,
-        note,
-      })
     return Array.from(this.templates.values())
       .filter((template) => {
         if (filter?.resourceKind && template.resourceKind !== filter.resourceKind) return false
@@ -72,11 +83,23 @@ export class TemplateRegistry implements TemplateRegistryInterface {
         if (filter?.tags?.length && !filter.tags.some((tag) => template.tags.includes(tag))) return false
         return true
       })
-      .map(toMeta)
+      .map((entry) => this.toMeta(entry, translate))
   }
 
-  listTemplateFilterOptions(): TemplateFilterOptions {
-    const templates = Array.from(this.templates.values())
+  /**
+   * Returns safe catalogue metadata for one registered template.
+   *
+   * @throws UnknownTemplateError if the template is not registered
+   */
+  getTemplateMetadata(id: string, translate?: TranslateFn): TemplateMeta {
+    return this.toMeta(this.findTemplate(id), translate)
+  }
+
+  /**
+   * Derives sorted, unique catalogue filter options from the provided accessible templates.
+   * Uses the complete registered catalogue when no template list is provided.
+   */
+  listTemplateFilterOptions(templates: TemplateMeta[] = this.listTemplates()): TemplateFilterOptions {
     const resourceKinds = Array.from(new Set(templates.map((template) => template.resourceKind)))
       .sort((left, right) => left.localeCompare(right))
     const formats = Array.from(new Set(templates.map((template) => template.format)))

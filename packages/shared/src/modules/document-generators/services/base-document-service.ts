@@ -46,6 +46,7 @@ export abstract class BaseDocumentService {
       format: template.format,
       tags: template.tags,
       note: template.note,
+      requiredFeatures: template.requiredFeatures,
       fromRecord: (data, { locale, translate }) => this.toTemplateData({
         data,
         locale,

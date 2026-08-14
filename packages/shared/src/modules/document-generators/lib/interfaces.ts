@@ -12,6 +12,7 @@ export interface TemplateMeta {
   format: string
   tags: string[]
   note?: string
+  requiredFeatures?: string[]
 }
 
 export interface DocumentTemplateSource {
