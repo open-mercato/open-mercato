@@ -45,7 +45,7 @@ export const openApi = {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Unauthorized' }, { status: 401 })
   }
 
   const container = await createRequestContainer()
@@ -79,12 +79,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Unauthorized' }, { status: 401 })
   }
 
   const parsedBody = attachBodySchema.safeParse(await readJsonSafe(req))
   if (!parsedBody.success) {
-    return NextResponse.json({ ok: false, message: 'Invalid operator payload' }, { status: 400 })
+    return NextResponse.json({ ok: false, code: 'invalid_payload', message: 'Invalid operator payload' }, { status: 400 })
   }
 
   const container = await createRequestContainer()
@@ -146,10 +146,10 @@ export async function POST(req: Request) {
     if (err instanceof TillioApiError) {
       const section = classifyTillioError(err)
       return NextResponse.json(
-        { ok: false, section, message: err.message },
+        { ok: false, code: 'provider_error', section, message: err.message },
         { status: section === 'environment' ? 502 : 422 },
       )
     }
-    return NextResponse.json({ ok: false, section: 'operator', message: 'Failed to attach the operator.' }, { status: 500 })
+    return NextResponse.json({ ok: false, code: 'attach_failed', section: 'operator', message: 'Failed to attach the operator.' }, { status: 500 })
   }
 }

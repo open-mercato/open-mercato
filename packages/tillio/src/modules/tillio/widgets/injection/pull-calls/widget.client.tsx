@@ -19,6 +19,7 @@ import {
 import { DateRangePicker } from '@open-mercato/ui/primitives/date-range-picker'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import type { DateRange } from '@open-mercato/ui/backend/date-range/dateRanges'
+import { tillioErrorCopy } from '../../../lib/error-codes'
 
 const DEFAULT_RANGE_DAYS = 7
 
@@ -34,7 +35,7 @@ type PullReadiness = {
 
 type PullResult = {
   ok: boolean
-  message?: string
+  code?: string
   progressJobId?: string
 }
 
@@ -117,7 +118,8 @@ export default function PullCallsWidget(
       })
       const body = response.result as PullResult | undefined
       if (!response.ok) {
-        flash(body?.message ?? t('tillio.pull.failed', 'Could not pull calls from Tillio.'), 'error')
+        const copy = tillioErrorCopy(body?.code, 'pull_failed')
+        flash(t(copy.key, copy.fallback), 'error')
         return
       }
       // The sweep runs in a worker, so the dialog only confirms the handover; the top bar owns

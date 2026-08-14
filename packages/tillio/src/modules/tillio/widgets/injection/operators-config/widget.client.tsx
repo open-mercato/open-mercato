@@ -7,6 +7,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { tillioErrorCopy } from '../../../lib/error-codes'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -34,14 +35,13 @@ type OperatorsResponse = {
 
 type AttachResult = {
   ok: boolean
-  message?: string
+  code?: string
   section?: 'environment' | 'operator'
   operator?: { id: string; plugin: string; tenantDomain: string }
 }
 
 type DetachResult = {
   ok: boolean
-  message?: string
   code?: string
   section?: 'environment' | 'operator'
   detached?: boolean
@@ -54,6 +54,14 @@ export default function OperatorsConfigWidget(
   _props: InjectionWidgetComponentProps<Record<string, unknown>, Record<string, unknown>>,
 ) {
   const t = useT()
+  const attachErrorText = React.useCallback((code: string | undefined) => {
+    const copy = tillioErrorCopy(code, 'attach_failed')
+    return t(copy.key, copy.fallback)
+  }, [t])
+  const detachErrorText = React.useCallback((code: string | undefined) => {
+    const copy = tillioErrorCopy(code, 'detach_failed')
+    return t(copy.key, copy.fallback)
+  }, [t])
   const [state, setState] = React.useState<OperatorsResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [keyInput, setKeyInput] = React.useState('')
@@ -108,7 +116,7 @@ export default function OperatorsConfigWidget(
       })
       const body = response.result as AttachResult | undefined
       if (!response.ok) {
-        flash(body?.message ?? t('tillio.operators.attachFailed', 'Could not attach the operator.'), 'error')
+        flash(attachErrorText(body?.code), 'error')
         return
       }
       flash(t('tillio.operators.attached', 'Operator attached.'), 'success')
@@ -117,7 +125,7 @@ export default function OperatorsConfigWidget(
     } finally {
       setPending(false)
     }
-  }, [keyInput, load, mutationContext, pending, runMutation, t])
+  }, [attachErrorText, keyInput, load, mutationContext, pending, runMutation, t])
 
   const sendDetach = React.useCallback(async (operatorId: string, force: boolean) => {
     const query = force ? '?force=true' : ''
@@ -151,7 +159,7 @@ export default function OperatorsConfigWidget(
       // The token is still live on Tillio's side, so the record stayed. Removing it anyway
       // is a separate, explicit decision — it leaves that token behind with no handle to it.
       if (!body?.canForce) {
-        flash(body?.message ?? t('tillio.operators.detachFailed', 'Could not detach the operator.'), 'error')
+        flash(detachErrorText(body?.code), 'error')
         return
       }
       const forceConfirmed = await confirm({
@@ -173,7 +181,7 @@ export default function OperatorsConfigWidget(
     } finally {
       setPending(false)
     }
-  }, [confirm, load, sendDetach, t])
+  }, [confirm, detachErrorText, load, sendDetach, t])
 
   const copyTenantDomain = React.useCallback(async (tenantDomain: string) => {
     try {

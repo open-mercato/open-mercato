@@ -55,7 +55,7 @@ export const openApi = {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Unauthorized' }, { status: 401 })
   }
 
   const container = await createRequestContainer()
@@ -76,12 +76,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Unauthorized' }, { status: 401 })
   }
 
   const parsedBody = pullBodySchema.safeParse(await readJsonSafe(req))
   if (!parsedBody.success) {
-    return NextResponse.json({ ok: false, message: 'Invalid pull payload' }, { status: 400 })
+    return NextResponse.json({ ok: false, code: 'invalid_payload', message: 'Invalid pull payload' }, { status: 400 })
   }
   const body = parsedBody.data
 

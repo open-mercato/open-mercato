@@ -26,7 +26,7 @@ export const openApi = {
 export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Unauthorized' }, { status: 401 })
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -35,7 +35,7 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
 
   const parsedParams = idParamsSchema.safeParse(rawParams)
   if (!parsedParams.success) {
-    return NextResponse.json({ ok: false, message: 'Invalid operator id' }, { status: 400 })
+    return NextResponse.json({ ok: false, code: 'invalid_operator_id', message: 'Invalid operator id' }, { status: 400 })
   }
   const operatorId = parsedParams.data.id
   const force = parseBooleanWithDefault(new URL(req.url).searchParams.get('force'), false)
@@ -75,7 +75,7 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
       )
     }
     return NextResponse.json(
-      { ok: false, section: 'operator', message: 'Failed to detach the operator.' },
+      { ok: false, code: 'detach_failed', section: 'operator', message: 'Failed to detach the operator.' },
       { status: 500 },
     )
   }
