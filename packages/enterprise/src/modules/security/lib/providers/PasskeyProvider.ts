@@ -6,6 +6,7 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type {
   MfaMethodRecord,
@@ -23,6 +24,8 @@ import {
 } from '../security-config'
 
 const SETUP_TOKEN_VERSION = 'v1'
+
+const logger = createLogger('security').child({ component: 'passkey-provider' })
 
 const setupPayloadSchema = z.object({
   label: z.string().min(1).max(100).optional(),
@@ -309,7 +312,14 @@ export class PasskeyProvider implements MfaProviderInterface {
         counter,
         transports: this.normalizeTransports(metadata.transports),
       },
-    }).catch(() => null)
+    }).catch((error: unknown) => {
+      logger.warn('Passkey assertion could not be verified', {
+        methodId: method.id,
+        rpId: this.getRpId(securityConfig),
+        err: error,
+      })
+      return null
+    })
 
     if (!verification?.verified) {
       return false
