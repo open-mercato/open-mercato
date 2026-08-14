@@ -19,7 +19,11 @@ import { parse } from 'yaml'
 
 const WORKFLOWS_DIR = path.resolve('.github/workflows')
 const PRIVILEGED_TRIGGERS = new Set(['schedule', 'workflow_dispatch', 'push'])
-const CACHE_WRITING_ACTIONS = [/^actions\/cache@/, /^actions\/cache\/save@/]
+// Any vendor's cache action, not just `actions/cache`: the runner fleets this repo uses
+// ship drop-in replacements (`useblacksmith/cache`, `runs-on/cache`) that write to the
+// same Actions cache scope, so matching only the GitHub-published action would let a
+// one-word swap slip the guard.
+const CACHE_WRITING_ACTIONS = [/^[\w.-]+\/cache@/, /^[\w.-]+\/cache\/save@/]
 
 function listWorkflows() {
   return fs
