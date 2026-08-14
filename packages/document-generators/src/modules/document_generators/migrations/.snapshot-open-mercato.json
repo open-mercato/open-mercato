@@ -266,14 +266,13 @@
       },
       "indexes": [
         {
-          "columnNames": [
-            "organization_id"
-          ],
+          "columnNames": [],
           "composite": false,
           "constraint": false,
-          "keyName": "document_generators_generated_documents_org_idx",
+          "keyName": "document_generators_generated_documents_history_idx",
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"document_generators_generated_documents_history_idx\" on \"document_generators_generated_documents\" (\"tenant_id\", \"organization_id\", \"generated_at\" desc)"
         },
         {
           "columnNames": [

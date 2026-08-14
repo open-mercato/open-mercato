@@ -399,7 +399,7 @@ Renders a PDF for preview — **no side effects** (no logging, no events, no per
 }
 ```
 
-**Response:** `Content-Type: application/pdf` — binary PDF stream.
+**Response:** `Content-Type: application/pdf` — binary PDF stream with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 **Errors:**
 - `400` — invalid JSON, missing `template_id` / `data`, or unknown template ID
@@ -422,7 +422,7 @@ Generates a PDF and records generation history on a best-effort basis. Used by t
 
 The loaded template must derive `resourceKind`, canonical `resourceId`, and an optional `resourceLabel` from normalized server-side data. The route always attempts to persist history after a successful render and never accepts resource identity from the client.
 
-**Response:** `Content-Type: application/pdf` — binary PDF stream with `Content-Disposition: attachment; filename="<derived>"`.
+**Response:** `Content-Type: application/pdf` — binary PDF stream with `Content-Disposition: attachment; filename="<derived>"`, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
 
 **Errors:**
 - `400` — invalid input or unknown template ID
@@ -654,8 +654,10 @@ GET /api/document-generators/documents?resource_kind=X&resource_id=Y&page=1&page
 - Use `getAuthFromRequest(request)` from `@open-mercato/shared/lib/auth/server` to get `auth.userId` for `generated_by`
 - `resourceId()` is required for every registered template and derives the canonical source ID after server-side fetching and normalization
 - `resource_kind`, `resource_id`, and `resource_label` are never accepted by `POST /generate`; the registry derives all three values, and an unavailable label falls back to the canonical resource ID
-- `GET /documents` must always filter by `organization_id` — use `getAuthFromRequest` for tenant scoping
-- DB migration was generated with `yarn module:db:generate document-generators`; the migration and snapshot are committed together
+- `GET /documents` must always filter by both `tenant_id` and `organization_id` — use `getAuthFromRequest` for tenant scoping
+- The history table keeps the resource lookup index and uses `(tenant_id, organization_id, generated_at DESC)` for the newest-first scoped list; it does not keep a redundant index on `organization_id` alone
+- The initial table-creation migration defines `down()` by dropping the generated-documents table, so a pre-release rollback removes the table and its indexes together
+- DB migration was generated with `yarn db:generate`; the migration and module snapshot are committed together, while unrelated module output is discarded
 
 #### Format extensibility boundary
 

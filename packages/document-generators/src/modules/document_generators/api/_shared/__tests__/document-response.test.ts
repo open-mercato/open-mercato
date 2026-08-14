@@ -21,6 +21,13 @@ describe('documentResponse', () => {
     expect(response.headers.get('content-disposition')).toContain("filename*=UTF-8''invoice-%C5%BB%C3%B3%C5%82%C4%87.pdf")
   })
 
+  it('prevents document responses from being cached or MIME-sniffed', () => {
+    const response = documentResponse(makeDocument())
+
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
   it('removes control characters and quotes from the fallback filename', () => {
     const response = documentResponse(makeDocument({ filename: 'invoice\r\n"42".pdf' }))
 

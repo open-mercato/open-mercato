@@ -12,6 +12,8 @@ export function documentResponse(document: RenderedDocument): NextResponse {
     headers: {
       'Content-Type': document.mimeType,
       'Content-Disposition': contentDisposition(document.filename),
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 }

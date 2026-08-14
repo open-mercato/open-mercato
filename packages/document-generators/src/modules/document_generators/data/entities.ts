@@ -12,8 +12,12 @@ import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legac
  * schema change. `attachment_id` is populated in Phase 6 (attachment storage).
  */
 @Entity({ tableName: 'document_generators_generated_documents' })
-@Index({ name: 'document_generators_generated_documents_org_idx', properties: ['organizationId'] })
 @Index({ name: 'document_generators_generated_documents_resource_idx', properties: ['organizationId', 'resourceKind', 'resourceId'] })
+@Index({
+  name: 'document_generators_generated_documents_history_idx',
+  expression:
+    'create index "document_generators_generated_documents_history_idx" on "document_generators_generated_documents" ("tenant_id", "organization_id", "generated_at" desc)',
+})
 export class GeneratedDocument {
   [OptionalProps]?: 'format' | 'mimeType' | 'attachmentId' | 'generatedAt' | 'createdAt' | 'updatedAt'
 
