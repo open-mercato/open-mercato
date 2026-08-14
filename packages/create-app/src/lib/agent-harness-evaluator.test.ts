@@ -134,6 +134,16 @@ function stageApp(): string {
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
     ],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+    shared: [
+      'src/lib/commands/types.ts',
+      'src/lib/commands/registry.ts',
+      'src/lib/commands/runCrudCommandWrite.ts',
+      'src/lib/crud/factory.ts',
+      'src/modules/events/factory.ts',
+      'src/lib/crud/optimistic-lock-command.ts',
+      'src/lib/http/readJsonSafe.ts',
+      'src/lib/data/engine.ts',
+    ],
   })) {
     const sourcePackage = fileURLToPath(new URL(`../../../${packageName}/`, import.meta.url))
     const installedPackage = path.join(root, 'node_modules', '@open-mercato', packageName)
@@ -331,7 +341,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 48)
+  assert.equal(validators.catalog.writableCaseIds.length, 49)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -342,6 +352,7 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-193', 600_000],
     ['OMH-223', 600_000],
     ['OMH-224', 600_000],
+    ['OMH-230', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -662,12 +673,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-229', () => {
+test('deterministic evaluation enforces the case schema through OMH-231', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-229')
+    assert.equal(cases.at(-1)?.id, 'OMH-231')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -2180,16 +2191,18 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
     '.agents/skills/om-implement-spec/references/spec-resolution.md',
     '.agents/skills/om-implement-spec/references/phases-and-gates.md',
     '.agents/skills/om-implement-spec/references/planning-and-progress.md',
+    '.agents/skills/om-implement-spec/references/resume.md',
     '.agents/skills/om-implement-spec/references/report-templates.md'
   ],
   decisions: [
     'spec-resolution', 'phase-execution-plan', 'interactive-confirmation',
     'working-phases', 'smallest-validation', 'implementation-progress',
+    'slice-ledger-write', 'in-flight-ledger', 'atomic-edit-sequence',
     'stable-implementation-report', 'spec-reference-marker'
   ], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/report-templates.md'
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/resume.md .agents/skills/om-implement-spec/references/report-templates.md'
 } }))
 `)
   try {
@@ -2204,6 +2217,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
       '.ai/skills/om-implement-spec/references/spec-resolution.md',
       '.ai/skills/om-implement-spec/references/phases-and-gates.md',
       '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+      '.ai/skills/om-implement-spec/references/resume.md',
       '.ai/skills/om-implement-spec/references/report-templates.md',
     ])
   } finally {
@@ -2856,6 +2870,14 @@ test('generative judge uses the reusable judge skill, pinned code-review evidenc
   const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
+    const providerLimitManifest = path.join(controller, '.ai', 'harness', 'results', 'provider-limit-manifest.json')
+    fs.writeFileSync(providerLimitManifest, JSON.stringify({
+      schemaVersion: 1,
+      stopCause: {
+        classification: 'provider-limit',
+        lastEntryError: { name: 'ProviderError', statusCode: 429, message: 'usage limit reached for sk-12345678901234567890' },
+      },
+    }))
     const casesPath = path.join(controller, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8'))
     cases.find((entry: { id: string }) => entry.id === 'OMH-011').expectedRouter.required.push('backend-ui')
@@ -2875,6 +2897,13 @@ const allowedReads = JSON.parse(mcpArgs.at(-2))
 const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
 for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
+const stopCause = JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause
+const termination = stopCause.classification
+if (!['completed', 'provider-limit', 'provider-error', 'user-abort', 'unknown'].includes(termination)) process.exit(9)
+const reportedTermination = termination === 'provider-error' ? 'completed' : termination
+const errorSummary = stopCause.lastEntryError
+  ? Object.values(stopCause.lastEntryError).filter((value) => value !== null && String(value).length > 0).join(' ')
+  : 'no error summary'
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
@@ -2904,6 +2933,7 @@ const judgeReport = [
   '## Verdict',
   'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
   '## Evidence',
+  '- Termination: ' + reportedTermination + ' — the controller-bound session manifest classification; ' + errorSummary + '.',
   'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
   '## Artifact Findings',
   'No artifact findings.',
@@ -2921,6 +2951,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', providerLimitManifest,
     ], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
@@ -2933,6 +2964,9 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
     assert.equal(stored.judgeVerdict, 'pass')
+    assert.match(stored.judgeReport, /- Termination: provider-limit .*controller-bound session manifest classification/)
+    assert.match(stored.judgeReport, /ProviderError 429 usage limit reached for <redacted-token>/)
+    assert.doesNotMatch(stored.judgeReport, /sk-12345678901234567890/)
     assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
     assert.deepEqual(stored.artifactFindings, [])
     assert.deepEqual(stored.harnessOwnerFindings, [])
@@ -2958,6 +2992,32 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
       '.ai/skills/om-backend-ui-design/references/quality-states.md',
     ])
     assert.ok(stored.actualContext.paths.includes('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt'))
+
+    const oldBundleManifest = path.join(controller, '.ai', 'harness', 'results', 'old-bundle-manifest.json')
+    fs.writeFileSync(oldBundleManifest, JSON.stringify({ schemaVersion: 1 }))
+    const oldBundleReview = runEvaluator(controller, [
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', oldBundleManifest,
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(oldBundleReview.status, 0, `${oldBundleReview.stdout}\n${oldBundleReview.stderr}`)
+    assert.match(storedReviewResults(controller).at(-1).judgeReport, /- Termination: unknown .*controller-bound session manifest classification/)
+
+    const mismatchManifest = path.join(controller, '.ai', 'harness', 'results', 'mismatch-manifest.json')
+    fs.writeFileSync(mismatchManifest, JSON.stringify({ stopCause: { classification: 'provider-error' } }))
+    const mismatchReview = runEvaluator(controller, [
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', mismatchManifest,
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(mismatchReview.status, 1, `${mismatchReview.stdout}\n${mismatchReview.stderr}`)
+    assert.ok(storedReviewResults(controller).at(-1).violations.some(
+      (violation: string) => /does not match normalized manifest stop cause provider-error/.test(violation),
+    ))
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
@@ -3842,7 +3902,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 229)
+  assert.equal(cases.length, 231)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
@@ -4181,13 +4241,14 @@ test('live routing rejects a structurally invalid spec routing payload before sc
 })
 
 // ---------------------------------------------------------------------------------------
-// SPEC-P2 writable planning proofs (OMH-223, OMH-224) and their fixed Markdown oracle.
+// SPEC-P2 writable planning/resume proofs (OMH-223, OMH-224, OMH-230) and their fixed oracle.
 // ---------------------------------------------------------------------------------------
 
 const specOracle = path.join(sourceHarness, 'writable-spec-oracles.mjs')
 const emittedSpecRoot = path.join(sharedRoot, 'ai', 'specs')
 const newFeatureSpecPath = '.ai/specs/2026-08-04-warehouse-stock-transfers.md'
 const coveringSpecPath = '.ai/specs/2026-08-04-service-appointment-reminders.md'
+const resumeSpecPath = '.ai/specs/2026-08-10-interrupted-export-format.md'
 
 type SpecOracleReport = {
   status: number | null
@@ -4769,6 +4830,40 @@ for (const [label, breakIt, expectedCheck] of existingSpecNegatives) {
   })
 }
 
+test('the resume proof fails on the interrupted pair and passes after ledger-bound reconciliation', () => {
+  const root = stageSpecTarget('spec-resume-half-done')
+  try {
+    const before = runSpecOracle(root, 'OMH-230', 'before')
+    assert.equal(before.passed, false)
+    assert.ok(failedSpecCheckIds(before).includes('resume.contract.complete'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.formatter.complete'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.ledger.progress'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.ledger.completed-slice'))
+
+    fs.writeFileSync(
+      path.join(root, 'src/modules/resume_demo/lib/export-contract.ts'),
+      'export type ExportContract = { label: string }\n',
+    )
+    fs.writeFileSync(
+      path.join(root, 'src/modules/resume_demo/lib/format-export.ts'),
+      "import type { ExportContract } from './export-contract'\n\nexport function formatExport(label: string): ExportContract {\n  return { label: label.trim() }\n}\n",
+    )
+    const ledger = fs.readFileSync(path.join(root, resumeSpecPath), 'utf8')
+      .replace('Progress: 1/2', 'Progress: 2/2')
+      .replace('- [ ] Slice 2 — add `export-contract.ts` and repair `format-export.ts` as one atomic pair. verify:', '- [x] Slice 2 — add `export-contract.ts` and repair `format-export.ts` as one atomic pair. verified:')
+    fs.writeFileSync(path.join(root, resumeSpecPath), ledger)
+
+    const after = runSpecOracle(root, 'OMH-230', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+
+    fs.writeFileSync(path.join(root, 'src/modules/resume_demo/lib/preserved.ts'), "export const immutableResumeBaseline = 'rewritten'\n")
+    assert.ok(failedSpecCheckIds(runSpecOracle(root, 'OMH-230', 'after')).includes('resume.preserved.unchanged'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the spec oracle refuses an unknown case, an unknown phase, and a relative root', () => {
   const root = stageSpecTarget('planning-new-feature')
   try {
@@ -4788,7 +4883,7 @@ test('the spec oracle refuses an unknown case, an unknown phase, and a relative 
   }
 })
 
-test('the two planning proofs are the only writable cases graded by the spec oracle', () => {
+test('the planning and resume proofs are the only writable cases graded by the spec oracle', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as Array<{
     id: string
     evaluationKind: string
@@ -4801,24 +4896,31 @@ test('the two planning proofs are the only writable cases graded by the spec ora
   const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
     validators: Record<string, { runners?: string[] }>
   }
-  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse']
+  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse', 'oracle.planning.spec-resume']
   for (const validatorId of planningOracles) {
     assert.deepEqual(registry.validators[validatorId]?.runners, ['writable-spec-oracles.mjs'])
   }
   const declaring = cases.filter((record) => record.validators.some((entry) => planningOracles.includes(entry)))
-  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224'])
+  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224', 'OMH-230'])
   for (const record of declaring) {
     assert.equal(record.evaluationKind, 'implementation', `${record.id} must be a writable case`)
     // The planning gate itself is scored by the read-only routing contract; a writable proof
     // must never also declare it.
     assert.equal(record.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
     assert.ok(record.tags.includes('writable'))
-    for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
-      assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+    if (record.id !== 'OMH-230') {
+      for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
+        assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+      }
     }
   }
   assert.deepEqual(declaring[0].allowedWrites, ['.ai/specs/**'])
   assert.deepEqual(declaring[1].allowedWrites, [coveringSpecPath])
+  assert.deepEqual(declaring[2].allowedWrites, [
+    resumeSpecPath,
+    'src/modules/resume_demo/lib/export-contract.ts',
+    'src/modules/resume_demo/lib/format-export.ts',
+  ])
 })
 
 test('catalog validation binds each semantic oracle to its own fixed runner', () => {

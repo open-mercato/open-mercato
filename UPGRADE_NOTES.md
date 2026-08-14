@@ -24,6 +24,31 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### Standalone apps gain deterministic design-system and i18n checks
+
+New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and
+`scripts/i18n-check-hardcoded.mjs` as the advisory `yarn i18n:check-hardcoded` report. Their
+`typecheck` script also uses the same `NODE_OPTIONS=--max-old-space-size=8192` headroom as
+`build`. Existing apps keep their user-owned package scripts and `.ai/agentic.config.json`, so
+adoption is manual:
+
+1. Copy `packages/create-app/template/scripts/ds-check.mjs`,
+   `packages/create-app/template/scripts/i18n-check-hardcoded.mjs`, and the reasoned
+   `.ds-check-ignore` baseline into the matching app paths, then remove baseline entries as
+   their files move to semantic tokens.
+2. Add `"ds:check": "node scripts/ds-check.mjs"` and
+   `"i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs"` to `package.json`, and
+   change `typecheck` to
+   `cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit`.
+3. Add `"yarn ds:check"` immediately after `"yarn lint"` in
+   `.ai/agentic.config.json` `validation.commands`. Keep the i18n command advisory until a
+   project-specific allowlist has been reviewed.
+
+The design-system checker supports `--json` and fails on findings, malformed ignore data, or
+stale ignore entries. The i18n checker also supports `--json`, reports JSX and message-call
+findings, honors module `i18n/.hardcoded-allowlist.json` files and `[internal]` messages, and
+returns success for findings while it remains advisory.
+
 ### Generated module fact-sheets moved to per-module directories
 
 `agentic:init` now writes each installed module's generated Markdown facts under `.ai/guides/modules/<id>/`, with `index.md` as the entry point and one file per non-empty section. Local reference projections use the matching `.ai/guides/reference-modules/<id>/index.md` layout. The JSON sidecars remain at `.ai/guides/module-facts.json`, `.ai/guides/module-facts.v2.json`, and `.ai/guides/reference-module-facts.json` with unchanged schemas.
