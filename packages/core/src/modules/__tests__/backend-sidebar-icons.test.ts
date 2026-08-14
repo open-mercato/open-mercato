@@ -28,7 +28,13 @@ import { metadata as myLeaveRequestsMetadata } from '../staff/backend/staff/my-l
 import { metadata as teamMembersMetadata } from '../staff/backend/staff/team-members/page.meta'
 import { metadata as teamRolesMetadata } from '../staff/backend/staff/team-roles/page.meta'
 import { metadata as teamsMetadata } from '../staff/backend/staff/teams/page.meta'
-import { metadata as timesheetsMetadata } from '../staff/backend/staff/timesheets/page.meta'
+import { metadata as timeTrackingMyWorkMetadata } from '../staff/backend/staff/time-tracking/page.meta'
+import { metadata as timeTrackingBoardMetadata } from '../staff/backend/staff/time-tracking/board/page.meta'
+import { metadata as timeTrackingEntriesMetadata } from '../staff/backend/staff/time-tracking/entries/page.meta'
+import { metadata as timeTrackingProjectsMetadata } from '../staff/backend/staff/time-tracking/projects/page.meta'
+import { metadata as timeTrackingReportsMetadata } from '../staff/backend/staff/time-tracking/reports/page.meta'
+import { metadata as timeTrackingSettingsMetadata } from '../staff/backend/staff/time-tracking/settings/page.meta'
+import { metadata as timeTrackingTimesheetMetadata } from '../staff/backend/staff/time-tracking/timesheet/page.meta'
 import { metadata as workflowDefinitionsMetadata } from '../workflows/backend/definitions/page.meta'
 import { metadata as workflowEventsMetadata } from '../workflows/backend/events/page.meta'
 import { metadata as workflowInstancesMetadata } from '../workflows/backend/instances/page.meta'
@@ -63,7 +69,13 @@ const mainSidebarMetadata = [
   ['team members', teamMembersMetadata],
   ['team roles', teamRolesMetadata],
   ['teams', teamsMetadata],
-  ['timesheets', timesheetsMetadata],
+  ['time tracking my work', timeTrackingMyWorkMetadata],
+  ['time tracking projects', timeTrackingProjectsMetadata],
+  ['time tracking board', timeTrackingBoardMetadata],
+  ['time tracking entries', timeTrackingEntriesMetadata],
+  ['time tracking timesheet', timeTrackingTimesheetMetadata],
+  ['time tracking reports', timeTrackingReportsMetadata],
+  ['time tracking settings', timeTrackingSettingsMetadata],
   ['workflow definitions', workflowDefinitionsMetadata],
   ['workflow events', workflowEventsMetadata],
   ['workflow instances', workflowInstancesMetadata],

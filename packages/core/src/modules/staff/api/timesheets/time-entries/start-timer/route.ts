@@ -83,7 +83,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Start a timesheet timer',
       description:
-        'Atomically creates a timer-sourced time entry and starts it (sets startedAt and creates the initial work segment) in a single transaction, so a partial failure cannot leave an orphaned, unstarted entry.',
+        'Atomically creates a timer-sourced time entry and starts it (sets startedAt and creates the initial work segment) in a single transaction, so a partial failure cannot leave an orphaned, unstarted entry. An optional `taskId` is validated and stored by the same write, so starting a timer from a board card or the task drawer takes one request instead of a start followed by a link that can fail; when only `taskId` is sent, the project follows from the task.',
       requestBody: {
         contentType: 'application/json',
         schema: staffTimeEntryStartTimerSchema,
@@ -104,7 +104,8 @@ export const openApi: OpenApiRouteDoc = {
         },
         {
           status: 422,
-          description: 'Referenced time project not found or out of scope',
+          description:
+            'Referenced time project or task not found, out of scope, or the task belongs to another project',
           schema: z.object({ error: z.string() }),
         },
       ],

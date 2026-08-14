@@ -38,6 +38,22 @@ const events = [
   { id: 'staff.timesheets.time_project_member.created', label: 'Time Project Member Assigned', entity: 'time_project_member', category: 'crud' },
   { id: 'staff.timesheets.time_project_member.updated', label: 'Time Project Member Updated', entity: 'time_project_member', category: 'crud' },
   { id: 'staff.timesheets.time_project_member.deleted', label: 'Time Project Member Unassigned', entity: 'time_project_member', category: 'crud' },
+
+  // Time tracking (Phase 2)
+  { id: 'staff.timesheets.time_task.created', label: 'Time Task Created', entity: 'time_task', category: 'crud' },
+  { id: 'staff.timesheets.time_task.updated', label: 'Time Task Updated', entity: 'time_task', category: 'crud' },
+  { id: 'staff.timesheets.time_task.deleted', label: 'Time Task Deleted', entity: 'time_task', category: 'crud' },
+  { id: 'staff.timesheets.time_task.status_changed', label: 'Time Task Status Changed', entity: 'time_task', category: 'lifecycle', clientBroadcast: true },
+  { id: 'staff.timesheets.time_task_comment.created', label: 'Time Task Comment Created', entity: 'time_task_comment', category: 'crud' },
+  { id: 'staff.timesheets.time_task_comment.updated', label: 'Time Task Comment Updated', entity: 'time_task_comment', category: 'crud' },
+  { id: 'staff.timesheets.time_task_comment.deleted', label: 'Time Task Comment Deleted', entity: 'time_task_comment', category: 'crud' },
+  { id: 'staff.timesheets.time_report.created', label: 'Time Report Created', entity: 'time_report', category: 'crud' },
+  { id: 'staff.timesheets.time_report.updated', label: 'Time Report Updated', entity: 'time_report', category: 'crud' },
+  { id: 'staff.timesheets.time_report.deleted', label: 'Time Report Deleted', entity: 'time_report', category: 'crud' },
+  { id: 'staff.timesheets.time_report.closed', label: 'Time Report Closed', entity: 'time_report', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_report.unlocked', label: 'Time Report Unlocked', entity: 'time_report', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_project.budget_threshold_reached', label: 'Time Project Budget Threshold Reached', entity: 'time_project', category: 'lifecycle' },
+  { id: 'staff.timesheets.project_access.requested', label: 'Time Project Access Requested', entity: 'time_project', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

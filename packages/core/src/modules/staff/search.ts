@@ -222,7 +222,7 @@ export const searchConfig: SearchModuleConfig = {
           badge: t('staff.search.badge.timeProject', 'Project'),
         }
       },
-      resolveUrl: async (ctx) => `/backend/staff/timesheets/projects/${encodeURIComponent(String(ctx.record.id))}`,
+      resolveUrl: async (ctx) => `/backend/staff/time-tracking/projects/${encodeURIComponent(String(ctx.record.id))}`,
       fieldPolicy: {
         searchable: ['name', 'code', 'description', 'project_type', 'cost_center'],
       },

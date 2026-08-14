@@ -1,0 +1,2552 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Time Tracking — prototyp UI</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- ═══ Sprite ikon (lucide) ═══════════════════════════════════════ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="ic-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+<symbol id="ic-stop" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+<symbol id="ic-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-board" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+<symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/></symbol>
+<symbol id="ic-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="ic-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-unlock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></symbol>
+<symbol id="ic-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H14"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-7"/><path d="M10 20H3"/><path d="M12 2v4"/><path d="M6 10v4"/><path d="M12 18v4"/></symbol>
+<symbol id="ic-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="ic-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+<symbol id="ic-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+<symbol id="ic-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="ic-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="ic-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="ic-money" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01"/><path d="M18 12h.01"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="ic-grip" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="18" r="1.5"/></symbol>
+<symbol id="ic-columns-view" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Time Tracking — prototyp</strong>
+  <nav class="screen-nav" aria-label="Ekrany">
+    <a href="#s1">1 Moja praca</a>
+    <a href="#s2">2 Pusty stan</a>
+    <a href="#s3">3 Projekty</a>
+    <a href="#s4">4 Nowy projekt</a>
+    <a href="#s5">5 Zespół</a>
+    <a href="#s6">6 Kanban</a>
+    <a href="#s7">7 Zadanie</a>
+    <a href="#s8">8 Wpis czasu</a>
+    <a href="#s9">9 Wpis — błędy</a>
+    <a href="#s10">10 Wpisy czasu</a>
+    <a href="#s11">11 Timesheet mies.</a>
+    <a href="#s12">12 Timesheet tydz.</a>
+    <a href="#s13">13 Raport — konfig.</a>
+    <a href="#s14">14 Raport — podgląd</a>
+    <a href="#s15">15 Blokada wpisów</a>
+    <a href="#s16">16 Ustawienia</a>
+    <a href="#s17">17 Brak dostępu</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Motyw
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Time Tracking — inwentarz ekranów</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Statyczne makiety ekranów wynikających z <code class="t-mono">time-tracking-module-requirements.md</code>.
+    Shell, scaffolding strony, chrome DataTable i układ CrudForm odwzorowują realne struktury
+    z <code class="t-mono">packages/ui/src/backend/</code>; kolory i odstępy pochodzą z tokenów
+    <code class="t-mono">globals.css</code>. Każdy ekran wymienia pokrywane sekcje wymagań
+    i historyjki użytkownika. Perspektywa domyślna: <b>Anna Nowak (Team Member)</b>;
+    ekrany 3–5 i 13–16 pokazują perspektywę <b>Marka Wójcika (Team Leader)</b>.
+  </p>
+</header>
+
+<!-- ═══ EKRAN 1 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Moja praca — pulpit Team Membera</h2>
+    <p>Punkt wejścia TM-a: tylko przypisane projekty, dzisiejsze wpisy i stan bieżącego timera. Zero nawigacji po klientach, do których nie ma dostępu.</p>
+    <div class="screen-refs"><span class="ref">§3</span><span class="ref">§6</span><span class="ref">US-A1</span><span class="ref">US-A2</span><span class="ref">US-D4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking</span>
+    </div>
+    <div class="app">
+
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item active"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Śledzenie czasu</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Moja praca</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <span class="timer-pill">
+              <span class="pulse"></span>
+              <span class="ellipsis">Migracja koszyka B2B</span>
+              <span class="elapsed">01:12:38</span>
+              <button class="timer-stop" aria-label="Zatrzymaj timer" data-goto="s8"><svg><use href="#ic-stop"/></svg></button>
+            </span>
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg><span class="badge-count">2</span></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="page-head">
+            <div>
+              <h1 class="t-page-title">Moja praca</h1>
+              <p>Poniedziałek, 20 lipca 2026 · Anna Nowak</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-outline" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</button>
+              <button class="btn btn-primary" data-goto="s8"><svg><use href="#ic-plus"/></svg> Dodaj wpis</button>
+            </div>
+          </div>
+
+          <div class="kpis">
+            <div class="card kpi"><span class="t-hint">Dziś</span><span class="v">6:20</span><span class="delta muted">cel 8:00 — brakuje 1:40</span></div>
+            <div class="card kpi"><span class="t-hint">Ten tydzień</span><span class="v">31:45</span><span class="delta muted">z 40:00</span></div>
+            <div class="card kpi"><span class="t-hint">Ten miesiąc</span><span class="v">128:10</span><span class="delta muted">14 dni roboczych</span></div>
+            <div class="card kpi"><span class="t-hint">Nierozliczalne</span><span class="v">4:15</span><span class="delta muted">3,3% miesiąca</span></div>
+          </div>
+
+          <div class="split split-side">
+            <div class="dt">
+              <div class="dt-head">
+                <div class="dt-head-row">
+                  <h2 class="t-table-title">Dzisiejsze wpisy</h2>
+                  <div class="dt-head-actions">
+                    <button class="btn btn-outline btn-sm"><svg><use href="#ic-copy"/></svg> Kopiuj wczorajszy dzień</button>
+                    <button class="btn btn-outline btn-sm" data-goto="s10">Wszystkie wpisy</button>
+                  </div>
+                </div>
+              </div>
+              <table class="table">
+                <thead><tr><th>Zadanie</th><th>Projekt</th><th>Godziny</th><th class="right">Czas</th><th class="right"></th></tr></thead>
+                <tbody>
+                  <tr class="clickable" data-goto="s8">
+                    <td><div class="strong">Migracja koszyka B2B</div><div class="t-hint">Poprawki mapowania cen</div></td>
+                    <td class="muted">Nordvik — migracja B2B</td>
+                    <td class="t-mono muted">09:00 – 11:30</td>
+                    <td class="right t-mono strong">2:30</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Edytuj"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable" data-goto="s8">
+                    <td><div class="strong">Przegląd zapytań SQL</div><div class="t-hint">Indeksy na order_lines</div></td>
+                    <td class="muted">Ambra — audyt wydajności</td>
+                    <td class="t-mono muted">11:45 – 13:30</td>
+                    <td class="right t-mono strong">1:45</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Edytuj"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable" data-goto="s8">
+                    <td><div class="strong">Spotkanie statusowe</div><div class="row" style="gap:0.375rem"><span class="t-hint">Cotygodniowy status</span><span class="badge badge-neutral">nierozliczalne</span></div></td>
+                    <td class="muted">Nordvik — migracja B2B</td>
+                    <td class="t-mono muted">14:00 – 14:45</td>
+                    <td class="right t-mono strong">0:45</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Edytuj"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                  </tr>
+                  <tr>
+                    <td colspan="5">
+                      <div class="quick-entry">
+                        <input class="input" style="max-width:22rem" placeholder="Zadanie…" />
+                        <input class="input" style="max-width:7rem" placeholder="1h 40m" />
+                        <button class="btn btn-primary btn-sm"><svg><use href="#ic-save"/></svg> Zapisz</button>
+                        <span class="t-hint">lub <span class="kbd">⌘</span><span class="kbd">↵</span></span>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+                <tfoot><tr><td colspan="3">Razem dziś</td><td class="right t-mono">6:20</td><td></td></tr></tfoot>
+              </table>
+            </div>
+
+            <div class="stack-3">
+              <div class="card">
+                <div class="card-head"><h3 class="t-card-title">Moje projekty</h3><span class="t-hint">3</span></div>
+                <div class="card-body stack-3">
+                  <div class="stack-2">
+                    <div class="between"><a class="strong" data-goto="s6">Nordvik — migracja B2B</a><span class="t-mono t-hint">78:20</span></div>
+                    <div class="t-hint">Nordvik Retail AB · 320 PLN/h</div>
+                    <div class="progress"><span style="width:62%"></span></div>
+                    <div class="t-hint">62% budżetu (125 h)</div>
+                  </div>
+                  <hr class="separator" />
+                  <div class="stack-2">
+                    <div class="between"><a class="strong" data-goto="s6">Ambra — audyt wydajności</a><span class="t-mono t-hint">36:45</span></div>
+                    <div class="t-hint">Grupa Ambra · 280 PLN/h</div>
+                    <div class="progress progress-warning"><span style="width:92%"></span></div>
+                    <div class="t-hint">92% budżetu (40 h)</div>
+                  </div>
+                  <hr class="separator" />
+                  <div class="stack-2">
+                    <div class="between"><a class="strong" data-goto="s6">Fintechly — portal klienta</a><span class="t-mono t-hint">13:05</span></div>
+                    <div class="t-hint">Fintechly Sp. z o.o. · 95 EUR/h</div>
+                    <div class="progress"><span style="width:18%"></span></div>
+                    <div class="t-hint">18% budżetu (72 h)</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3 class="t-card-title">Ostatnie zadania</h3></div>
+                <div class="card-body stack-2">
+                  <div class="between"><span class="ellipsis" data-goto="s7">Migracja koszyka B2B</span><button class="btn btn-ghost btn-xs" aria-label="Start"><svg><use href="#ic-play"/></svg></button></div>
+                  <div class="between"><span class="ellipsis" data-goto="s7">Przegląd zapytań SQL</span><button class="btn btn-ghost btn-xs" aria-label="Start"><svg><use href="#ic-play"/></svg></button></div>
+                  <div class="between"><span class="ellipsis" data-goto="s7">Mapowanie cen katalogowych</span><button class="btn btn-ghost btn-xs" aria-label="Start"><svg><use href="#ic-play"/></svg></button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Regulamin</span><span>Prywatność</span></nav>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Pigułka timera w topbarze jest widoczna z każdego ekranu modułu i liczy dalej po odświeżeniu strony — stan trwa po stronie serwera, nie w zakładce (US-D4).</span></div>
+    <div class="note"><b>2</b><span>Nawigacja TM-a nie zawiera pozycji „Projekty", „Raporty" ani „Ustawienia" — akcje TL-a nie renderują się wcale, zamiast być wyszarzone (US-A2).</span></div>
+    <div class="note"><b>3</b><span>Wiersz szybkiego dodawania na dole tabeli używa tego samego parsera czasu co reszta modułu; <span class="kbd">⌘</span><span class="kbd">↵</span> zapisuje i przenosi fokus do kolejnego wiersza.</span></div>
+    <div class="note"><b>4</b><span>Paski budżetu to <b>propozycja</b> z §9 (budżet/cap projektu) — jeśli budżety wypadną z zakresu, karty tracą pasek, a KPI „Dziś" traci odniesienie do celu.</span></div>
+    <div class="note"><b>5</b><span>„Kopiuj wczorajszy dzień" duplikuje wpisy poprzedniego dnia roboczego jako wersje do korekty (US-D6); w makiecie to sam przycisk.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 2 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Pusty stan — brak przypisanych projektów</h2>
+    <p>Pierwsze logowanie nowego członka zespołu. Ekran tłumaczy przyczynę pustki i wskazuje jedyną dostępną akcję, zamiast pokazywać pustą tabelę.</p>
+    <div class="screen-refs"><span class="ref">§3</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item active"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Moja praca</span></div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">TI</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Moja praca</h1><p>Poniedziałek, 20 lipca 2026 · Tomasz Iwan</p></div>
+          </div>
+          <div class="empty">
+            <span class="empty-icon"><svg><use href="#ic-folder"/></svg></span>
+            <div class="stack-2">
+              <div class="t-section">Nie masz jeszcze przypisanych projektów</div>
+              <p class="t-hint" style="max-width:44ch;margin:0">Dostęp do projektów nadaje Team Leader. Gdy doda Cię do projektu, pojawi się on tutaj od razu — bez ponownego logowania.</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-primary"><svg><use href="#ic-message"/></svg> Poproś Team Leadera o dostęp</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Regulamin</span><span>Prywatność</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Nawigacja skurczona do dwóch pozycji — bez przypisań nie ma czego pokazać w „Zadaniach" ani we „Wpisach czasu". „Timesheet" zostaje, bo prowadzi do własnego (pustego) kalendarza.</span></div>
+    <div class="note"><b>2</b><span>„Poproś Team Leadera o dostęp" to <b>propozycja do odrzucenia</b> — wymagania nie opisują żadnego kanału powiadomień. Bez niego zostaje samo wyjaśnienie.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 3 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Projekty — lista Team Leadera</h2>
+    <p>Widok zarządczy: wszystkie projekty klientów z godzinami, kosztem i wykorzystaniem budżetu. Stąd TL zakłada projekt i wchodzi w skład zespołu.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">§7</span><span class="ref">US-A2</span><span class="ref">US-B3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/projects</span>
+    </div>
+    <div class="app">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item active"><svg><use href="#ic-folder"/></svg> Projekty <span class="count">12</span></a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+            <a class="nav-item" data-goto="s13"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+          <div class="nav-sep"></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s16"><svg><use href="#ic-sliders"/></svg> Ustawienia</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Śledzenie czasu</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Projekty</span></div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Projekty</h1><p>Marek Wójcik · Team Leader</p></div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Wszystkie projekty</h2>
+                <div class="dt-head-actions">
+                  <button class="btn btn-outline btn-sm btn-icon" aria-label="Odśwież"><svg><use href="#ic-refresh"/></svg></button>
+                  <button class="btn btn-outline btn-sm"><svg><use href="#ic-columns-view"/></svg> Kolumny</button>
+                  <button class="btn btn-outline btn-sm"><svg><use href="#ic-download"/></svg> Eksport</button>
+                  <button class="btn btn-primary btn-sm" data-goto="s4"><svg><use href="#ic-plus"/></svg> Nowy projekt</button>
+                </div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <div class="dt-search"><div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj projektów…</div></div>
+                  <button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filtry <span class="filter-count">2</span></button>
+                  <div class="dt-toolbar-right">
+                    <div class="view-switch">
+                      <button><svg><use href="#ic-list"/></svg> Lista</button>
+                      <span class="div"></span>
+                      <button><svg><use href="#ic-board"/></svg> Karty</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="dt-toolbar-row">
+                  <span class="t-hint">2 zaznaczone</span>
+                  <button class="btn btn-ghost btn-sm"><svg><use href="#ic-file"/></svg> Raport z zaznaczonych</button>
+                  <button class="btn btn-ghost btn-sm"><svg><use href="#ic-users"/></svg> Przypisz członków</button>
+                  <button class="btn btn-ghost btn-sm"><svg><use href="#ic-x"/></svg> Wyczyść</button>
+                </div>
+              </div>
+            </div>
+            <div class="dt-chips">
+              <span class="chip chip-active">Klient: Nordvik Retail AB <svg><use href="#ic-x"/></svg></span>
+              <span class="chip chip-active">Status: aktywne <svg><use href="#ic-x"/></svg></span>
+              <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Dodaj filtr</span>
+            </div>
+            <div class="scroll-x">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th style="width:2rem"><span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span></th>
+                  <th>Projekt</th><th>Klient</th><th>Zespół</th>
+                  <th class="right">Stawka</th><th class="right">Godziny</th><th class="right">Koszt</th>
+                  <th>Budżet</th><th class="right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="clickable" data-goto="s6">
+                  <td><span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td><div class="strong">Nordvik — migracja B2B</div><div class="t-hint">Aktywny od 4 lut 2026</div></td>
+                  <td class="muted">Nordvik Retail AB</td>
+                  <td><span class="avatar-stack"><span class="avatar avatar-sm">AN</span><span class="avatar avatar-sm">PZ</span><span class="avatar avatar-sm">MW</span></span></td>
+                  <td class="right t-mono">320 PLN</td>
+                  <td class="right t-mono strong">78:20</td>
+                  <td class="right t-mono">25 067 PLN</td>
+                  <td style="min-width:9rem"><div class="progress"><span style="width:62%"></span></div><div class="t-hint">62% ze 125 h</div></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" data-goto="s5" aria-label="Zespół"><svg><use href="#ic-users"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Więcej"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s6">
+                  <td><span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td><div class="strong">Ambra — audyt wydajności</div><div class="t-hint">Aktywny od 11 maj 2026</div></td>
+                  <td class="muted">Grupa Ambra</td>
+                  <td><span class="avatar-stack"><span class="avatar avatar-sm">AN</span><span class="avatar avatar-sm">MW</span></span></td>
+                  <td class="right t-mono">280 PLN</td>
+                  <td class="right t-mono strong">36:45</td>
+                  <td class="right t-mono">10 290 PLN</td>
+                  <td style="min-width:9rem"><div class="progress progress-warning"><span style="width:92%"></span></div><div class="t-hint">92% z 40 h</div></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" data-goto="s5" aria-label="Zespół"><svg><use href="#ic-users"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Więcej"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s6">
+                  <td><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td><div class="strong">Fintechly — portal klienta</div><div class="t-hint">Aktywny od 1 lip 2026</div></td>
+                  <td class="muted">Fintechly Sp. z o.o.</td>
+                  <td><span class="avatar-stack"><span class="avatar avatar-sm">AN</span><span class="avatar avatar-sm">PZ</span></span></td>
+                  <td class="right t-mono">95 EUR</td>
+                  <td class="right t-mono strong">13:05</td>
+                  <td class="right t-mono">1 243 EUR</td>
+                  <td style="min-width:9rem"><div class="progress"><span style="width:18%"></span></div><div class="t-hint">18% z 72 h</div></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" data-goto="s5" aria-label="Zespół"><svg><use href="#ic-users"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Więcej"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s6">
+                  <td><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td><div class="strong">Nordvik — utrzymanie</div><div class="row" style="gap:0.375rem"><span class="t-hint">Retainer</span><span class="badge badge-neutral">bez budżetu</span></div></td>
+                  <td class="muted">Nordvik Retail AB</td>
+                  <td><span class="avatar-stack"><span class="avatar avatar-sm">TI</span><span class="avatar avatar-sm">MW</span></span></td>
+                  <td class="right t-mono">320 PLN</td>
+                  <td class="right t-mono strong">9:30</td>
+                  <td class="right t-mono">3 040 PLN</td>
+                  <td class="muted t-hint">—</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" data-goto="s5" aria-label="Zespół"><svg><use href="#ic-users"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Więcej"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+            </div>
+            <div class="dt-foot">
+              <span class="t-hint t-mono">Pozycje 1–4 z 12</span>
+              <ul class="pager">
+                <li><button class="nav" aria-label="Poprzednia"><svg><use href="#ic-chevron-left"/></svg></button></li>
+                <li><button aria-current="page">1</button></li>
+                <li><button>2</button></li>
+                <li><button>3</button></li>
+                <li><button class="nav" aria-label="Następna"><svg><use href="#ic-chevron-right"/></svg></button></li>
+              </ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Regulamin</span><span>Prywatność</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Koszt liczony jest po zaokrągleniu wpisów zgodnie z globalnym ustawieniem (§10, US-F3) — kolumna „Koszt" nie jest sumą surowych minut i może się różnić od ręcznego przeliczenia „Godziny × Stawka".</span></div>
+    <div class="note"><b>2</b><span>Projekty w dwóch walutach nie sumują się do jednej liczby — dlatego stopka tej tabeli nie ma wiersza „Razem". Sumowanie pojawia się dopiero w raporcie, zawsze w obrębie jednego klienta (§7, §8).</span></div>
+    <div class="note"><b>3</b><span>Akcje masowe są inline w pasku narzędzi (wzorzec DataTable), nie w pływającym pasku.</span></div>
+    <div class="note"><b>4</b><span>Kolumny „Budżet" i „bez budżetu" zależą od propozycji z §9. „Raport z zaznaczonych" działa tylko, gdy wszystkie zaznaczone projekty należą do jednego klienta — inaczej akcja jest zablokowana z wyjaśnieniem.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 4 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Nowy projekt — stawka, waluta, budżet</h2>
+    <p>Formularz zakładania projektu pod klientem. Wymagana jest wyłącznie nazwa i klient; rozliczenia można uzupełnić później.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">§7</span><span class="ref">§9</span><span class="ref">US-B1</span><span class="ref">US-F1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/projects/new</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item active" data-goto="s3"><svg><use href="#ic-folder"/></svg> Projekty</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+            <a class="nav-item" data-goto="s13"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+          <div class="nav-sep"></div>
+          <div class="nav-items"><a class="nav-item" data-goto="s16"><svg><use href="#ic-sliders"/></svg> Ustawienia</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Projekty</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Nowy projekt</span></div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <a class="back-link" data-goto="s3"><svg style="width:1rem;height:1rem"><use href="#ic-arrow-left"/></svg> Wstecz</a>
+            <span class="title">Nowy projekt</span>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Podstawowe</span>
+                <div class="field">
+                  <label>Nazwa projektu <span class="req">*</span></label>
+                  <input class="input" value="Nordvik — portal serwisowy" />
+                </div>
+                <div class="field">
+                  <label>Klient <span class="req">*</span></label>
+                  <div class="input-group">
+                    <select class="select"><option>Nordvik Retail AB</option><option>Grupa Ambra</option><option>Fintechly Sp. z o.o.</option></select>
+                    <button class="btn btn-outline"><svg><use href="#ic-plus"/></svg> Nowy klient</button>
+                  </div>
+                  <span class="t-hint">Czas jest organizowany per klient — projektu nie da się zapisać bez tego pola.</span>
+                </div>
+                <div class="field">
+                  <label>Opis</label>
+                  <textarea class="textarea" placeholder="Zakres prac, ustalenia z klientem…"></textarea>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Rozliczenia</span>
+                <span class="desc">Możesz zostawić puste i uzupełnić przed pierwszym raportem.</span>
+                <div class="form-grid form-grid-2">
+                  <div class="field">
+                    <label>Stawka godzinowa</label>
+                    <div class="input-group"><input class="input" value="320" /><span class="addon">/ h</span></div>
+                  </div>
+                  <div class="field">
+                    <label>Waluta</label>
+                    <select class="select"><option>PLN — złoty polski</option><option>EUR — euro</option><option>SEK — korona szwedzka</option></select>
+                    <span class="t-hint">Waluta jest stała dla projektu i steruje całym raportowaniem kosztu.</span>
+                  </div>
+                </div>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Domyślnie rozliczalne</span><span class="t-hint">Nowe wpisy w tym projekcie startują jako billable.</span></div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Budżet <span class="badge badge-info">propozycja §9</span></span>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Pilnuj limitu</span><span class="t-hint">Ostrzeżenie przy 80% i 100% wykorzystania.</span></div>
+                </div>
+                <div class="form-grid form-grid-2">
+                  <div class="field">
+                    <label>Rodzaj limitu</label>
+                    <div class="segmented"><button aria-selected="true">Godziny</button><button aria-selected="false">Kwota</button></div>
+                  </div>
+                  <div class="field">
+                    <label>Limit</label>
+                    <div class="input-group"><input class="input" value="180" /><span class="addon">h</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Status</span>
+                <div class="field"><select class="select"><option>Aktywny</option><option>Wstrzymany</option><option>Zamknięty</option></select></div>
+              </div>
+              <div class="form-group">
+                <span class="title">Zespół</span>
+                <span class="desc">Bez przypisania projekt widzi tylko Team Leader.</span>
+                <div class="tag-list">
+                  <span class="chip chip-active"><span class="avatar avatar-sm">AN</span> Anna Nowak <svg><use href="#ic-x"/></svg></span>
+                  <span class="chip chip-active"><span class="avatar avatar-sm">PZ</span> Paulina Zych <svg><use href="#ic-x"/></svg></span>
+                </div>
+                <button class="btn btn-outline btn-sm" data-goto="s5"><svg><use href="#ic-users"/></svg> Zarządzaj zespołem</button>
+              </div>
+              <div class="alert alert-info">
+                <svg><use href="#ic-info"/></svg>
+                <div class="stack-2">
+                  <span class="alert-title">Zaokrąglanie jest globalne</span>
+                  <span class="t-body">Aktualnie: <b>do 15 min w górę</b>. Zmiana dotyczy wszystkich projektów — ustawisz ją w Ustawieniach modułu.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-ghost" data-goto="s3">Anuluj</button>
+              <button class="btn btn-primary" data-goto="s5"><svg><use href="#ic-save"/></svg> Zapisz</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Regulamin</span><span>Prywatność</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Kolejność przycisków w stopce jest z <code class="t-mono">FormFooter</code>: akcje dodatkowe → Usuń → Anuluj → Zapisz. W trybie tworzenia „Usuń" nie występuje.</span></div>
+    <div class="note"><b>2</b><span>Waluta pokazana jest jako pole edytowalne, ale <b>wymagania milczą o zmianie waluty po zalogowaniu czasu</b>. Propozycja: po pierwszym wpisie pole staje się read-only z akcją „Zmień walutę (przelicza koszt historyczny)" — do rozstrzygnięcia.</span></div>
+    <div class="note"><b>3</b><span>Karta „Budżet" pochodzi z §9 i jest niepotwierdzona. Bez niej formularz kończy się na sekcji Rozliczenia.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 5 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Zespół projektu — przypisanie członków</h2>
+    <p>Drawer nad szczegółami projektu. TL zaznacza wielu członków naraz; dostęp działa natychmiast, a usunięcie kogoś nie kasuje jego historii.</p>
+    <div class="screen-refs"><span class="ref">§3</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/projects/nordvik-b2b?panel=team</span>
+    </div>
+    <div class="app app-tall drawer-scrim">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item active" data-goto="s3"><svg><use href="#ic-folder"/></svg> Projekty</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+            <a class="nav-item" data-goto="s13"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Projekty</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Nordvik — migracja B2B</span></div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Nordvik — migracja B2B</h1><p>Nordvik Retail AB · 320 PLN/h · 78:20 zalogowane</p></div>
+            <div class="page-actions">
+              <button class="btn btn-outline" data-goto="s6"><svg><use href="#ic-board"/></svg> Tablica</button>
+              <button class="btn btn-outline"><svg><use href="#ic-users"/></svg> Zespół</button>
+            </div>
+          </div>
+          <div class="tabs">
+            <button aria-selected="true">Przegląd</button>
+            <button aria-selected="false">Zadania <span class="tab-count">24</span></button>
+            <button aria-selected="false">Wpisy czasu <span class="tab-count">143</span></button>
+            <button aria-selected="false">Zespół <span class="tab-count">3</span></button>
+          </div>
+          <div class="kpis">
+            <div class="card kpi"><span class="t-hint">Zalogowane</span><span class="v">78:20</span><span class="delta muted">z 125 h budżetu</span></div>
+            <div class="card kpi"><span class="t-hint">Koszt</span><span class="v">25 067</span><span class="delta muted">PLN, po zaokrągleniu</span></div>
+            <div class="card kpi"><span class="t-hint">Rozliczalne</span><span class="v">94%</span><span class="delta muted">4:42 nierozliczalne</span></div>
+            <div class="card kpi"><span class="t-hint">Zespół</span><span class="v">3</span><span class="delta muted">osoby z dostępem</span></div>
+          </div>
+        </main>
+      </div>
+
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div class="grow">
+            <div class="t-section">Zespół projektu</div>
+            <div class="t-hint">Nordvik — migracja B2B</div>
+          </div>
+          <button class="btn btn-ghost btn-sm btn-icon" aria-label="Zamknij" data-goto="s3"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj osoby…</div>
+          <div class="stack-2">
+            <span class="t-overline">Przypisani (3)</span>
+            <div class="pick-list">
+              <div class="pick-row">
+                <span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                <span class="avatar">AN</span>
+                <div class="grow col"><span class="t-label">Anna Nowak</span><span class="t-hint">Team Member · 78:20 w tym projekcie</span></div>
+              </div>
+              <div class="pick-row">
+                <span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                <span class="avatar">PZ</span>
+                <div class="grow col"><span class="t-label">Paulina Zych</span><span class="t-hint">Team Member · 12:15 w tym projekcie</span></div>
+              </div>
+              <div class="pick-row">
+                <span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                <span class="avatar">MW</span>
+                <div class="grow col"><span class="t-label">Marek Wójcik</span><span class="t-hint">Team Leader · dostęp z roli</span></div>
+                <span class="badge badge-neutral"><svg><use href="#ic-lock"/></svg> zawsze</span>
+              </div>
+            </div>
+          </div>
+          <div class="stack-2">
+            <span class="t-overline">Pozostali w organizacji</span>
+            <div class="pick-list">
+              <div class="pick-row">
+                <span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                <span class="avatar">TI</span>
+                <div class="grow col"><span class="t-label">Tomasz Iwan</span><span class="t-hint">Team Member · 0:00</span></div>
+                <span class="badge badge-success">dodawany</span>
+              </div>
+              <div class="pick-row">
+                <span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                <span class="avatar">KB</span>
+                <div class="grow col"><span class="t-label">Kamila Borek</span><span class="t-hint">Team Member · 0:00</span></div>
+              </div>
+              <div class="pick-row">
+                <span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                <span class="avatar">JS</span>
+                <div class="grow col"><span class="t-label">Jakub Sawicki</span><span class="t-hint">Team Member · 0:00</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><span class="t-body">Odebranie dostępu nie usuwa zalogowanego czasu — wpisy zostają w projekcie i w raportach.</span></div>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <span class="t-hint grow">1 zmiana do zapisania</span>
+          <button class="btn btn-ghost" data-goto="s3">Anuluj</button>
+          <button class="btn btn-primary" data-goto="s6"><svg><use href="#ic-save"/></svg> Zapisz</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Dostęp działa natychmiast po zapisie — Tomasz zobaczy projekt bez ponownego logowania (US-B2). Makieta nie pokazuje żadnego kroku zaproszenia/akceptacji, bo wymagania go nie przewidują.</span></div>
+    <div class="note"><b>2</b><span>Team Leader jest na liście nieodznaczalny — jego dostęp wynika z roli, nie z przypisania (§3). Checkbox z kłódką to sygnał, że pola nie da się zmienić, a nie że jest zepsute.</span></div>
+    <div class="note"><b>3</b><span>Odznaczenie osoby z zalogowanymi godzinami powinno dodatkowo poprosić o potwierdzenie („Anna ma 78:20 w tym projekcie — odebrać dostęp?"). Makieta pokazuje stan przed tym dialogiem.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 6 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Tablica Kanban zadań</h2>
+    <p>Stan prac projektu w jednym rzucie oka. Karta niesie zalogowany czas, więc kolumna „Zrobione" od razu pokazuje, ile realnie kosztowała.</p>
+    <div class="screen-refs"><span class="ref">§4</span><span class="ref">US-C1</span><span class="ref">US-C2</span><span class="ref">US-C5</span><span class="ref">US-D4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/projects/nordvik-b2b/board</span>
+    </div>
+    <div class="app app-tallest">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item active"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Nordvik — migracja B2B</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Tablica</span></div>
+          </div>
+          <div class="topbar-right">
+            <span class="timer-pill">
+              <span class="pulse"></span>
+              <span class="ellipsis">Migracja koszyka B2B</span>
+              <span class="elapsed">01:14:02</span>
+              <button class="timer-stop" aria-label="Zatrzymaj timer" data-goto="s8"><svg><use href="#ic-stop"/></svg></button>
+            </span>
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Zadania</h1><p>Nordvik — migracja B2B · 24 zadania · 78:20 zalogowane</p></div>
+            <div class="page-actions">
+              <div class="view-switch">
+                <button><svg><use href="#ic-board"/></svg> Tablica</button>
+                <span class="div"></span>
+                <button><svg><use href="#ic-list"/></svg> Lista</button>
+              </div>
+              <button class="btn btn-outline"><svg><use href="#ic-filter"/></svg> Filtry <span class="filter-count">1</span></button>
+              <button class="btn btn-primary" data-goto="s7"><svg><use href="#ic-plus"/></svg> Nowe zadanie</button>
+            </div>
+          </div>
+
+          <div class="dt-chips">
+            <span class="chip chip-active"><span class="avatar avatar-sm">AN</span> Przypisane do mnie <svg><use href="#ic-x"/></svg></span>
+            <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Dodaj filtr</span>
+          </div>
+
+          <div class="kanban">
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--chart-indigo)"></div>
+                <div class="kcol-title">
+                  <span class="row"><span class="name">Backlog</span><span class="kcol-count badge-neutral">6</span></span>
+                  <span class="kcol-hours">0:00</span>
+                </div>
+              </div>
+              <button class="kquick"><svg><use href="#ic-plus"/></svg> Szybko dodaj zadanie</button>
+              <div class="kcol-body">
+                <div class="kcard">
+                  <div class="kcard-title">Import cenników dostawców</div>
+                  <div class="tag-list"><span class="badge badge-info">integracja</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">PZ</span><span class="grow"></span><span class="kcard-hours">0:00</span></div>
+                </div>
+                <div class="kcard">
+                  <div class="kcard-title">Testy regresyjne checkoutu</div>
+                  <div class="tag-list"><span class="badge badge-neutral">QA</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">AN</span><span class="grow"></span><span class="kcard-hours">0:00</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--chart-blue)"></div>
+                <div class="kcol-title">
+                  <span class="row"><span class="name">W toku</span><span class="kcol-count badge-info">3</span></span>
+                  <span class="kcol-hours">41:10</span>
+                </div>
+              </div>
+              <button class="kquick"><svg><use href="#ic-plus"/></svg> Szybko dodaj zadanie</button>
+              <div class="kcol-body">
+                <div class="kcard" data-goto="s7">
+                  <div class="kcard-title">Migracja koszyka B2B</div>
+                  <div class="tag-list"><span class="badge badge-warning">priorytet</span><span class="badge badge-info">backend</span></div>
+                  <div class="kcard-meta"><span class="row" style="gap:0.25rem"><svg><use href="#ic-check"/></svg> 3/5 podzadań</span></div>
+                  <div class="progress"><span style="width:60%"></span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta">
+                    <span class="avatar avatar-sm">AN</span>
+                    <span class="badge badge-success"><span class="dot"></span> timer</span>
+                    <span class="grow"></span>
+                    <span class="kcard-hours">22:45</span>
+                  </div>
+                  <div class="kcard-quick">
+                    <button class="btn btn-outline btn-xs"><svg><use href="#ic-stop"/></svg> Zatrzymaj</button>
+                    <button class="btn btn-outline btn-xs" data-goto="s8"><svg><use href="#ic-plus"/></svg> Dodaj czas</button>
+                  </div>
+                </div>
+                <div class="kcard" data-goto="s7">
+                  <div class="kcard-title">Mapowanie cen katalogowych</div>
+                  <div class="tag-list"><span class="badge badge-info">backend</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">PZ</span><span class="grow"></span><span class="kcard-hours">12:30</span></div>
+                  <div class="kcard-quick">
+                    <button class="btn btn-outline btn-xs"><svg><use href="#ic-play"/></svg> Start</button>
+                    <button class="btn btn-outline btn-xs" data-goto="s8"><svg><use href="#ic-plus"/></svg> Dodaj czas</button>
+                  </div>
+                </div>
+                <div class="kcard kcard-dragging">
+                  <div class="kcard-title">Walidacja adresów dostawy</div>
+                  <div class="tag-list"><span class="badge badge-neutral">frontend</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">AN</span><span class="grow"></span><span class="kcard-hours">5:55</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--chart-amber)"></div>
+                <div class="kcol-title">
+                  <span class="row"><span class="name">Do przeglądu</span><span class="kcol-count badge-warning">2</span></span>
+                  <span class="kcol-hours">18:20</span>
+                </div>
+              </div>
+              <button class="kquick"><svg><use href="#ic-plus"/></svg> Szybko dodaj zadanie</button>
+              <div class="kcol-body dropping">
+                <div class="kdrop"></div>
+                <div class="kcard">
+                  <div class="kcard-title">Refaktor serwisu podatkowego</div>
+                  <div class="tag-list"><span class="badge badge-info">backend</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">MW</span><span class="grow"></span><span class="kcard-hours">11:05</span></div>
+                </div>
+                <div class="kcard">
+                  <div class="kcard-title">Dokumentacja API zamówień</div>
+                  <div class="tag-list"><span class="badge badge-neutral">docs</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">PZ</span><span class="grow"></span><span class="kcard-hours">7:15</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--chart-emerald)"></div>
+                <div class="kcol-title">
+                  <span class="row"><span class="name">Zrobione</span><span class="kcol-count badge-success">13</span></span>
+                  <span class="kcol-hours">18:50</span>
+                </div>
+              </div>
+              <div class="kcol-body">
+                <div class="kcard">
+                  <div class="kcard-title">Schemat bazy dla cenników B2B</div>
+                  <div class="tag-list"><span class="badge badge-info">backend</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">AN</span><span class="grow"></span><span class="kcard-hours">9:40</span></div>
+                </div>
+                <div class="kcard">
+                  <div class="kcard-title">Konfiguracja środowiska stage</div>
+                  <div class="tag-list"><span class="badge badge-neutral">devops</span></div>
+                  <div class="kcard-rule"></div>
+                  <div class="kcard-meta"><span class="avatar avatar-sm">TI</span><span class="grow"></span><span class="kcard-hours">4:20</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--muted-foreground)"></div>
+                <div class="kcol-title">
+                  <span class="row"><span class="name">Nowa kolumna</span></span>
+                </div>
+              </div>
+              <button class="kquick"><svg><use href="#ic-plus"/></svg> Dodaj status</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Kolumna „Do przeglądu" jest w stanie zrzutu: przerywana ramka wskazuje miejsce, w które trafi przeciągana karta „Walidacja adresów dostawy". Karta w locie jest lekko przechylona i półprzezroczysta.</span></div>
+    <div class="note"><b>2</b><span>Zmiana statusu zapisuje się optymistycznie — karta ląduje natychmiast, a błąd zapisu cofa ją do poprzedniej kolumny i pokazuje toast z akcją „Ponów" (US-C2).</span></div>
+    <div class="note"><b>3</b><span>Akcje „Start / Zatrzymaj / Dodaj czas" pojawiają się na hover i przy fokusie klawiatury; na dotyku są zawsze widoczne. Zadanie z uruchomionym timerem ma stały znacznik, niezależny od hoveru.</span></div>
+    <div class="note"><b>4</b><span>Suma godzin w nagłówku kolumny to <b>propozycja</b> — wymagania mówią tylko o liczniku zadań. Jest tania i mocno pomaga przy „Zrobione", ale można ją usunąć.</span></div>
+    <div class="note"><b>5</b><span>„Szybko dodaj zadanie" zamienia przycisk w pole tekstowe w miejscu — tworzy zadanie bez modala, z domyślnym statusem kolumny i sobą jako przypisanym (US-C1, US-C2).</span></div>
+    <div class="note"><b>6</b><span><b>Luka w wymaganiach:</b> statusy zadań nie są nigdzie zdefiniowane. Makieta zakłada konfigurowalny zestaw kolumn per projekt (stąd „Nowa kolumna"). Alternatywa — sztywna lista globalna — jest prostsza, ale nie pozwoli klientom mieć różnych procesów.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 7 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Szczegóły zadania — podzadania, komentarze, szybki wpis</h2>
+    <p>Drawer nad tablicą. Wszystko, co dotyczy jednego zadania, łącznie z jednopolowym logowaniem czasu i uruchomieniem timera.</p>
+    <div class="screen-refs"><span class="ref">§4</span><span class="ref">§5</span><span class="ref">US-C3</span><span class="ref">US-C4</span><span class="ref">US-C5</span><span class="ref">US-D4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/tasks/migracja-koszyka-b2b</span>
+    </div>
+    <div class="app app-drawer-full drawer-scrim">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item active" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Nordvik — migracja B2B</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Tablica</span></div>
+          </div>
+          <div class="topbar-right">
+            <span class="timer-pill">
+              <span class="pulse"></span>
+              <span class="ellipsis">Migracja koszyka B2B</span>
+              <span class="elapsed">01:14:02</span>
+              <button class="timer-stop" aria-label="Zatrzymaj timer" data-goto="s8"><svg><use href="#ic-stop"/></svg></button>
+            </span>
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Zadania</h1><p>Nordvik — migracja B2B</p></div>
+          </div>
+          <div class="kanban">
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--chart-indigo)"></div>
+                <div class="kcol-title"><span class="row"><span class="name">Backlog</span><span class="kcol-count badge-neutral">6</span></span><span class="kcol-hours">0:00</span></div>
+              </div>
+              <div class="kcol-body">
+                <div class="kcard"><div class="kcard-title">Import cenników dostawców</div><div class="kcard-rule"></div><div class="kcard-meta"><span class="avatar avatar-sm">PZ</span><span class="grow"></span><span class="kcard-hours">0:00</span></div></div>
+              </div>
+            </div>
+            <div class="kcol">
+              <div class="kcol-head">
+                <div class="kcol-accent" style="background:var(--chart-blue)"></div>
+                <div class="kcol-title"><span class="row"><span class="name">W toku</span><span class="kcol-count badge-info">3</span></span><span class="kcol-hours">41:10</span></div>
+              </div>
+              <div class="kcol-body">
+                <div class="kcard"><div class="kcard-title">Mapowanie cen katalogowych</div><div class="kcard-rule"></div><div class="kcard-meta"><span class="avatar avatar-sm">PZ</span><span class="grow"></span><span class="kcard-hours">12:30</span></div></div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div class="grow stack-2">
+            <div class="row" style="gap:0.375rem"><span class="badge badge-info">W toku</span><span class="t-hint">TT-142</span></div>
+            <div class="t-section">Migracja koszyka B2B</div>
+            <div class="t-hint">Nordvik — migracja B2B · utworzone 4 cze 2026</div>
+          </div>
+          <button class="btn btn-ghost btn-sm btn-icon" aria-label="Więcej"><svg><use href="#ic-more"/></svg></button>
+          <button class="btn btn-ghost btn-sm btn-icon" aria-label="Zamknij" data-goto="s6"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+
+          <div class="quick-entry">
+            <input class="input" style="max-width:7rem" placeholder="1h 40m" />
+            <button class="btn btn-primary btn-sm"><svg><use href="#ic-plus"/></svg> Zaloguj</button>
+            <span class="grow"></span>
+            <button class="btn btn-outline btn-sm"><svg><use href="#ic-stop"/></svg> Zatrzymaj 01:14:02</button>
+          </div>
+
+          <div class="stack-3">
+            <div class="between"><span class="t-overline">Zalogowany czas</span><span class="t-mono strong">22:45</span></div>
+            <div class="row-3">
+              <span class="badge badge-success">rozliczalne 21:15</span>
+              <span class="badge badge-neutral">nierozliczalne 1:30</span>
+              <span class="badge badge-info">koszt 6 800 PLN</span>
+            </div>
+          </div>
+
+          <div class="stack-3">
+            <div class="between">
+              <span class="t-overline">Podzadania</span>
+              <span class="t-hint t-mono">3/5</span>
+            </div>
+            <div class="progress"><span style="width:60%"></span></div>
+            <div>
+              <div class="subtask done"><span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span><span class="grow">Model danych koszyka</span></div>
+              <div class="subtask done"><span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span><span class="grow">Migracja historycznych koszyków</span></div>
+              <div class="subtask done"><span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span><span class="grow">Endpoint dodawania pozycji</span></div>
+              <div class="subtask"><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span><span class="grow">Przeliczanie rabatów kontraktowych</span></div>
+              <div class="subtask"><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span><span class="grow">Testy wydajnościowe koszyka 500+ pozycji</span></div>
+            </div>
+            <button class="btn btn-ghost btn-sm"><svg><use href="#ic-plus"/></svg> Dodaj podzadanie</button>
+          </div>
+
+          <div class="stack-3">
+            <span class="t-overline">Wpisy czasu (7)</span>
+            <table class="table">
+              <tbody>
+                <tr><td class="t-hint">20 lip</td><td>Poprawki mapowania cen</td><td class="right t-mono">2:30</td></tr>
+                <tr><td class="t-hint">17 lip</td><td>Rabaty kontraktowe</td><td class="right t-mono">4:15</td></tr>
+                <tr><td class="t-hint">16 lip</td><td>Endpoint pozycji koszyka</td><td class="right t-mono">6:00</td></tr>
+              </tbody>
+            </table>
+            <button class="btn btn-ghost btn-sm" data-goto="s10">Pokaż wszystkie</button>
+          </div>
+
+          <div class="stack-3">
+            <span class="t-overline">Komentarze (2)</span>
+            <div class="comment">
+              <span class="avatar">MW</span>
+              <div class="body">
+                <div class="row-3"><span class="t-label">Marek Wójcik</span><span class="t-hint">17 lip, 14:22</span></div>
+                <p class="t-body" style="margin:0">Klient prosi, żeby rabaty kontraktowe liczyć od ceny netto, nie brutto. Zmiana wchodzi w zakres — doliczcie do budżetu.</p>
+              </div>
+            </div>
+            <div class="comment">
+              <span class="avatar">AN</span>
+              <div class="body">
+                <div class="row-3"><span class="t-label">Anna Nowak</span><span class="t-hint">18 lip, 09:05</span></div>
+                <p class="t-body" style="margin:0">Poprawione, testy przechodzą. Zostaje jeszcze przypadek rabatu progowego przy zamówieniu wielowalutowym.</p>
+              </div>
+            </div>
+            <div class="stack-2">
+              <textarea class="textarea" placeholder="Napisz komentarz…"></textarea>
+              <div class="row"><button class="btn btn-primary btn-sm">Skomentuj</button><span class="t-hint"><span class="kbd">⌘</span><span class="kbd">↵</span> wysyła</span></div>
+            </div>
+          </div>
+
+          <div class="stack-3">
+            <span class="t-overline">Właściwości</span>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Status</label><select class="select"><option>W toku</option><option>Backlog</option><option>Do przeglądu</option><option>Zrobione</option></select></div>
+              <div class="field"><label>Przypisane</label><select class="select"><option>Anna Nowak</option><option>Paulina Zych</option><option>Marek Wójcik</option></select></div>
+            </div>
+            <div class="field">
+              <label>Tagi</label>
+              <div class="tag-list">
+                <span class="chip chip-active">priorytet <svg><use href="#ic-x"/></svg></span>
+                <span class="chip chip-active">backend <svg><use href="#ic-x"/></svg></span>
+                <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Dodaj tag</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <span class="t-hint grow">Zmiany zapisują się automatycznie</span>
+          <button class="btn btn-outline" data-goto="s6">Zamknij</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Szybki wpis to jedno pole — parsuje ten sam format co pełny formularz i zapisuje z domyślnymi wartościami (dziś, ja, rozliczalne). Bez otwierania modala (US-C5).</span></div>
+    <div class="note"><b>2</b><span>Gdy timer chodzi na innym zadaniu, przycisk „Start" tutaj najpierw pyta o zatrzymanie tamtego — jeden timer naraz (US-D4). Makieta pokazuje wariant, w którym timer chodzi właśnie na tym zadaniu.</span></div>
+    <div class="note"><b>3</b><span>Pola właściwości zapisują się na blur, bez przycisku „Zapisz" — stąd stopka bez akcji zapisu. Jeżeli zespół woli jawny zapis, ten drawer zamienia się w mini-formularz z <code class="t-mono">FormFooter</code>.</span></div>
+    <div class="note"><b>4</b><span><b>Luka w wymaganiach:</b> §4 nie mówi, czy podzadanie może mieć własny czas. Makieta zakłada, że <b>nie</b> — czas logujemy tylko na zadanie, a podzadania są listą kontrolną. Inaczej „Time tracking" na karcie zadania przestaje być jednoznaczne.</span></div>
+    <div class="note"><b>5</b><span>Rozbicie „rozliczalne / nierozliczalne / koszt" na poziomie zadania to propozycja — wymagania każą je liczyć dopiero w raporcie klienta.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 8 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Wpis czasu — pełny formularz</h2>
+    <p>Modal otwierany po zatrzymaniu timera albo z „Dodaj wpis". Trzy pola czasu są powiązane: wypełnienie dwóch wylicza trzecie.</p>
+    <div class="screen-refs"><span class="ref">§5</span><span class="ref">§7</span><span class="ref">US-D1</span><span class="ref">US-D2</span><span class="ref">US-D3</span><span class="ref">US-F2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/entries/new</span>
+    </div>
+    <div class="app app-tallest modal-scrim">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item active" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Wpisy czasu</span></div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Wpisy czasu</h1><p>Lipiec 2026 · Anna Nowak</p></div></div>
+        </main>
+      </div>
+
+      <div class="modal">
+        <div class="modal-head">
+          <div class="between">
+            <div class="stack-2">
+              <span class="t-section">Nowy wpis czasu</span>
+              <span class="t-hint">Utworzony z zatrzymanego timera · 01:14:02</span>
+            </div>
+            <button class="btn btn-ghost btn-sm btn-icon" aria-label="Zamknij" data-goto="s10"><svg><use href="#ic-x"/></svg></button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>Zadanie <span class="req">*</span></label>
+            <div class="input-group">
+              <select class="select"><option>Migracja koszyka B2B — Nordvik — migracja B2B</option><option>Mapowanie cen katalogowych — Nordvik — migracja B2B</option><option>Przegląd zapytań SQL — Ambra — audyt wydajności</option></select>
+            </div>
+            <span class="t-hint">Projekt i klient wynikają z zadania — nie wybiera się ich osobno.</span>
+          </div>
+
+          <div class="field">
+            <label>Opis</label>
+            <input class="input" value="Poprawki mapowania cen kontraktowych" />
+          </div>
+
+          <div class="form-grid form-grid-2">
+            <div class="field">
+              <label>Data</label>
+              <input class="input" value="2026-07-20" />
+            </div>
+            <div class="field">
+              <label>Czas trwania</label>
+              <input class="input t-mono" value="1h 15m" />
+              <span class="t-hint">Rozumie <code class="t-mono">1h 40m</code>, <code class="t-mono">1.5h</code>, <code class="t-mono">90m</code>, <code class="t-mono">1:40</code>.</span>
+            </div>
+          </div>
+
+          <div class="form-grid form-grid-2">
+            <div class="field">
+              <label>Start</label>
+              <input class="input t-mono" value="15:10" />
+            </div>
+            <div class="field">
+              <label>Koniec <span class="badge badge-neutral">wyliczone</span></label>
+              <input class="input t-mono" value="16:25" />
+              <span class="t-hint">Zmień to pole, a czas trwania przeliczy się sam.</span>
+            </div>
+          </div>
+
+          <hr class="separator" />
+
+          <div class="row-3">
+            <button class="switch" role="switch" aria-checked="true"></button>
+            <div class="col grow"><span class="t-label">Rozliczalne</span><span class="t-hint">Domyślnie włączone dla tego projektu.</span></div>
+            <span class="badge badge-success">320 PLN/h</span>
+          </div>
+
+          <div class="row-3">
+            <button class="switch" role="switch" aria-checked="true"></button>
+            <div class="col grow"><span class="t-label">Własna stawka dla tego wpisu</span><span class="t-hint">Nadpisuje stawkę projektu tylko tutaj.</span></div>
+          </div>
+          <div class="form-grid form-grid-2">
+            <div class="field">
+              <label>Stawka</label>
+              <div class="input-group"><input class="input" value="260" /><span class="addon">PLN / h</span></div>
+              <span class="t-hint">Domyślnie 320 PLN/h (stawka projektu).</span>
+            </div>
+            <div class="field">
+              <label>Koszt <span class="badge badge-neutral">wyliczone</span></label>
+              <div class="input-group"><input class="input t-mono" value="325,00" disabled /><span class="addon">PLN</span></div>
+              <span class="t-hint">1:15 zaokrąglone do 1:15 × 260 PLN.</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Tagi</label>
+            <div class="tag-list">
+              <span class="chip chip-active">rozwój <svg><use href="#ic-x"/></svg></span>
+              <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Dodaj tag</span>
+            </div>
+          </div>
+
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><span class="t-body">Autor wpisu: <b>Anna Nowak</b> — przypisywany automatycznie i nieedytowalny.</span></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">⌘</span><span class="kbd">↵</span> zapisz · <span class="kbd">esc</span> anuluj</span>
+          <div class="row">
+            <button class="btn btn-ghost" data-goto="s10">Anuluj</button>
+            <button class="btn btn-outline">Zapisz i dodaj kolejny</button>
+            <button class="btn btn-primary" data-goto="s10"><svg><use href="#ic-save"/></svg> Zapisz</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Pole „Koniec" jest oznaczone jako wyliczone, bo wypełniono start i czas trwania. Edycja końca przerzuca znacznik na „Czas trwania" — dwa dowolne pola wystarczą (US-D3).</span></div>
+    <div class="note"><b>2</b><span>Koszt jest tylko do odczytu i pokazuje, po jakim zaokrągleniu powstał. Bez tego użytkownik nie ma jak sprawdzić, czemu 1:12 kosztuje jak 1:15 (US-F3).</span></div>
+    <div class="note"><b>3</b><span>„Zapisz i dodaj kolejny" zostawia modal otwarty, czyści opis i czas, a start ustawia na koniec właśnie zapisanego wpisu — domyślna wartość wprost z zasad przekrojowych.</span></div>
+    <div class="note"><b>4</b><span><b>Sprzeczność do rozstrzygnięcia:</b> §5 wymienia „Tracked time" jako osobne pole, ale §7 liczy koszt z czasu <i>zaokrąglonego</i>. Makieta pokazuje oba (surowy czas w polu, zaokrąglony w koszcie); trzeba zdecydować, która wartość trafia do timesheetu i sum projektu.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 9 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Wpis czasu — błąd parsowania i nakładanie się wpisów</h2>
+    <p>Dwa stany brzegowe naraz: nieczytelny format czasu (blokujący, ale nieniszczący wpisanego tekstu) i konflikt z istniejącym wpisem (ostrzegawczy, nieblokujący).</p>
+    <div class="screen-refs"><span class="ref">§5</span><span class="ref">US-D2</span><span class="ref">US-D7</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/entries/new</span>
+    </div>
+    <div class="app app-tall modal-scrim">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item active" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Wpisy czasu</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Wpisy czasu</h1><p>Lipiec 2026 · Anna Nowak</p></div></div>
+        </main>
+      </div>
+
+      <div class="modal">
+        <div class="modal-head">
+          <div class="between">
+            <span class="t-section">Nowy wpis czasu</span>
+            <button class="btn btn-ghost btn-sm btn-icon" aria-label="Zamknij" data-goto="s10"><svg><use href="#ic-x"/></svg></button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>Zadanie <span class="req">*</span></label>
+            <select class="select"><option>Przegląd zapytań SQL — Ambra — audyt wydajności</option></select>
+          </div>
+          <div class="field">
+            <label>Opis</label>
+            <input class="input" value="Analiza planów zapytań" />
+          </div>
+
+          <div class="form-grid form-grid-2">
+            <div class="field">
+              <label>Data</label>
+              <input class="input" value="2026-07-20" />
+            </div>
+            <div class="field">
+              <label>Czas trwania</label>
+              <input class="input input-invalid t-mono" value="1godz i troche" />
+              <span class="field-error">Nie rozumiem tego formatu. Spróbuj <code class="t-mono">1h 40m</code>, <code class="t-mono">1.5h</code>, <code class="t-mono">90m</code> lub <code class="t-mono">1:40</code>.</span>
+            </div>
+          </div>
+
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Start</label><input class="input t-mono" value="11:00" /></div>
+            <div class="field"><label>Koniec</label><input class="input t-mono" value="13:00" /></div>
+          </div>
+
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">Ten czas nakłada się na inny wpis</span>
+              <span class="t-body">11:45 – 13:30 · „Przegląd zapytań SQL" · Ambra — audyt wydajności (1:45). Nakładanie jest dozwolone — jeśli to celowe, zapisz normalnie.</span>
+              <div class="row">
+                <button class="btn btn-outline btn-sm" data-goto="s10">Pokaż tamten wpis</button>
+                <button class="btn btn-outline btn-sm">Dopasuj start do 13:30</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="row-3">
+            <button class="switch" role="switch" aria-checked="true"></button>
+            <div class="col grow"><span class="t-label">Rozliczalne</span></div>
+            <span class="badge badge-success">280 PLN/h</span>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">⌘</span><span class="kbd">↵</span> zapisz · <span class="kbd">esc</span> anuluj</span>
+          <div class="row">
+            <button class="btn btn-ghost" data-goto="s10">Anuluj</button>
+            <button class="btn btn-primary is-disabled"><svg><use href="#ic-save"/></svg> Zapisz</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Błędny tekst zostaje w polu — nie jest kasowany ani „poprawiany" na siłę. Komunikat wymienia akceptowane formaty zamiast mówić „nieprawidłowa wartość" (US-D2).</span></div>
+    <div class="note"><b>2</b><span>Nakładanie jest ostrzeżeniem, nie błędem: „Zapisz" byłby aktywny, gdyby nie błąd formatu. Konsulting bywa równoległy (rozmowa + notatki) — blokada byłaby fałszywa (US-D7).</span></div>
+    <div class="note"><b>3</b><span>„Dopasuj start do 13:30" to <b>propozycja</b> — jednym kliknięciem usuwa konflikt zamiast zostawiać użytkownika z liczeniem w głowie.</span></div>
+    <div class="note"><b>4</b><span>Przycisk „Zapisz" jest nieaktywny tylko przy błędzie formatu. Wymagania nie mówią, jak zachować się przy starcie późniejszym niż koniec — propozycja: traktować jak przekroczenie północy i pokazać podpowiedź „wpis kończy się następnego dnia".</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 10 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Wpisy czasu — edycja inline, duplikowanie, cofnięcie usunięcia</h2>
+    <p>Robocza lista własnych wpisów. Poprawki są jednym kliknięciem, usunięcie jest odwracalne, a wpisy zamknięte w raporcie są widocznie zablokowane.</p>
+    <div class="screen-refs"><span class="ref">§5</span><span class="ref">§7</span><span class="ref">US-D5</span><span class="ref">US-D6</span><span class="ref">US-F2</span><span class="ref">US-G3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/entries</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item active"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Śledzenie czasu</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Wpisy czasu</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Wpisy czasu</h1><p>13–20 lipca 2026 · Anna Nowak</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s8"><svg><use href="#ic-plus"/></svg> Dodaj wpis</button></div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Ten tydzień</h2>
+                <div class="dt-head-actions">
+                  <button class="btn btn-outline btn-sm btn-icon" aria-label="Odśwież"><svg><use href="#ic-refresh"/></svg></button>
+                  <button class="btn btn-outline btn-sm"><svg><use href="#ic-download"/></svg> Eksport</button>
+                </div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <div class="dt-search"><div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj w opisach…</div></div>
+                  <button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filtry <span class="filter-count">1</span></button>
+                  <div class="dt-toolbar-right"><span class="t-hint t-mono">Razem 31:45</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="dt-chips">
+              <span class="chip chip-active">Okres: ten tydzień <svg><use href="#ic-x"/></svg></span>
+              <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Dodaj filtr</span>
+            </div>
+            <div class="scroll-x">
+            <table class="table">
+              <thead>
+                <tr><th style="width:2rem"></th><th>Data</th><th>Zadanie / opis</th><th>Projekt</th><th>Godziny</th><th class="right">Czas</th><th class="right">Koszt</th><th class="right"></th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td class="t-hint">pon 20 lip</td>
+                  <td><div class="strong">Migracja koszyka B2B</div><div class="t-hint">Poprawki mapowania cen</div></td>
+                  <td class="muted">Nordvik — migracja B2B</td>
+                  <td class="t-mono muted">09:00 – 11:30</td>
+                  <td class="right"><input class="cell-edit t-mono right" value="2:30" /></td>
+                  <td class="right t-mono">800,00 PLN</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Usuń"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td class="t-hint">pon 20 lip</td>
+                  <td><div class="strong">Przegląd zapytań SQL</div><div class="t-hint">Indeksy na order_lines</div></td>
+                  <td class="muted">Ambra — audyt wydajności</td>
+                  <td class="t-mono muted">11:45 – 13:30</td>
+                  <td class="right t-mono strong">1:45</td>
+                  <td class="right t-mono">490,00 PLN</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Usuń"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td class="t-hint">pon 20 lip</td>
+                  <td><div class="row" style="gap:0.375rem"><span class="strong">Spotkanie statusowe</span><span class="badge badge-neutral">nierozliczalne</span></div><div class="t-hint">Cotygodniowy status</div></td>
+                  <td class="muted">Nordvik — migracja B2B</td>
+                  <td class="t-mono muted">14:00 – 14:45</td>
+                  <td class="right t-mono strong">0:45</td>
+                  <td class="right t-hint">—</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Usuń"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td><span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td class="t-hint">pt 17 lip</td>
+                  <td><div class="row" style="gap:0.375rem"><span class="strong">Rabaty kontraktowe</span><span class="badge badge-pink"><svg><use href="#ic-money"/></svg> 260 PLN/h</span></div><div class="t-hint">Zakres dodatkowy — stawka obniżona</div></td>
+                  <td class="muted">Nordvik — migracja B2B</td>
+                  <td class="t-mono muted">09:15 – 13:30</td>
+                  <td class="right t-mono strong">4:15</td>
+                  <td class="right t-mono">1 105,00 PLN</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Usuń"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="entry-row-locked">
+                  <td><span class="check is-disabled" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span></td>
+                  <td class="t-hint">czw 16 lip</td>
+                  <td><div class="row" style="gap:0.375rem"><span class="strong">Endpoint pozycji koszyka</span><span class="badge badge-neutral"><svg><use href="#ic-lock"/></svg> zablokowane</span></div><div class="t-hint">W raporcie „Nordvik · czerwiec–lipiec"</div></td>
+                  <td class="muted">Nordvik — migracja B2B</td>
+                  <td class="t-mono muted">09:00 – 15:00</td>
+                  <td class="right t-mono strong">6:00</td>
+                  <td class="right t-mono">1 920,00 PLN</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" data-goto="s15" aria-label="Pokaż raport"><svg><use href="#ic-file"/></svg></button></span></td>
+                </tr>
+              </tbody>
+              <tfoot><tr><td colspan="5">Razem (5 z 23 wpisów)</td><td class="right t-mono">15:15</td><td class="right t-mono">4 315,00 PLN</td><td></td></tr></tfoot>
+            </table>
+            </div>
+            <div class="dt-foot">
+              <span class="t-hint t-mono">Pozycje 1–5 z 23</span>
+              <ul class="pager">
+                <li><button class="nav" aria-label="Poprzednia"><svg><use href="#ic-chevron-left"/></svg></button></li>
+                <li><button aria-current="page">1</button></li>
+                <li><button>2</button></li>
+                <li><button>3</button></li>
+                <li><button class="nav" aria-label="Następna"><svg><use href="#ic-chevron-right"/></svg></button></li>
+              </ul>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <div class="toast">
+        <svg><use href="#ic-trash"/></svg>
+        <span class="grow">Usunięto wpis „Analiza planów zapytań" (1:30)</span>
+        <button class="btn btn-outline btn-sm"><svg><use href="#ic-undo"/></svg> Cofnij</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Komórka czasu w pierwszym wierszu jest w trybie edycji: <span class="kbd">↵</span> lub utrata fokusu zapisuje, <span class="kbd">esc</span> przywraca poprzednią wartość (US-D5).</span></div>
+    <div class="note"><b>2</b><span>Toast z „Cofnij" trzyma kilka sekund; dopiero po jego zniknięciu usunięcie jest ostateczne. Do tego czasu wiersz jest już usunięty z listy — optymistycznie (US-D5).</span></div>
+    <div class="note"><b>3</b><span>Wpis z własną stawką ma różową plakietkę z kwotą — bez niej nie da się na liście odróżnić kosztu policzonego inaczej niż z projektu (US-F2).</span></div>
+    <div class="note"><b>4</b><span>Wiersz zablokowany traci checkbox i akcje edycji/usuwania; zostaje skrót do raportu, który go zamknął (US-G3). Odblokowanie robi się z raportu — ekran 15.</span></div>
+    <div class="note"><b>5</b><span>Kolumna „Koszt" jest pusta dla wpisów nierozliczalnych zamiast pokazywać 0,00 — zero sugerowałoby darmową pracę zamiast pracy poza rozliczeniem.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 11 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Timesheet — miesiąc</h2>
+    <p>Kalendarz miesiąca z sumą na każdy dzień. Dziury w tygodniu widać od razu, a wpis dodaje się w komórce dnia bez opuszczania widoku.</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">US-E1</span><span class="ref">US-E2</span><span class="ref">US-E3</span><span class="ref">US-E4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/timesheet?period=month</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item active"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Śledzenie czasu</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Timesheet</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Timesheet</h1><p>Lipiec 2026 · Anna Nowak · 128:10 zalogowane</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s8"><svg><use href="#ic-plus"/></svg> Dodaj wpis</button></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="row-3 wrap">
+                <div class="segmented">
+                  <button aria-selected="false">Rok</button>
+                  <button aria-selected="false">Kwartał</button>
+                  <button aria-selected="true">Miesiąc</button>
+                  <button aria-selected="false">Tydzień</button>
+                </div>
+                <div class="row">
+                  <button class="btn btn-outline btn-sm btn-icon" aria-label="Poprzedni"><svg><use href="#ic-chevron-left"/></svg></button>
+                  <span class="strong">Lipiec 2026</span>
+                  <button class="btn btn-outline btn-sm btn-icon" aria-label="Następny"><svg><use href="#ic-chevron-right"/></svg></button>
+                  <button class="btn btn-ghost btn-sm">Dziś</button>
+                </div>
+              </div>
+              <div class="row-3 wrap">
+                <select class="select" style="width:14rem"><option>Wszystkie projekty</option><option>Nordvik — migracja B2B</option><option>Ambra — audyt wydajności</option></select>
+                <select class="select" style="width:11rem"><option>Anna Nowak (ja)</option></select>
+                <div class="view-switch">
+                  <button><svg><use href="#ic-calendar"/></svg> Kalendarz</button>
+                  <span class="div"></span>
+                  <button data-goto="s12"><svg><use href="#ic-list"/></svg> Lista</button>
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="ts-grid">
+                <div class="ts-dow">Pon</div><div class="ts-dow">Wt</div><div class="ts-dow">Śr</div><div class="ts-dow">Czw</div><div class="ts-dow">Pt</div><div class="ts-dow">Sob</div><div class="ts-dow">Nd</div>
+
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">29 cze</span></div></div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">30 cze</span></div></div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">1</span><span class="ts-total t-mono">7:45</span></div>
+                  <div class="ts-load"><span style="width:97%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">5:15</span></div>
+                  <div class="ts-entry"><span class="ellipsis">Fintechly — portal</span><span class="d">2:30</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">2</span><span class="ts-total t-mono">8:00</span></div>
+                  <div class="ts-load"><span style="width:100%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">8:00</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">3</span><span class="ts-total t-mono">6:30</span></div>
+                  <div class="ts-load"><span style="width:81%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Ambra — audyt</span><span class="d">5:00</span></div>
+                  <div class="ts-entry nonbillable"><span class="ellipsis">Status wewn.</span><span class="d">1:30</span></div>
+                </div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">4</span></div></div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">5</span></div></div>
+
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">6</span><span class="ts-total t-mono">8:15</span></div>
+                  <div class="ts-load"><span style="width:100%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">8:15</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">7</span><span class="ts-total t-mono">7:00</span></div>
+                  <div class="ts-load"><span style="width:88%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Ambra — audyt</span><span class="d">7:00</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">8</span><span class="ts-total t-mono">2:15</span></div>
+                  <div class="ts-load"><span style="width:28%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Fintechly — portal</span><span class="d">2:15</span></div>
+                  <button class="ts-add">+ dodaj</button>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">9</span><span class="ts-total t-mono">8:00</span></div>
+                  <div class="ts-load"><span style="width:100%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">8:00</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">10</span><span class="ts-total t-mono">7:30</span></div>
+                  <div class="ts-load"><span style="width:94%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">7:30</span></div>
+                </div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">11</span></div></div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">12</span></div></div>
+
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">13</span><span class="ts-total t-mono">8:00</span></div>
+                  <div class="ts-load"><span style="width:100%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">8:00</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">14</span><span class="ts-total t-mono">6:45</span></div>
+                  <div class="ts-load"><span style="width:84%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Ambra — audyt</span><span class="d">6:45</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">15</span><span class="ts-total t-mono">8:30</span></div>
+                  <div class="ts-load"><span style="width:100%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">8:30</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">16</span><span class="ts-total t-mono">6:00</span></div>
+                  <div class="ts-load"><span style="width:75%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">6:00</span></div>
+                </div>
+                <div class="ts-day">
+                  <div class="ts-day-head"><span class="ts-date">17</span><span class="ts-total t-mono">4:15</span></div>
+                  <div class="ts-load"><span style="width:53%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — rabaty</span><span class="d">4:15</span></div>
+                  <button class="ts-add">+ dodaj</button>
+                </div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">18</span></div></div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">19</span></div></div>
+
+                <div class="ts-day today">
+                  <div class="ts-day-head"><span class="ts-date strong">20</span><span class="ts-total t-mono">6:20</span></div>
+                  <div class="ts-load"><span style="width:79%"></span></div>
+                  <div class="ts-entry"><span class="ellipsis">Nordvik — koszyk</span><span class="d">2:30</span></div>
+                  <div class="ts-entry"><span class="ellipsis">Ambra — audyt</span><span class="d">1:45</span></div>
+                  <div class="ts-entry nonbillable"><span class="ellipsis">Status</span><span class="d">0:45</span></div>
+                </div>
+                <div class="ts-day"><div class="ts-day-head"><span class="ts-date">21</span></div><button class="ts-add">+ dodaj</button></div>
+                <div class="ts-day"><div class="ts-day-head"><span class="ts-date">22</span></div></div>
+                <div class="ts-day"><div class="ts-day-head"><span class="ts-date">23</span></div></div>
+                <div class="ts-day"><div class="ts-day-head"><span class="ts-date">24</span></div></div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">25</span></div></div>
+                <div class="ts-day out"><div class="ts-day-head"><span class="ts-date">26</span></div></div>
+              </div>
+            </div>
+            <div class="dt-foot">
+              <div class="row-4 wrap">
+                <span><span class="t-hint">Okres:</span> <b class="t-mono">128:10</b></span>
+                <span><span class="t-hint">Rozliczalne:</span> <b class="t-mono">123:55</b></span>
+                <span><span class="t-hint">Cel (14 dni × 8h):</span> <b class="t-mono">112:00</b></span>
+                <span class="badge badge-success">+16:10 ponad cel</span>
+              </div>
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-download"/></svg> Eksport okresu</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Pasek pod datą to obciążenie dnia względem celu — pozwala odczytać lekkie i ciężkie dni bez czytania liczb (US-E3).</span></div>
+    <div class="note"><b>2</b><span>„+ dodaj" pojawia się na hover w każdej komórce i otwiera ten sam formularz co reszta modułu, z datą tego dnia (US-E4).</span></div>
+    <div class="note"><b>3</b><span>Wpisy nierozliczalne mają przerywaną ramkę zamiast wypełnienia — odróżnialne bez polegania na kolorze.</span></div>
+    <div class="note"><b>4</b><span>Filtry (projekt, osoba, okres) zapamiętują się per użytkownik i wracają przy kolejnym wejściu (US-E2). Zmiana okresu miesiąc↔tydzień trzyma się bieżącej daty, nie skacze na początek roku (US-E1).</span></div>
+    <div class="note"><b>5</b><span>Wybór osoby ma tu jedną pozycję, bo Anna jest TM-em. TL widzi w tym miejscu listę wszystkich przypisanych osób (US-E2).</span></div>
+    <div class="note"><b>6</b><span>„Cel 8h dziennie" nie występuje w wymaganiach — to <b>propozycja</b> potrzebna, by pasek obciążenia miał skalę. Bez celu paski skalują się do najdłuższego dnia w okresie.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 12 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Timesheet — tydzień, widok listy</h2>
+    <p>Ten sam okres podany dziennie zamiast kalendarzowo. Widok do domykania tygodnia: łatwiej policzyć sumy i uzupełnić braki.</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">US-E1</span><span class="ref">US-E3</span><span class="ref">US-E4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/timesheet?period=week&view=list</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item active"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Śledzenie czasu</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Timesheet</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Timesheet</h1><p>13–19 lipca 2026 · zespół (4 osoby)</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s8"><svg><use href="#ic-plus"/></svg> Dodaj wpis</button></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="row-3 wrap">
+                <div class="segmented">
+                  <button aria-selected="false">Rok</button>
+                  <button aria-selected="false">Kwartał</button>
+                  <button aria-selected="false">Miesiąc</button>
+                  <button aria-selected="true">Tydzień</button>
+                </div>
+                <div class="row">
+                  <button class="btn btn-outline btn-sm btn-icon" aria-label="Poprzedni"><svg><use href="#ic-chevron-left"/></svg></button>
+                  <span class="strong">Tydzień 29 · 13–19 lip</span>
+                  <button class="btn btn-outline btn-sm btn-icon" aria-label="Następny"><svg><use href="#ic-chevron-right"/></svg></button>
+                </div>
+              </div>
+              <div class="row-3 wrap">
+                <select class="select" style="width:14rem"><option>Wszystkie projekty</option></select>
+                <select class="select" style="width:11rem"><option>Wszyscy</option><option>Anna Nowak</option><option>Paulina Zych</option><option>Tomasz Iwan</option></select>
+                <div class="view-switch">
+                  <button data-goto="s11"><svg><use href="#ic-calendar"/></svg> Kalendarz</button>
+                  <span class="div"></span>
+                  <button><svg><use href="#ic-list"/></svg> Lista</button>
+                </div>
+              </div>
+            </div>
+            <div class="card-body stack-4">
+              <div class="stack-3">
+                <div class="daybar"><span class="t-label">Pon 13 lip</span><div class="track"><span style="width:100%"></span></div><span class="t-mono right">8:00</span></div>
+                <div class="daybar"><span class="t-label">Wt 14 lip</span><div class="track"><span style="width:84%"></span></div><span class="t-mono right">6:45</span></div>
+                <div class="daybar"><span class="t-label">Śr 15 lip</span><div class="track"><span style="width:100%"></span></div><span class="t-mono right">8:30</span></div>
+                <div class="daybar"><span class="t-label">Czw 16 lip</span><div class="track"><span style="width:75%"></span></div><span class="t-mono right">6:00</span></div>
+                <div class="daybar"><span class="t-label">Pt 17 lip</span><div class="track"><span style="width:53%"></span></div><span class="t-mono right">4:15</span></div>
+                <div class="daybar weekend"><span class="t-label muted">Sob 18 lip</span><div class="track"><span style="width:0%"></span></div><span class="t-mono right muted">—</span></div>
+                <div class="daybar weekend"><span class="t-label muted">Nd 19 lip</span><div class="track"><span style="width:0%"></span></div><span class="t-mono right muted">—</span></div>
+              </div>
+
+              <hr class="separator" />
+
+              <div class="stack-3">
+                <div class="between"><span class="t-overline">Piątek 17 lipca — 4:15</span><span class="badge badge-warning">3:45 poniżej celu</span></div>
+                <table class="table">
+                  <tbody>
+                    <tr>
+                      <td class="t-hint" style="width:7rem">09:15 – 13:30</td>
+                      <td><div class="strong">Rabaty kontraktowe</div><div class="t-hint">Nordvik — migracja B2B · Anna Nowak</div></td>
+                      <td class="right t-mono strong" style="width:5rem">4:15</td>
+                      <td class="right" style="width:5rem"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Duplikuj"><svg><use href="#ic-copy"/></svg></button><button class="btn btn-ghost btn-xs" aria-label="Edytuj"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                    </tr>
+                    <tr>
+                      <td colspan="4">
+                        <div class="quick-entry">
+                          <input class="input" style="max-width:20rem" placeholder="Zadanie…" />
+                          <input class="input" style="max-width:7rem" placeholder="1h 40m" />
+                          <input class="input t-mono" style="max-width:6rem" placeholder="13:30" />
+                          <button class="btn btn-primary btn-sm"><svg><use href="#ic-save"/></svg> Dodaj</button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="dt-foot">
+              <div class="row-4 wrap">
+                <span><span class="t-hint">Tydzień:</span> <b class="t-mono">33:30</b></span>
+                <span><span class="t-hint">Rozliczalne:</span> <b class="t-mono">31:15</b></span>
+                <span><span class="t-hint">Cel:</span> <b class="t-mono">40:00</b></span>
+                <span class="badge badge-warning">−6:30 do celu</span>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Ten sam ekran w perspektywie TL-a: filtr osoby ustawiony na „Wszyscy", a wiersze wpisów podpisane autorem. TM widzi tu wyłącznie siebie (US-E2).</span></div>
+    <div class="note"><b>2</b><span>Rozwinięty jest tylko dzień, który odstaje od celu — reszta zostaje zwinięta do paska. Kliknięcie paska rozwija dowolny dzień.</span></div>
+    <div class="note"><b>3</b><span>Trzecie pole w wierszu dodawania to godzina startu, podpowiadana jako koniec poprzedniego wpisu tego dnia (smart default z zasad przekrojowych).</span></div>
+    <div class="note"><b>4</b><span>Weekendy mają wyszarzoną etykietę i nie wchodzą do celu tygodniowego; czas zalogowany w sobotę jest dozwolony i podnosi sumę.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 13 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Raport — konfiguracja</h2>
+    <p>Raport jest zawsze dla jednego klienta. TL wybiera okres i ręcznie wskazuje projekty, widząc od razu, ile czasu i kosztu wniesie każdy z nich.</p>
+    <div class="screen-refs"><span class="ref">§8</span><span class="ref">US-G1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/reports/new</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s3"><svg><use href="#ic-folder"/></svg> Projekty</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+            <a class="nav-item active"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+          <div class="nav-sep"></div>
+          <div class="nav-items"><a class="nav-item" data-goto="s16"><svg><use href="#ic-sliders"/></svg> Ustawienia</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Raporty</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Nowy raport</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Nowy raport</h1><p>Zakres raportu to zawsze jeden klient</p></div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Klient <span class="req">*</span></span>
+                <select class="select"><option>Nordvik Retail AB</option><option>Grupa Ambra</option><option>Fintechly Sp. z o.o.</option></select>
+                <span class="t-hint">Waluta raportu: <b>PLN</b> — wynika z projektów tego klienta.</span>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Okres</span>
+                <div class="segmented">
+                  <button aria-selected="false">Tydzień</button>
+                  <button aria-selected="true">Miesiąc</button>
+                  <button aria-selected="false">Rok</button>
+                </div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Od</label><input class="input" value="2026-06-01" /></div>
+                  <div class="field"><label>Do</label><input class="input" value="2026-07-19" /></div>
+                </div>
+                <span class="t-hint">Zakres obejmuje dwa miesiące — ustaw „Miesiąc" i przesuń zakres, jeśli chcesz sam lipiec.</span>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Projekty klienta</span>
+                <span class="desc">Zaznacz, które mają wejść do raportu.</span>
+                <div class="pick-list">
+                  <div class="pick-row">
+                    <span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                    <div class="grow col"><span class="t-label">Nordvik — migracja B2B</span><span class="t-hint">320 PLN/h · 62 wpisy w okresie</span></div>
+                    <span class="t-mono">64:15</span>
+                    <span class="t-mono muted">20 560 PLN</span>
+                  </div>
+                  <div class="pick-row">
+                    <span class="check" aria-checked="true" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                    <div class="grow col"><span class="t-label">Nordvik — utrzymanie</span><span class="t-hint">320 PLN/h · 11 wpisów w okresie</span></div>
+                    <span class="t-mono">9:30</span>
+                    <span class="t-mono muted">3 040 PLN</span>
+                  </div>
+                  <div class="pick-row">
+                    <span class="check" aria-checked="false" role="checkbox"><svg><use href="#ic-check"/></svg></span>
+                    <div class="grow col"><span class="t-label">Nordvik — warsztaty UX</span><span class="t-hint">320 PLN/h · 0 wpisów w okresie</span></div>
+                    <span class="t-mono muted">0:00</span>
+                    <span class="t-mono muted">—</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Prezentacja</span>
+                <div class="form-grid form-grid-2">
+                  <div class="field">
+                    <label>Grupowanie</label>
+                    <select class="select"><option>Projekt → zadanie</option><option>Projekt → osoba</option><option>Projekt → dzień</option></select>
+                  </div>
+                  <div class="field">
+                    <label>Czas nierozliczalny</label>
+                    <select class="select"><option>Pokaż osobno, bez kosztu</option><option>Pomiń całkowicie</option></select>
+                  </div>
+                </div>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Pokaż stawki godzinowe</span><span class="t-hint">Wyłącz, jeśli klient ma widzieć tylko kwoty.</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-col">
+              <div class="card">
+                <div class="card-head"><h3 class="t-card-title">Podgląd zakresu</h3></div>
+                <div class="card-body stack-3">
+                  <div class="between"><span class="t-hint">Projekty</span><b>2 z 3</b></div>
+                  <div class="between"><span class="t-hint">Wpisy</span><b class="t-mono">73</b></div>
+                  <div class="between"><span class="t-hint">Czas rozliczalny</span><b class="t-mono">70:30</b></div>
+                  <div class="between"><span class="t-hint">Nierozliczalny</span><b class="t-mono">3:15</b></div>
+                  <hr class="separator" />
+                  <div class="between"><span class="strong">Do zafakturowania</span><b class="t-mono">23 600 PLN</b></div>
+                </div>
+              </div>
+              <div class="alert alert-warning">
+                <svg><use href="#ic-warn"/></svg>
+                <div class="stack-2">
+                  <span class="alert-title">6 wpisów jest już w innym raporcie</span>
+                  <span class="t-body">Są zablokowane i wejdą do tego raportu z wartościami z chwili zamknięcia.</span>
+                  <button class="btn btn-outline btn-sm" data-goto="s15">Pokaż zablokowane</button>
+                </div>
+              </div>
+              <div class="alert alert-info">
+                <svg><use href="#ic-info"/></svg>
+                <div><span class="t-body">Zaokrąglanie: <b>15 min w górę</b> (globalne). Sumy powyżej są już zaokrąglone.</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-ghost">Anuluj</button>
+              <button class="btn btn-primary" data-goto="s14"><svg><use href="#ic-file"/></svg> Generuj podgląd</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Liczby przy każdym projekcie liczą się na bieżąco przy zmianie okresu — bez tego wybór projektów to zgadywanka (US-G1).</span></div>
+    <div class="note"><b>2</b><span>Projekt bez wpisów w okresie zostaje na liście, ale odznaczony i wyszarzony. Ukrycie go zostawiałoby TL-a z pytaniem „gdzie się podział warsztat UX?".</span></div>
+    <div class="note"><b>3</b><span><b>Sprzeczność do rozstrzygnięcia:</b> §8 mówi o okresie „tygodniowym / miesięcznym / rocznym", ale realne fakturowanie konsultingowe rzadko trzyma się granicy miesiąca. Makieta dokłada dowolny zakres dat — jeżeli ma zostać sztywna trójka okresów, pola „Od/Do" znikają.</span></div>
+    <div class="note"><b>4</b><span><b>Luka:</b> wymagania nie mówią, co się dzieje z wpisem, który już był w innym raporcie. Propozycja w makiecie: wchodzi ponownie, ale z zamrożonymi wartościami — do potwierdzenia, bo alternatywa (wykluczanie) daje zupełnie inne sumy.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 14 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Raport — podgląd i eksport</h2>
+    <p>To, co zobaczy klient. TL sprawdza sumy, eksportuje do PDF/CSV/XLSX i dopiero potem zamyka raport, blokując wpisy.</p>
+    <div class="screen-refs"><span class="ref">§8</span><span class="ref">§9</span><span class="ref">US-G2</span><span class="ref">US-G4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/reports/nordvik-2026-06-07</span>
+    </div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s3"><svg><use href="#ic-folder"/></svg> Projekty</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item active" data-goto="s13"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Raporty</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Nordvik · cze–lip 2026</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <a class="back-link" data-goto="s13"><svg style="width:1rem;height:1rem"><use href="#ic-arrow-left"/></svg> Zmień zakres</a>
+            <div class="page-actions">
+              <span class="badge badge-warning">Wersja robocza</span>
+              <button class="btn btn-outline"><svg><use href="#ic-download"/></svg> PDF</button>
+              <button class="btn btn-outline"><svg><use href="#ic-download"/></svg> CSV</button>
+              <button class="btn btn-outline"><svg><use href="#ic-download"/></svg> XLSX</button>
+              <button class="btn btn-primary" data-goto="s15"><svg><use href="#ic-lock"/></svg> Zamknij i zablokuj</button>
+            </div>
+          </div>
+
+          <div class="report-sheet">
+            <div class="report-head">
+              <div class="stack-2">
+                <span class="t-overline">Zestawienie czasu i kosztów</span>
+                <div class="t-section">Nordvik Retail AB</div>
+                <span class="t-hint">1 czerwca – 19 lipca 2026</span>
+              </div>
+              <div class="stack-2" style="text-align:right">
+                <span class="t-hint">Wystawił</span>
+                <span class="t-label">Marek Wójcik</span>
+                <span class="t-hint">20 lipca 2026</span>
+                <span class="t-hint t-mono">RAP-2026-0042</span>
+              </div>
+            </div>
+
+            <div class="report-group">
+              <div class="report-group-head">
+                <div class="stack-2"><span class="strong">Nordvik — migracja B2B</span><span class="t-hint">320 PLN/h</span></div>
+                <div class="row-4"><span class="t-mono">64:15</span><span class="t-mono strong">20 560,00 PLN</span></div>
+              </div>
+              <table class="table">
+                <thead><tr><th>Zadanie</th><th class="right">Czas</th><th class="right">Stawka</th><th class="right">Kwota</th></tr></thead>
+                <tbody>
+                  <tr><td>Migracja koszyka B2B</td><td class="right t-mono">22:45</td><td class="right t-mono">320,00</td><td class="right t-mono">7 280,00</td></tr>
+                  <tr><td>Mapowanie cen katalogowych</td><td class="right t-mono">12:30</td><td class="right t-mono">320,00</td><td class="right t-mono">4 000,00</td></tr>
+                  <tr><td>Refaktor serwisu podatkowego</td><td class="right t-mono">11:05</td><td class="right t-mono">320,00</td><td class="right t-mono">3 546,67</td></tr>
+                  <tr><td><div class="row" style="gap:0.375rem">Rabaty kontraktowe <span class="badge badge-pink">stawka wg ustaleń</span></div></td><td class="right t-mono">4:15</td><td class="right t-mono">260,00</td><td class="right t-mono">1 105,00</td></tr>
+                  <tr><td>Schemat bazy dla cenników B2B</td><td class="right t-mono">9:40</td><td class="right t-mono">320,00</td><td class="right t-mono">3 093,33</td></tr>
+                  <tr><td>Dokumentacja API zamówień</td><td class="right t-mono">4:00</td><td class="right t-mono">320,00</td><td class="right t-mono">1 280,00</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="report-group">
+              <div class="report-group-head">
+                <div class="stack-2"><span class="strong">Nordvik — utrzymanie</span><span class="t-hint">320 PLN/h</span></div>
+                <div class="row-4"><span class="t-mono">9:30</span><span class="t-mono strong">3 040,00 PLN</span></div>
+              </div>
+              <table class="table">
+                <thead><tr><th>Zadanie</th><th class="right">Czas</th><th class="right">Stawka</th><th class="right">Kwota</th></tr></thead>
+                <tbody>
+                  <tr><td>Zgłoszenia serwisowe — czerwiec</td><td class="right t-mono">5:45</td><td class="right t-mono">320,00</td><td class="right t-mono">1 840,00</td></tr>
+                  <tr><td>Zgłoszenia serwisowe — lipiec</td><td class="right t-mono">3:45</td><td class="right t-mono">320,00</td><td class="right t-mono">1 200,00</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="report-group">
+              <div class="report-group-head">
+                <div class="stack-2"><span class="strong">Czas nierozliczalny</span><span class="t-hint">Wykazany informacyjnie, poza rozliczeniem</span></div>
+                <div class="row-4"><span class="t-mono">3:15</span><span class="t-mono muted">0,00 PLN</span></div>
+              </div>
+              <table class="table">
+                <thead><tr><th>Zadanie</th><th class="right">Czas</th><th class="right">Stawka</th><th class="right">Kwota</th></tr></thead>
+                <tbody>
+                  <tr><td>Cotygodniowe statusy</td><td class="right t-mono">2:15</td><td class="right t-hint">—</td><td class="right t-hint">—</td></tr>
+                  <tr><td>Wewnętrzne przekazanie wiedzy</td><td class="right t-mono">1:00</td><td class="right t-hint">—</td><td class="right t-hint">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="report-total">
+              <div class="stack-2">
+                <span class="strong">Razem do zafakturowania</span>
+                <span class="t-hint">73:45 rozliczalne · 3:15 nierozliczalne · zaokrąglenie 15 min w górę</span>
+              </div>
+              <span class="v">23 600,00 PLN</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Czas nierozliczalny jest wykazany, ale w osobnej grupie z kwotą zero — klient widzi pełen nakład, a suma pozostaje jednoznaczna (US-G2).</span></div>
+    <div class="note"><b>2</b><span>Wpis z nadpisaną stawką jest oznaczony i pokazuje stawkę faktycznie zastosowaną, nie projektową (US-F2).</span></div>
+    <div class="note"><b>3</b><span>Eksport dziedziczy bieżące grupowanie, filtry, zaokrąglenie i walutę — PDF odwzorowuje ten arkusz, CSV/XLSX dokłada kolumny surowe (data, osoba, opis) do księgowości (US-G4).</span></div>
+    <div class="note"><b>4</b><span>Kwoty w wierszach mają groszowe końcówki z zaokrąglenia czasu (11:05 × 320). <b>Do decyzji:</b> czy zaokrąglać każdą pozycję do pełnych groszy, czy sumować dokładne wartości i zaokrąglić dopiero sumę — te dwie ścieżki dają różne totale.</span></div>
+    <div class="note"><b>5</b><span>„Zamknij i zablokuj" jest jedynym miejscem, w którym powstaje blokada wpisów — sam eksport PDF niczego nie blokuje. Wymagania (§9) mówią „w wygenerowanym/wysłanym raporcie", co jest niejednoznaczne; makieta wybiera jawne zamknięcie zamiast blokowania przy pobraniu pliku.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 15 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Blokada wpisów i odblokowanie</h2>
+    <p>Zamknięty raport zamraża swoje wpisy. Odblokowanie jest możliwe, ale jawne, uzasadnione i zapisane w historii.</p>
+    <div class="screen-refs"><span class="ref">§9</span><span class="ref">US-G3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/reports/nordvik-2026-06-07?unlock=1</span>
+    </div>
+    <div class="app app-tall modal-scrim">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s3"><svg><use href="#ic-folder"/></svg> Projekty</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item active" data-goto="s13"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Raporty</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Nordvik · cze–lip 2026</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div>
+              <div class="row-3"><h1 class="t-page-title">Nordvik · czerwiec–lipiec 2026</h1><span class="badge badge-success"><svg><use href="#ic-lock"/></svg> Zamknięty</span></div>
+              <p>Zamknięty 20 lip 2026, 16:40 przez Marka Wójcika · 73 wpisy zablokowane · 23 600,00 PLN</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-outline"><svg><use href="#ic-download"/></svg> Pobierz PDF</button>
+              <button class="btn btn-destructive-outline"><svg><use href="#ic-unlock"/></svg> Odblokuj wpisy</button>
+            </div>
+          </div>
+
+          <div class="alert alert-success">
+            <svg><use href="#ic-lock"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">Wpisy tego raportu są tylko do odczytu</span>
+              <span class="t-body">Nie da się zmienić czasu, stawki ani flagi rozliczalności bez odblokowania. Nowy czas na tych samych zadaniach można logować normalnie — trafi do kolejnego raportu.</span>
+            </div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Zablokowane wpisy</h2>
+                <div class="dt-head-actions"><span class="t-hint t-mono">73 wpisy · 73:45</span></div>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr><th>Data</th><th>Zadanie</th><th>Osoba</th><th class="right">Czas</th><th class="right">Kwota</th><th style="width:3rem"></th></tr></thead>
+              <tbody>
+                <tr class="entry-row-locked"><td class="t-hint">16 lip</td><td>Endpoint pozycji koszyka</td><td>Anna Nowak</td><td class="right t-mono">6:00</td><td class="right t-mono">1 920,00</td><td><svg style="width:1rem;height:1rem" class="muted"><use href="#ic-lock"/></svg></td></tr>
+                <tr class="entry-row-locked"><td class="t-hint">15 lip</td><td>Mapowanie cen katalogowych</td><td>Paulina Zych</td><td class="right t-mono">8:30</td><td class="right t-mono">2 720,00</td><td><svg style="width:1rem;height:1rem" class="muted"><use href="#ic-lock"/></svg></td></tr>
+                <tr class="entry-row-locked"><td class="t-hint">14 lip</td><td>Refaktor serwisu podatkowego</td><td>Marek Wójcik</td><td class="right t-mono">6:45</td><td class="right t-mono">2 160,00</td><td><svg style="width:1rem;height:1rem" class="muted"><use href="#ic-lock"/></svg></td></tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint t-mono">Pozycje 1–3 z 73</span></div>
+          </div>
+        </main>
+      </div>
+
+      <div class="modal">
+        <div class="modal-head">
+          <div class="between">
+            <span class="t-section">Odblokować 73 wpisy?</span>
+            <button class="btn btn-ghost btn-sm btn-icon" aria-label="Zamknij"><svg><use href="#ic-x"/></svg></button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">Ten raport został już wysłany do klienta</span>
+              <span class="t-body">PDF pobrano 20 lip o 16:52. Zmiany w odblokowanych wpisach rozjadą się z tym, co klient ma u siebie.</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>Powód odblokowania <span class="req">*</span></label>
+            <textarea class="textarea" placeholder="np. Klient zakwestionował 4 h na refaktorze — korekta po ustaleniach z 21 lip."></textarea>
+            <span class="t-hint">Powód trafia do historii raportu razem z Twoim nazwiskiem i datą.</span>
+          </div>
+          <div class="stack-2">
+            <span class="t-overline">Historia</span>
+            <div class="comment">
+              <span class="avatar">MW</span>
+              <div class="body">
+                <div class="row-3"><span class="t-label">Marek Wójcik</span><span class="t-hint">20 lip, 16:40</span></div>
+                <span class="t-body">Zamknął raport i zablokował 73 wpisy.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">esc</span> anuluj</span>
+          <div class="row">
+            <button class="btn btn-ghost" data-goto="s14">Anuluj</button>
+            <button class="btn btn-destructive"><svg><use href="#ic-unlock"/></svg> Odblokuj wpisy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Odblokowanie wymaga powodu i jest zapisywane w historii raportu — „jawna, audytowalna akcja" z US-G3 potrzebuje jednego i drugiego, sam dialog potwierdzenia to za mało.</span></div>
+    <div class="note"><b>2</b><span>Blokada dotyczy wpisów, nie zadań: na zablokowanym zadaniu można dalej logować nowy czas, który wejdzie do następnego raportu. Bez tej zasady zamknięcie raportu zatrzymałoby pracę zespołu.</span></div>
+    <div class="note"><b>3</b><span>Przycisk odblokowania to <code class="t-mono">destructive-outline</code>, nie pełny destructive — akcja jest ryzykowna, ale odwracalna (raport można zamknąć ponownie).</span></div>
+    <div class="note"><b>4</b><span><b>Do rozstrzygnięcia:</b> kto może odblokować. Makieta zakłada każdego TL-a. §10 mówi, że nie ma roli admina, więc nie ma nikogo „wyżej" — jeśli to za słabe, potrzebne jest osobne uprawnienie.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 16 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Ustawienia modułu — zaokrąglanie globalne</h2>
+    <p>Jedno miejsce z regułami wspólnymi dla wszystkich klientów i projektów, zgodnie z decyzją o globalnym zaokrąglaniu (§10).</p>
+    <div class="screen-refs"><span class="ref">§9</span><span class="ref">§10</span><span class="ref">US-F3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/settings</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s3"><svg><use href="#ic-folder"/></svg> Projekty</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s13"><svg><use href="#ic-file"/></svg> Raporty</a>
+          </div>
+          <div class="nav-sep"></div>
+          <div class="nav-items"><a class="nav-item active"><svg><use href="#ic-sliders"/></svg> Ustawienia</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Śledzenie czasu</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Ustawienia</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MW</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Ustawienia modułu</h1><p>Reguły wspólne dla wszystkich klientów i projektów</p></div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Zaokrąglanie czasu</span>
+                <span class="desc">Dotyczy wszystkich projektów. Zaokrąglona wartość jest tą, z której liczony jest koszt.</span>
+                <div class="form-grid form-grid-2">
+                  <div class="field">
+                    <label>Jednostka</label>
+                    <div class="segmented">
+                      <button aria-selected="false">Brak</button>
+                      <button aria-selected="false">5 min</button>
+                      <button aria-selected="false">10 min</button>
+                      <button aria-selected="true">15 min</button>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Kierunek</label>
+                    <div class="segmented">
+                      <button aria-selected="true">W górę</button>
+                      <button aria-selected="false">Do najbliższej</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="alert alert-info">
+                  <svg><use href="#ic-info"/></svg>
+                  <div class="stack-2">
+                    <span class="alert-title">Przykłady przy obecnym ustawieniu</span>
+                    <span class="t-body t-mono">1:02 → 1:15 · 1:16 → 1:30 · 0:03 → 0:15 · 2:00 → 2:00</span>
+                  </div>
+                </div>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="false"></button>
+                  <div class="col"><span class="t-label">Zastosuj wstecz do istniejących wpisów</span><span class="t-hint">Wyłączone: zmiana dotyczy tylko wpisów utworzonych po zapisaniu.</span></div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Domyślne wartości wpisu</span>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Nowe wpisy są rozliczalne</span><span class="t-hint">Projekt może to nadpisać.</span></div>
+                </div>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Start = koniec poprzedniego wpisu</span><span class="t-hint">Podpowiedź przy dodawaniu kolejnego wpisu tego samego dnia.</span></div>
+                </div>
+                <div class="field">
+                  <label>Dzienny cel godzin</label>
+                  <div class="input-group"><input class="input" style="max-width:7rem" value="8" /><span class="addon">h</span></div>
+                  <span class="t-hint">Skalowanie pasków obciążenia w timesheecie. Zostaw puste, aby wyłączyć cele.</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="title">Ostrzeżenia</span>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Ostrzegaj o nakładających się wpisach</span><span class="t-hint">Ostrzeżenie, nie blokada.</span></div>
+                </div>
+                <div class="row-3">
+                  <button class="switch" role="switch" aria-checked="true"></button>
+                  <div class="col"><span class="t-label">Przypominaj o działającym timerze</span><span class="t-hint">Nienachalne przypomnienie przy opuszczaniu modułu i po 8 h ciągłego działania.</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-col">
+              <div class="alert alert-warning">
+                <svg><use href="#ic-warn"/></svg>
+                <div class="stack-2">
+                  <span class="alert-title">Zmiana zaokrąglania wpływa na kwoty</span>
+                  <span class="t-body">Przy obecnych 1 284 wpisach z ostatnich 90 dni: <b>15 min w górę</b> daje 1 612:30 (+38:15 wobec czasu surowego). Zamknięte raporty pozostają bez zmian.</span>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-head"><h3 class="t-card-title">Zakres ustawień</h3></div>
+                <div class="card-body stack-2">
+                  <span class="t-body">Te reguły są <b>globalne</b> — nie da się ich ustawić per klient ani per projekt (decyzja §10).</span>
+                  <span class="t-hint">Stawka i waluta pozostają na poziomie projektu, a nadpisanie stawki — na poziomie wpisu.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-ghost">Anuluj</button>
+              <button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Zapisz</button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Przykłady „1:02 → 1:15" przeliczają się na żywo przy zmianie ustawienia — zaokrąglanie jest regułą, którą łatwo źle zrozumieć, a jej skutek widać dopiero na fakturze.</span></div>
+    <div class="note"><b>2</b><span>Wyliczenie wpływu na 90 dni to <b>propozycja</b>. Bez niej zmiana zaokrąglania jest ślepym strzałem w kwoty klientów.</span></div>
+    <div class="note"><b>3</b><span>„Zastosuj wstecz" jest domyślnie wyłączone i nigdy nie rusza wpisów zablokowanych — inaczej ustawienie mogłoby po cichu zmienić już zafakturowaną kwotę.</span></div>
+    <div class="note"><b>4</b><span>„Dzienny cel godzin" i przypomnienia o timerze nie wynikają wprost z wymagań; są konsekwencją elementów, które makieta pokazuje na ekranach 1, 11 i 12.</span></div>
+  </div>
+</section>
+
+<!-- ═══ EKRAN 17 ═══════════════════════════════════════════════════ -->
+<section class="screen" id="s17">
+  <div class="screen-meta">
+    <h2>17. Brak dostępu — nieaktualny link</h2>
+    <p>TM otwiera link do projektu, do którego nie jest przypisany (albo stracił przypisanie). Komunikat jest zrozumiały i oferuje wyjście, zamiast surowego błędu 403.</p>
+    <div class="screen-refs"><span class="ref">§3</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/time-tracking/projects/fintechly-portal</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Śledzenie czasu</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" data-goto="s1"><svg><use href="#ic-clock"/></svg> Moja praca</a>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-board"/></svg> Zadania</a>
+            <a class="nav-item" data-goto="s10"><svg><use href="#ic-list"/></svg> Wpisy czasu</a>
+            <a class="nav-item" data-goto="s11"><svg><use href="#ic-calendar"/></svg> Timesheet</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Brak dostępu</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Szukaj</div>
+            <button class="icon-btn" aria-label="Powiadomienia"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">TI</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="empty">
+            <span class="empty-icon"><svg><use href="#ic-shield"/></svg></span>
+            <div class="stack-2">
+              <div class="t-section">Nie masz dostępu do tego projektu</div>
+              <p class="t-hint" style="max-width:48ch;margin:0">Dostęp do projektów jest nadawany pojedynczo przez Team Leadera. Jeśli miałeś tu wcześniej dostęp, mógł zostać odebrany — Twoje wcześniejsze wpisy czasu pozostają zapisane.</p>
+            </div>
+            <div class="row">
+              <button class="btn btn-primary" data-goto="s1"><svg><use href="#ic-arrow-left"/></svg> Wróć do „Moja praca"</button>
+              <button class="btn btn-outline"><svg><use href="#ic-message"/></svg> Poproś o dostęp</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Regulamin</span><span>Prywatność</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Komunikat nie zdradza nazwy klienta ani projektu — sam adres jest już wskazówką, ale UI nie potwierdza istnienia zasobu, do którego użytkownik nie ma prawa.</span></div>
+    <div class="note"><b>2</b><span>Ten sam ekran obsługuje dwa przypadki: nigdy nie miałem dostępu i dostęp odebrany. Zdanie o zachowanych wpisach adresuje ten drugi (US-B2).</span></div>
+    <div class="note"><b>3</b><span>Nawigacja pozostaje pełna — TM ma dostęp do innych projektów, więc nie ma powodu obcinać mu menu, jak na ekranie 2.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

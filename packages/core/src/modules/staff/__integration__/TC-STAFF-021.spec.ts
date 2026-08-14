@@ -9,7 +9,7 @@ test.describe('TC-STAFF-021: Projects List Loads', () => {
   test('should render the projects list with projects visible and Add Project button for admin', async ({ page }) => {
     await login(page, 'admin')
 
-    await page.goto('/backend/staff/timesheets/projects')
+    await page.goto('/backend/staff/time-tracking/projects')
 
     // Verify the projects page title renders
     await expect(page.getByText('Projects').first()).toBeVisible()

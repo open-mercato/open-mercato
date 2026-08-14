@@ -35,6 +35,9 @@ export const setup: ModuleSetupConfig = {
       'staff.timesheets.view',
       'staff.timesheets.manage_own',
       'staff.timesheets.projects.view',
+      'staff.timesheets.tasks.view',
+      'staff.timesheets.tasks.manage',
+      'staff.timesheets.rates.view',
     ],
   },
 }

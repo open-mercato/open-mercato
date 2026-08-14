@@ -1,0 +1,863 @@
+"use client"
+
+/**
+ * Screen 10 — the working list of time entries.
+ *
+ * The five notes on the mockup are the five decisions this page exists to make,
+ * and none of them is decoration:
+ *
+ *  1. **The `Czas` cell edits in place** (US-D5). Correcting a duration is the
+ *     single most common thing anybody does to a logged entry, so it costs one
+ *     click, not a dialog round trip. The field is the shared `DurationInput`
+ *     in its compact variant, so `1h 40m` means here exactly what it means in
+ *     the entry dialog and the timesheet grid.
+ *  2. **Delete is optimistic and reversible** (US-D5). The row leaves the table
+ *     immediately and the platform's undo bar — fed by the `x-om-operation`
+ *     header the command layer already attaches to the response — offers
+ *     "Cofnij" for a few seconds. The restore is the command's own `undo`,
+ *     never a row rebuilt from client state, which is why an entry restored
+ *     this way comes back with its tags, its rounding and its audit trail
+ *     intact. The page watches the operation store and refetches the moment its
+ *     token is undone, so the row reappears from the server.
+ *  3. **A rate override is visible on the row** (US-F2). Without the badge two
+ *     rows with the same duration and different costs look like a bug.
+ *  4. **A locked row is inert** (US-G3): no checkbox, no edit, no delete, a
+ *     lock badge, and exactly one action — the report that froze it. Unlocking
+ *     happens in the report (screen 15), not here.
+ *  5. **`Koszt` is empty for a non-billable row, not `0,00`.** The list route
+ *     already answers `null`; a zero would read as free work rather than as
+ *     work that is out of scope.
+ *
+ * Two things beyond the notes. Money columns exist only for a holder of
+ * `staff.timesheets.rates.view` — the response has no `cost` for anybody else,
+ * so the column is absent rather than blanked. And the footer never adds two
+ * currencies together; see `summarizeTimeEntries`.
+ */
+
+import * as React from 'react'
+import { Copy, Lock, Plus } from 'lucide-react'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
+import {
+  apiCallOrThrow,
+  readApiResultOrThrow,
+  withScopedApiRequestHeaders,
+} from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOperationStore } from '@open-mercato/ui/backend/operations/store'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
+import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { TimeEntryDialog } from '../../../../lib/time-tracking-ui/TimeEntryDialog'
+import { TimeEntryDurationCell } from '../../../../lib/time-tracking-ui/TimeEntryDurationCell'
+import { TimeEntriesSummaryFooter } from '../../../../lib/time-tracking-ui/TimeEntriesSummaryFooter'
+import {
+  collectDirectoryIds,
+  currentWeekRange,
+  formatEntryClockRange,
+  formatEntryDay,
+  isEntryLockedError,
+  readCopyDayTargetConflict,
+  summarizeTimeEntries,
+  toTimeEntryListRow,
+  type TimeEntryDirectory,
+  type TimeEntryListRow,
+} from '../../../../lib/time-tracking-ui/timeEntryListData'
+import {
+  readRowItems,
+  shiftIsoDate,
+  todayIsoDate,
+  toProjectOption,
+  toTaskOption,
+} from '../../../../lib/time-tracking-ui/timeEntryDialogState'
+import { formatDuration } from '../../../../lib/time-tracking/duration'
+
+const logger = createLogger('staff').child({ component: 'time-tracking/entries' })
+
+const PAGE_SIZE = 50
+const DIRECTORY_PAGE_SIZE = 100
+const ENTRIES_API_PATH = 'staff/timesheets/time-entries'
+const ENTRIES_API = `/api/${ENTRIES_API_PATH}`
+const RATES_FEATURE = 'staff.timesheets.rates.view'
+const MANAGE_OWN_FEATURE = 'staff.timesheets.manage_own'
+const REPORTS_PATH = '/backend/staff/time-tracking/reports'
+const MUTATION_CONTEXT_ID = 'staff.time_tracking.entriesList'
+const RESOURCE_KIND = 'staff.timesheets.time_entry'
+
+type EntriesResponse = {
+  items?: Array<Record<string, unknown>>
+  total?: number
+  totalPages?: number
+}
+
+type CopyDayResponse = {
+  copied?: number
+  toDate?: string
+  created?: Array<Record<string, unknown>>
+  skipped?: Array<Record<string, unknown>>
+}
+
+type MutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId: string
+  retryLastMutation: () => Promise<boolean>
+}
+
+function readUndoToken(response: Response | null | undefined): string | null {
+  const header = response?.headers?.get?.('x-om-operation') ?? null
+  return deserializeOperationMetadata(header)?.undoToken ?? null
+}
+
+async function loadDirectory(
+  taskIds: readonly string[],
+  projectIds: readonly string[],
+): Promise<TimeEntryDirectory> {
+  const taskTitles = new Map<string, string>()
+  const projectLabels = new Map<string, string>()
+  const requests: Array<Promise<void>> = []
+
+  if (taskIds.length > 0) {
+    const params = new URLSearchParams({ page: '1', pageSize: String(DIRECTORY_PAGE_SIZE), ids: taskIds.join(',') })
+    requests.push(
+      readApiResultOrThrow<Record<string, unknown>>(`/api/staff/timesheets/tasks?${params.toString()}`, undefined, {
+        allowNullResult: true,
+      }).then((payload) => {
+        for (const row of readRowItems(payload)) {
+          const option = toTaskOption(row)
+          if (option) taskTitles.set(option.id, option.title)
+        }
+      }),
+    )
+  }
+
+  if (projectIds.length > 0) {
+    const params = new URLSearchParams({
+      page: '1',
+      pageSize: String(DIRECTORY_PAGE_SIZE),
+      ids: projectIds.join(','),
+    })
+    requests.push(
+      readApiResultOrThrow<Record<string, unknown>>(
+        `/api/staff/timesheets/time-projects?${params.toString()}`,
+        undefined,
+        { allowNullResult: true },
+      ).then((payload) => {
+        for (const row of readRowItems(payload)) {
+          const option = toProjectOption(row)
+          if (!option) continue
+          projectLabels.set(option.id, option.customerName ? `${option.customerName} — ${option.name}` : option.name)
+        }
+      }),
+    )
+  }
+
+  await Promise.all(requests)
+  return { taskTitles, projectLabels }
+}
+
+export default function TimeTrackingEntriesPage() {
+  const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
+  const { payload } = useBackendChrome()
+  const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
+  const canManage = hasFeature(payload?.grantedFeatures, MANAGE_OWN_FEATURE)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  const defaultRange = React.useMemo(() => currentWeekRange(), [])
+  const [filterValues, setFilterValues] = React.useState<FilterValues>(() => ({
+    period: { from: defaultRange.from, to: defaultRange.to },
+  }))
+  const [page, setPage] = React.useState(1)
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'date', desc: true }])
+  const [rows, setRows] = React.useState<TimeEntryListRow[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([])
+  const [savingEntryId, setSavingEntryId] = React.useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [dialogEntryId, setDialogEntryId] = React.useState<string | null>(null)
+  const hasLoadedOnceRef = React.useRef(false)
+
+  const labels = React.useMemo(
+    () => ({
+      title: t('staff.time_tracking.entries.title', 'Time entries'),
+      add: t('staff.time_tracking.entries.actions.add', 'Add entry'),
+      copyDay: t('staff.time_tracking.entries.actions.copyDay', 'Copy yesterday'),
+      duplicate: t('staff.time_tracking.entries.actions.duplicate', 'Duplicate'),
+      delete: t('staff.time_tracking.entries.actions.delete', 'Delete'),
+      showReport: t('staff.time_tracking.entries.actions.showReport', 'Show the report'),
+      refresh: t('staff.time_tracking.entries.actions.refresh', 'Refresh'),
+      columns: {
+        date: t('staff.time_tracking.entries.columns.date', 'Date'),
+        task: t('staff.time_tracking.entries.columns.task', 'Task / description'),
+        project: t('staff.time_tracking.entries.columns.project', 'Project'),
+        clock: t('staff.time_tracking.entries.columns.clock', 'Hours'),
+        duration: t('staff.time_tracking.entries.columns.duration', 'Time'),
+        cost: t('staff.time_tracking.entries.columns.cost', 'Cost'),
+      },
+      selectAll: t('staff.time_tracking.entries.table.selectAll', 'Select all entries'),
+      selectRow: t('staff.time_tracking.entries.table.selectRow', 'Select entry'),
+      durationAria: t('staff.time_tracking.entries.table.durationAria', 'Entry duration'),
+      noTask: t('staff.time_tracking.entries.table.noTask', 'No task'),
+      empty: t('staff.time_tracking.entries.empty', 'No time entries in this period.'),
+      badges: {
+        locked: t('staff.time_tracking.entries.badges.locked', 'locked'),
+        nonBillable: t('staff.time_tracking.entries.badges.nonBillable', 'non-billable'),
+      },
+      filters: {
+        period: t('staff.time_tracking.entries.filters.period', 'Period'),
+        project: t('staff.time_tracking.entries.filters.project', 'Project'),
+      },
+      errors: {
+        load: t('staff.time_tracking.entries.errors.load', 'Could not load the time entries.'),
+        save: t('staff.time_tracking.entries.errors.save', 'Could not save the time entry.'),
+        delete: t('staff.time_tracking.entries.errors.delete', 'Could not delete the time entry.'),
+        duplicate: t('staff.time_tracking.entries.errors.duplicate', 'Could not duplicate the time entry.'),
+        copyDay: t('staff.time_tracking.entries.errors.copyDay', 'Could not copy the day.'),
+        locked: t(
+          'staff.time_tracking.entries.errors.entryLocked',
+          'This time entry is locked in a closed report and cannot be changed. Unlock the report first.',
+        ),
+      },
+    }),
+    [t],
+  )
+
+  const handleRefresh = React.useCallback(() => {
+    setReloadToken((token) => token + 1)
+  }, [])
+
+  const reportFailure = React.useCallback(
+    (error: unknown, fallbackMessage: string, logTag: string) => {
+      if (surfaceRecordConflict(error, t)) return
+      if (isEntryLockedError(error)) {
+        flash(labels.errors.locked, 'error')
+        return
+      }
+      logger.error(logTag, { err: error })
+      flash(error instanceof Error && error.message ? error.message : fallbackMessage, 'error')
+    },
+    [labels.errors.locked, t],
+  )
+
+  const period = (filterValues.period ?? {}) as { from?: string; to?: string }
+  const projectFilter = typeof filterValues.projectId === 'string' ? filterValues.projectId : ''
+
+  const loadEntries = React.useCallback(async () => {
+    if (hasLoadedOnceRef.current) setIsRefreshing(true)
+    else setIsLoading(true)
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) })
+      const sort = sorting[0]
+      params.set('sortField', sort?.id ?? 'date')
+      params.set('sortDir', sort?.desc === false ? 'asc' : 'desc')
+      if (period.from) params.set('from', period.from)
+      if (period.to) params.set('to', period.to)
+      if (projectFilter) params.set('projectId', projectFilter)
+
+      const listPayload = await readApiResultOrThrow<EntriesResponse>(
+        `${ENTRIES_API}?${params.toString()}`,
+        undefined,
+        { errorMessage: labels.errors.load, fallback: { items: [], total: 0, totalPages: 1 } },
+      )
+      const items = Array.isArray(listPayload.items) ? listPayload.items : []
+      const bare = items
+        .map((item) => toTimeEntryListRow(item))
+        .filter((row): row is TimeEntryListRow => row !== null)
+      const { taskIds, projectIds } = collectDirectoryIds(bare)
+      let directory: TimeEntryDirectory = { taskTitles: new Map(), projectLabels: new Map() }
+      try {
+        directory = await loadDirectory(taskIds, projectIds)
+      } catch (error) {
+        logger.warn('staff.time_tracking.entries directory load failed', { err: error })
+      }
+      setRows(
+        items
+          .map((item) => toTimeEntryListRow(item, directory))
+          .filter((row): row is TimeEntryListRow => row !== null),
+      )
+      setTotal(typeof listPayload.total === 'number' ? listPayload.total : items.length)
+      setTotalPages(
+        typeof listPayload.totalPages === 'number'
+          ? listPayload.totalPages
+          : Math.max(1, Math.ceil(items.length / PAGE_SIZE)),
+      )
+    } catch (error) {
+      logger.error('staff.time_tracking.entries list failed', { err: error })
+      flash(labels.errors.load, 'error')
+    } finally {
+      setIsLoading(false)
+      setIsRefreshing(false)
+      hasLoadedOnceRef.current = true
+    }
+  }, [labels.errors.load, page, period.from, period.to, projectFilter, sorting])
+
+  React.useEffect(() => {
+    void loadEntries()
+  }, [loadEntries, scopeVersion, reloadToken])
+
+  React.useEffect(() => {
+    setSelectedIds([])
+  }, [page, period.from, period.to, projectFilter, scopeVersion])
+
+  /**
+   * Note 2's other half. The undo bar is AppShell's, so the click that restores
+   * an entry never reaches this page — the operation store is what does. When a
+   * token this page deleted shows up in the store's `undone` list the row is
+   * back on the server, so the list is refetched rather than reconstructed.
+   */
+  const undoneTokens = useOperationStore((state) => state.undone.map((entry) => entry.undoToken).join('|'))
+  const pendingUndoTokensRef = React.useRef<Set<string>>(new Set())
+  React.useEffect(() => {
+    if (pendingUndoTokensRef.current.size === 0) return
+    const undone = new Set(undoneTokens.split('|').filter(Boolean))
+    let restored = false
+    for (const token of Array.from(pendingUndoTokensRef.current)) {
+      if (!undone.has(token)) continue
+      pendingUndoTokensRef.current.delete(token)
+      restored = true
+    }
+    if (restored) handleRefresh()
+  }, [handleRefresh, undoneTokens])
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<MutationContext>({
+    contextId: MUTATION_CONTEXT_ID,
+    blockedMessage: labels.errors.save,
+  })
+
+  const mutationContext = React.useCallback(
+    (resourceId: string): MutationContext => ({
+      formId: MUTATION_CONTEXT_ID,
+      resourceKind: RESOURCE_KIND,
+      resourceId,
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+
+  const handleDurationCommit = React.useCallback(
+    async (entry: TimeEntryListRow, durationMinutes: number) => {
+      setSavingEntryId(entry.id)
+      try {
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(entry.updatedAt), () =>
+              updateCrud(
+                ENTRIES_API_PATH,
+                { id: entry.id, durationMinutes },
+                { errorMessage: labels.errors.save },
+              ),
+            ),
+          context: mutationContext(entry.id),
+          mutationPayload: { id: entry.id, durationMinutes },
+        })
+        handleRefresh()
+      } catch (error) {
+        reportFailure(error, labels.errors.save, 'staff.time_tracking.entries inline duration save failed')
+        handleRefresh()
+      } finally {
+        setSavingEntryId(null)
+      }
+    },
+    [handleRefresh, labels.errors.save, mutationContext, reportFailure, runMutation],
+  )
+
+  const handleDelete = React.useCallback(
+    async (entry: TimeEntryListRow) => {
+      const previousRows = rows
+      setRows((current) => current.filter((row) => row.id !== entry.id))
+      setTotal((current) => Math.max(0, current - 1))
+      setSelectedIds((current) => current.filter((id) => id !== entry.id))
+      try {
+        const call = await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(entry.updatedAt), () =>
+              deleteCrud(ENTRIES_API_PATH, entry.id, { errorMessage: labels.errors.delete }),
+            ),
+          context: mutationContext(entry.id),
+          mutationPayload: { id: entry.id },
+        })
+        const undoToken = readUndoToken(call.response)
+        if (undoToken) pendingUndoTokensRef.current.add(undoToken)
+        flash(
+          t('staff.time_tracking.entries.messages.deleted', 'Deleted “{name}” ({duration}). Use Undo to restore it.', {
+            name: entry.taskTitle ?? entry.description ?? labels.noTask,
+            duration: formatDuration(entry.durationMinutes, 'clock'),
+          }),
+          'success',
+        )
+      } catch (error) {
+        setRows(previousRows)
+        setTotal((current) => current + 1)
+        reportFailure(error, labels.errors.delete, 'staff.time_tracking.entries delete failed')
+      }
+    },
+    [labels.errors.delete, labels.noTask, mutationContext, reportFailure, rows, runMutation, t],
+  )
+
+  const handleDuplicate = React.useCallback(
+    async (entry: TimeEntryListRow) => {
+      try {
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow<Record<string, unknown>>(
+              `${ENTRIES_API}/${encodeURIComponent(entry.id)}/duplicate`,
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ tagIds: entry.tagIds }),
+              },
+              { errorMessage: labels.errors.duplicate },
+            ),
+          context: mutationContext(entry.id),
+          mutationPayload: { id: entry.id },
+        })
+        flash(t('staff.time_tracking.entries.messages.duplicated', 'Entry duplicated.'), 'success')
+        handleRefresh()
+      } catch (error) {
+        reportFailure(error, labels.errors.duplicate, 'staff.time_tracking.entries duplicate failed')
+      }
+    },
+    [handleRefresh, labels.errors.duplicate, mutationContext, reportFailure, runMutation, t],
+  )
+
+  /**
+   * "Kopiuj wczorajszy dzień" (screen 1 note 5). The copies are drafts to
+   * review, so on success the period narrows to the target day: the user lands
+   * on exactly the rows that were created instead of hunting for them.
+   *
+   * A non-empty target day answers `409 copy_day_target_not_empty` naming what
+   * is already there. That is a question, not a dead end — the user is told the
+   * count and offered the `allowDuplicates` path, which is the real case the
+   * refusal would otherwise block (something already logged today, and
+   * yesterday's set wanted on top).
+   */
+  const runCopyDay = React.useCallback(
+    async (fromDate: string, toDate: string, allowDuplicates: boolean) =>
+      runMutation({
+        operation: () =>
+          apiCallOrThrow<CopyDayResponse>(
+            `${ENTRIES_API}/copy-day`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ fromDate, toDate, allowDuplicates }),
+            },
+            { errorMessage: labels.errors.copyDay },
+          ),
+        context: mutationContext(toDate),
+        mutationPayload: { fromDate, toDate, allowDuplicates },
+      }),
+    [labels.errors.copyDay, mutationContext, runMutation],
+  )
+
+  const handleCopyDay = React.useCallback(async () => {
+    const toDate = todayIsoDate()
+    const fromDate = shiftIsoDate(toDate, -1)
+    const announce = (result: CopyDayResponse | null) => {
+      const copied = typeof result?.copied === 'number' ? result.copied : 0
+      const skipped = Array.isArray(result?.skipped) ? result.skipped.length : 0
+      if (copied === 0) {
+        flash(t('staff.time_tracking.entries.copyDay.nothing', 'Yesterday has no entries to copy.'), 'info')
+      } else {
+        flash(
+          t('staff.time_tracking.entries.copyDay.success', '{count} entries copied as drafts — review them.', {
+            count: copied,
+          }),
+          'success',
+        )
+        setFilterValues((current) => ({ ...current, period: { from: toDate, to: toDate } }))
+        setPage(1)
+      }
+      if (skipped > 0) {
+        flash(
+          t('staff.time_tracking.entries.copyDay.skipped', '{count} entries were skipped because they are locked.', {
+            count: skipped,
+          }),
+          'warning',
+        )
+      }
+      handleRefresh()
+    }
+
+    try {
+      const call = await runCopyDay(fromDate, toDate, false)
+      announce(call.result)
+    } catch (error) {
+      const conflict = readCopyDayTargetConflict(error)
+      if (!conflict) {
+        reportFailure(error, labels.errors.copyDay, 'staff.time_tracking.entries copy-day failed')
+        return
+      }
+      const confirmed = await confirm({
+        title: labels.copyDay,
+        text: t(
+          'staff.time_tracking.entries.copyDay.conflict',
+          'Today already has {count} entries. Add yesterday’s copies on top of them?',
+          { count: conflict.existingEntryCount },
+        ),
+        confirmText: t('staff.time_tracking.entries.copyDay.confirmDuplicates', 'Add copies anyway'),
+      })
+      if (!confirmed) return
+      try {
+        const retry = await runCopyDay(fromDate, toDate, true)
+        announce(retry.result)
+      } catch (retryError) {
+        reportFailure(retryError, labels.errors.copyDay, 'staff.time_tracking.entries copy-day retry failed')
+      }
+    }
+  }, [confirm, handleRefresh, labels.copyDay, labels.errors.copyDay, reportFailure, runCopyDay, t])
+
+  const openCreate = React.useCallback(() => {
+    setDialogEntryId(null)
+    setDialogOpen(true)
+  }, [])
+
+  const openEdit = React.useCallback((entryId: string) => {
+    setDialogEntryId(entryId)
+    setDialogOpen(true)
+  }, [])
+
+  const selectableRows = React.useMemo(() => rows.filter((row) => !row.isLocked), [rows])
+  const allSelected = selectableRows.length > 0 && selectedIds.length === selectableRows.length
+  const someSelected = selectedIds.length > 0 && !allSelected
+
+  const toggleRowSelection = React.useCallback((id: string, checked: boolean) => {
+    setSelectedIds((current) => (checked ? Array.from(new Set([...current, id])) : current.filter((value) => value !== id)))
+  }, [])
+
+  const toggleAllSelection = React.useCallback(
+    (checked: boolean) => {
+      setSelectedIds(checked ? selectableRows.map((row) => row.id) : [])
+    },
+    [selectableRows],
+  )
+
+  const filters = React.useMemo<FilterDef[]>(
+    () => [
+      { id: 'period', label: labels.filters.period, type: 'dateRange' },
+      {
+        id: 'projectId',
+        label: labels.filters.project,
+        type: 'select',
+        options: Array.from(
+          new Map(
+            rows
+              .filter((row) => row.timeProjectId)
+              .map((row) => [row.timeProjectId as string, row.projectLabel ?? (row.timeProjectId as string)]),
+          ).entries(),
+        ).map(([value, label]) => ({ value, label })),
+      },
+    ],
+    [labels.filters.period, labels.filters.project, rows],
+  )
+
+  const columns = React.useMemo<ColumnDef<TimeEntryListRow>[]>(() => {
+    const rightHeader = (label: string) => () => <span className="block text-right">{label}</span>
+    const defs: ColumnDef<TimeEntryListRow>[] = []
+
+    if (canManage) {
+      defs.push({
+        id: 'select',
+        accessorKey: 'id',
+        header: () => (
+          <Checkbox
+            checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+            onCheckedChange={(checked) => toggleAllSelection(Boolean(checked))}
+            aria-label={labels.selectAll}
+          />
+        ),
+        enableSorting: false,
+        meta: { priority: 1 },
+        cell: ({ row }) =>
+          row.original.isLocked ? null : (
+            <Checkbox
+              checked={selectedIds.includes(row.original.id)}
+              onCheckedChange={(checked) => toggleRowSelection(row.original.id, Boolean(checked))}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={labels.selectRow}
+            />
+          ),
+      })
+    }
+
+    defs.push({
+      accessorKey: 'date',
+      header: labels.columns.date,
+      meta: { priority: 1 },
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {formatEntryDay(row.original.date)}
+        </span>
+      ),
+    })
+
+    defs.push({
+      id: 'task',
+      accessorKey: 'taskTitle',
+      header: labels.columns.task,
+      enableSorting: false,
+      meta: { priority: 1 },
+      cell: ({ row }) => {
+        const entry = row.original
+        const rateOverrideLabel =
+          canSeeMoney && entry.rateOverrideAmount !== null
+            ? formatCurrency(entry.rateOverrideAmount, entry.currencyCode) ?? String(entry.rateOverrideAmount)
+            : null
+        return (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="truncate text-sm font-medium text-foreground">
+                {entry.taskTitle ?? labels.noTask}
+              </span>
+              {!entry.isBillable ? (
+                <StatusBadge variant="neutral">{labels.badges.nonBillable}</StatusBadge>
+              ) : null}
+              {rateOverrideLabel ? (
+                <span data-testid="entry-rate-override">
+                  <StatusBadge variant="info">
+                    {t('staff.time_tracking.entries.badges.rateOverride', '{amount}/h', { amount: rateOverrideLabel })}
+                  </StatusBadge>
+                </span>
+              ) : null}
+              {entry.isLocked ? (
+                <span data-testid="entry-locked-badge">
+                  <StatusBadge variant="neutral">
+                    <Lock className="h-3 w-3" aria-hidden="true" />
+                    {labels.badges.locked}
+                  </StatusBadge>
+                </span>
+              ) : null}
+            </div>
+            {entry.description ? (
+              <span className="truncate text-xs text-muted-foreground">{entry.description}</span>
+            ) : null}
+          </div>
+        )
+      },
+    })
+
+    defs.push({
+      id: 'project',
+      accessorKey: 'projectLabel',
+      header: labels.columns.project,
+      enableSorting: false,
+      meta: { priority: 2 },
+      cell: ({ row }) =>
+        row.original.projectLabel ? (
+          <span className="truncate text-sm text-muted-foreground">{row.original.projectLabel}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground/70">—</span>
+        ),
+    })
+
+    defs.push({
+      id: 'clock',
+      accessorKey: 'startText',
+      header: labels.columns.clock,
+      enableSorting: false,
+      meta: { priority: 3 },
+      cell: ({ row }) => {
+        const range = formatEntryClockRange(row.original)
+        return range ? (
+          <span className="whitespace-nowrap font-mono text-sm tabular-nums text-muted-foreground">{range}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground/70">—</span>
+        )
+      },
+    })
+
+    defs.push({
+      id: 'durationMinutes',
+      accessorKey: 'durationMinutes',
+      header: rightHeader(labels.columns.duration),
+      meta: { priority: 1 },
+      cell: ({ row }) => (
+        <TimeEntryDurationCell
+          value={row.original.durationMinutes}
+          readOnly={row.original.isLocked || !canManage}
+          saving={savingEntryId === row.original.id}
+          ariaLabel={labels.durationAria}
+          lockedTitle={row.original.isLocked ? labels.errors.locked : undefined}
+          onCommit={(minutes) => handleDurationCommit(row.original, minutes)}
+        />
+      ),
+    })
+
+    if (canSeeMoney) {
+      defs.push({
+        id: 'cost',
+        accessorKey: 'cost',
+        header: rightHeader(labels.columns.cost),
+        enableSorting: false,
+        meta: { priority: 4 },
+        cell: ({ row }) => {
+          const formatted =
+            row.original.cost === null ? null : formatCurrency(row.original.cost, row.original.currencyCode)
+          return formatted ? (
+            <span
+              className="block text-right font-mono text-sm tabular-nums text-foreground"
+              data-testid="entry-cost"
+            >
+              {formatted}
+            </span>
+          ) : (
+            <span className="block text-right text-xs text-muted-foreground/70" data-testid="entry-cost-empty">
+              —
+            </span>
+          )
+        },
+      })
+    }
+
+    return defs
+  }, [
+    allSelected,
+    canManage,
+    canSeeMoney,
+    handleDurationCommit,
+    labels,
+    savingEntryId,
+    selectedIds,
+    someSelected,
+    t,
+    toggleAllSelection,
+    toggleRowSelection,
+  ])
+
+  const summary = React.useMemo(() => summarizeTimeEntries(rows), [rows])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<TimeEntryListRow>
+          title={labels.title}
+          data={rows}
+          columns={columns}
+          isLoading={isLoading}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => {
+            setFilterValues(values)
+            setPage(1)
+          }}
+          onFiltersClear={() => {
+            setFilterValues({})
+            setPage(1)
+          }}
+          emptyState={<div className="py-12 text-center text-sm text-muted-foreground">{labels.empty}</div>}
+          actions={
+            canManage ? (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => void handleCopyDay()}>
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                  {labels.copyDay}
+                </Button>
+                <Button size="sm" onClick={openCreate}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  {labels.add}
+                </Button>
+              </div>
+            ) : undefined
+          }
+          refreshButton={{
+            label: labels.refresh,
+            onRefresh: handleRefresh,
+            isRefreshing: isLoading || isRefreshing,
+          }}
+          sortable
+          manualSorting
+          sorting={sorting}
+          onSortingChange={setSorting}
+          pagination={{
+            page,
+            pageSize: PAGE_SIZE,
+            total,
+            totalPages,
+            onPageChange: setPage,
+          }}
+          stickyActionsColumn
+          rowActions={(row) =>
+            row.isLocked ? (
+              <RowActions
+                items={[
+                  {
+                    id: 'show-report',
+                    label: labels.showReport,
+                    href: row.lockedReportId
+                      ? `${REPORTS_PATH}?id=${encodeURIComponent(row.lockedReportId)}`
+                      : REPORTS_PATH,
+                  },
+                ]}
+              />
+            ) : canManage ? (
+              <RowActions
+                items={[
+                  {
+                    id: 'duplicate',
+                    label: labels.duplicate,
+                    onSelect: () => {
+                      void handleDuplicate(row)
+                    },
+                  },
+                  {
+                    id: 'delete',
+                    label: labels.delete,
+                    destructive: true,
+                    onSelect: () => {
+                      void handleDelete(row)
+                    },
+                  },
+                ]}
+              />
+            ) : null
+          }
+          onRowClick={(row) => {
+            if (row.isLocked) return
+            openEdit(row.id)
+          }}
+        />
+
+        <TimeEntriesSummaryFooter summary={summary} totalCount={total} canSeeMoney={canSeeMoney} />
+
+        {!canManage ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t('staff.time_tracking.entries.readOnlyNotice', 'You can view these entries but not change them.')}
+          </p>
+        ) : null}
+      </PageBody>
+
+      <TimeEntryDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        entryId={dialogEntryId}
+        onSaved={({ keptOpen }) => {
+          handleRefresh()
+          if (!keptOpen) setDialogOpen(false)
+        }}
+        onShowEntry={(entryId) => openEdit(entryId)}
+      />
+      {ConfirmDialogElement}
+    </Page>
+  )
+}

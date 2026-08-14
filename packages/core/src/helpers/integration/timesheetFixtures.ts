@@ -2,16 +2,24 @@ import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest } from './api'
 import { deleteStaffEntityIfExists } from './staffFixtures'
 
+/**
+ * `customerId` is a required parameter, not an optional one: US-B1 makes a customer
+ * mandatory on project create, so a call without it fails validation at runtime.
+ * Keeping it required means TypeScript catches the mistake at the call site instead
+ * of a spec discovering it as a 422 (see T2.10 — six specs regressed exactly that way).
+ * Pass an id from `customers.customer_entities`; `createCompanyFixture` returns one.
+ */
 export async function createTimeProjectFixture(
   request: APIRequestContext,
   token: string,
-  input?: { name?: string; code?: string },
+  input: { customerId: string; name?: string; code?: string },
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/staff/timesheets/time-projects', {
     token,
     data: {
-      name: input?.name ?? `QA Project ${Date.now()}`,
-      code: input?.code ?? `QA-${Date.now()}`,
+      name: input.name ?? `QA Project ${Date.now()}`,
+      code: input.code ?? `QA-${Date.now()}`,
+      customerId: input.customerId,
       projectType: 'internal',
       status: 'active',
     },

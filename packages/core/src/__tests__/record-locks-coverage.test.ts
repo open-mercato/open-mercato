@@ -80,6 +80,7 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- staff ---
   'staff:StaffTeam': { status: 'enabled', resourceKind: 'staff.team', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes/addresses sub-resources send the lock header (Phase 7).' },
   'staff:StaffTeamRole': { status: 'enabled', resourceKind: 'staff.team_role', reason: 'enabled — Phase 5; presence + CRUD decorator. Team-member/leave-request edits enabled too; accept/reject = status txn.' },
+  'staff:StaffTimeTaskStatus': { status: 'enabled', resourceKind: 'staff.timesheets.task_status', reason: 'enabled — T3.1 (D-1); the Kanban columns are project configuration edited through the task-statuses CRUD route (floor + record_locks via the generic reader). Column moves and the board-wide reorder are position writes carried by the same guarded route.' },
 
   // --- resources ---
   'resources:ResourcesResource': { status: 'enabled', resourceKind: 'resources.resource', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes sub-resource sends the lock header (Phase 7); tags exempt.' },

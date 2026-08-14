@@ -5,6 +5,11 @@ import {
   type AvailabilityAccessContext,
   type AvailabilityWriteAccess,
 } from './lib/availabilityAccess'
+import {
+  resolveProjectAccess,
+  type ProjectAccess,
+  type ProjectAccessContext,
+} from './lib/time-tracking/access'
 
 export type AvailabilityAccessResolver = {
   resolveAvailabilityWriteAccess(
@@ -12,9 +17,15 @@ export type AvailabilityAccessResolver = {
   ): Promise<AvailabilityWriteAccess>
 }
 
+export type TimeTrackingAccessResolver = {
+  resolveProjectAccess(ctx: ProjectAccessContext): Promise<ProjectAccess>
+}
+
 export function register(container: AppContainer) {
   const resolver: AvailabilityAccessResolver = { resolveAvailabilityWriteAccess }
+  const timeTrackingResolver: TimeTrackingAccessResolver = { resolveProjectAccess }
   container.register({
     availabilityAccessResolver: asValue(resolver),
+    timeTrackingAccessResolver: asValue(timeTrackingResolver),
   })
 }

@@ -16,7 +16,7 @@ import {
   createProjectFormGroups,
   createProjectFormSchema,
   type ProjectFormValues,
-} from '../../backend/staff/timesheets/projects/projectFormConfig'
+} from '../../backend/staff/time-tracking/projects/projectFormConfig'
 
 type CreateProjectDialogProps = {
   open: boolean
@@ -29,7 +29,7 @@ export function CreateProjectDialog({ open, onOpenChange, onProjectCreated }: Cr
 
   const formSchema = React.useMemo(() => createProjectFormSchema(), [])
   const fields = React.useMemo(() => createProjectFormFields(t), [t])
-  const groups = React.useMemo(() => createProjectFormGroups(t), [t])
+  const groups = React.useMemo(() => createProjectFormGroups(t, { compact: true }), [t])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -44,7 +44,7 @@ export function CreateProjectDialog({ open, onOpenChange, onProjectCreated }: Cr
           fields={fields}
           groups={groups}
           schema={formSchema}
-          initialValues={{}}
+          initialValues={{ status: 'active', billableByDefault: true, codeManual: false }}
           entityIds={[E.staff.staff_time_project]}
           submitLabel={t('staff.timesheets.projects.form.actions.create', 'Create')}
           extraActions={(

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -6,9 +7,19 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
-import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { StaffTeamMember, StaffTimeProject, StaffTimeProjectMember, type StaffTimeProjectStatus, type StaffTimeProjectMemberStatus } from '../data/entities'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import {
+  StaffTeamMember,
+  StaffTimeEntry,
+  StaffTimeProject,
+  StaffTimeProjectMember,
+  StaffTimeReport,
+  type StaffTimeProjectStatus,
+  type StaffTimeProjectBudgetKind,
+  type StaffTimeProjectMemberStatus,
+} from '../data/entities'
 
 const timeProjectCrudIndexer: CrudIndexerConfig<StaffTimeProject> = {
   entityType: 'staff:staff_time_project',
@@ -19,6 +30,7 @@ const timeProjectMemberCrudIndexer: CrudIndexerConfig<StaffTimeProjectMember> = 
 import {
   staffTimeProjectCreateSchema,
   staffTimeProjectUpdateSchema,
+  staffTimeProjectChangeCurrencySchema,
   staffTimeProjectMemberAssignSchema,
   staffTimeProjectMemberUpdateSchema,
   type StaffTimeProjectCreateInput,
@@ -27,6 +39,8 @@ import {
   type StaffTimeProjectMemberUpdateInput,
 } from '../data/validators'
 import { staffTimeProjectCrudEvents, staffTimeProjectMemberCrudEvents } from '../lib/crud'
+import { DEFAULT_BUDGET_WARN_AT_PERCENT } from '../lib/timesheets-projects/budgetBurn'
+import { seedProjectTaskStatuses } from '../lib/timesheets-tasks/seedProjectStatuses'
 import {
   applyScopeToWhere,
   commandActorScope,
@@ -57,6 +71,7 @@ type TimeProjectSnapshot = {
   organizationId: string
   name: string
   customerId: string | null
+  customerSnapshot: Record<string, unknown> | null
   code: string
   description: string | null
   projectType: string | null
@@ -65,6 +80,12 @@ type TimeProjectSnapshot = {
   ownerUserId: string | null
   costCenter: string | null
   startDate: string | null
+  hourlyRate: string | null
+  currencyCode: string | null
+  billableByDefault: boolean
+  budgetKind: string
+  budgetValue: string | null
+  budgetWarnAtPercent: number
   deletedAt: string | null
 }
 
@@ -107,6 +128,7 @@ async function loadTimeProjectSnapshot(em: EntityManager, id: string, scope?: St
     organizationId: project.organizationId,
     name: project.name,
     customerId: project.customerId ?? null,
+    customerSnapshot: project.customerSnapshot ?? null,
     code: project.code,
     description: project.description ?? null,
     projectType: project.projectType ?? null,
@@ -115,6 +137,12 @@ async function loadTimeProjectSnapshot(em: EntityManager, id: string, scope?: St
     ownerUserId: project.ownerUserId ?? null,
     costCenter: project.costCenter ?? null,
     startDate: project.startDate instanceof Date ? project.startDate.toISOString().split('T')[0] : (project.startDate ?? null),
+    hourlyRate: project.hourlyRate ?? null,
+    currencyCode: project.currencyCode ?? null,
+    billableByDefault: project.billableByDefault ?? true,
+    budgetKind: project.budgetKind ?? 'none',
+    budgetValue: project.budgetValue ?? null,
+    budgetWarnAtPercent: project.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT,
     deletedAt: project.deletedAt ? project.deletedAt.toISOString() : null,
   }
 }
@@ -150,6 +178,7 @@ function timeProjectSeedFromSnapshot(snapshot: TimeProjectSnapshot): Record<stri
     organizationId: snapshot.organizationId,
     name: snapshot.name,
     customerId: snapshot.customerId ?? null,
+    customerSnapshot: snapshot.customerSnapshot ?? null,
     code: snapshot.code,
     description: snapshot.description ?? null,
     projectType: snapshot.projectType ?? null,
@@ -158,6 +187,12 @@ function timeProjectSeedFromSnapshot(snapshot: TimeProjectSnapshot): Record<stri
     ownerUserId: snapshot.ownerUserId ?? null,
     costCenter: snapshot.costCenter ?? null,
     startDate: snapshot.startDate ? new Date(snapshot.startDate) : null,
+    hourlyRate: snapshot.hourlyRate ?? null,
+    currencyCode: snapshot.currencyCode ?? null,
+    billableByDefault: snapshot.billableByDefault ?? true,
+    budgetKind: (snapshot.budgetKind ?? 'none') as StaffTimeProjectBudgetKind,
+    budgetValue: snapshot.budgetValue ?? null,
+    budgetWarnAtPercent: snapshot.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -196,7 +231,8 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       name: parsed.name,
-      customerId: parsed.customerId ?? null,
+      customerId: parsed.customerId,
+      customerSnapshot: parsed.customerSnapshot ?? null,
       code: parsed.code,
       description: parsed.description ?? null,
       projectType: parsed.projectType ?? null,
@@ -205,16 +241,41 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       ownerUserId: parsed.ownerUserId ?? null,
       costCenter: parsed.costCenter ?? null,
       startDate: parsed.startDate ?? null,
+      hourlyRate: parsed.hourlyRate ?? null,
+      // D-3: creation is the one moment the currency may be chosen freely.
+      currencyCode: parsed.currencyCode ?? null,
+      billableByDefault: parsed.billableByDefault ?? true,
+      budgetKind: parsed.budgetKind ?? 'none',
+      budgetValue: parsed.budgetValue ?? null,
+      budgetWarnAtPercent: parsed.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
     })
-    em.persist(project)
+    const { translate } = await resolveTranslations()
     try {
-      await em.flush()
+      // D-1: the project and its Kanban columns are one transaction. The template
+      // can only be seeded once the insert has handed back the project's id, so
+      // the two writes are separate phases — but a rollback takes both, and a
+      // project therefore never exists with an empty board.
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            em.persist(project)
+          },
+          () => {
+            seedProjectTaskStatuses(
+              em,
+              { tenantId: project.tenantId, organizationId: project.organizationId, timeProjectId: project.id },
+              translate,
+            )
+          },
+        ],
+        { transaction: true, label: 'staff.timesheets.time_projects.create' },
+      )
     } catch (err) {
       if (isUniqueViolation(err)) {
-        const { translate } = await resolveTranslations()
         throw new CrudHttpError(409, {
           error: translate('staff.timesheets.errors.projectCodeDuplicate', 'A project with this code already exists.'),
           fieldErrors: { code: translate('staff.timesheets.errors.projectCodeDuplicate', 'A project with this code already exists.') },
@@ -322,6 +383,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
 
     if (parsed.name !== undefined) project.name = parsed.name
     if (parsed.customerId !== undefined) project.customerId = parsed.customerId ?? null
+    if (parsed.customerSnapshot !== undefined) project.customerSnapshot = parsed.customerSnapshot ?? null
     if (parsed.code !== undefined) project.code = parsed.code
     if (parsed.description !== undefined) project.description = parsed.description ?? null
     if (parsed.projectType !== undefined) project.projectType = parsed.projectType ?? null
@@ -330,6 +392,16 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     if (parsed.ownerUserId !== undefined) project.ownerUserId = parsed.ownerUserId ?? null
     if (parsed.costCenter !== undefined) project.costCenter = parsed.costCenter ?? null
     if (parsed.startDate !== undefined) project.startDate = parsed.startDate ?? null
+    if (parsed.hourlyRate !== undefined) project.hourlyRate = parsed.hourlyRate ?? null
+    if (parsed.billableByDefault !== undefined) project.billableByDefault = parsed.billableByDefault
+    if (parsed.budgetKind !== undefined) project.budgetKind = parsed.budgetKind
+    if (parsed.budgetValue !== undefined) project.budgetValue = parsed.budgetValue ?? null
+    if (parsed.budgetWarnAtPercent !== undefined) project.budgetWarnAtPercent = parsed.budgetWarnAtPercent
+    // `currency_code` is intentionally absent here and from the update schema:
+    // D-3 gives that column to `staff.timesheets.time_projects.change_currency`,
+    // which owns the acknowledgement and the locked-entry refusal. A caller that
+    // smuggles `currencyCode` into a PUT has it stripped by the schema, so there
+    // is no key to assign from.
     project.updatedAt = new Date()
     try {
       await em.flush()
@@ -376,8 +448,19 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
       'ownerUserId',
       'costCenter',
       'startDate',
+      'hourlyRate',
+      'billableByDefault',
+      'budgetKind',
+      'budgetValue',
+      'budgetWarnAtPercent',
       'deletedAt',
     ])
+    // `buildChanges` compares by identity, and the two snapshots are loaded through
+    // separate forks, so the denormalized customer snapshot needs a value compare
+    // or every edit would report it as changed.
+    if (JSON.stringify(before.customerSnapshot ?? null) !== JSON.stringify(after.customerSnapshot ?? null)) {
+      changes.customerSnapshot = { from: before.customerSnapshot ?? null, to: after.customerSnapshot ?? null }
+    }
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('staff.audit.timesheets.time_projects.update', 'Update time project'),
@@ -405,6 +488,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     if (!project) return
     project.name = before.name
     project.customerId = before.customerId ?? null
+    project.customerSnapshot = before.customerSnapshot ?? null
     project.code = before.code
     project.description = before.description ?? null
     project.projectType = before.projectType ?? null
@@ -413,6 +497,13 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     project.ownerUserId = before.ownerUserId ?? null
     project.costCenter = before.costCenter ?? null
     project.startDate = before.startDate ? new Date(before.startDate) : null
+    project.hourlyRate = before.hourlyRate ?? null
+    project.billableByDefault = before.billableByDefault ?? true
+    project.budgetKind = (before.budgetKind ?? 'none') as StaffTimeProjectBudgetKind
+    project.budgetValue = before.budgetValue ?? null
+    project.budgetWarnAtPercent = before.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT
+    // Undo of a plain update restores what a plain update could change; the currency
+    // stays where change_currency left it (D-3).
     project.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
     project.updatedAt = new Date()
     await em.flush()
@@ -507,6 +598,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         organizationId: before.organizationId,
         name: before.name,
         customerId: before.customerId ?? null,
+        customerSnapshot: before.customerSnapshot ?? null,
         code: before.code,
         description: before.description ?? null,
         projectType: before.projectType ?? null,
@@ -514,6 +606,12 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         ownerUserId: before.ownerUserId ?? null,
         costCenter: before.costCenter ?? null,
         startDate: before.startDate ? new Date(before.startDate) : null,
+        hourlyRate: before.hourlyRate ?? null,
+        currencyCode: before.currencyCode ?? null,
+        billableByDefault: before.billableByDefault ?? true,
+        budgetKind: (before.budgetKind ?? 'none') as StaffTimeProjectBudgetKind,
+        budgetValue: before.budgetValue ?? null,
+        budgetWarnAtPercent: before.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT,
         deletedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -522,6 +620,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     } else {
       project.name = before.name
       project.customerId = before.customerId ?? null
+      project.customerSnapshot = before.customerSnapshot ?? null
       project.code = before.code
       project.description = before.description ?? null
       project.projectType = before.projectType ?? null
@@ -529,6 +628,12 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
       project.ownerUserId = before.ownerUserId ?? null
       project.costCenter = before.costCenter ?? null
       project.startDate = before.startDate ? new Date(before.startDate) : null
+      project.hourlyRate = before.hourlyRate ?? null
+      project.currencyCode = before.currencyCode ?? null
+      project.billableByDefault = before.billableByDefault ?? true
+      project.budgetKind = (before.budgetKind ?? 'none') as StaffTimeProjectBudgetKind
+      project.budgetValue = before.budgetValue ?? null
+      project.budgetWarnAtPercent = before.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT
       project.deletedAt = null
       project.updatedAt = new Date()
     }
@@ -537,6 +642,249 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'created',
+      entity: project,
+      identifiers: {
+        id: project.id,
+        organizationId: project.organizationId,
+        tenantId: project.tenantId,
+      },
+      events: staffTimeProjectCrudEvents,
+      indexer: timeProjectCrudIndexer,
+    })
+  },
+}
+
+/**
+ * D-3: a project's currency is read-only once hours have been logged against it,
+ * and the deliberate change action below relabels the project WITHOUT converting
+ * any historical amount. It never touches an entry's `rate_currency_code` or its
+ * stored cost, so a closed report keeps billing what it billed. That is also why
+ * the change is refused outright while any entry of the project sits frozen in a
+ * closed report: relabelling then would make the project disagree with the
+ * `frozen_currency_code` those report lines were issued under.
+ */
+export const staffTimeProjectChangeCurrencyCommandId = 'staff.timesheets.time_projects.change_currency'
+
+export const PROJECT_HAS_LOCKED_ENTRIES_CODE = 'project_has_locked_entries'
+
+const changeTimeProjectCurrencyCommandSchema = staffTimeProjectChangeCurrencySchema.extend({
+  id: z.string().uuid(),
+})
+
+export type StaffTimeProjectChangeCurrencyCommandInput = z.infer<typeof changeTimeProjectCurrencyCommandSchema>
+
+export type StaffTimeProjectChangeCurrencyResult = {
+  timeProjectId: string
+  currencyCode: string
+  previousCurrencyCode: string | null
+}
+
+type BlockingLockedReport = {
+  id: string
+  reference: string | null
+  title: string | null
+}
+
+type LockedEntryBlock = {
+  lockedEntryCount: number
+  reports: BlockingLockedReport[]
+}
+
+async function findLockedEntryBlock(
+  em: EntityManager,
+  project: StaffTimeProject,
+): Promise<LockedEntryBlock> {
+  const scope = { tenantId: project.tenantId, organizationId: project.organizationId }
+  const lockedEntries = await em.find(
+    StaffTimeEntry,
+    { ...scope, timeProjectId: project.id, lockedReportId: { $ne: null }, deletedAt: null },
+    { fields: ['id', 'lockedReportId'] },
+  )
+  if (lockedEntries.length === 0) return { lockedEntryCount: 0, reports: [] }
+
+  const reportIds = Array.from(
+    new Set(lockedEntries.map((entry) => entry.lockedReportId).filter((value): value is string => typeof value === 'string')),
+  )
+  const reports = reportIds.length
+    ? await em.find(
+        StaffTimeReport,
+        { ...scope, id: { $in: reportIds } },
+        { fields: ['id', 'reference', 'title'] },
+      )
+    : []
+  const known = new Map(reports.map((report) => [report.id, report]))
+
+  return {
+    lockedEntryCount: lockedEntries.length,
+    reports: reportIds.map((id) => ({
+      id,
+      reference: known.get(id)?.reference ?? null,
+      title: known.get(id)?.title ?? null,
+    })),
+  }
+}
+
+async function assertNoLockedEntries(em: EntityManager, project: StaffTimeProject): Promise<void> {
+  const block = await findLockedEntryBlock(em, project)
+  if (block.lockedEntryCount === 0) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    code: PROJECT_HAS_LOCKED_ENTRIES_CODE,
+    error: translate(
+      'staff.timesheets.errors.projectCurrencyLocked',
+      'This project has time entries frozen in a closed report. Unlock those reports before changing the currency.',
+    ),
+    lockedEntryCount: block.lockedEntryCount,
+    lockedReports: block.reports,
+  })
+}
+
+/**
+ * Same `staff.timesheets.time_project.updated` event id every project write emits,
+ * with the currency transition carried in the payload so a subscriber can tell a
+ * relabel apart from an ordinary field edit without re-reading the project.
+ */
+function timeProjectCurrencyChangeEvents(
+  previousCurrencyCode: string | null,
+  currencyCode: string,
+): CrudEventsConfig<StaffTimeProject> {
+  return {
+    ...staffTimeProjectCrudEvents,
+    buildPayload: (emitCtx) => ({
+      id: emitCtx.identifiers.id,
+      organizationId: emitCtx.identifiers.organizationId,
+      tenantId: emitCtx.identifiers.tenantId,
+      changedField: 'currencyCode',
+      previousCurrencyCode,
+      currencyCode,
+      converted: false,
+    }),
+  }
+}
+
+const changeTimeProjectCurrencyCommand: CommandHandler<
+  StaffTimeProjectChangeCurrencyCommandInput,
+  StaffTimeProjectChangeCurrencyResult
+> = {
+  id: staffTimeProjectChangeCurrencyCommandId,
+  async prepare(rawInput, ctx) {
+    const parsed = changeTimeProjectCurrencyCommandSchema.parse(rawInput)
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadTimeProjectSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
+    if (!snapshot) return {}
+    return { before: snapshot }
+  },
+  async execute(rawInput, ctx) {
+    const parsed = changeTimeProjectCurrencyCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
+    const project = await findOneWithDecryption(
+      em,
+      StaffTimeProject,
+      applyScopeToWhere<StaffTimeProject>({ id: parsed.id, deletedAt: null }, scope),
+      undefined,
+      scopeForDecryption(scope),
+    )
+    if (!project) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(404, {
+        error: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
+      })
+    }
+    ensureTenantScope(ctx, project.tenantId)
+    ensureOrganizationScope(ctx, project.organizationId)
+
+    const previousCurrencyCode = project.currencyCode ?? null
+
+    // The lock probe and the relabel are separate phases of one transaction: the
+    // probe queries `staff_time_entries` and must therefore never share a phase
+    // with the scalar mutation, and the shared transaction keeps a report closing
+    // concurrently from slipping between the check and the write.
+    await withAtomicFlush(
+      em,
+      [
+        () => assertNoLockedEntries(em, project),
+        () => {
+          project.currencyCode = parsed.currencyCode
+          project.updatedAt = new Date()
+        },
+      ],
+      { transaction: true, label: staffTimeProjectChangeCurrencyCommandId },
+    )
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: project,
+      identifiers: {
+        id: project.id,
+        organizationId: project.organizationId,
+        tenantId: project.tenantId,
+      },
+      events: timeProjectCurrencyChangeEvents(previousCurrencyCode, parsed.currencyCode),
+      indexer: timeProjectCrudIndexer,
+    })
+
+    return {
+      timeProjectId: project.id,
+      currencyCode: parsed.currencyCode,
+      previousCurrencyCode,
+    }
+  },
+  buildLog: async ({ snapshots, ctx }) => {
+    const before = snapshots.before as TimeProjectSnapshot | undefined
+    if (!before) return null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const after = await loadTimeProjectSnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
+    if (!after) return null
+    const changes = buildChanges(
+      before as unknown as Record<string, unknown>,
+      after as unknown as Record<string, unknown>,
+      ['currencyCode'],
+    )
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('staff.audit.timesheets.time_projects.change_currency', 'Change time project currency'),
+      resourceKind: 'staff.timesheets.time_project',
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      changes,
+      payload: {
+        undo: {
+          before,
+          after,
+        } satisfies TimeProjectUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TimeProjectUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const project = await em.findOne(StaffTimeProject, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
+    if (!project) return
+
+    // Undo relabels back, so it has to honour the same invariant: entries may have
+    // been frozen into a closed report since the change was made.
+    await withAtomicFlush(
+      em,
+      [
+        () => assertNoLockedEntries(em, project),
+        () => {
+          project.currencyCode = before.currencyCode ?? null
+          project.updatedAt = new Date()
+        },
+      ],
+      { transaction: true, label: `${staffTimeProjectChangeCurrencyCommandId}.undo` },
+    )
+
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
       entity: project,
       identifiers: {
         id: project.id,
@@ -673,6 +1021,133 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
   }),
 }
 
+/**
+ * D-12 turned `assigned_end_date` into a field a Team Leader edits, so a
+ * membership row needs an update path of its own. Without one the project team
+ * drawer had to express a re-dating as "assign a replacement row, drop the old
+ * one", and the audit trail then read as an unassign plus an assign — a history
+ * that misstates what happened on the record an invoice is defended with.
+ *
+ * `timeProjectId` is optional in the schema but always supplied by the route
+ * from the URL segment: the membership must belong to the project being edited,
+ * so a body carrying a foreign membership id cannot reach another project's row.
+ */
+const updateTimeProjectMemberCommandSchema = staffTimeProjectMemberUpdateSchema.extend({
+  timeProjectId: z.string().uuid().optional(),
+})
+
+export type StaffTimeProjectMemberUpdateCommandInput = StaffTimeProjectMemberUpdateInput & {
+  timeProjectId?: string
+}
+
+const updateTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberUpdateCommandInput, { timeProjectMemberId: string }> = {
+  id: 'staff.timesheets.time_project_members.update',
+  async prepare(rawInput, ctx) {
+    const parsed = updateTimeProjectMemberCommandSchema.parse(rawInput)
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadTimeProjectMemberSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
+    if (!snapshot) return {}
+    return { before: snapshot }
+  },
+  async execute(rawInput, ctx) {
+    const parsed = updateTimeProjectMemberCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
+    const member = await findOneWithDecryption(
+      em,
+      StaffTimeProjectMember,
+      applyScopeToWhere<StaffTimeProjectMember>(
+        {
+          id: parsed.id,
+          deletedAt: null,
+          ...(parsed.timeProjectId ? { timeProjectId: parsed.timeProjectId } : {}),
+        },
+        scope,
+      ),
+      undefined,
+      scopeForDecryption(scope),
+    )
+    if (!member) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(404, {
+        error: translate('staff.timesheets.errors.memberNotFound', 'Time project member not found or not accessible.'),
+      })
+    }
+    ensureTenantScope(ctx, member.tenantId)
+    ensureOrganizationScope(ctx, member.organizationId)
+
+    if (parsed.role !== undefined) member.role = parsed.role ?? null
+    if (parsed.status !== undefined) member.status = parsed.status
+    if (parsed.assignedEndDate !== undefined) member.assignedEndDate = parsed.assignedEndDate ?? null
+    member.updatedAt = new Date()
+    await em.flush()
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: member,
+      identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
+      events: staffTimeProjectMemberCrudEvents,
+      indexer: timeProjectMemberCrudIndexer,
+    })
+
+    return { timeProjectMemberId: member.id }
+  },
+  buildLog: async ({ snapshots, ctx }) => {
+    const before = snapshots.before as TimeProjectMemberSnapshot | undefined
+    if (!before) return null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const after = await loadTimeProjectMemberSnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
+    if (!after) return null
+    const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
+      'role',
+      'status',
+      'assignedEndDate',
+    ])
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('staff.audit.timesheets.time_project_members.update', 'Update time project member'),
+      resourceKind: 'staff.timesheets.time_project_member',
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      changes,
+      payload: {
+        undo: {
+          before,
+          after,
+        } satisfies TimeProjectMemberUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TimeProjectMemberUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const member = await em.findOne(StaffTimeProjectMember, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
+    if (!member) return
+    // Restores exactly what this command can change; the assignment window's
+    // start and the row's identity belong to assign/unassign.
+    member.role = before.role ?? null
+    member.status = (before.status ?? 'active') as StaffTimeProjectMemberStatus
+    member.assignedEndDate = before.assignedEndDate ? new Date(before.assignedEndDate) : null
+    member.updatedAt = new Date()
+    await em.flush()
+
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: member,
+      identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
+      events: staffTimeProjectMemberCrudEvents,
+      indexer: timeProjectMemberCrudIndexer,
+    })
+  },
+}
+
 const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timeProjectMemberId: string }> = {
   id: 'staff.timesheets.time_project_members.unassign',
   async prepare(input, ctx) {
@@ -781,5 +1256,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
 registerCommand(createTimeProjectCommand)
 registerCommand(updateTimeProjectCommand)
 registerCommand(deleteTimeProjectCommand)
+registerCommand(changeTimeProjectCurrencyCommand)
 registerCommand(assignTimeProjectMemberCommand)
+registerCommand(updateTimeProjectMemberCommand)
 registerCommand(unassignTimeProjectMemberCommand)

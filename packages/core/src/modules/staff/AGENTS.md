@@ -17,8 +17,9 @@ See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../..
 | Key | Contract |
 |-----|----------|
 | `availabilityAccessResolver` | Resolves an `AvailabilityWriteAccess` shape for the authenticated request, including whether the caller may edit availability for all members vs only themselves. Consumed by `planner/api/access.ts` via `container.resolve(..., { allowUnregistered: true })` — planner gracefully degrades to `403 staff_module_not_loaded` when staff is absent. |
+| `timeTrackingAccessResolver` | The single project-access resolver every time-tracking route consults (board, tasks, entries, timesheets, reports). Returns `{ canManageAll, projectIds, staffMemberId }`. `canManageAll: true` (holder of `staff.timesheets.projects.manage`, wildcard-aware) means **unrestricted** — `projectIds` is then empty and MUST NOT be read as "no projects". Otherwise `projectIds` lists the projects with an active, non-deleted `staff_time_project_members` row for the caller. A caller with no staff profile is a normal outcome (`staffMemberId: null`, empty `projectIds`) that drives the no-access screen, never an error. Every query is scoped by `tenantId` + `organizationId`; a request missing either fails closed. |
 
-Resolver shape (from `lib/availabilityAccess.ts`):
+Resolver shapes (from `lib/availabilityAccess.ts` and `lib/time-tracking/access.ts`):
 
 ```ts
 type AvailabilityAccessResolver = {
@@ -26,9 +27,21 @@ type AvailabilityAccessResolver = {
     ctx: AvailabilityAccessContext,
   ): Promise<AvailabilityWriteAccess>
 }
+
+type TimeTrackingAccessResolver = {
+  resolveProjectAccess(ctx: {
+    em: EntityManager
+    userId?: string | null
+    tenantId?: string | null
+    organizationId?: string | null
+    userFeatures?: readonly string[]
+  }): Promise<{ canManageAll: boolean; projectIds: string[]; staffMemberId: string | null }>
+}
 ```
 
 `AvailabilityWriteAccess.unregistered?: boolean` is an additive sentinel field (BC surface #2 — STABLE) set to `true` only when staff DI is missing. Existing required fields MUST NOT be removed.
+
+Route-side, gate a project id with `assertProjectAccess(access, projectId)` from `lib/time-tracking/access.ts` instead of re-implementing the `canManageAll` / `projectIds` check. `userFeatures` is matched with the shared `authorizeFeatures` policy, so `staff.*` and `staff.timesheets.*` grants are honoured — MUST NOT compare the raw feature array with exact string equality.
 
 ### API routes (BC surface #7 — STABLE)
 

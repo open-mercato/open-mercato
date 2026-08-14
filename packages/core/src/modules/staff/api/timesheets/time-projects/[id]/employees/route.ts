@@ -4,7 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { StaffTimeProjectMember } from '../../../../../data/entities'
-import { staffTimeProjectMemberAssignSchema } from '../../../../../data/validators'
+import { staffTimeProjectMemberAssignSchema, staffTimeProjectMemberUpdateSchema } from '../../../../../data/validators'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../../../openapi'
 
 function extractProjectIdFromUrl(request?: Request): string | null {
@@ -36,6 +36,7 @@ const F = {
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.view'] },
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.manage'] },
 }
 
@@ -110,6 +111,32 @@ const crud = makeCrudRoute({
       response: ({ result }) => ({ id: result?.timeProjectMemberId ?? null }),
       status: 201,
     },
+    // Re-dating an assignment (D-12) is an update of the existing row, not a
+    // replacement pair, so the audit trail reads as a change to
+    // `assignedEndDate`. `timeProjectId` comes from the URL, never from the
+    // body: the command uses it to refuse a membership id belonging to another
+    // project. Guard wiring, tenant/org scoping and the optimistic-lock header
+    // come from `makeCrudRoute`'s command path — this route MUST NOT hand-roll
+    // them (see `runRouteMutationGuards` for the non-factory equivalent).
+    update: {
+      commandId: 'staff.timesheets.time_project_members.update',
+      schema: rawBodySchema,
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const id =
+          raw?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        if (!id) {
+          throw new CrudHttpError(400, {
+            error: translate('staff.timesheets.errors.memberRequired', 'Time project member id is required.'),
+          })
+        }
+        const parsed = staffTimeProjectMemberUpdateSchema.parse({ ...raw, id })
+        const projectId = extractProjectIdFromUrl(ctx?.request)
+        return projectId ? { ...parsed, timeProjectId: projectId } : parsed
+      },
+      response: ({ result }) => ({ id: result?.timeProjectMemberId ?? null }),
+    },
     delete: {
       commandId: 'staff.timesheets.time_project_members.unassign',
       schema: rawBodySchema,
@@ -134,6 +161,7 @@ const crud = makeCrudRoute({
 
 export const GET = crud.GET
 export const POST = crud.POST
+export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
 const projectMemberListItemSchema = z.object({
@@ -158,6 +186,11 @@ export const openApi = createStaffCrudOpenApi({
   create: {
     schema: staffTimeProjectMemberAssignSchema,
     description: 'Assigns an employee to a time project.',
+  },
+  update: {
+    schema: staffTimeProjectMemberUpdateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Updates an existing assignment (role, status, assignment end date) without unassigning the employee.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),
