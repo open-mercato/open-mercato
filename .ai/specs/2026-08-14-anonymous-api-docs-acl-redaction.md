@@ -97,7 +97,7 @@ The implementation ships coverage for all affected paths:
 - Core unit tests verify anonymous, authenticated, and auth-error caller decisions; exact-origin cookie forwarding; cross-origin rejection; protocol-downgrade rejection; and shared document generation.
 - App route tests exercise both export routes as anonymous and authenticated callers, assert JSON/Markdown redaction, and assert `Cache-Control`/`Vary` headers.
 - Browser QA covers `/docs/api`, `/api/docs/openapi`, and `/api/docs/markdown` as both anonymous and authenticated staff, including equal path counts and the preserved authentication indicators.
-- Create-app template parity is covered by mirroring both app route files and by the repository's create-app/template validation gates.
+- Create-app template parity is covered by mirroring both app route files and the route regression test, then running the repository's template-sync gate.
 
 ## 📝 Edge Cases & Failure Scenarios
 
