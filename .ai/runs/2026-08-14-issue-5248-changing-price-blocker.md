@@ -69,5 +69,22 @@ Editing a sales order line that already has shipped quantities must present the 
 
 ### Phase 4: Validation and hand-back
 
-- [ ] 4.1 Run the full configured validation gate and record the results
-- [ ] 4.2 Run the authoritative `om-auto-review-pr` pass, apply any fixes, and update the PR body, labels and summary comment
+- [x] 4.1 Run the full configured validation gate and record the results — 5b9ece8
+
+  `yarn build:packages` ✅, `yarn generate` ✅ (no drift), `yarn build:packages` ✅, `yarn i18n:check-sync` ✅,
+  `yarn i18n:check-usage` ✅, `yarn typecheck` ✅, `yarn build:app` ✅. `yarn test` exits 1, but every failing
+  suite fails identically on the merge base `cb3419ef` (5 core suites / 14 tests: `DealsKpiStrip`,
+  `CompanyKpiBar.dealStatus`, `dashboards/lib/formatters`, `ItemsSection.discountColumn`, `attachments/localDriver`
+  — locale- and filesystem-dependent), plus `@open-mercato/ui` `format.test.ts` and `@open-mercato/shared`
+  `likeFilterWarning.test.ts` in packages this PR does not touch. The changed code's own suites are green
+  (`lineItemShipmentLock` 3/3, `LineItemDialog.shippedLineLock` 5/5).
+
+  Run in a dedicated worktree with its own `yarn install`, so the gate resolved `@open-mercato/*` to this
+  branch's sources rather than the primary checkout's.
+
+- [x] 4.2 Run the authoritative `om-auto-review-pr` pass, apply any fixes, and update the PR body, labels and summary comment
+
+  The automated pass could not run in its normal form: this is a fork PR authored by the same account the
+  automation runs as, so GitHub rejects the review submission (no self-review) and label writes are rejected
+  (`AddLabelsToLabelable` — no triage permission). The `om-code-review` checklist was therefore applied to the
+  diff directly and reported in the resume summary comment; the formal re-review is handed back to the maintainer.
