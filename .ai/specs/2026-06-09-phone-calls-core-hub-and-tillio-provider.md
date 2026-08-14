@@ -153,6 +153,8 @@ packages/tillio/src/modules/tillio/
   lib/pull-readiness.ts          # blocker precedence
   lib/pull-job.ts                # the durable pull: cursor walk plus ingest
   lib/queue.ts                   # tillio-pull queue
+  lib/preset.ts                  # env preconfiguration
+  cli.ts                         # configure-from-env
   workers/tillio-pull.ts         # runs lib/pull-job.ts off the request
   lib/normalizer.ts  lib/tz.ts  lib/url-guard.ts
   widgets/injection/pull-calls/          # pull action on the hub list toolbar
@@ -180,6 +182,40 @@ environment changes afterwards, the fingerprint no longer matches and the pull i
 `environment_drift` rather than silently calling a provider the operator was never bound to.
 
 `Ringostat` is the supported plugin today. The adapter dispatches by plugin, so a second plugin is additive.
+
+### Deployment-managed preconfiguration - implemented
+
+An operator running environment-managed infrastructure has to bootstrap or rotate Tillio without typing into
+the UI, so the provider parses its own env vars in `lib/preset.ts`.
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `OM_INTEGRATION_TILLIO_API_URL` | yes | Tillio API base URL |
+| `OM_INTEGRATION_TILLIO_API_KEY` | yes | Tillio API key |
+| `OM_INTEGRATION_TILLIO_RINGOSTAT_KEY` | no | Ringostat key; when set, the operator is attached too |
+| `OM_INTEGRATION_TILLIO_FORCE_PRECONFIGURE` | no | Overwrite credentials that already exist (default off) |
+
+The preset performs no writes of its own: each step calls the service the admin UI calls for the same
+action - `integrationCredentialsService` for the credentials form, `integrationStateService` for the enable
+toggle, `integrationHealthService` for `Check`, and `attachOperator` for the operator route. An env-driven
+tenant and a hand-configured one therefore end up with identical stored state, and everything the preset
+wrote stays editable in the UI. The operator token is not read from env at all: it is minted by
+`attachOperator`, exactly as it is when somebody submits the form.
+
+The order is forced by the data: the health check mints the `tenantSystemId` that the operator token is
+bound to, so attaching before it has passed is refused. When the health check does not report healthy, the
+preset stops after the environment and reports it rather than attaching against an instance it could not
+reach.
+
+It applies from `setup.ts` on tenant bootstrap and is rerunnable as
+`yarn mercato tillio configure-from-env --tenant <id> --org <id> [--force]`. Rerunning is safe: existing
+credentials are kept unless forced, and an occupied operator slot is reported as kept rather than treated as
+an error. The keep-unless-forced rule is what makes UI edits durable - without it every bootstrap would
+silently restore the env values over a rotation performed by hand. A half-set preset is reported and skipped
+rather than thrown, so it cannot fail tenant bootstrap.
+
+The preset also marks the integration enabled, because an integration with no state row resolves to disabled
+and the scheduled health probe only visits enabled ones.
 
 ### Blocker precedence
 
@@ -473,8 +509,9 @@ Hub tests carry the `HUB` infix and live in `packages/core`; provider tests use 
 Widget tests live in the provider package on purpose: the hub must keep passing with Tillio disabled.
 
 Unit tests: Tillio client, adapter fetch, health, normalizer, operators, operators store, pull readiness,
-the pull job (cursor walk, isolated ingest failure, cancellation, operator detached mid-flight), timezone
-conversion and URL guard (provider package); the ingest command (core).
+the pull job (cursor walk, isolated ingest failure, cancellation, operator detached mid-flight), the env
+preset (absent, incomplete, complete, rerun with an occupied slot, unhealthy environment, keep-unless-forced),
+timezone conversion and URL guard (provider package); the ingest command (core).
 
 Two constraints worth recording for whoever writes the next test:
 
@@ -596,6 +633,15 @@ Scope of this report: the implemented slice (Phases 1-2). Planned phases are des
 ---
 
 ## Changelog
+
+### 2026-08-14 - Deployment-managed preconfiguration
+
+- Added `lib/preset.ts` and `cli.ts`: the provider parses `OM_INTEGRATION_TILLIO_*`, applies the preset from
+  `setup.ts` on tenant bootstrap, and exposes `mercato tillio configure-from-env` for reruns and rotation.
+- Every step routes through the service the admin UI uses for the same action, so env-driven and
+  hand-configured tenants converge on the same stored state and the result stays editable in the UI.
+- The chain covers the operator too when `OM_INTEGRATION_TILLIO_RINGOSTAT_KEY` is set; the token stays a
+  product of `attachOperator` rather than an input.
 
 ### 2026-08-14 - Pull moved off the request
 
