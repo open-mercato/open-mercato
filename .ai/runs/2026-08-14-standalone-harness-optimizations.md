@@ -70,12 +70,12 @@ Make standalone-app harness runs resilient to interruption, enforce deterministi
 
 ### Phase 1: Template gate hardening
 
-- [ ] 1.1 Extend typecheck memory parity and its create-app guard test.
-- [ ] 1.2 Add the deterministic `ds-check.mjs` scanner with JSON output, justified ignore handling, fixture coverage, and rule-parity coverage.
-- [ ] 1.3 Wire `ds:check` into the scaffold package scripts and emitted validation gate, keeping emitted AGENTS guidance within budget.
-- [ ] 1.4 Add the advisory `i18n-check-hardcoded.mjs` scanner, script entry, opt-outs, allowlist behavior, and fixture coverage.
+- [x] 1.1 Extend typecheck memory parity and its create-app guard test. — ac91a8e31
+- [x] 1.2 Add the deterministic `ds-check.mjs` scanner with JSON output, justified ignore handling, fixture coverage, and rule-parity coverage. — ce8ead42e
+- [x] 1.3 Wire `ds:check` into the scaffold package scripts and emitted validation gate, keeping emitted AGENTS guidance within budget. — 28972c058
+- [x] 1.4 Add the advisory `i18n-check-hardcoded.mjs` scanner, script entry, opt-outs, allowlist behavior, and fixture coverage. — 9d6b4df9d
 - [ ] 1.5 Add failure-first harness cases and complete the knowledge-change synchronization and validation for the template gates.
-- [ ] 1.6 Document manual adoption for existing standalone apps in `UPGRADE_NOTES.md`.
+- [x] 1.6 Document manual adoption for existing standalone apps in `UPGRADE_NOTES.md`. — 8cd9f1560
 
 ### Phase 2: Session resilience contract
 
