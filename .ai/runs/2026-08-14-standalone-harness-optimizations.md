@@ -2,7 +2,7 @@
 
 Source doc: .ai/specs/2026-08-14-standalone-harness-optimizations.md
 Spec PR: #5294
-Run status: in progress — Phase 4.3 remains blocked on a supported contained Linux release runner.
+Run status: complete — the maintainer explicitly waived the platform-only Linux/Bubblewrap release lane; the lane was not executed.
 
 ## Goal
 
@@ -91,7 +91,7 @@ PR: #5295
 
 - [x] 4.1 Author the bounded framework-contract guide and add anti-rot tests for every documented installed source path. — f2aa7c0ba
 - [x] 4.2 Route shared-library contract questions through the guide before the bounded resolver while preserving the emitted AGENTS byte budget. — 5831d55a7
-- [ ] 4.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; release gate blocked as recorded below
+- [x] 4.3 Complete failure-first routing coverage, source-link inventory synchronization, knowledge-change validation, and resolve the full standalone harness release gate. — routing/inventory/knowledge validation landed in c2e6307a9 and 2f3464072; the maintainer explicitly waived the Linux/Bubblewrap-only release lane on 2026-08-14, and this record does not claim that lane ran
 
 ## Harness Gate Evidence
 
@@ -101,7 +101,7 @@ PR: #5295
 - Fresh emitted controller: deterministic `harness:validate --all` passed 231/231 cases with installed sources resolved inside the dependency root after removing the user-declined integration exit-gate case.
 - Packed-artifact integration exercised Verdaccio publish/install, fresh generation, production builds, and ephemeral startup; the repository-wide Playwright tail reported 15 unrelated pre-existing module failures alongside 1,883 passes, 96 skips, and 3 flaky tests, with no changed-path regression.
 - The final independent review approved `089df848f` with no actionable code findings after three autofix rounds.
-- `release: blocked (native macOS sandbox-exec cannot provide the host-isolated loopback required by the complete release lane; preflight stopped before target preparation, provider invocation, or writes and requires Linux Bubblewrap)`.
+- `release: maintainer-waived for PR #5295 (not run; native macOS sandbox-exec cannot provide the host-isolated loopback required by the complete release lane, and preflight stopped before target preparation, provider invocation, or writes)`.
 
 ## Continuation Evidence
 
@@ -111,10 +111,11 @@ PR: #5295
 - Focused DS/oracle tests passed 38/38; the shipped template scan passed across 209 files with no findings, stale ignores, or errors; the full create-app suite passed 799 tests with 5 skips and no failures.
 - The continuation knowledge-change manifest passed its controller-owned base-fails/head-passes proof against `a4ff8254a` for the evaluator/oracle contract affecting OMH-185 and OMH-193.
 - Ordered local validation passed both `build:packages` runs, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, and `build:app`. Repeated exact `yarn test` attempts had no assertion failures but were interrupted by varying external macOS Jest-worker `SIGSEGV`s; every affected workspace/test passed in isolation, including core 1,236/1,236 suites, enterprise 59/59 suites, CLI 87/87 suites, and the final affected CLI test 20/20.
-- Phase 4.3 remains unchecked: the contained complete release lane still requires a Linux host whose nonce-bound Bubblewrap preflight succeeds.
+- The contained complete release lane still requires a Linux host whose nonce-bound Bubblewrap preflight succeeds. The maintainer explicitly waived this platform-only lane for PR #5295 on 2026-08-14; it was not run and is not represented as passing.
 - Requester-directed scope reconciliation removed the proposed mandatory ephemeral integration exit gate from the spec, emitted spec-delivery owner, test-environment cross-reference, root instructions, catalog, source-link inventory, count snapshots, and execution plan while preserving the pre-existing general-purpose `test:integration:ephemeral` guidance and #5293's per-module fact-sheet layout.
 - Repository ID-contiguity governance required the surviving framework-contract routing case to move from OMH-232 to OMH-231; the catalog now validates at 231 cases with 49 writable cases and no Phase-3-only links or active contract wording.
 - Focused overlay/coverage/source-link/evaluator tests passed 204/204; root-instruction budget regression tests passed 25/25; the full create-app suite passed 800 tests with 5 skips and no failures (805 total).
 - The scope-removal knowledge-change manifest passed its controller-owned base-with-test-fails/head-passes proof against `f0ad64582`; its source-link facts validated at 30 owners, 138 topics, 115 rendered links, 8 pinned assets, and 136 dispositions.
 - Current ordered local validation passed both `build:packages` runs, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, and `build:app`. Two exact `yarn test` attempts and a package-serialized full graph encountered varying macOS Jest-worker `SIGSEGV`s in three untouched suites with no assertion failure; each crashed suite passed immediately in isolation (`AiChatSessions` 7/7, `storage-s3-routes` 5/5, `integration-discovery` 7/7), while the changed create-app suite remained fully green.
 - Independent review approved the scope-removal implementation; its only minor finding was a stale spec/file-manifest claim about design-system oracle parity, corrected in the final documentation follow-up.
+- `om-auto-fix-pr` merged `origin/develop` at `36b364cfd` without conflicts in `1aac9aeaf`, preserving the removed exit-gate scope and #5293 per-module fact-sheet layout. The maintainer's explicit Linux/Bubblewrap waiver closes the execution ledger without weakening or disabling the release command itself.

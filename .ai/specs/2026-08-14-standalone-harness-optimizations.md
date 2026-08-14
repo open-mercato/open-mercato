@@ -1,7 +1,7 @@
 # Standalone Harness Session Resilience & Deterministic Template Gates
 
 **Date**: 2026-08-14
-**Status**: Ready for implementation
+**Status**: Implemented in #5295
 **Evidence**: [#5266](https://github.com/open-mercato/open-mercato/issues/5266) — `opencode-library-task-glm52` session report (OpenCode 1.18.18 + GLM-5.2, high reasoning)
 
 ## TLDR
@@ -239,7 +239,7 @@ Each phase is independently shippable and reversible (revert = restore prior emi
 ### Internal Consistency Check
 Every problem statement (1–7) is owned by exactly one phase, and every phase owns at least one problem (Phase 1 ← problems 3/4/5, Phase 2 ← 1/2, Phase 3 ← 6, Phase 4 ← 7); every phase names its tests; the File Manifest covers every Implementation Plan step; assumptions A1–A6 are each referenced by the section they resolve. `AGENTS.md` has a single owning phase (4), so no cross-phase byte-budget negotiation exists.
 
-Verdict: `Ready for implementation` (autonomous defaults surfaced for review on the spec PR).
+Verdict: `Implemented` in #5295. The complete Linux/Bubblewrap release lane was not executed; on 2026-08-14 the maintainer explicitly waived that platform-only lane for this PR after the deterministic harness, package, review, and hosted-CI gates passed.
 
 ## Changelog
 
@@ -248,6 +248,7 @@ Verdict: `Ready for implementation` (autonomous defaults surfaced for review on 
 | 2026-08-14 | Initial draft from #5266 session post-mortem; overlap audit vs implemented harness specs; autonomous defaults A1–A6 applied |
 | 2026-08-14 | Adversarial fresh-context review applied: SPLIT recommendation recorded in A1 (kept as one per explicit user instruction; phases remain split-ready); removed the cross-phase `AGENTS.md` byte-budget dependency (the framework-digest phase is now sole owner); kept `ds:check` independent of the controller oracle and limited later oracle edits to semantic matcher parity; enforcement two-tier strategy stated honestly; File Manifest completed |
 | 2026-08-14 | Implementation #5295: corrected the framework-guide authoring path to the generator-owned `agentic/guides/` surface; added a justified stale-checked DS baseline for the existing template; completed the resilience, stop-cause, contract-digest, and 231-case/49-writable harness changes. The proposed ephemeral integration exit gate was removed at requester direction while retaining the standalone runner's existing general-purpose integration guidance. |
+| 2026-08-14 | Maintainer completion decision for #5295: explicitly waived the Linux/Bubblewrap-only complete release lane without claiming it ran; all remaining non-waived exit criteria remain required for merge readiness. |
 
 ### Review — 2026-08-14
 - **Reviewer**: Agent (fresh-context adversarial subagent, spec file only)
