@@ -180,7 +180,7 @@ Analyzed against the 13 contract surfaces from [`BACKWARD_COMPATIBILITY.md`](../
 |---|---|---|---|
 | 1 | Auto-discovery file conventions | Additive | New `page.tsx` + `page.meta.ts` follow the standard convention. |
 | 2 | Type definitions & interfaces | None | `SidebarCustomizationDraft`, `SidebarRoleTarget`, `AppShellProps` unchanged in their public-facing fields. AppShell internal state is private. |
-| 3 | Function signatures | None | No exported function signatures change. |
+| 3 | Function signatures | Additive + deprecation | The 2026-08-14 fix adds `findSidebarPreference` (returns `SidebarPreferencesSettings \| null`) to `auth/services/sidebarPreferencesService`. `loadSidebarPreference` keeps its exact signature and behaviour as a `@deprecated` bridge until 0.9.0, so no existing caller breaks. |
 | 4 | Import paths | Additive | New `@open-mercato/ui/backend/SidebarCustomizationEditor` export. No existing path moves. |
 | 5 | Event IDs | None | No event changes. |
 | 6 | Widget injection spot IDs | None | All five spots from the restyle PR remain rendered. |
@@ -481,7 +481,7 @@ When picked up, the follow-up will live at `.ai/specs/{date}-ds-sidebar-icon-cus
   Added `TC-AUTH-SIDEBAR-GROUP-001` for real-page coverage of the toggle, its persistence, and the
   resulting sidebar change, since unit tests over the reducer helpers cannot observe any of that.
 
-- **2026-08-07 (fix — role layout wiped for users with no saved layout)** — `loadSidebarPreference`
+- **2026-08-14 (fix — role layout wiped for users with no saved layout)** — `loadSidebarPreference`
   returned `normalizeSidebarSettings(existing?.settingsJson)`, so a user with no
   `UserSidebarPreference` row got a fully-populated *default* settings object rather than `null`.
   `backendChrome` builds the sidebar as a two-layer merge (role preference → `adoptSidebarDefaults`
@@ -490,17 +490,23 @@ When picked up, the follow-up will live at `.ai/specs/{date}-ds-sidebar-icon-cus
   (`next.hidden = hidden`) instead of OR-ing it, and falls back to weight/name ordering when
   `groupOrder` is empty, the empty user pass erased the whole role layer on every render:
   role-level hidden items reappeared and role group ordering was lost for every user who had never
-  personally customised their sidebar. The loader now returns `null` when no row exists (return type
-  widened to `SidebarPreferencesSettings | null`), which makes the existing guard work. `null` now
-  means "no saved preference", distinct from "a preference exists and is empty" — the latter still
-  applies over the role layer. Both call sites were already null-safe: `backendChrome.tsx` guards,
-  and `api/sidebar/preferences/route.ts` reads every field as `settings?.x ?? default`, so the JSON
-  response is unchanged. Users with a saved row see no behavioural change. Covered by
-  `sidebarPreferencesService.load-preference.test.ts` (absent → `null`, present → settings,
-  present-but-empty → non-null empty) and `backendChrome.role-preference.test.ts` (role hide and
-  role group order survive a `null` user preference; a saved-but-empty one still overrides).
+  personally customised their sidebar. Fixed by adding `findSidebarPreference`, which returns `null`
+  when no row exists and makes the existing guard work; `null` means "no saved preference", distinct
+  from "a preference exists and is empty" — the latter still applies over the role layer. Both
+  internal call sites (`backendChrome.tsx`, `api/sidebar/preferences/route.ts`) now use it, and the
+  API JSON response is unchanged because the route already read every field as `settings?.x ??
+  default`. Users with a saved row see no behavioural change. `loadSidebarPreference` is kept
+  verbatim as a `@deprecated` bridge (removal targeted at 0.9.0) so third-party callers written
+  against the old non-nullable contract keep working — see the BC table row 3 and `UPGRADE_NOTES.md`
+  under `0.7.0 → 0.7.1`. Covered by `sidebarPreferencesService.load-preference.test.ts` (absent →
+  `null`, present → settings, present-but-empty → non-null empty, scope preserved, plus two cases
+  pinning the deprecated bridge's non-null default) and `backendChrome.role-preference.test.ts`,
+  which runs the **real** loader and merge against a stubbed `UserSidebarPreference` row so a
+  regression in either fails there (role hide and role group order survive an absent row; a
+  saved-but-empty row still overrides).
   **Known gap, deliberately out of scope:** once a user saves *any* personal preference, role hides
   are wiped again — `applySidebarPreference` overwrites rather than merges, and
   `SidebarCustomizationEditor` seeds its draft solely from the user's own saved `hiddenItems`, never
   from the role-applied `hidden` flags in the base snapshot. Whether role hides are policy
-  (un-overridable) or merely a default is a product decision that needs its own spec entry.
+  (un-overridable) or merely a default is a product decision that needs its own spec entry, tracked
+  as a follow-up issue rather than only in this changelog.

@@ -22,6 +22,21 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.7.0 → 0.7.1 (unreleased)
+
+### `loadSidebarPreference` is deprecated in favour of `findSidebarPreference`
+
+`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` returns a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, which makes "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render.
+
+The fix is a new function rather than a changed return type, so nothing breaks for existing callers:
+
+- **`findSidebarPreference(em, scope)`** — new. Returns `Promise<SidebarPreferencesSettings | null>`, with `null` meaning "no saved preference". Both internal call sites now use it.
+- **`loadSidebarPreference(em, scope)`** — unchanged behaviour and unchanged `Promise<SidebarPreferencesSettings>` return type, now marked `@deprecated`. Slated for removal in **0.9.0**.
+
+**Action for module authors:** migrate to `findSidebarPreference` and handle `null`. The empty settings object the deprecated function returns for an absent row is fabricated, never persisted — code that reads `settings.hiddenItems` straight off it is reading a value no user has chosen, and feeding that result back into `applySidebarPreference` erases any role layer underneath. If you genuinely want the old defaults, `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)` reproduces them exactly. A saved row returns normalized settings from both functions, so a user who has customised their sidebar is unaffected either way.
+
+---
+
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
 ### Standalone apps gain deterministic design-system and i18n checks
@@ -173,14 +188,6 @@ const redis = new Redis(url, { protocol: REDIS_WIRE_PROTOCOL })
 ```
 
 `ParsedRedisConnection` gained an optional `protocol?: RedisProtocolVersion` field — additive, so existing consumers are unaffected.
-
-### `loadSidebarPreference` returns `null` when the user has no saved sidebar layout
-
-`loadSidebarPreference(em, scope)` from `@open-mercato/core/modules/auth/services/sidebarPreferencesService` used to return a normalized *default* settings object (`hiddenItems: []`, `groupOrder: []`, …) for a user with no `UserSidebarPreference` row, making "no saved preference" indistinguishable from "a preference that happens to be empty". Its own callers were written for the former: the backend chrome layers role defaults beneath the user layout and guards the user pass with `userPreference ? … : baseForUser`, an else-branch that could never run. Since applying a preference **overwrites** each item's `hidden` flag rather than OR-ing it, the empty user pass silently erased every role-level hide and the role group order on each render. The return type is now `Promise<SidebarPreferencesSettings | null>`.
-
-**Action for module authors:** if you import this function, handle `null`. The empty settings object it used to return in that case was fabricated, never persisted — code that read `settings.hiddenItems` straight off the result was reading a value no user had chosen. Use `?? normalizeSidebarSettings(null)` if you genuinely want the old defaults, or branch on `null` to skip applying anything. A saved row still returns normalized settings exactly as before, so a user who has customised their sidebar is unaffected.
-
-There is no compatibility bridge for this one: preserving the old return value would preserve the bug.
 
 ### Sales line list endpoints now default to `line_number` order
 

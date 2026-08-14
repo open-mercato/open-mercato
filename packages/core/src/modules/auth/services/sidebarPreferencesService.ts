@@ -37,7 +37,7 @@ export type SidebarGroupLike<T = Record<string, unknown>> = {
   weight?: number
 } & T
 
-export async function loadSidebarPreference(
+export async function findSidebarPreference(
   em: EntityManager,
   scope: SidebarPreferenceScope,
 ): Promise<SidebarPreferencesSettings | null> {
@@ -56,6 +56,21 @@ export async function loadSidebarPreference(
   // because applying empty settings overwrites the role state instead of merging with it.
   if (!existing) return null
   return normalizeSidebarSettings(existing.settingsJson as SidebarPreferencesSettings | null | undefined)
+}
+
+/**
+ * @deprecated Since 0.7.1, slated for removal in 0.9.0. Use `findSidebarPreference` and handle
+ * `null`. This function fabricates a default settings object for a user with no saved row, which
+ * is indistinguishable from a saved-but-empty preference — applying that result erases any role
+ * layer underneath it, because `applySidebarPreference` overwrites `hidden` rather than merging.
+ * Migration: `(await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)`
+ * reproduces this exact return value if you genuinely want the defaults.
+ */
+export async function loadSidebarPreference(
+  em: EntityManager,
+  scope: SidebarPreferenceScope,
+): Promise<SidebarPreferencesSettings> {
+  return (await findSidebarPreference(em, scope)) ?? normalizeSidebarSettings(null)
 }
 
 export async function loadSidebarPreferenceUpdatedAt(

@@ -4,21 +4,29 @@
 // bakes the role-applied state as the new defaults, then the user preference over that.
 // `applySidebarPreference` OVERWRITES `hidden` (`next.hidden = hidden`) instead of OR-ing it, and
 // falls back to weight/name ordering when `groupOrder` is empty — so running the user pass with an
-// empty settings object erases the whole role layer. That is exactly what happened while
-// `loadSidebarPreference` returned normalized defaults instead of `null` for a user with no saved
-// row: the `userPreference ? ... : baseForUser` guard could never take its else-branch.
+// empty settings object erases the whole role layer. That is exactly what happened while the user
+// preference loader returned normalized defaults instead of `null` for a user with no saved row:
+// the `userPreference ? ... : baseForUser` guard could never take its else-branch.
 //
-// These tests keep the REAL `applySidebarPreference` (the merge behaviour is what is under test)
-// and stub only the two loaders.
+// These tests keep the REAL `applySidebarPreference` AND the REAL `findSidebarPreference`, and
+// drive the latter by stubbing the `UserSidebarPreference` row it reads. Stubbing the loader
+// itself would leave the loader untested here, so a regression in either the merge or the
+// absent-row sentinel fails this suite.
 
 const mockLoadFirstRoleSidebarPreference = jest.fn()
-const mockLoadSidebarPreference = jest.fn()
 
 jest.mock('@open-mercato/shared/modules/overrides', () => ({
   getNavGroupOrderOverride: () => null,
 }))
 
-const mockFindOneWithDecryption = jest.fn(async () => null)
+// The only two entities read through this helper on the chrome path are `UserSidebarPreference`
+// (from the real loader) and `Organization` (current-organization lookup), so dispatch on name.
+const userSidebarPreferenceRow: { current: { id: string; settingsJson: unknown } | null } = {
+  current: null,
+}
+const mockFindOneWithDecryption = jest.fn(async (_em: unknown, entity: { name?: string }) =>
+  entity?.name === 'UserSidebarPreference' ? userSidebarPreferenceRow.current : null,
+)
 const mockBuildAdminNav = jest.fn()
 
 const mockEm = {
@@ -77,12 +85,15 @@ jest.mock('@open-mercato/ui/backend/icons/lucideRegistry', () => ({
 jest.mock('../profile-sections', () => ({ profileSections: [], profilePathPrefixes: [] }))
 
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
-  // The merge itself is the subject of these tests — keep the real implementation.
+  // The merge and the user-preference loader are both subjects of these tests — keep the real
+  // implementations and stub only the role loader.
   applySidebarPreference: jest.requireActual(
     '@open-mercato/core/modules/auth/services/sidebarPreferencesService',
   ).applySidebarPreference,
+  findSidebarPreference: jest.requireActual(
+    '@open-mercato/core/modules/auth/services/sidebarPreferencesService',
+  ).findSidebarPreference,
   loadFirstRoleSidebarPreference: (...args: unknown[]) => mockLoadFirstRoleSidebarPreference(...(args as [])),
-  loadSidebarPreference: (...args: unknown[]) => mockLoadSidebarPreference(...(args as [])),
 }))
 
 import { SIDEBAR_PREFERENCES_VERSION } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
@@ -147,7 +158,10 @@ beforeEach(() => {
   mockRbacService.userHasAllFeatures.mockResolvedValue(true)
   mockBuildAdminNav.mockResolvedValue(navEntries())
   mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
-  mockLoadSidebarPreference.mockResolvedValue(null)
+  userSidebarPreferenceRow.current = null
+  mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: { name?: string }) =>
+    entity?.name === 'UserSidebarPreference' ? userSidebarPreferenceRow.current : null,
+  )
 })
 
 describe('backend chrome — role sidebar preference vs. a user with no saved layout', () => {
@@ -156,7 +170,7 @@ describe('backend chrome — role sidebar preference vs. a user with no saved la
       ...emptySettings,
       hiddenItems: [HIDDEN_HREF],
     })
-    mockLoadSidebarPreference.mockResolvedValue(null)
+    userSidebarPreferenceRow.current = null
 
     const payload = await resolvePayload()
 
@@ -170,7 +184,7 @@ describe('backend chrome — role sidebar preference vs. a user with no saved la
       // Reversed against the shipped defaultGroupOrder, which ranks customers ahead of catalog.
       groupOrder: ['catalog.nav.group', 'customers.nav.group'],
     })
-    mockLoadSidebarPreference.mockResolvedValue(null)
+    userSidebarPreferenceRow.current = null
 
     const payload = await resolvePayload()
 
@@ -188,7 +202,9 @@ describe('backend chrome — role sidebar preference vs. a user with no saved la
       ...emptySettings,
       hiddenItems: [HIDDEN_HREF],
     })
-    mockLoadSidebarPreference.mockResolvedValue(emptySettings)
+    // A row that exists but holds no customization — the real loader must return it as
+    // non-null settings, which is what makes the user pass run and override the role layer.
+    userSidebarPreferenceRow.current = { id: 'pref-1', settingsJson: {} }
 
     const payload = await resolvePayload()
 
