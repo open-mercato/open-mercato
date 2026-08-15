@@ -1,4 +1,4 @@
-# SPEC-005: Document Generators
+# Document Generators
 
 ## TLDR
 **Key Points:**
@@ -368,6 +368,25 @@ export class QuotesDocumentService extends BaseDocumentService {
 
 `formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, and `buildDocumentFilename(data, prefix, extension)` remain standalone engine utilities. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
 
+### Persisted History Entity
+
+The only database entity this spec introduces is `GeneratedDocument` (table `document_generators_generated_documents`), written by `GenerationHistoryService` after each successful `/generate` call:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `organization_id` / `tenant_id` | UUID | Always populated from `getAuthFromRequest`; every list query filters by both |
+| `resource_kind` / `resource_id` | string / UUID | Server-derived from the loaded template, never client-supplied |
+| `resource_label` | string, nullable | Falls back to `resource_id` when the service cannot derive a label |
+| `template_id` / `template_label` | string | Identifies which registered template produced the document |
+| `format` | string, default `'pdf'` | Discriminator for future non-PDF formats (`md` today) |
+| `mime_type` | string, default `'application/pdf'` | Paired with `format` |
+| `generated_by` | UUID | `auth.userId` |
+| `generated_at` | timestamp | |
+| `attachment_id` | UUID, nullable | Unpopulated until Phase 7 wires stored-file download |
+
+Full migration and generation-flow detail — including the `down()` rollback and the exact write path — lives in Phase 5 of the Implementation Plan below; this table is the at-a-glance schema reference.
+
 ---
 
 ## API Contracts
@@ -431,6 +450,7 @@ Renders a PDF for preview — **no side effects** (no logging, no events, no per
 - `400` — invalid JSON, missing `template_id` / `data`, or unknown template ID
 - `401` — unauthorized
 - `409` — no active organization
+- `500` — render error (preview runs the same `DocumentRenderer` pipeline as `/generate` and can fail the same way, e.g. a template component throwing on unexpected data)
 
 ---
 
@@ -547,29 +567,56 @@ No changes to existing services or templates required.
 
 ## Risks & Impact Review
 
+Each risk below states severity, the affected area, the mitigation, and what residual risk (if any) remains after that mitigation ships — per this repo's spec checklist.
+
 ### Data Integrity
 
-- **Slow render**: `renderToBuffer` is synchronous and may be slow for large documents. Acceptable for MVP; Phase 8 moves bulk generation to `@open-mercato/queue`, while any future move of single-document rendering requires a separate asynchronous-download UX decision.
+- **Risk:** `renderToBuffer` is synchronous and may be slow for large documents, blocking the request thread.
+- **Severity:** Low (MVP scope — single-document, on-demand generation only).
+- **Affected area:** `PdfRenderingService`, `/generate` and `/preview` request latency.
+- **Mitigation:** Acceptable for MVP given documents are single-record and user-initiated.
+- **Residual risk:** Batch/bulk generation is explicitly out of scope for this spec (see "Out of scope for this spec" in the Implementation Plan) and must resolve this through `@open-mercato/queue` when specced; any future move of single-document rendering off the request thread requires a separate asynchronous-download UX decision.
 
 ### Tenant & Data Isolation
 
-- **Risk exists and is mitigated.** Both built-in document services (`QuotesDocumentService`, `OrdersDocumentService`) query tenant-scoped records: `sales_quotes`, `sales_quote_lines`, `sales_orders`, `CustomerEntity`, `CustomerAddress`. A user with only the document-generators feature could otherwise retrieve source-module data by submitting an arbitrary UUID.
+- **Risk:** A user holding only the document-generators feature could retrieve another module's source-entity data (e.g. an arbitrary quote/order by UUID) if a document service's data-fetch path were not tenant-scoped.
+- **Severity:** High (cross-tenant/cross-organization data exposure).
+- **Affected area:** `TemplateRegistry.load → fetchData` for every registered `DocumentService`, built-in and third-party.
 - **Mitigation:** each template declares its owning-module `requiredFeatures`. The catalogue and filter-options endpoints omit templates the caller cannot access, while `/generate` and `/preview` check those requirements through the scoped RBAC service before `TemplateRegistry.load()` can invoke `fetchData`. Sales order templates require `sales.orders.view`; quote templates require `sales.quotes.view`. The resulting `AuthContext` is also propagated through `templateRegistry.load → fetchData`; each built-in service validates its local input as `{ id: UUID }`, ignores all other client-supplied record fields, and queries by `id`, `tenant_id`, and `organization_id`. Missing scope, insufficient features, invalid input, inaccessible records, and database failures all reject the render pipeline — raw request data is never used as a fallback.
-- **Module-owned `DocumentService` contract:** any module subclassing `BaseDocumentService` from `@open-mercato/shared/modules/document-generators` **must** apply the same tenant scoping in `fetchData`. The `ctx.auth` argument is available for exactly this purpose. Implementations that ignore it are considered a security defect.
+- **Module-owned `DocumentService` contract:** any module subclassing `BaseDocumentService` from `@open-mercato/shared/modules/document-generators` **must** apply the same tenant scoping in `fetchData`, using the `ctx.auth` argument provided for exactly this purpose.
+- **Residual risk:** the contract above is enforced by code review convention only, not by a compiler or test. A third-party `DocumentService` that forgets to filter by `tenant_id`/`organization_id` in `fetchData` would compile, register, and render successfully while leaking cross-tenant data — the framework cannot currently detect this at registration time. **Mitigation required before this is considered closed:** Phase 2 (`BaseDocumentService`) must ship a shared contract test — e.g. `packages/shared/src/modules/document-generators/__tests__/tenant-scoping-contract.test.ts` — that every built-in `DocumentService.fetchData` implementation is required to pass (asserting the resolved query includes both `tenant_id` and `organization_id` predicates from `ctx.auth`), plus an `AGENTS.md` rule pointing third-party service authors at that test as the pattern to replicate. This closes the same class of gap the existing `document-generators-decoupling.test.ts` closes for module coupling, but for tenant isolation instead.
+
+### Sensitive Data & Retention
+
+- **Risk:** generated documents and their history rows carry customer PII (name, email, address) and commercial amounts. Phase 7 additionally persists the rendered bytes themselves as `Attachment` records, extending the PII's lifetime and surface indefinitely.
+- **Severity:** Medium (no schema/API leak identified, but no lifecycle story exists either).
+- **Affected area:** `GeneratedDocument` history rows (Phase 5) and stored `Attachment` bytes (Phase 7).
+- **Mitigation:** none yet — not addressed by Phases 1–7 as currently planned.
+- **Residual risk:** if the owning customer record is deleted or a GDPR erasure request is processed, this spec does not currently define whether/how `GeneratedDocument` history rows and Phase 7 attachments are purged or anonymized, nor any retention window. **Before Phase 7 ships**, add an explicit retention/erasure policy here (e.g. cascade-delete `GeneratedDocument`/`Attachment` rows referencing an erased customer, or document why leaving a historical financial record intact post-erasure is acceptable) — this is a data-protection gap, not a nice-to-have.
 
 ### Font Loading
 
-- Built-in templates use React-PDF's standard Helvetica family, so they do not depend on filesystem paths, generated files, runtime registration, or bundled font assets.
+- **Risk:** custom font dependencies (filesystem paths, registration, bundled assets) could break server rendering in a new environment.
+- **Severity:** Low.
+- **Affected area:** PDF template rendering.
+- **Mitigation:** Built-in templates use React-PDF's standard Helvetica family, so they do not depend on filesystem paths, generated files, runtime registration, or bundled font assets.
+- **Residual risk:** none for built-in templates. External templates that register their own fonts take on this risk themselves and are responsible for their own licensing/asset management.
 
 ### Operational
 
-- `@react-pdf/renderer` adds weight to the server bundle. Template entries keep sources lazy through `entry.load()`.
+- **Risk:** server bundle weight growth from `@react-pdf/renderer`.
+- **Severity:** Low.
+- **Affected area:** server build size.
+- **Mitigation:** Template entries keep sources lazy through `entry.load()`.
+- **Residual risk:** none identified.
 
 ### Browser Content Security Policy
 
-- PDF preview bytes come only from the authenticated same-origin preview API and are exposed to the iframe through a local Blob URL.
-- `frame-src blob:` remains in the app-wide CSP because `TemplatesList` is a public extension component that external modules may render on any backend route. Limiting the directive to the two built-in sales detail routes would silently break supported custom injection spots.
-- The create-app template must retain the same directive and rationale as `apps/mercato/next.config.ts`.
+- **Risk:** a global `frame-src blob:` CSP directive is broader than the two built-in sales detail routes strictly need.
+- **Severity:** Low.
+- **Affected area:** app-wide CSP (`apps/mercato/next.config.ts` and the create-app template).
+- **Mitigation:** PDF preview bytes come only from the authenticated same-origin preview API and are exposed to the iframe through a local Blob URL; `frame-src blob:` stays global because `TemplatesList` is a public extension component that external modules may render on any backend route, and scoping the directive to the two built-in routes would silently break supported custom injection spots.
+- **Residual risk:** any other page rendering an attacker-controlled Blob URL under `frame-src blob:` would also be permitted by this directive; acceptable because the directive doesn't grant network fetch capability and blob content still requires same-origin authenticated retrieval to populate.
 
 ---
 
@@ -763,17 +810,21 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 - Every successful production render attempts to write a `GeneratedDocument` using template-derived resource identity (see Phase 5). The same auth scope used there must match the attachment scope so history and file stay consistent.
 - This extends the render-path mitigation described in **Tenant & Data Isolation** above: the same `auth`-derived scope now covers data fetch → render → stored file → download.
 
-### Phase 8 — Email & Sharing (Planned)
-
-1. Send PDF directly to a recipient email from the widget — attach generated PDF or include storage URL
-2. Shareable link — time-limited public URL for previewing a document without login
-3. Bulk generation — generate PDFs for multiple records in a single action via queue worker
-
-### Phase 9 — Advanced Templates (Planned)
+### Phase 8 — Advanced Templates (Planned)
 
 1. Template versioning — record which template version was used at generation time; archived versions remain renderable
 2. Draft watermark — render a "DRAFT" overlay when the source resource is not in a final status
-3. Auto-generation trigger — emit `document_generators.document.generated` event on resource status change (e.g. quote accepted)
+
+### Out of scope for this spec
+
+The following were previously drafted as Phase 8/9 items in this document. Each is an independently shippable capability, not an incremental extension of the render-registry-history mechanism this spec covers, and each carries its own design surface (a notification/SMTP integration, a public unauthenticated access model, a queue-worker batch contract, an event-subscriber contract) that deserves its own spec, review, and phasing rather than a sub-bullet here:
+
+- **Email delivery** — send a generated document directly to a recipient email from the widget.
+- **Shareable public link** — a time-limited, unauthenticated URL for previewing a document. This is architecturally the opposite of the "resource identity is always server-derived, access always authenticated and scoped" posture established in Phases 5–7 and needs its own threat model, not a bullet point.
+- **Bulk generation** — generate documents for multiple records in one action via `@open-mercato/queue`.
+- **Auto-generation trigger** — emit `document_generators.document.generated` and generate a document automatically on a domain event (e.g. quote accepted). This is event-subscriber automation, unrelated to template versioning or watermarking.
+
+Each of the above should be written up as its own `{date}-{title}.md` spec under `.ai/specs/` when work on it starts, referencing this spec for the registry/rendering/history contracts it builds on.
 
 ---
 
@@ -845,8 +896,7 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | Rendering service refactor | Done | 2026-08-12 | Shared source and format values are extensible strings; registry prepares format-neutral input; concrete source/input types are colocated with their rendering services; `DocumentRenderer` dispatches through a renderer map |
 | Phase 6 — Source-scoped History in Detail Widgets | Not Started | — | Planned; reuses the Phase 5 endpoint and entity without schema changes |
 | Phase 7 — Attachment Storage | Not Started | — | Planned |
-| Phase 8 — Email & Sharing | Not Started | — | Planned |
-| Phase 9 — Advanced Templates | Not Started | — | Planned |
+| Phase 8 — Advanced Templates | Not Started | — | Planned; template versioning + draft watermark only — email/sharing/bulk-generation/auto-trigger moved to "Out of scope for this spec" for their own future specs |
 
 ---
 
@@ -887,3 +937,4 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | 2026-08-13 | Codex | Simplified the unreleased template registry to a single `register`/flat-list contract, added atomic duplicate-ID rejection, updated generated bootstrap registration, API/UI consumers, integration coverage, docs, and removed the now-unused internal/external section translations. |
 | 2026-08-13 | Codex | Made `filename` a required template-level handler and removed the service-level fallback, keeping filename, format, and loader ownership together for PDF, Markdown, and future formats. Updated Sales registrations, shared contracts/tests, examples, and docs. |
 | 2026-08-13 | Codex | Added the stable `modules/document_generators/utils` barrel and package export. Utilities are consumed from the directory contract rather than implementation filenames, allowing internal file renames without cross-module import migrations or deprecation bridges. |
+| 2026-08-15 | Claude | Applied `om-spec-writing` architectural review findings: dropped the legacy `SPEC-005` title prefix; split the former Phase 8 (Email & Sharing) and the Phase 9 auto-generation-trigger item out into an explicit "Out of scope for this spec" list — each is an independently shippable capability that needs its own spec, not a sub-bullet here — renumbering the remaining template-versioning/draft-watermark work to Phase 8; added a `500` render-error case to `POST /preview`'s error contract to match `/generate`, since both share the same `DocumentRenderer` pipeline; restructured `Risks & Impact Review` so every risk states severity, affected area, mitigation, and residual risk; added a required follow-up mitigation for the tenant-scoping contract — a shared `fetchData` contract test, not just documented convention — as the residual risk on cross-tenant data isolation; added a new "Sensitive Data & Retention" risk entry flagging the missing GDPR erasure/retention story for `GeneratedDocument` history rows and Phase 7 attachments; and added a "Persisted History Entity" table under Data Contracts as a single at-a-glance schema reference. |
