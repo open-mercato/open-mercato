@@ -28,6 +28,11 @@ describe('messages send-email worker handler', () => {
     senderUserId: 'sender-1',
     subject: 'Subject',
     body: 'Body',
+    sendViaEmail: true,
+    isDraft: false,
+    status: 'sent',
+    deletedAt: null,
+    externalEmail: 'external@example.com',
   }
 
   beforeEach(() => {
@@ -99,6 +104,30 @@ describe('messages send-email worker handler', () => {
 
     expect(sendMessageEmailToRecipientMock).not.toHaveBeenCalled()
     expect(sendMessageEmailToExternalMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['delivery intent is disabled', { sendViaEmail: false }],
+    ['message is a draft', { isDraft: true, status: 'draft' }],
+    ['message is deleted', { deletedAt: new Date() }],
+  ])('skips delivery when %s', async (_label, override) => {
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Message) return { ...baseMessage, ...override }
+      return null
+    })
+    const { ctx } = createWorkerContext()
+
+    await handle({
+      payload: {
+        type: 'recipient',
+        messageId: 'message-1',
+        recipientUserId: 'recipient-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+    } as never, ctx as never)
+
+    expect(sendMessageEmailToRecipientMock).not.toHaveBeenCalled()
   })
 
   it('sends recipient email when claim succeeds and recipient email exists', async () => {
@@ -173,6 +202,29 @@ describe('messages send-email worker handler', () => {
     expect(emFork.nativeUpdate).toHaveBeenCalledTimes(2)
   })
 
+  it('releases claim when recipient lookup fails after claiming delivery', async () => {
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown, where: { id?: string }) => {
+      if (entity === Message) return baseMessage
+      if (entity === User && where.id === 'recipient-1') throw new Error('database unavailable')
+      return null
+    })
+
+    const { emFork, ctx } = createWorkerContext({ nativeUpdateResults: [1, 1] })
+
+    await handle({
+      payload: {
+        type: 'recipient',
+        messageId: 'message-1',
+        recipientUserId: 'recipient-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+    } as never, ctx as never)
+
+    expect(sendMessageEmailToRecipientMock).not.toHaveBeenCalled()
+    expect(emFork.nativeUpdate).toHaveBeenCalledTimes(2)
+  })
+
   it('sends external email when external claim succeeds', async () => {
     const { ctx } = createWorkerContext({ nativeUpdateResults: [1] })
 
@@ -191,6 +243,23 @@ describe('messages send-email worker handler', () => {
 
     expect(sendMessageEmailToExternalMock).toHaveBeenCalledTimes(1)
     expect(sendMessageEmailToRecipientMock).not.toHaveBeenCalled()
+  })
+
+  it('skips an external job whose target no longer matches the persisted message', async () => {
+    const { emFork, ctx } = createWorkerContext({ nativeUpdateResults: [1] })
+
+    await handle({
+      payload: {
+        type: 'external',
+        messageId: 'message-1',
+        email: 'attacker@example.com',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+    } as never, ctx as never)
+
+    expect(emFork.nativeUpdate).not.toHaveBeenCalled()
+    expect(sendMessageEmailToExternalMock).not.toHaveBeenCalled()
   })
 
   it('skips external delivery when claim cannot be obtained', async () => {

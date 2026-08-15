@@ -56,6 +56,10 @@ describe('messages command registration', () => {
         'messages.messages.delete_for_actor',
       ],
     },
+    {
+      path: '../record-existing',
+      expected: ['messages.messages.record_existing'],
+    },
   ]
 
   beforeEach(() => {

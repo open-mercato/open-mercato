@@ -1,6 +1,12 @@
 /** @jest-environment node */
 
-import { resolveMessageSenderUserId } from '../messagesIntegration'
+const getRecipientUserIdsForFeatureMock = jest.fn(async () => ['admin-1'])
+
+jest.mock('@open-mercato/core/modules/notifications/lib/notificationRecipients', () => ({
+  getRecipientUserIdsForFeature: (...args: unknown[]) => getRecipientUserIdsForFeatureMock(...args),
+}))
+
+import { createMessageRecordForEmail, resolveMessageSenderUserId } from '../messagesIntegration'
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -76,5 +82,57 @@ describe('resolveMessageSenderUserId', () => {
 
     expect((em as any)._db.selectFrom).toHaveBeenCalledWith('users')
     expect((em as any)._db._chain.where).toHaveBeenCalledWith('email', '=', 'jane@example.com')
+  })
+})
+
+describe('createMessageRecordForEmail', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    getRecipientUserIdsForFeatureMock.mockResolvedValue(['admin-1'])
+  })
+
+  it('records inbound email without using the authored compose command or delivery fields', async () => {
+    const em = createMockEm({ id: 'forwarding-user' })
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'message-1' } })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        throw new Error(`Unknown dependency: ${name}`)
+      },
+    }
+
+    const result = await createMessageRecordForEmail({
+      id: '11111111-1111-4111-8111-111111111111',
+      subject: 'Inbound proposal',
+      rawText: 'Full inbound body',
+      forwardedByAddress: 'sender@example.com',
+      forwardedByName: 'Sender',
+      status: 'received',
+    }, {
+      container,
+      scope: {
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        organizationId: '33333333-3333-4333-8333-333333333333',
+        userId: '44444444-4444-4444-8444-444444444444',
+      },
+    })
+
+    expect(result).toBe('message-1')
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.record_existing',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          idempotencyKey: 'inbox_ops:11111111-1111-4111-8111-111111111111',
+          recordedByUserId: 'forwarding-user',
+        }),
+      }),
+    )
+    const commandInput = commandBus.execute.mock.calls[0][1].input
+    expect(commandInput).not.toHaveProperty('sendViaEmail')
+    expect(commandInput).not.toHaveProperty('isDraft')
+    expect(commandInput).not.toHaveProperty('userId')
   })
 })

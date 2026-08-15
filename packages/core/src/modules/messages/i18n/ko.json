@@ -218,7 +218,6 @@
   "messages.searchPlaceholder": "메시지 검색",
   "messages.send": "보내기",
   "messages.sendViaEmail": "이메일로도 전송",
-  "messages.sendViaEmailForcedPublic": "공개 표시를 위해 이메일 전달이 항상 활성화되어 있습니다.",
   "messages.sendViaEmailHint": "수신자는 보안 링크가 포함된 이메일 사본을 받게 됩니다.",
   "messages.sending": "전송 중...",
   "messages.sourceEntityId": "소스 엔터티 ID",

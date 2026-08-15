@@ -152,6 +152,98 @@ describe('ingestInboundMessageCommand input schema', () => {
   })
 })
 
+describe('ingestInboundMessageCommand message materialization', () => {
+  it('uses record_existing without authored delivery controls', async () => {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: '550e8400-e29b-41d4-a716-446655440040',
+        providerKey: 'gmail',
+        isActive: true,
+      } as never)
+      .mockResolvedValueOnce({
+        id: '550e8400-e29b-41d4-a716-446655440050',
+        contactPersonId: null,
+        lastMessageAt: new Date('2026-08-15T12:00:00.000Z'),
+      } as never)
+      .mockResolvedValueOnce({
+        id: '550e8400-e29b-41d4-a716-446655440060',
+        messageThreadId: '550e8400-e29b-41d4-a716-446655440070',
+        assignedUserId: null,
+      } as never)
+
+    const commandBus = {
+      execute: jest.fn(async () => ({
+        result: {
+          id: '550e8400-e29b-41d4-a716-446655440080',
+          threadId: '550e8400-e29b-41d4-a716-446655440070',
+        },
+      })),
+    }
+    const em: any = {
+      fork: jest.fn(),
+      getConnection: () => ({ execute: jest.fn(async () => []) }),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => {}),
+    }
+    em.fork.mockReturnValue(em)
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'gmail' }) }
+          if (name === 'commandBus') return commandBus
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      },
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    } as any
+
+    const result = await ingestInboundMessageCommand.execute({
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'gmail',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'sender@example.com',
+        senderDisplayName: 'Sender',
+        subject: 'Inbound subject',
+        body: 'Inbound body',
+        bodyFormat: 'text',
+        timestamp: new Date('2026-08-15T11:00:00.000Z'),
+        channelPayload: {},
+        channelContentType: 'message/rfc822',
+        channelMetadata: {},
+      },
+    }, ctx)
+
+    expect(result.status).toBe('created')
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.record_existing',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          idempotencyKey: 'cc:550e8400-e29b-41d4-a716-446655440040:ext-1',
+          recordedByUserId: '00000000-0000-0000-0000-000000000000',
+        }),
+      }),
+    )
+    const commandInput = commandBus.execute.mock.calls[0][1].input
+    expect(commandInput).not.toHaveProperty('sendViaEmail')
+    expect(commandInput).not.toHaveProperty('isDraft')
+    expect(commandInput).not.toHaveProperty('userId')
+  })
+})
+
 // ── Spec B § Phase B3 — sent-folder dedup contract ──────────────────
 //
 // `ingest-inbound-message.ts` short-circuits when the inbound message's

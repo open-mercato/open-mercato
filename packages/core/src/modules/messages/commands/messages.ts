@@ -302,8 +302,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )?.threadId ?? input.parentMessageId
         : undefined
 
-      const isPublicVisibility = input.visibility === 'public'
-      const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
+      const sendViaEmail = input.sendViaEmail ?? false
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -407,7 +406,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail: input.visibility === 'public' ? true : input.sendViaEmail,
+        sendViaEmail: input.sendViaEmail ?? false,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
@@ -637,13 +636,12 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       const recipientUserIds = input.recipients
         ? input.recipients.map((r) => r.userId)
         : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
-      const resolvedVisibility = input.visibility ?? message.visibility
       const resolvedSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
       await emitMessageSentEvent(ctx.container, {
         messageId: message.id,
         senderUserId: input.userId,
         recipientUserIds,
-        sendViaEmail: resolvedVisibility === 'public' ? true : resolvedSendViaEmail,
+        sendViaEmail: resolvedSendViaEmail,
         externalEmail: message.externalEmail ?? null,
         tenantId: input.tenantId,
         organizationId: input.organizationId,

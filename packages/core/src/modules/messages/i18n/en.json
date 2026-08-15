@@ -218,7 +218,6 @@
   "messages.searchPlaceholder": "Search messages",
   "messages.send": "Send",
   "messages.sendViaEmail": "Also send via email",
-  "messages.sendViaEmailForcedPublic": "For public visibility, email delivery is always enabled.",
   "messages.sendViaEmailHint": "Recipients will receive an email copy with a secure link.",
   "messages.sending": "Sending...",
   "messages.sourceEntityId": "Source entity ID",

@@ -24,6 +24,25 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### Message visibility no longer overrides explicit email-delivery intent (#5137)
+
+`messages.messages.compose`, draft sending, replies, and forwards now preserve an explicit
+`sendViaEmail: false` even when the message visibility is `public`. `POST /api/messages`
+keeps the previous public-message default only when `sendViaEmail` is omitted. Module code
+that wants email delivery must therefore pass `sendViaEmail: true` explicitly when calling a
+message command directly.
+
+Code that records a message which already exists in an external channel must use the new
+strict `messages.messages.record_existing` command instead of
+`messages.messages.compose`. The record command requires source identity, an idempotency
+key, scope, and a technical `recordedByUserId`; it rejects draft and delivery controls and
+does not emit `messages.message.sent`. The existing sent event ID remains unchanged for
+authored sends.
+
+Email queue workers now re-read persisted message state and fail closed unless the message
+is sent, non-draft, undeleted, and still has `sendViaEmail === true`; external targets must
+also match the persisted normalized address.
+
 ### Standalone apps gain deterministic design-system and i18n checks
 
 New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and

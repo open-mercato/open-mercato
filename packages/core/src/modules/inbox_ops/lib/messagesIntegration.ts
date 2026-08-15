@@ -121,7 +121,7 @@ export async function createMessageRecordForEmail(
       em, email.forwardedByAddress, recipientUserIds, ctx.scope,
     )
 
-    const { result } = await commandBus.execute('messages.messages.compose', {
+    const { result } = await commandBus.execute('messages.messages.record_existing', {
       input: {
         type: 'inbox_ops.email',
         visibility: recipients.length > 0 ? 'internal' as const : 'public' as const,
@@ -134,8 +134,7 @@ export async function createMessageRecordForEmail(
         body: bodyText.slice(0, 50000),
         bodyFormat: 'text' as const,
         priority: 'normal' as const,
-        isDraft: false,
-        sendViaEmail: false,
+        idempotencyKey: `inbox_ops:${email.id}`,
         objects: [
           {
             entityModule: 'inbox_ops',
@@ -146,7 +145,7 @@ export async function createMessageRecordForEmail(
         ],
         tenantId: ctx.scope.tenantId,
         organizationId: ctx.scope.organizationId,
-        userId: senderUserId,
+        recordedByUserId: senderUserId,
       },
       ctx: {
         container: asContainer(ctx.container),

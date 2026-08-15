@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { useMessageCompose } from '../useMessageCompose'
@@ -56,5 +56,19 @@ describe('useMessageCompose recipient suggestions', () => {
 
     const requestedUrl = new URL(`http://localhost${authUsersCall[0]}`)
     expect(requestedUrl.searchParams.get('scopeToActiveOrganization')).toBe('1')
+  })
+
+  it('does not force email delivery when compose visibility becomes public', async () => {
+    const { result } = renderHook(() => useMessageCompose({ variant: 'compose' }), {
+      wrapper: createWrapper(),
+    })
+
+    act(() => result.current.setVisibility('public'))
+
+    await waitFor(() => expect(result.current.visibility).toBe('public'))
+    expect(result.current.sendViaEmail).toBe(false)
+
+    act(() => result.current.setSendViaEmail(true))
+    expect(result.current.sendViaEmail).toBe(true)
   })
 })

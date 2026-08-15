@@ -218,7 +218,6 @@
   "messages.searchPlaceholder": "Nachrichten suchen",
   "messages.send": "Senden",
   "messages.sendViaEmail": "Auch per E-Mail senden",
-  "messages.sendViaEmailForcedPublic": "Bei öffentlicher Sichtbarkeit ist E-Mail-Versand immer aktiviert.",
   "messages.sendViaEmailHint": "Empfänger erhalten eine E-Mail-Kopie mit sicherem Link.",
   "messages.sending": "Wird gesendet...",
   "messages.sourceEntityId": "Quell-Entitäts-ID",

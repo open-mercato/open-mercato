@@ -218,7 +218,6 @@
   "messages.searchPlaceholder": "Buscar mensajes",
   "messages.send": "Enviar",
   "messages.sendViaEmail": "Enviar también por correo",
-  "messages.sendViaEmailForcedPublic": "Con visibilidad pública, el envío por correo siempre está habilitado.",
   "messages.sendViaEmailHint": "Los destinatarios recibirán una copia por correo con un enlace seguro.",
   "messages.sending": "Enviando...",
   "messages.sourceEntityId": "ID de entidad origen",

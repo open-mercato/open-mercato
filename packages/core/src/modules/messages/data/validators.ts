@@ -115,7 +115,7 @@ export const composeMessageSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).optional(),
   attachmentRecordId: z.string().min(1).max(255).optional(),
   actionData: messageActionDataSchema.optional(),
-  sendViaEmail: z.boolean().optional().default(false),
+  sendViaEmail: z.boolean().optional(),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
 }).superRefine((value, ctx) => {
