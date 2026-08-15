@@ -539,6 +539,13 @@ Two constraints worth recording for whoever writes the next test:
 - Integration runs enable the CRUD list cache, and an INSERT does not invalidate it the way the ingest command
   does. Seeded rows must be read back through a run-unique query, or a repeating query key is served an earlier
   run's payload.
+- **The cache invalidation that ingest performs is covered at the command seam, not end to end.** Proving it
+  over HTTP needs a real ingest between two identical list requests, and the hub has no route that ingests:
+  the only writer is the command, driven by a Tillio pull. Pointing the provider at a local stub does not work
+  either, because outbound requests go through `safeOutboundFetch`, which refuses loopback and private targets
+  by design. The unit test therefore pins the invariant the route and the bus have to agree on - the alias the
+  command emits canonicalizes to the tag the list route derives from the entity class name - and an end-to-end
+  assertion waits for a provider sandbox that is reachable from CI.
 
 ---
 
