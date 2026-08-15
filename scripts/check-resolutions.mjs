@@ -54,6 +54,10 @@ const LOCKFILE = 'yarn.lock'
 // defensively so a future lockfile format cannot turn a live key into a false failure.
 const REQUEST_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
+// Descriptors and ranges are canonical keys, not display strings, so they sort by code
+// unit rather than locale — the output must be reproducible across machines (#3620).
+const byCanonicalOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+
 const USAGE = `Usage: node scripts/check-resolutions.mjs [--root <dir>] [--json]
 
 Fails when a range-carrying "resolutions" key in the root package.json matches no
@@ -147,14 +151,14 @@ function inspectResolutions(root) {
     }
     const matched = descriptorSpellings(identifier, range).find((spelling) => requesters.has(spelling))
     if (matched) {
-      live.push({ key, target, identifier, requestedBy: [...requesters.get(matched)].sort() })
+      live.push({ key, target, identifier, requestedBy: [...requesters.get(matched)].sort(byCanonicalOrder) })
       continue
     }
     dead.push({
       key,
       target,
       identifier,
-      requestedRanges: [...(rangesByIdentifier.get(identifier) ?? [])].sort(),
+      requestedRanges: [...(rangesByIdentifier.get(identifier) ?? [])].sort(byCanonicalOrder),
     })
   }
   return { live, wildcard, dead }
