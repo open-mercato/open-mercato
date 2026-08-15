@@ -59,7 +59,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
    - `POST /api/document-generators/generate` — accepts `{ template_id, data }`, renders the selected format and persists generation history from server-derived resource identity on a best-effort basis
    - `GET /api/document-generators/documents` — returns paginated, scoped generation history
 4. **Live preview** — `PreviewPanel` renders PDF blob URLs in the native browser PDF viewer with an open-in-new-tab fallback; Markdown renders as source text. Native Chromium PDF rendering is incompatible with a sandboxed Blob iframe, so the preview boundary is instead restricted to a Blob created from the authenticated `application/pdf` response protected by `nosniff` and `no-store`. Download calls `POST /generate` separately through `useGuardedMutation` and supports `Cmd/Ctrl+Enter`.
-5. **Generator plugin** (`generators.ts`) — `document-generators.templates` plugin enables modules to register templates via `mercato generate registry`.
+5. **Generator plugin** (`generators.ts`) — `document_generators.templates` plugin enables modules to register templates via `mercato generate registry`.
 
 ### Design Decisions
 
@@ -185,7 +185,7 @@ packages/document-generators/
     ├── utils/
     │   ├── downloadBlob.ts
     │   └── formatDate.ts
-    ├── generators.ts                # GeneratorPlugin for document-generators.templates (code-gen)
+    ├── generators.ts                # GeneratorPlugin for document_generators.templates (code-gen)
     ├── api/
     │   └── document-generators/
     │       ├── documents/route.ts   # GET scoped generation history
@@ -197,7 +197,8 @@ packages/document-generators/
     │   ├── overview/page.tsx        # module overview with navigation cards
     │   ├── templates/page.tsx       # template overview
     │   └── history/page.tsx         # paginated generation history
-    └── acl.ts
+    ├── acl.ts
+    └── encryption.ts                # defaultEncryptionMaps for GeneratedDocument.resource_label
 ```
 
 ---
@@ -219,6 +220,8 @@ interface TemplateRegistry {
 
 > Sales is registered through `packages/core/src/modules/sales/document-generators.ts`. Generated bootstrap code calls `register(...)`; route files do not import a domain registry for side effects.
 > Template IDs use the global `<module>.<template>` namespace. Duplicate registration is intentionally never idempotent: a second registration of the same ID, including the same entry, is treated as an invalid bootstrap graph and fails before the copied registry state is committed.
+
+> **`globalThis` persistence (required):** `templateRegistry`'s backing state MUST be stored under a stable `globalThis` key (module-local variable as fallback only), not solely in module-local state — the same pattern already used for the ORM entity registry and the shared event bus in this repo (`packages/shared/src/modules/events/factory.ts`). Without this, bootstrap registration and a request/route resolving through a different module instance (dev HMR/Turbopack duplication, or a standalone `create-mercato-app` deployment with multiple server chunks) can see an empty registry with no error — templates silently vanish from `GET /api/document-generators/templates`. This is not a hypothetical: it is the exact failure mode two separate incidents in this codebase already hit for other publishable-package singletons.
 ```ts
 // Neutral declaration contract: @open-mercato/shared/modules/document-generators
 interface TemplateMeta {
@@ -387,6 +390,24 @@ The only database entity this spec introduces is `GeneratedDocument` (table `doc
 
 Full migration and generation-flow detail — including the `down()` rollback and the exact write path — lives in Phase 5 of the Implementation Plan below; this table is the at-a-glance schema reference.
 
+### Encryption
+
+`resource_label` is a cached, GDPR-relevant display label derived from source-entity PII (a customer/company/order name) — the same class of field `customers/encryption.ts` already encrypts for `customer_entity.display_name`. Per this repo's encryption convention, `document_generators` MUST declare a module-level `encryption.ts`:
+
+```ts
+// packages/document-generators/src/modules/document_generators/encryption.ts
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: 'document_generators:generated_document',
+    fields: [{ field: 'resource_label' }], // no hashField — resource_label is not used for exact-match lookups
+  },
+]
+```
+
+No other `GeneratedDocument` field carries source-entity PII: `resource_kind`/`resource_id`/`template_id`/`template_label` are stable identifiers, not free text about a person or organization.
+
 ---
 
 ## API Contracts
@@ -468,6 +489,8 @@ Generates a PDF and records generation history on a best-effort basis. Used by t
 
 The loaded template must derive `resourceKind`, canonical `resourceId`, and an optional `resourceLabel` from normalized server-side data. The route always attempts to persist history after a successful render and never accepts resource identity from the client.
 
+**Mutation guards:** although shaped like a render endpoint, `/generate` has a real write side effect (the `GeneratedDocument` history row) and MUST go through this repo's mutation-guard-registry pattern for non-CRUD writes, classified as a `create` action — collect registered guards plus `bridgeLegacyGuard(container)`, call `runMutationGuards([...guards], input, { userFeatures })` before persisting, merge any `modifiedPayload`, and run the returned `afterSuccessCallbacks` after the history row commits. Follow `packages/core/src/modules/sales/api/quotes/send/route.ts` as the concrete reference implementation. `/preview` has no persisted side effect and does not need this.
+
 **Response:** `Content-Type: application/pdf` — binary PDF stream with `Content-Disposition: attachment; filename="<derived>"`, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`.
 
 **Errors:**
@@ -521,7 +544,7 @@ External templates may register their own fonts within the owning module when th
 
 ### Widget pattern (any module)
 
-A document tab (retaining its existing frozen PDF-oriented injection ID) is injected into detail views via `injection-table.ts`. The tab renders a resource-scoped document panel:
+A document tab is injected into detail views via `injection-table.ts` as an **additive entry on Sales' existing, generic `:tabs` spots** — `sales.document.detail.order:tabs` and `sales.document.detail.quote:tabs` (`packages/core/src/modules/sales/widgets/injection-table.ts`). These spots already hold one `kind: 'tab'` entry each for `sales.injection.document-history` (an unrelated change-history timeline); both spots accept multiple array entries that each render as their own tab, so the new document-generation widget is a second, independent entry on the same spot, not a replacement or a new dedicated spot. The tab renders a resource-scoped document panel:
 
 1. **Template list** — card grid fetched from `GET /api/document-generators/templates`, filtered by `TemplateFilter` (`resourceKind`, `documentType`, `format`, `tags`).
 2. **Preview dialog** (`PreviewPanel`) — calls `POST /api/document-generators/preview`; PDF uses the native browser viewer with an open-in-new-tab fallback and Markdown is displayed as source text. Chromium cannot render the Blob PDF viewer in a sandboxed iframe, so the Blob is constrained by authenticated access, PDF MIME, `nosniff`, and `no-store`. The format-aware download button and `Cmd/Ctrl+Enter` call `POST /api/document-generators/generate` through `useGuardedMutation`; download Blob URLs are revoked on the next task so browsers can consume the click first.
@@ -620,6 +643,33 @@ Each risk below states severity, the affected area, the mitigation, and what res
 
 ---
 
+## Integration Test Coverage
+
+Every API path and the one RBAC-relevant UI path (backend navigation) has integration coverage under `packages/core/src/modules/sales/__integration__/document-generators/` (Sales-owned templates/history) and `packages/document-generators/src/modules/document_generators/__integration__/` (engine-owned auth/navigation):
+
+| Test | Covers |
+|---|---|
+| `TC-DOCUMENT-001-sales-templates-listed.spec.ts` | `GET /api/document-generators/templates` returns the registered Sales templates |
+| `TC-DOCUMENT-002-sales-template-filter-options.spec.ts` | `GET /api/document-generators/templates/options` returns the filter option lists |
+| `TC-DOCUMENT-003-preview-order-invoice.spec.ts` | `POST /api/document-generators/preview` — happy path, order invoice template |
+| `TC-DOCUMENT-004-preview-missing-order.spec.ts` | `POST /api/document-generators/preview` — `400`/render failure when the source order doesn't exist |
+| `TC-DOCUMENT-005-backend-navigation.spec.ts` | `/backend/document-generators` hidden-redirect → Overview → Templates/History navigation cards |
+| `TC-DOCUMENT-006-generate-order-invoice.spec.ts` | `POST /api/document-generators/generate` — happy path, order invoice, response headers + history persistence |
+| `TC-DOCUMENT-007-generate-sales-offer.spec.ts` | `POST /api/document-generators/generate` — happy path, quote sales-offer template |
+| `TC-DOCUMENT-008-generate-missing-order.spec.ts` | `POST /api/document-generators/generate` — failure path when the source order doesn't exist |
+| `TC-DOCUMENT-009-generation-history-records-order.spec.ts` | `GET /api/document-generators/documents` — a successful generate call produces a scoped, visible history row |
+| `TC-DOCUMENT-010-template-access-hides-unauthorized.spec.ts` | `GET /api/document-generators/templates` — templates the caller lacks `requiredFeatures` for are omitted from the catalogue |
+| `TC-DOCUMENT-011-template-access-forbids-preview.spec.ts` | `POST /api/document-generators/preview` — rejected when the caller lacks the owning module's required feature |
+| `TC-DOCUMENT-012-template-access-forbids-generate.spec.ts` | `POST /api/document-generators/generate` — same RBAC enforcement on the production route |
+| `TC-DOCUMENT-013-catalogue-requires-auth.spec.ts` | `GET /api/document-generators/templates` — `401` unauthenticated |
+| `TC-DOCUMENT-014-preview-requires-auth.spec.ts` | `POST /api/document-generators/preview` — `401` unauthenticated |
+| `TC-DOCUMENT-015-generate-requires-auth.spec.ts` | `POST /api/document-generators/generate` — `401` unauthenticated |
+| `TC-DOCUMENT-016-history-requires-auth.spec.ts` | `GET /api/document-generators/documents` — `401` unauthenticated |
+
+Not yet covered by a dedicated test (tracked against the corresponding Implementation Plan phase, not a gap in Phases 1–5): Markdown-format preview/generate/download (Phase 4.7 shares the order-invoice fixture path but has no `TC-DOCUMENT-*` of its own yet), Phase 6's resource-scoped history panel (its own verification evidence is specified inline under Phase 6 below), and Phase 7/8 have no tests because they are not started.
+
+---
+
 ## Implementation Plan
 
 ### Phase 1 — Foundation ✅
@@ -658,7 +708,7 @@ Each risk below states severity, the affected area, the mitigation, and what res
 
 ### Phase 4.5 — External Template Code-Gen ✅
 
-1. `generators.ts` — `document-generators.templates` GeneratorPlugin
+1. `generators.ts` — `document_generators.templates` GeneratorPlugin (module-id-based key, matching the convention used by every existing `GeneratorPlugin`, e.g. `webhooks.sources`, `security.mfa-providers`)
 2. Convention file pattern: `document-generators.ts` in consuming module exports `templates: TemplateRegistryEntry[]`
 3. `mercato generate registry` produces `document-generators.generated.ts` that calls `register(...)`
 
@@ -777,7 +827,7 @@ Order/quote detail widget
 
 | Surface | Server root | Client islands | Data owner | Notes |
 | --- | --- | --- | --- | --- |
-| Sales order/quote detail PDF tab | Existing sales detail host | Existing injection widget, `ResourceDocumentsPanel`, `TemplatesList`, resource-aware `HistoryList`, `PreviewPanel` | Document Generators APIs | No page-root or provider change; the widget remains lazy at its existing frozen injection spot. |
+| Sales order/quote detail PDF tab | Existing sales detail host | Existing injection widget, `ResourceDocumentsPanel`, `TemplatesList`, resource-aware `HistoryList`, `PreviewPanel` | Document Generators APIs | No page-root or provider change; the widget remains lazy at its Phase 4.6 injection-table entry on the `sales.document.detail.order:tabs` / `sales.document.detail.quote:tabs` spots, which becomes a frozen contract surface once shipped (BACKWARD_COMPATIBILITY.md §6) — Phase 6 must not rename or move it. |
 | `/backend/document-generators/history` | Existing generated backend route | Existing `DocumentGenerationHistoryPage` and shared `HistoryList` | `GET /api/document-generators/documents` | Retains organization-wide behavior by omitting resource filters. |
 
 | `"use client"` file | Reason | Heavy dependencies / guardrail |
@@ -793,8 +843,8 @@ Order/quote detail widget
 
 Uses the existing core `attachments` module — no custom storage infrastructure needed.
 
-1. Create `pdfDocuments` attachment partition (private, non-public) via `POST /api/attachments/partitions` or seeded in `setup.ts`
-2. After successful render in `POST /generate`, upload the PDF buffer to `POST /api/attachments` (multipart, partition: `pdfDocuments`, `entity_id: 'document_generators:document'`, `record_id: rendered.resource.id`)
+1. Create the `pdfDocuments` attachment partition (private, non-public) the first time `/generate` needs it, via a lazy idempotent-create call to `POST /api/attachments/partitions` mirroring `ensureDefaultPartitions`'s pattern (`packages/core/src/modules/attachments/lib/partitions.ts`). There is no existing precedent in this repo for a module registering a new partition from its own `setup.ts` — only the two hardcoded defaults (`productsMedia`, `privateAttachments`) are seeded that way — so this phase does not introduce that as a new pattern; it reuses the partitions API the same way any other caller would.
+2. After successful render in `POST /generate`, upload the PDF buffer to `POST /api/attachments` (multipart, partition: `pdfDocuments`, `entityId: 'document_generators:document'`, `recordId: rendered.resource.id` — the wire fields are camelCase; `entity_id`/`record_id` only name the underlying DB columns)
 3. Store the returned identifier in the existing nullable `GeneratedDocument.attachment_id` column introduced with Phase 5; Phase 7 requires no additional history-table migration unless the attachment contract itself changes
 4. `GET /api/document-generators/documents` history response includes `attachment_id` — client builds download URL as `/api/attachments/file/{attachment_id}`
 5. Download button in the widget uses the stored attachment URL when `attachment_id` is present, falls back to on-demand `POST /generate` render otherwise
@@ -938,3 +988,4 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | 2026-08-13 | Codex | Made `filename` a required template-level handler and removed the service-level fallback, keeping filename, format, and loader ownership together for PDF, Markdown, and future formats. Updated Sales registrations, shared contracts/tests, examples, and docs. |
 | 2026-08-13 | Codex | Added the stable `modules/document_generators/utils` barrel and package export. Utilities are consumed from the directory contract rather than implementation filenames, allowing internal file renames without cross-module import migrations or deprecation bridges. |
 | 2026-08-15 | Claude | Applied `om-spec-writing` architectural review findings: dropped the legacy `SPEC-005` title prefix; split the former Phase 8 (Email & Sharing) and the Phase 9 auto-generation-trigger item out into an explicit "Out of scope for this spec" list — each is an independently shippable capability that needs its own spec, not a sub-bullet here — renumbering the remaining template-versioning/draft-watermark work to Phase 8; added a `500` render-error case to `POST /preview`'s error contract to match `/generate`, since both share the same `DocumentRenderer` pipeline; restructured `Risks & Impact Review` so every risk states severity, affected area, mitigation, and residual risk; added a required follow-up mitigation for the tenant-scoping contract — a shared `fetchData` contract test, not just documented convention — as the residual risk on cross-tenant data isolation; added a new "Sensitive Data & Retention" risk entry flagging the missing GDPR erasure/retention story for `GeneratedDocument` history rows and Phase 7 attachments; and added a "Persisted History Entity" table under Data Contracts as a single at-a-glance schema reference. |
+| 2026-08-15 | Claude | Applied `om-pre-implement-spec` findings (see `.ai/specs/analysis/ANALYSIS-2026-08-10-document-generators.md`, verified against the actual current codebase, not the source PR): required `templateRegistry` to persist via a stable `globalThis` key, per two direct repo precedents for exactly this failure mode; added a `document_generators/encryption.ts` declaring `defaultEncryptionMaps` for the GDPR-relevant `resource_label` field; corrected the widget-injection section — the spec previously claimed reuse of an "existing frozen PDF-oriented injection ID" that does not exist; the real spots are Sales' generic `sales.document.detail.order:tabs` / `sales.document.detail.quote:tabs`, today occupied only by an unrelated history widget, and the new widget is an additive second entry on each; required `/generate`'s history-persistence side effect to go through the mutation-guard-registry pattern (`runMutationGuards`/`bridgeLegacyGuard`), following `sales/api/quotes/send/route.ts`; corrected Phase 7's attachment upload field names to the real camelCase wire contract (`entityId`/`recordId`) and replaced its unsupported "seed the partition in `setup.ts`" step with a lazy runtime creation call, since no module in this repo creates a new attachment partition from `setup.ts` today; renamed the generator-plugin key from `document-generators.templates` to `document_generators.templates` to match the module-id-based convention every other `GeneratorPlugin` uses; and added an "Integration Test Coverage" section mapping the 16 existing `TC-DOCUMENT-*` integration specs to the API/UI surface each covers. |
