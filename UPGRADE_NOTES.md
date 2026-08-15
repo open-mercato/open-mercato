@@ -24,6 +24,37 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.7 → 0.7.0 (2026-08-12)
 
+### Standalone apps gain deterministic design-system and i18n checks
+
+New scaffolds ship `scripts/ds-check.mjs` as the hard-failing `yarn ds:check` gate and
+`scripts/i18n-check-hardcoded.mjs` as the advisory `yarn i18n:check-hardcoded` report. Their
+`typecheck` script also uses the same `NODE_OPTIONS=--max-old-space-size=8192` headroom as
+`build`. Existing apps keep their user-owned package scripts and `.ai/agentic.config.json`, so
+adoption is manual:
+
+1. Copy `packages/create-app/template/scripts/ds-check.mjs`,
+   `packages/create-app/template/scripts/i18n-check-hardcoded.mjs`, and the reasoned
+   `.ds-check-ignore` baseline into the matching app paths, then remove baseline entries as
+   their files move to semantic tokens.
+2. Add `"ds:check": "node scripts/ds-check.mjs"` and
+   `"i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs"` to `package.json`, and
+   change `typecheck` to
+   `cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit`.
+3. Add `"yarn ds:check"` immediately after `"yarn lint"` in
+   `.ai/agentic.config.json` `validation.commands`. Keep the i18n command advisory until a
+   project-specific allowlist has been reviewed.
+
+The design-system checker supports `--json` and fails on findings, malformed ignore data, or
+stale ignore entries. The i18n checker also supports `--json`, reports JSX and message-call
+findings, honors module `i18n/.hardcoded-allowlist.json` files and `[internal]` messages, and
+returns success for findings while it remains advisory.
+
+### Generated module fact-sheets moved to per-module directories
+
+`agentic:init` now writes each installed module's generated Markdown facts under `.ai/guides/modules/<id>/`, with `index.md` as the entry point and one file per non-empty section. Local reference projections use the matching `.ai/guides/reference-modules/<id>/index.md` layout. The JSON sidecars remain at `.ai/guides/module-facts.json`, `.ai/guides/module-facts.v2.json`, and `.ai/guides/reference-module-facts.json` with unchanged schemas.
+
+**Action for harness and automation authors:** replace literal `.ai/guides/modules/<id>.md` reads with `.ai/guides/modules/<id>/index.md`, then follow the section links needed for the task. The update harness removes prior-manifest-owned flat sheets, including locally modified generated copies, because retaining them would leave stale facts beside the authoritative directory. Unknown files that were never owned by the generated harness remain untouched.
+
 ### `JWT_SECRET` is required, and the legacy token grace period is now time-bounded (#5174)
 
 Three related changes close an authentication-bypass path on deployments that kept the documented Docker defaults. **Operator action is required before upgrading a Docker deployment.**
@@ -71,13 +102,23 @@ The key is `logContext`, not `context`, specifically so that the generic `metada
 
 Two changes ship together on `GET /api/search/search/global`, the endpoint the Cmd+K palette calls.
 
-**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus the unchanged `GET /api/search/search`.
+**The feature gate moved from `search.view` to `search.global`.** The topbar has always rendered the palette on `search.global` while the endpoint enforced `search.view`, so the two gates could disagree in either direction: a role holding only `search.global` got a focusable search box that 403'd on every keystroke, and a role holding only `search.view` could query the endpoint with no UI to reach it. `admin` holds `search.*`, which is why nobody noticed. Neither feature id was renamed or removed — ACL feature ids are FROZEN under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §10 — and `search.view` keeps gating the search administration endpoints under `api/search/settings/**`, plus `GET /api/search/search`, whose gate is unchanged (see the per-entity filter note below).
 
 **Action for API consumers:** this is a **narrowing** for any integration that calls the global endpoint with a token holding `search.view` alone. Grant those callers `search.global`. Because the new employee default (below) only reaches existing roles through a sync, run `yarn mercato auth sync-role-acls` after upgrading.
 
 **Results are now filtered by the caller's per-entity view features.** The single feature gate authorizes *using* search, not *reading every indexed record*: a caller who passed it previously received presenter titles, subtitles and deep links for every indexed entity type, including ones the caller could not open. Each searchable entity now declares the owning module's view feature in `aclFeatures` in its module's `search.ts`, and the route drops results the caller has no grant for before they leave the server. This is the same rule the `search_get` / `search_aggregate` AI tools have applied since #2715; the `search_query` AI tool now applies it too. Superadmins are exempt.
 
 **Action for module authors:** the filter **fails closed**. An entity type whose config declares no `aclFeatures` — or that no `search.ts` declares at all, which includes user-defined custom entities projected into `search_tokens` by `query_index` — no longer appears in global-search results for any non-superadmin caller. Every enabled entity shipped by `@open-mercato/core` and `@open-mercato/checkout` has been backfilled. `messages:message`, `sales:sales_note`, and `sales:sales_document_address` are disabled because their APIs enforce participant-, record-, or document-kind-specific access that a static entity feature cannot represent safely; they can return only after search supports the same row-aware checks. If results disappeared for your own module, add `aclFeatures: ['<module>.<entity>.view']` to that entity's config; run with `OM_SEARCH_DEBUG=true` and look for `search.api.global entity-filtered` to see which entity types were dropped and why.
+
+### The hybrid search endpoint filters results per entity too (#5168)
+
+`GET /api/search/search` — the endpoint behind the Vector Search playground in search administration — applied tenant and organization scoping but no per-entity ACL, so a caller past its single `search.view` gate received presenter titles, subtitles and deep links for every indexed entity type. It now applies exactly the same per-entity `aclFeatures` filter as the global endpoint above: the query is narrowed to the entity types the caller may read, and the results are filtered again on the way out as defense in depth. Superadmins are exempt.
+
+**Its `requireFeatures` gate is deliberately unchanged** — `search.view` is the correct gate for an administration surface, and it is pinned by `TC-SEARCH-003`.
+
+**Action for API consumers:** this is a **narrowing** for an integration whose token holds `search.view` but not the view feature of the entity types it searches. Grant those callers the per-entity view features they need, or call the endpoint as a superadmin. Like the global endpoint, the filter fails closed for an entity type that declares no `aclFeatures`; run with `OM_SEARCH_DEBUG=true` and look for `search.api.search entity-filtered` to see which types were dropped and why. The endpoint also answers `503` when `rbacService` or `searchIndexer` is not registered, since neither the narrowing nor the filter can be evaluated without them.
+
+**The example module's `search.ts` is what keeps example todos visible.** `example:todo` is indexed through its CRUD route's `indexer: { entityType }`, so before that config existed the fail-closed filter hid it from every non-superadmin — the concrete symptom being `TC-EXAMPLE-001`, which searches todos as `admin`. The config (shipped separately, in the app and in the create-app template) declares `aclFeatures: ['example.todos.view']`, the same feature `GET /api/example/todos` enforces, and the drift guard now pins that mapping so the hybrid filter cannot regress it again. `example:example_customer_priority` stays unconfigured: it holds a customer id and a priority enum with no human-readable text.
 
 ### The `empty` and `crm` starter presets now enable the `search` module (#5164)
 

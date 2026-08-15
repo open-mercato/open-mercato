@@ -1103,7 +1103,7 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
 }
-const REFERENCE_SHEET = '.ai/guides/reference-modules/example.md'
+const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
 
 type HarnessBudgets = {
   id: string
