@@ -13,11 +13,12 @@ export type RelativeTimeTranslator = (
 
 export type FormatRelativeTimeOptions = {
   /**
-   * Only used when the runtime has no `Intl.RelativeTimeFormat`. Localization
-   * comes from `Intl` so the number, unit name and plural form follow `locale`.
+   * Supplies the suffix only when the runtime has no `Intl.RelativeTimeFormat`.
+   * Otherwise the number, unit name, plural form and suffix all come from
+   * `Intl` in `locale` — pass `useLocale()` client-side so the text follows the
+   * application language rather than the runtime one.
    */
   translate?: RelativeTimeTranslator
-  /** Application locale; pass `useLocale()` client-side so the text is not rendered in the runtime locale. */
   locale?: string | string[]
 }
 
