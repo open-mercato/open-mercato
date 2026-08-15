@@ -147,6 +147,7 @@ export class McpClient implements McpClientInterface {
       name: tool.name,
       description: tool.description ?? '',
       inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
+      annotations: tool.annotations as ToolInfo['annotations'],
     }))
   }
 

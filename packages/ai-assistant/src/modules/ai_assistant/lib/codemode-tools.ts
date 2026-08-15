@@ -13,7 +13,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { registerMcpTool } from './tool-registry'
-import type { McpToolContext } from './types'
+import type { AiToolDefinition, McpToolContext } from './types'
 import { createSandbox } from './sandbox'
 import { truncateResult } from './truncate'
 import { applyContextScopeToQuery, applyContextScopeToBody } from './scope-injection'
@@ -561,6 +561,15 @@ export const CODE_MODE_MAX_API_CALLS = 50
 export const CODE_MODE_MAX_MUTATION_CALLS = 20
 
 /**
+ * Register a Code Mode tool through the typed definition so the optional
+ * metadata (`isMutation`, `isDestructive`) survives registration — the MCP
+ * `tools/list` annotations are derived from those flags.
+ */
+function registerCodeModeTool(tool: AiToolDefinition<{ code: string }>): void {
+  registerMcpTool(tool, { moduleId: 'codemode' })
+}
+
+/**
  * Load and register the two Code Mode tools.
  * Generates TypeScript type stubs for common endpoints at startup.
  * @returns Number of tools registered (always 2)
@@ -576,9 +585,10 @@ export async function loadCodeModeTools(): Promise<number> {
  * search — Query the OpenAPI spec and entity graph programmatically.
  */
 function registerSearchTool(): void {
-  registerMcpTool(
+  registerCodeModeTool(
     {
       name: 'search',
+      isMutation: false,
       description: `Query the OpenAPI spec and entity schemas. READ-ONLY, no side effects.
 Globals: spec.findEndpoints(keyword), spec.describeEndpoint(path, method), spec.describeEntity(keyword), spec.paths, spec.entitySchemas.
 Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common paths (companies, people, orders, quotes, products).`,
@@ -650,8 +660,7 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
           _memoryContext: memoryContext,
         }
       },
-    },
-    { moduleId: 'codemode' }
+    }
   )
 }
 
@@ -663,9 +672,13 @@ function registerExecuteTool(commonTypes: string): void {
     ? `\n\n${commonTypes}`
     : ''
 
-  registerMcpTool(
+  registerCodeModeTool(
     {
       name: 'execute',
+      // api.request() reaches every documented endpoint, including POST/PUT/DELETE,
+      // so the tool is neither read-only nor guaranteed non-destructive.
+      isMutation: true,
+      isDestructive: true,
       description: `Make API calls. Returns JSON.
 Globals: api.request({ method, path, query?, body? }) → { success, statusCode, data }, context { tenantId, organizationId, userId }.
 RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection path with id in BODY. NEVER PUT/POST/DELETE unless user explicitly asked to change data. Before ANY write operation (POST/PUT/DELETE), you MUST use the AskUserQuestion tool to get explicit user confirmation. Do NOT just ask in text — use the tool so execution pauses until the user responds.${typesBlock}`,
@@ -749,8 +762,7 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
           _memoryContext: memoryContext,
         }
       },
-    },
-    { moduleId: 'codemode' }
+    }
   )
 }
 
