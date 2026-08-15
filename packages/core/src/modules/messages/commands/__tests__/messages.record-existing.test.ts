@@ -142,4 +142,29 @@ describe('messages.messages.record_existing', () => {
     expect(em.transactional).not.toHaveBeenCalled()
     expect(eventBus.emitEvent).not.toHaveBeenCalled()
   })
+
+  it('returns the winning message when a concurrent insert wins the idempotency race', async () => {
+    const { em, eventBus, ctx } = createHarness()
+    const winner = {
+      id: messageId,
+      threadId: messageId,
+      externalEmail: 'sender@example.com',
+      tenantId,
+      organizationId,
+    }
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winner)
+    em.transactional.mockRejectedValueOnce(Object.assign(
+      new Error('duplicate key value violates unique constraint "messages_idempotency_key_uq"'),
+      { code: '23505' },
+    ))
+    const command = registeredCommands.get('messages.messages.record_existing')
+
+    const result = await command!.execute(input(), ctx)
+
+    expect(result).toEqual(expect.objectContaining({ id: messageId, deduplicated: true }))
+    expect(findOneWithDecryptionMock).toHaveBeenCalledTimes(2)
+    expect(eventBus.emitEvent).not.toHaveBeenCalled()
+  })
 })
