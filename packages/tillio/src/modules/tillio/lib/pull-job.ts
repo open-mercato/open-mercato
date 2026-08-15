@@ -228,6 +228,7 @@ export async function runTillioPullJob(params: {
       apiUrl: environment.apiUrl,
       apiKey: environment.apiKey,
       tenantSystemId: environment.tenantSystemId,
+      timeZone: environment.timeZone,
       operator: {
         id: operator.id,
         plugin: operator.plugin,
@@ -240,8 +241,8 @@ export async function runTillioPullJob(params: {
         credentials,
         scope,
         integrationId: TILLIO_INTEGRATION_ID,
-        from: zonedDayStart(payload.from),
-        to: zonedDayEnd(payload.to),
+        from: zonedDayStart(payload.from, environment.timeZone),
+        to: zonedDayEnd(payload.to, environment.timeZone),
         cursor,
         limit: payload.limit ?? null,
       })

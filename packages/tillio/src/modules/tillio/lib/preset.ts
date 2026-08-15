@@ -11,6 +11,7 @@ const logger = createLogger('tillio').child({ component: 'preset' })
 export const TILLIO_ENV_VARS = {
   apiUrl: 'OM_INTEGRATION_TILLIO_API_URL',
   apiKey: 'OM_INTEGRATION_TILLIO_API_KEY',
+  timeZone: 'OM_INTEGRATION_TILLIO_TIMEZONE',
   ringostatKey: 'OM_INTEGRATION_TILLIO_RINGOSTAT_KEY',
   force: 'OM_INTEGRATION_TILLIO_FORCE_PRECONFIGURE',
   replaceOperator: 'OM_INTEGRATION_TILLIO_REPLACE_OPERATOR',
@@ -91,7 +92,7 @@ export function readTillioEnvPreset(env: NodeJS.ProcessEnv = process.env): Tilli
 
   return {
     status: 'ready',
-    credentials: environmentSchema.parse({ apiUrl, apiKey }),
+    credentials: environmentSchema.parse({ apiUrl, apiKey, timeZone: readValue(env, TILLIO_ENV_VARS.timeZone) }),
     ringostatKey: readValue(env, TILLIO_ENV_VARS.ringostatKey) ?? null,
     force: parseBooleanToken(readValue(env, TILLIO_ENV_VARS.force)) ?? false,
     replaceOperator: parseBooleanToken(readValue(env, TILLIO_ENV_VARS.replaceOperator)) ?? false,

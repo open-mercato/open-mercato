@@ -170,8 +170,14 @@ packages/tillio/src/modules/tillio/
 Tillio is configured on two levels, because the two levels have different lifecycles and different owners.
 
 **Environment** (the Tillio instance itself) lives in the integration's native `Credentials` tab:
-`apiUrl`, `apiKey`, and a generated `tenantSystemId`. It is validated by the standard health `Check`,
-which calls `getPlugins` as a connection test.
+`apiUrl`, `apiKey`, an optional `timeZone`, and a generated `tenantSystemId`. It is validated by the standard
+health `Check`, which calls `getPlugins` as a connection test.
+
+`timeZone` is the zone the instance reports wall-clock timestamps in, defaulting to `Europe/Warsaw`. It is
+configuration rather than a constant because an instance serving another market reports that market's local
+time, and reading those stamps in the wrong zone shifts every call by the offset. It is validated against
+`Intl`, and deliberately left out of the environment fingerprint: the operator token is not bound to a
+display zone, so changing it must not raise `environment_drift`.
 
 **Operator** (the telephony plugin bound to that environment) lives in a separate detachable store
 (`tillio_operators`) surfaced by a custom `Operator configuration` tab. One Tillio tile holds one operator
@@ -192,6 +198,7 @@ the UI, so the provider parses its own env vars in `lib/preset.ts`.
 |----------|----------|---------|
 | `OM_INTEGRATION_TILLIO_API_URL` | yes | Tillio API base URL |
 | `OM_INTEGRATION_TILLIO_API_KEY` | yes | Tillio API key |
+| `OM_INTEGRATION_TILLIO_TIMEZONE` | no | IANA zone the instance reports timestamps in (default `Europe/Warsaw`) |
 | `OM_INTEGRATION_TILLIO_RINGOSTAT_KEY` | no | Ringostat key; when set, the operator is attached too |
 | `OM_INTEGRATION_TILLIO_FORCE_PRECONFIGURE` | no | Overwrite credentials that already exist (default off) |
 | `OM_INTEGRATION_TILLIO_REPLACE_OPERATOR` | no | Pre-answers the operator replacement prompt for unattended runs (default off) |
@@ -358,7 +365,7 @@ is safe for the same reason re-pulling a range is: ingest keys on `(provider_key
 `TILLIO_QUEUE_CONCURRENCY` (default 1, ceiling 20) bounds how many sweeps run at once. One is the default
 because parallel sweeps against the same environment only buy provider throttling.
 
-Days are interpreted in the `Europe/Warsaw` wall clock that Tillio uses, then converted to instants.
+Days are interpreted in the environment time zone (`Europe/Warsaw` unless configured), then converted to instants.
 
 The pull is provider-owned rather than a hub-generic `POST /api/phone_calls/providers/:providerKey/pull`:
 the request body is provider-shaped (day granularity, provider cursor semantics), and a hub route would have
@@ -644,6 +651,13 @@ Scope of this report: the implemented slice (Phases 1-2). Planned phases are des
 ---
 
 ## Changelog
+
+### 2026-08-15 - Configurable provider time zone
+
+- The Tillio wall-clock zone moved from a module constant to an optional `timeZone` credential, validated
+  against `Intl` and defaulting to `Europe/Warsaw`. It is threaded through the pull window, the outbound
+  filter format and timestamp normalization, and can also be set with `OM_INTEGRATION_TILLIO_TIMEZONE`.
+- It stays out of the environment fingerprint, so changing the zone does not invalidate an attached operator.
 
 ### 2026-08-14 - Deployment-managed preconfiguration
 

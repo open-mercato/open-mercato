@@ -1,4 +1,24 @@
-import { formatTillioTimestamp, zonedDayEnd, zonedDayStart } from '../lib/tz'
+import { formatTillioTimestamp, isValidTimeZone, zonedDayEnd, zonedDayStart } from '../lib/tz'
+
+describe('isValidTimeZone', () => {
+  it('accepts IANA zones and rejects anything Intl cannot resolve', () => {
+    expect(isValidTimeZone('Europe/Warsaw')).toBe(true)
+    expect(isValidTimeZone('America/New_York')).toBe(true)
+    expect(isValidTimeZone('UTC')).toBe(true)
+    // Intl resolves fixed-offset zones too, so they pass; only names it cannot resolve fail.
+    expect(isValidTimeZone('+02:00')).toBe(true)
+    expect(isValidTimeZone('Europe/Atlantis')).toBe(false)
+    expect(isValidTimeZone('Warsaw')).toBe(false)
+  })
+})
+
+describe('a configured zone', () => {
+  it('moves the day boundaries with it', () => {
+    expect(zonedDayStart('2026-06-11', 'UTC').toISOString()).toBe('2026-06-11T00:00:00.000Z')
+    expect(zonedDayEnd('2026-06-11', 'UTC').toISOString()).toBe('2026-06-11T23:59:00.000Z')
+    expect(zonedDayStart('2026-06-11', 'America/New_York').toISOString()).toBe('2026-06-11T04:00:00.000Z')
+  })
+})
 
 describe('tillio timezone helpers', () => {
   it('anchors a day to Europe/Warsaw wall-clock boundaries', () => {

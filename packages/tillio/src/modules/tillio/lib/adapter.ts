@@ -13,7 +13,7 @@ import { createTillioClient, type TillioClientDeps } from './client'
 import { ENV_PROBE_TENANT_DOMAIN, environmentSchema } from './environment'
 import { normalizeTillioCall } from './normalizer'
 import { operatorPluginSchema } from './operators-store'
-import { formatTillioTimestamp } from './tz'
+import { formatTillioTimestamp, TILLIO_TIMEZONE } from './tz'
 
 export const TILLIO_DEFAULT_BATCH_LIMIT = 500
 
@@ -21,6 +21,7 @@ const pullCredentialsSchema = z.object({
   apiUrl: z.string().trim().min(1),
   apiKey: z.string().trim().min(1),
   tenantSystemId: z.string().trim().min(1),
+  timeZone: z.string().trim().optional(),
   operator: z.object({
     id: z.string().trim().min(1),
     plugin: operatorPluginSchema,
@@ -73,8 +74,9 @@ export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProvi
         tenantSystemId: credentials.tenantSystemId,
       }, deps)
 
-      const from = input.from ? formatTillioTimestamp(input.from) : undefined
-      const to = input.to ? formatTillioTimestamp(input.to) : undefined
+      const timeZone = credentials.timeZone ?? TILLIO_TIMEZONE
+      const from = input.from ? formatTillioTimestamp(input.from, timeZone) : undefined
+      const to = input.to ? formatTillioTimestamp(input.to, timeZone) : undefined
       const limit = input.limit && input.limit > 0 ? Math.trunc(input.limit) : TILLIO_DEFAULT_BATCH_LIMIT
 
       const calls: NormalizedPhoneCall[] = []
@@ -91,7 +93,7 @@ export function createTillioAdapter(deps: TillioClientDeps = {}): PhoneCallProvi
         })
 
         for (const rawCall of response.calls) {
-          calls.push(normalizeTillioCall(rawCall, { operatorId: operator.id, plugin: operator.plugin }))
+          calls.push(normalizeTillioCall(rawCall, { operatorId: operator.id, plugin: operator.plugin, timeZone }))
         }
 
         // Guards against a broken response, not against large ranges: a `page`

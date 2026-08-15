@@ -74,6 +74,21 @@ describe('tillioAdapter.fetchCalls', () => {
     expect(headers['X-Tenant-Domain']).toBe('app.example.com/OM-abc-ringostat-1')
   })
 
+  it('sends the window in the configured zone instead of the default one', async () => {
+    fetchMock.mockResolvedValue(page([call('a')], 1, 1))
+
+    await tillioAdapter.fetchCalls({
+      credentials: { ...credentials, timeZone: 'UTC' },
+      scope,
+      from: new Date('2026-06-10T22:00:00.000Z'),
+      to: new Date('2026-06-11T21:59:00.000Z'),
+    })
+
+    const query = queryOf(fetchMock.mock.calls[0])
+    expect(query.get('from')).toBe('2026-06-10 22:00')
+    expect(query.get('to')).toBe('2026-06-11 21:59')
+  })
+
   it('stops at the batch limit but drains the current page first', async () => {
     fetchMock
       .mockResolvedValueOnce(page([call('a'), call('b')], 1, 4))

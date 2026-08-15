@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
 import { environmentSchema, readTenantSystemId } from './environment'
+import { TILLIO_TIMEZONE } from './tz'
 import { TILLIO_INTEGRATION_ID } from '../integration'
 import {
   buildTenantDomain,
@@ -25,6 +26,7 @@ export type TillioResolvedEnvironment = {
   apiUrl: string
   apiKey: string
   tenantSystemId: string
+  timeZone: string
 }
 
 export const TILLIO_OPERATOR_RESOURCE_KIND = 'tillio.operator'
@@ -87,6 +89,7 @@ export async function resolveEnvironment(
     apiUrl: parsed.data.apiUrl,
     apiKey: parsed.data.apiKey,
     tenantSystemId,
+    timeZone: parsed.data.timeZone ?? TILLIO_TIMEZONE,
   }
 }
 

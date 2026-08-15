@@ -76,6 +76,14 @@ describe('readTillioEnvPreset', () => {
     expect(preset).toEqual({ status: 'incomplete', missing: [TILLIO_ENV_VARS.apiKey] })
   })
 
+  it('carries a configured time zone into the credentials and rejects an invalid one', () => {
+    const preset = readTillioEnvPreset({ ...completeEnv, [TILLIO_ENV_VARS.timeZone]: 'America/New_York' } as NodeJS.ProcessEnv)
+
+    expect(preset).toMatchObject({ credentials: { timeZone: 'America/New_York' } })
+    expect(() => readTillioEnvPreset({ ...completeEnv, [TILLIO_ENV_VARS.timeZone]: 'Europe/Atlantis' } as NodeJS.ProcessEnv))
+      .toThrow()
+  })
+
   it('reads a complete preset with the operator key and the force flag', () => {
     const preset = readTillioEnvPreset({
       ...completeEnv,

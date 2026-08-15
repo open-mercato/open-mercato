@@ -53,6 +53,7 @@ export type TillioCallExtractor = (extraFields: Record<string, unknown>) => Till
 export type NormalizeContext = {
   operatorId: string
   plugin: TillioOperatorPlugin
+  timeZone?: string
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -170,7 +171,7 @@ export function normalizeTillioCall(
     status: mapStatus(call.status, durationSeconds),
     participants,
     recording: extraction.recording ?? null,
-    startedAt: parseTillioTimestamp(call.date),
+    startedAt: parseTillioTimestamp(call.date, context.timeZone),
     answeredAt: null,
     endedAt: null,
     durationSeconds,

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
+import { isValidTimeZone } from './tz'
 
 // Own key, like the operators blob: saving integration credentials keeps the submitted fields
 // plus the schema's secret fields, and the identity is in neither, so it was dropped on every save.
@@ -12,6 +13,13 @@ export const environmentSchema = z.object({
   apiUrl: z.string().trim().min(1),
   apiKey: z.string().trim().min(1),
   tenantSystemId: z.string().trim().optional(),
+  // Optional so an environment saved before this field existed still parses; readers fall back to
+  // TILLIO_TIMEZONE.
+  timeZone: z
+    .string()
+    .trim()
+    .refine(isValidTimeZone, { message: 'Expected an IANA time zone name' })
+    .optional(),
 })
 
 export type TillioEnvironment = z.infer<typeof environmentSchema>

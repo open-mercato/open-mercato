@@ -1,4 +1,15 @@
+// The zone Tillio reports its wall-clock timestamps in. Overridable per environment, because an
+// instance serving another market reports that market's local time.
 export const TILLIO_TIMEZONE = 'Europe/Warsaw'
+
+export function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
