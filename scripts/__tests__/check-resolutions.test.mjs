@@ -59,7 +59,7 @@ test('passes when every descriptor-keyed resolution matches a requested descript
     (fixture) => {
       const result = runChecker(fixture)
       assert.equal(result.status, 0, result.stderr)
-      assert.match(result.stdout, /1 descriptor-keyed resolutions all match a descriptor in yarn\.lock/)
+      assert.match(result.stdout, /1 descriptor-keyed resolution matches a descriptor in yarn\.lock/)
     },
   )
 })

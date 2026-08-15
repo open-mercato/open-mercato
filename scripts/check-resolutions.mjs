@@ -13,16 +13,25 @@
  * This script walks the root manifest's `resolutions` map and fails when a
  * range-carrying key matches no descriptor requested anywhere in `yarn.lock`.
  *
- * What counts as "requested": the `dependencies`, `devDependencies` and
- * `optionalDependencies` maps of every lockfile entry — those are the descriptors
- * Yarn actually resolves, and a resolution rewrites the resolved version without
- * rewriting the requester's declared range, so a live key still appears there.
- * Lockfile entry keys are deliberately NOT counted: after a resolution applies, the
- * entry is keyed by the pin's target, so accepting entry keys would let a key that
- * points at its own target look alive while matching no real requester.
- * `peerDependencies` are excluded too — Yarn satisfies those from the ancestor tree
- * instead of resolving them as descriptors of their own, so a resolution keyed on a
- * peer range applies to nothing.
+ * What counts as "requested": the `dependencies` map of every lockfile entry. Yarn
+ * folds every descriptor it resolves into that one block — a workspace entry's
+ * devDependencies and optionalDependencies included — and a resolution rewrites the
+ * resolved version without rewriting the requester's declared range, so a live key
+ * still appears there. `devDependencies` and `optionalDependencies` are read as well
+ * purely as a forward-compatible safety net: today's lockfiles never emit them, and
+ * accepting them can only ever make this check more lenient, never wrongly red.
+ *
+ * Two sources are deliberately NOT counted. Lockfile entry keys: after a resolution
+ * applies, the entry is keyed by the pin's target, so accepting entry keys would let
+ * a key that points at its own target look alive while matching no real requester.
+ * And `peerDependencies` — Yarn satisfies those from the ancestor tree instead of
+ * resolving them as descriptors of their own, so a resolution keyed on a peer range
+ * applies to nothing.
+ *
+ * Scope note: only keys carrying a range are checked, because those are the ones that
+ * rot. A range-less key naming a package nothing requests (`"fast-xml-builder": …`) is
+ * dead weight too, but it never applied in the first place and may be a deliberate
+ * forward-looking pin, so failing CI on it is a separate judgement call.
  *
  * Usage:
  *   node scripts/check-resolutions.mjs             # check (exit 1 on failure)
@@ -41,6 +50,8 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..')
 const MANIFEST_FILE = 'package.json'
 const LOCKFILE = 'yarn.lock'
+// `dependencies` is the only block a current yarn.lock emits; the other two are read
+// defensively so a future lockfile format cannot turn a live key into a false failure.
 const REQUEST_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
 const USAGE = `Usage: node scripts/check-resolutions.mjs [--root <dir>] [--json]
@@ -204,10 +215,15 @@ function main() {
     process.exit(1)
   }
 
-  console.log(
-    `check-resolutions: ${report.live.length} descriptor-keyed resolutions all match a descriptor in ${LOCKFILE}` +
-      ` (${report.wildcard.length} range-less keys apply to every descriptor and cannot rot).`,
-  )
+  const matched =
+    report.live.length === 1
+      ? '1 descriptor-keyed resolution matches a descriptor'
+      : `${report.live.length} descriptor-keyed resolutions all match a descriptor`
+  const inert =
+    report.wildcard.length === 1
+      ? '1 range-less key applies'
+      : `${report.wildcard.length} range-less keys apply`
+  console.log(`check-resolutions: ${matched} in ${LOCKFILE} (${inert} to every descriptor and cannot rot).`)
 }
 
 main()
