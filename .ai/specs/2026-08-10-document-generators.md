@@ -704,7 +704,7 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 5. `components/Loader.tsx` — spinner
 6. `utils/downloadBlob.ts` — triggers browser file download
 7. Sales-owned `widgets/injection/document-generators-quote-tab/` — filter: `{ resourceKind: 'sales.quote' }`
-8. Sales-owned `widgets/injection-table.ts` — injection spot mapping
+8. Sales-owned `widgets/injection-table.ts` adds this widget as an entry on the `sales.document.detail.quote:tabs` spot
 
 ### Phase 4.5 — External Template Code-Gen ✅
 
@@ -718,8 +718,8 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 2. Sales-owned `document-generators/templates/orders/order-invoice/` with PDF and Markdown implementations
 3. `sales/document-generators.ts` exports order and quote entries to the generated registry
 4. Sales-owned `widgets/injection/document-generators-order-tab/` filters by `sales.order`
-5. `sales/widgets/injection-table.ts` contributes the existing order detail spot
-7. Complete working invoice example for external template authors (`document-generators.ts`, service, template, widget, injection-table) lives under `apps/docs/static/examples/document-generators/` and is described in the Document Generators docs section
+5. `sales/widgets/injection-table.ts` adds this widget as a second entry on the `sales.document.detail.order:tabs` spot, alongside the existing `sales.injection.document-history` entry
+6. Complete working invoice example for external template authors (`document-generators.ts`, service, template, widget, injection-table) lives under `apps/docs/static/examples/document-generators/` and is described in the Document Generators docs section
 
 ### Phase 4.7 — Markdown Output ✅
 
