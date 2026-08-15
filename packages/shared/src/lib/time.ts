@@ -12,7 +12,12 @@ export type RelativeTimeTranslator = (
 ) => string
 
 export type FormatRelativeTimeOptions = {
+  /**
+   * Only used when the runtime has no `Intl.RelativeTimeFormat`. Localization
+   * comes from `Intl` so the number, unit name and plural form follow `locale`.
+   */
   translate?: RelativeTimeTranslator
+  /** Application locale; pass `useLocale()` client-side so the text is not rendered in the runtime locale. */
   locale?: string | string[]
 }
 
@@ -37,23 +42,16 @@ export function formatRelativeTime(
       ? new Intl.RelativeTimeFormat(options?.locale, { numeric: 'auto' })
       : null
 
-const format = (unit: RelativeTimeUnit, divisor: number) => {
-  const valueToFormat = Math.round(diffSeconds / divisor)
-  const isPast = diffSeconds < 0
+  const format = (unit: RelativeTimeUnit, divisor: number) => {
+    const valueToFormat = Math.round(diffSeconds / divisor)
+    if (rtf) return rtf.format(valueToFormat, unit)
 
-  if (translate) {
-    const suffixKey = isPast ? 'time.relative.ago' : 'time.relative.fromNow'
+    const isPast = diffSeconds < 0
     const fallbackSuffix = isPast ? 'ago' : 'from now'
-    const suffix = translate(suffixKey, fallbackSuffix)
+    const suffixKey = isPast ? 'time.relative.ago' : 'time.relative.fromNow'
+    const suffix = translate ? translate(suffixKey, fallbackSuffix) : fallbackSuffix
     const magnitude = Math.abs(valueToFormat)
     return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
-  }
-
-  if (rtf) return rtf.format(valueToFormat, unit)
-
-  const fallbackSuffix = isPast ? 'ago' : 'from now'
-  const magnitude = Math.abs(valueToFormat)
-  return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${fallbackSuffix}`
   }
 
   if (absSeconds < 45) return format('second', 1)
