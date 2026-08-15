@@ -88,3 +88,54 @@ Editing a sales order line that already has shipped quantities must present the 
   automation runs as, so GitHub rejects the review submission (no self-review) and label writes are rejected
   (`AddLabelsToLabelable` — no triage permission). The `om-code-review` checklist was therefore applied to the
   diff directly and reported in the resume summary comment; the formal re-review is handed back to the maintainer.
+
+### Phase 5: Resolve the strict multi-provider review on `e13df4eb` (2 High, 4 Medium)
+
+**Scope reversal, recorded deliberately.** Phase 2 listed "changing `LookupSelect` so that `disabled`
+suppresses option clicks and the clear button" as a non-goal, on the earlier reviewer's advice that it
+belonged in a separate PR. The strict review overturned that: fixing only the *price* control left the
+product and variant pickers live behind a `disabled` prop that never suppressed their option rows, their
+keyboard paths or their "Clear selection" button — so a shipped line could still be mutated through the very
+dialog this PR claims to lock, and clearing the product nulls fields a later name-only save then fails on.
+The narrow fix could not close the finding, so the shared-primitive fix is taken here, with its own
+regression suite in `packages/ui`.
+
+- [x] 5.1 Make `LookupSelect`'s `disabled` mean "no interaction at all" — option rows non-interactive and out
+  of the tab order, `aria-disabled` announced, Enter/Space and the ArrowDown+Enter search path inert, and the
+  "Clear selection" button plus the action slot not rendered (fixes Medium 2, the shipped product/variant
+  mutation path). Covered by six new cases in `packages/ui/src/backend/inputs/__tests__/LookupSelect.test.tsx`.
+
+- [x] 5.2 Resolve shipment state authoritatively and fail closed while it is unknown (fixes Medium 3).
+  `ItemsSection` read only page 1 of `/api/sales/shipments` and reported an empty totals map while loading and
+  after a failure, so a shipped line on page 2 — or any line during the pending/error window — was treated as
+  unshipped, left editable, and submitted with reconstructed pricing the server rejects. It now pages through
+  every shipment page and tracks resolution explicitly; the new `shippedQuantityResolved` prop (defaulting to
+  `true`, so existing callers are unaffected) makes `LineItemDialog` treat an unresolved state as shipped —
+  locking the controls and stripping the payload — behind its own informational copy
+  (`sales.documents.items.shippedLineLockPending`, added to all five locales).
+
+- [x] 5.3 Replace the middot in the locked price label with an em dash (fixes Medium 4, `.ai/ds-rules.md:238`),
+  and drop the now-duplicated amount from the supporting detail line so it shows the price kind instead.
+
+- [x] 5.4 Rewrite `LineItemDialog.shippedLineLock.test.tsx` (fixes High 1, High 2 and Medium 1). The currency
+  assertion now goes through the same `formatMoney` the dialog renders with, instead of demanding an ISO code
+  the runtime locale does not produce — which is why the suite was red on `e13df4eb`. The `LookupSelect` mock
+  is gone, so the product and variant rows, their clear actions and their keyboard paths are exercised for
+  real; the form host remains a harness but a **stateful** one, so an interaction that manages to mutate the
+  line is observable and asserted against. Every `any` is replaced with the concrete `CrudField`,
+  `CrudCustomField`, `CrudCustomFieldRenderProps`, submit-value and DOM prop types.
+
+  Verified the suite actually protects the boundary: reverting only the `LookupSelect` change turns the two new
+  product/variant interaction cases red.
+
+- [x] 5.5 Validation gate, re-run on the merged head
+
+  `yarn build:packages` ✅, `yarn generate` ✅ (no drift), `yarn build:packages` ✅, `yarn i18n:check-sync` ✅
+  (the new key needed `--fix` for sort order only), `yarn i18n:check-usage` ✅ advisory, `yarn typecheck` ✅
+  22/22 — note a stale `packages/core/tsconfig.tsbuildinfo` reported 18 phantom `E.eudr` errors until it was
+  deleted; `yarn build:app` ✅. Focused suites: `LineItemDialog.shippedLineLock` 9/9, `lineItemShipmentLock`
+  3/3, `LookupSelect` 13/13, `@open-mercato/core` `modules/sales` 587/589. The remaining failures are the same
+  locale-dependent suites this PR does not touch and that already fail on the merge base
+  (`ItemsSection.discountColumn`, `@open-mercato/ui` `format.test.ts`, `@open-mercato/shared`
+  `likeFilterWarning.test.ts`); each was re-confirmed by stashing this branch's changes and seeing the identical
+  failure. Run locally — no compose `app` container is running.

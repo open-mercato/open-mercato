@@ -1021,6 +1021,7 @@
   "sales.documents.items.save": "Guardar cambios",
   "sales.documents.items.selectedProduct": "Seleccionado {{id}}",
   "sales.documents.items.selectedVariant": "Seleccionado {{id}}",
+  "sales.documents.items.shippedLineLockPending": "Los precios están bloqueados hasta que se carguen los envíos de este pedido. Vuelve a abrir el pedido para intentarlo de nuevo — todavía puedes editar el nombre y la cantidad.",
   "sales.documents.items.shippedLineLocked": "Los precios de esta línea están bloqueados porque ya tiene envíos. Todavía puedes editar el nombre y la cantidad.",
   "sales.documents.items.status": "Estado",
   "sales.documents.items.statusEmpty": "Sin estado",

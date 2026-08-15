@@ -1021,6 +1021,7 @@
   "sales.documents.items.save": "Zapisz zmiany",
   "sales.documents.items.selectedProduct": "Wybrano {{id}}",
   "sales.documents.items.selectedVariant": "Wybrano {{id}}",
+  "sales.documents.items.shippedLineLockPending": "Ceny są zablokowane, dopóki wysyłki tego zamówienia nie zostaną wczytane. Otwórz zamówienie ponownie, aby spróbować jeszcze raz — nazwę i ilość nadal możesz edytować.",
   "sales.documents.items.shippedLineLocked": "Ceny tej pozycji są zablokowane, ponieważ ma już wysłane sztuki. Nazwę i ilość nadal możesz edytować.",
   "sales.documents.items.status": "Status",
   "sales.documents.items.statusEmpty": "Brak statusu",

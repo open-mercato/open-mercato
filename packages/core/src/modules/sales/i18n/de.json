@@ -1021,6 +1021,7 @@
   "sales.documents.items.save": "Änderungen speichern",
   "sales.documents.items.selectedProduct": "Ausgewählt {{id}}",
   "sales.documents.items.selectedVariant": "Ausgewählt {{id}}",
+  "sales.documents.items.shippedLineLockPending": "Die Preisangaben sind gesperrt, bis die Sendungen dieses Auftrags geladen wurden. Öffnen Sie den Auftrag erneut, um es noch einmal zu versuchen — Name und Menge können weiterhin bearbeitet werden.",
   "sales.documents.items.shippedLineLocked": "Die Preisangaben dieser Position sind gesperrt, da bereits Artikel versandt wurden. Name und Menge können weiterhin bearbeitet werden.",
   "sales.documents.items.status": "Status",
   "sales.documents.items.statusEmpty": "Kein Status",

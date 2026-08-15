@@ -280,6 +280,13 @@ type SalesLineDialogProps = {
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
   shippedQuantity?: number;
+  /**
+   * Whether `shippedQuantity` reflects a fully resolved shipment state. Defaults
+   * to `true` so callers that genuinely know the value keep working; pass `false`
+   * while the host is still loading shipments or after the load failed, and the
+   * dialog locks pricing instead of assuming the line is unshipped.
+   */
+  shippedQuantityResolved?: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => Promise<void> | void;
   onDraftSaved?: (payload: Record<string, unknown>, lineId: string | null) => Promise<void> | void;
@@ -476,6 +483,7 @@ export function LineItemDialog({
   tenantId,
   initialLine,
   shippedQuantity = 0,
+  shippedQuantityResolved = true,
   onOpenChange,
   onSaved,
   onDraftSaved,
@@ -514,7 +522,16 @@ export function LineItemDialog({
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
     [kind],
   );
-  const isShippedOrderLine = kind === "order" && shippedQuantity > 0;
+  // A line the caller has not resolved shipment state for is treated as shipped:
+  // the server rejects pricing changes on shipped lines, so guessing "unshipped"
+  // from a pending or failed shipments load hands the user an edit that cannot
+  // be saved. A brand-new line has no shipments by construction.
+  const hasExistingLine = Boolean(initialLine);
+  const shipmentStateUnknown = kind === "order" && hasExistingLine && !shippedQuantityResolved;
+  const isShippedOrderLine =
+    kind === "order" &&
+    hasExistingLine &&
+    (shipmentStateUnknown || shippedQuantity > 0);
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const customFieldEntityId =
     kind === "order" ? E.sales.sales_order_line : E.sales.sales_quote_line;
@@ -2027,10 +2044,9 @@ export function LineItemDialog({
                       ? t("sales.documents.items.priceNet", "Net")
                       : t("sales.documents.items.priceGross", "Gross");
                   const lockedAmountLabel = Number.isFinite(lockedAmount)
-                    ? `${formatMoney(lockedAmount, lockedCurrency)} · ${lockedModeLabel}`
+                    ? `${formatMoney(lockedAmount, lockedCurrency)} — ${lockedModeLabel}`
                     : lockedModeLabel;
                   const lockedPriceDetail =
-                    selectedPrice?.label ??
                     selectedPrice?.priceKindTitle ??
                     selectedPrice?.priceKindCode ??
                     null;
@@ -2987,10 +3003,15 @@ export function LineItemDialog({
         {isShippedOrderLine ? (
           <Alert status="information" style="lighter">
             <AlertDescription>
-              {t(
-                "sales.documents.items.shippedLineLocked",
-                "Pricing is locked on this line because it already has shipped items. You can still edit the name and quantity.",
-              )}
+              {shipmentStateUnknown
+                ? t(
+                    "sales.documents.items.shippedLineLockPending",
+                    "Pricing is locked until this order's shipments have been read. Reopen the order to try again — you can still edit the name and quantity.",
+                  )
+                : t(
+                    "sales.documents.items.shippedLineLocked",
+                    "Pricing is locked on this line because it already has shipped items. You can still edit the name and quantity.",
+                  )}
             </AlertDescription>
           </Alert>
         ) : null}
