@@ -18,15 +18,20 @@
 //
 // Revert to `yarn npm audit --all --recursive --severity high` once the npm
 // registry restores a correct `Content-Encoding` header on that endpoint.
+//
+// A flagged advisory with no upstream fix would otherwise block the gate
+// forever; audit-ci-allowlist.json holds narrowly-scoped, justified
+// exceptions (matched by GHSA id) for exactly that case.
 
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical']
 export const ENDPOINT = 'https://registry.npmjs.org/-/npm/v1/security/advisories/bulk'
+export const ALLOWLIST_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'audit-ci-allowlist.json')
 
 export function parseArgs(argv) {
   const inlineSeverity = (argv.find((arg) => arg.startsWith('--severity=')) || '').split('=')[1]
@@ -123,6 +128,35 @@ export function collectFlaggedAdvisories(advisories, threshold) {
   return flagged
 }
 
+export function extractGhsaId(url) {
+  const match = typeof url === 'string' ? url.match(/GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}/i) : null
+  return match ? match[0].toUpperCase() : null
+}
+
+// Advisories with no upstream fix (e.g. an archived package) would otherwise
+// block the gate forever. Each entry needs a recorded reason so the exception
+// stays reviewable — see audit-ci-allowlist.json.
+export function loadAllowlist(filePath = ALLOWLIST_PATH) {
+  if (!fs.existsSync(filePath)) return new Map()
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.advisories !== 'object') {
+    throw new Error(`${filePath} must contain an "advisories" object`)
+  }
+  return new Map(Object.entries(parsed.advisories).map(([ghsaId, entry]) => [ghsaId.toUpperCase(), entry]))
+}
+
+export function partitionAllowlisted(flagged, allowlist) {
+  const blocking = []
+  const suppressed = []
+  for (const advisory of flagged) {
+    const ghsaId = extractGhsaId(advisory.url)
+    const exemption = ghsaId ? allowlist.get(ghsaId) : undefined
+    if (exemption) suppressed.push({ ...advisory, ghsaId, reason: exemption.reason })
+    else blocking.push(advisory)
+  }
+  return { blocking, suppressed }
+}
+
 export async function main(argv = process.argv.slice(2)) {
   let options
   try {
@@ -156,13 +190,29 @@ export async function main(argv = process.argv.slice(2)) {
 
   const flagged = collectFlaggedAdvisories(advisories, threshold)
 
+  let allowlist
+  try {
+    allowlist = loadAllowlist()
+  } catch (error) {
+    // Fail closed — a broken allowlist must never silently suppress advisories.
+    console.error(`audit-ci: could not read allowlist: ${error.message}`)
+    return 2
+  }
+  const { blocking, suppressed } = partitionAllowlisted(flagged, allowlist)
+
   console.log(`audit-ci: scanned ${names.length} packages; threshold=${threshold}+`)
-  if (flagged.length === 0) {
+  if (suppressed.length > 0) {
+    console.log(`audit-ci: ${suppressed.length} advisory(ies) allowlisted:`)
+    for (const advisory of suppressed) {
+      console.log(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.ghsaId}: ${advisory.reason}`)
+    }
+  }
+  if (blocking.length === 0) {
     console.log('audit-ci: no advisories at or above threshold.')
     return 0
   }
-  console.error(`audit-ci: ${flagged.length} advisory(ies) at or above ${threshold}:`)
-  for (const advisory of flagged) {
+  console.error(`audit-ci: ${blocking.length} advisory(ies) at or above ${threshold}:`)
+  for (const advisory of blocking) {
     console.error(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
   }
   return 1

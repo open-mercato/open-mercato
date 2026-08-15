@@ -38,6 +38,11 @@ import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
+/** Operators `buildCfFilterExpression` compiles; anything else yields no predicate. */
+const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
+  'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte',
+])
+
 const DECRYPT_CONCURRENCY = 8
 const AUTO_REINDEX_DEBOUNCE_DEFAULT_MS = 30_000
 const AUTO_REINDEX_DEBOUNCE_MAX_SCOPES = 10_000
@@ -742,9 +747,14 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
+      // Custom-field leaves that belong to an OR disjunct are handled together with
+      // the base ones below; applying them here would AND them onto every disjunct.
+      const regularCfFilters = cfFilters.filter((filter) => !filter.orGroup)
+      const orGroupCfFilters = cfFilters.filter((filter) => filter.orGroup)
+
       const applyCfFilters = (q: AnyBuilder): AnyBuilder => {
         let next = q
-        for (const filter of cfFilters) {
+        for (const filter of regularCfFilters) {
           next = this.applyCfFilterAcrossSources(
             next, filter.field, filter.op, filter.value, indexSources, searchRuntime,
           )
@@ -775,28 +785,60 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
+      // Also used by the optimized count path, which builds from a bare base table with
+      // no index/custom-field joins. Emitting a cf predicate there would reference an
+      // alias that query has never joined, so this stays safe only while
+      // `canOptimizeCount` is false whenever any cf filter exists (see `hasCustomFieldFilters`).
       const applyOrGroupedBaseFilters = (q: AnyBuilder): AnyBuilder => {
-        if (orGroupFilters.length === 0) return q
-        const groups = new Map<string, BaseFilter[]>()
+        if (orGroupFilters.length === 0 && orGroupCfFilters.length === 0) return q
+        // `BaseFilter` here is just the normalized-leaf shape; the `cf` bucket holds
+        // custom-field leaves, which never resolve to a base column.
+        const groups = new Map<string, { base: BaseFilter[]; cf: BaseFilter[] }>()
+        const bucketFor = (orGroup: string) => {
+          const existing = groups.get(orGroup) ?? { base: [], cf: [] }
+          groups.set(orGroup, existing)
+          return existing
+        }
         for (const filter of orGroupFilters) {
           if (!filter.orGroup) continue
-          const existing = groups.get(filter.orGroup) ?? []
-          existing.push(filter)
-          groups.set(filter.orGroup, existing)
+          bucketFor(filter.orGroup).base.push(filter)
         }
-        const groupList = Array.from(groups.values()).filter((g) => g.length > 0)
-        if (groupList.length === 0) return q
+        // Custom-field leaves belong to the same disjunct as the base ones sharing
+        // their orGroup, so a mixed `base OR cf` filter unites rather than intersects.
+        for (const filter of orGroupCfFilters) {
+          if (!filter.orGroup) continue
+          bucketFor(filter.orGroup).cf.push(filter)
+        }
+        // A cf leaf that compiles to no predicate is dropped, and a disjunct left with
+        // no leaves is dropped too — an empty AND would read as TRUE and widen the result.
+        const applicableGroups = Array.from(groups.values())
+          .map((group) => ({
+            base: group.base,
+            cf: group.cf.filter((filter) =>
+              this.cfFilterHasPredicate(filter.op, filter.value, indexSources, searchRuntime),
+            ),
+          }))
+          .filter((group) => group.base.length > 0 || group.cf.length > 0)
+        if (applicableGroups.length === 0) return q
         // Combine all groups in a single WHERE: disjuncts are OR'd together; within
         // each disjunct, fields are AND'd. Building this as separate `.where()` calls
         // would AND the disjuncts (wrong semantics).
-        return q.where((eb: any) => eb.or(
-          groupList.map((groupFilters) => {
-            const parts = groupFilters.map((filter) =>
-              this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
-            )
+        return q.where((eb: any) => {
+          const disjuncts = applicableGroups.map((groupFilters) => {
+            const parts = [
+              ...groupFilters.base.map((filter) =>
+                this.buildBaseFilterExpression(eb, filter, resolveBaseColumn, qualify, entity, searchRuntime),
+              ),
+              ...groupFilters.cf.map((filter) =>
+                this.buildCfFilterExpression(
+                  eb, filter.field, filter.op, filter.value, indexSources, searchRuntime,
+                ),
+              ),
+            ]
             return parts.length === 1 ? parts[0] : eb.and(parts)
-          }),
-        ))
+          })
+          return disjuncts.length === 1 ? disjuncts[0] : eb.or(disjuncts)
+        })
       }
 
       const applyAliasScopes = async (target: AnyBuilder, aliasName: string): Promise<AnyBuilder> => {
@@ -1350,6 +1392,114 @@ export class HybridQueryEngine implements QueryEngine {
     return sql<string | null>`coalesce(${sql.join(parts, sql`, `)})`
   }
 
+  /**
+   * Build a custom-field predicate as a standalone expression.
+   *
+   * Returning an expression rather than mutating a builder is what lets OR-grouped
+   * cf leaves be combined with the base-column ones inside a single `WHERE`
+   * (#5039). `null` means "no predicate" — an empty search-token set or an
+   * unsupported operator — and callers must treat that as the leaf being absent.
+   */
+  private buildCfFilterExpression(
+    eb: any,
+    key: string,
+    op: FilterOp,
+    value: unknown,
+    sources: IndexDocSource[],
+    search?: SearchRuntime
+  ): any | null {
+    if (!sources.length) return null
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      const tokens = tokenizeText(String(value), search.config)
+      const hashes = tokens.hashes
+      if (!hashes.length) {
+        this.logSearchDebug('search:cf-skip-empty-hashes', {
+          entity: sources.map((src) => src.entityId), field: key, value,
+        })
+        return null
+      }
+      const expression = this.buildMultiSourceSearchExists(eb, sources, key, hashes, search)
+      this.logSearchDebug('search:cf-filter-across', {
+        entity: sources.map((src) => src.entityId),
+        field: key, tokens: tokens.tokens, hashes, applied: expression !== null,
+        tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
+      })
+      return expression
+    }
+
+    const textExpr = this.buildCfTextExprSql(key, sources)
+    const jsonExpr = this.buildCfJsonExprSql(key, sources)
+    if (!textExpr || !jsonExpr) return null
+
+    const arrContains = (val: unknown) => sql<boolean>`${jsonExpr} @> ${JSON.stringify([val])}::jsonb`
+
+    switch (op) {
+      case 'eq':
+        // An unset custom field has no array element to contain, so the
+        // arrContains branch cannot match it — compare the text value only.
+        return value === null
+          ? sql<boolean>`${textExpr} is null`
+          : eb.or([
+              sql<boolean>`${textExpr} = ${value}`,
+              arrContains(value),
+            ])
+      case 'ne':
+        return value === null
+          ? sql<boolean>`${textExpr} is not null`
+          : sql<boolean>`${textExpr} <> ${value}`
+      case 'in': {
+        const values = this.toArray(value)
+        return eb.or(
+          values.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        )
+      }
+      case 'nin': {
+        const values = this.toArray(value)
+        return sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`
+      }
+      case 'like':
+        return sql<boolean>`${textExpr} like ${value}`
+      case 'ilike':
+        return sql<boolean>`${textExpr} ilike ${value}`
+      case 'exists':
+        return value
+          ? sql<boolean>`${textExpr} is not null`
+          : sql<boolean>`${textExpr} is null`
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
+        return sql<boolean>`${textExpr} ${operator} ${value}`
+      }
+      default:
+        return null
+    }
+  }
+
+  /**
+   * Whether `buildCfFilterExpression` will produce a predicate for this leaf.
+   *
+   * Decidable without an ExpressionBuilder, which lets callers skip the `.where()`
+   * entirely (rather than emitting a tautology) and lets the OR-group builder drop
+   * leaves before it has to decide whether a disjunct survives.
+   */
+  private cfFilterHasPredicate(
+    op: FilterOp,
+    value: unknown,
+    sources: IndexDocSource[],
+    search?: SearchRuntime,
+  ): boolean {
+    if (!sources.length) return false
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      return tokenizeText(String(value), search.config).hashes.length > 0
+    }
+    return CF_FILTER_SUPPORTED_OPS.has(op)
+  }
+
   private applyCfFilterAcrossSources(
     builder: AnyBuilder,
     key: string,
@@ -1358,83 +1508,28 @@ export class HybridQueryEngine implements QueryEngine {
     sources: IndexDocSource[],
     search?: SearchRuntime
   ): AnyBuilder {
-    if (!sources.length) return builder
-    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
-      const tokens = tokenizeText(String(value), search.config)
-      const hashes = tokens.hashes
-      if (hashes.length) {
-        const applied = this.applyMultiSourceSearchExists(builder, sources, key, hashes, search)
-        this.logSearchDebug('search:cf-filter-across', {
-          entity: sources.map((src) => src.entityId),
-          field: key, tokens: tokens.tokens, hashes, applied,
-          tenantId: search.tenantId ?? null, organizationScope: search.organizationScope,
-        })
-        if (applied.builder !== builder) return applied.builder
-      } else {
+    if (!this.cfFilterHasPredicate(op, value, sources, search)) {
+      // Preserve the pre-existing behaviour of dropping a leaf we cannot compile.
+      if (sources.length && (op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
         this.logSearchDebug('search:cf-skip-empty-hashes', {
           entity: sources.map((src) => src.entityId), field: key, value,
         })
       }
       return builder
     }
-
-    const textExpr = this.buildCfTextExprSql(key, sources)
-    const jsonExpr = this.buildCfJsonExprSql(key, sources)
-    if (!textExpr || !jsonExpr) return builder
-
-    const arrContains = (val: unknown) => sql<boolean>`${jsonExpr} @> ${JSON.stringify([val])}::jsonb`
-
-    switch (op) {
-      case 'eq':
-        return builder.where((eb: any) => eb.or([
-          sql<boolean>`${textExpr} = ${value}`,
-          arrContains(value),
-        ]))
-      case 'ne':
-        return builder.where(sql<boolean>`${textExpr} <> ${value}`)
-      case 'in': {
-        const values = this.toArray(value)
-        return builder.where((eb: any) => eb.or(
-          values.flatMap((val) => [
-            sql<boolean>`${textExpr} = ${val}`,
-            arrContains(val),
-          ])
-        ))
-      }
-      case 'nin': {
-        const values = this.toArray(value)
-        return builder.where(sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`)
-      }
-      case 'like':
-        return builder.where(sql<boolean>`${textExpr} like ${value}`)
-      case 'ilike':
-        return builder.where(sql<boolean>`${textExpr} ilike ${value}`)
-      case 'exists':
-        return value
-          ? builder.where(sql<boolean>`${textExpr} is not null`)
-          : builder.where(sql<boolean>`${textExpr} is null`)
-      case 'gt':
-      case 'gte':
-      case 'lt':
-      case 'lte': {
-        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
-        return builder.where(sql<boolean>`${textExpr} ${operator} ${value}`)
-      }
-      default:
-        return builder
-    }
+    return builder.where((eb: any) => this.buildCfFilterExpression(eb, key, op, value, sources, search))
   }
 
-  /** Apply a search-token EXISTS subquery across multiple sources (OR-joined). */
-  private applyMultiSourceSearchExists(
-    builder: AnyBuilder,
+  /** Build a search-token EXISTS predicate across multiple sources (OR-joined). */
+  private buildMultiSourceSearchExists(
+    eb: any,
     sources: IndexDocSource[],
     key: string,
     hashes: string[],
     search: SearchRuntime,
-  ): { builder: AnyBuilder; applied: boolean } {
-    if (!sources.length || !hashes.length) return { builder, applied: false }
-    const next = builder.where((eb: any) => eb.or(
+  ): any | null {
+    if (!sources.length || !hashes.length) return null
+    return eb.or(
       sources.map((source) =>
         eb.exists(this.buildSearchTokensSub(eb, {
           entity: String(source.entityId),
@@ -1445,8 +1540,7 @@ export class HybridQueryEngine implements QueryEngine {
           mintAlias: search.mintAlias,
         }))
       )
-    ))
-    return { builder: next, applied: true }
+    )
   }
 
   /** Construct a search-token EXISTS subquery using the given ExpressionBuilder. */
@@ -1517,12 +1611,18 @@ export class HybridQueryEngine implements QueryEngine {
     }
     switch (op) {
       case 'eq':
-        return q.where((eb: any) => eb.or([
-          sql<boolean>`${textExpr} = ${value}`,
-          arrContains(value),
-        ]))
+        // An unset custom field has no array element to contain, so the
+        // arrContains branch cannot match it — compare the text value only.
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is null`)
+          : q.where((eb: any) => eb.or([
+              sql<boolean>`${textExpr} = ${value}`,
+              arrContains(value),
+            ]))
       case 'ne':
-        return q.where(sql<boolean>`${textExpr} <> ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
         return q.where((eb: any) => eb.or(
@@ -1589,9 +1689,13 @@ export class HybridQueryEngine implements QueryEngine {
     }
     switch (op) {
       case 'eq':
-        return q.where(sql<boolean>`${textExpr} = ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is null`)
+          : q.where(sql<boolean>`${textExpr} = ${value}`)
       case 'ne':
-        return q.where(sql<boolean>`${textExpr} <> ${value}`)
+        return value === null
+          ? q.where(sql<boolean>`${textExpr} is not null`)
+          : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -1709,8 +1813,8 @@ export class HybridQueryEngine implements QueryEngine {
   ): any {
     const textExpr = sql<string | null>`(${sql.ref(alias + '.doc')} ->> ${key})`
     switch (op) {
-      case 'eq': return sql<boolean>`${textExpr} = ${value}`
-      case 'ne': return sql<boolean>`${textExpr} <> ${value}`
+      case 'eq': return value === null ? sql<boolean>`${textExpr} is null` : sql<boolean>`${textExpr} = ${value}`
+      case 'ne': return value === null ? sql<boolean>`${textExpr} is not null` : sql<boolean>`${textExpr} <> ${value}`
       case 'gt':
       case 'gte':
       case 'lt':

@@ -800,7 +800,10 @@ function buildResult(args) {
   const snapshotVersion = typeof snapshot?.generator === 'string'
     ? snapshot.generator.match(/@(\d+\.\d+\.\d+(?:-[^\s]+)?)/)?.[1] ?? null
     : null
-  const factsPath = join(appRoot, '.ai', 'guides', 'module-facts.json')
+  const factsV2Path = join(appRoot, '.ai', 'guides', 'module-facts.v2.json')
+  const factsPath = existsSync(factsV2Path)
+    ? factsV2Path
+    : join(appRoot, '.ai', 'guides', 'module-facts.json')
   const moduleFact = moduleId && existsSync(factsPath) ? readJson(factsPath)?.[moduleId] ?? null : null
   const factSourcePackage = moduleFact?.sourcePackage ?? null
   const factSourceVersion = moduleFact?.sourceVersion ?? moduleFact?.coreVersion ?? null

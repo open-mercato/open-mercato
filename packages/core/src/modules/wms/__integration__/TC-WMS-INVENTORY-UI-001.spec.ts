@@ -124,7 +124,9 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       })
 
       await adjustDialog.locator('input[inputmode="decimal"]').fill(String(adjustDelta))
-      await adjustDialog.getByRole('combobox').click()
+      // The lookup inputs in this dialog expose role="combobox" too, so target
+      // the reason select trigger by its visible placeholder text.
+      await adjustDialog.getByRole('combobox').filter({ hasText: 'Select reason' }).click()
       await page.getByRole('option', { name: 'Found stock' }).click()
       await adjustDialog.getByRole('button', { name: 'Save adjustment' }).click()
 

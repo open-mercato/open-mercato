@@ -20,6 +20,7 @@ Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and 
 - Never import from `@open-mercato/core` or any domain package; shared has zero domain dependencies.
 - Never gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard matching.
 - Never use `any` for exported shared interfaces.
+- Never call `getCliModules()` / `hasCliModules()` / `registerCliModules()` from runtime code. Only the `mercato` bin populates that registry and `getCliModules()` fails **open** (`[]`), so runtime readers silently do nothing outside a CLI process - this is what made the events worker drop every persistent subscriber. Runtime code uses the app registry (`getModules()` from `lib/modules/registry`) or a DI-resolved service; only `packages/cli/**` and a module's own `cli.ts` may read it. Enforced by `src/modules/__tests__/cli-registry-boundary.test.ts`.
 
 ## Validation Commands
 
@@ -69,7 +70,10 @@ When you need shared type definitions, import from these:
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |
 | Module setup types (`ModuleSetupConfig`) | `@open-mercato/shared/modules/setup` |
 | Module registry types (`Module`) | `@open-mercato/shared/modules/registry` |
+| Resolving authored `PageMetadata` into a route manifest's flat shape (`resolvePageRouteMetadata`, and `resolveDeclaredPageRouteMetadata` for partial merges such as page overrides) | `@open-mercato/shared/modules/registry` |
 | Module-level overrides (`ModuleOverrides`, dispatcher, per-domain compose helpers) | `@open-mercato/shared/modules/overrides` |
+
+`registry.ts` re-exports `resolvePageRouteMetadata` from `@open-mercato/shared/modules/pageRouteMetadata`, where it lives so `overrides.ts` can reuse it without an import cycle. Import it from `registry` — the split is an implementation detail.
 
 ## Key Patterns
 
@@ -121,6 +125,11 @@ index stores hashes of the plaintext, so it keeps matching. Issue #2990.
   `em.find` / Kysely list routes must wire it themselves. When the fallback would run
   `ILIKE` against an encrypted column, both query engines now log a warning
   (`lib/query/ciphertext-search-warning`) instead of degrading silently.
+- The `…WithDecryption` helpers log the same warning outside production when the `where`
+  clause targets an encryption-map property with `$like`/`$ilike`/`$re`
+  (`lib/encryption/likeFilterWarning`). It is a development aid — the map lookup costs an
+  uncached read, so it is skipped in production. A search that only breaks under a
+  production-only encryption map still needs a test.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
 

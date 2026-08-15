@@ -36,7 +36,7 @@ The following file names, their expected export names, and their role in module 
 | `cli.ts` | default export | MUST NOT change expected signature |
 | `data/entities.ts` | Entity class exports | See Database Schema rules below |
 | `data/validators.ts` | Zod schema exports | MUST NOT remove or narrow existing schemas |
-| `data/extensions.ts` | `extensions: EntityExtension[]` | MUST NOT change `EntityExtension` shape |
+| `data/extensions.ts` | `extensions: EntityExtension[]` | MUST NOT change required fields (`base`, `extension`, `join`); may add optional fields |
 | `widgets/injection-table.ts` | `ModuleInjectionTable` | MUST NOT change table type or spot ID resolution |
 | `widgets/injection/*/widget.ts` | `InjectionWidgetModule` | MUST NOT change module shape or component props |
 | `widgets/dashboard/*/widget.ts` | `DashboardWidgetModule` | MUST NOT change module shape or component props |
@@ -79,6 +79,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `McpToolDefinition`: `name`, `description`, `inputSchema`, `handler` — MUST NOT remove
 - `AiToolDefinition`: inherited `McpToolDefinition` fields (`name`, `description`, `inputSchema`, `handler`) — MUST NOT remove; `requiredFeatures` remains optional for legacy/plain-object compatibility; `isMutation`, `isBulk`, `isDestructive`, `loadBeforeRecord`, `loadBeforeRecords`, `maxCallsPerTurn`, and `supportsAttachments` remain optional
 - `AiAgentDefinition`: `id`, `moduleId`, `label`, `description`, `systemPrompt`, `allowedTools` — MUST NOT remove; optional fields (`suggestions`, `executionMode`, `defaultModel`, `acceptedMediaTypes`, `requiredFeatures`, `uiParts`, `readOnly`, `mutationPolicy`, `maxSteps`, `output`, `resolvePageContext`, `keywords`, `domain`, `dataCapabilities`) MAY be extended but MUST NOT be narrowed
+- `AiAgentPageContextInput` (the `resolvePageContext` argument): `entityType`, `recordId`, `container`, `tenantId`, `organizationId` — MUST NOT remove. `userId?` was added 2026-08-06 as an additive optional field carrying the authenticated caller (see [issue #5049](https://github.com/open-mercato/open-mercato/issues/5049)); it MUST stay optional so existing resolvers and construction sites keep compiling, and it MUST be sourced from the server-side auth context, never from the browser-supplied page context. `composeSystemPrompt`'s `userId` parameter is likewise trailing and optional — existing five-argument callers keep working and receive `userId: null`.
 - `AiAgentExtension`: `targetAgentId` — MUST NOT remove; patch fields (`replaceAllowedTools`, `deleteAllowedTools`, `appendAllowedTools`, `replaceSystemPrompt`, `appendSystemPrompt`, `replaceSuggestions`, `deleteSuggestions`, `appendSuggestions`) MUST keep their existing meaning; deprecated `suggestions` remains an append alias until removed through the deprecation protocol
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively. `nav` was wired 2026-07-30 under that clause (see [spec](.ai/specs/2026-07-30-nav-group-order-override-domain.md)): `overrides.nav.groupOrder` **prepends** sidebar nav group ids ahead of the built-in `defaultGroupOrder`, and ids it does not name keep their existing position. It is a default applied *beneath* role and per-user sidebar preferences, so an operator's own arrangement still wins. With no override configured, group ordering is byte-identical to before — that guarantee MUST hold for any future change to this domain.
@@ -254,7 +255,8 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - MUST NOT change generated AI entry shapes: agent entries keep `{ moduleId, agents, overrides, extensions }`; tool entries keep `{ moduleId, tools, overrides }`
 - MAY add new generated files and new optional fields to `BootstrapData`
 - MAY add new generated AI registry exports additively
-- Generated `.ai/guides/module-facts.json` keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, and exact public IDs are STABLE once published.
+- Generated `.ai/guides/module-facts.json` is the v1 compatibility projection. It keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, exact public IDs, and published classification modes are STABLE.
+- Generated `.ai/guides/module-facts.v2.json` is the additive corrected projection and keeps the same `Record<moduleId, ModuleFactsJsonEntry>` top-level shape. New harness consumers prefer v2 and fall back to v1. Once published, v2 values follow the same generated-facts stability rules; future incompatible corrections require another explicit version boundary.
 - Generated `.ai/guides/framework-extension-points.md` is a sibling framework-owned catalog, not a synthetic module-facts key. Existing module Markdown headings, including `Host extension points`, MUST remain available; additive `UMES hosts`/`UMES contributions` sections may not redefine existing IDs.
 
 ---
@@ -314,3 +316,20 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 | Polling cadence | `pollIntervalSeconds` flips 60 → 1800 only when `pushStatus='active'` is persisted. Non-push channels unchanged. | ✓ Behavior-preserving for existing channels |
 
 **Migration path for existing tenants**: no action required. Push is opt-in per channel — until an operator explicitly registers (via connect flow or `POST /push/register`), Gmail channels keep polling on the Spec B baseline. The new ACL feature `communication_channels.channel.push.manage` must be granted via `yarn mercato auth sync-role-acls` post-deploy for the "Re-register push" button to appear.
+
+---
+
+## Command Interceptor HTTP Status (2026-08-06)
+
+`.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type interface (`CommandInterceptorBeforeResult`) | Two new **optional** fields: `status?: number`, `body?: Record<string, unknown>` | ✓ ADDITIVE (Type interface, optional fields) |
+| Function signature (`CommandInterceptorError` constructor) | New **optional** second parameter `options?: { status?, body?, cause? }` | ✓ ADDITIVE (optional parameter appended; every `new CommandInterceptorError(message)` call site compiles and behaves identically) |
+| Function return types (`runCommandInterceptorsBefore`, `runCommandInterceptorsBeforeUndo`) | Returned `error` widens from `{ message: string }` to `{ message: string; status?: number; body?: Record<string, unknown> }` | ✓ ADDITIVE (a widened return type is safe for readers; callers reading `.message` are unaffected) |
+| Import path / exports (`@open-mercato/shared/lib/commands`) | New exports: `isCommandInterceptorError`, `getCommandInterceptorHttpRejection`, `CommandInterceptorErrorOptions`, `CommandInterceptorHttpRejection`. `CommandInterceptorError` keeps its existing export | ✓ ADDITIVE (new exports, nothing removed or renamed) |
+| HTTP response shapes (`makeCrudRoute` handlers, `POST /api/audit_logs/audit-logs/actions/undo`) | A rejection **that sets a status** answers with it; a rejection that sets none keeps the byte-identical generic `500` (CRUD) / `400 Undo failed` (undo) | ✓ Behaviour-preserving for existing interceptors (regression-tested in `crud-factory.test.ts` and `undo.route.test.ts`) |
+| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. Third-party transports that call `commandBus.execute` inside their own `try/catch` can honour the same contract in two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.

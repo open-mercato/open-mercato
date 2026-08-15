@@ -16,4 +16,4 @@ Load this reference before creating files.
 
 Use exact installed orchestrator context for file agents; do not conflate them with product module agents.
 
-MCP/OpenCode configuration, authentication, provider precedence, and session semantics are ask-first contract surfaces. Route them through the `ai-workflow` guide and the installed `.ai/guides/modules/ai_assistant.md` fact sheet rather than guessing.
+MCP/OpenCode configuration, authentication, provider precedence, and session semantics are ask-first contract surfaces. Route them through the `ai-workflow` guide and the installed `.ai/guides/modules/ai_assistant/index.md` fact sheet rather than guessing.

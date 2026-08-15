@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as tar from 'tar'
+import { requirePackageBuild } from './package-build-artifacts.js'
 import {
   downloadReadyAppSnapshot,
   extractTarballSnapshot,
@@ -172,17 +173,8 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
 })
 
 test('published CLI bin executes the dist entrypoint', () => {
-  const buildResult = spawnSync(process.execPath, ['build.mjs'], {
-    cwd: PACKAGE_ROOT,
-    encoding: 'utf8',
-    env: process.env,
-  })
-
-  assert.equal(
-    buildResult.status,
-    0,
-    `expected package build to succeed\nstdout:\n${buildResult.stdout}\nstderr:\n${buildResult.stderr}`,
-  )
+  // Only this test needs the build, so the check lives here rather than at module scope.
+  requirePackageBuild(PACKAGE_ROOT)
 
   const result = spawnSync(process.execPath, [CLI_BIN, '--help'], {
     cwd: PACKAGE_ROOT,
@@ -301,7 +293,9 @@ test('CLI bare scaffold applies explicit crm preset without prompting', () => {
     assert.match(modulesTs, /id: 'currencies'/)
     assert.match(modulesTs, /id: 'communication_channels'/)
     assert.doesNotMatch(modulesTs, /id: 'example'/)
-    assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example')), false)
+    assert.doesNotMatch(modulesTs, /id: 'design_system'/)
+    // The example source ships disabled in every preset (canonical example delivery contract).
+    assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example')), true)
     assert.equal(existsSync(join(targetDir, '.mercato', 'starter-preset.json')), true)
   } finally {
     rmSync(targetRoot, { recursive: true, force: true })
