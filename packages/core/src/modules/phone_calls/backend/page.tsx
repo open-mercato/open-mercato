@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
