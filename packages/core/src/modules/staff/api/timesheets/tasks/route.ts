@@ -30,7 +30,7 @@ import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shar
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { StaffTimeTask } from '../../../data/entities'
+import { StaffTimeTask, StaffTimeTaskTag } from '../../../data/entities'
 import { staffTimeTaskCreateSchema, staffTimeTaskUpdateSchema } from '../../../data/validators'
 import { staffTimeTaskCommandIds } from '../../../commands/timesheets-tasks'
 import { resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
@@ -81,6 +81,7 @@ const listSchema = z
     taskStatusId: z.string().uuid().optional(),
     assigneeStaffMemberId: z.string().uuid().optional(),
     parentTaskId: z.string().uuid().optional(),
+    tagIds: z.string().optional(),
     topLevelOnly: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -184,6 +185,44 @@ function splitIdList(value: unknown): string[] | null {
 }
 
 /**
+ * Task ids carrying **every** requested tag (W9).
+ *
+ * AND rather than OR, because that is what the board's chips already mean
+ * (`matchesBoardTagFilter` requires every selected tag), and a server filter that
+ * disagreed with the chips would change the result set on the same selection.
+ *
+ * Returning `[]` narrows to nothing, which is the correct answer both when no task
+ * carries the combination and when the lookup failed: a filter that cannot be
+ * applied must not silently widen the page back to every task.
+ */
+async function resolveTaskIdsForTags(ctx: CrudCtx, tagIds: string[]): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!tenantId || !organizationId) return []
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const rows = await em.find(
+      StaffTimeTaskTag,
+      { tagId: { $in: tagIds }, tenantId, organizationId },
+      { fields: ['taskId', 'tagId'] },
+    )
+    const seen = new Map<string, Set<string>>()
+    for (const row of rows) {
+      const taskId = row.taskId
+      if (!taskId) continue
+      const bucket = seen.get(taskId) ?? new Set<string>()
+      bucket.add(row.tagId)
+      seen.set(taskId, bucket)
+    }
+    const required = new Set(tagIds).size
+    return [...seen.entries()].filter(([, tags]) => tags.size >= required).map(([taskId]) => taskId)
+  } catch (err) {
+    logger.error('staff.timesheets.tasks tag filter resolution failed', { err })
+    return []
+  }
+}
+
+/**
  * Every task query narrows to the projects the caller may actually see. Exported so
  * the access intersection is testable without standing up the CRUD factory.
  */
@@ -198,6 +237,12 @@ export async function buildTaskListFilters(
     const parsed = splitIdList(raw)
     if (parsed === null) continue
     narrowIds = narrowIds ? narrowIds.filter((id) => parsed.includes(id)) : parsed
+  }
+
+  const requestedTagIds = splitIdList(query.tagIds)
+  if (requestedTagIds !== null) {
+    const tagged = requestedTagIds.length === 0 ? [] : await resolveTaskIdsForTags(ctx, requestedTagIds)
+    narrowIds = narrowIds ? narrowIds.filter((id) => tagged.includes(id)) : tagged
   }
 
   const access = await resolveListProjectAccess(ctx)

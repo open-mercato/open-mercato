@@ -44,6 +44,9 @@ const settingsResponseSchema = z.object({
     overlap: z.boolean(),
     runningTimer: z.boolean(),
   }),
+  access: z.object({
+    assignmentGraceDays: z.number(),
+  }),
 })
 
 type RbacServiceLike = {

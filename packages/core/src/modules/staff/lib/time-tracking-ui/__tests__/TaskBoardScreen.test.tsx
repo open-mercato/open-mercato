@@ -144,9 +144,13 @@ function installApiRouter() {
       const parsed = new URL(url, 'https://test.local')
       const statusId = parsed.searchParams.get('taskStatusId')
       const assigneeId = parsed.searchParams.get('assigneeStaffMemberId')
+      // Mirrors the route's `tagIds` filter (W9): every listed tag must be present.
+      const tagIds = (parsed.searchParams.get('tagIds') ?? '').split(',').filter(Boolean)
       const items = taskRows.filter((row) => {
         if (statusId && row.task_status_id !== statusId) return false
         if (assigneeId && row.assignee_staff_member_id !== assigneeId) return false
+        const rowTags = Array.isArray(row.tagIds) ? (row.tagIds as string[]) : []
+        if (tagIds.some((tagId) => !rowTags.includes(tagId))) return false
         return true
       })
       return ok({ items, total: items.length }) as never
@@ -260,7 +264,7 @@ describe('TaskBoardScreen', () => {
     expect(container.querySelector(`[data-task-card="${PARENT_TASK_ID}"]`)).not.toBeNull()
   })
 
-  it('narrows by tag in the browser, without inventing a request parameter the API has no filter for', async () => {
+  it('narrows by tag on the server, so a match on a later page is not invisible (W9)', async () => {
     const { container } = renderScreen()
     await waitFor(() =>
       expect(container.querySelector(`[data-task-card="${OTHER_TASK_ID}"]`)).not.toBeNull(),
@@ -279,8 +283,9 @@ describe('TaskBoardScreen', () => {
     expect(screen.getByTestId(`board-filter-chip-tag-${TAG_BACKEND_ID}`).textContent).toContain(
       'backend',
     )
-    // The tasks route has no tag filter — the chip must not fabricate one, nor refetch.
-    expect(taskUrls().some((url) => url.toLowerCase().includes('tag'))).toBe(false)
+    // The chip is a request parameter now, so the column counts describe the whole
+    // filtered set rather than the part that happens to be loaded.
+    expect(taskUrls().some((url) => url.includes(`tagIds=${TAG_BACKEND_ID}`))).toBe(true)
   })
 
   it('restores the unfiltered board when the chip is removed', async () => {

@@ -98,6 +98,9 @@ jest.mock('@open-mercato/ui/primitives/select', () => {
         'aria-label': triggerProps['aria-label'],
         'data-testid': triggerProps['data-testid'],
         id: triggerProps.id,
+        // React 19 passes `ref` as a plain prop to function components, so the
+        // trigger ref the dialog focuses reaches the stand-in element too.
+        ref: triggerProps.ref,
         value: value ?? '',
         disabled,
         onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onValueChange?.(event.target.value),
@@ -528,5 +531,46 @@ describe('TimeEntryDialog — saving', () => {
 
     fireEvent.keyDown(dialog, { key: 'Escape' })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+/**
+ * T7.4 — the whole loop (pick task → duration → save → next) has to be doable
+ * without a pointer. Saving already worked; what did not was getting back to the
+ * top of the loop afterwards.
+ */
+describe('TimeEntryDialog — keyboard loop', () => {
+  it('saves and stays open on ⌘⇧↵, so a run of entries never needs the mouse', async () => {
+    const onOpenChange = jest.fn()
+    renderDialog({ onOpenChange })
+    await pickTask()
+    fireEvent.change(startInput(), { target: { value: '15:10' } })
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    fireEvent.keyDown(screen.getByTestId('entry-dialog'), { key: 'Enter', metaKey: true, shiftKey: true })
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    await waitFor(() => expect(startInput().value).toBe('16:10'))
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to the task picker after save and add another', async () => {
+    renderDialog({})
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    fireEvent.click(screen.getByTestId('entry-dialog-save-again'))
+
+    await waitFor(() => expect(durationInput().value).toBe(''))
+    expect(document.activeElement).toBe(screen.getByTestId('entry-dialog-task'))
+  })
+
+  it('advertises both save shortcuts and the cancel one', async () => {
+    renderDialog({})
+    await pickTask()
+
+    const dialog = screen.getByTestId('entry-dialog')
+    expect(dialog.textContent).toContain('save and add another')
+    expect(dialog.textContent).toContain('cancel')
   })
 })

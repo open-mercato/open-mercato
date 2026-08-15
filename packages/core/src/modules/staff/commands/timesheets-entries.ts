@@ -1544,11 +1544,118 @@ const duplicateTimeEntryCommand: CommandHandler<StaffTimeEntryDuplicateInput, { 
   },
 }
 
+export const staffTimeEntryReapplyRoundingSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  entryIds: z.array(z.string().uuid()).min(1).max(500),
+})
+
+export type StaffTimeEntryReapplyRoundingInput = z.infer<typeof staffTimeEntryReapplyRoundingSchema>
+
+export type StaffTimeEntryReapplyRoundingResult = {
+  /** Entries whose `rounded_minutes` actually moved. */
+  updatedCount: number
+  /** Entries already at the current rule — read, compared, left alone. */
+  unchangedCount: number
+  /** Requested ids that were locked, deleted or out of scope, and therefore never loaded. */
+  skippedCount: number
+}
+
+/**
+ * Retroactive rounding (T7.3, screen 16 note 3) — restates `rounded_minutes` on a
+ * batch of existing entries under the tenant's current rule.
+ *
+ * Three properties, in the order they matter:
+ *
+ *  1. **A locked entry is unreachable, not merely skipped.** `lockedReportId: null`
+ *     is part of the WHERE clause, so an entry frozen into a closed report is never
+ *     loaded, never compared and never assigned. The guarantee is structural: there
+ *     is no branch in this handler that could write one.
+ *  2. **It is an explicit, batched administrative action**, driven by the
+ *     `reapply-rounding` ProgressJob worker, never a side effect of saving the
+ *     settings form. Rewriting billing history silently is exactly the failure the
+ *     spec's risk R1 is about.
+ *  3. **It writes one derived column and nothing else.** No clock is re-anchored,
+ *     no duration is touched — `duration_minutes` remains the raw observation.
+ *
+ * Reachable only by a privileged actor: the queue worker (`systemActor`) or a
+ * super-admin. An interactive caller cannot rewrite a tenant's history through the
+ * command bus by guessing the id; the route that enqueues the job is the gate, and
+ * it is gated on `staff.timesheets.settings.manage`.
+ */
+const reapplyRoundingCommand: CommandHandler<
+  StaffTimeEntryReapplyRoundingInput,
+  StaffTimeEntryReapplyRoundingResult
+> = {
+  id: 'staff.timesheets.time_entries.reapply_rounding',
+  async execute(input, ctx) {
+    const parsed = staffTimeEntryReapplyRoundingSchema.parse(input ?? {})
+    if (ctx.systemActor !== true && ctx.auth?.isSuperAdmin !== true) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, { error: translate('staff.errors.forbidden', 'Forbidden') })
+    }
+
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
+
+    const entries = await em.find(
+      StaffTimeEntry,
+      applyScopeToWhere<StaffTimeEntry>(
+        {
+          id: { $in: parsed.entryIds },
+          deletedAt: null,
+          // Non-negotiable: a frozen entry has already been billed at the value it
+          // carries, so it is excluded at the query, not at an `if`.
+          lockedReportId: null,
+        },
+        scope,
+      ),
+    )
+
+    const changed: StaffTimeEntry[] = []
+    let unchangedCount = 0
+    for (const entry of entries) {
+      const next = roundedMinutesFor(entry.durationMinutes, settings)
+      if (entry.roundedMinutes === next) {
+        unchangedCount += 1
+        continue
+      }
+      entry.roundedMinutes = next
+      entry.updatedAt = new Date()
+      changed.push(entry)
+    }
+
+    if (changed.length > 0) await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as Parameters<
+      typeof emitCrudSideEffects
+    >[0]['dataEngine']
+    for (const entry of changed) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: entry,
+        identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+        events: staffTimeEntryCrudEvents,
+        indexer: timeEntryCrudIndexer,
+      })
+    }
+
+    return {
+      updatedCount: changed.length,
+      unchangedCount,
+      skippedCount: Math.max(0, parsed.entryIds.length - entries.length),
+    }
+  },
+}
+
 registerCommand(createTimeEntryCommand)
 registerCommand(startTimerCommand)
 registerCommand(updateTimeEntryCommand)
 registerCommand(deleteTimeEntryCommand)
 registerCommand(duplicateTimeEntryCommand)
+registerCommand(reapplyRoundingCommand)
 
 export const staffTimeEntryCommandIds = {
   create: createTimeEntryCommand.id,
@@ -1556,4 +1663,5 @@ export const staffTimeEntryCommandIds = {
   update: updateTimeEntryCommand.id,
   delete: deleteTimeEntryCommand.id,
   duplicate: duplicateTimeEntryCommand.id,
+  reapplyRounding: reapplyRoundingCommand.id,
 } as const

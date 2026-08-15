@@ -197,6 +197,14 @@ export function TimeEntryDialog({
   const [tagIds, setTagIds] = React.useState<string[]>([])
   const [overlaps, setOverlaps] = React.useState<OverlapEntry[]>([])
   const [saving, setSaving] = React.useState(false)
+  /**
+   * T7.4 — the entry loop must be completable without a mouse, so the first field
+   * of the loop is also the focus target twice over: when the dialog opens (Radix
+   * would otherwise land on the × close button, which renders before the body) and
+   * after "save and add another", where focus would otherwise be stranded on the
+   * button and the next entry would start with a handful of Shift+Tabs.
+   */
+  const taskTriggerRef = React.useRef<HTMLButtonElement | null>(null)
 
   const seedKeyRef = React.useRef<string | null>(null)
   const billableDefaultRef = React.useRef<string | null>(null)
@@ -585,6 +593,8 @@ export function TimeEntryDialog({
           )
           setOverlaps([])
           onSaved?.({ id: savedId, keptOpen: true })
+          // Back to the top of the loop: pick task → duration → save → next.
+          taskTriggerRef.current?.focus()
           return
         }
         onSaved?.({ id: savedId, keptOpen: false })
@@ -694,7 +704,7 @@ export function TimeEntryDialog({
             disabled={locked}
             onValueChange={(next) => setTaskId(next || null)}
           >
-            <SelectTrigger id="entry-dialog-task" data-testid="entry-dialog-task">
+            <SelectTrigger id="entry-dialog-task" data-testid="entry-dialog-task" ref={taskTriggerRef}>
               <SelectValue placeholder={t('staff.time_tracking.entryDialog.taskPlaceholder', 'Pick a task')} />
             </SelectTrigger>
             <SelectContent>
@@ -1052,10 +1062,19 @@ export function TimeEntryDialog({
       <DialogContent
         size="lg"
         data-testid="entry-dialog"
+        onOpenAutoFocus={(event) => {
+          // A locked entry has nothing to type into, so the default focus (the
+          // close button) is the right one there.
+          if (locked || !taskTriggerRef.current) return
+          event.preventDefault()
+          taskTriggerRef.current.focus()
+        }}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault()
-            void submit('close')
+            // Shift keeps the dialog open for the next entry, so a run of entries
+            // never needs the pointer.
+            void submit(event.shiftKey ? 'again' : 'close')
           }
           if (event.key === 'Escape') {
             event.preventDefault()
@@ -1079,6 +1098,15 @@ export function TimeEntryDialog({
             <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
+            {locked ? null : (
+              <>
+                <span aria-hidden="true">·</span>
+                <Kbd>⌘</Kbd>
+                <Kbd>⇧</Kbd>
+                <Kbd>↵</Kbd>
+                {t('staff.time_tracking.entryDialog.shortcutSaveAgain', 'save and add another')}
+              </>
+            )}
             <span aria-hidden="true">·</span>
             <Kbd>esc</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutCancel', 'cancel')}

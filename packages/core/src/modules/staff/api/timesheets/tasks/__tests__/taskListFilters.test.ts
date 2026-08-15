@@ -154,3 +154,108 @@ describe('buildTaskListFilters — board and drawer filters', () => {
     })
   })
 })
+
+/**
+ * W9 — the board's tag chips used to filter loaded rows only, so a match on page two
+ * was invisible. The server filter must mean exactly what the chips mean: every
+ * selected tag, not any of them.
+ */
+describe('buildTaskListFilters — tag filter (W9)', () => {
+  const TAG_A = 'cccccccc-0000-4000-8000-00000000000a'
+  const TAG_B = 'cccccccc-0000-4000-8000-00000000000b'
+  const TASK_A = 'bbbbbbbb-0000-4000-8000-00000000000a'
+  const TASK_B = 'bbbbbbbb-0000-4000-8000-00000000000b'
+
+  type TagRow = { taskId: string; tagId: string }
+
+  function ctxWithTagRows(rows: TagRow[] | Error): CrudCtx {
+    const find = jest.fn(async () => {
+      if (rows instanceof Error) throw rows
+      return rows
+    })
+    return {
+      auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID },
+      selectedOrganizationId: ORG_ID,
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({ find }) }
+          throw new Error(`[internal] unexpected resolve ${name}`)
+        },
+      },
+      __find: find,
+    } as unknown as CrudCtx
+  }
+
+  const runWithTags = (query: QueryInput, rows: TagRow[] | Error) =>
+    buildTaskListFilters(query as never, ctxWithTagRows(rows))
+
+  beforeEach(() => {
+    asManager()
+  })
+
+  it('keeps only tasks carrying every selected tag', async () => {
+    const rows = [
+      { taskId: TASK_A, tagId: TAG_A },
+      { taskId: TASK_A, tagId: TAG_B },
+      { taskId: TASK_B, tagId: TAG_A },
+    ]
+
+    await expect(runWithTags({ tagIds: `${TAG_A},${TAG_B}` }, rows)).resolves.toEqual({
+      id: { $in: [TASK_A] },
+    })
+  })
+
+  it('matches every task carrying the single selected tag', async () => {
+    const rows = [
+      { taskId: TASK_A, tagId: TAG_A },
+      { taskId: TASK_B, tagId: TAG_A },
+    ]
+
+    await expect(runWithTags({ tagIds: TAG_A }, rows)).resolves.toEqual({
+      id: { $in: [TASK_A, TASK_B] },
+    })
+  })
+
+  it('narrows to nothing when no task carries the combination', async () => {
+    await expect(runWithTags({ tagIds: `${TAG_A},${TAG_B}` }, [])).resolves.toEqual({
+      id: { $in: [IMPOSSIBLE_ID] },
+    })
+  })
+
+  it('narrows to nothing rather than widening when the lookup fails', async () => {
+    await expect(
+      runWithTags({ tagIds: TAG_A }, new Error('[internal] db down')),
+    ).resolves.toEqual({ id: { $in: [IMPOSSIBLE_ID] } })
+  })
+
+  it('scopes the tag lookup to the caller tenant and organization', async () => {
+    const ctx = ctxWithTagRows([{ taskId: TASK_A, tagId: TAG_A }])
+    await buildTaskListFilters({ tagIds: TAG_A } as never, ctx)
+
+    const find = (ctx as unknown as { __find: jest.Mock }).__find
+    expect(find).toHaveBeenCalledTimes(1)
+    expect(find.mock.calls[0][1]).toEqual({
+      tagId: { $in: [TAG_A] },
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+  })
+
+  it('intersects the tag filter with an explicit id list', async () => {
+    const rows = [
+      { taskId: TASK_A, tagId: TAG_A },
+      { taskId: TASK_B, tagId: TAG_A },
+    ]
+
+    await expect(runWithTags({ tagIds: TAG_A, ids: TASK_B }, rows)).resolves.toEqual({
+      id: { $in: [TASK_B] },
+    })
+  })
+
+  it('does not query tags when no tag is selected', async () => {
+    const ctx = ctxWithTagRows([])
+    await buildTaskListFilters({} as never, ctx)
+
+    expect((ctx as unknown as { __find: jest.Mock }).__find).not.toHaveBeenCalled()
+  })
+})

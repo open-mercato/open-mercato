@@ -20,7 +20,6 @@ import {
 import {
   boardServerFilterKey,
   boardServerFilterParams,
-  matchesBoardTagFilter,
   type BoardFilters,
 } from './boardFilters'
 import {
@@ -91,10 +90,7 @@ export function TaskListView({
     return sortByPosition(rows)
   }, [tasksQuery.data])
 
-  const tasks = React.useMemo(
-    () => loadedTasks.filter((task) => matchesBoardTagFilter(task.tagIds, filters)),
-    [filters, loadedTasks],
-  )
+  const tasks = loadedTasks
 
   const assigneeIds = React.useMemo(
     () =>

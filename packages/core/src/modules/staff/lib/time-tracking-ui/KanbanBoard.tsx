@@ -53,7 +53,6 @@ import {
   EMPTY_BOARD_FILTERS,
   boardServerFilterKey,
   boardServerFilterParams,
-  matchesBoardTagFilter,
   visibleBoardStatusIds,
   type BoardFilters,
 } from './boardFilters'
@@ -205,16 +204,14 @@ export function KanbanBoard({
       const loaded = (data?.items ?? [])
         .map(toBoardTask)
         .filter((task): task is BoardTask => task !== null)
-      // The tag filter has no server side (see `boardFilters.ts`), so it lands here.
-      const tasks = loaded.filter((task) => matchesBoardTagFilter(task.tagIds, filters))
       map.set(status.id, {
-        tasks: sortByPosition(tasks),
+        tasks: sortByPosition(loaded),
         loaded: loaded.length,
         total: data?.total ?? loaded.length,
       })
     })
     return map
-  }, [columnQueries, filters, visibleStatuses])
+  }, [columnQueries, visibleStatuses])
 
   const allTasks = React.useMemo(() => {
     const rows: BoardTask[] = []
@@ -825,10 +822,7 @@ export function KanbanBoard({
                 key={status.id}
                 status={status}
                 tasks={entry?.tasks ?? []}
-                // Under a tag filter the badge counts what is actually on screen; the
-                // remaining count keeps pointing at rows the server still holds, so
-                // another page can still be pulled in.
-                total={filters.tagIds.length > 0 ? entry?.tasks.length ?? 0 : serverTotal}
+                total={serverTotal}
                 remaining={Math.max(0, serverTotal - loaded)}
                 canQuickAdd={canManageTasks}
                 loadingMore={columnQueries[index]?.isFetching ?? false}

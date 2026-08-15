@@ -10,17 +10,15 @@
  *    The board already asks one request per column keyed by `taskStatusId`, so
  *    filtering by status is "render this column only", not "add a parameter".
  *    The flat list view has no columns, so there it *is* a request parameter.
- *  - **tag** narrows in the browser. The tasks list route has no tag parameter and
- *    tag assignment lives in its own table, so there is no server-side narrowing to
- *    reach for without changing the API. Rows arrive carrying `tagIds` (added by the
- *    rollup enricher), so the filter is applied to what was fetched. The consequence
- *    is stated rather than hidden: a column reports the number of *matching loaded*
- *    cards, and the "show more" affordance keeps counting rows the server still has,
- *    so pulling another page can reveal further matches.
+ *  - **tag** narrows on the server too, since T7.6 gave `/api/staff/timesheets/tasks`
+ *    a `tagIds` parameter (W9). It used to filter loaded rows in the browser, which
+ *    made a match on page two invisible and the column badge count depend on how far
+ *    the board had been paged. The parameter means **every** listed tag, which is
+ *    what the chips have always meant.
  *
  * The split matters for caching: only the server-narrowed part may appear in a
- * react-query key, otherwise flipping a tag chip would evict and refetch pages whose
- * bytes did not change. `boardServerFilterKey` is that part, and nothing else.
+ * react-query key, otherwise flipping a chip would evict and refetch pages whose
+ * bytes did not change. `boardServerFilterKey` is that part.
  */
 
 export type BoardFilters = {
@@ -77,11 +75,13 @@ export type BoardFilterScope = {
 
 /**
  * The part of the filter state a request actually depends on — and therefore the only
- * part allowed into a react-query key. A tag chip never appears here.
+ * part allowed into a react-query key. Tags are ordered so that picking the same two
+ * chips in either order shares one cache entry.
  */
 export function boardServerFilterKey(filters: BoardFilters, scope: BoardFilterScope = {}): string {
   const parts = [`assignee:${filters.assigneeStaffMemberId ?? ''}`]
   if (scope.includeStatus) parts.push(`status:${filters.taskStatusId ?? ''}`)
+  parts.push(`tags:${[...filters.tagIds].sort().join(',')}`)
   return parts.join('|')
 }
 
@@ -94,16 +94,10 @@ export function boardServerFilterParams(filters: BoardFilters, scope: BoardFilte
   if (scope.includeStatus && filters.taskStatusId) {
     params += `&taskStatusId=${encodeURIComponent(filters.taskStatusId)}`
   }
+  if (filters.tagIds.length > 0) {
+    params += `&tagIds=${encodeURIComponent([...filters.tagIds].sort().join(','))}`
+  }
   return params
-}
-
-/** A task matches when it carries **every** selected tag. */
-export function matchesBoardTagFilter(
-  tagIds: readonly string[],
-  filters: BoardFilters,
-): boolean {
-  if (filters.tagIds.length === 0) return true
-  return filters.tagIds.every((tagId) => tagIds.includes(tagId))
 }
 
 /** Which columns the board renders under the current status filter. */

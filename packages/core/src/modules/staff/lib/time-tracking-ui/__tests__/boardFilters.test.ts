@@ -3,7 +3,6 @@ import {
   boardServerFilterKey,
   boardServerFilterParams,
   countActiveBoardFilters,
-  matchesBoardTagFilter,
   normalizeBoardFilters,
   visibleBoardStatusIds,
   withAssigneeFilter,
@@ -37,11 +36,22 @@ describe('boardFilters', () => {
     expect(countActiveBoardFilters(withoutTagFilter(filters, 'tag-a'))).toBe(2)
   })
 
-  it('keeps the tag filter out of the request and out of the cache key', () => {
+  it('sends the tag filter to the server and keys the cache on it (W9)', () => {
     const filters = withTagFilter(withAssigneeFilter(EMPTY_BOARD_FILTERS, STAFF_ID), 'tag-a')
-    // A tag chip changes nothing the server was asked, so it must not evict a cached page.
-    expect(boardServerFilterKey(filters)).toBe(boardServerFilterKey(withoutTagFilter(filters, 'tag-a')))
-    expect(boardServerFilterParams(filters)).toBe(`&assigneeStaffMemberId=${STAFF_ID}`)
+    expect(boardServerFilterParams(filters)).toBe(`&assigneeStaffMemberId=${STAFF_ID}&tagIds=tag-a`)
+    expect(boardServerFilterKey(filters)).not.toBe(
+      boardServerFilterKey(withoutTagFilter(filters, 'tag-a')),
+    )
+    expect(boardServerFilterParams(withoutTagFilter(filters, 'tag-a'))).toBe(
+      `&assigneeStaffMemberId=${STAFF_ID}`,
+    )
+  })
+
+  it('shares one cache entry however the same two chips were picked', () => {
+    const first = withTagFilter(withTagFilter(EMPTY_BOARD_FILTERS, 'tag-b'), 'tag-a')
+    const second = withTagFilter(withTagFilter(EMPTY_BOARD_FILTERS, 'tag-a'), 'tag-b')
+    expect(boardServerFilterKey(first)).toBe(boardServerFilterKey(second))
+    expect(boardServerFilterParams(first)).toBe(boardServerFilterParams(second))
   })
 
   it('sends the status as a parameter only for the flat list view', () => {
@@ -61,10 +71,8 @@ describe('boardFilters', () => {
     ])
   })
 
-  it('requires every selected tag on a task', () => {
+  it('asks for every selected tag, which is what the route filter means', () => {
     const filters = withTagFilter(withTagFilter(EMPTY_BOARD_FILTERS, 'a'), 'b')
-    expect(matchesBoardTagFilter(['a', 'b', 'c'], filters)).toBe(true)
-    expect(matchesBoardTagFilter(['a'], filters)).toBe(false)
-    expect(matchesBoardTagFilter([], EMPTY_BOARD_FILTERS)).toBe(true)
+    expect(boardServerFilterParams(filters)).toBe('&tagIds=a%2Cb')
   })
 })
