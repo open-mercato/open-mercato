@@ -485,12 +485,23 @@ export default function AgentFleetOverviewPage() {
                 ) : trust.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.trust.empty', 'No agents yet')}</p>
                 ) : (
-                  <Table>
+                  // `table-fixed` is what makes the declared widths hold and lets the
+                  // agent column absorb the remainder. Under the default auto layout the
+                  // table sized itself to its longest agent id — 620px inside a 449px
+                  // panel — and the Panel's `overflow-hidden` cut the Status column off
+                  // with no scrollbar to reveal it. The `truncate` below was already
+                  // written for this and never engaged.
+                  <div className="overflow-x-auto">
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
                         <TableHead>{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</TableHead>
                         <TableHead className="w-16 text-right">{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
-                        <TableHead className="w-28">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</TableHead>
+                        {/* The panel is 2/5 of the row, so four columns leave the agent
+                            name ~59px to live in below 2xl. Override is the least
+                            identifying of them — a meter and a percentage — so it is the
+                            one that yields the space back to the name. */}
+                        <TableHead className="hidden w-24 2xl:table-cell">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</TableHead>
                         <TableHead className="w-20">{t('agent_orchestrator.overview.trust.col.status', 'Status')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -514,13 +525,15 @@ export default function AgentFleetOverviewPage() {
                             <div className="flex items-center gap-2.5">
                               <Avatar label={row.label} size="sm" variant="monochrome" icon={agentAvatarIcon(row.icon, row.resultKind)} />
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-medium text-foreground">{row.label}</div>
-                                <div className="truncate font-mono text-xs text-muted-foreground">{row.id}</div>
+                                {/* Truncation without a title destroys the id with no way to
+                                    read it back; the column is narrow by design here. */}
+                                <div className="truncate text-sm font-medium text-foreground" title={row.label}>{row.label}</div>
+                                <div className="truncate font-mono text-xs text-muted-foreground" title={row.id}>{row.id}</div>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-foreground">{formatNumber(row.runs, locale) ?? '0'}</TableCell>
-                          <TableCell><OverrideMeter pct={row.overridePct} /></TableCell>
+                          <TableCell className="hidden 2xl:table-cell"><OverrideMeter pct={row.overridePct} /></TableCell>
                           <TableCell>
                             <StatusBadge variant={statusVariant[row.status]} dot>
                               {t(`agent_orchestrator.agents.list.status.${row.status}`, row.status)}
@@ -530,6 +543,7 @@ export default function AgentFleetOverviewPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 )}
               </Panel>
             </div>
