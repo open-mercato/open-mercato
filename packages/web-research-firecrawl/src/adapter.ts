@@ -96,6 +96,8 @@ export function createFirecrawlAdapter(options: FirecrawlOptions): SearchAdapter
       siteFilter: true,
       cost: 'metered',
     },
+    /** `billable` — issues a real /v1/search query. */
+    probeCost: 'billable' as const,
     readiness: () => (apiKey.length > 0 ? READY : notReady('Firecrawl API key is not set')),
 
     async search(request, context): Promise<SearchOutcome> {

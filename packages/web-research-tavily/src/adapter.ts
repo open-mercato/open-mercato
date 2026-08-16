@@ -68,6 +68,8 @@ export function createTavilyAdapter(options: TavilyOptions): SearchAdapter {
       siteFilter: true,
       cost: 'metered',
     },
+    /** `billable` — issues a real /search query. */
+    probeCost: 'billable' as const,
     readiness: () => (apiKey.length > 0 ? READY : notReady('Tavily API key is not set')),
 
     async search(request, context): Promise<SearchOutcome> {

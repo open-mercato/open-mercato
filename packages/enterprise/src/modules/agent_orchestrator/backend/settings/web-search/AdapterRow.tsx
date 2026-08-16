@@ -17,6 +17,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { HealthStateBadge } from '../../../components/health/HealthStateBadge'
 
 export type OptionField = {
   name: string
@@ -46,6 +47,10 @@ export type AdapterHealth = {
   latencyMs: number | null
   /** False when the row reports configuration only, with no call made. */
   probed?: boolean
+  /** What calling this adapter's health check costs. */
+  probeCost?: 'free' | 'heavy' | 'billable'
+  /** When the row was last actually called, when it was reused from a cache. */
+  checkedAt?: string | null
 }
 
 export const SECRET_PLACEHOLDER = '__om_secret_unchanged__'
@@ -229,22 +234,12 @@ export function AdapterRow({
               <span className="text-xs text-status-warning-text">
                 {t('agent_orchestrator.settings.webSearch.needsConfig', 'Configuration required')}
               </span>
-            ) : enabled && health?.probed ? (
-              <span
-                className={
-                  health.ok ? 'text-xs text-status-success-text' : 'text-xs text-status-warning-text'
-                }
-              >
-                {health.ok
-                  ? t('agent_orchestrator.settings.webSearch.healthOk', 'Healthy')
-                  : t('agent_orchestrator.settings.webSearch.healthProblem', 'Problem')}
-              </span>
             ) : enabled ? (
               // Configured is not the same claim as working. Saying "Healthy" for
-              // an adapter nobody called would be a guess dressed as a fact.
-              <span className="text-xs text-muted-foreground">
-                {t('agent_orchestrator.settings.webSearch.healthUntested', 'Not tested')}
-              </span>
+              // an adapter nobody called would be a guess dressed as a fact — so
+              // an unprobed row reads "Not checked", in the same words the
+              // overview uses for the same fact.
+              <HealthStateBadge state={health?.probed ? (health.ok ? 'ok' : 'degraded') : 'unknown'} />
             ) : null}
           </div>
           <p className="truncate text-xs text-muted-foreground">

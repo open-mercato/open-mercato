@@ -1,3 +1,4 @@
+import type { ProbeCost, SearchAdapter } from '../contract/adapter'
 import { silentLogger } from '../contract/http'
 import { timedOut, toOutcomeFailure, type FetchOutcome } from '../contract/outcomes'
 import type { SearchPolicy } from '../contract/policy'
@@ -32,6 +33,18 @@ import type {
 
 const TEXTUAL_CONTENT = ['text/', 'application/xhtml+xml', 'application/json', 'application/xml']
 const HEALTH_TIMEOUT_MS = 5_000
+
+const PROBE_COST_RANK: Record<ProbeCost, number> = { free: 0, heavy: 1, billable: 2 }
+
+/**
+ * An adapter that does not declare `probeCost` is assumed to bill when it is a
+ * metered source. Pessimistic on purpose: the cost of guessing wrong downwards
+ * is a surprise invoice, and the cost of guessing wrong upwards is one row that
+ * says "not verified" until somebody clicks.
+ */
+function resolveProbeCost(adapter: SearchAdapter): ProbeCost {
+  return adapter.probeCost ?? (adapter.capabilities.cost === 'metered' ? 'billable' : 'free')
+}
 
 function statusToEvent(status: AdapterDiagnosticStatus): SearchStepEvent {
   return status === 'skipped' ? 'unavailable' : status
@@ -543,16 +556,23 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
 
   async function health(runOptions: HealthOptions = {}): Promise<readonly AdapterHealthReport[]> {
     const probe = runOptions.probe ?? true
+    const budget = PROBE_COST_RANK[runOptions.maxProbeCost ?? 'billable']
+    const only = runOptions.only ? new Set(runOptions.only) : null
     return Promise.all(
       ordered.map(async (entry): Promise<AdapterHealthReport> => {
+        const probeCost = resolveProbeCost(entry.adapter)
         const readiness = entry.adapter.readiness()
         if (!readiness.ready) {
-          return { id: entry.adapter.id, ready: false, ok: false, detail: readiness.reason }
+          return { id: entry.adapter.id, ready: false, ok: false, detail: readiness.reason, probeCost, probed: false }
         }
         // Readiness alone already answers "is this configured", which is what a
         // status display needs. Calling the adapter costs money on a metered
-        // source, so it stays opt-in.
-        if (!probe || !entry.adapter.healthCheck) return { id: entry.adapter.id, ready: true, ok: true }
+        // source, so it stays opt-in — and the budget keeps an unattended caller
+        // to the adapters whose probe is free.
+        const withinBudget = PROBE_COST_RANK[probeCost] <= budget && (!only || only.has(entry.adapter.id))
+        if (!probe || !withinBudget || !entry.adapter.healthCheck) {
+          return { id: entry.adapter.id, ready: true, ok: true, probeCost, probed: false }
+        }
         const startedAt = now()
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS)
@@ -566,7 +586,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
             deadlineAt: startedAt + HEALTH_TIMEOUT_MS,
             logger,
           })
-          return { id: entry.adapter.id, ready: true, latencyMs: now() - startedAt, ...result }
+          return { id: entry.adapter.id, ready: true, latencyMs: now() - startedAt, probeCost, probed: true, ...result }
         } catch (error) {
           return {
             id: entry.adapter.id,
@@ -574,6 +594,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
             ok: false,
             detail: error instanceof Error ? error.message : String(error),
             latencyMs: now() - startedAt,
+            probeCost,
+            probed: true,
           }
         } finally {
           clearTimeout(timer)

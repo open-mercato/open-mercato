@@ -1,4 +1,4 @@
-import type { AdapterHealth, SearchAdapter } from '../contract/adapter'
+import type { AdapterHealth, ProbeCost, SearchAdapter } from '../contract/adapter'
 import type { HttpClient, Logger } from '../contract/http'
 import type { FetchOutcome } from '../contract/outcomes'
 import type { SearchPolicy } from '../contract/policy'
@@ -63,6 +63,10 @@ export type SearchEngineResult = {
 export type AdapterHealthReport = AdapterHealth & {
   readonly id: string
   readonly ready: boolean
+  /** What probing this adapter costs, resolved through the engine's default. */
+  readonly probeCost?: ProbeCost
+  /** False when the row reports configuration only, with no call made. */
+  readonly probed?: boolean
 }
 
 export type EngineAdapterEntry = {
@@ -111,6 +115,18 @@ export type HealthOptions = RunOptions & {
    * must be able to ask without billing anyone.
    */
   readonly probe?: boolean
+  /**
+   * Ceiling on what may be spent probing. `'free'` calls only the adapters whose
+   * probe costs nothing; the rest come back `probed: false` with their readiness
+   * intact. Ignored when `probe` is false. Defaults to `'billable'`, which is the
+   * behaviour every existing caller already gets.
+   */
+  readonly maxProbeCost?: ProbeCost
+  /**
+   * Restrict probing to these adapter ids. Everything else still reports
+   * readiness, so a targeted re-test of one adapter cannot bill the others.
+   */
+  readonly only?: readonly string[]
 }
 
 export interface SearchEngine {

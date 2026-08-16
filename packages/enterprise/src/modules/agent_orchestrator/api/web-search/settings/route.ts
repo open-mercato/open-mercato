@@ -19,6 +19,7 @@ import {
   resolveWebSearchSettings,
   storedSettingsSchema,
 } from '../../../lib/webSearch/policy'
+import { invalidateWebSearchHealthCache } from '../../../lib/webSearch/healthCache'
 import { adapterSecretFields, canEncryptSecrets, encryptAdapterSecrets } from '../../../lib/webSearch/secretStorage'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { hostCapabilitiesFor } from '../../../lib/webSearch/registry'
@@ -239,6 +240,11 @@ export async function PUT(req: Request) {
     },
     { tenantId: auth.tenantId },
   )
+
+  // A saved key, base URL or enabled flag can change what a probe would answer,
+  // so the cached health rows this tenant is serving stop being true the moment
+  // the write lands. Dropping them is cheaper than showing a stale green.
+  await invalidateWebSearchHealthCache(container, auth.tenantId)
 
   const settings = await resolveWebSearchSettings(container, auth.tenantId)
   const { installed } = catalogue(container, settings.adapterOptions)

@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { Activity, RotateCw } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
-import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   deriveRuntimeIndicators,
@@ -19,13 +20,8 @@ import {
   type HealthState,
   type WebSearchHealthPayload,
 } from '../lib/systemHealth'
-
-const stateVariant: StatusMap<HealthState> = {
-  ok: 'success',
-  degraded: 'warning',
-  down: 'error',
-  unknown: 'neutral',
-}
+import { SystemHealthPanel } from './health/SystemHealthPanel'
+import { HealthStateBadge } from './health/HealthStateBadge'
 
 const INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
   webSearch: 'agent_orchestrator.overview.health.webSearch',
@@ -35,10 +31,26 @@ const INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
 }
 
 const STATE_LABEL_KEY: Record<HealthState, string> = {
-  ok: 'agent_orchestrator.overview.health.state.ok',
-  degraded: 'agent_orchestrator.overview.health.state.degraded',
-  down: 'agent_orchestrator.overview.health.state.down',
-  unknown: 'agent_orchestrator.overview.health.state.unknown',
+  ok: 'agent_orchestrator.health.state.ok',
+  degraded: 'agent_orchestrator.health.state.degraded',
+  down: 'agent_orchestrator.health.state.down',
+  unknown: 'agent_orchestrator.health.state.unknown',
+  error: 'agent_orchestrator.health.state.error',
+}
+
+const DOT_CLASS: Record<HealthState, string> = {
+  ok: 'bg-status-success-icon',
+  degraded: 'bg-status-warning-icon',
+  down: 'bg-status-error-icon',
+  error: 'bg-status-error-icon',
+  unknown: 'bg-status-neutral-icon',
+}
+
+const WEB_SEARCH_HEALTH_URL = '/api/agent_orchestrator/web-search/health'
+
+/** Not permitted is not the same fault as not reachable. */
+function isDenied(call: { status?: number } | null): boolean {
+  return call?.status === 401 || call?.status === 403
 }
 
 /**
@@ -47,45 +59,71 @@ const STATE_LABEL_KEY: Record<HealthState, string> = {
  * It replaces a full-width web-search card that spent a whole row on one of the
  * four things that can be down, while the two that stop an agent running at all
  * — MCP and OpenCode — were not on the page. The per-adapter detail the old
- * card carried is not lost: it moves into the popover, which is where detail
+ * card carried is not lost: it moves into the panel, which is where detail
  * belongs on a page you scan.
  *
- * Read-only. Two independent fetches, so a caller without `ai_assistant.view`
- * still sees web-search health instead of an empty tile.
+ * Two independent fetches, so a caller without `ai_assistant.view` still sees
+ * web-search health instead of an empty tile. The web-search call asks for
+ * `probe=auto`: adapters whose health check is free are verified on entry, and
+ * the ones that bill are only ever reused from a cached operator-initiated probe.
  */
 export function SystemHealthTile() {
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canProbe = hasFeature(payload?.grantedFeatures, 'agent_orchestrator.agents.manage')
+
   const [webSearch, setWebSearch] = React.useState<WebSearchHealthPayload | null>(null)
   const [runtime, setRuntime] = React.useState<AiRuntimeHealthPayload | null>(null)
+  const [webSearchFailed, setWebSearchFailed] = React.useState(false)
+  const [runtimeFailed, setRuntimeFailed] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
+  const [probingAdapterId, setProbingAdapterId] = React.useState<string | null>(null)
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (url: string) => {
     setIsLoading(true)
     const [webSearchCall, runtimeCall] = await Promise.all([
-      apiCall<unknown>('/api/agent_orchestrator/web-search/health').catch(() => null),
+      apiCall<unknown>(url).catch(() => null),
       apiCall<unknown>('/api/ai_assistant/health').catch(() => null),
     ])
-    setWebSearch(
-      webSearchCall?.ok && isWebSearchHealthPayload(webSearchCall.result) ? webSearchCall.result : null,
-    )
-    setRuntime(
-      runtimeCall?.ok && isAiRuntimeHealthPayload(runtimeCall.result) ? runtimeCall.result : null,
-    )
+    const webSearchOk = Boolean(webSearchCall?.ok) && isWebSearchHealthPayload(webSearchCall?.result)
+    const runtimeOk = Boolean(runtimeCall?.ok) && isAiRuntimeHealthPayload(runtimeCall?.result)
+    setWebSearch(webSearchOk ? (webSearchCall!.result as WebSearchHealthPayload) : null)
+    setRuntime(runtimeOk ? (runtimeCall!.result as AiRuntimeHealthPayload) : null)
+    // A rejected call is not the same claim as "we did not check" — the panel
+    // has to be able to say the health path itself is broken. Being denied is a
+    // third thing again: a caller without `ai_assistant.view` still gets the
+    // web-search half, and must see the runtime dots grey rather than red.
+    setWebSearchFailed(!webSearchOk && !isDenied(webSearchCall))
+    setRuntimeFailed(!runtimeOk && !isDenied(runtimeCall))
     setIsLoading(false)
   }, [])
 
   React.useEffect(() => {
-    void load()
+    void load(`${WEB_SEARCH_HEALTH_URL}?probe=auto`)
   }, [load])
 
+  const recheck = React.useCallback(() => {
+    void load(`${WEB_SEARCH_HEALTH_URL}?probe=1&force=1`)
+  }, [load])
+
+  const testAdapter = React.useCallback(
+    (adapterId: string) => {
+      setProbingAdapterId(adapterId)
+      void load(
+        `${WEB_SEARCH_HEALTH_URL}?probe=1&force=1&adapter=${encodeURIComponent(adapterId)}`,
+      ).finally(() => setProbingAdapterId(null))
+    },
+    [load],
+  )
+
   const indicators: HealthIndicator[] = React.useMemo(
-    () => [deriveWebSearchIndicator(webSearch), ...deriveRuntimeIndicators(runtime)],
-    [webSearch, runtime],
+    () => [
+      deriveWebSearchIndicator(webSearch, webSearchFailed),
+      ...deriveRuntimeIndicators(runtime, runtimeFailed),
+    ],
+    [webSearch, webSearchFailed, runtime, runtimeFailed],
   )
   const rollup = rollupHealth(indicators)
-
-  const enabledAdapters = webSearch?.adapters.filter((adapter) => adapter.enabled) ?? []
-  const disabledAdapters = webSearch?.adapters.filter((adapter) => !adapter.enabled) ?? []
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -99,104 +137,36 @@ export function SystemHealthTile() {
       </div>
 
       <div className="mt-2 flex min-h-9 items-center gap-2">
-        <StatusBadge variant={stateVariant[rollup]} dot>
-          {t(STATE_LABEL_KEY[rollup])}
-        </StatusBadge>
+        <HealthStateBadge state={rollup} />
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
+            <Button type="button" variant="outline" size="sm">
               {t('agent_orchestrator.overview.health.details', 'Details')}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-80 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-foreground">
-                {t('agent_orchestrator.overview.health.title', 'System health')}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label={t('agent_orchestrator.overview.health.recheck', 'Recheck')}
-                disabled={isLoading}
-                onClick={() => {
-                  void load()
-                }}
-              >
-                <RotateCw className={isLoading ? 'size-4 animate-spin' : 'size-4'} />
-              </Button>
-            </div>
-
-            <ul className="space-y-1.5">
-              {indicators.map((indicator) => (
-                <li key={indicator.id} className="flex items-start justify-between gap-2 text-xs">
-                  <span className="text-foreground">{t(INDICATOR_LABEL_KEY[indicator.id])}</span>
-                  <span className="flex items-center gap-1.5 text-right">
-                    {indicator.detail ? (
-                      <span className="font-mono text-muted-foreground">{indicator.detail}</span>
-                    ) : null}
-                    <StatusBadge variant={stateVariant[indicator.state]} dot>
-                      {t(STATE_LABEL_KEY[indicator.state])}
-                    </StatusBadge>
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            {enabledAdapters.length > 0 ? (
-              <ul className="space-y-1 border-t border-border pt-2">
-                {enabledAdapters.map((adapter) => (
-                  <li key={adapter.id} className="flex items-center gap-2 text-xs">
-                    <StatusBadge variant={adapter.ok ? 'success' : adapter.ready ? 'warning' : 'neutral'} dot>
-                      {adapter.ok
-                        ? t('agent_orchestrator.overview.webSearch.adapter.ok', 'OK')
-                        : t('agent_orchestrator.overview.webSearch.adapter.problem', 'Problem')}
-                    </StatusBadge>
-                    <span className="font-mono text-foreground">{adapter.id}</span>
-                    {adapter.latencyMs !== null ? (
-                      <span className="text-muted-foreground">{`${adapter.latencyMs}ms`}</span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-
-            {disabledAdapters.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                {t('agent_orchestrator.overview.webSearch.disabledAdapters', 'Installed but disabled: {ids}', {
-                  ids: disabledAdapters.map((adapter) => adapter.id).join(', '),
-                })}
-              </p>
-            ) : null}
-
-            {webSearch?.problems.length ? (
-              <ul className="space-y-1">
-                {webSearch.problems.map((problem) => (
-                  <li key={problem.packageName} className="text-xs text-status-warning-text">
-                    {`${problem.packageName}: ${problem.reason}`}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+          <PopoverContent align="start" className="w-96">
+            <SystemHealthPanel
+              indicators={indicators}
+              webSearch={webSearch}
+              fetchFailed={webSearchFailed && runtimeFailed}
+              isLoading={isLoading}
+              canProbe={canProbe}
+              probingAdapterId={probingAdapterId}
+              onRecheck={recheck}
+              onTestAdapter={testAdapter}
+            />
           </PopoverContent>
         </Popover>
       </div>
 
       {/* The four dots ARE the tile's value — the reader should not have to open
-          the popover to learn which dependency is the unhealthy one. */}
+          the panel to learn which dependency is the unhealthy one. */}
       <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
         {indicators.map((indicator) => (
           <li key={indicator.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
               aria-hidden="true"
-              className={`size-1.5 shrink-0 rounded-full ${
-                indicator.state === 'ok'
-                  ? 'bg-status-success-text'
-                  : indicator.state === 'degraded'
-                    ? 'bg-status-warning-text'
-                    : indicator.state === 'down'
-                      ? 'bg-status-error-text'
-                      : 'bg-muted-foreground'
-              }`}
+              className={`size-1.5 shrink-0 rounded-full ${DOT_CLASS[indicator.state]}`}
             />
             <span className="truncate">{t(INDICATOR_LABEL_KEY[indicator.id])}</span>
             <span className="sr-only">{t(STATE_LABEL_KEY[indicator.state])}</span>

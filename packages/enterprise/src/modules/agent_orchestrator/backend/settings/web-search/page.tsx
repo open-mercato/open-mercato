@@ -35,6 +35,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -147,11 +149,14 @@ function HeaderStatus({
   activeCount,
   hasUnsaved,
   isRefreshing,
+  canProbe,
   onRefresh,
 }: {
   activeCount: number
   hasUnsaved: boolean
   isRefreshing: boolean
+  /** Whether this operator may spend a billable probe. */
+  canProbe: boolean
   onRefresh: () => void
 }) {
   const t = useT()
@@ -189,10 +194,12 @@ function HeaderStatus({
       </StatusBadge>
     )
 
+  // The probe is gated on `agents.manage`, so offering the button to a reader who
+  // would only get a 403 is worse than not offering it.
   return (
     <div className="flex items-center gap-2">
       {badge}
-      {refresh}
+      {canProbe ? refresh : null}
     </div>
   )
 }
@@ -370,6 +377,9 @@ export default function WebSearchSettingsPage() {
       setIsLoading(false)
     }
   }, [t])
+
+  const { payload: chromePayload } = useBackendChrome()
+  const canProbe = hasFeature(chromePayload?.grantedFeatures, 'agent_orchestrator.agents.manage')
 
   const [isRefreshing, setIsRefreshing] = React.useState(false)
 
@@ -645,6 +655,7 @@ export default function WebSearchSettingsPage() {
             activeCount={enabledCount}
             hasUnsaved={hasUnsavedChanges}
             isRefreshing={isRefreshing}
+            canProbe={canProbe}
             onRefresh={() => void loadHealth(true)}
           />
         }

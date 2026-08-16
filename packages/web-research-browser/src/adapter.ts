@@ -105,6 +105,8 @@ export function createBrowserAdapter(options: BrowserOptions): SearchAdapter {
     // keeps `kind: 'browser'` out of normal waves, so an enabled browser adapter
     // is reached only for escalation — a second per-adapter switch just made the
     // UI show two toggles meaning different things.
+    /** `heavy` — spawns and pings the sidecar process. */
+    probeCost: 'heavy' as const,
     readiness: () => (startupFailure === null ? READY : notReady(startupFailure)),
 
     async search(request, context): Promise<SearchOutcome> {

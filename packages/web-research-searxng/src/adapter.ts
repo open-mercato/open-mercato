@@ -74,6 +74,8 @@ export function createSearxngAdapter(options: SearxngOptions): SearchAdapter {
       siteFilter: true,
       cost: 'free',
     },
+    /** `free` — pings /healthz on infrastructure the tenant runs itself. */
+    probeCost: 'free' as const,
     readiness: () => (baseUrl.length > 0 ? READY : notReady('SearXNG base URL is not set')),
 
     async search(request, context): Promise<SearchOutcome> {

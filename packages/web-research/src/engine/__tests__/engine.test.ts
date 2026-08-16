@@ -1,4 +1,4 @@
-import type { SearchAdapter } from '../../contract/adapter'
+import type { AdapterCapabilities, ProbeCost, SearchAdapter } from '../../contract/adapter'
 import type { FetchOutcome } from '../../contract/outcomes'
 import { resolvePolicy, type SearchPolicyInput } from '../../contract/policy'
 import type { RawResult } from '../../contract/results'
@@ -504,6 +504,24 @@ describe('search engine caching', () => {
 })
 
 describe('search engine health', () => {
+  /** A fake that records every probe, so "was it called" is asserted on a counter. */
+  const probeAdapter = (
+    id: string,
+    calls: string[],
+    overrides: { probeCost?: ProbeCost; cost?: AdapterCapabilities['cost'] } = {},
+  ): SearchAdapter => ({
+    ...createFakeAdapter({
+      id,
+      results: hits(`${id}.com`, 1),
+      ...(overrides.cost ? { capabilities: { cost: overrides.cost } } : {}),
+    }),
+    ...(overrides.probeCost ? { probeCost: overrides.probeCost } : {}),
+    healthCheck: async () => {
+      calls.push(id)
+      return { ok: true }
+    },
+  })
+
   it('reports readiness and health per adapter', async () => {
     const engine = engineWith([
       entry(createFakeAdapter({ id: 'ready', results: hits('r.com', 1) }), { order: 0 }),
@@ -513,8 +531,67 @@ describe('search engine health', () => {
     const reports = await engine.health()
 
     expect(reports).toEqual([
-      { id: 'ready', ready: true, ok: true },
-      { id: 'unconfigured', ready: false, ok: false, detail: 'missing key' },
+      // No `healthCheck` to call, so nothing was probed — the row says so rather
+      // than letting a consumer read `ok: true` as "verified".
+      { id: 'ready', ready: true, ok: true, probeCost: 'free', probed: false },
+      { id: 'unconfigured', ready: false, ok: false, detail: 'missing key', probeCost: 'free', probed: false },
     ])
+  })
+
+  it('spends nothing beyond the probe budget', async () => {
+    const calls: string[] = []
+    const engine = engineWith([
+      entry(probeAdapter('model-native', calls, { probeCost: 'free' }), { order: 0 }),
+      entry(probeAdapter('browser', calls, { probeCost: 'heavy' }), { order: 1 }),
+      entry(probeAdapter('firecrawl', calls, { probeCost: 'billable' }), { order: 2 }),
+    ])
+
+    const reports = await engine.health({ probe: true, maxProbeCost: 'free' })
+
+    expect(calls).toEqual(['model-native'])
+    expect(reports.map((report) => [report.id, report.probed])).toEqual([
+      ['model-native', true],
+      ['browser', false],
+      ['firecrawl', false],
+    ])
+  })
+
+  it('assumes an undeclared probe bills when the adapter is metered', async () => {
+    // Pessimistic on purpose: guessing downwards costs a surprise invoice,
+    // guessing upwards costs one row that says "not verified" until asked.
+    const calls: string[] = []
+    const engine = engineWith([
+      entry(probeAdapter('paid', calls, { cost: 'metered' }), { order: 0 }),
+      entry(probeAdapter('gratis', calls, { cost: 'free' }), { order: 1 }),
+    ])
+
+    const reports = await engine.health({ probe: true, maxProbeCost: 'free' })
+
+    expect(calls).toEqual(['gratis'])
+    expect(reports.find((report) => report.id === 'paid')?.probeCost).toBe('billable')
+  })
+
+  it('limits a targeted re-test to the adapter that was asked for', async () => {
+    const calls: string[] = []
+    const engine = engineWith([
+      entry(probeAdapter('alpha', calls, { probeCost: 'billable' }), { order: 0 }),
+      entry(probeAdapter('beta', calls, { probeCost: 'billable' }), { order: 1 }),
+    ])
+
+    await engine.health({ probe: true, only: ['beta'] })
+
+    expect(calls).toEqual(['beta'])
+  })
+
+  it('probes everything by default, so existing callers keep their behaviour', async () => {
+    const calls: string[] = []
+    const engine = engineWith([
+      entry(probeAdapter('alpha', calls, { probeCost: 'billable' }), { order: 0 }),
+      entry(probeAdapter('beta', calls, { probeCost: 'heavy' }), { order: 1 }),
+    ])
+
+    await engine.health()
+
+    expect(calls.sort()).toEqual(['alpha', 'beta'])
   })
 })

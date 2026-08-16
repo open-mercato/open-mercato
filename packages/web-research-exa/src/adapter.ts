@@ -97,6 +97,8 @@ export function createExaAdapter(options: ExaOptions): SearchAdapter {
       siteFilter: true,
       cost: 'metered',
     },
+    /** `free` — inspects the configured key. */
+    probeCost: 'free' as const,
     readiness: () => (apiKey.length > 0 ? READY : notReady('Exa API key is not set')),
 
     async search(request, context): Promise<SearchOutcome> {

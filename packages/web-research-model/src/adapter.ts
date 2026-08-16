@@ -133,6 +133,8 @@ export function createModelAdapter(options: ModelOptions): SearchAdapter {
       siteFilter: true,
       cost: 'llm-tokens',
     },
+    /** `free` — resolves the configured model and its tool descriptors; no completion is issued. */
+    probeCost: 'free' as const,
     readiness: () =>
       resolveModel ? READY : notReady('no model resolver was provided by the host application'),
 

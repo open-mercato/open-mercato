@@ -88,6 +88,8 @@ export function createSerpAdapter(options: SerpOptions): SearchAdapter {
       siteFilter: true,
       cost: 'free',
     },
+    /** `free` — no health check to pay for. */
+    probeCost: 'free' as const,
     readiness: () => (engines.length > 0 ? READY : notReady('no search engines are enabled')),
     async search(request, context) {
       let lastFailure: SearchOutcome | null = null
