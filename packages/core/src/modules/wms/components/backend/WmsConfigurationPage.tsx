@@ -611,7 +611,10 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
     enabled: dialog !== null,
     staleTime: 30_000,
   })
-  const warehouseOptions = warehouseOptionsQuery.data ?? []
+  const warehouseOptions = React.useMemo(
+    () => warehouseOptionsQuery.data ?? [],
+    [warehouseOptionsQuery.data],
+  )
   const soleWarehouseId = warehouseOptions.length === 1 ? warehouseOptions[0].value : null
 
   const warehouseSeedOptions = React.useMemo<CrudFieldOption[] | undefined>(() => {
