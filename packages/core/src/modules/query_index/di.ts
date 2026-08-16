@@ -1,17 +1,61 @@
-import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { BasicQueryEngine, resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import { HybridQueryEngine } from './lib/engine'
-import { markDeleted } from './lib/indexer'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { VectorIndexService } from '@open-mercato/search/vector'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import { HybridQueryEngine } from './lib/engine'
+import {
+  loadQueryIndexRowScope,
+  resolveQueryIndexRecordScope,
+  resolveQueryIndexSourceMetadata,
+} from './lib/subscriber-scope'
 
-function toEntityTypeFromEvent(event: string): string | null {
-  // Expect '<module>.<entity>.<action>'
-  const parts = event.split('.')
-  if (parts.length !== 3) return null
-  const [mod, ent] = parts
-  return `${mod}:${ent}`
+function hasOwn(value: unknown, key: string): boolean {
+  return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function resolveBridgeScopeValue(
+  payload: unknown,
+  ctx: unknown,
+  payloadKeys: string[],
+  contextKey: string,
+): { value: string | null | undefined; present: boolean } {
+  const payloadRecord = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+  const payloadKey = payloadKeys.find((key) => hasOwn(payload, key))
+  if (payloadKey) {
+    const value = payloadRecord[payloadKey]
+    return {
+      value: typeof value === 'string' || value === null || value === undefined ? value : String(value),
+      present: true,
+    }
+  }
+  const contextRecord = ctx && typeof ctx === 'object' ? ctx as Record<string, unknown> : {}
+  const contextValue = contextRecord[contextKey]
+  if (typeof contextValue === 'string' && contextValue.trim().length > 0) {
+    return { value: contextValue, present: true }
+  }
+  return { value: undefined, present: false }
+}
+
+async function resolveBridgeRecordScope(
+  em: EntityManager,
+  entityType: string,
+  recordId: string,
+  payload: unknown,
+  ctx: unknown,
+) {
+  const organization = resolveBridgeScopeValue(payload, ctx, ['organizationId', 'orgId'], 'organizationId')
+  const tenant = resolveBridgeScopeValue(payload, ctx, ['tenantId'], 'tenantId')
+  const source = resolveQueryIndexSourceMetadata(em, entityType)
+  const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
+  return resolveQueryIndexRecordScope({
+    payloadOrganizationId: organization.value,
+    payloadTenantId: tenant.value,
+    hasPayloadOrganizationId: organization.present,
+    hasPayloadTenantId: tenant.present,
+    sourceScope,
+  })
 }
 
 export function register(container: AppContainer) {
@@ -71,23 +115,15 @@ export function register(container: AppContainer) {
         // indexer, otherwise failures and error logs are duplicated.
         if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
         const em = ctx.resolve('em')
-        let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
-        let tenantId = payload?.tenantId || ctx?.tenantId || null
         const id = String(payload?.id || payload?.recordId || '')
         if (!id) return
-        if (!orgId || !tenantId) {
-          try {
-            const db = (em as any).getKysely()
-            const table = resolveEntityTableName(em, entityType)
-            const row = await db
-              .selectFrom(table as any)
-              .select(['organization_id' as any, 'tenant_id' as any])
-              .where('id' as any, '=', id)
-              .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
-            orgId = row?.organization_id ?? orgId
-            tenantId = row?.tenant_id ?? tenantId
-          } catch {}
-        }
+        const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
+          em,
+          entityType,
+          id,
+          payload,
+          ctx,
+        )
         // Optional: only index when custom field definitions exist for this entity (org/global)
         try {
           const db = (em as any).getKysely()
@@ -125,23 +161,15 @@ export function register(container: AppContainer) {
       try {
         if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
         const em = ctx.resolve('em')
-        let orgId = payload?.organizationId || payload?.orgId || ctx?.organizationId || null
-        let tenantId = payload?.tenantId || ctx?.tenantId || null
         const id = String(payload?.id || payload?.recordId || '')
         if (!id) return
-        if (!orgId || !tenantId) {
-          try {
-            const db = (em as any).getKysely()
-            const table = resolveEntityTableName(em, entityType)
-            const row = await db
-              .selectFrom(table as any)
-              .select(['organization_id' as any, 'tenant_id' as any])
-              .where('id' as any, '=', id)
-              .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
-            orgId = row?.organization_id ?? orgId
-            tenantId = row?.tenant_id ?? tenantId
-          } catch {}
-        }
+        const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
+          em,
+          entityType,
+          id,
+          payload,
+          ctx,
+        )
         try {
           const bus = ctx.resolve('eventBus') as any
           await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })

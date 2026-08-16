@@ -441,6 +441,11 @@ None.
 - Fixed the global feature-toggle list after its projection scope became null/null: retained the query context but opted the route into documented global direct-query scope, and made that mode bypass scope-bound search-token filters.
 - Added query-engine regression coverage and ran the complete self-cleaning feature-toggle integration suite.
 
+### 2026-08-16
+
+- Closed the remaining legacy DI CRUD-bridge gap: bridge-generated upsert/delete events now reuse the metadata-aware source-scope resolver instead of selecting hard-coded `organization_id` and `tenant_id` columns.
+- Preserved explicit global null/null payloads ahead of actor context and added bridge-level regression coverage for both event paths.
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
