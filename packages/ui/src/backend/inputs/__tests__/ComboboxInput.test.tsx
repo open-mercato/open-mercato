@@ -396,4 +396,32 @@ describe('ComboboxInput — eager label resolution', () => {
     rerender(<ComboboxInput value="b" onChange={() => {}} resolveLabel={resolveLabel} />)
     await waitFor(() => expect(getInput(container).value).toBe('Label-b'))
   })
+
+  it('shows a default value that arrives after autoFocus already took the field', async () => {
+    const options = [{ value: 'wh-1', label: 'Central warehouse' }]
+    const { container, rerender } = render(
+      <ComboboxInput value="" onChange={() => {}} autoFocus seedOptions={options} />,
+    )
+    expect(document.activeElement).toBe(getInput(container))
+    rerender(<ComboboxInput value="wh-1" onChange={() => {}} autoFocus seedOptions={options} />)
+    await waitFor(() => expect(getInput(container).value).toBe('Central warehouse'))
+  })
+
+  it('does not overwrite the query while the user is typing into a focused field', async () => {
+    const options = [
+      { value: 'red', label: 'Red' },
+      { value: 'green', label: 'Green' },
+    ]
+    const { container, rerender } = render(
+      <ComboboxInput value="red" onChange={() => {}} seedOptions={options} />,
+    )
+    await waitFor(() => expect(getInput(container).value).toBe('Red'))
+    const input = getInput(container)
+    act(() => {
+      input.focus()
+      fireEvent.change(input, { target: { value: 'gre' } })
+    })
+    rerender(<ComboboxInput value="green" onChange={() => {}} seedOptions={options} />)
+    expect(getInput(container).value).toBe('gre')
+  })
 })
