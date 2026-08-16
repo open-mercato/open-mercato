@@ -99,6 +99,10 @@ export function ComboboxInput({
   const blurClosePendingRef = React.useRef(false)
   const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
   const eagerFallbackLoadedValueRef = React.useRef<string | null>(null)
+  // Tracks whether the user actually typed into the field during the current focus
+  // session. `touched` cannot serve this purpose because it is set by `onFocus`,
+  // which `autoFocus` triggers before the user does anything at all.
+  const userTypedRef = React.useRef(false)
 
   const staticOptions = React.useMemo(
     () => normalizeOptions([...(seedOptions ?? []), ...(suggestions ?? [])]),
@@ -246,12 +250,15 @@ export function ComboboxInput({
   // including it would re-run the effect on every render when the prop is an inline function
   }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
-  // Sync input with value when value changes externally and input is not focused.
+  // Sync input with a value that changed outside the component. The guard is "the user
+  // is typing", not "the field has focus": `autoFocus` on the first CrudForm field
+  // focuses the combobox before an async default value arrives (e.g. the sole warehouse
+  // pre-selected in the WMS zone dialog, #5239), so a focus-only guard left the control
+  // rendering an empty label for a value the form had already committed.
   React.useEffect(() => {
-    if (document.activeElement !== inputRef.current) {
-      const option = optionMap.get(value)
-      setInput(option?.label ?? value ?? '')
-    }
+    if (document.activeElement === inputRef.current && userTypedRef.current) return
+    const option = optionMap.get(value)
+    setInput(option?.label ?? value ?? '')
   }, [value, optionMap])
 
   const selectValue = React.useCallback(
@@ -264,6 +271,7 @@ export function ComboboxInput({
       setInput(option?.label ?? trimmed)
       setShowSuggestions(false)
       setSelectedIndex(-1)
+      userTypedRef.current = false
     },
     [disabled, onChange, optionMap, resetBlurCloseState]
   )
@@ -433,6 +441,7 @@ export function ComboboxInput({
         }}
         onChange={(event) => {
           setTouched(true)
+          userTypedRef.current = true
           setInput(event.target.value)
           setShowSuggestions(true)
           setSelectedIndex(-1)
@@ -442,6 +451,7 @@ export function ComboboxInput({
           // Delay closing so clicks on the popup can resolve first. If async
           // suggestions are still loading, keep the dropdown open instead of
           // closing before the first payload arrives.
+          userTypedRef.current = false
           blurClosePendingRef.current = true
           clearBlurCloseTimer()
           if (loadingRef.current) {

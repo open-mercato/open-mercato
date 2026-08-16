@@ -79,6 +79,7 @@ const crud = makeCrudRoute({
       }
       return filters
     },
+    decorateCustomFields: { entityIds: [E.wms.warehouse_zone] },
   },
   hooks: {
     afterList: async (payload, ctx) => {
@@ -134,6 +135,8 @@ const zoneListItemSchema = z.object({
   priority: z.number().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+  customFields: z.array(z.record(z.string(), z.unknown())).optional(),
 })
 
 export const openApi = createWmsCrudOpenApi({

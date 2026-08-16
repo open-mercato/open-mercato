@@ -12,10 +12,12 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -79,7 +81,8 @@ type ZoneRow = {
   code?: string | null
   name?: string | null
   priority?: number | null
-}
+  customValues?: Record<string, unknown> | null
+} & Record<string, unknown>
 
 type InventoryProfileRow = {
   id: string
@@ -113,7 +116,7 @@ type ZoneFormValues = {
   code: string
   name: string
   priority?: number
-}
+} & Record<string, unknown>
 
 type InventoryProfileFormValues = {
   catalogProductId: string
@@ -141,12 +144,15 @@ const warehouseFormSchema = z.object({
   isPrimary: z.boolean().default(false),
 })
 
+// passthrough so CrudForm's schema.safeParse keeps the `cf_*` custom field values
+// it collected from the injected custom-field inputs — a plain z.object strips them
+// before onSubmit ever sees them.
 const zoneFormSchema = z.object({
   warehouseId: z.string().uuid(),
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(200),
   priority: z.coerce.number().int().min(0).optional(),
-})
+}).passthrough()
 
 function buildInventoryProfileFormSchema(fefoRequiredMsg: string) {
   return z.object({
@@ -596,6 +602,28 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
   })
 
+  // Warehouse options for the dialog's combobox. Loaded whenever the dialog opens so a tenant
+  // with a single warehouse gets it pre-selected instead of an empty "type to search" input,
+  // and so the edit dialog can label the currently linked warehouse without a lookup round-trip.
+  const warehouseOptionsQuery = useQuery({
+    queryKey: ['wms-config', 'zones', 'warehouse-options'],
+    queryFn: () => loadWarehouseOptions(),
+    enabled: dialog !== null,
+    staleTime: 30_000,
+  })
+  const warehouseOptions = warehouseOptionsQuery.data ?? []
+  const soleWarehouseId = warehouseOptions.length === 1 ? warehouseOptions[0].value : null
+
+  const warehouseSeedOptions = React.useMemo<CrudFieldOption[] | undefined>(() => {
+    if (dialog?.mode === 'edit') {
+      const warehouseId = dialog.row.warehouse_id
+      if (!warehouseId) return undefined
+      const label = dialog.row.warehouse_name?.trim() || dialog.row.warehouse_code?.trim() || ''
+      return label ? [{ value: warehouseId, label }] : undefined
+    }
+    return soleWarehouseId ? warehouseOptions : undefined
+  }, [dialog, soleWarehouseId, warehouseOptions])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'warehouseId',
@@ -604,11 +632,12 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
       required: true,
       loadOptions: loadWarehouseOptions,
       allowCustomValues: false,
+      seedOptions: warehouseSeedOptions,
     },
     { id: 'code', type: 'text', label: t('wms.backend.config.zones.form.code', 'Code'), required: true },
     { id: 'name', type: 'text', label: t('wms.backend.config.zones.form.name', 'Name'), required: true },
     { id: 'priority', type: 'number', label: t('wms.backend.config.zones.form.priority', 'Priority') },
-  ], [t])
+  ], [t, warehouseSeedOptions])
 
   const columns = React.useMemo<ColumnDef<ZoneRow>[]>(() => [
     {
@@ -643,15 +672,16 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
         code: dialog.row.code || '',
         name: dialog.row.name || '',
         priority: dialog.row.priority == null ? undefined : Number(dialog.row.priority),
+        ...extractCustomFieldEntries(dialog.row),
       }
     }
     return {
-      warehouseId: '',
+      warehouseId: soleWarehouseId ?? '',
       code: '',
       name: '',
       priority: undefined,
     }
-  }, [dialog])
+  }, [dialog, soleWarehouseId])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
@@ -667,10 +697,14 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
     const submitMode = dialog.mode
     setSubmitting(true)
     try {
-      const payload = {
-        ...values,
+      const customFields = collectCustomFieldValues(values)
+      const payload: Record<string, unknown> = {
+        warehouseId: values.warehouseId,
+        code: values.code,
+        name: values.name,
         priority: values.priority === undefined || Number.isNaN(values.priority) ? undefined : Number(values.priority),
       }
+      if (Object.keys(customFields).length) payload.customFields = customFields
       await runMutation({
         operation: async () => {
           const call = await apiCall(

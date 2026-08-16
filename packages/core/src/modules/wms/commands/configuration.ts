@@ -33,11 +33,14 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
+import { E } from '#generated/entities.ids.generated'
 import {
   InventoryLot,
   type InventoryLotStatus,
@@ -196,6 +199,7 @@ type WarehouseZoneSnapshot = {
   name: string
   priority: number
   metadata: JsonValue | null
+  custom?: Record<string, unknown>
   createdAt: string
   updatedAt: string
 }
@@ -331,7 +335,15 @@ async function loadWarehouseZoneSnapshot(
   id: string,
 ): Promise<WarehouseZoneSnapshot | null> {
   const record = await findOneWithDecryption(em, WarehouseZone, { id }, undefined, resolveScope(ctx))
-  return record ? snapshotWarehouseZone(record) : null
+  if (!record) return null
+  const snapshot = snapshotWarehouseZone(record)
+  snapshot.custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.wms.warehouse_zone,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
+  return snapshot
 }
 
 function snapshotWarehouseLocation(record: WarehouseLocation): WarehouseLocationSnapshot {
@@ -1023,7 +1035,7 @@ async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneS
 const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zoneId: string }> = {
   id: 'wms.zones.create',
   async execute(rawInput, ctx) {
-    const parsed = warehouseZoneCreateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseZoneCreateSchema, rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = resolveEm(ctx)
@@ -1039,6 +1051,14 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
       metadata: toJsonValue(parsed.metadata),
     })
     await em.persist(zone).flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.wms.warehouse_zone,
+      recordId: zone.id,
+      organizationId: zone.organizationId,
+      tenantId: zone.tenantId,
+      values: custom,
+    })
     void emitWmsEvent('wms.zone.created', {
       id: zone.id,
       zoneId: zone.id,
@@ -1074,6 +1094,15 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom)
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.wms.warehouse_zone,
+      recordId: after.id,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+      values: resetValues,
+    })
   },
 }
 
@@ -1086,7 +1115,7 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = warehouseZoneUpdateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseZoneUpdateSchema, rawInput ?? {})
     const em = resolveEm(ctx)
     const zone = await loadZone(em, ctx, parsed.id)
     if (parsed.warehouseId !== undefined) {
@@ -1102,6 +1131,14 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     if (parsed.priority !== undefined) zone.priority = parsed.priority
     if (parsed.metadata !== undefined) zone.metadata = toJsonValue(parsed.metadata)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.wms.warehouse_zone,
+      recordId: zone.id,
+      organizationId: zone.organizationId,
+      tenantId: zone.tenantId,
+      values: custom,
+    })
     void emitWmsEvent('wms.zone.updated', {
       id: zone.id,
       zoneId: zone.id,
@@ -1130,6 +1167,15 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
     ensureOrganizationScope(ctx, before.organizationId)
     await restoreZoneFromSnapshot(em, before)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.wms.warehouse_zone,
+      recordId: before.id,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+      values: resetValues,
+    })
   },
 }
 
