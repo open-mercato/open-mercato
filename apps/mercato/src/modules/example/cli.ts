@@ -1,4 +1,4 @@
-import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+﻿import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Todo } from './data/entities'
@@ -125,7 +125,7 @@ export async function seedExampleTodos(
 
   const existing = await em.count(Todo, { organizationId, tenantId })
   if (existing > 0) {
-    logger(`📝 Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
+    logger(`ðŸ“ Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
     return false
   }
 
@@ -196,7 +196,7 @@ const seedTodos: ModuleCli = {
   },
 }
 
-const cliCommands = [hello, seedTodos]
+const cliCommands = [hello, seedTodos]\nexport default commands
 export type { TodoSeedArgs as ExampleTodoSeedArgs }
 
 export default cliCommands;
