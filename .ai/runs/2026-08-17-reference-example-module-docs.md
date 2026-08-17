@@ -36,10 +36,10 @@ Add `apps/docs/docs/framework/modules/reference-example-module.mdx`, a developer
 
 ### Phase 1: Showcase page and navigation
 
-- [ ] 1.1 Write `apps/docs/docs/framework/modules/reference-example-module.mdx`: transcribe the 70 inventory rows into the 12-section structure (Module Foundation & Lifecycle, Data Model, APIs & Commands, Events/Indexing & Cache, Backend & Frontend UI, UMES, Search, AI Tools & Agents, Notifications & Messages, Integrations & Workflows, Unified Module Overrides, Testing Evidence QA-only) with correct `develop`-branch GitHub blob links
-- [ ] 1.2 Write the "What this module is and is not" section, "How to read this page" legend, and per-section rule-owner paragraphs
-- [ ] 1.3 Register the page in `apps/docs/sidebars.ts` under `Modules`, after `framework/modules/overview`
-- [ ] 1.4 Add the entry-point link in `overview.mdx` and update the `:::tip Existing reference modules` admonition in `create-first-module.mdx`
+- [x] 1.1 Write `apps/docs/docs/framework/modules/reference-example-module.mdx`: transcribe the 70 inventory rows into the 12-section structure (Module Foundation & Lifecycle, Data Model, APIs & Commands, Events/Indexing & Cache, Backend & Frontend UI, UMES, Search, AI Tools & Agents, Notifications & Messages, Integrations & Workflows, Unified Module Overrides, Testing Evidence QA-only) with correct `develop`-branch GitHub blob links — 429bb8307
+- [x] 1.2 Write the "What this module is and is not" section, "How to read this page" legend, and per-section rule-owner paragraphs — 429bb8307
+- [x] 1.3 Register the page in `apps/docs/sidebars.ts` under `Modules`, after `framework/modules/overview` — 429bb8307
+- [x] 1.4 Add the entry-point link in `overview.mdx` and update the `:::tip Existing reference modules` admonition in `create-first-module.mdx` — 429bb8307
 
 ### Phase 2: Drift-detecting tests
 
