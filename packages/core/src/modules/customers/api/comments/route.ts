@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerComment, CustomerDeal } from '../../data/entities'
 import { commentCreateSchema, commentUpdateSchema } from '../../data/validators'
+import { resolveDealCommentEntityId } from '../../commands/shared'
 import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
@@ -84,7 +85,16 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return commentCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const parsed = commentCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        if (parsed.entityId || !parsed.dealId) return parsed
+        const em = (ctx.container.resolve('em') as EntityManager).fork()
+        const entityId = await resolveDealCommentEntityId(
+          em,
+          parsed.dealId,
+          { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+          translate,
+        )
+        return { ...parsed, entityId }
       },
       response: ({ result }) => ({
         id: result?.commentId ?? result?.id ?? null,
@@ -219,7 +229,8 @@ export const openApi = createCustomersCrudOpenApi({
   create: {
     schema: commentCreateSchema,
     responseSchema: commentCreateResponseSchema,
-    description: 'Adds a comment to a customer timeline.',
+    description:
+      "Adds a comment to a customer timeline. Requires entityId or dealId; when only dealId is supplied the comment is parented to the deal's preferred linked entity (primary person, then first person, then first company) and therefore also appears on that record's timeline.",
   },
   update: {
     schema: commentUpdateSchema,

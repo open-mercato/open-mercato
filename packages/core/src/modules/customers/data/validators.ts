@@ -10,6 +10,7 @@ export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.d
 export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
+export const COMMENT_TARGET_REQUIRED_MESSAGE_KEY = 'customers.errors.comment_target_required'
 
 // customer_deals.description is an unbounded `text` column; this cap only exists to keep
 // request bodies, fulltext search documents and query-index documents from growing without limit.
@@ -237,8 +238,8 @@ export const activityUpdateSchema = z
   })
   .merge(activityCreateSchema.partial())
 
-export const commentCreateSchema = scopedSchema.extend({
-  entityId: uuid(),
+const commentCreateBaseSchema = scopedSchema.extend({
+  entityId: uuid().optional(),
   dealId: uuid().optional(),
   body: z.string().min(1).max(8000),
   authorUserId: uuid().optional(),
@@ -251,11 +252,21 @@ export const commentCreateSchema = scopedSchema.extend({
     .nullable(),
 })
 
+export const commentCreateSchema = commentCreateBaseSchema.superRefine((value, ctx) => {
+  if (!value.entityId && !value.dealId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['entityId'],
+      message: COMMENT_TARGET_REQUIRED_MESSAGE_KEY,
+    })
+  }
+})
+
 export const commentUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(commentCreateSchema.partial())
+  .merge(commentCreateBaseSchema.partial())
 
 export const addressCreateSchema = scopedSchema.extend({
   entityId: uuid(),

@@ -1,9 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
+import { CustomerDeal, CustomerDealCompanyLink, CustomerDealPersonLink, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -140,6 +140,50 @@ export async function requireDealInScope(
   if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
   ensureSameScope(deal, organizationId, tenantId)
   return deal
+}
+
+export async function findPreferredDealCommentEntityId(
+  em: EntityManager,
+  dealId: string
+): Promise<string | null> {
+  const personLinks = await em.find(
+    CustomerDealPersonLink,
+    { deal: dealId },
+    { orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }], limit: 1 }
+  )
+  if (personLinks.length) return personLinks[0].person.id
+  const companyLinks = await em.find(
+    CustomerDealCompanyLink,
+    { deal: dealId },
+    { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], limit: 1 }
+  )
+  if (companyLinks.length) return companyLinks[0].company.id
+  return null
+}
+
+export async function resolveDealCommentEntityId(
+  em: EntityManager,
+  dealId: string,
+  scope: CustomerEntityScope,
+  translate: (key: string, fallback: string) => string
+): Promise<string> {
+  const deal = await findOneWithDecryption(
+    em,
+    CustomerDeal,
+    { id: dealId, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    undefined,
+    scope
+  )
+  if (!deal) {
+    throw new CrudHttpError(400, { error: translate('customers.errors.deal_not_found', 'Deal not found') })
+  }
+  const entityId = await findPreferredDealCommentEntityId(em, dealId)
+  if (!entityId) {
+    throw new CrudHttpError(422, {
+      error: translate('customers.errors.deal_entity_link_missing', 'Deal has no linked person or company'),
+    })
+  }
+  return entityId
 }
 
 const DICTIONARY_KINDS = new Set([

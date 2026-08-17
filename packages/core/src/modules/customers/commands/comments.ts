@@ -15,7 +15,7 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
@@ -82,9 +82,16 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
+    const entityId = parsed.entityId
+    if (!entityId) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(400, {
+        error: translate('customers.errors.comment_target_required', 'An entityId or dealId is required'),
+      })
+    }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
+    const entity = await requireTimelineParentEntity(em, entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
 
