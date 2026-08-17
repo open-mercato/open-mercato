@@ -809,7 +809,9 @@ Each risk below states severity, the affected area, the mitigation, and what res
 
 ## Integration Test Coverage
 
-Every API path and the one RBAC-relevant UI path (backend navigation) has integration coverage under `packages/core/src/modules/sales/__integration__/document-generators/` (Sales-owned templates/history) and `packages/document-generators/src/modules/document_generators/__integration__/` (engine-owned auth, request validation, and navigation):
+> None of the tests below exist in this repository yet — this table specifies the required coverage each implementing phase must ship, not evidence of coverage already in place.
+
+Every API path and the one RBAC-relevant UI path (backend navigation) must have integration coverage under `packages/core/src/modules/sales/__integration__/document-generators/` (Sales-owned templates/history) and `packages/document-generators/src/modules/document_generators/__integration__/` (engine-owned auth, request validation, and navigation):
 
 | Test | Covers |
 |---|---|
@@ -833,22 +835,24 @@ Every API path and the one RBAC-relevant UI path (backend navigation) has integr
 | `TC-DOCUMENT-018-generate-rejects-invalid-request.spec.ts` | `POST /api/document-generators/generate` — the same two `400` codes, rejected before the side-effecting part of the route so no history row is written |
 | `TC-DOCUMENT-019-template-filter-options-shape.spec.ts` | `GET /api/document-generators/templates/options` — deduplicated, sorted facets that never carry the template list under `items`/`templates` |
 
-Engine-owned specs share `__integration__/helpers/document-generators-api.ts` (typed request wrappers and response readers for all five endpoints) and declare `__integration__/meta.ts` with `dependsOnModules: ['document_generators']`; Sales-owned specs additionally use `helpers/restricted-document-user.ts` to provision a user holding the engine ACL but not the source module's view feature. New coverage should extend those helpers rather than re-issuing raw requests.
+Engine-owned specs should share `__integration__/helpers/document-generators-api.ts` (typed request wrappers and response readers for all five endpoints) and declare `__integration__/meta.ts` with `dependsOnModules: ['document_generators']`; Sales-owned specs should additionally use `helpers/restricted-document-user.ts` to provision a user holding the engine ACL but not the source module's view feature. New coverage should extend those helpers rather than re-issuing raw requests.
 
-Not yet covered by a dedicated test (tracked against the corresponding Implementation Plan phase, not a gap in Phases 1–5): Markdown-format preview/generate/download (Phase 4.7 shares the order-invoice fixture path but has no `TC-DOCUMENT-*` of its own yet), Phase 6's resource-scoped history panel (its own verification evidence is specified inline under Phase 6 below), and Phase 7/8 have no tests because they are not started.
+Not required to have a dedicated test at this stage (tracked against the corresponding Implementation Plan phase, not a gap in Phases 1–5's required coverage): Markdown-format preview/generate/download (Phase 4.7 shares the order-invoice fixture path but has no `TC-DOCUMENT-*` of its own), Phase 6's resource-scoped history panel (its own verification evidence is specified inline under Phase 6 below), and Phase 7/8, which have no tests specified because those phases are not started.
 
 ---
 
 ## Implementation Plan
 
-### Phase 1 — Foundation ✅
+> **Status: nothing in this list is implemented in this repository.** `packages/document-generators/` does not exist on `develop`. Phases 1–4.8 and 5 were previously designed and coded on the now-closed, unmerged `feat/document-generators` branch (PR #5170) — that PR was closed for implementation-quality problems, not design problems, so the phase content below is the target to build against, not a description of shippable code. Do not resurrect or cherry-pick commits from the closed branch; implement fresh against this spec. See "Implementation Status" below for per-phase tracking.
+
+### Phase 1 — Foundation (Planned)
 
 1. Package scaffold (`package.json`, `build.mjs`, `tsconfig.json`)
 2. `acl.ts` with `document_generators.documents.view`, `document_generators.documents.generate`
 3. `setup.ts` with `defaultRoleFeatures`
 4. Module `index.ts`
 
-### Phase 2 — Templates & Registry ✅
+### Phase 2 — Templates & Registry (Planned)
 
 1. Shared `document-generators` contracts plus the engine-owned `lib/template-registry.ts`
 2. `BaseDocumentService` in `@open-mercato/shared/modules/document-generators`
@@ -857,7 +861,7 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 5. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
 6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation using React-PDF's built-in Helvetica family
 
-### Phase 3 — API ✅
+### Phase 3 — API (Planned)
 
 1. `GET /api/document-generators/templates` — returns `TemplateMeta[]`, narrowed by optional metadata filters
 2. `GET /api/document-generators/templates/options` — returns the facet lists (`resourceKinds`, `formats`) backing the catalogue filter controls, so the filter UI never has to download the catalogue
@@ -867,7 +871,7 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 
 All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and `openApi`; the guard each one applies is listed in "Access enforcement layers" above.
 
-### Phase 4 — UI Components ✅
+### Phase 4 — UI Components (Planned)
 
 1. `components/TemplatesList.tsx` — fetches templates via `GET /api/document-generators/templates` through `useDocumentTemplates`, which sends `TemplateFilter` as query parameters so the registry is narrowed server-side; renders the card list and its loading/error states. (The catalogue table on the backend templates page is a different, route-local component that happens to share the name.)
 2. `components/TemplatesListView.tsx`, `TemplatesListLoader.tsx`, `TemplateListItem.tsx` — list sub-components
@@ -878,13 +882,13 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 7. Sales-owned `widgets/injection/document-generators-quote-tab/` — a thin adapter passing `record={{ id: record.id }}` and `filter={{ resourceKind: ctx.resourceKind }}`, both taken from the injection context; its `widget.ts` metadata declares `features: ['document_generators.documents.view', 'sales.quotes.view']`
 8. Sales-owned `widgets/injection-table.ts` adds this widget as an entry on the `sales.document.detail.quote:tabs` spot
 
-### Phase 4.5 — External Template Code-Gen ✅
+### Phase 4.5 — External Template Code-Gen (Planned)
 
 1. `generators.ts` — `document_generators.templates` GeneratorPlugin (module-id-based key, matching the convention used by every existing `GeneratorPlugin`, e.g. `webhooks.sources`, `security.mfa-providers`)
 2. Convention file pattern: `document-generators.ts` in consuming module exports `templates: TemplateRegistryEntry[]`
 3. `mercato generate registry` produces `document-generators.generated.ts` that calls `register(...)`
 
-### Phase 4.6 — Orders Built-in Template ✅
+### Phase 4.6 — Orders Built-in Template (Planned)
 
 1. Sales-owned `OrdersDocumentService` (`resourceKind: 'sales.order'`) with local validation
 2. Sales-owned `document-generators/templates/orders/order-invoice/` with PDF and Markdown implementations
@@ -893,7 +897,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 5. `sales/widgets/injection-table.ts` adds this widget as a second entry on the `sales.document.detail.order:tabs` spot, alongside the existing `sales.injection.document-history` entry
 6. Complete working invoice example for external template authors (`document-generators.ts`, service, template, widget, injection-table) lives under `apps/docs/static/examples/document-generators/` and is described in the Document Generators docs section
 
-### Phase 4.7 — Markdown Output ✅
+### Phase 4.7 — Markdown Output (Planned)
 
 1. Added required, extensible `format` metadata and optional per-template filename overrides. The pipeline never infers PDF from a missing format.
 2. Added `MarkdownTemplateSource`, `MarkdownRenderInput`, and `MarkdownRenderingService` colocated in the Markdown engine folder.
@@ -903,7 +907,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 6. Added Markdown source preview and format-aware downloading in `PreviewPanel`.
 7. Added `escapeInline` / `escapeTableCell` to the utils barrel. Markdown output interpolates customer names, addresses and free-text notes into a structural format, so a template that emits them raw lets source data alter the document's structure — the built-in invoice escapes every interpolated value, and any Markdown template author is expected to do the same. PDF has no equivalent hazard because React-PDF renders text nodes, not markup.
 
-### Phase 4.8 — Template Access Policy ✅
+### Phase 4.8 — Template Access Policy (Planned)
 
 Templates may load records owned by another module, so the engine ACL alone is not a sufficient authorization boundary. This phase added the owning-module permission check and extracted it into one component rather than repeating it per route.
 
@@ -912,11 +916,11 @@ Templates may load records owned by another module, so the engine ACL alone is n
 3. Wired all four routes to construct the policy from `container.resolve('rbacService')` plus the request `auth`: read endpoints filter, render endpoints call `requireAccess` and map `TemplateAccessDeniedError` to a `403` `forbidden` body carrying `requiredFeatures`.
 4. Corrected the unreleased engine ACL IDs to `document_generators.documents.view` / `document_generators.documents.generate` and split the route guards so only `/generate` requires the write-shaped feature.
 
-**Verification:** `lib/__tests__/template-access-policy.test.ts` covers the omit-vs-reject split, the fail-closed path for a missing subject, the empty-`requiredFeatures` allowance and the per-feature-set check deduplication; `TC-DOCUMENT-010/011/012` cover catalogue omission, preview rejection and generate rejection end-to-end against a restricted user fixture.
+**Verification required:** `lib/__tests__/template-access-policy.test.ts` must cover the omit-vs-reject split, the fail-closed path for a missing subject, the empty-`requiredFeatures` allowance and the per-feature-set check deduplication; `TC-DOCUMENT-010/011/012` must cover catalogue omission, preview rejection and generate rejection end-to-end against a restricted user fixture.
 
-### Phase 5 — History & Backend Page ✅
+### Phase 5 — History & Backend Page (Planned)
 
-#### Implemented files
+#### Files to add
 
 | File | Description |
 |------|-------------|
@@ -933,7 +937,7 @@ Templates may load records owned by another module, so the engine ACL alone is n
 
 > **Format-agnostic by design.** The entity is named `GeneratedDocument` and carries `format` + `mime_type` discriminators. `BaseDocumentService` is format-neutral in shared; the plugin owns both `PdfRenderingService` and `MarkdownRenderingService`, including their dependencies and output metadata.
 
-#### Updated files
+#### Files to update
 
 | File | Change |
 |------|--------|
@@ -981,7 +985,7 @@ GET /api/document-generators/documents?resource_kind=X&resource_id=Y&page=1&page
 
 #### Format extensibility boundary
 
-The implementation supports two concrete formats through a format-neutral dispatch boundary:
+The design supports two concrete formats through a format-neutral dispatch boundary:
 
 - Shared declares only the extensible `DocumentTemplateSource { type: string; [key: string]: unknown }` contract.
 - `LoadedDocumentTemplateBase` carries normalized data, filename, template identity, and resource identity independently of a renderer.
@@ -989,7 +993,7 @@ The implementation supports two concrete formats through a format-neutral dispat
 - `DocumentRenderer` selects engines through a format-to-renderer map without teaching the template registry or API routes about concrete formats.
 - `RenderedDocument` and `GeneratedDocument` are format-neutral, so history does not require a schema change for another output type.
 
-Adding DOCX later requires a colocated DOCX source/input type, a DOCX rendering service, one renderer-map entry, and a UI preview/download decision. Shared contracts and `TemplateRegistry` remain unchanged. DOCX generation itself remains outside this spec's implemented scope.
+Adding DOCX later requires a colocated DOCX source/input type, a DOCX rendering service, one renderer-map entry, and a UI preview/download decision. Shared contracts and `TemplateRegistry` remain unchanged. DOCX generation itself remains outside this spec's scope.
 
 ### Phase 6 — Source-scoped History in Detail Widgets (Planned)
 
@@ -1099,7 +1103,9 @@ The unreleased registry contract is simplified before merge from separate `regis
 
 The unreleased `BaseDocumentService.filename()` fallback is also removed before merge. Every `DocumentTemplateEntry` requires its own `filename` handler so output naming stays colocated with `format` and `load`; multi-format services cannot accidentally reuse a PDF extension for another renderer. `buildDocumentFilename` is only a convenience helper—template authors remain free to provide any custom naming function.
 
-## Final Compliance Report — 2026-08-10
+## Design Compliance Report — 2026-08-10
+
+> This section evaluates the *design* below against the repo's rules, in preparation for implementation — it is not a report on shipped code, since nothing in this spec has been implemented in this repository (see "Implementation Status").
 
 ### Compliance Matrix
 
@@ -1108,11 +1114,11 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | No direct ORM relationships between modules | ✅ | History stores resource and attachment identifiers as scalar IDs |
 | Filter by organization_id | ✅ | Engine history and Sales-owned data loading use authenticated scope |
 | Validate inputs with Zod | ✅ | Generate, preview, and history-list inputs use module validators |
-| API routes export openApi | ✅ | All four routes export OpenAPI metadata |
+| API routes export openApi | ✅ | All five routes must export OpenAPI metadata |
 | Module code in `packages/<name>/` | ✅ | `packages/document-generators/` |
 | defaultRoleFeatures in setup.ts | ✅ | |
 | Never hardcode user-facing strings | ✅ | All via useT() |
-| Generated migrations | ✅ | Entity migration and snapshot were produced by the repository generator |
+| Generated migrations | ✅ | Entity migration and snapshot must be produced by `yarn db:generate`, not written by hand |
 | ACL separation | ✅ | `view` and `generate` permissions are declared and assigned to default roles |
 | Embedded lists use `DataTable` and `apiCall` | ✅ | Planned Phase 6 promotes and extends the existing `HistoryList` and its `hooks/history/**` data layer; it does not introduce a custom table or raw fetch path |
 | Engine remains decoupled from Sales | ✅ | Sales owns its services, templates, widget adapters and i18n; the engine owns only format/runtime mechanics and reusable UI/toolkit surfaces |
@@ -1124,9 +1130,11 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 
 ### Verdict
 
-**Compliant for implemented Phases 1–5 and approved for planned Phase 6.** Phase 6 reuses the existing scoped history service, API, and `DataTable`; it adds no persistence or public host contract and includes explicit client-boundary, tenant-isolation, and integration-test requirements.
+**Design complies with the checklist above for Phases 1–6; none of it is implemented in this repository yet.** Phase 6's design reuses the (also not-yet-built) scoped history service, API, and `DataTable`; it adds no persistence or public host contract and includes explicit client-boundary, tenant-isolation, and integration-test requirements to satisfy once Phase 5 is implemented.
 
-### Review — 2026-08-11
+### Design Review — 2026-08-11
+
+A design-time review of Phase 6's plan against Phase 5's plan, conducted while this spec's phases were believed complete on the (since-closed) `feat/document-generators` branch. Kept as a record of that review; re-verify against actual code once each phase is implemented in this repository.
 
 - **Reviewer**: Codex with independent fresh-context scope-cohesion audit
 - **Security**: Passed — resource filters only narrow authenticated tenant/organization scope, and missing source identity fails closed without an organization-wide fallback.
@@ -1134,16 +1142,18 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 - **Cache**: N/A — Phase 6 uses direct scoped reads and generation-triggered refresh; no cache is introduced.
 - **Commands**: N/A — Phase 6 adds no mutation; generation continues through the existing route and history remains best-effort.
 - **Risks**: Passed — the spec explicitly distinguishes a refresh attempt from guaranteed persistence and covers stale requests, pagination, and cross-resource isolation.
-- **Verdict**: Approved — Phase 6 is cohesive with Phase 5 and the existing detail-widget workflow; a separate specification would duplicate the same contracts.
+- **Verdict**: Approved as design — Phase 6 is cohesive with Phase 5 and the existing detail-widget workflow; a separate specification would duplicate the same contracts. Approval is of the plan, not of any implementation.
 
 ## Implementation Status
 
-| Phase | Status | Date | Notes |
+**Every phase below is Not Started in this repository.** `packages/document-generators/` does not exist on `develop`; no line of this feature's code has landed here. Phases 1–4.8 and 5 were previously designed and implemented on the unmerged `feat/document-generators` branch (PR #5170), which was closed on 2026-08-14 for implementation-quality problems in that code, not for problems with the design — so the "Prior design work" column below records design/spec history on that closed branch, not code present in this repository. Treat every phase as a fresh implementation task against the spec text above; do not resurrect or cherry-pick commits from the closed branch.
+
+| Phase | Status | Prior design work (closed PR #5170, not in this repo) | Notes |
 |-------|--------|------|-------|
-| Phase 1–4.7 | Done | 2026-08-12 | Registry, render pipeline, preview/download UI, decentralized Sales templates, and Markdown output |
-| Phase 4.8 — Template Access Policy | Done | 2026-08-14 | `requiredFeatures` on template metadata, `TemplateAccessPolicy` extracted to `lib/`, catalogue filtering, `403` on render routes, corrected engine ACL IDs and per-route guards |
-| Phase 5 — History & Backend Page | Done | 2026-08-10 | GeneratedDocument persistence, scoped history endpoint, server-derived resource identity, ACL, backend DataTable, unit and integration coverage |
-| Rendering service refactor | Done | 2026-08-12 | Shared source and format values are extensible strings; registry prepares format-neutral input; concrete source/input types are colocated with their rendering services; `DocumentRenderer` dispatches through a renderer map |
+| Phase 1–4.7 | Not Started | 2026-08-12 | Registry, render pipeline, preview/download UI, decentralized Sales templates, and Markdown output |
+| Phase 4.8 — Template Access Policy | Not Started | 2026-08-14 | `requiredFeatures` on template metadata, `TemplateAccessPolicy` extracted to `lib/`, catalogue filtering, `403` on render routes, corrected engine ACL IDs and per-route guards |
+| Phase 5 — History & Backend Page | Not Started | 2026-08-10 | GeneratedDocument persistence, scoped history endpoint, server-derived resource identity, ACL, backend DataTable, unit and integration coverage |
+| Rendering service refactor | Not Started | 2026-08-12 | Shared source and format values are extensible strings; registry prepares format-neutral input; concrete source/input types are colocated with their rendering services; `DocumentRenderer` dispatches through a renderer map |
 | Phase 6 — Source-scoped History in Detail Widgets | Not Started | — | Planned; reuses the Phase 5 endpoint and entity without schema changes |
 | Phase 7 — Attachment Storage | Not Started | — | Planned |
 | Phase 8 — Advanced Templates | Not Started | — | Planned; template versioning + draft watermark only — email/sharing/bulk-generation/auto-trigger moved to "Out of scope for this spec" for their own future specs |
@@ -1197,3 +1207,4 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | 2026-08-17 | Claude | Corrected the widget data contract, which the spec asserted in four places: widgets send `{ id: record.id }` and take `resourceKind` from the injection context, they do not forward the raw record — restated in the TLDR, Overview, both affected Design Decisions rows, the `/preview` and `/generate` request examples, and Phase 4's widget step, with the security rationale (the browser must not be able to influence document contents) made explicit. Replaced the Internationalization section, which still listed four Polish-defaulted keys that no longer match the module's own English-defaulted dictionaries, with the real per-surface key groups and the domain-vs-engine split. |
 | 2026-08-17 | Claude | Completed the declaration contracts: added `note?: string` to `TemplateMeta` (already surfaced as a catalogue column), defined `DocumentTemplateEntry` — referenced four times but never specified — and explained why it carries only per-template fields while identity and normalization come from the service, documented the service-level `resourceId` / `resourceLabel` on `BaseDocumentService` and the role of `getEntries()` in merging both halves into a flat `TemplateEntry`, and declared the named `UnknownTemplateError` / `DuplicateTemplateError` the routes map to status codes. |
 | 2026-08-17 | Claude | Added an "API Contracts → Shared conventions" section: the three edge helpers every route reuses (`parseJsonBody`, `requireOrganization`, `documentResponse`), the full stable error-code table with the status each maps to, and the RFC 5987 `Content-Disposition` contract with its ASCII fallback — including the consequence that `/preview` also sends `attachment`. Flagged as a known inconsistency that `GET /documents` alone answers with untranslated prose in the `error` field instead of a stable code. Expanded the `GET /templates` response example from three fields to the real `TemplateMeta`, named the `invalid_query` code in its error list, and added `api/_shared/**` plus the previously missing `templates/options/route.ts` to the module structure. |
+| 2026-08-17 | Claude | Reworked every "Done"/✅ status claim into "Planned"/"Not Started": `packages/document-generators/` does not exist anywhere in this repository, and the prior implementation this spec was synced against (2026-08-17 sync above) lived only on the closed, unmerged `feat/document-generators` branch (PR #5170), closed by Bernard for implementation-quality problems in that code, not for problems with the design. Changed every Phase 1–5/4.5–4.8 heading from `✅` to `(Planned)`; added a status callout at the top of the Implementation Plan and rewrote the Implementation Status table so every phase reads "Not Started," with a "Prior design work (closed PR #5170, not in this repo)" column replacing the old Date column so those dates aren't mistaken for work done here; renamed Phase 5's "Implemented files"/"Updated files" to "Files to add"/"Files to update"; reframed "Final Compliance Report" as "Design Compliance Report" and its Verdict to state the design (not any implementation) is compliant; relabeled the Phase 6 review as a "Design Review" of a plan, not of shipped code; and reframed "Integration Test Coverage" as required coverage each phase must ship rather than coverage already in place. No normative content (contracts, decisions, risk mitigations) changed — only the status framing. |
