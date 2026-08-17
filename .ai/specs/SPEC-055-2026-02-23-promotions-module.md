@@ -1,7 +1,7 @@
 # SPEC-055: Promotions Module
 
 **Date**: 2026-02-23
-**Status**: Approved (amended 2026-08-14 — see §Amendment)
+**Status**: Approved (amended 2026-08-14, reconciliation-fixed 2026-08-17 — see §Amendment)
 **Suite**: [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 6, Phase 2
 
 > **Amendment notice (2026-08-14).** This spec was written against a hypothetical external cart addressed over HTTP by SKU. The platform now has a first-class [`cart` module](./2026-08-14-cart-module.md). The **Amendment** section near the end of this document is normative and takes precedence over the *Cart-Facing Endpoints* section where they conflict: the primary integration becomes a DI service call, the `/api/cart/*` namespace moves to `/api/promotions/*`, item addressing gains product and variant ids, and effects map onto `SalesAdjustmentDraft`. Everything else in this spec — the rule tree, the three-pass engine, codes, usage ledger, extensibility — is unchanged.
@@ -117,13 +117,13 @@ promotions/
 │   ├── codes/route.ts                Code CRUD
 │   ├── codes/[id]/generate/route.ts  Trigger dynamic code generation worker
 │   ├── codes/[id]/generated/route.ts List individual generated codes
-│   ├── cart/apply-promotion/route.ts Cart benefit resolver (POST)
-│   ├── cart/add-code/route.ts        Code reservation (POST)
-│   ├── cart/validate-code/route.ts   Re-validate reserved code (POST)
-│   ├── cart/use-code/route.ts        Mark code used + write CodeUsage (POST)
-│   ├── cart/delete-code/route.ts     Release reservation (POST)
-│   ├── cart/register-usage/route.ts  Record confirmed discount audit + budget check (POST)
-│   ├── cart/revert-usage/route.ts    Revert usage on order cancellation (POST)
+│   ├── evaluate/route.ts             Cart benefit resolver (POST) — was cart/apply-promotion, fixed 2026-08-17 (Amendment §A.3)
+│   ├── codes/reserve/route.ts        Code reservation (POST) — was cart/add-code
+│   ├── codes/validate/route.ts       Re-validate reserved code (POST) — was cart/validate-code
+│   ├── codes/use/route.ts            Mark code used + write CodeUsage (POST) — was cart/use-code
+│   ├── codes/release/route.ts        Release reservation (POST) — was cart/delete-code
+│   ├── usage/register/route.ts       Record confirmed discount audit + budget check (POST) — was cart/register-usage
+│   ├── usage/revert/route.ts         Revert usage on order cancellation (POST) — was cart/revert-usage
 │   ├── dynamic-labels/route.ts       Storefront condition metadata (GET)
 │   ├── free-products/route.ts        Free product eligibility (POST)
 │   ├── delivery-methods/route.ts     Delivery promotion eligibility (POST)
@@ -612,7 +612,7 @@ Paginated list of `GeneratedCode` records. Query: `page`, `pageSize`, `active`.
 
 All authenticated via `X-Module-Key` header (module API key).
 
-#### `POST /api/cart/apply-promotion`
+#### `POST /api/promotions/evaluate` (was `/api/cart/apply-promotion` — see Amendment §A.3)
 
 Request:
 ```jsonc
@@ -722,31 +722,31 @@ Response:
 - `ADD_FREE_ITEM` effects are decided entirely by the promotions engine — the cart must not compute which free item to add from raw benefit config
 - When `max_discount` is set on a benefit config, the effect resolver caps `|amount|` at `max_discount` before returning the effect — the resolved `amount` is always `≥ -max_discount`. The cap is applied per-benefit, not across the whole promotion.
 
-#### `POST /api/cart/add-code`
+#### `POST /api/promotions/codes/reserve` (was `/api/cart/add-code` — see Amendment §A.3)
 
 Request: `{ organizationId, tenantId, codeString, customerId }`
 Response: `{ ok: true, codeId: uuid, type: "static|dynamic" }` or 422 with error.
 
 Validates: code exists, is active, has remaining global uses, per-customer limit not reached. Creates `CodeReservation`.
 
-#### `POST /api/cart/validate-code`
+#### `POST /api/promotions/codes/validate` (was `/api/cart/validate-code` — see Amendment §A.3)
 
 Request: `{ organizationId, tenantId, codeString, customerId }`
 Response: `{ valid: boolean, reason?: string }`
 
-#### `POST /api/cart/use-code`
+#### `POST /api/promotions/codes/use` (was `/api/cart/use-code` — see Amendment §A.3)
 
 Request: `{ organizationId, tenantId, codeId, codeString, customerId, type }`
 Response: `{ ok: true }`
 
 Side effects: runs inside a **serializable transaction** that re-checks global usage limits, per-customer limits, and code active status before proceeding (closes multi-device race conditions). Deactivates `GeneratedCode` (dynamic) OR increments `Code.used` + deactivates if exhausted (static). Writes `CodeUsage`. Deletes `CodeReservation`.
 
-#### `POST /api/cart/delete-code`
+#### `POST /api/promotions/codes/release` (was `/api/cart/delete-code` — see Amendment §A.3)
 
 Request: `{ organizationId, tenantId, codeString, customerId }`
 Response: `{ ok: true }` — deletes `CodeReservation` only.
 
-#### `POST /api/cart/register-usage`
+#### `POST /api/promotions/usage/register` (was `/api/cart/register-usage` — see Amendment §A.3)
 
 Called by the cart integration after an order/quote is **confirmed** (payment captured or quote finalised). Records the discount audit trail and enforces the lifetime budget cap.
 
@@ -772,7 +772,7 @@ Response: `{ ok: true }` — 200. Idempotent on re-submission for the same `orde
 
 Side effects: for each `appliedPromotion`, runs `PromotionUsageService.registerUsage(...)` inside a serializable transaction that re-checks `max_budget`. If any promotion's budget would be exceeded, that promotion's write is rolled back and the endpoint returns **207 Multi-Status** with a `budgetExceeded` flag for the affected promotion IDs — the caller should re-evaluate whether to proceed with the order at a reduced discount or notify the customer. Emits `promotions.usage.registered` per successful promotion. Emits `promotions.promotion.budget-exhausted` when the running total first reaches `max_budget`.
 
-#### `POST /api/cart/revert-usage`
+#### `POST /api/promotions/usage/revert` (was `/api/cart/revert-usage` — see Amendment §A.3)
 
 Called by the cart integration when an order is **cancelled** or a quote is **rejected/expired**.
 
@@ -1176,7 +1176,7 @@ Extension rule evaluators receive the full context and should read from `context
 3. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file. Resolvers for `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` must apply `max_discount` capping after computing the raw amount: `effectiveAmount = min(rawAmount, config.max_discount ?? Infinity)`
 4. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
 5. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, aggregate `totalDiscountGranted` per promotion from `promotion_usages WHERE reverted_at IS NULL`, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event or usage event (`promotions.usage.registered`, `promotions.usage.reverted`)
-6. Implement `api/cart/apply-promotion/route.ts` — full cart evaluation endpoint
+6. Implement `api/evaluate/route.ts` (was `api/cart/apply-promotion/route.ts` — Amendment §A.3) — full cart evaluation endpoint
 7. Implement `api/dynamic-labels/route.ts`, `api/free-products/route.ts`, `api/delivery-methods/route.ts`
 8. Implement `lib/product-page-engine.ts` — lightweight variant that evaluates active promotions against a list of SKUs; implement `api/product-page/route.ts` consuming it
 9. Integration tests: evaluation engine unit tests for each rule type with assertion that zero DB calls occur during evaluation; end-to-end apply-promotion API tests asserting `ResolvedEffect` amounts (not raw percentages), `ADD_FREE_ITEM` SKU resolution, cumulativity, tag exclusion, sub-group benefit collection; performance benchmark captured for ≥ 100 promotions
@@ -1192,12 +1192,12 @@ Extension rule evaluators receive the full context and should read from `context
 5. Implement `workers/code-generation.worker.ts` — background batch generator with uniqueness validation; register queue `promotions.code.generate`
 6. Implement `services/code-generation.ts` — triggers worker, tracks progress
 7. Implement `api/codes/route.ts`, `api/codes/[id]/generate/route.ts`, `api/codes/[id]/generated/route.ts`
-8. Implement cart code endpoints: `add-code`, `validate-code`, `use-code`, `delete-code`
+8. Implement code endpoints under `api/codes/`: `reserve`, `validate`, `use`, `release` (was `cart/add-code`, `cart/validate-code`, `cart/use-code`, `cart/delete-code` — Amendment §A.3)
 9. Build codes backend pages: list, create, detail with generated codes panel
 10. Write `PromotionUsage` entity and validators; generate and apply migration
 11. Implement `lib/promotion-usage-service.ts` — `registerUsage` (serializable transaction, budget cap enforcement, idempotent upsert, `promotions.promotion.budget-exhausted` emission on first budget hit), `revertUsage` (bulk `reverted_at` update), `getBudgetConsumed`
-12. Implement `api/cart/register-usage/route.ts` — loops `appliedPromotions`, calls `registerUsage` per promotion, returns 207 Multi-Status with `budgetExceeded` flag for any promotions that were blocked; exports `openApi`
-13. Implement `api/cart/revert-usage/route.ts` — calls `revertUsage`, returns `{ ok: true, revertedCount }`; exports `openApi`
+12. Implement `api/usage/register/route.ts` (was `api/cart/register-usage/route.ts` — Amendment §A.3) — loops `appliedPromotions`, calls `registerUsage` per promotion, returns 207 Multi-Status with `budgetExceeded` flag for any promotions that were blocked; exports `openApi`
+13. Implement `api/usage/revert/route.ts` (was `api/cart/revert-usage/route.ts` — Amendment §A.3) — calls `revertUsage`, returns `{ ok: true, revertedCount }`; exports `openApi`
 14. Update `subscribers/invalidate-promotion-cache.ts` to also subscribe to `promotions.usage.registered` and `promotions.usage.reverted` for cache invalidation
 15. Register `PromotionUsageService` in `di.ts`
 16. Integration tests: `TC-PROM-023` – `TC-PROM-026` (see Testing Strategy)
@@ -1446,19 +1446,23 @@ The HTTP endpoints remain, unchanged in behaviour, for genuinely external carts 
 
 ### A.3 Namespace move — breaking, and necessary
 
-The cart-facing endpoints move:
+The cart-facing endpoints move. **Fixed 2026-08-17**: this table originally listed a route (`remove-code`) that does not exist anywhere else in this document — the real route is `delete-code` — and omitted two real cart-facing routes (`validate-code`, `use-code`) entirely, which would have left them under `/api/cart/*` and defeated the whole point of this section. Corrected to cover all seven cart-facing routes actually defined in *API Contracts*:
 
 | Was | Becomes |
 |---|---|
 | `POST /api/cart/apply-promotion` | `POST /api/promotions/evaluate` |
 | `POST /api/cart/add-code` | `POST /api/promotions/codes/reserve` |
-| `POST /api/cart/remove-code` | `POST /api/promotions/codes/release` |
+| `POST /api/cart/validate-code` | `POST /api/promotions/codes/validate` |
+| `POST /api/cart/use-code` | `POST /api/promotions/codes/use` |
+| `POST /api/cart/delete-code` | `POST /api/promotions/codes/release` |
 | `POST /api/cart/register-usage` | `POST /api/promotions/usage/register` |
 | `POST /api/cart/revert-usage` | `POST /api/promotions/usage/revert` |
 
 `/api/cart/*` belongs to the `cart` module (roadmap §9). Two modules serving one namespace would make route ownership ambiguous and would collide outright — `cart` defines `POST /api/cart/carts/:token/promotions`.
 
 Nothing is deployed under the old paths, so this is a specification change and no deprecation protocol is triggered. Had they shipped, the old paths would need a redirect for one minor version.
+
+**This table is the single source of truth for these seven routes.** Every other section of this document — module file structure, *API Contracts* headers, the implementation plan — must read the `/api/promotions/*` path on the right, not the `/api/cart/*` path on the left; occurrences of the old paths elsewhere in this document that were not updated in this pass are a defect, not an alternative.
 
 ### A.4 Cart context: ids alongside SKUs
 
@@ -1554,3 +1558,4 @@ Reservation TTL is independent of and shorter than cart TTL. `cart`'s expiry swe
 | 2026-02-24 | 1.3.0 | Add `max_discount` optional field to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` benefit configs. Effect resolvers in `lib/effect-resolvers.ts` cap the computed amount at `max_discount` after the raw calculation. New invariant: cap is per-benefit, expressed in operating currency. Added `TC-PROM-014` test case. |
 | 2026-08-14 | 2.0.0 | **Amendment for the `cart` module** (see §Amendment, normative over *Cart-Facing Endpoints*). Primary integration becomes DI `promotionsService`; HTTP endpoints retained as an adapter for external carts. Cart-facing routes move from `/api/cart/*` to `/api/promotions/*` to resolve a namespace collision with the `cart` module. `CartContext.items[]` gains `productId`, `variantId`, `cartLineId`; effect targeting gains `targetCartLineId` alongside `targetSku`. `CartContext` gains `customerGroupIds`, `taxMode`, `storeId`; new built-in `customer_group` rule type enables B2B group-scoped promotions. Effects gain a required `basis: 'net' \| 'gross'` so `salesCalculationService` does not tax an already-taxed discount. `ADD_FREE_ITEM` lines are excluded from subsequent eligibility to prevent a buy-X-get-Y feedback loop. `CodeReservation` gains `cart_id` with a lifecycle tied to cart abandonment and expiry. Single evaluation per batch mutation, with a P95 latency budget. Risks A-R1…A-R5 and cases TC-PROM-050…057 added. |
 | 2026-02-26 | 1.4.0 | Add `PromotionUsage` entity (`promotion_usages` table) serving as per-order compliance audit ledger and global spend tracker. Add `PromotionUsageService` (`lib/promotion-usage-service.ts`) with `registerUsage` (serializable budget cap enforcement, idempotent upsert, 207 Multi-Status on budget block), `revertUsage` (soft-revert on order cancellation), and `getBudgetConsumed`. Add `POST /api/cart/register-usage` and `POST /api/cart/revert-usage` cart-facing endpoints. Add `eligible_currencies` (text[]) + `max_budget` (numeric nullable) + `budget_currency` (text nullable) to `Promotion`. Add `currency` (required) to `CartContext`. Add currency eligibility check and optimistic budget pre-check to evaluation engine. Update `NormalizedPromotion` shape with `eligibleCurrencies`, `maxBudget`, `budgetCurrency`, `totalDiscountGranted`. Update cache build to aggregate `totalDiscountGranted` from usage table. Add `promotions.usage.registered`, `promotions.usage.reverted`, `promotions.promotion.budget-exhausted` events. Add `TC-PROM-023`–`TC-PROM-026` test cases. Add Budget Cap Race Window risk entry. |
+| 2026-08-17 | 2.0.1 | **Amendment reconciliation fix.** §A.3's route-rename table was incomplete and partly wrong: it listed a route (`remove-code`) that does not exist anywhere in this document — the real route is `delete-code` — and omitted `validate-code`/`use-code` entirely, which would have left both under the colliding `/api/cart/*` namespace the amendment exists to resolve. This table entry (1.4.0, dated *before* the 2.0.0 amendment but positioned after it) had also re-added `POST /api/cart/register-usage`/`revert-usage` under the pre-amendment namespace without reconciling against §A.3. Corrected §A.3 to cover all seven cart-facing routes; updated the module file structure, every *API Contracts* route header, and the Phase 3 implementation-plan steps to the `/api/promotions/*` paths. No further behavioural change. |
