@@ -188,7 +188,8 @@ One row per customer per currency. Overrides the group default.
 | `is_on_hold` | boolean | Manual block; blocks regardless of exposure |
 | `hold_reason` | text, nullable | |
 | `updated_by_user_id` | uuid, nullable | Audit |
-| `version` | integer | Optimistic locking on the admin edit form |
+
+Optimistic locking uses the platform's standard `updated_at` mechanism (already present per the §5 header), not a `version` counter — this entity is `CrudForm`-edited, so the header is auto-derived from `initialValues.updatedAt`; see the Concurrency Strategy subsection below. No separate `version` column.
 
 Constraint: unique `(tenant_id, customer_id, currency_code)`.
 
@@ -227,7 +228,8 @@ Constraints: unique `(credit_account_id, idempotency_key)` where the key is non-
 | `decided_at` | timestamptz, nullable | |
 | `decision_note` | text, nullable | |
 | `expires_at` | timestamptz | |
-| `version` | integer | Optimistic locking — two approvers must not both decide |
+
+Optimistic locking on the decide action uses `updated_at` (already present per the §5 header), not a `version` counter: `POST /approvals/:id/decide` is a non-`makeCrudRoute` command endpoint, so it wraps its write with `enforceCommandOptimisticLock` reading the `updated_at`-derived header the client sent with the approval snapshot it decided against, and surfaces a conflict via `surfaceRecordConflict` if a second approver's decision lands first — this is what actually protects R8 ("approval double-decision"); a plain `version` integer with nothing reading or incrementing it would not. No separate `version` column.
 
 Approver identification reuses `customers.CustomerEntityRole` (`roleType = 'purchase_approver'`) rather than introducing a parallel role model.
 
@@ -301,6 +303,15 @@ interface CustomerGroupsService {
 
 `customerId: null` returns the default group (`is_default = true`) if one exists, otherwise an empty set and tenant-default terms with `taxDisplayMode: 'gross'` and `allowPurchaseOnAccount: false`. Absence of a group MUST NOT be an error — an anonymous storefront visitor is the common case.
 
+### 6.3 Concurrency Strategy
+
+`reserveCredit`'s "serializable transaction; retry on serialization failure" (R1, this spec's own top risk) has **no reference implementation anywhere in this codebase** to copy — a repo-wide check found zero production use of Postgres `SERIALIZABLE` isolation. This is new infrastructure, not an established pattern, and must be built and unit-tested as its own reviewable unit before `reserveCredit` is wired to it:
+
+- **Isolation level**: `withAtomicFlush` (`packages/shared/src/lib/commands/flush.ts`) already exposes an `isolationLevel` option passed through to `em.begin()`, but nothing in the repo exercises it with `'serializable'` today — confirm MikroORM's Postgres driver honors it end-to-end before relying on it.
+- **Retry helper**: add a small, generically-named retry-on-serialization-failure helper (candidate home: `packages/shared/src/lib/commands/`, alongside `withAtomicFlush`) that catches Postgres error code `40001`, retries the transaction a bounded number of times (e.g. 3, with jittered backoff), and re-throws past the bound. `reserveCredit` wraps its limit re-check + ledger-append phase in `withAtomicFlush(em, phases, { transaction: true, isolationLevel: 'serializable' })` through this helper.
+- **Do not treat "mirrors SPEC-055"** (this repo's promotions spec, which proposes the identical pattern for budget caps) **as precedent** — SPEC-055 is itself unimplemented spec-only text, not working code. Whichever of the two specs implements this helper first should be the one the other references.
+- The N=20-parallel-reservation integration test (§13) is the acceptance gate for this helper, not for `reserveCredit` itself — write and merge the helper with its own concurrency test before Phase 3 begins.
+
 ---
 
 ## 7) Consumer Changes
@@ -317,7 +328,9 @@ Same substitution in tax-rate matching. `SalesTaxRate.customerGroupId` (the rule
 
 ### 7.3 Admin UI
 
-The current free-text UUID inputs for `customerGroupId` in the catalog price editor, the price API filters and the sales tax-rate form are replaced with a group picker sourced from `/api/customer-groups`. A row referencing an id with no matching group renders as an explicit `Unknown group (<uuid>)` error state — it is not hidden, because hiding it is how the orphan problem became invisible in the first place.
+The current free-text UUID inputs for `customerGroupId` in the catalog price editor and the sales tax-rate form are replaced with a group picker sourced from `/api/customer-groups`. A row referencing an id with no matching group renders as an explicit `Unknown group (<uuid>)` error state — it is not hidden, because hiding it is how the orphan problem became invisible in the first place.
+
+**Coupling direction (resolved).** The picker ships as a widget `customer_groups` injects into the `crud-form:catalog.catalog_product_price:fields` and `crud-form:sales.sales_tax_rate:fields` spots (`packages/core/AGENTS.md` → Widget Injection / CrudForm Field Injection), not as a `catalog`/`sales` import of `customer_groups`. `catalog` and `sales` gain **no new `requires` entry** — `pricing.ts:66,84`'s matching logic already only compares against a `customerGroupId[s]` value the caller supplies, so neither module needs a runtime dependency on `customer_groups` to function; `catalog` in particular keeps its current zero-`requires` status. If `customer_groups` is ejected, both forms fall back to their present-day free-text UUID input — no error, no degraded matching behavior, just the loss of the picker convenience and the `Unknown group` explainer. The price API filter (`catalog/api/prices/route.ts`) is unaffected either way; it already accepts a raw UUID.
 
 ---
 
@@ -412,14 +425,14 @@ export const features = [
 
 | # | Risk | Severity | Area | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|---|
-| R1 | Concurrent credit overshoot | **Critical** | `customer_groups`, `checkout` | Two purchase-on-account checkouts for the same customer each read exposure 80k against a 100k limit, each reserves 30k, exposure lands at 140k. The tenant has extended 40k of unsecured credit it never approved. | `reserveCredit` runs the limit re-check and the ledger append in one `SERIALIZABLE` transaction; retry on serialization failure; concurrency test with N parallel reservations against a limit is a merge gate | Low |
+| R1 | Concurrent credit overshoot | **Critical** | `customer_groups`, `checkout` | Two purchase-on-account checkouts for the same customer each read exposure 80k against a 100k limit, each reserves 30k, exposure lands at 140k. The tenant has extended 40k of unsecured credit it never approved. | `reserveCredit` runs the limit re-check and the ledger append in one `SERIALIZABLE` transaction via the retry helper specified in §6.3 (no reference implementation exists in this codebase — build and unit-test it first); concurrency test with N parallel reservations against a limit is a merge gate | Low, once §6.3's helper lands and is proven under the concurrency test |
 | R2 | Stale group membership in cache | **High** | `catalog`, `ecommerce` | A customer is removed from "Wholesale" at 14:00; a price cached at 13:59 keyed only on product+channel keeps serving the wholesale price for the rest of its TTL. Revenue loss, and the reverse case discloses contract pricing. | Buyer-context digest (ADR-7) includes the sorted group id set; `membership.added`/`.removed` invalidate by tag `customer:{id}`; membership expiry runs hourly and also invalidates | Medium — a membership expiring between hourly runs serves a stale group for up to an hour; acceptable for `valid_until`, which is operator-scheduled, and documented |
 | R3 | Orphan ids silently change prices | **High** | `catalog`, `sales` | An operator creates a group and, coincidentally or by copying, its id collides with an invented one already in price rows. Rows that previously never matched suddenly apply. | Generated UUIDs make accidental collision negligible; the real vector is `--adopt`, which is explicit and reversible; reconciliation report runs before any group creation is recommended in the rollout note | Low |
 | R4 | Priority uniqueness blocks bulk import | Medium | `customer_groups` | Unique `(tenant_id, priority)` makes importing a group list fail on the first collision, mid-import. | Import assigns priorities in gaps of 10 and renumbers on conflict; the admin list supports drag-reorder which rewrites priorities in one transaction | Low |
 | R5 | Terms inheritance is opaque | Medium | `customer_groups` | A buyer gets an unexpected payment term; support cannot tell which of four overlapping groups supplied it. | `ResolvedTerms.sourceGroupId` per field; admin "explain terms" panel on the customer detail page renders the resolution trace | Low |
 | R6 | Deep group hierarchies degrade resolution | Low | `customer_groups` | Recursive ancestor walks on every price call. | Depth capped at 5; resolution result cached per `(customerId, date-bucket)` for 60s with tag `customer:{id}` | Low |
 | R7 | `PricingContext` change breaks third-party modules | Medium | `catalog` | A third-party module constructs `PricingContext` with `customerGroupId` and stops matching after the change. | Field retained and normalized for ≥1 minor version with `@deprecated`; documented in `UPGRADE_NOTES.md`; per `BACKWARD_COMPATIBILITY.md` this is ADDITIVE plus deprecation | Low |
-| R8 | Approval double-decision | Low | `customer_groups` | Two approvers open the same request and both decide. | `version` optimistic locking on `CustomerPurchaseApproval`; the second decision surfaces the conflict bar via `surfaceRecordConflict` | Low |
+| R8 | Approval double-decision | Low | `customer_groups` | Two approvers open the same request and both decide. | `updated_at`-based optimistic locking on `CustomerPurchaseApproval` (§5.6) via `enforceCommandOptimisticLock` on the `/decide` action route; the second decision surfaces the conflict bar via `surfaceRecordConflict` | Low |
 
 ---
 
@@ -488,8 +501,10 @@ Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are requi
 | Tenant/organization scoping | Every entity scoped; every test asserts isolation against a second tenant |
 | Zod validation in `data/validators.ts` | All routes; types via `z.infer` |
 | No `any` | Service contract fully typed |
-| Optimistic locking | `CustomerCreditAccount` and `CustomerPurchaseApproval` carry `version`; all editable entities expose `updatedAt` for `CrudForm` |
-| Encryption | Credit limits and ledger amounts are commercially sensitive but not GDPR special categories; standard scoping applies, no field encryption |
+| Optimistic locking | Platform-standard `updated_at` mechanism only (§5.4, §5.6) — no `version` counter; `CustomerCreditAccount` uses `CrudForm`'s auto-derived header, `CustomerPurchaseApproval`'s `/decide` action route uses `enforceCommandOptimisticLock`; all editable entities expose `updatedAt` for `CrudForm` |
+| Concurrency strategy | §6.3 — `reserveCredit`'s `SERIALIZABLE` + retry-on-40001 is new infrastructure with no reference implementation in this repo; helper built and unit-tested independently before Phase 3 |
+| Cross-module coupling | §7.3 — admin group picker ships as a `crud-form:<entityId>:fields` widget injected by `customer_groups`; `catalog`/`sales` gain no new `requires` entry |
+| Encryption | Credit limits and ledger amounts are commercially sensitive but not GDPR special categories; standard scoping applies, no field encryption — consistent with existing precedent (`sales`/`payment_gateways` encrypt blob/secret columns, not scalar monetary columns) |
 | Backward compatibility | `PricingContext.customerGroupId` deprecated, not removed; no FK constraint added; documented in `UPGRADE_NOTES.md` |
 | i18n | No hard-coded user-facing strings; `en.json` and `pl.json` |
 | Migrations | `yarn db:generate` per entity batch, snapshot reviewed |
@@ -498,6 +513,10 @@ Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are requi
 ---
 
 ## 17) Changelog
+
+### 2026-08-17
+- Fixed three Critical gaps found by a `/om-pre-implement-spec` audit (see `ANALYSIS-2026-08-14-customer-groups-and-b2b-terms.md` in the upstream repo): removed the functionally-inert `version` optimistic-locking column from `CustomerCreditAccount` (§5.4) and `CustomerPurchaseApproval` (§5.6) in favor of this platform's actual `updated_at` + header-protocol mechanism; added §6.3 Concurrency Strategy specifying that the `SERIALIZABLE`-retry helper for `reserveCredit` has no reference implementation and must be built independently; resolved §7.3's admin-picker coupling direction as `crud-form:<entityId>:fields` widget injection, confirming `catalog`/`sales` gain no new `requires` entry.
+- Updated R8 and §16 accordingly.
 
 ### 2026-08-14
 - Initial specification.
