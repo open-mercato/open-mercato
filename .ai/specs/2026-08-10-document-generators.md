@@ -9,7 +9,7 @@
 **Scope:**
 - Universal template registry — class-based singleton populated by module convention files, with fail-fast duplicate-ID detection
 - Template metadata hierarchy: `module` → `resourceKind` → logical template → `format` (`pdf` | `md`); `documentType` describes the business purpose (`offer`, `invoice`, `contract`)
-- Widget passes raw `context.record` to the API — optional `fetchData` hook enriches data server-side (e.g. fetches line items via DI container); `toTemplateData` normalizes afterward
+- Widget passes only the source record's identity (`{ id }`) to the API — the `fetchData` hook reloads the record server-side under the request's tenant scope (e.g. fetches line items via DI container); `toTemplateData` normalizes afterward
 - `GET /api/document-generators/templates` — lists available templates for client-side consumption
 - `POST /api/document-generators/generate` — loads a template through the registry, renders its format-specific input through `DocumentRenderer`, records best-effort generation history, and returns the rendered file
 - `GET /api/document-generators/documents` — returns tenant- and organization-scoped generation history
@@ -31,7 +31,7 @@ The `document_generators` module extends OpenMercato with the ability to generat
 
 Templates live in their owning domain module and are organized by resource, logical template, and output format. `GET /api/document-generators/templates` reads one registry populated at bootstrap from each module's `document-generators.ts`. Widgets filter the resulting list with `TemplateFilter` (`resourceKind`, `documentType`, `format`, `tags`).
 
-The widget passes raw `context.record` to the API. `templateRegistry.load()` runs optional `fetchData`, normalizes through `fromRecord`, loads an extensible template source, and derives filename and resource identity. `DocumentRenderer` receives only `{ format, source, data }`, selects the registered rendering service from its format map, and returns format, MIME type, and bytes. The API route combines that output with filename and resource metadata.
+The widget passes `{ id: record.id }` — the source record's identity, not the record itself — and takes its `resourceKind` filter from the injection context rather than a hard-coded literal. `templateRegistry.load()` runs optional `fetchData`, normalizes through `fromRecord`, loads an extensible template source, and derives filename and resource identity. `DocumentRenderer` receives only `{ format, source, data }`, selects the registered rendering service from its format map, and returns format, MIME type, and bytes. The API route combines that output with filename and resource metadata.
 
 **Market Reference:** Pandadoc, Qwilr, Proposify are the category leaders. Adopted: live preview before generating, client data personalization. Rejected: drag-and-drop editor (excessive complexity for MVP), cloud storage (files returned directly as a stream).
 
@@ -66,7 +66,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | Decision | Rationale |
 |----------|-----------|
 | Templates as code (JSX), not database config | Git-versioned, full typographic control, no visual editor required |
-| Data from `context.record`, not a fetch | Widget already receives full record from the framework — only `id` is strictly needed when `fetchData` is defined |
+| Widget sends identity, not the record | The framework hands the widget a full record, but sending it would let the browser influence document contents. Built-in widgets send `{ id: record.id }` and every built-in service validates it as `{ id: UUID }`, so the rendered document is built exclusively from server-loaded, tenant-scoped data |
 | `fetchData` hook per template (server-side) | Services that need data not available in the widget context (e.g. line items) override `fetchData` to query the DI container before normalization |
 | Normalization via `toTemplateData` in `BaseDocumentService` subclass | Each entity's mapping lives in one class — adding a new entity = new service subclass, no changes to existing code |
 | Shared template data lives next to the logical template in its owning module | PDF and Markdown variants consume the same normalized business data without moving domain knowledge into the engine |
@@ -79,8 +79,9 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | PDF and Markdown authoring/runtime remain in the plugin | `@react-pdf/renderer`, PDF primitives, theme, format dispatch, MIME handling, preview and byte rendering do not move into Sales or shared |
 | `resourceKind` identifies compatible source data | Widgets and templates use a canonical resource kind such as `sales.quote`; `module` remains grouping metadata and `documentType` describes the output's business purpose. |
 | Resource identity is server-derived | `resourceId()` is required and runs against normalized data returned by scoped `fetchData`; clients never supply history ownership metadata. |
+| `requiredFeatures` enforced by a dedicated `TemplateAccessPolicy`, not by the registry or each route | One component owns the omit-vs-reject decision, the fail-closed rule and the per-request check cache; the registry stays a pure lookup component and a new route cannot accidentally ship a weaker check. |
 | `fromRecord` in registry entry calls `toTemplateData` (server-side) | Template owns its normalization logic — widget is fully decoupled from data shape. Adding a new template for `quotes` requires zero changes to the widget. |
-| No `enrichRecord` prop in widgets | Widget passes raw `record` only; all enrichment (data fetching + normalization) happens server-side via `fetchData` + `toTemplateData` |
+| No `enrichRecord` prop in widgets | Widgets stay thin context adapters; all enrichment (data fetching + normalization) happens server-side via `fetchData` + `toTemplateData` |
 | Service filename plus optional per-template override | Existing PDF templates keep service-level filenames; additional formats can provide the correct extension without duplicating normalization |
 | Tab widget per entity, not action button | PDF is a contextual view of the record, not a one-shot action |
 | Preview via iframe + blob URL, not PDFViewer | Server renders the PDF once (`renderToBuffer`), iframe displays the result — no client-side re-render on every change |
@@ -116,6 +117,9 @@ sales/document-generators.ts
         ↓ yarn generate
 document-generators.generated.ts
         ↓ bootstrap register(...)
+document-generators: TemplateAccessPolicy → rbacService
+  ├── filterAuthorizedTemplates → catalogue + filter options
+  └── requireAccess → gate before every load
 document-generators: TemplateRegistry
   └── load → DocumentRenderer
         ├── PdfRenderingService → application/pdf bytes
@@ -151,6 +155,7 @@ packages/document-generators/
 └── src/modules/document_generators/
     ├── lib/
     │   ├── interfaces.ts            # renderer, loaded-template, UI filter and registry runtime types
+    │   ├── template-access-policy.ts # per-template requiredFeatures checks + catalogue filtering
     │   └── template-registry.ts     # register/list/load module templates
     ├── data/
     │   ├── entities.ts              # GeneratedDocument history entity
@@ -169,8 +174,8 @@ packages/document-generators/
     │   │   └── __tests__/
     │   ├── markdown-rendering-service/ # MarkdownTemplateSource + MarkdownRenderInput live here
     │   └── document-renderer.ts
-    ├── components/
-    │   ├── TemplatesList.tsx        # Fetches templates, filters, shows list + opens PreviewPanel
+    ├── components/                  # Public extension components, renderable on any backend route
+    │   ├── TemplatesList.tsx        # Fetches templates, shows list + opens PreviewPanel
     │   ├── TemplatesListView.tsx    # Grid of TemplateListItem cards
     │   ├── TemplatesListLoader.tsx  # Loading skeleton
     │   ├── TemplateListItem.tsx     # Single template card
@@ -182,21 +187,35 @@ packages/document-generators/
     │   │   ├── components/
     │   │   │   └── Logo.tsx         # OpenMercatoLogo — exported publicly for external templates
     │   │   └── theme.ts             # colors, borders and spacing tokens; no runtime side effects
-    ├── utils/
-    │   ├── downloadBlob.ts
-    │   └── formatDate.ts
+    ├── utils/                       # Imported through the `.../document_generators/utils` barrel, not by filename
+    │   ├── index.ts                 # Stable export surface — a package export path, so files can be renamed freely
+    │   ├── downloadBlob.ts          # downloadBlob + revokeObjectUrlAfterNavigation
+    │   ├── escape.ts                # escapeInline / escapeTableCell — Markdown escaping for template authors
+    │   ├── filename.ts              # buildDocumentFilename(data, prefix, extension)
+    │   ├── formatDate.ts            # locale-aware, explicit UTC
+    │   ├── formatMoney.ts           # Intl.NumberFormat with currency placement
+    │   ├── getFilenameFromResponse.ts # reads Content-Disposition on the client
+    │   ├── resolveErrorMessage.ts   # maps a failed render response to user-facing copy
+    │   └── groupTemplatesByModule.ts # backend-catalogue only; deliberately outside the barrel
     ├── generators.ts                # GeneratorPlugin for document_generators.templates (code-gen)
     ├── api/
+    │   ├── _shared/
+    │   │   ├── http.ts              # parseJsonBody + requireOrganization guards
+    │   │   └── document-response.ts # RFC 5987 Content-Disposition + no-store/nosniff
     │   └── document-generators/
     │       ├── documents/route.ts   # GET scoped generation history
     │       ├── generate/route.ts    # POST render, persist history, download
     │       ├── preview/route.ts     # POST side-effect-free preview
-    │       └── templates/route.ts   # GET template metadata
-    ├── backend/document-generators/
+    │       ├── templates/route.ts   # GET template metadata
+    │       └── templates/options/route.ts # GET catalogue filter facets
+    ├── hooks/                       # React Query data layer: query keys, URL builders, filter/sort state
+    │   ├── templates/{useDocumentTemplates,useDocumentTemplateFilters,useDocumentTemplateOptions}.ts
+    │   └── history/{useDocumentHistory,useDocumentHistoryFilters}.ts
+    ├── backend/document-generators/ # Route-local UI; each page.tsx is a thin shell + page.meta.ts
     │   ├── page.tsx                 # hidden base route redirecting to /overview
     │   ├── overview/page.tsx        # module overview with navigation cards
-    │   ├── templates/page.tsx       # template overview
-    │   └── history/page.tsx         # paginated generation history
+    │   ├── templates/               # page.tsx + components/{TemplatesList,TemplatesListTableColumns}.tsx
+    │   └── history/                 # page.tsx + components/{HistoryList,HistoryListTableColumns}.tsx
     ├── acl.ts
     └── encryption.ts                # defaultEncryptionMaps for GeneratedDocument.resource_label
 ```
@@ -213,13 +232,30 @@ A single registry managed by `TemplateRegistry` class (singleton `templateRegist
 // Runtime contract: @open-mercato/document-generators
 interface TemplateRegistry {
   register(entries: TemplateEntry[]): void            // called by generated bootstrap; rejects duplicate IDs atomically
-  listTemplates(): TemplateMeta[]
-  load({ id, data }, { container, auth }): Promise<LoadedTemplate> // fetchData → load source → normalize → derive metadata
+  listTemplates(filter?: TemplateFilter, translate?: TranslateFn): TemplateMeta[]
+  getTemplateMetadata(id: string, translate?: TranslateFn): TemplateMeta // throws UnknownTemplateError
+  listTemplateFilterOptions(templates?: TemplateMeta[]): TemplateFilterOptions
+  load({ id, data }, { container, auth, locale, translate }): Promise<LoadedTemplate> // fetchData → load source → normalize → derive metadata
 }
+
+// Named failures the routes map to HTTP status codes
+class UnknownTemplateError extends Error {}   // thrown by getTemplateMetadata/load → 400 unknown_template
+class DuplicateTemplateError extends Error {} // thrown by register; message names both the already-registered
+                                              // module and the incoming one, and points authors at namespacing
 ```
 
 > Sales is registered through `packages/core/src/modules/sales/document-generators.ts`. Generated bootstrap code calls `register(...)`; route files do not import a domain registry for side effects.
 > Template IDs use the global `<module>.<template>` namespace. Duplicate registration is intentionally never idempotent: a second registration of the same ID, including the same entry, is treated as an invalid bootstrap graph and fails before the copied registry state is committed.
+
+**Where catalogue data comes from.** Every read method is a pure derivation over the in-memory entry map — there is no database table, no configuration record and no server-side cache behind the catalogue or its filters:
+
+- `listTemplates` filters the registered entries by `resourceKind` / `documentType` / `format` / `tags` and projects each survivor to `TemplateMeta`. When a translator is supplied it resolves `label` and `description` through it, which is what turns the dictionary keys built-in templates register as labels into user-visible strings; external templates registering literal text pass through unchanged.
+- `listTemplateFilterOptions` collects the unique `resourceKind` and `format` values of the templates it is handed and sorts each list with `localeCompare`. Nothing else in the metadata becomes a facet.
+- `getTemplateMetadata` returns the same safe projection for a single ID and throws `UnknownTemplateError` when it is not registered — this is what the render routes call to read `requiredFeatures` before the access check, so an unknown ID fails as a client error rather than reaching `load`.
+
+> **Facet scoping is the caller's responsibility.** `listTemplateFilterOptions` defaults to the **entire** registered catalogue. The options route deliberately passes the caller's authorized subset instead, so the filter can never offer a resource kind or format belonging to a template the caller cannot see. Any future caller must pass the same authorized list it renders — invoking the method with no argument silently reintroduces that disclosure, and no type or test currently prevents it.
+
+Because the entry map changes only at bootstrap, these derivations are stable for the lifetime of a process. That is what makes the filter facets safe to cache in the browser (`useDocumentTemplateOptions` holds them for 5 minutes) while the catalogue list itself, which varies per filter and per caller, is not cached that way.
 
 > **`globalThis` persistence (required):** `templateRegistry`'s backing state MUST be stored under a stable `globalThis` key (module-local variable as fallback only), not solely in module-local state — the same pattern already used for the ORM entity registry and the shared event bus in this repo (`packages/shared/src/modules/events/factory.ts`). Without this, bootstrap registration and a request/route resolving through a different module instance (dev HMR/Turbopack duplication, or a standalone `create-mercato-app` deployment with multiple server chunks) can see an empty registry with no error — templates silently vanish from `GET /api/document-generators/templates`. This is not a hypothetical: it is the exact failure mode two separate incidents in this codebase already hit for other publishable-package singletons.
 ```ts
@@ -233,6 +269,7 @@ interface TemplateMeta {
   documentType: string // document kind — e.g. 'offer' | 'invoice' | 'contract'
   format: string
   tags: string[]
+  note?: string        // free-text hint about where the template is used; shown as a catalogue column
   requiredFeatures?: string[] // owning-module permissions enforced before fetchData/load
 }
 
@@ -253,8 +290,23 @@ interface TemplateRegistryEntry {
 // TemplateEntry = TemplateMeta & TemplateRegistryEntry (full descriptor used in the registry)
 type TemplateEntry = TemplateMeta & TemplateRegistryEntry
 
-// Every DocumentTemplateEntry registered by a service owns its format-specific
-// filename handler; BaseDocumentService does not provide a filename fallback.
+// What a service passes to this.registerTemplate(). It is per-template only:
+// module, resourceKind, normalization, resource identity and fetching are
+// contributed by the service in getEntries(), so they are absent here.
+// Every entry owns its format-specific filename handler; BaseDocumentService
+// provides no filename fallback.
+interface DocumentTemplateEntry {
+  id: string
+  label: string
+  description: string
+  documentType: string
+  format: string
+  tags: string[]
+  note?: string
+  requiredFeatures?: string[]
+  filename: (input: { data: Record<string, unknown> }) => string
+  load: () => Promise<DocumentTemplateSource>
+}
 
 interface DocumentTemplateSource {
   type: string
@@ -312,6 +364,40 @@ interface TemplateFilter {
 
 Adding a domain template means defining it in the owning module, exporting its entries from `document-generators.ts`, and running `mercato generate registry`. The rendering package changes only when adding an engine-level format, renderer, API, or reusable authoring primitive.
 
+### Template Access Policy
+
+`TemplateMeta.requiredFeatures` is declared by the owning module but enforced by the engine. That enforcement lives in one place — `lib/template-access-policy.ts` — so the registry stays a pure lookup/loading component and every route applies identical rules:
+
+```ts
+// document-generators/lib/template-access-policy.ts
+type TemplateFeatureAuthorizer = {
+  userHasAllFeatures(
+    userId: string,
+    requiredFeatures: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<boolean>
+}
+
+class TemplateAccessPolicy {
+  constructor(options: { featureAuthorizer: TemplateFeatureAuthorizer; auth: AuthContext })
+  requireAccess(input: { requiredFeatures?: string[] }): Promise<void>            // throws TemplateAccessDeniedError
+  filterAuthorizedTemplates(input: { templates: TemplateMeta[] }): Promise<TemplateMeta[]>
+}
+
+class TemplateAccessDeniedError extends Error {
+  readonly requiredFeatures: string[]
+}
+```
+
+Behavioral contract:
+
+- **Two modes, one rule.** Read endpoints (`/templates`, `/templates/options`) call `filterAuthorizedTemplates` and silently omit inaccessible templates; render endpoints (`/preview`, `/generate`) call `requireAccess` and reject with `403`. An unauthorized template is therefore invisible rather than discoverable, and a caller who guesses its ID still cannot render it.
+- **The authorizer is injected, not imported.** Routes resolve `rbacService` from the request container and pass it in as `featureAuthorizer`. The policy depends on that narrow structural type only, so it is unit-testable without a container and remains swappable through DI.
+- **Fail closed.** A template with a non-empty `requiredFeatures` and no `auth.sub` is denied. Only an empty or absent `requiredFeatures` is allowed unconditionally — that is what keeps pre-`requiredFeatures` templates working under the document-generators ACL alone.
+- **Scope always comes from the request.** The policy passes `auth.tenantId` / `auth.orgId` into every RBAC check; it never accepts scope from the caller.
+- **Checks are deduplicated per request.** `filterAuthorizedTemplates` keys in-flight checks by the sorted `requiredFeatures` set and awaits them with `Promise.all`, so a catalogue of N templates costs one RBAC call per *distinct* feature set, not per template. Cache lifetime is the single call — no cross-request caching, so a permission change takes effect on the next request.
+- **Denial detail is deliberate.** `TemplateAccessDeniedError` carries `requiredFeatures`, and the route returns them in the `403` body so the UI can explain which permission is missing. This leaks only the feature IDs of a template the caller already named.
+
 ### Template-specific Data Shape
 
 Each logical template defines shared normalized data next to the template in its owning module. Its format implementations consume that same contract. Example: `packages/core/src/modules/sales/document-generators/templates/quotes/sales-offer/types.ts`.
@@ -367,9 +453,13 @@ export class QuotesDocumentService extends BaseDocumentService {
 - `getEntries()` — returns entries with `module`, `resourceKind`, normalization, output metadata, and fetching bound to the service
 - `fetchData({ data }, { container, auth })` — default no-op; override to enrich data before normalization with request scope available
 - `toTemplateData({ data, locale, translate })` — **abstract**; override to map enriched data using the required request locale and translator
+- `resourceId({ data })` — **abstract**; declared once per service rather than per template, because every template of one service describes the same source entity
+- `resourceLabel({ data })` — optional override returning `undefined` by default; also service-level, and the generate route falls back to the resource ID when it yields nothing
 - each registered template owns its required `filename({ data })`; the service provides no format-specific filename fallback
 
-`formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, and `buildDocumentFilename(data, prefix, extension)` remain standalone engine utilities. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
+Because `resourceId` / `resourceLabel` / `fetchData` / `toTemplateData` live on the service while `filename` / `load` live on the entry, `getEntries()` is what merges the two halves into the flat `TemplateEntry` the registry stores — service-level identity and normalization bound to each per-template descriptor.
+
+`formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, and `buildDocumentFilename(data, prefix, extension)` remain standalone engine utilities, consumed — like `escapeInline` / `escapeTableCell` — from the stable `@open-mercato/document-generators/modules/document_generators/utils` barrel rather than from implementation filenames, so the engine can rename internals without a cross-module import migration. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
 
 ### Persisted History Entity
 
@@ -380,13 +470,14 @@ The only database entity this spec introduces is `GeneratedDocument` (table `doc
 | `id` | UUID | Primary key |
 | `organization_id` / `tenant_id` | UUID | Always populated from `getAuthFromRequest`; every list query filters by both |
 | `resource_kind` / `resource_id` | string / UUID | Server-derived from the loaded template, never client-supplied |
-| `resource_label` | string, nullable | Falls back to `resource_id` when the service cannot derive a label |
+| `resource_label` | string, NOT NULL | Never stored as null — the generate route falls back to `resource_id` when the service derives no label |
 | `template_id` / `template_label` | string | Identifies which registered template produced the document |
 | `format` | string, default `'pdf'` | Discriminator for future non-PDF formats (`md` today) |
 | `mime_type` | string, default `'application/pdf'` | Paired with `format` |
 | `generated_by` | UUID | `auth.userId` |
 | `generated_at` | timestamp | |
-| `attachment_id` | UUID, nullable | Unpopulated until Phase 7 wires stored-file download |
+| `attachment_id` | UUID, nullable | Unpopulated until Phase 7 wires stored-file download; also absent from the list DTO until then |
+| `created_at` / `updated_at` | timestamp | Repo-standard audit columns |
 
 Full migration and generation-flow detail — including the `down()` rollback and the exact write path — lives in Phase 5 of the Implementation Plan below; this table is the at-a-glance schema reference.
 
@@ -412,9 +503,39 @@ No other `GeneratedDocument` field carries source-entity PII: `resource_kind`/`r
 
 ## API Contracts
 
+### Shared conventions
+
+All five routes are thin HTTP adapters over the registry, the renderer and `GenerationHistoryService`. Three helpers keep their edges identical, and every new route is expected to reuse them rather than re-implement the checks:
+
+- `parseJsonBody(request, t)` — `400 invalid_json` on a malformed body.
+- `requireOrganization(auth, t)` — `409 organization_required` when the request has no tenant + organization pair, returning the scope on success.
+- `documentResponse(rendered)` — the single place that builds a downloadable response.
+
+**Error envelope.** Failures answer `{ error: <stable code>, message: <translated> }`; `403` additionally carries `requiredFeatures`. Clients branch on `error`, never on prose:
+
+| Code | Status | Raised when |
+|---|---|---|
+| `invalid_json` | 400 | Body is not valid JSON |
+| `invalid_request` | 400 | Body fails `previewSchema` / `generateSchema` |
+| `invalid_query` | 400 | `GET /templates` receives an empty or malformed filter value |
+| `unknown_template` | 400 | `template_id` is not registered (`UnknownTemplateError`) |
+| `forbidden` | 403 | Caller lacks the template's `requiredFeatures` (`TemplateAccessDeniedError`) |
+| `organization_required` | 409 | No active organization on a render request |
+| `render_failed` | 500 | The renderer threw; the cause is logged, not returned |
+
+> **Known inconsistency:** `GET /documents` is the one route that answers a schema failure with `{ error: 'Invalid query parameters' }` — English prose in the `error` field instead of a stable code, and no translated `message`. It should be aligned with the table above; the client cannot branch on it today.
+
+**Document responses.** `/preview` and `/generate` share `documentResponse`, so both send `Content-Type: <renderer MIME>`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and a `Content-Disposition` built for non-ASCII filenames per RFC 5987:
+
+```
+attachment; filename="invoice-FV-2026-01.pdf"; filename*=UTF-8''invoice-FV-2026-01.pdf
+```
+
+The unquoted `filename` is an ASCII fallback with every non-printable character and quote replaced by `_`; `filename*` carries the percent-encoded UTF-8 original. Preview therefore also sends `attachment` — harmless, because the browser consumes the bytes through a Blob URL rather than a navigation, and the client reads the header back with `getFilenameFromResponse` when saving.
+
 ### GET /api/document-generators/templates
 
-Returns all available templates. The global catalogue remains the default; callers may ask the backend to narrow the in-memory registry by template metadata.
+Returns all available templates. The global catalogue remains the default; callers may ask the backend to narrow the in-memory registry by template metadata. The result is narrowed a second time by `TemplateAccessPolicy.filterAuthorizedTemplates`: templates whose `requiredFeatures` the caller does not hold are omitted, never rejected, so the response never reveals that they exist.
 
 **Optional query parameters:**
 - `resource_kind` — exact resource kind, for example `sales.order`
@@ -425,20 +546,30 @@ Returns all available templates. The global catalogue remains the default; calle
 **Response:**
 ```json
 [
-  { "id": "sales.offer", "label": "Sales Offer", "description": "..." },
-  { "id": "custom-invoice", "label": "Custom Invoice", "description": "..." }
+  {
+    "id": "sales.offer",
+    "label": "Sales Offer",
+    "description": "...",
+    "module": "sales",
+    "resourceKind": "sales.quote",
+    "documentType": "offer",
+    "format": "pdf",
+    "tags": ["offer", "quote", "sales"],
+    "note": "Rendered in the Documents tab on the Quote detail page",
+    "requiredFeatures": ["sales.quotes.view"]
+  }
 ]
 ```
 
 **Errors:**
-- `400` — invalid empty filter value
+- `400 invalid_query` — empty or malformed filter value
 - `401` — unauthorized
 
 ---
 
 ### GET /api/document-generators/templates/options
 
-Returns the sorted, unique values used to construct the template catalogue filters without returning template metadata.
+Returns the sorted, unique values used to construct the template catalogue filters without returning template metadata. The route resolves the registry, filters it through `TemplateAccessPolicy`, and derives the facets from that authorized subset with `listTemplateFilterOptions` — see "Where catalogue data comes from" under Data Contracts — so a filter value can never reveal a resource kind or format the caller has no template for.
 
 **Response:**
 ```json
@@ -461,7 +592,7 @@ Renders a PDF for preview — **no side effects** (no logging, no events, no per
 ```json
 {
   "template_id": "sales.offer",
-  "data": { /* raw context.record */ }
+  "data": { "id": "<source record UUID>" }
 }
 ```
 
@@ -470,6 +601,7 @@ Renders a PDF for preview — **no side effects** (no logging, no events, no per
 **Errors:**
 - `400` — invalid JSON, missing `template_id` / `data`, or unknown template ID
 - `401` — unauthorized
+- `403` — the caller lacks a feature the selected template declares in `requiredFeatures`; body carries `{ error: 'forbidden', message, requiredFeatures }`
 - `409` — no active organization
 - `500` — render error (preview runs the same `DocumentRenderer` pipeline as `/generate` and can fail the same way, e.g. a template component throwing on unexpected data)
 
@@ -483,7 +615,7 @@ Generates a PDF and records generation history on a best-effort basis. Used by t
 ```json
 {
   "template_id": "sales.offer",
-  "data": { /* raw context.record — at minimum { id } when fetchData is defined */ }
+  "data": { "id": "<source record UUID>" }
 }
 ```
 
@@ -496,6 +628,7 @@ The loaded template must derive `resourceKind`, canonical `resourceId`, and an o
 **Errors:**
 - `400` — invalid input or unknown template ID
 - `401` — unauthorized
+- `403` — the caller lacks a feature the selected template declares in `requiredFeatures`; body carries `{ error: 'forbidden', message, requiredFeatures }`
 - `409` — no active organization
 - `500` — render error
 
@@ -512,6 +645,28 @@ Returns paginated generation history filtered by the authenticated tenant and or
 | **Widget Injection** | Any module's detail view — each widget registers its own injection spot in `injection-table.ts` |
 | **Backend Pages** | `/backend/document-generators` — hidden redirect; `/backend/document-generators/overview` — module overview; `/backend/document-generators/templates` — template overview; `/backend/document-generators/history` — generation history |
 | **ACL Features** | `document_generators.documents.view`, `document_generators.documents.generate` |
+
+### Access enforcement layers
+
+Access is checked three times, by three different mechanisms, and each layer answers a different question. None of them is redundant: the first two are convenience and defense in depth, only the third is authoritative for a given template.
+
+| Layer | Where | Enforces |
+|---|---|---|
+| Widget metadata | Owning module's `widgets/injection/<name>/widget.ts` — e.g. `features: ['document_generators.documents.view', 'sales.orders.view']` | Whether the tab renders at all; keeps a user without access from seeing an empty panel |
+| Route guard | `metadata.<METHOD>.requireFeatures` on each API route | Whether the endpoint may be called at all — the module-level ACL |
+| `TemplateAccessPolicy` | `lib/template-access-policy.ts`, invoked inside every route handler | Whether *this* caller may see or render *this* template, using the owning module's `requiredFeatures` |
+
+Route-guard map — the engine ACL each endpoint requires before its handler runs:
+
+| Route | Required feature |
+|---|---|
+| `GET /api/document-generators/templates` | `document_generators.documents.view` |
+| `GET /api/document-generators/templates/options` | `document_generators.documents.view` |
+| `POST /api/document-generators/preview` | `document_generators.documents.view` |
+| `POST /api/document-generators/generate` | `document_generators.documents.generate` |
+| `GET /api/document-generators/documents` | `document_generators.documents.view` |
+
+Preview is deliberately gated by `view`, not `generate`: it has no persisted side effect, so seeing a document a user is already allowed to read is a read operation. `generate` is the write-shaped permission because it produces a history row.
 
 ---
 
@@ -531,12 +686,19 @@ External templates may register their own fonts within the owning module when th
 
 ## Internationalization (i18n)
 
-| Key | Default |
-|-----|---------|
-| `document_generators.generate.button` | `Generuj PDF` |
-| `document_generators.template.select` | `Wybierz szablon` |
-| `document_generators.preview.title` | `Podgląd dokumentu` |
-| `document_generators.generate.generating` | `Generowanie...` |
+The engine ships its own dictionaries at `modules/document_generators/i18n/<locale>.json` in all five supported locales, with **English** as the in-code default passed to `t(key, default)`. Keys are grouped by surface:
+
+| Group | Covers |
+|---|---|
+| `document_generators.errors.*` | One key per stable API error code — `invalid_json`, `invalid_query`, `invalid_request`, `unknown_template`, `forbidden`, `organization_required`, `render_failed` |
+| `document_generators.page.*` | Catalogue page: title, description, load error, filter labels (`filters.resourceKind`, `filters.format`) and the seven `columns.*` headers |
+| `document_generators.history.*` | History page: title, description, empty, error, the nine column headers, and `filters.*` for template, generated-by and date range |
+| `document_generators.overview.*` | Overview page title/description and its two navigation cards |
+| `document_generators.preview.*` | Preview dialog title, frame titles, open-in-new-tab, generic failure message |
+| `document_generators.generate.*` | Download button label per format (`button`, `buttonMarkdown`) and the in-progress state |
+| `document_generators.templates.*` | Widget-side list heading and loading copy |
+
+Domain translations stay in the owning module's dictionaries — Sales keeps its template labels and descriptions under `sales.documents.templates.*`, resolved by the registry through the request translator. Structured log messages are deliberately not translated; they remain stable English operator diagnostics.
 
 ---
 
@@ -554,8 +716,10 @@ A document tab is injected into detail views via `injection-table.ts` as an **ad
 
 - `/backend/document-generators` — navigation-hidden redirect to `/backend/document-generators/overview`, preventing an extra parent level in the sidebar.
 - `/backend/document-generators/overview` — module overview with navigation cards for templates and generation history.
-- `/backend/document-generators/templates` — template overview grouped by owner module.
-- `/backend/document-generators/history` — history table backed by the paginated `GET /api/document-generators/documents` endpoint.
+- `/backend/document-generators/templates` — catalogue table grouped by owner module, one `DataTable` per module under its own heading. Columns: ID, Label, Resource, Document type, Format, Description, Note. A `FilterBar` above the groups offers **Resource type** and **Format** selects whose options come from `GET /api/document-generators/templates/options` — that endpoint exists precisely so the filter dropdowns do not require downloading the catalogue, and because its facets are derived from the caller's authorized subset, the filter can never offer a value the caller has no template for. Selected values are sent to `GET /templates` as query parameters, so filtering is applied server-side against the registry. Loading and error states render through the same `DataTable` with an empty dataset, keeping one table implementation for every state.
+- `/backend/document-generators/history` — organization-wide history table backed by the paginated `GET /api/document-generators/documents` endpoint, at `pageSize` 20. A `FilterBar` offers Template ID (text), Generated by user ID (text) and Generation date (range); applying or clearing a filter, or changing the sort, resets to page 1. The table renders nine columns — Resource, Template, Date, Format, Generated by, Resource type, Resource ID, Template ID, History ID — of which exactly the five the API allowlists for `sort` are sortable (`resourceLabel`, `templateLabel`, `generatedAt`, `format`, `generatedBy`); the remaining four set `enableSorting: false`, so the UI cannot offer a sort the server would reject. Sorting is `manualSorting` against the endpoint, rows are not clickable, and the empty state is a translated message rather than a blank table.
+
+Both tables bind their loading state to React Query's `isFetching` rather than `isLoading`, so a background refetch — including the post-generate invalidation planned in Phase 6 — shows the loading state instead of silently swapping rows underneath the user.
 
 ---
 
@@ -605,7 +769,7 @@ Each risk below states severity, the affected area, the mitigation, and what res
 - **Risk:** A user holding only the document-generators feature could retrieve another module's source-entity data (e.g. an arbitrary quote/order by UUID) if a document service's data-fetch path were not tenant-scoped.
 - **Severity:** High (cross-tenant/cross-organization data exposure).
 - **Affected area:** `TemplateRegistry.load → fetchData` for every registered `DocumentService`, built-in and third-party.
-- **Mitigation:** each template declares its owning-module `requiredFeatures`. The catalogue and filter-options endpoints omit templates the caller cannot access, while `/generate` and `/preview` check those requirements through the scoped RBAC service before `TemplateRegistry.load()` can invoke `fetchData`. Sales order templates require `sales.orders.view`; quote templates require `sales.quotes.view`. The resulting `AuthContext` is also propagated through `templateRegistry.load → fetchData`; each built-in service validates its local input as `{ id: UUID }`, ignores all other client-supplied record fields, and queries by `id`, `tenant_id`, and `organization_id`. Missing scope, insufficient features, invalid input, inaccessible records, and database failures all reject the render pipeline — raw request data is never used as a fallback.
+- **Mitigation:** each template declares its owning-module `requiredFeatures`, enforced by `TemplateAccessPolicy` (`lib/template-access-policy.ts`) against the `rbacService` resolved from the request container. The catalogue and filter-options endpoints omit templates the caller cannot access, while `/generate` and `/preview` call `requireAccess` and fail with `403` before `TemplateRegistry.load()` can invoke `fetchData`. Sales order templates require `sales.orders.view`; quote templates require `sales.quotes.view`. The resulting `AuthContext` is also propagated through `templateRegistry.load → fetchData`; each built-in service validates its local input as `{ id: UUID }`, ignores all other client-supplied record fields, and queries by `id`, `tenant_id`, and `organization_id`. Missing scope, insufficient features, invalid input, inaccessible records, and database failures all reject the render pipeline — raw request data is never used as a fallback.
 - **Module-owned `DocumentService` contract:** any module subclassing `BaseDocumentService` from `@open-mercato/shared/modules/document-generators` **must** apply the same tenant scoping in `fetchData`, using the `ctx.auth` argument provided for exactly this purpose.
 - **Residual risk:** the contract above is enforced by code review convention only, not by a compiler or test. A third-party `DocumentService` that forgets to filter by `tenant_id`/`organization_id` in `fetchData` would compile, register, and render successfully while leaking cross-tenant data — the framework cannot currently detect this at registration time. **Mitigation required before this is considered closed:** Phase 2 (`BaseDocumentService`) must ship a shared contract test — e.g. `packages/shared/src/modules/document-generators/__tests__/tenant-scoping-contract.test.ts` — that every built-in `DocumentService.fetchData` implementation is required to pass (asserting the resolved query includes both `tenant_id` and `organization_id` predicates from `ctx.auth`), plus an `AGENTS.md` rule pointing third-party service authors at that test as the pattern to replicate. This closes the same class of gap the existing `document-generators-decoupling.test.ts` closes for module coupling, but for tenant isolation instead.
 
@@ -645,7 +809,7 @@ Each risk below states severity, the affected area, the mitigation, and what res
 
 ## Integration Test Coverage
 
-Every API path and the one RBAC-relevant UI path (backend navigation) has integration coverage under `packages/core/src/modules/sales/__integration__/document-generators/` (Sales-owned templates/history) and `packages/document-generators/src/modules/document_generators/__integration__/` (engine-owned auth/navigation):
+Every API path and the one RBAC-relevant UI path (backend navigation) has integration coverage under `packages/core/src/modules/sales/__integration__/document-generators/` (Sales-owned templates/history) and `packages/document-generators/src/modules/document_generators/__integration__/` (engine-owned auth, request validation, and navigation):
 
 | Test | Covers |
 |---|---|
@@ -665,6 +829,11 @@ Every API path and the one RBAC-relevant UI path (backend navigation) has integr
 | `TC-DOCUMENT-014-preview-requires-auth.spec.ts` | `POST /api/document-generators/preview` — `401` unauthenticated |
 | `TC-DOCUMENT-015-generate-requires-auth.spec.ts` | `POST /api/document-generators/generate` — `401` unauthenticated |
 | `TC-DOCUMENT-016-history-requires-auth.spec.ts` | `GET /api/document-generators/documents` — `401` unauthenticated |
+| `TC-DOCUMENT-017-preview-rejects-invalid-request.spec.ts` | `POST /api/document-generators/preview` — `400 invalid_request` for a body failing the schema and `400 unknown_template` for an unregistered ID, each with a machine-readable code plus a translated message |
+| `TC-DOCUMENT-018-generate-rejects-invalid-request.spec.ts` | `POST /api/document-generators/generate` — the same two `400` codes, rejected before the side-effecting part of the route so no history row is written |
+| `TC-DOCUMENT-019-template-filter-options-shape.spec.ts` | `GET /api/document-generators/templates/options` — deduplicated, sorted facets that never carry the template list under `items`/`templates` |
+
+Engine-owned specs share `__integration__/helpers/document-generators-api.ts` (typed request wrappers and response readers for all five endpoints) and declare `__integration__/meta.ts` with `dependsOnModules: ['document_generators']`; Sales-owned specs additionally use `helpers/restricted-document-user.ts` to provision a user holding the engine ACL but not the source module's view feature. New coverage should extend those helpers rather than re-issuing raw requests.
 
 Not yet covered by a dedicated test (tracked against the corresponding Implementation Plan phase, not a gap in Phases 1–5): Markdown-format preview/generate/download (Phase 4.7 shares the order-invoice fixture path but has no `TC-DOCUMENT-*` of its own yet), Phase 6's resource-scoped history panel (its own verification evidence is specified inline under Phase 6 below), and Phase 7/8 have no tests because they are not started.
 
@@ -690,20 +859,23 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 
 ### Phase 3 — API ✅
 
-1. `GET /api/document-generators/templates` — returns `TemplateMeta[]`
-2. `POST /api/document-generators/preview` — side-effect-free rendering for the iframe
-3. `POST /api/document-generators/generate` — rendering, download headers, identity verification, and best-effort history
-4. `GET /api/document-generators/documents` — scoped, paginated generation history
+1. `GET /api/document-generators/templates` — returns `TemplateMeta[]`, narrowed by optional metadata filters
+2. `GET /api/document-generators/templates/options` — returns the facet lists (`resourceKinds`, `formats`) backing the catalogue filter controls, so the filter UI never has to download the catalogue
+3. `POST /api/document-generators/preview` — side-effect-free rendering for the iframe
+4. `POST /api/document-generators/generate` — rendering, download headers, identity verification, and best-effort history
+5. `GET /api/document-generators/documents` — scoped, paginated generation history
+
+All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and `openApi`; the guard each one applies is listed in "Access enforcement layers" above.
 
 ### Phase 4 — UI Components ✅
 
-1. `components/TemplatesList.tsx` — fetches templates via `GET /api/document-generators/templates`, applies `TemplateFilter` client-side, renders card list
+1. `components/TemplatesList.tsx` — fetches templates via `GET /api/document-generators/templates` through `useDocumentTemplates`, which sends `TemplateFilter` as query parameters so the registry is narrowed server-side; renders the card list and its loading/error states. (The catalogue table on the backend templates page is a different, route-local component that happens to share the name.)
 2. `components/TemplatesListView.tsx`, `TemplatesListLoader.tsx`, `TemplateListItem.tsx` — list sub-components
 3. `components/PreviewPanel.tsx` — fullscreen dialog: previews through `POST /preview`; download calls `POST /generate`
 4. `components/Preview.tsx` — iframe rendering a blob URL
 5. `components/Loader.tsx` — spinner
 6. `utils/downloadBlob.ts` — triggers browser file download
-7. Sales-owned `widgets/injection/document-generators-quote-tab/` — filter: `{ resourceKind: 'sales.quote' }`
+7. Sales-owned `widgets/injection/document-generators-quote-tab/` — a thin adapter passing `record={{ id: record.id }}` and `filter={{ resourceKind: ctx.resourceKind }}`, both taken from the injection context; its `widget.ts` metadata declares `features: ['document_generators.documents.view', 'sales.quotes.view']`
 8. Sales-owned `widgets/injection-table.ts` adds this widget as an entry on the `sales.document.detail.quote:tabs` spot
 
 ### Phase 4.5 — External Template Code-Gen ✅
@@ -729,6 +901,18 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 4. Reorganized built-in templates to `<logical-template>/<format>/` while keeping normalized data types at the logical-template level.
 5. Added `sales.order-invoice-markdown` to `OrdersDocumentService`; it shares the order fetch, normalization, resource identity, and history pipeline with the PDF invoice.
 6. Added Markdown source preview and format-aware downloading in `PreviewPanel`.
+7. Added `escapeInline` / `escapeTableCell` to the utils barrel. Markdown output interpolates customer names, addresses and free-text notes into a structural format, so a template that emits them raw lets source data alter the document's structure — the built-in invoice escapes every interpolated value, and any Markdown template author is expected to do the same. PDF has no equivalent hazard because React-PDF renders text nodes, not markup.
+
+### Phase 4.8 — Template Access Policy ✅
+
+Templates may load records owned by another module, so the engine ACL alone is not a sufficient authorization boundary. This phase added the owning-module permission check and extracted it into one component rather than repeating it per route.
+
+1. Added optional `requiredFeatures?: string[]` to `TemplateMeta` and `DocumentTemplateEntry`; Sales order templates declare `sales.orders.view`, quote templates declare `sales.quotes.view`.
+2. Added `lib/template-access-policy.ts` with `TemplateAccessPolicy`, the structural `TemplateFeatureAuthorizer` type, and `TemplateAccessDeniedError` — see "Template Access Policy" under Data Contracts for the full behavioral contract.
+3. Wired all four routes to construct the policy from `container.resolve('rbacService')` plus the request `auth`: read endpoints filter, render endpoints call `requireAccess` and map `TemplateAccessDeniedError` to a `403` `forbidden` body carrying `requiredFeatures`.
+4. Corrected the unreleased engine ACL IDs to `document_generators.documents.view` / `document_generators.documents.generate` and split the route guards so only `/generate` requires the write-shaped feature.
+
+**Verification:** `lib/__tests__/template-access-policy.test.ts` covers the omit-vs-reject split, the fail-closed path for a missing subject, the empty-`requiredFeatures` allowance and the per-feature-set check deduplication; `TC-DOCUMENT-010/011/012` cover catalogue omission, preview rejection and generate rejection end-to-end against a restricted user fixture.
 
 ### Phase 5 — History & Backend Page ✅
 
@@ -736,10 +920,15 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 
 | File | Description |
 |------|-------------|
-| `data/entities.ts` | `GeneratedDocument` entity — `id`, `organization_id`, `tenant_id`, `resource_kind`, `resource_id`, `resource_label`, `template_id`, `template_label`, `format` (default `'pdf'`), `mime_type` (default `'application/pdf'`), `generated_by`, `generated_at`, `attachment_id` (nullable — populated in Phase 7). Table `document_generators_generated_documents` |
-| `data/validators.ts` | Zod schemas: `generateSchema` accepts only template identity + data; `listDocumentsSchema` supports scoped history filters, date ranges, and sorting |
-| `services/generation-history-service/` | Scoped creation plus filtered, sorted, paginated listing of generation history |
-| `api/document-generators/documents/route.ts` | Paginated history endpoint with resource/template/user/date filters and allowlisted sorting; exports `openApi` + `metadata` |
+| `data/entities.ts` | `GeneratedDocument` entity — `id`, `organization_id`, `tenant_id`, `resource_kind`, `resource_id`, `resource_label` (NOT NULL), `template_id`, `template_label`, `format` (default `'pdf'`), `mime_type` (default `'application/pdf'`), `generated_by`, `generated_at`, `attachment_id` (nullable — populated in Phase 7), plus the repo-standard `created_at` / `updated_at`. Table `document_generators_generated_documents` |
+| `data/validators.ts` | Zod schemas for the whole module: `previewSchema` / `generateSchema` accept only template identity + a passthrough `data` object; `listTemplatesSchema` validates catalogue filters; `listDocumentsSchema` defaults `page=1` and `pageSize=20` (max 100), requires `generated_by` to be a UUID, allowlists `sort` / `sort_direction`, and refines `generated_from <= generated_to` |
+| `services/generation-history-service/` | Scoped creation plus filtered, sorted, paginated listing of generation history. Returns `GeneratedDocumentDto` — `id`, `resourceKind`, `resourceId`, `resourceLabel`, `templateId`, `templateLabel`, `format`, `generatedBy`, `generatedAt` (ISO string). `mime_type` and `attachment_id` are persisted but not exposed; Phase 7 must add `attachment_id` to this DTO before a stored-file download can work |
+| `api/document-generators/documents/route.ts` | Paginated history endpoint with resource/template/user/date filters and allowlisted sorting; returns the envelope `{ items, total, page, pageSize }` and answers `200` with an empty page — not `409` — when the request has no active organization, because a history list has nothing to scope to rather than a failed operation to report; exports `openApi` + `metadata` |
+| `hooks/history/useDocumentHistory.ts`, `hooks/history/useDocumentHistoryFilters.ts` | React Query data layer for history: query key, URL builder, `readApiResultOrThrow` fetch, plus filter/sort/pagination state bound to `FilterBar` and `DataTable` |
+| `backend/document-generators/history/components/HistoryList.tsx`, `HistoryListTableColumns.tsx` | Route-local history table and its column definitions, consuming the hooks above |
+| `backend/document-generators/templates/components/TemplatesList.tsx`, `TemplatesListTableColumns.tsx` | Route-local catalogue table grouped by owning module — distinct from the public `components/TemplatesList.tsx` extension component despite the shared name |
+| `hooks/templates/useDocumentTemplates.ts`, `useDocumentTemplateFilters.ts`, `useDocumentTemplateOptions.ts` | React Query data layer for the catalogue: filter values are sent as query parameters, so template filtering is applied server-side; `useDocumentTemplateOptions` fetches `GET /templates/options` (cached for 5 minutes, since the registry only changes on redeploy) and `useDocumentTemplateFilters` turns those facets into `FilterBar` definitions |
+| `backend/document-generators/**/page.meta.ts` | Per-page `requireFeatures`, `pageGroup`, `pageOrder` (900/901/902), `navHidden` on the base route, and breadcrumbs |
 | `migrations/Migration20260809121904_document_generators.ts` | Generated migration accompanied by the module snapshot |
 
 > **Format-agnostic by design.** The entity is named `GeneratedDocument` and carries `format` + `mime_type` discriminators. `BaseDocumentService` is format-neutral in shared; the plugin owns both `PdfRenderingService` and `MarkdownRenderingService`, including their dependencies and output metadata.
@@ -755,30 +944,38 @@ Not yet covered by a dedicated test (tracked against the corresponding Implement
 | `backend/document-generators/overview/page.tsx` | Module overview with cards linking to the template list and generation history |
 | `backend/document-generators/templates/page.tsx` | Thin page shell delegating catalogue rendering to its route-local `components/TemplatesList.tsx` |
 | `backend/document-generators/history/page.tsx` | Thin history page shell delegating the filtered, sortable table to route-local `components/HistoryList.tsx` and `hooks/history/**` |
-| `i18n/*.json` | New keys: `document_generators.history.title`, `document_generators.history.resource`, `document_generators.history.template`, `document_generators.history.generatedBy`, `document_generators.history.generatedAt`, `document_generators.history.empty` |
+| `i18n/*.json` | Engine dictionaries in all five shipped locales. The history surface alone spans `document_generators.history.{title,description,empty,error,id,resource,resourceKind,resourceId,template,templateId,format,generatedBy,generatedAt}` plus `history.filters.*`; the catalogue, overview, preview and error surfaces add their own groups. English is the default-value language — the four Polish defaults in this spec's i18n table predate the module's own dictionaries |
 
 #### Data flow
 
 ```
 Widget → POST /generate { template_id, data }
-         ├── resolveTranslations() → required active locale
-         ├── templateRegistry.load(..., { locale }) → LoadedTemplate + canonical resource identity
+         ├── parseJsonBody → 400 invalid_json
+         ├── generateSchema.safeParse → 400 invalid_request
+         ├── requireOrganization(auth) → 409 organization_required
+         ├── resolveTranslations() → required active locale + request translator
+         ├── TemplateAccessPolicy.requireAccess(meta.requiredFeatures) → 403 forbidden   [Phase 4.8]
+         ├── templateRegistry.load(..., { locale, translate }) → LoadedTemplate + canonical resource identity
          ├── DocumentRenderer.render(template.render) → RenderedDocument
          ├── GenerationHistoryService.create(GeneratedDocument { format, mime_type, ... }) [best effort]
-         └── returns PDF stream
+         └── documentResponse(rendered) → document stream (pdf or md)
 
 GET /api/document-generators/documents?resource_kind=X&resource_id=Y&page=1&pageSize=20
-    └── em.find(GeneratedDocument, { organization_id, [resource_kind, resource_id] }, { orderBy: generated_at DESC })
+    └── em.findAndCount(GeneratedDocument,
+          { tenant_id, organization_id, [resource_kind, resource_id, template_id, generated_by, generated_at range] },
+          { orderBy: <allowlisted field> <direction>, limit, offset })
+    └── { items: GeneratedDocumentDto[], total, page, pageSize }
 ```
 
 #### Key implementation notes
 
 - Use `createRequestContainer()` from `@open-mercato/shared/lib/di/container` to get `em` in the generate route
-- Use `getAuthFromRequest(request)` from `@open-mercato/shared/lib/auth/server` to get `auth.userId` for `generated_by`
+- Use `getAuthFromRequest(request)` from `@open-mercato/shared/lib/auth/server` to get `generated_by`, resolved as `auth.userId ?? auth.sub` so a token carrying only the subject claim still records an author
+- `GenerationHistoryService` is constructed with plain `new` per request from the request-scoped `em`, deliberately not registered in DI and deliberately not built on `makeCrudRoute`: history rows are written directly by `/generate` and never reach the query index a CRUD route would read. This is a conscious exception to the module-services-through-DI convention — keep the constructor a single `EntityManager` so it stays trivially testable
 - `resourceId()` is required for every registered template and derives the canonical source ID after server-side fetching and normalization
 - `resource_kind`, `resource_id`, and `resource_label` are never accepted by `POST /generate`; the registry derives all three values, and an unavailable label falls back to the canonical resource ID
 - `GET /documents` must always filter by both `tenant_id` and `organization_id` — use `getAuthFromRequest` for tenant scoping
-- The history table keeps the resource lookup index and uses `(tenant_id, organization_id, generated_at DESC)` for the newest-first scoped list; it does not keep a redundant index on `organization_id` alone
+- The history table keeps two indexes: `(organization_id, resource_kind, resource_id)` for resource lookup — the source-scoped read Phase 6 depends on — and the expression index `(tenant_id, organization_id, generated_at DESC)` for the newest-first scoped list. It does not keep a redundant index on `organization_id` alone. The resource index intentionally omits `tenant_id`: it is a lookup accelerator, never the isolation boundary, which `GenerationHistoryService` always enforces in the `where` clause
 - The initial table-creation migration defines `down()` by dropping the generated-documents table, so a pre-release rollback removes the table and its indexes together
 - DB migration was generated with `yarn db:generate`; the migration and module snapshot are committed together, while unrelated module output is discarded
 
@@ -800,11 +997,11 @@ Expose the history already captured in Phase 5 where users work with the source 
 
 #### UI composition
 
-1. Extract the fetch/table behavior in `components/HistoryList.tsx` into a reusable resource-aware form with optional `resourceKind`, `resourceId`, `pageSize`, and `refreshToken` inputs. The backend history page keeps its existing unfiltered behavior and page size.
-2. Add an internal `ResourceDocumentsPanel` that composes `TemplatesList` with the resource-filtered history list. It owns a monotonic refresh token and increments it only after `POST /generate` succeeds.
-3. Add an optional `onGenerated` callback through `TemplatesList` → `PreviewPanel`. Invoke it after the generated bytes have been accepted and the download has been initiated; preview-only requests must not refresh history because they have no persistence side effect. The callback requests a refresh but does not guarantee a new row, because Phase 5 history persistence remains best-effort.
+1. Extend the existing data layer rather than extracting a new one — Phase 5 already separated fetching from rendering. `DocumentHistoryQuery`, `buildDocumentHistoryUrl` and `documentHistoryQueryKey` in `hooks/history/useDocumentHistory.ts` gain optional `resourceKind` / `resourceId`, emitted as `resource_kind` / `resource_id`; both must be part of the query key so a scoped list never reads another record's cached page. The backend history page keeps its existing unfiltered behavior and page size by simply omitting them.
+2. Promote the history table from `backend/document-generators/history/components/HistoryList.tsx` to module-level `components/`, so a widget rendered outside the backend route tree can import it. It takes optional `resourceKind`, `resourceId` and `pageSize`; the backend page keeps rendering it with no resource filters. Move its column builder alongside it and let the caller select the visible subset.
+3. Add an internal `ResourceDocumentsPanel` composing `TemplatesList` with the resource-filtered history list, plus an optional `onGenerated` callback threaded through `TemplatesList` → `PreviewPanel`. Invoke it after the generated bytes have been accepted and the download has been initiated; preview-only requests must not refresh history because they have no persistence side effect. **Refresh through the query cache, not a hand-rolled token:** the callback invalidates `documentHistoryQueryKey` for the current resource, and React Query refetches the mounted list. The earlier `refreshToken` counter in this phase predates the hooks layer and is no longer needed — a monotonic prop would duplicate cache invalidation the data layer already provides. A refresh remains an attempt, not a guarantee of a new row, because Phase 5 persistence stays best-effort.
 4. Replace the direct `TemplatesList` usage in `document-generators-order-tab/widget.client.tsx` and `document-generators-quote-tab/widget.client.tsx` with `ResourceDocumentsPanel`, passing the canonical widget context pair: `resourceKind` and `record.id`.
-5. The scoped table shows Template, Format, Generated by, and Generated at. It omits Resource, Resource type, Resource ID, and History ID because those values are redundant in a single-record context. It uses `DataTable`, `formatDateTime`, translated copy, pagination, and the standard loading/error/empty states; `pageSize` defaults to 10 and remains at or below 100.
+5. The scoped table shows four of the nine columns the backend history page renders: Template, Format, Generated by, and Generated at. It omits the other five — Resource, Resource type, Resource ID, History ID, and **Template ID** — because in a single-record context the first four are constant and the fifth duplicates the Template label the user just picked; a machine-readable template ID belongs on the organization-wide page, not in a per-record panel. Sortability follows the same rule as that page: only the five fields the API allowlists for `sort` may be sortable, so of the visible columns all four qualify. It uses `DataTable`, `formatDateTime`, translated copy, pagination, and the standard loading/error/empty states; `pageSize` defaults to 10 and remains at or below 100.
 6. Phase 6 is read-only. Rows have no download action until Phase 7 supplies an `attachment_id`; generating another document remains the only mutation and continues through the existing authenticated, feature-gated API route.
 
 #### Data and isolation contract
@@ -812,10 +1009,12 @@ Expose the history already captured in Phase 5 where users work with the source 
 ```text
 Order/quote detail widget
   -> ResourceDocumentsPanel { resourceKind, resourceId }
-     -> TemplatesList -> POST /generate { template_id, data: { id } }
-     -> HistoryList -> GET /documents?resource_kind=<kind>&resource_id=<id>&page=1&pageSize=10
-                         -> GenerationHistoryService.listAndCount
-                            filters tenant_id + organization_id + resource_kind + resource_id
+     -> TemplatesList -> PreviewPanel -> POST /generate { template_id, data: { id } }
+          on success -> invalidate documentHistoryQueryKey({ resourceKind, resourceId, ... })
+     -> HistoryList -> useDocumentHistory({ resourceKind, resourceId, page, pageSize: 10 })
+          -> GET /documents?resource_kind=<kind>&resource_id=<id>&page=1&pageSize=10
+             -> GenerationHistoryService.listAndCount
+                filters tenant_id + organization_id + resource_kind + resource_id
 ```
 
 - The browser-provided filters are narrowing inputs only. They never replace the authenticated `tenant_id` and `organization_id` predicates enforced by `GenerationHistoryService`.
@@ -828,16 +1027,16 @@ Order/quote detail widget
 | Surface | Server root | Client islands | Data owner | Notes |
 | --- | --- | --- | --- | --- |
 | Sales order/quote detail PDF tab | Existing sales detail host | Existing injection widget, `ResourceDocumentsPanel`, `TemplatesList`, resource-aware `HistoryList`, `PreviewPanel` | Document Generators APIs | No page-root or provider change; the widget remains lazy at its Phase 4.6 injection-table entry on the `sales.document.detail.order:tabs` / `sales.document.detail.quote:tabs` spots, which becomes a frozen contract surface once shipped (BACKWARD_COMPATIBILITY.md §6) — Phase 6 must not rename or move it. |
-| `/backend/document-generators/history` | Existing generated backend route | Existing `DocumentGenerationHistoryPage` and shared `HistoryList` | `GET /api/document-generators/documents` | Retains organization-wide behavior by omitting resource filters. |
+| `/backend/document-generators/history` | Existing generated backend route | Existing `DocumentGenerationHistoryPage` and the promoted shared `HistoryList` | `GET /api/document-generators/documents` | Retains organization-wide behavior by omitting resource filters. The promotion in step 2 is a move, not a fork — one table serves both surfaces. |
 
 | `"use client"` file | Reason | Heavy dependencies / guardrail |
 | --- | --- | --- |
-| `components/ResourceDocumentsPanel.tsx` | Owns refresh state shared by template generation and history | Small orchestration island; no renderer or PDF dependency imported directly. |
-| `components/HistoryList.tsx` | Fetching, pagination, and DataTable state | Reuses existing DataTable; keep resource-specific column selection memoized and the file below 300 LOC. |
+| `components/ResourceDocumentsPanel.tsx` | Composes the template list with the scoped history list and invalidates the history query after a successful generate | Small orchestration island; holds no fetched data of its own and imports no renderer or PDF dependency. |
+| `components/HistoryList.tsx` (promoted from the history route directory) | Pagination and DataTable state; fetching stays in `hooks/history/**` | Reuses existing DataTable; keep resource-specific column selection memoized and the file below 300 LOC. |
 | Existing order/quote widget clients | Injection host adapters | Remain thin context adapters; no data fetching or duplicated table logic. |
 
 - Budget: zero new page-root client components, zero global providers, zero heavy browser libraries at a page/provider root, and zero touched client files above 300 LOC.
-- Verification evidence: component tests for filtered URLs, empty/loading/error states, pagination, and refresh-token behavior; self-contained Playwright coverage that creates and cleans up order/quote fixtures, generates a document from each PDF tab, and observes the persisted row without a page reload on the normal successful-persistence path; a negative case proving another source record's history is absent; `yarn check:client-boundaries` plus the package typecheck/test gate. A successful generate response with no row must remain a valid outcome when best-effort persistence fails.
+- Verification evidence: hook tests asserting that `resourceKind` / `resourceId` reach both the request URL and the query key, and that the post-generate invalidation targets the scoped key only; component tests for empty/loading/error states and pagination; self-contained Playwright coverage that creates and cleans up order/quote fixtures, generates a document from each PDF tab, and observes the persisted row without a page reload on the normal successful-persistence path; a negative case proving another source record's history is absent; `yarn check:client-boundaries` plus the package typecheck/test gate. A successful generate response with no row must remain a valid outcome when best-effort persistence fails.
 
 ### Phase 7 — Attachment Storage (Planned)
 
@@ -915,7 +1114,7 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | Never hardcode user-facing strings | ✅ | All via useT() |
 | Generated migrations | ✅ | Entity migration and snapshot were produced by the repository generator |
 | ACL separation | ✅ | `view` and `generate` permissions are declared and assigned to default roles |
-| Embedded lists use `DataTable` and `apiCall` | ✅ | Planned Phase 6 refactors the existing `HistoryList`; it does not introduce a custom table or raw fetch path |
+| Embedded lists use `DataTable` and `apiCall` | ✅ | Planned Phase 6 promotes and extends the existing `HistoryList` and its `hooks/history/**` data layer; it does not introduce a custom table or raw fetch path |
 | Engine remains decoupled from Sales | ✅ | Sales owns its services, templates, widget adapters and i18n; the engine owns only format/runtime mechanics and reusable UI/toolkit surfaces |
 | Frontend client boundary is explicit | ✅ | Planned Phase 6 adds one small orchestration island, keeps widget adapters thin, adds no page-root client component or global provider, and defines hydration/interactivity evidence |
 
@@ -942,6 +1141,7 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1–4.7 | Done | 2026-08-12 | Registry, render pipeline, preview/download UI, decentralized Sales templates, and Markdown output |
+| Phase 4.8 — Template Access Policy | Done | 2026-08-14 | `requiredFeatures` on template metadata, `TemplateAccessPolicy` extracted to `lib/`, catalogue filtering, `403` on render routes, corrected engine ACL IDs and per-route guards |
 | Phase 5 — History & Backend Page | Done | 2026-08-10 | GeneratedDocument persistence, scoped history endpoint, server-derived resource identity, ACL, backend DataTable, unit and integration coverage |
 | Rendering service refactor | Done | 2026-08-12 | Shared source and format values are extensible strings; registry prepares format-neutral input; concrete source/input types are colocated with their rendering services; `DocumentRenderer` dispatches through a renderer map |
 | Phase 6 — Source-scoped History in Detail Widgets | Not Started | — | Planned; reuses the Phase 5 endpoint and entity without schema changes |
@@ -989,3 +1189,11 @@ The unreleased `BaseDocumentService.filename()` fallback is also removed before 
 | 2026-08-13 | Codex | Added the stable `modules/document_generators/utils` barrel and package export. Utilities are consumed from the directory contract rather than implementation filenames, allowing internal file renames without cross-module import migrations or deprecation bridges. |
 | 2026-08-15 | Claude | Applied `om-spec-writing` architectural review findings: dropped the legacy `SPEC-005` title prefix; split the former Phase 8 (Email & Sharing) and the Phase 9 auto-generation-trigger item out into an explicit "Out of scope for this spec" list — each is an independently shippable capability that needs its own spec, not a sub-bullet here — renumbering the remaining template-versioning/draft-watermark work to Phase 8; added a `500` render-error case to `POST /preview`'s error contract to match `/generate`, since both share the same `DocumentRenderer` pipeline; restructured `Risks & Impact Review` so every risk states severity, affected area, mitigation, and residual risk; added a required follow-up mitigation for the tenant-scoping contract — a shared `fetchData` contract test, not just documented convention — as the residual risk on cross-tenant data isolation; added a new "Sensitive Data & Retention" risk entry flagging the missing GDPR erasure/retention story for `GeneratedDocument` history rows and Phase 7 attachments; and added a "Persisted History Entity" table under Data Contracts as a single at-a-glance schema reference. |
 | 2026-08-15 | Claude | Applied `om-pre-implement-spec` findings (see `.ai/specs/analysis/ANALYSIS-2026-08-10-document-generators.md`, verified against the actual current codebase, not the source PR): required `templateRegistry` to persist via a stable `globalThis` key, per two direct repo precedents for exactly this failure mode; added a `document_generators/encryption.ts` declaring `defaultEncryptionMaps` for the GDPR-relevant `resource_label` field; corrected the widget-injection section — the spec previously claimed reuse of an "existing frozen PDF-oriented injection ID" that does not exist; the real spots are Sales' generic `sales.document.detail.order:tabs` / `sales.document.detail.quote:tabs`, today occupied only by an unrelated history widget, and the new widget is an additive second entry on each; required `/generate`'s history-persistence side effect to go through the mutation-guard-registry pattern (`runMutationGuards`/`bridgeLegacyGuard`), following `sales/api/quotes/send/route.ts`; corrected Phase 7's attachment upload field names to the real camelCase wire contract (`entityId`/`recordId`) and replaced its unsupported "seed the partition in `setup.ts`" step with a lazy runtime creation call, since no module in this repo creates a new attachment partition from `setup.ts` today; renamed the generator-plugin key from `document-generators.templates` to `document_generators.templates` to match the module-id-based convention every other `GeneratorPlugin` uses; and added an "Integration Test Coverage" section mapping the 16 existing `TC-DOCUMENT-*` integration specs to the API/UI surface each covers. |
+| 2026-08-17 | Claude | Documented the template access layer that shipped in PR #5170 after this spec's last update: added a "Template Access Policy" contract section (omit-vs-reject split, injected `rbacService` authorizer, fail-closed rule, per-request check deduplication, `TemplateAccessDeniedError.requiredFeatures`), added `lib/template-access-policy.ts` to the module structure and architecture diagram, added the missing `403` case to `/preview` and `/generate`, recorded that the catalogue and filter-options endpoints return only the caller's authorized subset, added the three-layer enforcement model plus the route→feature guard map (including why `/preview` is gated by `view` rather than `generate`), and added Phase 4.8 with its unit and `TC-DOCUMENT-010/011/012` verification evidence. Also completed the Integration Test Coverage table with the three specs added after the 16-test snapshot — `TC-DOCUMENT-017` (preview client-error codes), `TC-DOCUMENT-018` (generate client-error codes, asserted to fail before the history write) and `TC-DOCUMENT-019` (filter-options facet shape) — and documented the shared `__integration__` helper and `meta.ts` conventions those specs build on. |
+| 2026-08-17 | Claude | Synchronized Phase 5 and Phase 6 with the component and data-layer refactors that landed after Phase 5 was written. Phase 5: recorded the `hooks/**` React Query layer and the route-local `HistoryList`/`TemplatesList` tables as implemented files, corrected the entity column list (`created_at`/`updated_at`, `resource_label` NOT NULL), documented the `{ items, total, page, pageSize }` envelope and the `GeneratedDocumentDto` (flagging that Phase 7 must add `attachment_id` to it), documented the `200`-empty-page answer when no organization is active, stated the deliberate non-DI/non-`makeCrudRoute` instantiation of `GenerationHistoryService`, replaced the stale i18n key list, and fixed two factual errors in the data-flow diagram — the missing request guards plus the Phase 4.8 access gate, and a `GET /documents` query shown scoped by `organization_id` alone while the notes below required both predicates. Phase 6: rewrote steps 1–3 around the existing hooks — extend `useDocumentHistory` with `resourceKind`/`resourceId` in both URL and query key, promote `HistoryList` to module level, and **drop the `refreshToken` counter in favour of invalidating `documentHistoryQueryKey`**, which the data layer already provides — and updated the frontend-architecture rows, verification evidence and compliance note accordingly. Also corrected Phase 4's claim that `TemplateFilter` is applied client-side (it is sent as query parameters) and disambiguated the two same-named `TemplatesList` components. |
+| 2026-08-17 | Claude | Completed the `utils/` inventory: the module structure listed 2 of 9 files, omitting the barrel that is the actual cross-module import contract. Recorded all nine with their exported helpers, noted that `groupTemplatesByModule` sits outside the barrel on purpose, stated in Document Services that engine utilities are consumed from the `.../document_generators/utils` export path rather than by filename, and added Phase 4.7 step 7 covering the Markdown escaping helpers and why structural escaping is required for Markdown output but not for React-PDF. |
+| 2026-08-17 | Claude | Described the backend list behavior the structure sections implied but never specified. "Backend pages" now covers both tables end to end: the catalogue's `FilterBar` (Resource type + Format) fed by `GET /templates/options` and applied server-side, its seven columns and module grouping; and the history page's three filters, `pageSize` 20, page reset on filter/sort change, nine columns, and the rule that exactly the five fields the API allowlists for `sort` are sortable while the other four set `enableSorting: false` — so the UI cannot offer a sort the server would reject. Recorded that both tables bind their loading state to `isFetching`, which is what makes Phase 6's post-generate invalidation visible instead of silent. Added the previously unlisted `GET /templates/options` to Phase 3 and noted that all five routes export `metadata` + `openApi`. Closed the gap in Phase 6 step 5, whose column set accounted for eight of nine columns: `templateId` is now explicitly omitted from the scoped panel, with the reasoning, and the scoped table inherits the same sortable-field rule. |
+| 2026-08-17 | Claude | Completed the registry read contract, which listed three of its five methods. Added the real signatures for `listTemplates(filter?, translate?)`, `getTemplateMetadata(id, translate?)` and `listTemplateFilterOptions(templates?)`, plus a "Where catalogue data comes from" subsection: catalogue and facet reads are pure derivations over the in-memory entry map with no table, record or server-side cache behind them; the translator is what resolves registered dictionary keys into visible labels; facets are the unique `resourceKind` / `format` values sorted with `localeCompare`; and `getTemplateMetadata` is what lets an unknown ID fail as a client error before `load`. Flagged as a normative warning that `listTemplateFilterOptions` defaults to the **entire** catalogue while the route passes the authorized subset — a caller omitting the argument silently reintroduces disclosure of templates the user cannot see, and nothing currently prevents it. Tied the bootstrap-only mutability of the registry to the 5-minute client cache on the facets. |
+| 2026-08-17 | Claude | Corrected the widget data contract, which the spec asserted in four places: widgets send `{ id: record.id }` and take `resourceKind` from the injection context, they do not forward the raw record — restated in the TLDR, Overview, both affected Design Decisions rows, the `/preview` and `/generate` request examples, and Phase 4's widget step, with the security rationale (the browser must not be able to influence document contents) made explicit. Replaced the Internationalization section, which still listed four Polish-defaulted keys that no longer match the module's own English-defaulted dictionaries, with the real per-surface key groups and the domain-vs-engine split. |
+| 2026-08-17 | Claude | Completed the declaration contracts: added `note?: string` to `TemplateMeta` (already surfaced as a catalogue column), defined `DocumentTemplateEntry` — referenced four times but never specified — and explained why it carries only per-template fields while identity and normalization come from the service, documented the service-level `resourceId` / `resourceLabel` on `BaseDocumentService` and the role of `getEntries()` in merging both halves into a flat `TemplateEntry`, and declared the named `UnknownTemplateError` / `DuplicateTemplateError` the routes map to status codes. |
+| 2026-08-17 | Claude | Added an "API Contracts → Shared conventions" section: the three edge helpers every route reuses (`parseJsonBody`, `requireOrganization`, `documentResponse`), the full stable error-code table with the status each maps to, and the RFC 5987 `Content-Disposition` contract with its ASCII fallback — including the consequence that `/preview` also sends `attachment`. Flagged as a known inconsistency that `GET /documents` alone answers with untranslated prose in the `error` field instead of a stable code. Expanded the `GET /templates` response example from three fields to the real `TemplateMeta`, named the `invalid_query` code in its error list, and added `api/_shared/**` plus the previously missing `templates/options/route.ts` to the module structure. |
