@@ -11,6 +11,7 @@ import { localizeSecurityApiBody, securityApiError } from '../i18n'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('security').child({ component: 'mfa' })
+const MFA_MANAGE_FEATURE = 'security.mfa.manage'
 
 const jsonRecordSchema = z.record(z.string(), z.unknown())
 
@@ -20,6 +21,21 @@ export type MfaRequestContext = {
   commandContext: CommandRuntimeContext
   mfaService: MfaService
   mfaVerificationService: MfaVerificationService
+}
+
+type MfaEnrollmentRbacService = {
+  userHasAllFeatures: (
+    userId: string,
+    features: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
+}
+
+type MfaEnrollmentEnforcementService = {
+  checkUserCompliance: (userId: string) => Promise<{
+    compliant: boolean
+    enforced: boolean
+  }>
 }
 
 export async function resolveMfaRequestContext(req: Request): Promise<MfaRequestContext | NextResponse> {
@@ -43,6 +59,38 @@ export async function resolveMfaRequestContext(req: Request): Promise<MfaRequest
     mfaService: container.resolve<MfaService>('mfaService'),
     mfaVerificationService: container.resolve<MfaVerificationService>('mfaVerificationService'),
   }
+}
+
+export async function authorizeMfaEnrollmentMutation(
+  context: Pick<MfaRequestContext, 'auth' | 'container'>,
+): Promise<NextResponse | null> {
+  const tenantId = typeof context.auth.tenantId === 'string' && context.auth.tenantId.trim().length > 0
+    ? context.auth.tenantId.trim()
+    : null
+  const organizationId = typeof context.auth.orgId === 'string' && context.auth.orgId.trim().length > 0
+    ? context.auth.orgId.trim()
+    : null
+  const rbacService = context.container.resolve<MfaEnrollmentRbacService>('rbacService')
+  const canManageMfa = await rbacService.userHasAllFeatures(
+    context.auth.sub,
+    [MFA_MANAGE_FEATURE],
+    { tenantId, organizationId },
+  )
+  if (canManageMfa) return null
+  if (!tenantId) return securityApiError(403, 'Forbidden')
+
+  try {
+    const enforcementService = context.container.resolve<MfaEnrollmentEnforcementService>('mfaEnforcementService')
+    const compliance = await enforcementService.checkUserCompliance(context.auth.sub)
+    if (compliance.enforced && !compliance.compliant) return null
+  } catch (error) {
+    logger.error('Unable to verify compelled MFA enrollment authorization; allowing enrollment recovery path', {
+      err: error,
+    })
+    return null
+  }
+
+  return securityApiError(403, 'Forbidden')
 }
 
 export async function readJsonRecord(req: Request): Promise<Record<string, unknown>> {

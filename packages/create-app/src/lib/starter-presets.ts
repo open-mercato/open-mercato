@@ -20,6 +20,7 @@ export type StarterPreset = {
 const CORE = '@open-mercato/core'
 const EVENTS = '@open-mercato/events'
 const AI_ASSISTANT = '@open-mercato/ai-assistant'
+const SEARCH = '@open-mercato/search'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -32,6 +33,14 @@ const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'notifications', from: CORE },
   { id: 'dashboards', from: CORE },
   { id: 'events', from: EVENTS },
+  // The app shell renders the Cmd+K palette on the `search.global` feature, and a
+  // feature whose owning module is not enabled is stripped from every role's grants
+  // — superadmin included. `search` therefore has to be part of the baseline, not a
+  // CRM extra. It costs nothing to enable: `@open-mercato/search` is already pinned
+  // in the template's package.json, and `query_index` above owns the `search_tokens`
+  // table the token strategy reads, so the palette works with no Meilisearch and no
+  // embedding provider configured.
+  { id: 'search', from: SEARCH },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
@@ -50,7 +59,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
     description: 'Minimal builder-ready baseline',
     modules: { mode: 'replace', enabled: EMPTY_MODULES },
     ui: { startPageVariant: 'minimal', hideDemoLinks: true },
-    files: { remove: ['src/modules/example', 'src/modules/example_customers_sync'] },
+    // The example source ships in every preset and stays runtime-disabled through
+    // the generated `src/modules.ts`; never delete it here.
     constraints: { rejectWithReadyApps: true },
   },
 

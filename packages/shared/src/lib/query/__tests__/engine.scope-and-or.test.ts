@@ -282,6 +282,73 @@ describe('BasicQueryEngine — null equality', () => {
   })
 })
 
+describe('BasicQueryEngine — doc-field null equality (issue #4841)', () => {
+  function serializeNode(value: any): string {
+    return JSON.stringify(value, (_key, inner) =>
+      inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+    )
+  }
+
+  // The doc-backed predicates land inside the entity_indexes EXISTS sub-builder;
+  // pick out the one that reads the JSONB doc (`doc ->> 'field'`).
+  function docPredicates(fakeDb: any, table: string): string[] {
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === table)
+    expect(baseCall).toBeTruthy()
+    const existsEntries = (baseCall._ops.wheres as any[]).filter(
+      (where: any) => Array.isArray(where) && where[0] === 'exists',
+    )
+    expect(existsEntries.length).toBeGreaterThan(0)
+    return existsEntries
+      .flatMap((entry: any) => (entry[1]?._ops?.wheres ?? []) as any[])
+      .map((where: any) => serializeNode(where))
+      .filter((serialized: string) => serialized.includes('->>'))
+  }
+
+  async function runDocFilter(filters: Record<string, unknown>) {
+    const fakeDb = createFakeKysely({
+      scheduled_jobs: [],
+      // `ended_at` is deliberately absent, so the field resolves to the
+      // entity_indexes doc rather than to a base column.
+      'information_schema.columns': [
+        { table_name: 'scheduled_jobs', column_name: 'id' },
+      ],
+      'information_schema.tables': [{ table_name: 'entity_indexes' }],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id'],
+      omitAutomaticTenantOrgScope: true,
+      filters,
+    })
+    return docPredicates(fakeDb, 'scheduled_jobs')
+  }
+
+  test('$eq null on a doc field compiles to "is null", never "= null"', async () => {
+    const predicates = await runDocFilter({ ended_at: { $eq: null } })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    expect(predicates.some((sql: string) => sql.includes('is null'))).toBe(true)
+    // `(doc ->> 'ended_at') = NULL` is never TRUE in SQL, so it silently
+    // returns zero rows instead of matching unset values.
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('bare null on a doc field compiles to "is null"', async () => {
+    const predicates = await runDocFilter({ ended_at: null })
+
+    expect(predicates.some((sql: string) => sql.includes('is null'))).toBe(true)
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('$ne null on a doc field compiles to "is not null", never "<> null"', async () => {
+    const predicates = await runDocFilter({ started_at: { $ne: null } })
+
+    expect(predicates.some((sql: string) => sql.includes('is not null'))).toBe(true)
+    expect(predicates.some((sql: string) => sql.includes('<>'))).toBe(false)
+  })
+})
+
 describe('BasicQueryEngine — omitAutomaticTenantOrgScope', () => {
   test('skips automatic tenant and organization guards when flag is set', async () => {
     const fakeDb = createFakeKysely({
@@ -415,5 +482,99 @@ describe('BasicQueryEngine — multi-field $or grouping', () => {
     expect(hasSystemScope).toBe(true)
     expect(hasNullOrg).toBe(true)
     expect(hasNullTenant).toBe(true)
+  })
+})
+
+describe('BasicQueryEngine — custom-field leaves inside an $or group (#5039)', () => {
+  const customFieldDb = () => createFakeKysely({
+    scheduled_jobs: [],
+    custom_field_defs: [
+      { key: 'priority', entity_id: 'scheduler:scheduled_job', is_active: true, tenant_id: null, kind: 'text' },
+    ],
+    custom_field_values: [],
+    'information_schema.columns': [
+      { table_name: 'scheduled_jobs', column_name: 'organization_id' },
+      { table_name: 'scheduled_jobs', column_name: 'tenant_id' },
+      { table_name: 'scheduled_jobs', column_name: 'scope_type' },
+    ],
+  })
+
+  test('two cf:* values joined by $or become one OR of two disjuncts, not two ANDed filters', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:priority'],
+      omitAutomaticTenantOrgScope: true,
+      filters: {
+        $or: [
+          { 'cf:priority': { $eq: 'high' } },
+          { 'cf:priority': { $eq: 'low' } },
+        ],
+      },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    expect(baseCall).toBeTruthy()
+
+    // Before the fix each value was applied as its own `.where()`, so the query asked
+    // for priority = 'high' AND priority = 'low' and could never match a row.
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeTruthy()
+    const orParts: Node[] = orEntry[1]
+    expect(orParts.length).toBe(2)
+
+    const values = orParts.flatMap((part) => flattenCmps(part)).map((cmp) => cmp.value)
+    expect(values).toEqual(expect.arrayContaining(['high', 'low']))
+
+    const standaloneCfFilters = baseCall._ops.wheres.filter(
+      (w: any) => Array.isArray(w) && w.length === 3 && (w[2] === 'high' || w[2] === 'low'),
+    )
+    expect(standaloneCfFilters).toHaveLength(0)
+  })
+
+  test('a base column OR a cf:* value unites both legs in the same disjunction', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:priority'],
+      omitAutomaticTenantOrgScope: true,
+      filters: {
+        $or: [
+          { scope_type: { $eq: 'system' } },
+          { 'cf:priority': { $eq: 'high' } },
+        ],
+      },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeTruthy()
+    const orParts: Node[] = orEntry[1]
+    expect(orParts.length).toBe(2)
+
+    const cmps = orParts.flatMap((part) => flattenCmps(part))
+    expect(cmps.some((cmp) => String(cmp.column).endsWith('scope_type') && cmp.value === 'system')).toBe(true)
+    expect(cmps.some((cmp) => cmp.value === 'high')).toBe(true)
+  })
+
+  test('an ungrouped cf:* filter still applies as its own AND predicate', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:priority'],
+      omitAutomaticTenantOrgScope: true,
+      filters: { 'cf:priority': { $eq: 'high' } },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeFalsy()
+    const directFilter = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && w.length === 3 && w[1] === '=' && w[2] === 'high',
+    )
+    expect(directFilter).toBe(true)
   })
 })

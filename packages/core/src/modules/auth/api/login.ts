@@ -120,8 +120,15 @@ export async function POST(req: Request) {
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
   const ok = await auth.verifyPassword(user, parsed.data.password)
-  if (!user || !ok) {
-    const reason = user?.passwordHash ? 'invalid_password' : 'invalid_credentials'
+  if (!user || !ok || user.isConfirmed === false) {
+    // The 401 body stays identical for every branch so the response never reveals
+    // which one fired. `reason` goes to the audit stream instead, where separating a
+    // deactivated account from a mistyped password is the whole point — otherwise
+    // repeated attempts against a disabled account look like ordinary fat-fingering.
+    let reason: string
+    if (user && user.isConfirmed === false) reason = 'account_deactivated'
+    else if (user?.passwordHash) reason = 'invalid_password'
+    else reason = 'invalid_credentials'
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }

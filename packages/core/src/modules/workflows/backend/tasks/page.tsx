@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -134,11 +135,11 @@ export default function UserTasksListPage() {
   const getStatusBadgeClass = (status: UserTaskStatus) => {
     switch (status) {
       case 'PENDING':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'bg-status-warning-bg text-status-warning-text'
       case 'IN_PROGRESS':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-status-info-bg text-status-info-text'
       case 'COMPLETED':
-        return 'bg-green-100 text-green-800'
+        return 'bg-status-success-bg text-status-success-text'
       case 'CANCELLED':
         return 'bg-muted text-foreground'
       default:
@@ -206,7 +207,7 @@ export default function UserTasksListPage() {
             </div>
           )}
           {isOverdue(row.original) && (
-            <div className="text-xs text-red-600 font-medium mt-1">
+            <div className="text-xs text-status-error-text font-medium mt-1">
               {t('workflows.tasks.overdue')}
             </div>
           )}
@@ -258,7 +259,7 @@ export default function UserTasksListPage() {
         const dueDate = new Date(row.original.dueDate)
         const overdue = isOverdue(row.original)
         return (
-          <div className={`text-sm ${overdue ? 'text-red-600 font-medium' : 'text-foreground'}`}>
+          <div className={`text-sm ${overdue ? 'text-status-error-text font-medium' : 'text-foreground'}`}>
             {dueDate.toLocaleString()}
           </div>
         )
@@ -319,7 +320,7 @@ export default function UserTasksListPage() {
       <Page>
         <PageBody>
           <div className="p-8 text-center">
-            <p className="text-red-600">{t('workflows.tasks.messages.loadFailed')}</p>
+            <p className="text-status-error-text">{t('workflows.tasks.messages.loadFailed')}</p>
             <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['workflow-tasks'] })} className="mt-4">
               {t('common.retry')}
             </Button>
@@ -341,7 +342,7 @@ export default function UserTasksListPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{
-            tableId: 'workflows.tasks.list',
+            tableId: extensionPoints.hosts.tasksTable.tableId,
           }}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />

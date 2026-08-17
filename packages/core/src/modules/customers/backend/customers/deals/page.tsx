@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
@@ -32,7 +33,7 @@ import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   type CustomerDictionaryKind,
@@ -192,6 +193,7 @@ function formatGroupedAmount(amount: number | null | undefined): string | null {
 
 export default function CustomersDealsPage() {
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -857,7 +859,7 @@ export default function CustomersDealsPage() {
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
             )
           } else {
-            const relative = formatRelativeTime(expectedCloseAt, { translate: t })
+            const relative = formatRelativeTime(expectedCloseAt, { locale, translate: t })
             if (relative) {
               subtitle = <span className="text-xs text-muted-foreground">{relative}</span>
             }
@@ -983,7 +985,7 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -1146,7 +1148,7 @@ export default function CustomersDealsPage() {
           }}
           exporter={exportConfig}
           entityId={E.customers.customer_deal}
-          perspective={{ tableId: 'customers.deals.list' }}
+          perspective={{ tableId: extensionPoints.hosts.dealsTable.tableId }}
           advancedFilter={{
             auto: true,
             value: filterPanel.tree,

@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
+import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
 import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -181,11 +182,11 @@ export async function GET(req: Request) {
   // avoids the per-row decryption cost that would be paid by `findWithDecryption` for an
   // aggregate that never reads `title`/`description`. The search path still relies on
   // the token index above to find matching deals when encrypted columns are involved.
-  const baseCurrency = await em.getConnection().execute<Array<{ code: string }>>(
-    `SELECT code FROM currencies WHERE tenant_id = ? AND organization_id = ? AND is_base = true AND deleted_at IS NULL LIMIT 1`,
-    [effectiveTenantId, orgFilterIds[0]],
+  const baseCurrencyCode = await resolveOptionalBaseCurrencyCode(
+    container,
+    effectiveTenantId,
+    orgFilterIds[0],
   )
-  const baseCurrencyCode = baseCurrency[0]?.code ?? null
 
   // Build WHERE clause shared between count + sum queries
   const orgPlaceholders = orgFilterIds.map(() => '?').join(',')
