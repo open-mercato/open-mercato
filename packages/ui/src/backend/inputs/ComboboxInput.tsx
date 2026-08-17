@@ -250,14 +250,20 @@ export function ComboboxInput({
   // including it would re-run the effect on every render when the prop is an inline function
   }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
-  // Sync input with a value that changed outside the component. The guard is "the user
-  // is typing", not "the field has focus": `autoFocus` on the first CrudForm field
-  // focuses the combobox before an async default value arrives (e.g. the sole warehouse
-  // pre-selected in the WMS zone dialog, #5239), so a focus-only guard left the control
-  // rendering an empty label for a value the form had already committed.
+  // Sync input with a value that changed outside the component. A focused field is
+  // synced too, because `autoFocus` can focus the control before an async default value
+  // arrives and a focus-only guard then leaves the control rendering an empty label for
+  // a value the form has already committed. Two conditions still block the sync:
+  //   - the user is typing, so their query is never clobbered mid-keystroke;
+  //   - `optionMap` only holds the self-mapping placeholder it synthesises for an
+  //     uncovered value, which would paint the raw record id over a label the user just
+  //     picked (`asyncOptions` is replaced on every load, so any follow-up load that
+  //     misses the picked entry — a failed request, a debounce race, a composite label
+  //     the route's `?search=` cannot match — drops it back to the placeholder).
   React.useEffect(() => {
-    if (document.activeElement === inputRef.current && userTypedRef.current) return
     const option = optionMap.get(value)
+    const hasRealLabel = Boolean(option && option.label !== option.value)
+    if (document.activeElement === inputRef.current && (userTypedRef.current || !hasRealLabel)) return
     setInput(option?.label ?? value ?? '')
   }, [value, optionMap])
 

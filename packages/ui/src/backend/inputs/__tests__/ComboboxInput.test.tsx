@@ -407,6 +407,9 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Central warehouse'))
   })
 
+  // Guards the opposite direction of the case above: it passes on both the old
+  // focus-based guard and the current typing-based one, so it is a behavior pin
+  // rather than a regression test for any specific bug.
   it('does not overwrite the query while the user is typing into a focused field', async () => {
     const options = [
       { value: 'red', label: 'Red' },
@@ -423,5 +426,116 @@ describe('ComboboxInput — eager label resolution', () => {
     })
     rerender(<ComboboxInput value="green" onChange={() => {}} seedOptions={options} />)
     expect(getInput(container).value).toBe('gre')
+  })
+
+  // The regression the typing-based guard originally introduced: `selectValue` clears
+  // `userTypedRef` while the field keeps focus, so a follow-up load that no longer
+  // carries the picked option let the self-mapping placeholder overwrite the label with
+  // the raw record id. Fails on the intermediate implementation, passes on this one.
+  it('keeps a picked label when a follow-up load drops the option from the list', async () => {
+    const loadSuggestions = jest.fn(async (query?: string) =>
+      query === 'WH-B' ? [{ value: 'wh-b', label: 'Warehouse B (WH-B)' }] : [],
+    )
+    function Controlled() {
+      const [value, setValue] = React.useState('')
+      return (
+        <ComboboxInput
+          value={value}
+          onChange={setValue}
+          loadSuggestions={loadSuggestions}
+          allowCustomValues={false}
+        />
+      )
+    }
+    const { container } = render(<Controlled />)
+    const input = getInput(container)
+    act(() => {
+      input.focus()
+      fireEvent.change(input, { target: { value: 'WH-B' } })
+    })
+
+    const option = await screen.findByRole('option', { name: /Warehouse B \(WH-B\)/ })
+    act(() => {
+      fireEvent.click(option)
+    })
+    expect(getInput(container).value).toBe('Warehouse B (WH-B)')
+    expect(document.activeElement).toBe(getInput(container))
+
+    // Picking rewrote the query to the label, which re-fires the debounced loader; the
+    // route cannot match a composite label, so the option list comes back empty.
+    await waitFor(() => expect(loadSuggestions).toHaveBeenCalledWith('Warehouse B (WH-B)'))
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 250))
+    })
+    expect(getInput(container).value).toBe('Warehouse B (WH-B)')
+  })
+
+  it('adopts a real label that arrives while the field is focused', async () => {
+    const { container, rerender } = render(
+      <ComboboxInput value="wh-1" onChange={() => {}} seedOptions={[]} />,
+    )
+    const input = getInput(container)
+    act(() => {
+      input.focus()
+    })
+    expect(getInput(container).value).toBe('wh-1')
+
+    rerender(
+      <ComboboxInput
+        value="wh-1"
+        onChange={() => {}}
+        seedOptions={[{ value: 'wh-1', label: 'Central warehouse' }]}
+      />,
+    )
+    await waitFor(() => expect(getInput(container).value).toBe('Central warehouse'))
+  })
+
+  it('does not resurrect the previous label when the parent keeps the value after a clear', () => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="red"
+        onChange={onChange}
+        clearable
+        seedOptions={[{ value: 'red', label: 'Red' }]}
+      />,
+    )
+    expect(getInput(container).value).toBe('Red')
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /clear value/i }))
+    })
+
+    expect(onChange).toHaveBeenCalledWith('')
+    expect(getInput(container).value).toBe('')
+  })
+
+  it('resumes syncing after a blur, so a later external change is not mistaken for typing', async () => {
+    const options = [
+      { value: 'red', label: 'Red' },
+      { value: 'green', label: 'Green' },
+    ]
+    const { container, rerender } = render(
+      <ComboboxInput value="red" onChange={() => {}} seedOptions={options} allowCustomValues={false} />,
+    )
+    const input = getInput(container)
+    act(() => {
+      input.focus()
+      fireEvent.change(input, { target: { value: 'gre' } })
+    })
+    expect(getInput(container).value).toBe('gre')
+
+    act(() => {
+      fireEvent.blur(input)
+    })
+    await waitFor(() => expect(getInput(container).value).toBe('Red'))
+
+    act(() => {
+      getInput(container).focus()
+    })
+    rerender(
+      <ComboboxInput value="green" onChange={() => {}} seedOptions={options} allowCustomValues={false} />,
+    )
+    await waitFor(() => expect(getInput(container).value).toBe('Green'))
   })
 })
