@@ -112,7 +112,7 @@ export function BackendHeaderChrome({
 }: BackendHeaderChromeProps) {
   const t = useT()
   const { payload, isReady } = useBackendChrome()
-  const grantedFeatures = React.useMemo(() => payload?.grantedFeatures ?? [], [payload?.grantedFeatures])
+  const grantedFeatures = React.useMemo(() => payload?.grantedFeatures ?? [], [payload])
   const showIntegrationsButton = React.useMemo(
     () => hasVisibleRoute(payload?.groups, '/backend/integrations'),
     [payload?.groups],
@@ -200,4 +200,5 @@ export function BackendHeaderChrome({
     </>
   )
 }
+
 
