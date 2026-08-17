@@ -54,7 +54,9 @@
     "availabilityByPreset": {
       "classic": "source-only",
       "crm": "source-only",
-      "empty": "source-only"
+      "empty": "source-only",
+
+      "wms": "source-only"
     },
     "canonicalUiRowCount": 8,
     "referenceCount": 16,
@@ -90,7 +92,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -142,7 +146,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -195,7 +201,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -251,7 +259,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -302,7 +312,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -352,7 +364,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -403,7 +417,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -463,7 +479,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -515,7 +533,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -567,7 +587,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -618,7 +640,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -669,7 +693,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -720,7 +746,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -773,7 +801,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -825,7 +855,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -878,7 +910,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -929,7 +963,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -980,7 +1016,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1031,7 +1069,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1083,7 +1123,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1135,7 +1177,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1186,7 +1230,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1237,7 +1283,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1288,7 +1336,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1340,7 +1390,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1392,7 +1444,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1445,7 +1499,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1496,7 +1552,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1548,7 +1606,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1600,7 +1660,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1652,7 +1714,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1703,7 +1767,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1755,7 +1821,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1807,7 +1875,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1858,7 +1928,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1909,7 +1981,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -1960,7 +2034,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2011,7 +2087,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2062,7 +2140,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2114,7 +2194,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2167,7 +2249,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2219,7 +2303,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2272,7 +2358,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2326,7 +2414,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2378,7 +2468,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2430,7 +2522,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2483,7 +2577,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2534,7 +2630,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2587,7 +2685,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2639,7 +2739,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2691,7 +2793,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2742,7 +2846,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2793,7 +2899,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2844,7 +2952,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2895,7 +3005,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2946,7 +3058,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -2998,7 +3112,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3048,7 +3164,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3100,7 +3218,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3152,7 +3272,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3203,7 +3325,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3255,7 +3379,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3307,7 +3433,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3360,7 +3488,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3411,7 +3541,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3464,7 +3596,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3517,7 +3651,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3568,7 +3704,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3620,7 +3758,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3671,7 +3811,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3724,7 +3866,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3775,7 +3919,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3828,7 +3974,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3881,7 +4029,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3933,7 +4083,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3985,7 +4137,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4037,7 +4191,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4088,7 +4244,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4140,7 +4298,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4192,7 +4352,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4243,7 +4405,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4295,7 +4459,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4346,7 +4512,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4397,7 +4565,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4448,7 +4618,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4499,7 +4671,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4550,7 +4724,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4601,7 +4777,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4651,7 +4829,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4702,7 +4882,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4752,7 +4934,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4802,7 +4986,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4852,7 +5038,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4903,7 +5091,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -4954,7 +5144,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5005,7 +5197,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5056,7 +5250,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5107,7 +5303,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5158,7 +5356,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5208,7 +5408,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5260,7 +5462,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5312,7 +5516,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5362,7 +5568,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5412,7 +5620,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5464,7 +5674,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5514,7 +5726,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5565,7 +5779,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5616,7 +5832,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5667,7 +5885,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5718,7 +5938,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5771,7 +5993,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5821,7 +6045,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5872,7 +6098,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5929,7 +6157,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -5959,7 +6189,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6077,7 +6309,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6111,7 +6345,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6139,7 +6375,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6257,7 +6495,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6291,7 +6531,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6319,7 +6561,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6348,7 +6592,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6430,7 +6676,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6459,7 +6707,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6488,7 +6738,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6570,7 +6822,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6599,7 +6853,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6631,7 +6887,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -6661,7 +6919,9 @@
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",
-        "empty": "source-only"
+        "empty": "source-only",
+
+        "wms": "source-only"
       },
       "featureId": "design_system.view",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
