@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification |
+| **Status** | Specification (rev 2 — pre-implementation fixes) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 5, Phase 2 |
 | **Modules** | `cart` (new) |
@@ -82,6 +82,20 @@ storefront / POS / pay link / AI agent
 
 `cart` has no inbound dependency. `checkout` reads it; it does not read `checkout`.
 
+### 3.1a Commands (fixed 2026-08-17)
+
+Every mutation is a registered command, mirroring `sales/commands/documents.ts` — this module has no exemption from root `AGENTS.md`'s "domain writes go through commands" rule, and an earlier draft of this spec had none of these, describing mutations as plain HTTP handlers instead:
+
+```
+cart.lines.add · cart.lines.update · cart.lines.remove · cart.lines.bulkAdd
+cart.promotions.apply · cart.promotions.remove
+cart.merge · cart.mergeUndo
+cart.approval.request
+cart.reprice
+```
+
+Each command's `execute` phase runs the optimistic-lock pre-check (§8.1) before touching the entity manager, then mutates `Cart`/`CartLine`/`CartPromotionApplication` inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` — not a raw conditional SQL update — because the write flow (load → call `catalogPricingService`/`promotionsService` → call `salesCalculationService.calculateDocumentTotals` → persist totals) is exactly the multi-phase "mutate → external work → mutate again" shape that helper exists to protect. Side effects (`emitCrudSideEffects`, cache invalidation, `clientBroadcast` events) fire after commit, never inside the atomic-flush block. `cart.lines.add`/`.remove` and `cart.merge` carry meaningful undo via `extractUndoPayload`; `cart.reprice` and pricing-triggered re-snapshots are not undoable (re-pricing to a stale price is not a state a client would ever want restored) and are documented as such.
+
 ### 3.2 Totals
 
 ```typescript
@@ -114,7 +128,6 @@ Standard scoped columns throughout.
 | `channel` | text | `storefront \| pos \| pay_link \| agent \| api` |
 | `sales_channel_id` | uuid, nullable | `sales.SalesChannel.id` |
 | `status` | text | `active \| locked \| converted \| abandoned \| expired \| merged` |
-| `version` | integer | Optimistic locking; incremented on every accepted mutation |
 | `currency_code` | text | Fixed at creation |
 | `locale` | text | |
 | `customer_id` | uuid, nullable | `customers.CustomerEntity.id` |
@@ -122,7 +135,7 @@ Standard scoped columns throughout.
 | `customer_group_ids` | jsonb | `string[]` snapshot at last pricing, for drift detection |
 | `price_kind_id` | uuid, nullable | Snapshot at last pricing |
 | `tax_mode` | text | `gross \| net` |
-| `email` | text, nullable | Guest identification; encrypted at rest |
+| `email` | text, nullable | Guest identification; encrypted at rest — declared in `cart/encryption.ts`'s `defaultEncryptionMaps: [{ entityId: 'cart:cart', fields: [{ field: 'email' }] }]` (fixed 2026-08-17; an earlier draft asserted this in §17 without a backing declaration anywhere in the module) |
 | `buyer_digest` | text | `StoreContext.digest` at last pricing — the drift detector |
 | `totals` | jsonb | Verbatim `SalesDocumentCalculationResult.totals` |
 | `totals_computed_at` | timestamptz | |
@@ -136,6 +149,8 @@ Standard scoped columns throughout.
 | `expires_at` | timestamptz | TTL |
 
 Indexes: unique `token`; `(tenant_id, customer_id, status)`; `(tenant_id, status, expires_at)` for the sweeper; `(tenant_id, status, last_activity_at)` for abandonment.
+
+**No `version` column** (fixed 2026-08-17): an earlier draft added one for optimistic locking, but this platform's optimistic-lock helpers (`enforceCommandOptimisticLock`, `packages/shared/src/lib/crud/optimistic-lock-command.ts`) are hard-coded to ISO-timestamp comparison against `updated_at` — a generic integer counter cannot plug into them, and duplicating them for a bespoke `version` token was the same mistake already made and fixed in the sibling `customer-groups-and-b2b-terms.md` spec. `Cart.updatedAt` (from "Standard scoped columns," above) is the sole concurrency token — see §8.1.
 
 ### 4.2 `CartLine` (`cart_lines`)
 
@@ -221,7 +236,7 @@ It does **not** re-price on every read. A buyer refreshing the page five times s
 
 When a re-price changes any line, the response carries a `priceChanges` array — old amount, new amount, reason, per line — and the cart records `last_price_change_at`. The client must show this; a total that changes without explanation reads as a bug or a dark pattern, and in a consumer context an undisclosed increase between basket and payment is a regulatory problem.
 
-Re-pricing increments `version` but sets `versionBumpReason: 'repricing'` in the response, so a client that then submits its stale version gets a distinguishable answer rather than a bare conflict (R3).
+Re-pricing updates `updated_at` (the concurrency token, §8.1) but sets `versionBumpReason: 'repricing'` in the response, so a client that then submits its now-stale `updatedAt` gets a distinguishable answer rather than a bare conflict (R3). The distinguishing signal is response metadata attached whenever a mutation performed a repricing side effect — it works identically whether the underlying token is a timestamp or a counter, which is why dropping the `version` counter (§4.1) costs this behaviour nothing.
 
 ### 5.4 B2B quantity tiers
 
@@ -293,15 +308,19 @@ Mandatory and whole-cart — the buyer's group has just become known, so every l
 
 ## 8) Concurrency & Idempotency
 
-### 8.1 Optimistic locking
+### 8.1 Optimistic locking (fixed 2026-08-17 — see §4.1)
 
-Every mutation carries the client's `version`. The server applies it with a conditional update (`WHERE version = $expected`) and increments atomically. A mismatch returns `409` with the current cart state embedded, so the client can reconcile without a second round trip.
+Every mutating command starts with `enforceCommandOptimisticLock({ resourceKind: 'cart.cart', resourceId: cart.id, current: cart.updatedAt, request: ctx.request })` (`packages/shared/src/lib/crud/optimistic-lock-command.ts`) — the same mechanism every other command-driven write in this platform uses, not a bespoke conditional SQL update. The client sends its expected `updatedAt` via the standard `x-om-ext-optimistic-lock-expected-updated-at` header (or as a typed `updatedAt` field on the mutation body); the helper throws a `409` with the platform's standard `{ error, code, currentUpdatedAt, expectedUpdatedAt }` body on mismatch — the same shape every other conflict-bar-integrated surface in the admin UI already understands.
+
+**Cart adds one thing on top, not instead of, that mechanism**: the `409` response body also embeds the full current `CartView` (§10.1) alongside the standard fields, so the client can reconcile without a second round trip — this was always additive to the platform's own conflict contract, never a reason to bypass it.
+
+The lock check runs before any entity manager work; the entity mutations themselves run inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` (§3.1a) — not a raw SQL `UPDATE ... WHERE`, because the write flow interleaves external service calls (`catalogPricingService`, `promotionsService`, `salesCalculationService`) with entity mutations, which is exactly the "mutate → external work → mutate again" shape `withAtomicFlush` exists to protect against a dropped scalar update.
 
 ### 8.2 Idempotency
 
 Mutations accept an `Idempotency-Key`. A repeated key within the cart's lifetime returns the original result without re-applying — this is what makes "add to cart" safe under a double-tap or a retried request on a flaky mobile connection.
 
-Keys are stored per cart with the resulting version and a response digest. A key replayed with a different body returns `422 idempotency_key_mismatch`.
+Keys are stored per cart with the resulting `updatedAt` and a response digest. A key replayed with a different body returns `422 idempotency_key_mismatch`.
 
 ### 8.3 Token security
 
@@ -335,11 +354,11 @@ A `locked` cart that a client tries to mutate returns `423 Locked` with the chec
 
 ## 10) API Contracts
 
-Base `/api/cart`. Token-bound, public with an optional buyer session. Every mutating route accepts `version` and `Idempotency-Key`.
+Base `/api/cart`. Token-bound, public with an optional buyer session. Every mutating route accepts the expected `updatedAt` (via the standard optimistic-lock header or a typed body field — §8.1) and `Idempotency-Key`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/carts` | Create; returns token + version |
+| POST | `/carts` | Create; returns token + `updatedAt` |
 | GET | `/carts/:token` | Read; re-prices only if stale (trigger 4) |
 | POST | `/carts/:token/lines` | Add line |
 | PATCH | `/carts/:token/lines/:lineId` | Change quantity or configuration |
@@ -362,7 +381,7 @@ Every endpoint returns the same envelope, so a client has one parser:
 ```typescript
 {
   cart: {
-    token: string; version: number; status: CartStatus
+    token: string; updatedAt: string; status: CartStatus
     currencyCode: string; locale: string; taxMode: 'gross' | 'net'
     lines: CartLineView[]
     totals: SalesDocumentAmounts
@@ -459,7 +478,7 @@ export const features = [
 - `priceChanges` populated on every change, absent otherwise (R4)
 
 **Concurrency:**
-- Two clients at the same version: one succeeds, one gets 409 with the current cart embedded
+- Two clients presenting the same `updatedAt`: one succeeds, one gets 409 (standard `enforceCommandOptimisticLock` body) with the current cart additionally embedded
 - Repeated `Idempotency-Key` returns the original result without re-applying
 - Same key with a different body returns 422
 - Re-pricing bump carries `versionBumpReason: 'repricing'` (R3)
@@ -528,8 +547,9 @@ Approval routing, bulk lines, admin cart list, abandonment events.
 | No cross-module ORM relations | All references are FK ids; catalog, promotions, availability, sales and groups reached through DI services |
 | No reimplemented arithmetic | ADR-2 enforced; totals stored verbatim; property test gates it |
 | Tenant/organization scoping | Every entity and query; cross-tenant token resolution rejected |
-| Optimistic locking | `version` on `Cart`, conditional update, distinguishable re-price bumps |
-| Encryption | `email` uses the encryption helpers; reads via `findWithDecryption` |
+| Optimistic locking | `updated_at` via `enforceCommandOptimisticLock` (§8.1, fixed 2026-08-17 — no `version` counter; the platform's helper is hard-coded to timestamp comparison and cannot accept one), distinguishable re-price bumps via `versionBumpReason` |
+| Command pattern | Every mutation is a registered command (§3.1a, fixed 2026-08-17 — an earlier draft described plain HTTP handlers with no command wiring at all) |
+| Encryption | `email` declared in `cart/encryption.ts`'s `defaultEncryptionMaps` (`entityId: 'cart:cart'`); reads via `findWithDecryption` |
 | Zod validation | All routes; `z.infer` types |
 | No `any` | Service and payload contracts fully typed |
 | i18n | Warning and error codes translated; no hard-coded user-facing strings |
@@ -542,6 +562,14 @@ Approval routing, bulk lines, admin cart list, abandonment events.
 ---
 
 ## 18) Changelog
+
+### 2026-08-17 (rev 2 — pre-implementation fixes)
+
+Fixed two Critical findings from a `/om-pre-implement-spec` audit (`ANALYSIS-2026-08-14-cart-module.md`):
+
+- **`Cart.version: integer` removed.** The original draft carried forward SPEC-029 v3's already-superseded "version optimistic locking" reasoning instead of this platform's actual mechanism — the same mistake already made and fixed in the sibling `customer-groups-and-b2b-terms.md` spec. `packages/shared/src/lib/crud/optimistic-lock-command.ts`'s `enforceCommandOptimisticLock` is hard-coded to `updated_at`/ISO-timestamp comparison and cannot accept a generic counter. Fixed: `Cart.updatedAt` is the sole concurrency token (§4.1, §8.1); the 409 body still embeds the full current cart as an addition on top of the platform's standard conflict shape, losing no client-facing behaviour.
+- **Command pattern wiring added.** The original draft described every cart mutation as a plain HTTP handler with a raw conditional SQL update — no `registerCommand`, no undo, no `withAtomicFlush`. Added §3.1a naming every mutation as a registered command, and rewrote §8.1's write flow as lock pre-check → `withAtomicFlush` → post-commit side effects, mirroring `sales/commands/documents.ts`.
+- Added the missing `cart/encryption.ts` declaration backing §17's `email`-encryption claim.
 
 ### 2026-08-14
 - Initial specification, replacing SPEC-029 v3 §7.4's cart-as-checkout-session model per ADR-1.
