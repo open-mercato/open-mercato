@@ -90,6 +90,12 @@ export type EmitOptions = {
    * worker-dispatched (`persistent: true`).
    */
   deliverInline?: boolean
+  /**
+   * Skips subscribers registered as persistent during inline delivery while
+   * preserving ephemeral subscribers, global taps, and broadcast delivery.
+   * Persistent emits still enqueue those subscribers for worker dispatch.
+   */
+  skipPersistentSubscribersInline?: boolean
   /** Trusted tenant scope for subscribers that must not rely on payload scope */
   tenantId?: string | null
   /** Trusted organization scope for subscribers that must not rely on payload scope */

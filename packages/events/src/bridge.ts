@@ -178,10 +178,16 @@ export async function publishCrossProcessEvent(
   const pool = getPublisherPool()
   if (!pool) return
 
+  const bridgeOptions = options
+    && Object.prototype.hasOwnProperty.call(options, 'tenantId')
+    && options.tenantId === undefined
+    ? { ...options, tenantId: null }
+    : options
+
   const envelope: BridgeEnvelope = {
     event,
     payload,
-    options,
+    options: bridgeOptions,
     originPid: process.pid,
     originInstanceId: CROSS_PROCESS_EVENT_INSTANCE_ID,
   }

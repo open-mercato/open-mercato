@@ -455,9 +455,10 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     const enqueueOnly = Boolean(options?.persistent) && options?.deliverInline === false
     // Read the mode once so the inline skip and the stamp below cannot disagree.
     const singleDelivery = isSingleDeliveryEnabled()
+    const skipPersistentInline = options?.skipPersistentSubscribersInline === true
+      || (Boolean(options?.persistent) && singleDelivery)
     let inlinePersistentFailed = false
     if (!enqueueOnly) {
-      const skipPersistentInline = Boolean(options?.persistent) && singleDelivery
       const delivered = await deliver(event, payload, options, skipPersistentInline)
       inlinePersistentFailed = delivered.persistentFailures > 0
     }
@@ -493,7 +494,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
         // dead-lettering. Without this, flipping the flag off (which the
         // `mercato server` guard can do automatically) silently downgrades
         // persistent delivery to at-most-once.
-        persistentDeliveredInline: !enqueueOnly && !singleDelivery && !inlinePersistentFailed,
+        persistentDeliveredInline: !enqueueOnly && !skipPersistentInline && !inlinePersistentFailed,
       })
     }
   }

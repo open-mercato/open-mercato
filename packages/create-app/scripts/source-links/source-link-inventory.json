@@ -8,10 +8,10 @@
     "cases": "packages/create-app/agentic/shared/ai/harness/cases.json"
   },
   "derived": {
-    "ownerCount": 29,
-    "recordCount": 130,
-    "sourceRequiredCount": 105,
-    "renderedLinkCount": 107,
+    "ownerCount": 30,
+    "recordCount": 138,
+    "sourceRequiredCount": 113,
+    "renderedLinkCount": 115,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -479,6 +479,278 @@
         "core",
         "migration"
       ]
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Command handler and registry",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/commands/registry.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Atomic CRUD command writes",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/commands/runCrudCommandWrite.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Command handler and registry",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/commands/types.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "`makeCrudRoute`",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/crud/factory.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Optimistic locking",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/crud/optimistic-lock-command.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Data Engine ORM operations",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/data/engine.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Defensive JSON reads",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/http/readJsonSafe.ts"
+    },
+    {
+      "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "originAuthoringPath": "agentic/guides/framework-contracts.md",
+      "heading": "Typed module events",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-231"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/modules/events/factory.ts"
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:README.md",
@@ -6381,7 +6653,9 @@
         "OMH-227",
         "OMH-228",
         "OMH-229",
-        "OMH-230"
+        "OMH-230",
+        "OMH-231",
+        "OMH-232"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -6633,7 +6907,9 @@
         "OMH-227",
         "OMH-228",
         "OMH-229",
-        "OMH-230"
+        "OMH-230",
+        "OMH-231",
+        "OMH-232"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

@@ -30,7 +30,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 230-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 232-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -699,6 +699,7 @@ All runtime framework contract surfaces remain unchanged. The scaffold/harness s
 6. **Agentic rerun:** pre-manifest apps are migrated conservatively; unknown/user files are preserved. Generated marker blocks are replaced idempotently.
 7. **Published assets:** `dist/agentic` cleanup removes stale generated artifacts before package publication, with tests to prevent deleted legacy skills from reappearing.
 8. **Evaluator CLI/results:** `--judge-writable-result` is canonical; `--review-writable-result` and the existing generated-code-review result projection remain compatibility aliases for at least one minor release.
+9. **Experimental validation hooks:** gate-evidence/typecheck validator hooks remain available for Claude Code, Codex, and Cursor but are no longer emitted by default. The additive `--experimental-hooks-validator` option enables them, with `OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR` as its environment default. Ownership-aware updates retire only unchanged generated validator assets and preserve locally modified copies through the existing conflict path.
 
 ## 📋 Phasing
 
@@ -765,6 +766,8 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
+- **2026-08-17** — Reconciled with the upstream 231-case expansion by moving the Documents facts-first reuse decision to OMH-232, keeping the upstream OMH-230/OMH-231 identities intact, and synchronizing the 232-case/49-writable schema, documentation, and tests.
+- **2026-08-14** — Made the gate-evidence/typecheck validator hook layer opt-in across Claude Code, Codex, and Cursor. Fresh scaffolds and `agentic:init` runs omit it by default; the additive `--experimental-hooks-validator` flag or `OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR=1` enables it without changing the underlying validator semantics.
 - **2026-08-12** — Preserved the upstream 229-case expansion and allocated OMH-230 to the Documents facts-first reuse decision, retaining both contracts without reusing an existing identity; synchronized the 230-case/48-writable schema, documentation, and tests.
 - **2026-08-12** — Merged the upstream EUDR compliance route as OMH-229 without reusing the PR's existing OMH-214 identity, and synchronized the 229-case/48-writable contract across schema, tests, and release documentation.
 - **2026-08-03** — Added OMH-203 for CRM detail-tab UMES routing, extended bounded installed framework context to read-only routing cases, enforced guidance-before-source ordering, and synchronized the 203-case contract across schema, tests, and release documentation.

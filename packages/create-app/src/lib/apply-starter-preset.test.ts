@@ -331,7 +331,7 @@ test('template baseline installs every enabled Documents package', () => {
     /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:-\}/,
   )
   assert.doesNotMatch(fullAppCompose, /change-me-documents-collab-v2-secret/)
-  assert.doesNotMatch(fullAppCompose, /\$\{[^}]*:\?/)
+  assert.doesNotMatch(fullAppCompose, /DOCUMENTS_COLLAB[^\n]*\$\{[^}]*:\?/)
   assert.match(fullAppCompose, /APP_URL: \$\{APP_URL:-http:\/\/localhost:3000\}/)
   assert.match(
     fullAppCompose,

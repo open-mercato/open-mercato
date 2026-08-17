@@ -54,16 +54,20 @@ function normalizeAudience(data: Record<string, unknown>, options?: EmitOptions)
   recipientUserScopes: string[]
   recipientRoleScopes: string[]
 } {
+  const hasTrustedScope = options != null
+    && Object.prototype.hasOwnProperty.call(options, 'tenantId')
   const trustedTenantId = typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
     ? options.tenantId.trim()
     : null
-  const tenantId = trustedTenantId ?? (typeof data.tenantId === 'string' ? data.tenantId : null)
+  const tenantId = hasTrustedScope
+    ? trustedTenantId
+    : (typeof data.tenantId === 'string' ? data.tenantId : null)
   const organizationScopes = new Set<string>()
   const trustedOrganizationId = typeof options?.organizationId === 'string' && options.organizationId.trim().length > 0
     ? options.organizationId.trim()
     : null
-  if (trustedOrganizationId) {
-    organizationScopes.add(trustedOrganizationId)
+  if (hasTrustedScope) {
+    if (trustedOrganizationId) organizationScopes.add(trustedOrganizationId)
   } else {
     if (typeof data.organizationId === 'string' && data.organizationId.trim().length > 0) {
       organizationScopes.add(data.organizationId.trim())

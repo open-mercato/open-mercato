@@ -101,9 +101,9 @@ function stageApp(): string {
     path.join(root, '.ai', 'guides', 'framework-extension-points.md'),
     '# Framework extension points\nGenerated framework extension facts.\n',
   )
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules', 'example'), { recursive: true })
   fs.writeFileSync(
-    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example', 'index.md'),
     '# Local reference module: example\nGenerated contribution, activation, and override-target facts.\n',
   )
   fs.mkdirSync(path.join(root, '.ai', 'guides', 'upstream'), { recursive: true })
@@ -134,6 +134,16 @@ function stageApp(): string {
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
     ],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+    shared: [
+      'src/lib/commands/types.ts',
+      'src/lib/commands/registry.ts',
+      'src/lib/commands/runCrudCommandWrite.ts',
+      'src/lib/crud/factory.ts',
+      'src/modules/events/factory.ts',
+      'src/lib/crud/optimistic-lock-command.ts',
+      'src/lib/http/readJsonSafe.ts',
+      'src/lib/data/engine.ts',
+    ],
   })) {
     const sourcePackage = fileURLToPath(new URL(`../../../${packageName}/`, import.meta.url))
     const installedPackage = path.join(root, 'node_modules', '@open-mercato', packageName)
@@ -331,7 +341,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(matrix.routing.runners, { codex: { modelSelector: 'default' }, claude: { modelSelector: 'sonnet' } })
   assert.deepEqual(matrix.writable.map((entry) => entry.caseId), validators.catalog.writableCaseIds)
   assert.ok(matrix.writable.every((entry) => Object.keys(entry).length === 1))
-  assert.equal(validators.catalog.writableCaseIds.length, 48)
+  assert.equal(validators.catalog.writableCaseIds.length, 49)
   assert.deepEqual(cases.filter((entry) => entry.timeoutMs !== undefined).map((entry) => [entry.id, entry.timeoutMs]), [
     ['OMH-185', 600_000],
     ['OMH-188', 600_000],
@@ -342,6 +352,7 @@ test('the catalog count and release coverage are derived from the validator regi
     ['OMH-193', 600_000],
     ['OMH-223', 600_000],
     ['OMH-224', 600_000],
+    ['OMH-230', 600_000],
   ])
   assert.equal(matrix.generatedCodeReview.required, true)
   assert.equal(matrix.generatedCodeReview.skill, 'om-code-review')
@@ -447,6 +458,23 @@ test('runner selection distinguishes explicit primary all-cases from the default
   const matrix = { routing: { portability: { caseIds: ['OMH-002', 'OMH-003'] } } }
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: true, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-001', 'OMH-002', 'OMH-003'])
   assert.deepEqual(evaluator.selectCases(cases, { selector: 'all', selectorExplicit: false, runner: 'claude' }, matrix).map((entry) => entry.id), ['OMH-002', 'OMH-003'])
+})
+
+test('a declared module fact index allows only its sibling section files', async () => {
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    caseReadAllowlist: (caseRecord: unknown, writable: boolean, appRoot: string) => string[]
+  }
+  const allowlist = evaluator.caseReadAllowlist({
+    context: {
+      required: ['.ai/guides/modules/customers/index.md'],
+      allowedExtra: ['.ai/guides/reference-modules/example/index.md'],
+    },
+    expectedRouter: { required: [], allowedExtra: [] },
+  }, false, process.cwd())
+
+  assert.ok(allowlist.includes('.ai/guides/modules/customers/*.md'))
+  assert.ok(allowlist.includes('.ai/guides/reference-modules/example/*.md'))
+  assert.ok(!allowlist.includes('.ai/guides/modules/sales/*.md'))
 })
 
 test('live timeout policy gives slow default runners measured floors without overriding operator timeouts', async () => {
@@ -633,24 +661,24 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
     }
     cases[0].context.allowedExtra = [
       ...(cases[0].context.allowedExtra ?? []),
-      '.ai/guides/modules/not_enabled.md',
+      '.ai/guides/modules/not_enabled/index.md',
     ]
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
     const result = runEvaluator(root, ['--all'])
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stderr, /allowed-extra context does not exist: \.ai\/guides\/modules\/not_enabled\.md/)
+    assert.match(result.stderr, /allowed-extra context does not exist: \.ai\/guides\/modules\/not_enabled\/index\.md/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-230', () => {
+test('deterministic evaluation enforces the case schema through OMH-232', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-230')
+    assert.equal(cases.at(-1)?.id, 'OMH-232')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -820,8 +848,8 @@ test('writable evaluation materializes and admits bounded installed framework co
     fs.cpSync(path.join(controller, 'AGENTS.md'), path.join(target, 'AGENTS.md'))
     fs.cpSync(path.join(controller, '.ai', 'guides'), path.join(target, '.ai', 'guides'), { recursive: true })
     fs.cpSync(path.join(controller, '.ai', 'skills'), path.join(target, '.ai', 'skills'), { recursive: true })
-    fs.mkdirSync(path.join(target, '.ai', 'guides', 'modules'), { recursive: true })
-    fs.writeFileSync(path.join(target, '.ai', 'guides', 'modules', 'workflows.md'), '# Workflows\nUse installed workflow contracts.\n')
+    fs.mkdirSync(path.join(target, '.ai', 'guides', 'modules', 'workflows'), { recursive: true })
+    fs.writeFileSync(path.join(target, '.ai', 'guides', 'modules', 'workflows', 'index.md'), '# Workflows\nUse installed workflow contracts.\n')
     fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
     fs.writeFileSync(path.join(corePackageRoot, 'package.json'), JSON.stringify({
       name: '@open-mercato/core',
@@ -899,7 +927,7 @@ export async function callApiActivity(input: CallApiInput, effects: CallApiEffec
 \`)
 const selectedContext = [
   'AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md',
-  '.ai/guides/modules/workflows.md', ...requiredContext,
+  '.ai/guides/modules/workflows/index.md', ...requiredContext,
 ]
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['ai-workflow'], selectedSkills: ['om-build-workflow'],
@@ -932,7 +960,7 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
     'AGENTS.md',
     '.ai/guides/extensions.md',
     '.ai/guides/backend-ui.md',
-    '.ai/guides/modules/customers.md',
+    '.ai/guides/modules/customers/index.md',
     '.ai/skills/om-system-extension/SKILL.md',
     '.ai/skills/om-backend-ui-design/SKILL.md',
     '.ai/skills/om-framework-context/SKILL.md',
@@ -960,9 +988,9 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
     const controller = stageApp()
     const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
     try {
-      fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules'), { recursive: true })
+      fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
       fs.writeFileSync(
-        path.join(controller, '.ai', 'guides', 'modules', 'customers.md'),
+        path.join(controller, '.ai', 'guides', 'modules', 'customers', 'index.md'),
         '# Customers\nUse the installed customers module without guessing private contracts.\n',
       )
       fs.mkdirSync(path.join(corePackageRoot, 'src', 'modules', 'customers', 'backend'), { recursive: true })
@@ -1856,14 +1884,14 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
 
 test('module facts and upstream compatibility references count as progressive rather than initial context', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
-  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'sales.md'), '# Sales\nInstalled sales module facts.\n')
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules', 'sales'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'sales', 'index.md'), '# Sales\nInstalled sales module facts.\n')
   const context = [
     'AGENTS.md',
     '.ai/guides/extensions.md',
     '.ai/skills/om-system-extension/SKILL.md',
     '.ai/skills/om-framework-context/SKILL.md',
-    '.ai/guides/modules/sales.md',
+    '.ai/guides/modules/sales/index.md',
     '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md',
   ]
   const bin = installFakeRunner(root, 'codex', `
@@ -1886,9 +1914,9 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
     })
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
     const [stored] = storedResults(root)
-    assert.ok(stored.actualContext.paths.includes('.ai/guides/modules/sales.md'))
+    assert.ok(stored.actualContext.paths.includes('.ai/guides/modules/sales/index.md'))
     assert.ok(stored.actualContext.paths.includes('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
-    assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/modules/sales.md'))
+    assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/modules/sales/index.md'))
     assert.ok(!stored.actualContext.initialPaths.includes('.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
@@ -2116,19 +2144,19 @@ for (const command of ['cat AGENTS.md .agents/skills/om-spec-writing/SKILL.md', 
 
 test('a case may bound optional context for an explicitly allowed extra route', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
-  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers', 'index.md'), '# customers\n')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['architecture', 'framework-context'], selectedSkills: ['om-framework-context'],
-  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/modules/customers.md', '.ai/skills/om-framework-context/SKILL.md'],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/modules/customers/index.md', '.ai/skills/om-framework-context/SKILL.md'],
   decisions: ['installed-version', 'bounded-source-search'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .ai/guides/architecture.md .ai/guides/modules/customers.md .ai/skills/om-framework-context/SKILL.md'
+  command: 'cat AGENTS.md .ai/guides/architecture.md .ai/guides/modules/customers/index.md .ai/skills/om-framework-context/SKILL.md'
 } }))
 `)
   try {
@@ -2163,16 +2191,18 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
     '.agents/skills/om-implement-spec/references/spec-resolution.md',
     '.agents/skills/om-implement-spec/references/phases-and-gates.md',
     '.agents/skills/om-implement-spec/references/planning-and-progress.md',
+    '.agents/skills/om-implement-spec/references/resume.md',
     '.agents/skills/om-implement-spec/references/report-templates.md'
   ],
   decisions: [
     'spec-resolution', 'phase-execution-plan', 'interactive-confirmation',
     'working-phases', 'smallest-validation', 'implementation-progress',
+    'slice-ledger-write', 'in-flight-ledger', 'atomic-edit-sequence',
     'stable-implementation-report', 'spec-reference-marker'
   ], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/report-templates.md'
+  command: 'cat AGENTS.md .agents/skills/om-implement-spec/SKILL.md .agents/skills/om-implement-spec/references/spec-resolution.md .agents/skills/om-implement-spec/references/phases-and-gates.md .agents/skills/om-implement-spec/references/planning-and-progress.md .agents/skills/om-implement-spec/references/resume.md .agents/skills/om-implement-spec/references/report-templates.md'
 } }))
 `)
   try {
@@ -2187,6 +2217,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
       '.ai/skills/om-implement-spec/references/spec-resolution.md',
       '.ai/skills/om-implement-spec/references/phases-and-gates.md',
       '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+      '.ai/skills/om-implement-spec/references/resume.md',
       '.ai/skills/om-implement-spec/references/report-templates.md',
     ])
   } finally {
@@ -2738,18 +2769,18 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 test('secret redaction preserves legitimate skill reference names beginning with skew', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const reference = '.ai/skills/om-framework-context/references/skew-and-escalation.md'
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules'), { recursive: true })
-  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers.md'), '# customers\n')
+  fs.mkdirSync(path.join(root, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'modules', 'customers', 'index.md'), '# customers\n')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs'); const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['framework-context'], selectedSkills: ['om-framework-context'],
-  selectedContext: ['AGENTS.md', '.ai/guides/modules/customers.md', '.ai/skills/om-framework-context/SKILL.md', '${reference}'],
+  selectedContext: ['AGENTS.md', '.ai/guides/modules/customers/index.md', '.ai/skills/om-framework-context/SKILL.md', '${reference}'],
   decisions: ['installed-version', 'bounded-source-search'], violations: []
 }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .ai/guides/modules/customers.md .ai/skills/om-framework-context/SKILL.md ${reference}'
+  command: 'cat AGENTS.md .ai/guides/modules/customers/index.md .ai/skills/om-framework-context/SKILL.md ${reference}'
 } }))
 `)
   try {
@@ -2839,6 +2870,14 @@ test('generative judge uses the reusable judge skill, pinned code-review evidenc
   const target = stageWritableTarget(controller)
   try {
     const sourceResult = preparePassingWritableCrudResult(controller, target)
+    const providerLimitManifest = path.join(controller, '.ai', 'harness', 'results', 'provider-limit-manifest.json')
+    fs.writeFileSync(providerLimitManifest, JSON.stringify({
+      schemaVersion: 1,
+      stopCause: {
+        classification: 'provider-limit',
+        lastEntryError: { name: 'ProviderError', statusCode: 429, message: 'usage limit reached for sk-12345678901234567890' },
+      },
+    }))
     const casesPath = path.join(controller, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8'))
     cases.find((entry: { id: string }) => entry.id === 'OMH-011').expectedRouter.required.push('backend-ui')
@@ -2858,6 +2897,13 @@ const allowedReads = JSON.parse(mcpArgs.at(-2))
 const judgeFiles = ['SKILL.md', 'references/agentic-setup.md', 'references/input-normalization.md', 'references/judge-workflow.md', 'references/report-template.md', 'references/rules.md'].map((file) => '.ai/skills/om-judge-agent-session/' + file)
 for (const required of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.ai/review-checklist.md', '.agents/skills/om-code-review/SKILL.md', ...judgeFiles, 'REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcpArgs.at(-1)).length !== 0) process.exit(9)
+const stopCause = JSON.parse(fs.readFileSync('REVIEW_EVIDENCE.json', 'utf8')).manifest.stopCause
+const termination = stopCause.classification
+if (!['completed', 'provider-limit', 'provider-error', 'user-abort', 'unknown'].includes(termination)) process.exit(9)
+const reportedTermination = termination === 'provider-error' ? 'completed' : termination
+const errorSummary = stopCause.lastEntryError
+  ? Object.values(stopCause.lastEntryError).filter((value) => value !== null && String(value).length > 0).join(' ')
+  : 'no error summary'
 const evidence = [
   { id: 'oracle:allowed-writes', status: 'pass' },
   { id: 'oracle:writable-ast-oracles.mjs', status: 'pass' },
@@ -2887,6 +2933,7 @@ const judgeReport = [
   '## Verdict',
   'pass — Controller attestations and the semantic review pass without a blocking artifact finding.',
   '## Evidence',
+  '- Termination: ' + reportedTermination + ' — the controller-bound session manifest classification; ' + errorSummary + '.',
   'The bounded writable result, fixed oracles, final fingerprint, and supplied code-review evidence all pass.',
   '## Artifact Findings',
   'No artifact findings.',
@@ -2904,6 +2951,7 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
 `)
     const review = runEvaluator(controller, [
       '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', providerLimitManifest,
     ], {
       ...process.env,
       PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
@@ -2916,6 +2964,9 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
     assert.equal(stored.corrections, 0)
     assert.equal(stored.verdict, 'approve')
     assert.equal(stored.judgeVerdict, 'pass')
+    assert.match(stored.judgeReport, /- Termination: provider-limit .*controller-bound session manifest classification/)
+    assert.match(stored.judgeReport, /ProviderError 429 usage limit reached for <redacted-token>/)
+    assert.doesNotMatch(stored.judgeReport, /sk-12345678901234567890/)
     assert.equal(stored.judgeSkill?.name, 'om-judge-agent-session')
     assert.deepEqual(stored.artifactFindings, [])
     assert.deepEqual(stored.harnessOwnerFindings, [])
@@ -2941,6 +2992,32 @@ for (const file of ['AGENTS.md', 'REVIEW_POLICY.md', 'REVIEW_EVIDENCE.json', '.a
       '.ai/skills/om-backend-ui-design/references/quality-states.md',
     ])
     assert.ok(stored.actualContext.paths.includes('REVIEW_SOURCES/src/modules/library/api/books/route.ts.txt'))
+
+    const oldBundleManifest = path.join(controller, '.ai', 'harness', 'results', 'old-bundle-manifest.json')
+    fs.writeFileSync(oldBundleManifest, JSON.stringify({ schemaVersion: 1 }))
+    const oldBundleReview = runEvaluator(controller, [
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', oldBundleManifest,
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(oldBundleReview.status, 0, `${oldBundleReview.stdout}\n${oldBundleReview.stderr}`)
+    assert.match(storedReviewResults(controller).at(-1).judgeReport, /- Termination: unknown .*controller-bound session manifest classification/)
+
+    const mismatchManifest = path.join(controller, '.ai', 'harness', 'results', 'mismatch-manifest.json')
+    fs.writeFileSync(mismatchManifest, JSON.stringify({ stopCause: { classification: 'provider-error' } }))
+    const mismatchReview = runEvaluator(controller, [
+      '--runner', 'codex', '--judge-writable-result', sourceResult, '--writable-root', target,
+      '--judge-manifest', mismatchManifest,
+    ], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(mismatchReview.status, 1, `${mismatchReview.stdout}\n${mismatchReview.stderr}`)
+    assert.ok(storedReviewResults(controller).at(-1).violations.some(
+      (violation: string) => /does not match normalized manifest stop cause provider-error/.test(violation),
+    ))
   } finally {
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
@@ -3825,7 +3902,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 230)
+  assert.equal(cases.length, 232)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)
@@ -4164,13 +4241,14 @@ test('live routing rejects a structurally invalid spec routing payload before sc
 })
 
 // ---------------------------------------------------------------------------------------
-// SPEC-P2 writable planning proofs (OMH-223, OMH-224) and their fixed Markdown oracle.
+// SPEC-P2 writable planning/resume proofs (OMH-223, OMH-224, OMH-230) and their fixed oracle.
 // ---------------------------------------------------------------------------------------
 
 const specOracle = path.join(sourceHarness, 'writable-spec-oracles.mjs')
 const emittedSpecRoot = path.join(sharedRoot, 'ai', 'specs')
 const newFeatureSpecPath = '.ai/specs/2026-08-04-warehouse-stock-transfers.md'
 const coveringSpecPath = '.ai/specs/2026-08-04-service-appointment-reminders.md'
+const resumeSpecPath = '.ai/specs/2026-08-10-interrupted-export-format.md'
 
 type SpecOracleReport = {
   status: number | null
@@ -4209,10 +4287,10 @@ function stageSpecTarget(fixtureId: string): string {
     path.join(generatedGuidesRoot, 'reference-module-facts.json'),
     path.join(root, '.ai', 'guides', 'reference-module-facts.json'),
   )
-  fs.mkdirSync(path.join(root, '.ai', 'guides', 'reference-modules'), { recursive: true })
-  fs.copyFileSync(
-    path.join(generatedGuidesRoot, 'reference-modules', 'example.md'),
-    path.join(root, '.ai', 'guides', 'reference-modules', 'example.md'),
+  fs.cpSync(
+    path.join(generatedGuidesRoot, 'reference-modules', 'example'),
+    path.join(root, '.ai', 'guides', 'reference-modules', 'example'),
+    { recursive: true },
   )
   const sourceLinks = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8')) as {
     records: Array<Record<string, unknown>>
@@ -4344,7 +4422,7 @@ Each test creates its own tenant, organization, warehouses, users, and stock row
 
 Phases are dependency ordered; each one leaves the application working and closes with its own evidence.
 
-Module work routes to om-module-scaffold and UI work routes to om-backend-ui-design. Planning starts at the reference module's entry document and its surface index, then checks .ai/guides/reference-modules/example.md against .ai/guides/reference-module-facts.json. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
+Module work routes to om-module-scaffold and UI work routes to om-backend-ui-design. Planning starts at the reference module's entry document and its surface index, then checks .ai/guides/reference-modules/example/index.md against .ai/guides/reference-module-facts.json. The reference module ships source-present and is not registered, so nothing it declares is live in this app until an explicit opt-in registers it; it is read here as a source reference and adapted into the new stock_transfers module, never edited and never copied wholesale.
 
 The generated reference projection binds the planned seams exactly. The bulk action uses capability umes.injection.datatable-bulk-action, contribution example.injection.todo-bulk-complete@data-table:example.todos.list:bulk-actions, activation widget-spot:data-table:example.todos.list:bulk-actions:widget-injection-consumer, and override target 53534ccb2cedeb06. Durable progress uses capability runtime.bulk-operation-progress, workers example:todos-bulk-dispatch and example:todos-bulk-complete, and override targets 3cce1583e990d1d5 and f13b1b4f95dcb7af. The lifecycle definition uses capability workflows.code-definition and the specialist contribution workflow:example.todo-created-reference at specialistRoute workflows from src/modules/example/workflows.ts.
 
@@ -4549,7 +4627,7 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
     fs.rmSync(path.join(root, '.ai/guides/reference-module-facts.json'))
   }, 'plan.reference-facts-readable'],
   ['a plan that omits the generated reference sheet route', (root) => {
-    rewriteNewFeatureSpec(root, (spec) => spec.replace('.ai/guides/reference-modules/example.md', 'the generated guide'))
+    rewriteNewFeatureSpec(root, (spec) => spec.replace('.ai/guides/reference-modules/example/index.md', 'the generated guide'))
   }, 'plan.reference-sheet-route'],
   ['a plan that drops the exact progress capability', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec.replaceAll('runtime.bulk-operation-progress', 'the progress capability'))
@@ -4752,6 +4830,40 @@ for (const [label, breakIt, expectedCheck] of existingSpecNegatives) {
   })
 }
 
+test('the resume proof fails on the interrupted pair and passes after ledger-bound reconciliation', () => {
+  const root = stageSpecTarget('spec-resume-half-done')
+  try {
+    const before = runSpecOracle(root, 'OMH-230', 'before')
+    assert.equal(before.passed, false)
+    assert.ok(failedSpecCheckIds(before).includes('resume.contract.complete'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.formatter.complete'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.ledger.progress'))
+    assert.ok(failedSpecCheckIds(before).includes('resume.ledger.completed-slice'))
+
+    fs.writeFileSync(
+      path.join(root, 'src/modules/resume_demo/lib/export-contract.ts'),
+      'export type ExportContract = { label: string }\n',
+    )
+    fs.writeFileSync(
+      path.join(root, 'src/modules/resume_demo/lib/format-export.ts'),
+      "import type { ExportContract } from './export-contract'\n\nexport function formatExport(label: string): ExportContract {\n  return { label: label.trim() }\n}\n",
+    )
+    const ledger = fs.readFileSync(path.join(root, resumeSpecPath), 'utf8')
+      .replace('Progress: 1/2', 'Progress: 2/2')
+      .replace('- [ ] Slice 2 — add `export-contract.ts` and repair `format-export.ts` as one atomic pair. verify:', '- [x] Slice 2 — add `export-contract.ts` and repair `format-export.ts` as one atomic pair. verified:')
+    fs.writeFileSync(path.join(root, resumeSpecPath), ledger)
+
+    const after = runSpecOracle(root, 'OMH-230', 'after')
+    assert.equal(after.passed, true, JSON.stringify(after.failures, null, 2))
+    assert.equal(after.status, 0)
+
+    fs.writeFileSync(path.join(root, 'src/modules/resume_demo/lib/preserved.ts'), "export const immutableResumeBaseline = 'rewritten'\n")
+    assert.ok(failedSpecCheckIds(runSpecOracle(root, 'OMH-230', 'after')).includes('resume.preserved.unchanged'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the spec oracle refuses an unknown case, an unknown phase, and a relative root', () => {
   const root = stageSpecTarget('planning-new-feature')
   try {
@@ -4771,7 +4883,7 @@ test('the spec oracle refuses an unknown case, an unknown phase, and a relative 
   }
 })
 
-test('the two planning proofs are the only writable cases graded by the spec oracle', () => {
+test('the planning and resume proofs are the only writable cases graded by the spec oracle', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as Array<{
     id: string
     evaluationKind: string
@@ -4784,24 +4896,31 @@ test('the two planning proofs are the only writable cases graded by the spec ora
   const registry = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'validators.json'), 'utf8')) as {
     validators: Record<string, { runners?: string[] }>
   }
-  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse']
+  const planningOracles = ['oracle.planning.spec-first', 'oracle.planning.spec-reuse', 'oracle.planning.spec-resume']
   for (const validatorId of planningOracles) {
     assert.deepEqual(registry.validators[validatorId]?.runners, ['writable-spec-oracles.mjs'])
   }
   const declaring = cases.filter((record) => record.validators.some((entry) => planningOracles.includes(entry)))
-  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224'])
+  assert.deepEqual(declaring.map((record) => record.id), ['OMH-223', 'OMH-224', 'OMH-230'])
   for (const record of declaring) {
     assert.equal(record.evaluationKind, 'implementation', `${record.id} must be a writable case`)
     // The planning gate itself is scored by the read-only routing contract; a writable proof
     // must never also declare it.
     assert.equal(record.expectedSpecRouting, undefined, `${record.id} must not declare expectedSpecRouting`)
     assert.ok(record.tags.includes('writable'))
-    for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
-      assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+    if (record.id !== 'OMH-230') {
+      for (const target of [...(record.allowedWrites ?? []), ...(record.oracle?.expectedArtifacts ?? [])]) {
+        assert.ok(target.startsWith('.ai/specs/'), `${record.id} may only reach .ai/specs, found ${target}`)
+      }
     }
   }
   assert.deepEqual(declaring[0].allowedWrites, ['.ai/specs/**'])
   assert.deepEqual(declaring[1].allowedWrites, [coveringSpecPath])
+  assert.deepEqual(declaring[2].allowedWrites, [
+    resumeSpecPath,
+    'src/modules/resume_demo/lib/export-contract.ts',
+    'src/modules/resume_demo/lib/format-export.ts',
+  ])
 })
 
 test('catalog validation binds each semantic oracle to its own fixed runner', () => {
