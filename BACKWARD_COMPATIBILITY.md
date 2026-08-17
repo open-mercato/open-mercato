@@ -10,6 +10,20 @@ Open Mercato modules are developed by third-party developers who depend on stabl
 4. **Document in UPGRADE_NOTES.md**: every deprecation and every removal must be listed with migration instructions.
 5. **Spec requirement**: any PR that modifies a contract surface MUST reference a spec (in `.ai/specs/`) that includes a "Migration & Backward Compatibility" section.
 
+### Emergency Security Exception
+
+Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+
+This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
+
+1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
+2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
+3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
+4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
+5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
+
+Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
+
 ---
 
 ## Contract Surface Categories
@@ -353,3 +367,31 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Contract commitments**: listeners are notified synchronously after `setGlobalModules()` (so `getModules()` is readable inside a listener) and only when the registered set actually changed, as decided by an immutable per-registration snapshot of module ids, top-level contract keys and array-valued contract elements. Accessor-declared contracts are never invoked by that snapshot and always count as changed. The contract is fail-soft on both paths: a synchronous throw and an asynchronous rejection are each observed and logged, and neither can fail `registerModules()`. Change detection MAY become more sensitive without a deprecation cycle (over-invalidation only drops a warm cache); it MUST NOT become less sensitive, since that direction serves a stale registry.
 
 **Migration path for existing modules**: no action required. Nothing subscribes unless a module opts in, and with no subscribers the notification iterates an empty set. Test suites that call `registerModules()` MUST clear `__openMercatoModulesRegistrySnapshot__` alongside the two pre-existing registry globals, because all three survive `jest.resetModules()`.
+
+## Passkey MFA Verification Payload (2026-08-14)
+
+Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+
+**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+
+**Exception requirements, as met by this change:**
+
+| Requirement | How it is satisfied |
+|-------------|--------------------|
+| 1. Qualifying condition argued | See *Why the deprecation protocol does not apply* below — both values the removed shape compared are disclosed by the server, so accepting it *is* the bypass |
+| 2. Narrowest removal, no retained vulnerable branch | Only `verifyPayloadSchema` and the two non-cryptographic acceptance paths are deleted. The `{ response }` path, the challenge TTL check and the signature-counter update are untouched, and **no flag, config toggle or opt-in keeps the old shape reachable** |
+| 3. Steps 4 and 5 | [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.6.7 → 0.7.0` (client *and* operator actions); spec [`.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`](.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md) § Migration & Backward Compatibility |
+| 4. Dated entry | This section |
+| 5. Maintainer sign-off | PR carries the `security` label; the waiver is called out in the PR body for explicit human approval |
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API request shape (`POST /api/security/mfa/verify`, `POST /api/security/sudo/verify`, `methodType: 'passkey'`) | `payload` must be `{ response }` carrying a WebAuthn assertion. The `{ credentialId, challenge }` alternative is removed and now answers `401` | ✗ BREAKING (deliberate — see rationale) |
+| Provider contract (`MfaProviderInterface.verifySchema` for `passkey`) | `verifyPayloadSchema` narrows from a union to a single object requiring `response` | ✗ BREAKING for a caller that validated against the exported schema |
+| Verification behavior | A verified `verifyAuthenticationResponse` is the only route to a positive verdict; an absent verify context is a rejection rather than a `credentialId` comparison | ✗ BREAKING for a client that skipped `/api/security/mfa/prepare` |
+| Failure mode | A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout | ✓ Strictly safer (no verdict flips from negative to positive) |
+| API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
+
+**Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
