@@ -1,3 +1,7 @@
+// AI Governance: Added execution observability hooks
+const logGovernanceEvent = (event: string, details: object) => {
+  console.log([AI-GOVERNANCE]  - , JSON.stringify(details));
+};
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { UIMessage } from 'ai'
@@ -197,7 +201,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
     }
-    logger.error('AI Run Object — Dispatch failure', { err: error })
+    logger.error('AI Run Object â€” Dispatch failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Agent object dispatch failed.',
