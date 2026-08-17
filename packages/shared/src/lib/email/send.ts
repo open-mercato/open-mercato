@@ -1,10 +1,12 @@
-import { Resend } from 'resend'
 import React from 'react'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parseBooleanWithDefault } from '../boolean'
-import { resolveDefaultEmailFromAddress } from './config'
+import { resolveDefaultEmailFromAddress, resolveEmailTransportName, resolveSmtpConfig } from './config'
+import { createResendTransport } from './transports/resend'
+import { createSmtpTransport } from './transports/smtp'
+import type { EmailTransport } from './transports/types'
 
 export type SendEmailOptions = {
   to: string
@@ -92,6 +94,12 @@ async function captureEmailForTests(options: SendEmailOptions): Promise<void> {
   await appendFile(capturePath, `${JSON.stringify(record)}\n`, 'utf8')
 }
 
+function resolveEmailTransport(): EmailTransport {
+  const transportName = resolveEmailTransportName()
+  if (transportName === 'smtp') return createSmtpTransport(resolveSmtpConfig())
+  return createResendTransport()
+}
+
 export async function sendEmail({ to, subject, react, from, replyTo, attachments }: SendEmailOptions) {
   const emailDisabled =
     parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
@@ -101,29 +109,10 @@ export async function sendEmail({ to, subject, react, from, replyTo, attachments
 
   if (emailDisabled) return
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY is not set')
-  const resend = new Resend(apiKey)
+  const transport = resolveEmailTransport()
   const fromAddr = from || resolveDefaultEmailFromAddress()
   if (!fromAddr) {
     throw new Error('EMAIL_FROM_NOT_CONFIGURED: set NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL')
   }
-  const payload = {
-    to,
-    subject,
-    from: fromAddr,
-    react,
-    ...(replyTo ? { reply_to: replyTo } : {}),
-    ...(attachments?.length ? { attachments } : {}),
-  }
-  const result = await resend.emails.send(payload)
-  const errorMessage =
-    typeof (result as any)?.error === 'string'
-      ? (result as any).error
-      : typeof (result as any)?.error?.message === 'string'
-        ? (result as any).error.message
-        : null
-  if (errorMessage) {
-    throw new Error(`RESEND_SEND_FAILED: ${errorMessage}`)
-  }
+  await transport.send({ to, subject, react, from: fromAddr, replyTo, attachments })
 }

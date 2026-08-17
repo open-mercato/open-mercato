@@ -4,17 +4,11 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { sendEmail } from '../send'
 
-var sendMock: jest.Mock
-var ResendMock: jest.Mock
+const sendMock = jest.fn()
+const mockResendConstructor = jest.fn()
+const ResendMock = mockResendConstructor
 
-jest.mock('resend', () => {
-  sendMock = jest.fn().mockResolvedValue({ data: { id: 'email-1' } })
-  ResendMock = jest.fn().mockImplementation(() => ({
-    emails: { send: sendMock },
-  }))
-
-  return { Resend: ResendMock }
-})
+jest.mock('resend', () => ({ Resend: mockResendConstructor }))
 
 describe('sendEmail', () => {
   const originalEnv = process.env
@@ -26,8 +20,8 @@ describe('sendEmail', () => {
       RESEND_API_KEY: 'test-key',
       EMAIL_FROM: 'from@example.com',
     }
-    sendMock.mockClear()
-    ResendMock.mockClear()
+    sendMock.mockReset().mockResolvedValue({ data: { id: 'email-1' } })
+    ResendMock.mockReset().mockImplementation(() => ({ emails: { send: sendMock } }))
   })
 
   afterEach(async () => {
