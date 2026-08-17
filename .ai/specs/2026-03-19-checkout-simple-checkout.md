@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v2 — rescoped 2026-08-14) |
+| **Status** | Specification (v2.1 — rescoped 2026-08-14, pre-implementation fixes 2026-08-17) |
 | **Author** | Piotr Karwatka (v1), rescoped for the ecommerce suite (v2) |
 | **Created** | 2026-03-19 |
 | **Rescoped** | 2026-08-14 |
@@ -111,8 +111,10 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 | → `payment_gateways` | Phase A provider descriptor surface, unchanged |
 | → `sales` | `commandBus`: `sales.quotes.create`, `sales.quotes.convert_to_order`, order creation |
 | ← `sales` | UMES widget: "Created from checkout" badge when `metadata.sourceModule = 'checkout'` |
+| → `promotions` | DI `promotionsService.registerUsage()` at submit step 7 (§7.2); `revertUsage()` called by `sales` on order cancellation, not by `checkout` directly. **Added 2026-08-17** — an earlier draft used `promotionsService` in §7.2 without listing the dependency here; confirmed via `SPEC-055`'s Amendment §A.2, which names `checkout` as the architecturally-destined in-process caller. Hard dependency, same as `cart`'s own `requires: ['promotions']` (`cart-module.md` §A.2b) — no advisory/optional fallback: a failed `registerUsage` call is a real submit failure, not a degraded-but-functional path. |
+| → `workflows` | Two uses, both async/human-scheduled per §5: the B2B approval sub-flow (§8.2, session parks in `awaiting_approval` pending a workflow decision) and post-submit orchestration (§5.1). **Added 2026-08-17** — omitted from this table despite being load-bearing for §5's own architecture decision. |
 
-Retained from v1 unchanged. The quote→order path through the command bus was the right call and is reused for both entry modes.
+Retained from v1 unchanged, except the two additions above. The quote→order path through the command bus was the right call and is reused for both entry modes.
 
 ---
 
@@ -131,7 +133,6 @@ Standard scoped columns.
 | `channel` | text | `storefront \| pos \| pay_link \| agent \| api` |
 | `status` | text | `open \| awaiting_approval \| submitting \| awaiting_payment \| completed \| failed \| canceled \| expired` |
 | `step` | text | `contact \| addresses \| delivery \| payment \| review` |
-| `version` | integer | Optimistic locking |
 | `currency_code` | text | From the cart, immutable once the session exists |
 | `locale` | text | |
 | `email` | text, nullable | Encrypted at rest |
@@ -158,6 +159,8 @@ Standard scoped columns.
 | `completed_at` | timestamptz, nullable | |
 
 Indexes: unique `token`; unique `(tenant_id, submit_idempotency_key)` where non-null; `(tenant_id, status, expires_at)`.
+
+**No `version` column** (fixed 2026-08-17): an earlier draft added one for optimistic locking, but this repo's real, already-shipped `@open-mercato/checkout` package (Phase A) never used one — `checkout.link.update`/`checkout.template.update` already lock via `enforceCommandOptimisticLockWithGuards` against `record.updatedAt` (`commands/links.ts`, `commands/templates.ts`), and their own test suite (`commands/__tests__/optimistic-lock.test.ts`) asserts ISO-timestamp comparison, not an integer counter. `CheckoutSession.updatedAt` (standard scoped column, above) is the sole concurrency token — same mechanism this package already uses for `CheckoutLink`/`CheckoutLinkTemplate`, applied here for the first time to a new entity rather than reinvented. The conditional `open → submitting` transition (§7.4) is a separate, additional CAS guard on `status`, not a substitute for this.
 
 ### 4.2 `CheckoutSessionEvent` (`checkout_session_events`)
 
@@ -200,8 +203,8 @@ Currency rules from v1 are retained: one currency per link; mixed-currency templ
 | Column | Type | Notes |
 |---|---|---|
 | `session_id` | uuid, nullable | Null for Phase A pay links |
-| `quote_id` | uuid, nullable | From v1, retained |
-| `order_id` | uuid, nullable | From v1, retained |
+| `quote_id` | uuid, nullable | New, additive — proposed in v1 but never implemented past Phase A (fixed 2026-08-17; the real `CheckoutTransaction` entity has no such column today) |
+| `order_id` | uuid, nullable | New, additive — same as above |
 
 Additive nullable columns only. Phase A behaviour is untouched.
 
@@ -272,7 +275,7 @@ The only authoritative moment in the funnel.
 
 Checked before any side effect; all failures are cheap and leave nothing to undo.
 
-1. Session `open`, not expired, version matches
+1. Session `open`, not expired, expected `updatedAt` matches (§4.1)
 2. `submit_idempotency_key` present and not already completed (§7.4)
 3. Cart non-empty and belongs to this session
 4. Required steps complete for the effective configuration
@@ -291,10 +294,17 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
  3. IF payment_method = on_account:
        customerGroupsService.reserveCredit(amount, key = credit_reservation_key)
        └─ refused → release stock, unlock cart, ABORT 402 credit_refused
- 4. Create the sales document via commandBus, in one DB transaction:
+ 4. Create the sales document via commandBus:
        outcome_kind = 'quote' → sales.quotes.create           (status awaiting_approval)
        outcome_kind = 'order' → sales.quotes.create
                               + sales.quotes.convert_to_order
+    (fixed 2026-08-17: each commandBus.execute() call commits its own
+     transaction in this platform — there is no mechanism for two
+     sequential calls to share one. If sales.quotes.create succeeds and
+     .convert_to_order then fails, the compensation below still applies
+     — the orphaned quote is left in place, not deleted, and is visible
+     to the merchant exactly like any other unconverted quote; nothing
+     is undone at the sales-document layer, only credit/stock/cart)
     └─ failure → release credit, release stock, unlock cart, ABORT 500
  5. IF outcome is a quote → status = completed. DONE. (no payment)
  6. IF payment via gateway:
@@ -321,7 +331,7 @@ Ordered, reverse of acquisition, each step idempotent and safe to re-run:
 |---|---|
 | 2 (stock) | Unlock cart |
 | 3 (credit) | Release stock; unlock cart |
-| 4 (document) | Release credit; release stock; unlock cart |
+| 4 (document) | Release credit; release stock; unlock cart. If `sales.quotes.create` succeeded but `.convert_to_order` failed (§7.2 step 4 note), the created quote is left in place rather than deleted — it is a legitimate, visible quote a merchant can still act on, not a failed-submit artifact to clean up |
 | 6 (intent) | Cancel document; release credit; release stock; unlock cart |
 | 7 (payment) | Cancel order; release credit; release stock; unlock cart |
 
@@ -370,7 +380,7 @@ Captured at the `payment` step when the group's terms require it, validated for 
 
 ## 9) API Contracts
 
-Base `/api/checkout`. Public, token-bound, optional buyer session. Mutating routes take `version`.
+Base `/api/checkout`. Public, token-bound, optional buyer session. Mutating routes take the expected `updatedAt` (standard optimistic-lock header, or a typed body field).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -391,14 +401,25 @@ Admin: `GET /api/checkout/sessions` and `/sessions/:id` under `checkout.sessions
 
 ### 9.1 ACL
 
+**Fixed 2026-08-17**: an earlier draft invented `checkout.links.view`/`checkout.links.manage` and labeled them `// Phase A`. Neither id exists — the real, already-shipped `acl.ts` declares six flat features (`checkout.view`, `.create`, `.edit`, `.delete`, `.viewPii`, `.export`) with no `checkout.links.*` namespace. Implementing the fabricated ids as written would have created a second, uncoordinated authorization surface over the same links/templates resource. Corrected: link/template access reuses the real Phase A features unchanged; only the genuinely new session-admin surface (§9, admin routes) gets new ids.
+
 ```typescript
-export const features = [
-  { id: 'checkout.sessions.view',   title: 'View checkout sessions' },
-  { id: 'checkout.sessions.manage', title: 'Manage checkout sessions' },
-  { id: 'checkout.links.view',      title: 'View checkout links' },       // Phase A
-  { id: 'checkout.links.manage',    title: 'Manage checkout links' },     // Phase A
+// Reused from Phase A, unchanged — packages/checkout/src/modules/checkout/acl.ts
+// checkout.view    — includes viewing checkout links and transactions (now also sessions, §9)
+// checkout.create  — includes creating checkout links/templates
+// checkout.edit    — includes editing checkout links/templates
+// checkout.delete  — includes deleting checkout links/templates
+// checkout.viewPii — customer PII on links/transactions (now also on sessions)
+// checkout.export  — exporting checkout transactions
+
+// New in this spec
+export const newFeatures = [
+  { id: 'checkout.sessions.view',   title: 'View checkout sessions', module: 'checkout', dependsOn: ['checkout.view'] },
+  { id: 'checkout.sessions.manage', title: 'Manage checkout sessions (force-expire, force re-price)', module: 'checkout', dependsOn: ['checkout.sessions.view'] },
 ]
 ```
+
+`GET /api/checkout/sessions`/`:id` (§9, admin) gate on `checkout.sessions.view`; the admin-forced actions gate on `checkout.sessions.manage`. Link/template routes keep gating on `checkout.view`/`.edit`/`.create`/`.delete` exactly as they do today — no change to Phase A's authorization surface.
 
 ---
 
@@ -415,7 +436,7 @@ export const features = [
 
 `checkout.session.completed` starts the post-submit workflow (§5.1). `checkout.compensation.failed` raises an operational notification — it is the event that must never be ignored.
 
-Phase A's existing transaction events are unchanged.
+**Relationship to Phase A's `checkout.transaction.*` events (clarified 2026-08-17)**: Phase A's existing `checkout.transaction.sessionStarted`/`.completed`/`.failed` are unchanged AND continue to fire for every `CheckoutTransaction` row, session-backed or not — `checkout.payment.*` is additive and session-scoped, firing *alongside* the transaction-level events for a session-based checkout, not instead of them. A subscriber written against Phase A's `checkout.transaction.*` family (transaction-scoped, works for both pay-link and session flows) keeps working unmodified; a new subscriber that needs session context (step, cart, buyer) uses `checkout.payment.*` instead.
 
 ---
 
@@ -429,8 +450,15 @@ Retained from v1, renamed for the template:
 | `checkout.cartTemplate.update` | Restore the before-snapshot |
 | `checkout.cartTemplate.delete` | Restore the row |
 | `checkout.cartTemplate.reorder` | Restore the previous order |
+| `checkout.session.lock` | none — locking a cart for submit is not meaningfully reversible mid-flow |
+| `checkout.session.reserveStock` | none |
+| `checkout.session.reserveCredit` | none |
+| `checkout.session.createDocument` | none |
+| `checkout.session.initiatePayment` | none |
+| `checkout.session.complete` | none |
+| `checkout.session.fail` | none |
 
-Admin mutations remain undoable. Financial lifecycle transitions remain non-undoable, as in Phase A. Session transitions are **not** commands — they are state-machine moves with their own audit trail, and exposing them as undoable admin operations would let a merchant "undo" a payment.
+Admin mutations remain undoable. **Fixed 2026-08-17**: an earlier draft said session transitions are "not commands... exposing them as undoable admin operations would let a merchant 'undo' a payment" — but non-undoable and command-routed are not the same choice, and Phase A's own `checkout.transaction.create`/`checkout.transaction.updateStatus` are already command-routed despite having no meaningful undo either (`commands/transactions.ts`). Each step of the submit sequence (§7.2) is now a registered command with a no-op `undo` — this keeps the correct, load-bearing rule (a payment must never be "undoable") while giving session writes the same mutation-guard/interceptor/audit wiring every other domain write in this platform gets through the command bus.
 
 ---
 
@@ -451,7 +479,7 @@ Admin mutations remain undoable. Financial lifecycle transitions remain non-undo
 
 - Session token is CSPRNG, never in a URL path, rotated never (the session is short-lived), rate-limited per token
 - A session may only be created against a cart the caller can prove access to — the cart token, or an authenticated session owning the cart
-- Addresses, email and phone encrypted at rest; read through the decryption helpers
+- Addresses, email and phone encrypted at rest; read through the decryption helpers. **Named 2026-08-17**: extends the already-shipped `checkout/encryption.ts`'s `defaultEncryptionMaps` (which already covers `checkout:checkout_link_template`, `checkout:checkout_link`, `checkout:checkout_transaction`) with `{ entityId: 'checkout:checkout_session', fields: [{ field: 'email' }, { field: 'phone' }, { field: 'shipping_address' }, { field: 'billing_address' }] }` — reusing existing infrastructure, not new plumbing.
 - Card data never touches the platform; the Phase A provider delegation is unchanged
 - `CheckoutSessionEvent.payload` is redacted at write time — never card data, never full addresses, never gateway secrets
 - Rate limits: submit 10/min per session and 60/min per IP; rate quoting 30/min per session (each call may hit a carrier API)
@@ -582,19 +610,34 @@ Rate limits, encryption, redaction, admin session viewer with the event trail, p
 | No cross-module ORM relations | All references are FK ids; cart, availability, groups, shipping, payments and sales reached via DI or `commandBus` |
 | No reimplemented arithmetic | Totals come from the cart, which delegates to `salesCalculationService` (ADR-2) |
 | Tenant/organization scoping | Session, cart, link and store must agree; asserted per request and per test |
-| Optimistic locking | `version` on `CheckoutSession`; conditional `open → submitting` transition |
-| Encryption | Email, phone and both addresses encrypted; read via `findWithDecryption`; event payloads redacted |
+| Optimistic locking | `updatedAt` via `enforceCommandOptimisticLockWithGuards` (fixed 2026-08-17 — no `version` counter; matches Phase A's already-shipped `checkout.link.update`/`.template.update`); conditional `open → submitting` transition is a separate, additional CAS guard |
+| Encryption | Email, phone and both addresses encrypted; read via `findWithDecryption`; event payloads redacted; extends the already-shipped `checkout/encryption.ts` (§13, named 2026-08-17) |
 | Zod validation | All routes; `z.infer` types |
 | No `any` | State machine, session and payload contracts fully typed |
-| Mutation guards / commands | Admin template mutations undoable via the command bus; session transitions deliberately excluded |
+| Mutation guards / commands | Admin template mutations and session transitions both command-routed (§11, fixed 2026-08-17); session-transition commands carry no meaningful undo, admin mutations do |
 | i18n | Step labels, failure codes and validation messages translated |
 | Queue usage | All four jobs via the `queue` worker contract |
+| ACL feature reuse | Link/template routes gate on Phase A's real `checkout.view`/`.edit`/`.create`/`.delete` (fixed 2026-08-17 — an earlier draft fabricated `checkout.links.view`/`.manage`, which don't exist); only `checkout.sessions.view`/`.manage` are genuinely new (§9.1) |
+| Module dependencies (`requires`) | Hard: `cart`, `sales`, `promotions` (§3.3, added 2026-08-17), `availability`, `customer_groups`. Soft/consumer-only, unchanged from Phase A: `payment_gateways`, `shipping_carriers`. `workflows` is used (§5.1, §8.2) but only for the async approval/post-submit paths, not the synchronous funnel |
 | Backward compatibility | Phase A unchanged; `CheckoutTransaction` extended with nullable columns only; withdrawn v1 elements were never implemented, so no deprecation protocol applies |
 | Integration coverage | §16, shipping in the same change |
 
 ---
 
 ## 20) Changelog
+
+### 2026-08-17 — v2.1 (pre-implementation fixes)
+
+Fixed the findings of a `/om-pre-implement-spec` audit (`ANALYSIS-2026-03-19-checkout-simple-checkout.md`), run against the already-shipped Phase A source (`packages/checkout/src/modules/checkout/`) rather than against convention alone, since this spec extends live code:
+
+- **Critical**: `CheckoutSession.version: integer` removed — the fourth occurrence of this mistake across the suite, and the worst, since it contradicted Phase A's own already-shipped `enforceCommandOptimisticLockWithGuards`/`updatedAt` pattern (`commands/links.ts`, `commands/templates.ts`). `updatedAt` is now the sole concurrency token throughout §4.1/§7.1/§9/§19.
+- **Critical**: §9.1 fabricated `checkout.links.view`/`checkout.links.manage` labeled "Phase A" — neither exists in the real `acl.ts` (which declares `checkout.view`/`.create`/`.edit`/`.delete`/`.viewPii`/`.export`). Fixed: link/template routes reuse the real features unchanged; only `checkout.sessions.view`/`.manage` are genuinely new.
+- Added `promotions` (hard dependency, §7.2 step 7's `registerUsage` call) and `workflows` (approval sub-flow, post-submit orchestration) to §3.3's cross-module integration table — both were used elsewhere in the document but absent from its own dependency table.
+- §11: session transitions are now registered, non-undoable commands (mirroring Phase A's own `checkout.transaction.updateStatus` precedent) rather than framed as exempt from the command bus entirely — the "never undoable" rule is unchanged, only the "therefore not a command" conclusion was wrong.
+- §7.2 step 4: clarified that two sequential `commandBus.execute()` calls do not share one DB transaction in this platform (each commits independently); added the resulting orphaned-quote case to §7.3's compensation table.
+- §4.4: reworded `CheckoutTransaction.quote_id`/`.order_id` from "retained from v1" to "new, additive" — the real entity has neither column today.
+- §10: clarified `checkout.payment.*` fires alongside, not instead of, Phase A's existing `checkout.transaction.*` events.
+- §13/§19: named the exact `checkout/encryption.ts` addition backing the `CheckoutSession` encryption claim, reusing the package's already-shipped encryption-map infrastructure.
 
 ### 2026-08-14 — v2 (rescope)
 
