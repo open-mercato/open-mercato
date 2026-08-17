@@ -35,7 +35,7 @@ npx create-mercato-app <app-name> [options]
 |--------|-------------|
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
-| `--preset <id>` | Select the `classic`, `empty`, or `crm` starter without prompting |
+| `--preset <id>` | Select the `classic`, `empty`, `crm`, or `wms` starter without prompting |
 | `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
 | `--init-git` | Initialize a local Git repository after scaffolding |
@@ -68,6 +68,9 @@ npx create-mercato-app my-store --skip-agentic-setup
 
 # Create a classic app with every supported AI coding-tool configuration
 npx create-mercato-app my-store --preset classic --agents all
+
+# Create a warehouse and inventory app
+npx create-mercato-app my-warehouse --preset wms
 
 # Set up only Claude Code and Codex
 npx create-mercato-app my-store --agents claude-code,codex
