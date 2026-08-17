@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification |
+| **Status** | Specification (rev 2 — pre-implementation fixes 2026-08-17) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 9, Phase 4 |
 | **Modules** | `customer_accounts` (extended), `portal` (extended) |
@@ -121,6 +121,8 @@ Resolution: user's roles → the **widest** scope any role grants → falling ba
 
 Visibility is applied in a single `buildOrderVisibilityFilter(buyerContext)` helper that every order-reading endpoint composes, in the same style as spec 4's `buildStorefrontProductScope`. It is never re-derived per endpoint, because an endpoint that re-derives it is an endpoint that will get it wrong.
 
+**Structural guard (added 2026-08-17)**: given this is the sharpest risk in the module (R1, Critical — a colleague's negotiated financial terms, not catalog pricing), a review-and-test discipline alone is not the only gate. A Phase 1 deliverable is `customer_accounts/__tests__/no-raw-order-query.test.ts`, a plain-regex grep over `customer_accounts/api/**`/`customer_accounts/lib/**` banning any query-engine read of `sales` order/quote entities outside a call chain rooted in `buildOrderVisibilityFilter`, registered in `scripts/repo-wide-guards.mjs` — mirroring the equivalent guards already added to `SPEC-029` (buyer-context digest) and `storefront-merchandising` (cache-key builder) in this suite.
+
 Revocation is immediate: removing a `CustomerPersonCompanyLink` or deactivating a `CustomerUser` invalidates the cached policy by tag and terminates active sessions for that user (R1).
 
 ---
@@ -129,7 +131,7 @@ Revocation is immediate: removing a `CustomerPersonCompanyLink` or deactivating 
 
 Standard scoped columns. Everything else this module needs already exists elsewhere.
 
-### 5.1 `CustomerWishlist` / `CustomerWishlistItem`
+### 5.1 `CustomerWishlist` (`customer_wishlists`) / `CustomerWishlistItem` (`customer_wishlist_items`)
 
 | `CustomerWishlist` | Type | Notes |
 |---|---|---|
@@ -167,7 +169,7 @@ This realizes cart spec Open Question 1. The cart module holds the basket; this 
 | Column | Type | Notes |
 |---|---|---|
 | `customer_user_id` | uuid, nullable | Null for an email-only anonymous subscription |
-| `email` | text | Encrypted at rest |
+| `email` | text | Encrypted at rest — declared in `customer_accounts/encryption.ts`'s `defaultEncryptionMaps: [{ entityId: 'customer_accounts:customer_back_in_stock_subscription', fields: [{ field: 'email', hashField: 'email_hash' }] }]` (named 2026-08-17; the `hashField` is required for the double-opt-in and per-address subscription-cap equality lookups, since the column itself is ciphertext) |
 | `product_id` / `variant_id` | uuid | |
 | `store_id` | uuid | |
 | `quantity_wanted` | numeric(16,4), nullable | Notify when this much is available, not merely one unit — B2B |
@@ -243,7 +245,7 @@ Never silent, and never partial-without-saying-so.
      quantity rules still satisfied?    → else QUANTITY_ADJUSTED
 3. Return a reorder PREVIEW — never a cart
 4. The buyer confirms, having seen every issue
-5. Only then create the cart from the accepted lines
+5. Only then create the cart from the accepted lines, via `cartService`'s `cart.lines.bulkAdd` command (`cart-module.md` §3.1a/§10) — never a direct `Cart`/`CartLine` write, the same command wishlist add-to-cart (§8) uses
 ```
 
 The preview names every difference, per line, with the reason. A reorder that quietly drops two of eight lines produces a wrong order the buyer believes is right, and they discover it at delivery.
@@ -256,46 +258,64 @@ Price differences are shown per line and in total. A B2B buyer restocking monthl
 
 Base `/api/portal/account`. All require an authenticated `CustomerUser` session.
 
-| Method | Path | Guard |
-|---|---|---|
-| GET | `/orders` | visibility scope |
-| GET | `/orders/:id` | visibility scope |
-| GET | `/orders/:id/documents/:documentId` | `allow_document_download` |
-| POST | `/orders/:id/reorder-preview` | visibility scope |
-| POST | `/orders/:id/reorder` | visibility scope |
-| GET | `/quotes`, `/quotes/:id` | visibility scope |
-| POST | `/quotes/:id/accept` | `purchase_approver` or `company_admin` |
-| GET/POST/PUT/DELETE | `/addresses[/:id]` | own |
-| GET/PUT | `/profile` | own |
-| GET/POST/DELETE | `/wishlists[/:id][/items/:itemId]` | own or `company` visibility |
-| POST | `/wishlists/:id/add-to-cart` | own |
-| GET/POST/DELETE | `/saved-carts[/:id]` | own |
-| POST | `/saved-carts/:id/resume` | own |
-| GET/POST/DELETE | `/back-in-stock[/:id]` | own |
-| GET | `/company` | `company_admin` |
-| GET/POST/DELETE | `/company/buyers[/:id]` | `company_admin` |
-| GET | `/approvals` | `purchase_approver` |
-| POST | `/approvals/:id/decide` | `purchase_approver` |
-| GET | `/credit` | `allow_price_visibility` |
-| GET | `/price-list` | `allow_price_visibility` |
-| GET | `/price-list/export` | `allow_price_visibility` |
+**ACL naming fixed 2026-08-17** — see §8.1 for the full before/after and rationale. The table below uses the corrected, real feature ids throughout; the mechanism column states which routes are `makeCrudRoute` (straightforward CRUD, guard + command wiring handled internally) versus custom action routes (must wire the mutation-guard registry per `packages/core/AGENTS.md` → API Routes).
+
+| Method | Path | Guard | Mechanism |
+|---|---|---|---|
+| GET | `/orders` | `portal.orders.view` + `buildOrderVisibilityFilter` | `makeCrudRoute` (read) |
+| GET | `/orders/:id` | `portal.orders.view` + `buildOrderVisibilityFilter` | `makeCrudRoute` (read) |
+| GET | `/orders/:id/documents/:documentId` | `portal.documents.download` + `allow_document_download` | Custom action |
+| POST | `/orders/:id/reorder-preview` | `portal.orders.reorder` | Custom action (read-only computation, no mutation guard needed) |
+| POST | `/orders/:id/reorder` | `portal.orders.reorder` | Custom action, mutation guard — creates a cart via `cart.lines.bulkAdd` (§7) |
+| GET | `/quotes`, `/quotes/:id` | `portal.quotes.view` (existing) | `makeCrudRoute` (read) |
+| POST | `/quotes/:id/accept` | `portal.quotes.accept` | Custom action, mutation guard — delegates to `sales`'s existing quote→order conversion, not a new implementation |
+| GET/POST/PUT/DELETE | `/addresses[/:id]` | `portal.addresses.view` (reads) / `portal.addresses.manage` (writes) — existing, unseeded | `makeCrudRoute` |
+| GET/PUT | `/profile` | `portal.account.manage` (existing) | `makeCrudRoute` |
+| GET/POST/DELETE | `/wishlists[/:id][/items/:itemId]` | `portal.wishlists.manage`; `company`-visibility reads additionally require the item's wishlist to be scoped to the caller's company | `makeCrudRoute` |
+| POST | `/wishlists/:id/add-to-cart` | `portal.wishlists.manage` | Custom action, mutation guard — creates/extends a cart via `cart.lines.bulkAdd` (§7) |
+| GET/POST/DELETE | `/saved-carts[/:id]` | `portal.wishlists.manage` (saved carts share the "own basket management" feature — no separate id) | `makeCrudRoute` |
+| POST | `/saved-carts/:id/resume` | `portal.wishlists.manage` | Custom action — see Open Questions for the `cart`-module copy-primitive gap this depends on |
+| GET/POST/DELETE | `/back-in-stock[/:id]` | own (no feature gate beyond authentication — a buyer manages only their own subscriptions) | `makeCrudRoute` |
+| GET | `/company` | `portal.company.manage` (new) | `makeCrudRoute` (read) |
+| GET/POST/DELETE | `/company/buyers[/:id]` | `portal.users.view` (reads) / `portal.users.manage` / `.roles.manage` (writes) — existing, unchanged | `makeCrudRoute` |
+| GET | `/approvals` | `portal.approvals.decide` + `buildOrderVisibilityFilter`-equivalent scoping to assigned approvals | `makeCrudRoute` (read) |
+| POST | `/approvals/:id/decide` | `portal.approvals.decide` | Custom action — **resolves visibility only** (is this approval assigned to the caller?), then delegates the actual decision-recording to `customer_groups`'s existing `POST /api/customer-groups/approvals/:id/decide` command via a DI-resolved service call, never reimplementing `enforceCommandOptimisticLock` against `CustomerPurchaseApproval` a second time (fixed 2026-08-17 — see Cross-Module Coupling note below) |
+| GET | `/credit` | `portal.credit.view` (new) | `makeCrudRoute` (read) |
+| GET | `/price-list` | `portal.pricelist.view` (new) | Custom action — proxies `GET /products` with the buyer's context (§6.2) |
+| GET | `/price-list/export` | `portal.pricelist.view` (new) | Custom action, audit-logged (R7) |
 
 Public, unauthenticated: `POST /api/portal/back-in-stock` (double opt-in) and `GET /api/portal/back-in-stock/unsubscribe/:token`.
 
-### 8.1 Portal ACL features
+**Cross-module coupling for `/approvals/:id/decide` (fixed 2026-08-17).** An earlier draft implied this route independently records the approval decision. It does not: `customer_groups.CustomerPurchaseApproval` and its optimistic-locked decide command already exist (`customer-groups-and-b2b-terms.md` §5.6/§8/§6.3). This route is a thin, visibility-scoped wrapper — the same soft-optional-peer shape `packages/core/AGENTS.md` → Cross-Module Coupling describes, applied here to a mandatory (not optional) peer since B2B approvals are core to this module's value. Two independent decision-recording paths would let a race between them double-decide an approval, defeating `customer_groups`'s own R8 mitigation.
 
-Registered as `customer_accounts` portal features, resolved through the existing `CustomerRoleAcl` / `CustomerUserAcl` model with its wildcard handling:
+### 8.1 Portal ACL features — reconciled against the real `customer_accounts` module (fixed 2026-08-17)
+
+An earlier draft invented a parallel `portal.account.*` namespace. `packages/core/src/modules/customer_accounts/setup.ts` already seeds and grants a **flat** `portal.<resource>.<action>` namespace to default portal roles (`portal.account.manage`, `portal.orders.view`, `.orders.create`, `portal.quotes.view`, `.quotes.request`, `portal.invoices.view`, `portal.catalog.view`), and further flat features already exist unseeded in the roles editor (`portal.addresses.view`/`.manage`) or wired into real routes (`portal.users.view`/`.manage`/`.roles.manage`, `portal.profile.view`). Reconciled:
+
+| Was (invented) | Verdict | Now |
+|---|---|---|
+| `portal.account.orders.view` | Duplicate of the real `portal.orders.view` | **Deleted** — reuse `portal.orders.view` |
+| `portal.account.orders.reorder` | New | `portal.orders.reorder` |
+| `portal.account.documents.download` | New | `portal.documents.download` |
+| `portal.account.quotes.accept` | New | `portal.quotes.accept` |
+| `portal.account.wishlists.manage` | New | `portal.wishlists.manage` |
+| `portal.account.company.manage` | Conflated two resources | **Split**: buyer roster reuses `portal.users.*` unchanged; company profile/billing gets new `portal.company.manage` |
+| `portal.account.approvals.decide` | New (distinct persona from the admin-facing `customer_groups.approvals.decide`) | `portal.approvals.decide` |
+| `portal.account.credit.view` | New | `portal.credit.view` |
+| `portal.account.pricelist.view` | New | `portal.pricelist.view` |
 
 ```typescript
-'portal.account.orders.view'
-'portal.account.orders.reorder'
-'portal.account.documents.download'
-'portal.account.quotes.accept'
-'portal.account.wishlists.manage'
-'portal.account.company.manage'
-'portal.account.approvals.decide'
-'portal.account.credit.view'
-'portal.account.pricelist.view'
+// New features only — everything else above reuses an existing id unchanged
+export const newFeatures = [
+  { id: 'portal.orders.reorder',     title: 'Reorder from order history' },
+  { id: 'portal.documents.download', title: 'Download order/invoice documents' },
+  { id: 'portal.quotes.accept',      title: 'Accept a merchant-issued quote' },
+  { id: 'portal.wishlists.manage',   title: 'Manage wishlists and saved carts' },
+  { id: 'portal.company.manage',     title: 'Manage company profile and billing details' },
+  { id: 'portal.approvals.decide',   title: 'Approve or reject purchase requests' },
+  { id: 'portal.credit.view',        title: 'View credit limit and exposure' },
+  { id: 'portal.pricelist.view',     title: 'View and export the contracted price list' },
+]
 ```
 
 ---
@@ -326,7 +346,7 @@ A subscriber on `availability.state.changed` matches active subscriptions and en
 | R5 | Notification storm on restock | Medium | A large goods receipt satisfies thousands of subscriptions at once; the mail provider throttles or blocks the tenant. | Queue-based delivery with per-recipient and per-tenant rate limits; debounce per variant (availability spec §9); batching per recipient across variants | Low |
 | R6 | Document download authorization | **High** | An invoice URL is guessable or unchecked, and one buyer downloads another's invoice. | Documents fetched by id through the visibility filter and `allow_document_download`; identical `404` for not-found and not-permitted; no direct storage URLs, ever — always a proxied, authorized read | Low |
 | R7 | Price list export leaks contract pricing | Medium | An exported CSV of contracted prices is forwarded outside the company. | Cannot be prevented technically once authorized; gated behind `allow_price_visibility`, exports are audit-logged with user and timestamp, and the file is watermarked with the company name and generation time | Medium — accepted; the mitigation is traceability, not prevention |
-| R8 | Wishlist and subscriptions as GDPR data | Medium | Behavioural data tied to an identified person is not covered by an erasure request. | Both entities registered with the GDPR erasure surface; anonymous subscriptions carry their own erasure path via the unsubscribe token; retention default 180 days with expiry | Low |
+| R8 | Wishlist and subscriptions as GDPR data | Medium | Behavioural data tied to an identified person outlives account deletion with nothing cleaning it up. | **Fixed 2026-08-17** — no generic "GDPR erasure surface" exists in this platform (verified); the real, shipped pattern is a per-module subscriber on a lifecycle-deletion event, e.g. `communication_channels/subscribers/user-deleted-cascade.ts` listening on `auth.user.deleted`. This module adds `customer_accounts/subscribers/user-deleted-cascade.ts` listening on the already-emitted `customer_accounts.user.deleted`: hard-deletes `CustomerWishlist`/`CustomerWishlistItem`/`CustomerSavedCart` rows for that user, and nulls `customer_user_id` on `CustomerBackInStockSubscription` rows (converting to an anonymous subscription rather than deleting outright, since the product-availability interest itself isn't personal data once disconnected from an identity); anonymous subscriptions carry their own erasure path via the unsubscribe token; retention default 180 days with expiry | Low |
 | R9 | Order history N+1 | Medium | An order list resolving shipments, payments and documents per row makes the most-visited account page the slowest. | Projection-based list query; detail-only enrichment; query count asserted for a 25-order page | Low |
 
 ---
@@ -374,7 +394,7 @@ A subscriber on `availability.state.changed` matches active subscriptions and en
 - Add-all-to-cart skips items outside the current assortment and says so
 - Resuming a template copies rather than resumes
 
-**GDPR:** an erasure request removes wishlists, saved-cart links and subscriptions (R8).
+**GDPR:** deleting a `CustomerUser` triggers `customer_accounts.user.deleted`, and the subscriber cascade removes that user's wishlists, saved-cart links and disconnects (not deletes) their back-in-stock subscriptions (R8, fixed 2026-08-17).
 
 **Performance:** a 25-order history page meets its query-count budget (R9).
 
@@ -410,6 +430,7 @@ Company page, buyer roster, approvals inbox, credit overview, PO history, price 
 2. **Spending limits per buyer** — distinct from approval thresholds: a per-buyer monthly cap. Belongs with `customer_groups` credit if it is built.
 3. **Shipment tracking depth** — whether tracking is a link out to the carrier or an ingested timeline depends on `shipping_carriers` capabilities, unverified here.
 4. **Self-service returns** — this spec exposes a return *request*. The approval, RMA and refund flow belongs to [WMS Phase 5](./2026-04-15-wms-phase-5-returns-reverse-logistics.md) and `sales`; the boundary needs confirming before Phase 2.
+5. **Saved-cart resume as a copy** (added 2026-08-17) — §5.2 states "A template is copied on use rather than resumed," but `cart-module.md`'s command set (§3.1a) has no copy-a-cart-into-a-new-cart primitive today, only `cart.merge`. `POST /saved-carts/:id/resume` needs either a new `cart` command or a confirmation that `cart.merge` (creating an empty cart and merging the saved one into it) is an acceptable substitute. Flagged against `cart-module.md` for its next revision if the gap is real.
 
 ---
 
@@ -422,19 +443,31 @@ Company page, buyer roster, approvals inbox, credit overview, PO history, price 
 | Portal RBAC | `requireCustomerAuth` / `requireCustomerFeatures` in page metadata; features resolved through the existing `CustomerRoleAcl` / `CustomerUserAcl` wildcard handling |
 | Never expose cross-customer data | `buildOrderVisibilityFilter` composed by every reading endpoint; default scope `own` |
 | Encryption | Subscription email and address data encrypted; read via decryption helpers |
-| GDPR | Wishlists, saved-cart links and subscriptions registered with the erasure surface; retention defaults |
+| GDPR | `customer_accounts/subscribers/user-deleted-cascade.ts` on `customer_accounts.user.deleted` (fixed 2026-08-17 — no platform-wide erasure surface exists; this follows the real `communication_channels` precedent); retention defaults |
 | Zod validation | All routes; `z.infer` types |
 | No `any` | Visibility policy and payloads fully typed |
 | i18n | Portal copy via `useT` / `resolveTranslations`; no hard-coded strings |
 | Design system | Portal pages use the portal extension patterns and semantic tokens |
 | Optimistic locking | Approval decisions and editable entities; conflicts surfaced via `surfaceRecordConflict` |
 | Queue usage | Notification delivery via the worker contract with rate limiting |
-| Backward compatibility | Additive to `customer_accounts`; no existing contract surface changes |
+| Backward compatibility | Additive to `customer_accounts`; no existing contract surface changes — true only after the 2026-08-17 ACL fix (§8.1): the original draft's `portal.account.*` ids duplicated/shadowed real, already-seeded `portal.*` features, which would have been a functional regression for any tenant with existing custom role grants |
 | Integration coverage | §11, shipping in the same change |
 
 ---
 
 ## 15) Changelog
+
+### 2026-08-17 (rev 2 — pre-implementation fixes)
+
+Fixed the findings of a `/om-pre-implement-spec` audit (`ANALYSIS-2026-08-14-storefront-customer-account.md`):
+
+- **Critical**: §8.1 invented a parallel `portal.account.*` ACL namespace. Reconciled against the real, already-shipped `customer_accounts/setup.ts`: `portal.account.orders.view` was a straight duplicate of the real `portal.orders.view` (deleted); `portal.account.company.manage` conflated company-profile management with the already-shipped buyer-roster surface (`portal.users.*`) and is split; the remaining 7 ids are genuinely new but renamed off the fabricated `.account.` shape onto the real flat `portal.<resource>.<action>` convention. Profile and Addresses now cite the existing `portal.account.manage` and `portal.addresses.view`/`.manage` instead of an unnamed "own" guard.
+- **Critical**: `POST /approvals/:id/decide` didn't state its relationship to `customer_groups`'s already-implemented, optimistic-locked decide command. Clarified: this route resolves visibility only and delegates the actual decision to the existing command — two independent decision-recording paths would have let a race double-decide an approval.
+- Replaced the "GDPR erasure surface" claim (no such mechanism exists anywhere in this platform) with a concrete `user-deleted-cascade.ts` subscriber design on `customer_accounts.user.deleted`, following the real `communication_channels` precedent.
+- Named the `customer_accounts/encryption.ts` addition backing `CustomerBackInStockSubscription.email`'s encryption claim, including the required `hashField`.
+- Named the `cart.lines.bulkAdd` command for reorder-confirm and wishlist-add-to-cart; flagged saved-cart resume's missing `cart`-module copy primitive as an Open Question against `cart-module.md`.
+- Added a structural CI guard for `buildOrderVisibilityFilter` (R1, Critical), matching the precedent set by 2 of 3 directly comparable sibling specs in this suite.
+- Added table names to §5.1; stated `makeCrudRoute` vs. custom-action-route per §8 route.
 
 ### 2026-08-14
 - Initial specification.
