@@ -303,6 +303,8 @@ export type DataTableProps<T extends RowData> = {
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
+  /** Render the query duration in the pagination footer. Set to false for a count-only footer. */
+  showQueryTime?: boolean
   isLoading?: boolean
   emptyState?: React.ReactNode
   error?: React.ReactNode | string | null
@@ -1214,6 +1216,7 @@ export function DataTable<T extends RowData>({
   sorting: sortingProp,
   onSortingChange,
   pagination,
+  showQueryTime = true,
   isLoading,
   emptyState,
   error,
@@ -2631,7 +2634,7 @@ export function DataTable<T extends RowData>({
     const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
       ? durationMs
       : measuredDurationMs ?? undefined
-    const durationLabel = formatDurationLabel(effectiveDuration)
+    const durationLabel = showQueryTime ? formatDurationLabel(effectiveDuration) : ''
     const normalizedCacheStatus = cacheStatus === 'hit' || cacheStatus === 'miss' ? cacheStatus : null
     const cacheBadge = normalizedCacheStatus ? (
       <span
@@ -2692,7 +2695,7 @@ export function DataTable<T extends RowData>({
         />
       </div>
     )
-  }, [pagination, data, measuredDurationMs, scrollTableIntoView, t])
+  }, [pagination, data, showQueryTime, measuredDurationMs, scrollTableIntoView, t])
 
   // Auto filters: fetch custom field defs when requested
   const resolvedEntityIds = React.useMemo(() => {
