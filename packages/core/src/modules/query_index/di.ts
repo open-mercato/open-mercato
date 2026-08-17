@@ -3,6 +3,8 @@ import type { EventBus } from '@open-mercato/events'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
 import {
@@ -11,30 +13,22 @@ import {
   resolveQueryIndexSourceMetadata,
 } from './lib/subscriber-scope'
 
+const logger = createLogger('query_index').child({ component: 'crud-bridge' })
+
 function hasOwn(value: unknown, key: string): boolean {
   return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key)
 }
 
-function resolveBridgeScopeValue(
-  payload: unknown,
-  ctx: unknown,
-  payloadKeys: string[],
-  contextKey: string,
+function readScopeValue(
+  source: unknown,
+  keys: string[],
 ): { value: string | null | undefined; present: boolean } {
-  const payloadRecord = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
-  const payloadKey = payloadKeys.find((key) => hasOwn(payload, key))
-  if (payloadKey) {
-    const value = payloadRecord[payloadKey]
-    return {
-      value: typeof value === 'string' || value === null || value === undefined ? value : String(value),
-      present: true,
-    }
-  }
-  const contextRecord = ctx && typeof ctx === 'object' ? ctx as Record<string, unknown> : {}
-  const contextValue = contextRecord[contextKey]
-  if (typeof contextValue === 'string' && contextValue.trim().length > 0) {
-    return { value: contextValue, present: true }
-  }
+  const sourceRecord = source && typeof source === 'object' ? source as Record<string, unknown> : {}
+  const key = keys.find((candidate) => hasOwn(source, candidate))
+  if (!key) return { value: undefined, present: false }
+  const value = sourceRecord[key]
+  if (value === null) return { value: null, present: true }
+  if (typeof value === 'string' && value.trim().length > 0) return { value, present: true }
   return { value: undefined, present: false }
 }
 
@@ -45,16 +39,69 @@ async function resolveBridgeRecordScope(
   payload: unknown,
   ctx: unknown,
 ) {
-  const organization = resolveBridgeScopeValue(payload, ctx, ['organizationId', 'orgId'], 'organizationId')
-  const tenant = resolveBridgeScopeValue(payload, ctx, ['tenantId'], 'tenantId')
+  let organization = readScopeValue(payload, ['organizationId', 'orgId'])
+  let tenant = readScopeValue(payload, ['tenantId'])
+  if (organization.present && tenant.present) {
+    return {
+      organizationId: organization.value ?? null,
+      tenantId: tenant.value ?? null,
+    }
+  }
   const source = resolveQueryIndexSourceMetadata(em, entityType)
   const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
+
+  if (sourceScope.kind === 'global') {
+    organization = { value: null, present: true }
+    tenant = { value: null, present: true }
+  } else if (sourceScope.kind === 'missing') {
+    if (!organization.present) organization = readScopeValue(ctx, ['organizationId'])
+    if (!tenant.present) tenant = readScopeValue(ctx, ['tenantId'])
+  }
+
   return resolveQueryIndexRecordScope({
     payloadOrganizationId: organization.value,
     payloadTenantId: tenant.value,
     hasPayloadOrganizationId: organization.present,
     hasPayloadTenantId: tenant.present,
     sourceScope,
+  })
+}
+
+async function recordBridgeError(input: {
+  em: EntityManager | null
+  handler: 'upsert' | 'delete'
+  error: unknown
+  entityType: string
+  recordId: string
+  payload: unknown
+}): Promise<void> {
+  const handler = `event:query_index.crud_bridge.${input.handler}`
+  if (!input.em) {
+    logger.error('CRUD bridge event failed before the entity manager was resolved', {
+      handler,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      err: input.error,
+    })
+    return
+  }
+  await recordIndexerError(
+    { em: input.em },
+    {
+      source: 'query_index',
+      handler,
+      error: input.error,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      payload: input.payload,
+    },
+  ).catch((loggingError) => {
+    logger.error('Failed to record CRUD bridge error', {
+      handler,
+      entityType: input.entityType,
+      recordId: input.recordId,
+      err: loggingError,
+    })
   })
 }
 
@@ -109,13 +156,15 @@ export function register(container: AppContainer) {
     if (!bus) { setTimeout(setup, 0); return }
 
     const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
+      let em: EntityManager | null = null
+      let id = ''
       try {
         // DataEngine emits the canonical query_index.upsert_one itself. The
         // bridge only covers domain events from write paths that do not own an
         // indexer, otherwise failures and error logs are duplicated.
         if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
-        const em = ctx.resolve('em')
-        const id = String(payload?.id || payload?.recordId || '')
+        em = ctx.resolve('em') as EntityManager
+        id = String(payload?.id || payload?.recordId || '')
         if (!id) return
         const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
           em,
@@ -151,17 +200,19 @@ export function register(container: AppContainer) {
           const hasCf = await cfQuery.executeTakeFirst()
           if (!hasCf) return
         } catch {}
-        try {
-          const bus = ctx.resolve('eventBus') as any
-          await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
-        } catch {}
-      } catch {}
+        const bus = ctx.resolve('eventBus') as any
+        await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
+      } catch (error) {
+        await recordBridgeError({ em, handler: 'upsert', error, entityType, recordId: id, payload })
+      }
     }
     const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
+      let em: EntityManager | null = null
+      let id = ''
       try {
         if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
-        const em = ctx.resolve('em')
-        const id = String(payload?.id || payload?.recordId || '')
+        em = ctx.resolve('em') as EntityManager
+        id = String(payload?.id || payload?.recordId || '')
         if (!id) return
         const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
           em,
@@ -170,11 +221,11 @@ export function register(container: AppContainer) {
           payload,
           ctx,
         )
-        try {
-          const bus = ctx.resolve('eventBus') as any
-          await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
-        } catch {}
-      } catch {}
+        const bus = ctx.resolve('eventBus') as any
+        await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
+      } catch (error) {
+        await recordBridgeError({ em, handler: 'delete', error, entityType, recordId: id, payload })
+      }
     }
 
     // Build list of entity ids to subscribe to
