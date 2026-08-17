@@ -92,6 +92,7 @@ export function ComboboxInput({
   const [touched, setTouched] = React.useState(false)
   const [showSuggestions, setShowSuggestions] = React.useState(false)
   const [selectedIndex, setSelectedIndex] = React.useState(-1)
+  const listboxId = React.useId()
   const inputRef = React.useRef<HTMLInputElement>(null)
   const loadingRef = React.useRef(false)
   const blurCloseTimerRef = React.useRef<number | null>(null)
@@ -241,7 +242,7 @@ export function ComboboxInput({
         .finally(() => { if (!cancelled) setLoading(false) })
     }
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps — resolveDescription intentionally excluded:
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveDescription intentionally excluded:
   // including it would re-run the effect on every render when the prop is an inline function
   }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
@@ -365,7 +366,9 @@ export function ComboboxInput({
           confirmSelection(input)
         }
       } else if (event.key === 'Escape') {
+        if (!showSuggestions) return
         event.preventDefault()
+        event.stopPropagation()
         setShowSuggestions(false)
         setSelectedIndex(-1)
       }
@@ -373,7 +376,23 @@ export function ComboboxInput({
     [confirmSelection, disabled, filteredSuggestions, input, selectValue, selectedIndex, showSuggestions]
   )
 
+  const optionDomId = React.useCallback(
+    (index: number) => `${listboxId}-option-${index}`,
+    [listboxId],
+  )
+
+  React.useEffect(() => {
+    if (selectedIndex < 0 || !showSuggestions) return
+    const activeElement = typeof document !== 'undefined'
+      ? document.getElementById(optionDomId(selectedIndex))
+      : null
+    if (typeof activeElement?.scrollIntoView === 'function') {
+      activeElement.scrollIntoView({ block: 'nearest' })
+    }
+  }, [optionDomId, selectedIndex, showSuggestions])
+
   const showClearButton = clearable && !disabled && (value !== '' || input !== '')
+  const listboxVisible = showSuggestions && !disabled && (loading || filteredSuggestions.length > 0)
 
   return (
     <div className="relative w-full">
@@ -395,6 +414,11 @@ export function ComboboxInput({
         autoFocus={autoFocus}
         data-crud-focus-target=""
         disabled={disabled}
+        role="combobox"
+        aria-expanded={listboxVisible}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
         onFocus={() => {
           setTouched(true)
           if (suppressOpenOnFocusRef.current) {
@@ -442,18 +466,21 @@ export function ComboboxInput({
         </IconButton>
       ) : null}
 
-      {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0) && (
+      {listboxVisible && (
         <div className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto">
           {loading && touched ? (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
           ) : (
-            <div className="flex flex-col gap-1">
+            <div id={listboxId} role="listbox" className="flex flex-col gap-1">
               {filteredSuggestions.map((option, index) => (
                 <Button
                   key={option.value}
+                  id={optionDomId(index)}
                   type="button"
                   variant="ghost"
                   size="sm"
+                  role="option"
+                  aria-selected={index === selectedIndex}
                   className={[
                     'w-full h-auto justify-start font-normal text-left flex flex-col items-start rounded-lg p-2',
                     index === selectedIndex ? 'bg-muted' : '',

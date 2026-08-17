@@ -37,12 +37,15 @@ import {
   sanitizeUploadedFileName,
 } from '../lib/security'
 import {
+  isMultipartUploadLimitError,
   isMultipartRequestWithinUploadLimit,
+  parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { AttachmentQuotaService } from '../lib/quota-service'
 
 const logger = createLogger('attachments')
 
@@ -283,10 +286,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
   }
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
 
-  const form = await req.formData()
+  let form: FormData
+  try {
+    form = await parseMultipartFormDataWithinUploadLimit(req)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) {
+      return NextResponse.json({
+        error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+      }, { status: 413 })
+    }
+    throw error
+  }
   const formPayload = buildFormPayload(form)
   const customFieldValues = splitCustomFieldPayload(formPayload).custom
   const entityId = String(form.get('entityId') || '')
@@ -305,6 +320,20 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const dataEngine = container.resolve('dataEngine')
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  let attachmentQuotaRecoveryScheduler: ((
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>) | null = null
+  try {
+    attachmentQuotaService = container.resolve('attachmentQuotaService') as AttachmentQuotaService
+    attachmentQuotaRecoveryScheduler = container.resolve('attachmentQuotaRecoveryScheduler') as (
+      payload: { reservationId: string; tenantId: string; organizationId: string },
+      delayMs: number,
+    ) => Promise<void>
+  } catch {
+    // Legacy fallback below when the quota service is not registered in this container.
+  }
   const storageDriverFactory =
     (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
   const orgId = await resolveAttachmentOrganizationId(container, auth, req)
@@ -349,11 +378,20 @@ export async function POST(req: Request) {
       error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
     }, { status: 413 })
   }
-  const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
-  if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
-    return NextResponse.json({
-      error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
-    }, { status: 413 })
+  if (!attachmentQuotaService) {
+    try {
+      const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
+      if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
+        return NextResponse.json({
+          error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+        }, { status: 413 })
+      }
+    } catch (error) {
+      logger.error('Attachment quota accounting failed', { err: error })
+      return NextResponse.json({
+        error: t('attachments.errors.quotaUnavailable', 'Storage quota accounting is unavailable.'),
+      }, { status: 500 })
+    }
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeUploadedFileName(file.name)
@@ -395,6 +433,62 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
   const uploadDriver = await storageDriverFactory.resolveForPartition(partition.code, { tenantId, organizationId: orgId })
+  const preparedStoragePath = attachmentQuotaService
+    ? uploadDriver.prepareStoragePath?.({
+        partitionCode: partition.code,
+        orgId,
+        tenantId,
+        fileName: safeName,
+      })
+    : undefined
+  if (attachmentQuotaService && !preparedStoragePath) {
+    return NextResponse.json({
+      error: t('attachments.errors.quotaRecoveryUnsupported', 'Storage driver cannot participate in quota recovery.'),
+    }, { status: 500 })
+  }
+  let quotaReservation: { id: string; leaseToken: string; expiresAt: Date } | null = null
+  if (attachmentQuotaService) {
+    try {
+      quotaReservation = await attachmentQuotaService.reserve({
+        tenantId,
+        organizationId: orgId,
+        bytes: buf.length,
+        source: 'attachment',
+        storageDriver: uploadDriver.key,
+        storagePath: preparedStoragePath!,
+        partitionCode: partition.code,
+      })
+      if (!attachmentQuotaRecoveryScheduler) throw new Error('Attachment quota recovery is unavailable.')
+      await attachmentQuotaRecoveryScheduler({
+        reservationId: quotaReservation.id,
+        tenantId,
+        organizationId: orgId,
+      }, Math.max(1_000, quotaReservation.expiresAt.getTime() - Date.now()))
+      if (typeof attachmentQuotaService.beginStorage === 'function') {
+        await attachmentQuotaService.beginStorage(quotaReservation.id, quotaReservation.leaseToken)
+      }
+    } catch (error) {
+      if (quotaReservation) {
+        await attachmentQuotaService.release(quotaReservation.id, quotaReservation.leaseToken).catch(() => {})
+        quotaReservation = null
+      }
+      const code = (error as { code?: unknown })?.code
+      if (code === 'quota_exceeded') {
+        return NextResponse.json({
+          error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+        }, { status: 413 })
+      }
+      if (code === 'quota_target_exists') {
+        return NextResponse.json({
+          error: t('attachments.errors.storagePathExists', 'The target storage path already exists.'),
+        }, { status: 409 })
+      }
+      logger.error('Attachment quota reservation failed', { err: error })
+      return NextResponse.json({
+        error: t('attachments.errors.quotaUnavailable', 'Storage quota accounting is unavailable.'),
+      }, { status: 500 })
+    }
+  }
   let storedPath: string
   try {
     const stored = await uploadDriver.store({
@@ -403,10 +497,25 @@ export async function POST(req: Request) {
       tenantId,
       fileName: safeName,
       buffer: buf,
+      storagePath: preparedStoragePath,
     })
     storedPath = stored.storagePath
+    if (quotaReservation) {
+      await attachmentQuotaService!.markStored(quotaReservation.id, quotaReservation.leaseToken)
+    }
   } catch (error) {
     logger.error('Failed to persist file', { err: error })
+    if (preparedStoragePath) {
+      try {
+        await (uploadDriver.deleteStrict?.(partition.code, preparedStoragePath)
+          ?? uploadDriver.delete(partition.code, preparedStoragePath))
+        if (quotaReservation) {
+          await attachmentQuotaService!.release(quotaReservation.id, quotaReservation.leaseToken)
+        }
+      } catch (cleanupError) {
+        logger.error('Failed to compensate attachment storage', { err: cleanupError })
+      }
+    }
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
@@ -471,9 +580,21 @@ export async function POST(req: Request) {
           values: customFieldValues,
         })
       }
+      if (quotaReservation) {
+        await attachmentQuotaService!.completeAttachment(quotaReservation.id, quotaReservation.leaseToken, tx)
+      }
     })
   } catch (error) {
     logger.error('Failed to persist attachment with custom attributes', { err: error })
+    try {
+      await (uploadDriver.deleteStrict?.(partition.code, storedPath)
+        ?? uploadDriver.delete(partition.code, storedPath))
+      if (quotaReservation) {
+        await attachmentQuotaService!.release(quotaReservation.id, quotaReservation.leaseToken)
+      }
+    } catch (cleanupError) {
+      logger.error('Failed to compensate attachment persistence', { err: cleanupError })
+    }
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 
@@ -537,8 +658,8 @@ async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: strin
       return Number.isFinite(parsed) ? parsed : 0
     }
     return 0
-  } catch {
-    return 0
+  } catch (error) {
+    throw new Error('Attachment quota accounting is unavailable.', { cause: error })
   }
 }
 

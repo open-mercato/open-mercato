@@ -23,6 +23,8 @@ function makeCtx(
   const mockQuery = jest.fn().mockResolvedValue(queryResult)
   const searchIndexer = {
     getEntityConfig: (entityId: string) => ENTITY_CONFIGS[entityId],
+    getAllEntityConfigs: () =>
+      Object.entries(ENTITY_CONFIGS).map(([entityId, config]) => ({ entityId, ...config })),
   }
   const ctx = {
     tenantId: 'tenant-1',

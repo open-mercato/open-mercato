@@ -27,6 +27,7 @@ export const moduleOverrideExamples: ModuleOverrides = {
   ai: {
     agents: { 'catalog.catalog_assistant': null },
     tools: { inbox_ops_accept_action: null },
+    extensions: [], // additive AiAgentExtension[]; do not use null-map semantics
   },
   routes: {
     api: { 'DELETE /api/example/items': null },
@@ -59,6 +60,11 @@ export const moduleOverrideExamples: ModuleOverrides = {
   di: { exampleService: null },
   encryption: {
     maps: { 'example:item': null },
+  },
+  nav: {
+    // Prepends sidebar nav group ids ahead of the built-in ordering; unnamed groups keep their
+    // current position. Applied beneath role and per-user sidebar preferences.
+    groupOrder: ['example.nav.group'],
   },
 }
 
@@ -114,27 +120,10 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
-  {
-    id: 'example',
-    from: '@app',
-    overrides: {
-      routes: {
-        api: {
-          'GET /api/example/override-probe': {
-            handler: async () => Response.json({
-              ok: true,
-              source: 'modules.ts override',
-              route: 'example.override-probe',
-            }),
-            metadata: { requireAuth: false },
-          },
-        },
-      },
-    },
-  },
   { id: 'ratelimit_probe', from: '@app' },
 ]
 

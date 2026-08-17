@@ -8,7 +8,7 @@
  */
 
 const authMock = jest.fn()
-const loadAclMock = jest.fn()
+const userHasAllFeaturesMock = jest.fn()
 const createRequestContainerMock = jest.fn()
 const upsertDefaultMock = jest.fn()
 const clearDefaultMock = jest.fn()
@@ -96,10 +96,10 @@ describe('PUT /api/ai_assistant/settings', () => {
     jest.clearAllMocks()
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    loadAclMock.mockResolvedValue({ features: ['ai_assistant.settings.manage'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValue(true)
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
         if (name === 'em') return {}
         return null
       },
@@ -131,7 +131,7 @@ describe('PUT /api/ai_assistant/settings', () => {
   })
 
   it('returns 403 when caller lacks ai_assistant.settings.manage', async () => {
-    loadAclMock.mockResolvedValueOnce({ features: ['ai_assistant.view'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValueOnce(false)
 
     const response = await PUT(buildRequest('PUT', { providerId: 'openai' }) as any)
 
@@ -158,6 +158,56 @@ describe('PUT /api/ai_assistant/settings', () => {
     expect(upsertDefaultMock).toHaveBeenCalledWith(
       expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5-mini' }),
       expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }),
+    )
+  })
+
+  it('forwards inputModeration to the override upsert and echoes it back', async () => {
+    upsertDefaultMock.mockResolvedValueOnce({
+      id: 'row-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      agentId: 'catalog.catalog_assistant',
+      providerId: null,
+      modelId: null,
+      baseUrl: null,
+      inputModeration: true,
+      updatedAt: new Date('2026-06-10T00:00:00Z'),
+    })
+
+    const response = await PUT(
+      buildRequest('PUT', { agentId: 'catalog.catalog_assistant', inputModeration: true }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.inputModeration).toBe(true)
+    expect(upsertDefaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'catalog.catalog_assistant', inputModeration: true }),
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+    )
+  })
+
+  it('passes inputModeration: null (inherit) through to the upsert', async () => {
+    upsertDefaultMock.mockResolvedValueOnce({
+      id: 'row-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      agentId: 'catalog.catalog_assistant',
+      providerId: null,
+      modelId: null,
+      baseUrl: null,
+      inputModeration: null,
+      updatedAt: new Date('2026-06-10T00:00:00Z'),
+    })
+
+    const response = await PUT(
+      buildRequest('PUT', { agentId: 'catalog.catalog_assistant', inputModeration: null }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    expect(upsertDefaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({ inputModeration: null }),
+      expect.anything(),
     )
   })
 
@@ -268,7 +318,7 @@ describe('PUT /api/ai_assistant/settings', () => {
   })
 
   it('allows superAdmin even without the manage feature', async () => {
-    loadAclMock.mockResolvedValueOnce({ features: [], isSuperAdmin: true })
+    userHasAllFeaturesMock.mockResolvedValueOnce(true)
 
     const response = await PUT(buildRequest('PUT', { providerId: 'openai' }) as any)
 
@@ -337,10 +387,10 @@ describe('DELETE /api/ai_assistant/settings', () => {
     jest.clearAllMocks()
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    loadAclMock.mockResolvedValue({ features: ['ai_assistant.settings.manage'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValue(true)
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
-        if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
         if (name === 'em') return {}
         return null
       },
@@ -361,7 +411,7 @@ describe('DELETE /api/ai_assistant/settings', () => {
   })
 
   it('returns 403 when caller lacks ai_assistant.settings.manage', async () => {
-    loadAclMock.mockResolvedValueOnce({ features: ['ai_assistant.view'], isSuperAdmin: false })
+    userHasAllFeaturesMock.mockResolvedValueOnce(false)
 
     const response = await DELETE(buildRequest('DELETE', {}) as any)
 

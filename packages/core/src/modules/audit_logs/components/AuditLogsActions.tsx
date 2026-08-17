@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -14,6 +15,21 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
+
+/**
+ * `raiseCrudError` prefers the server's `error` body over the fallback message and stamps
+ * `status` on anything it builds from an HTTP response, so a numeric `status` is what
+ * distinguishes a route's refusal from a client-side failure. Without that check an
+ * offline or aborted request would put a raw "Failed to fetch" into the operator's
+ * banner; those keep the generic fallback instead.
+ */
+function resolveServerReason(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined
+  const status = (err as Error & { status?: unknown }).status
+  if (typeof status !== 'number') return undefined
+  const message = err.message?.trim()
+  return message ? message : undefined
+}
 
 export type ActionLogItem = {
   id: string
@@ -50,8 +66,9 @@ export function AuditLogsActions({
   onRefresh: () => Promise<void>
   isLoading?: boolean
   headerExtras?: React.ReactNode
-  onUndoError?: () => void
-  onRedoError?: () => void
+  /** Receives the server's reason when it sent one, so the page can show why the undo was refused. */
+  onUndoError?: (reason?: string) => void
+  onRedoError?: (reason?: string) => void
   pagination?: PaginationProps
 }) {
   const t = useT()
@@ -108,7 +125,7 @@ export function AuditLogsActions({
       await onRefresh()
     } catch (err) {
       logger.error('Undo action failed', { err })
-      onUndoError?.()
+      onUndoError?.(resolveServerReason(err))
     } finally {
       setUndoingToken(null)
     }
@@ -127,7 +144,7 @@ export function AuditLogsActions({
       await onRefresh()
     } catch (err) {
       logger.error('Redo action failed', { err })
-      onRedoError?.()
+      onRedoError?.(resolveServerReason(err))
     } finally {
       setRedoingId(null)
     }
@@ -234,7 +251,7 @@ export function AuditLogsActions({
   return (
     <>
       {showSelfOnlyHint ? (
-        <Alert variant="info" className="mb-4">
+        <Alert status="information" className="mb-4">
           <AlertDescription>
             {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
           </AlertDescription>
@@ -245,7 +262,7 @@ export function AuditLogsActions({
         data={actionItems}
         columns={columns}
         actions={combinedActions}
-        perspective={{ tableId: 'audit_logs.actions.list' }}
+        perspective={{ tableId: extensionPoints.hosts.actionsTable.tableId }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
         onRowClick={(item) => setSelected(item)}
         pagination={pagination}

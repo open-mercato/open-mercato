@@ -27,6 +27,7 @@ export const moduleOverrideExamples: ModuleOverrides = {
   ai: {
     agents: { 'catalog.catalog_assistant': null },
     tools: { inbox_ops_accept_action: null },
+    extensions: [], // additive AiAgentExtension[]; do not use null-map semantics
   },
   routes: {
     api: { 'DELETE /api/example/items': null },
@@ -60,6 +61,11 @@ export const moduleOverrideExamples: ModuleOverrides = {
   encryption: {
     maps: { 'example:item': null },
   },
+  nav: {
+    // Prepends sidebar nav group ids ahead of the built-in ordering; unnamed groups keep their
+    // current position. Applied beneath role and per-user sidebar preferences.
+    groupOrder: ['example.nav.group'],
+  },
 }
 
 export const enabledModules: ModuleEntry[] = [
@@ -81,6 +87,9 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
+  // Live DS component gallery at /backend/design-system (feature-gated by
+  // design_system.view). Disable by removing this line.
+  { id: 'design_system', from: '@open-mercato/core' },
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'workflows', from: '@open-mercato/core' },
@@ -114,6 +123,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
@@ -121,6 +131,14 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
+      acl: {
+        features: { 'example.manage': null },
+      },
+      // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
+      // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
+      nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
+        ? { groupOrder: ['example.nav.group'] }
+        : undefined,
       routes: {
         api: {
           'GET /api/example/override-probe': {

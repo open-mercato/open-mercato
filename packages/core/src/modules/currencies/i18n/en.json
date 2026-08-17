@@ -73,6 +73,7 @@
   "currencies.list.columns.symbol": "Symbol",
   "currencies.list.columns.updatedAt": "Updated At",
   "currencies.list.confirmDelete": "Delete currency {{code}}? This will also remove all exchange rates for this currency.",
+  "currencies.list.description": "Exchange rates refresh nightly.",
   "currencies.list.error.load": "Failed to load currencies",
   "currencies.list.filters.active": "Active",
   "currencies.list.filters.all": "All",

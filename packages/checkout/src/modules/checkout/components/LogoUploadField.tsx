@@ -175,7 +175,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
       </div>
 
       {attachmentId ? (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>
             {t('checkout.logoUpload.notices.attachmentWins')}
           </AlertDescription>

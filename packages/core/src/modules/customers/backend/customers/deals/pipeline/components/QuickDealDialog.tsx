@@ -18,6 +18,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // Deal status values written by the kanban flow. These intentionally do NOT include 'closed'
 // because the rest of the app only persists 'loose' for lost deals (see StatusFilterPopover
@@ -56,7 +57,18 @@ export type QuickDealCompanyOption = {
   label: string
 }
 
-type QuickDealDialogProps = {
+/**
+ * Registered component id for the kanban quick-add dialog. Downstream apps can
+ * target it from `widgets/components.ts` to replace/wrap the dialog or to
+ * transform its props — e.g. `defaultProbability: null` so quick-create stops
+ * seeding a probability that overrides pipeline automation (#4329).
+ */
+export const QUICK_DEAL_DIALOG_COMPONENT_ID = 'dialog:customers.deals.quickDeal'
+
+/** Probability seeded into the quick-add form when the host passes no override. */
+export const DEFAULT_QUICK_DEAL_PROBABILITY = 25
+
+export type QuickDealDialogProps = {
   open: boolean
   context: QuickDealContext | null
   onClose: () => void
@@ -64,6 +76,13 @@ type QuickDealDialogProps = {
   currentUserId?: string
   currentUserLabel?: string
   companies?: QuickDealCompanyOption[]
+  /**
+   * Probability pre-filled in the collapsed "More details" group. `null` leaves
+   * the field empty, so quick-create sends no `probability` at all and whatever
+   * the pipeline/automation derives for the target stage stands. Defaults to
+   * `DEFAULT_QUICK_DEAL_PROBABILITY` to preserve the historic behavior.
+   */
+  defaultProbability?: number | null
   /**
    * Tenant currency list. When omitted (e.g. dictionary not yet loaded), we render a
    * conservative fallback so the dialog still works end-to-end. The default selection is
@@ -94,6 +113,7 @@ export function QuickDealDialog({
   currentUserLabel,
   companies = [],
   currencies,
+  defaultProbability = DEFAULT_QUICK_DEAL_PROBABILITY,
 }: QuickDealDialogProps): React.ReactElement | null {
   const t = useT()
   // Re-mount CrudForm whenever the dialog opens so cleared state is consistently fresh.
@@ -157,11 +177,11 @@ export function QuickDealDialog({
       valueCurrency: defaultCurrencyCode,
       companyId: '',
       status: 'open',
-      probability: 25,
+      probability: defaultProbability,
       expectedCloseAt: '',
       description: '',
     }),
-    [defaultCurrencyCode],
+    [defaultCurrencyCode, defaultProbability],
   )
 
   const fields = React.useMemo<CrudField[]>(
@@ -404,5 +424,17 @@ export function QuickDealDialog({
     </Dialog>
   )
 }
+
+// Register so downstream apps can reach the dialog from `widgets/components.ts`
+// (replace / wrap / propsTransform) instead of forking the whole kanban page
+// just to change a default (#4329).
+registerComponent<QuickDealDialogProps>({
+  id: QUICK_DEAL_DIALOG_COMPONENT_ID,
+  component: QuickDealDialog,
+  metadata: {
+    module: 'customers',
+    description: 'Kanban quick-add deal dialog (pipeline board "+ deal").',
+  },
+})
 
 export default QuickDealDialog

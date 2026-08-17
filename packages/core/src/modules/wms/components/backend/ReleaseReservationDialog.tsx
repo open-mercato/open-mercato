@@ -409,7 +409,7 @@ export function ReleaseReservationDialog({
               </Button>
               <Button
                 type="submit"
-                variant="destructive"
+                variant="destructive-solid"
                 disabled={submitDisabled}
                 data-testid="wms-inventory-release-submit"
               >

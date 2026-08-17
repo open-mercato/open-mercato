@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Tag } from '@open-mercato/ui/primitives/tag'
@@ -114,7 +115,7 @@ export default function ChannelsListPage() {
       <PageBody>
         <DataTable<ChannelRow>
           title={t('communication_channels.nav.title', 'Communication Channels')}
-          extensionTableId="communication_channels.channels"
+          extensionTableId={extensionPoints.hosts.channelsTable.tableId}
           columns={columns}
           data={rows}
           isLoading={isLoading}
